@@ -13,6 +13,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate inputs
+      run: |
+        case "${{ inputs.format }}" in
+          cobertura|lcov) ;;
+          *)
+            echo "Unsupported format: ${{ inputs.format }}" >&2
+            exit 1
+            ;;
+        esac
+      shell: bash
+
     - name: Determine coverage file
       id: cov-file
       run: |

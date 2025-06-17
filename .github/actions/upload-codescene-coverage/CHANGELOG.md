@@ -12,3 +12,6 @@
 ## v1.3.0
 - Validate installer checksum before execution and reuse the downloaded script
   for version detection.
+
+## v1.4.0
+- Fail when `format` input is not `cobertura` or `lcov`.

@@ -27,6 +27,13 @@ runs:
         echo "path=$file" >> "$GITHUB_OUTPUT"
       shell: bash
 
+    - name: Get CLI version
+      id: cli-version
+      run: |
+        version=$(curl -fsSL https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh | grep -oE 'version="[0-9a-f]+"' | cut -d'"' -f2)
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+      shell: bash
+
     - name: Upload coverage artifact
       uses: actions/upload-artifact@v4
       with:
@@ -38,7 +45,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.local/bin/cs-coverage
-        key: ${{ runner.os }}-cs-coverage
+        key: ${{ runner.os }}-cs-coverage-${{ steps.cli-version.outputs.version }}
 
     - name: Install CodeScene Coverage CLI
       if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'

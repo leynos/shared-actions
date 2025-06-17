@@ -5,3 +5,6 @@
 
 ## v1.1.0
 - Add `__auto__` default for `path` input and infer file name based on format.
+
+## v1.2.0
+- Cache CodeScene CLI using the version extracted from the install script.

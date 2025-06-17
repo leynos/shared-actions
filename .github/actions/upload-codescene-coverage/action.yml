@@ -1,0 +1,72 @@
+name: Upload CodeScene Coverage
+description: Upload coverage reports to CodeScene
+inputs:
+  path:
+    description: Coverage file path
+    required: false
+    # sentinel value, replaced based on format if unchanged
+    default: __auto__
+  format:
+    description: Coverage format (cobertura or lcov)
+    required: false
+    default: cobertura
+runs:
+  using: composite
+  steps:
+    - name: Determine coverage file
+      id: cov-file
+      run: |
+        file="${{ inputs.path }}"
+        if [ "$file" = "__auto__" ]; then
+          if [ "${{ inputs.format }}" = "lcov" ]; then
+            file="lcov.info"
+          else
+            file="coverage.xml"
+          fi
+        fi
+        echo "path=$file" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: ${{ steps.cov-file.outputs.path }}
+
+    - name: Cache CodeScene Coverage CLI
+      id: cs-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/bin/cs-coverage
+        key: ${{ runner.os }}-cs-coverage
+
+    - name: Install CodeScene Coverage CLI
+      if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'
+      run: |
+        curl -fsSL https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh | bash -s -- -y
+        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
+          echo "${CODESCENE_CLI_SHA256}  install-cs-coverage-tool.sh" | sha256sum -c -
+        fi
+      shell: bash
+
+    - name: Add cs-coverage to PATH
+      run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      shell: bash
+
+    - name: Upload coverage to CodeScene
+      if: env.CS_ACCESS_TOKEN != ''
+      run: |
+        file="${{ steps.cov-file.outputs.path }}"
+        if [ ! -f "$file" ]; then
+          echo "$file not found!"
+          exit 1
+        fi
+        cs-coverage upload \
+          --format "${{ inputs.format }}" \
+          --metric "line-coverage" \
+          "$file"
+      shell: bash
+
+env:
+  CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+  CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}

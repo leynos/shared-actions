@@ -1,0 +1,29 @@
+name: Setup Rust
+description: Install Rust and cache cargo registry
+inputs:
+  install-postgres-deps:
+    description: Install PostgreSQL system dependencies
+    required: false
+    default: false
+runs:
+  using: composite
+  steps:
+    - name: Install rust
+      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+      with:
+        override: true
+        components: rustfmt, clippy, llvm-tools-preview
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target/${{ env.BUILD_PROFILE }}
+        key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+    - name: Install system dependencies
+      if: ${{ inputs.install-postgres-deps }}
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
+      shell: bash

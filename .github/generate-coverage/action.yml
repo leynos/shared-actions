@@ -1,0 +1,33 @@
+name: Generate coverage
+description: Run cargo llvm-cov with configurable features
+inputs:
+  features:
+    description: Cargo features to enable
+    required: false
+  with-default-features:
+    description: Enable default features
+    required: false
+    default: true
+  output-path:
+    description: Output file path
+    required: true
+  format:
+    description: Coverage format
+    required: false
+    default: lcov
+runs:
+  using: composite
+  steps:
+    - run: |
+        set -euo pipefail
+        args=(--workspace)
+        if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
+          args+=(--no-default-features)
+        fi
+        if [ -n "${{ inputs.features }}" ]; then
+          args+=(--features "${{ inputs.features }}")
+        fi
+        args+=(--${{ inputs.format }})
+        args+=(--output-path "${{ inputs.output-path }}")
+        cargo llvm-cov "${args[@]}"
+      shell: bash

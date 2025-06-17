@@ -1,0 +1,11 @@
+name: Export Postgres URL
+description: Set POSTGRES_TEST_URL environment variable
+inputs:
+  url:
+    description: Database connection string
+    required: true
+runs:
+  using: composite
+  steps:
+    - run: echo "POSTGRES_TEST_URL=${{ inputs.url }}" >> "$GITHUB_ENV"
+      shell: bash

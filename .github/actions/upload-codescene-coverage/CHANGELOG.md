@@ -8,3 +8,7 @@
 
 ## v1.2.0
 - Cache CodeScene CLI using the version extracted from the install script.
+
+## v1.3.0
+- Validate installer checksum before execution and reuse the downloaded script
+  for version detection.

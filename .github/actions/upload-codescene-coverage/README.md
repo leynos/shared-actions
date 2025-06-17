@@ -12,7 +12,8 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 If `path` is left as `__auto__`, the action will look for `lcov.info` when
 `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`.
 The CodeScene CLI is cached using its release version extracted from the
-installer script.
+installer script. If `CODESCENE_CLI_SHA256` is provided, the installer
+is validated before execution.
 
 ## Outputs
 

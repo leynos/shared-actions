@@ -42,8 +42,12 @@ runs:
       id: installer
       run: |
         script=$(mktemp)
+        trap 'rm -f "$script"' EXIT
         curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
-        version=$(grep -oE 'version="[0-9a-f]+"' "$script" | cut -d'"' -f2)
+        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
+          echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
+        fi
+        version=$(grep -oE 'version="([0-9]+\.[0-9]+\.[0-9]+)"' "$script" | cut -d'"' -f2)
         echo "script=$script" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
       shell: bash
@@ -79,6 +83,7 @@ runs:
     - name: Upload coverage to CodeScene
       if: env.CS_ACCESS_TOKEN != ''
       run: |
+        command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="${{ steps.cov-file.outputs.path }}"
         if [ ! -f "$file" ]; then
           echo "$file not found!"

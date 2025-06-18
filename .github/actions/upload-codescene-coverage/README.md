@@ -24,6 +24,10 @@ None
 
 ```yaml
 - uses: ./.github/actions/upload-codescene-coverage@v1
+  with:
+    path: coverage.xml
+    format: cobertura
 ```
 
-See [CHANGELOG](CHANGELOG.md) for release history.
+Refer to [CHANGELOG](CHANGELOG.md) for release history.
+

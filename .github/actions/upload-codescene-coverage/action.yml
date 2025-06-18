@@ -1,0 +1,103 @@
+name: Upload CodeScene Coverage
+description: Upload coverage reports to CodeScene
+inputs:
+  path:
+    description: Coverage file path
+    required: false
+    # sentinel value, replaced based on format if unchanged
+    default: __auto__
+  format:
+    description: Coverage format (cobertura or lcov)
+    required: false
+    default: cobertura
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      run: |
+        case "${{ inputs.format }}" in
+          cobertura|lcov) ;;
+          *)
+            echo "Unsupported format: ${{ inputs.format }}" >&2
+            exit 1
+            ;;
+        esac
+      shell: bash
+
+    - name: Determine coverage file
+      id: cov-file
+      run: |
+        file="${{ inputs.path }}"
+        if [ "$file" = "__auto__" ]; then
+          if [ "${{ inputs.format }}" = "lcov" ]; then
+            file="lcov.info"
+          else
+            file="coverage.xml"
+          fi
+        fi
+        echo "path=$file" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Download installer
+      id: installer
+      run: |
+        script=$(mktemp)
+        curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
+        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
+          echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
+        fi
+        version=$(grep -oE 'version="([0-9]+\.[0-9]+\.[0-9]+)"' "$script" | cut -d'"' -f2)
+        major_minor=${version%.*}
+        echo "script=$script" >> "$GITHUB_OUTPUT"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - name: Upload coverage GitHub artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: ${{ steps.cov-file.outputs.path }}
+
+    - name: Cache CodeScene Coverage CLI
+      id: cs-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/bin/cs-coverage
+        key: ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.version }}
+        restore-keys: |
+          ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.major_minor }}
+
+    - name: Install CodeScene Coverage CLI
+      if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'
+      run: |
+        script="${{ steps.installer.outputs.script }}"
+        bash "$script" -y
+        rm "$script"
+      shell: bash
+
+    - name: Add cs-coverage to PATH
+      run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      shell: bash
+
+    - name: Upload coverage to CodeScene
+      if: env.CS_ACCESS_TOKEN != ''
+      run: |
+        command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
+        file="${{ steps.cov-file.outputs.path }}"
+        if [ ! -f "$file" ]; then
+          echo "Coverage file not found!" >&2
+          echo "  Expected file: $file" >&2
+          echo "  Current working directory: $(pwd)" >&2
+          echo "  Expected format: ${{ inputs.format }}" >&2
+          exit 1
+        fi
+        cs-coverage upload \
+          --format "${{ inputs.format }}" \
+          --metric "line-coverage" \
+          "$file"
+      shell: bash
+
+env:
+  CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+  CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}

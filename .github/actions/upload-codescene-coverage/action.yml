@@ -48,8 +48,10 @@ runs:
           echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
         fi
         version=$(grep -oE 'version="([0-9]+\.[0-9]+\.[0-9]+)"' "$script" | cut -d'"' -f2)
+        major_minor=${version%.*}
         echo "script=$script" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Upload coverage artifact
@@ -64,14 +66,13 @@ runs:
       with:
         path: ~/.local/bin/cs-coverage
         key: ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.version }}
+        restore-keys: |
+          ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.major_minor }}
 
     - name: Install CodeScene Coverage CLI
       if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'
       run: |
         script="${{ steps.installer.outputs.script }}"
-        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-          echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
-        fi
         bash "$script" -y
         rm "$script"
       shell: bash
@@ -86,7 +87,10 @@ runs:
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="${{ steps.cov-file.outputs.path }}"
         if [ ! -f "$file" ]; then
-          echo "$file not found!"
+          echo "Coverage file not found!" >&2
+          echo "  Expected file: $file" >&2
+          echo "  Current working directory: $(pwd)" >&2
+          echo "  Expected format: ${{ inputs.format }}" >&2
           exit 1
         fi
         cs-coverage upload \

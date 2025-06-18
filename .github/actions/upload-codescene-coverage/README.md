@@ -29,5 +29,5 @@ None
     format: cobertura
 ```
 
-Refer to [CHANGELOG](CHANGELOG.md) for release history.
+Release history is available in [CHANGELOG](CHANGELOG.md).
 

@@ -42,7 +42,6 @@ runs:
       id: installer
       run: |
         script=$(mktemp)
-        trap 'rm -f "$script"' EXIT
         curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
         if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
           echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
@@ -54,7 +53,7 @@ runs:
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
       shell: bash
 
-    - name: Upload coverage artifact
+    - name: Upload coverage GitHub artifact
       uses: actions/upload-artifact@v4
       with:
         name: coverage

@@ -8,6 +8,7 @@ PostgreSQL system libraries for crates that require them.
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
+| BUILD_PROFILE | Build profile used for caching | no | `release` |
 
 ## Outputs
 
@@ -16,7 +17,7 @@ None
 ## Example
 
 ```yaml
-- uses: ./.github/actions/setup-rust@v1
+uses: ./.github/actions/setup-rust@v1
   with:
     install-postgres-deps: true
 ```

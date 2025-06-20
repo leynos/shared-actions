@@ -22,6 +22,12 @@ uses: ./.github/actions/setup-rust@v1
     install-postgres-deps: true
 ```
 
+When `install-postgres-deps` is enabled, the action installs PostgreSQL
+client libraries via the package manager for the runner OS. On Linux,
+it uses `apt` (`libpq-dev`). On Windows, Chocolatey installs
+`postgresql17` and exposes its headers and import libraries through
+`PG_INCLUDE` and `PG_LIB` environment variables.
+
 ## Caching
 
 This action caches `~/.cargo/registry`, `~/.cargo/git` and the build output in

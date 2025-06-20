@@ -36,6 +36,6 @@ runs:
 
         # Tell the rest of the job where the headers and import library are
         $pgRoot = "${Env:ProgramFiles}\PostgreSQL\17"
-        echo "PG_INCLUDE=$pgRoot\include"  >> $Env:GITHUB_ENV
-        echo "PG_LIB=$pgRoot\lib"          >> $Env:GITHUB_ENV
+        "PG_INCLUDE=$pgRoot\include" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+        "PG_LIB=$pgRoot\lib"          | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "$pgRoot\bin" | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append

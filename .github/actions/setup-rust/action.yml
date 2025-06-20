@@ -29,7 +29,7 @@ runs:
       shell: bash
     - name: Install libpq (headers + import library)
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Windows' }}
-      shell: powershell
+      shell: pwsh
       run: |
         # Install PostgreSQL 17 but suppress the server service – we only need the client bits
         choco install postgresql17 --no-progress -y --params '/Password:postgres /NoService /SkipStackBuilder'

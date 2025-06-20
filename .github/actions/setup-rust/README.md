@@ -1,7 +1,7 @@
 # Setup Rust
 
-Install the Rust toolchain and cache your build dependencies. Optionally install
-PostgreSQL system libraries for crates that require them.
+Install the Rust toolchain and cache your build dependencies. Optionally
+install PostgreSQL system libraries for crates that require them.
 
 ## Inputs
 
@@ -43,7 +43,7 @@ the cached directories.
 
 - GitHub limits the total cache size to 5 GB per repository and OS, so old
   entries may be evicted.
-- Caches are scoped to the runner OS; Linux, macOS and Windows caches are
+- Caches are scoped to the runner OS; Linux, macOS, and Windows caches are
   independent.
 - The cache is best-effort: if the key changes or the cache is evicted, the
   build will proceed without cached artifacts.
@@ -52,7 +52,7 @@ the cached directories.
 
 - Keep `rust-toolchain.toml` and `Cargo.lock` files checked in to ensure stable
   cache keys.
-- Set `BUILD_PROFILE` consistently across jobs. For most CI runs `release` is a
+- Set `BUILD_PROFILE` consistently across jobs. For most CI runs, `release` is a
   good choice.
 
 

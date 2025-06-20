@@ -1,6 +1,10 @@
 
 # Changelog
 
+## v1.0.3
+
+- Install PostgreSQL client libraries on Windows via Chocolatey.
+
 ## v1.0.2
 
 - Document `BUILD_PROFILE` environment variable and fix README example

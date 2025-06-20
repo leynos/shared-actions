@@ -23,10 +23,10 @@ uses: ./.github/actions/setup-rust@v1
 ```
 
 When `install-postgres-deps` is enabled, the action installs PostgreSQL client
-libraries using the package manager of the underlying runner. On Linux this is
-`apt` (`libpq-dev`), while on Windows Chocolatey is used to install the
-`postgresql17` package and expose its headers and import libraries via
-`PG_INCLUDE` and `PG_LIB` environment variables.
+libraries via the package manager for the runner OS. On Linux, it uses
+`apt` (`libpq-dev`). On Windows, Chocolatey installs `postgresql17`
+and exposes its headers and import libraries via `PG_INCLUDE` and
+`PG_LIB` environment variables.
 
 ## Caching
 

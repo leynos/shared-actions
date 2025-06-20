@@ -24,17 +24,15 @@ runs:
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
     - name: Install system dependencies
-      if: inputs.install-postgres-deps && runner.os == 'Linux'
+      if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
       shell: bash
     - name: Install libpq (headers + import library)
-      if: inputs.install-postgres-deps && runner.os == 'Windows'
+      if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Windows' }}
       shell: powershell
       run: |
         # Install PostgreSQL 17 but suppress the server service – we only need the client bits
-        choco install postgresql17 \
-                     --no-progress -y \
-                     --params '/Password:postgres /NoService /SkipStackBuilder'
+        choco install postgresql17 --no-progress -y --params '/Password:postgres /NoService /SkipStackBuilder'
 
         # Tell the rest of the job where the headers and import library are
         $pgRoot = "${Env:ProgramFiles}\PostgreSQL\17"

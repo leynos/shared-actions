@@ -1,13 +1,15 @@
 # Setup Rust
 
 Install the Rust toolchain and cache your build dependencies. Optionally
-install PostgreSQL system libraries for crates that require them.
+install PostgreSQL and SQLite system libraries for crates that require
+them.
 
 ## Inputs
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
+| install-sqlite-deps | Install SQLite development libraries (Windows) | no | `false` |
 | BUILD_PROFILE | Build profile used for caching | no | `release` |
 
 ## Outputs
@@ -20,6 +22,7 @@ None
 uses: ./.github/actions/setup-rust@v1
   with:
     install-postgres-deps: true
+    install-sqlite-deps: true
 ```
 
 When `install-postgres-deps` is enabled, the action installs PostgreSQL
@@ -28,10 +31,13 @@ it uses `apt` (`libpq-dev`). On Windows, Chocolatey installs
 `postgresql17` and exposes its headers and import libraries through
 `PG_INCLUDE` and `PG_LIB` environment variables.
 
-SQLite is also available on Windows. The action sets up an MSYS2
-environment and installs both the `mingw-w64-x86_64-toolchain` and
-`mingw-w64-x86_64-sqlite3` packages so the static library and headers
-are available when compiling crates that depend on SQLite.
+When `install-sqlite-deps` is enabled, the action installs SQLite
+development files using MSYS2 on Windows.
+
+Enable SQLite support on Windows by setting up an MSYS2 environment
+with the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package so
+the static library and headers are available when compiling crates that
+depend on SQLite.
 
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite

@@ -4,22 +4,23 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 
 ## Inputs
 
-| Name  | Description                                | Required | Default |
-| ----- | ------------------------------------------ | -------- | ------- |
-| path  | Coverage file path; use `__auto__` to infer | no       | `__auto__` |
-| format | Coverage format (`cobertura` or `lcov`) | no       | `cobertura` |
+| Name             | Description                                  | Required | Default |
+| ---------------- | -------------------------------------------- | -------- | ------- |
+| path             | Coverage file path; use `__auto__` to infer   | no       | `__auto__` |
+| format           | Coverage format (`cobertura` or `lcov`)       | no       | `cobertura` |
+| access-token     | CodeScene project access token                | yes      |         |
+| installer-checksum | SHA-256 checksum of the installer script    | no       |         |
 
 If `path` is left as `__auto__`, the action will look for `lcov.info` when
 `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`.
 The CodeScene CLI is cached using its release version extracted from the
-installer script. If `CODESCENE_CLI_SHA256` is provided, the installer
-is validated before execution. Any other value for `format` results in an
-error.
+installer script. If the optional `installer-checksum` input is set,
+the installer is validated before execution. Any other value for
+`format` results in an error.
 
-## Environment variables
-
-- `CS_ACCESS_TOKEN` – CodeScene project access token (required)
-- `CODESCENE_CLI_SHA256` – SHA‑256 checksum for the installer (optional)
+The provided `access-token` and `installer-checksum` inputs become the
+`CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` environment variables
+available to steps within the action.
 
 ## Outputs
 
@@ -32,21 +33,33 @@ None
   with:
     path: coverage.xml
     format: cobertura
+    access-token: ${{ secrets.CS_ACCESS_TOKEN }}
+    installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
 ```
 
 ## Caching
 
 The CodeScene Coverage CLI is stored in `~/.local/bin/cs-coverage` and cached
 with [actions/cache](https://github.com/actions/cache). The cache key combines
-the runner OS and the CLI version extracted from the installer script.
-The cache is restored at the start of the job and saved after the job finishes.
+the runner OS and the CLI version extracted from the installer script. The cache
+is restored at the start of the job and saved after the job finishes. A fallback
+restore key allows reuse across patch releases:
+
+```yaml
+uses: actions/cache@v4
+with:
+  path: ~/.local/bin/cs-coverage
+  key: ${{ runner.os }}-cs-coverage-${{ version }}
+  restore-keys: |
+    ${{ runner.os }}-cs-coverage-${{ major_minor }}
+```
 
 ### Requirements
 
-- `CS_ACCESS_TOKEN` must be provided so the installer can download the CLI and
-  to authenticate uploads.
-- `CODESCENE_CLI_SHA256` should be set to the published checksum of the
-  installer to guard against tampering (optional).
+- Provide an `access-token` so the installer can download the CLI and
+  authenticate uploads.
+- Set `installer-checksum` to the published SHA-256 checksum to guard against
+  tampering (optional).
 
 ### Extent and limitations
 

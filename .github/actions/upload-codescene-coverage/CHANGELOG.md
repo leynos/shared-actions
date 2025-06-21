@@ -35,3 +35,9 @@
 
 ## v1.4.5
 - Shortened cache description line to avoid exceeding 80 columns.
+
+## v1.5.0
+- Added `access-token` and `installer-checksum` inputs, surfacing required
+  variables in the UI.
+- Documented the restore-keys caching pattern and expanded example usage in the
+  README.

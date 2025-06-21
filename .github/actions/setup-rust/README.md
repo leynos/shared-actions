@@ -28,6 +28,28 @@ it uses `apt` (`libpq-dev`). On Windows, Chocolatey installs
 `postgresql17` and exposes its headers and import libraries through
 `PG_INCLUDE` and `PG_LIB` environment variables.
 
+SQLite is also available on Windows. The action sets up an MSYS2
+environment and installs the `mingw-w64-x86_64-sqlite3` package so the
+static library and headers are available when compiling crates that
+depend on SQLite.
+
+```yaml
+      # Bring in MSYS2 plus the MinGW build of SQLite
+      - name: Set up MSYS2 and SQLite
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-sqlite3       # ships libsqlite3.a + headers
+
+      # Build inside the MSYS2 shell so the linker sees /mingw64/lib
+      - name: Build
+        shell: msys2 {0}
+        run: cargo build --workspace --all-targets --verbose
+```
+
 ## Caching
 
 This action caches `~/.cargo/registry`, `~/.cargo/git` and the build output in

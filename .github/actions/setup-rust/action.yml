@@ -39,3 +39,13 @@ runs:
         "PG_INCLUDE=$pgRoot\include" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         "PG_LIB=$pgRoot\lib"         | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
         echo "$pgRoot\bin"           | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Install SQLite (MSYS2)
+      if: ${{ runner.os == 'Windows' }}
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-sqlite3

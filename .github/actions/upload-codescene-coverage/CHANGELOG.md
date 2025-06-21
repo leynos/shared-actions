@@ -29,3 +29,6 @@
 
 ## v1.4.3
 - Added details about caching behavior and usage recommendations to the README.
+
+## v1.4.4
+- Wrapped README lines to 80 columns for consistency.

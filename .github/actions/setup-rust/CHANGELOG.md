@@ -3,7 +3,8 @@
 
 ## v1.0.4
 
-- Install SQLite development libraries on Windows via MSYS2.
+- Install SQLite development libraries on Windows via MSYS2 alongside the GCC
+  toolchain.
 
 ## v1.0.3
 

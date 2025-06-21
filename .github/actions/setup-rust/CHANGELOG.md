@@ -1,6 +1,11 @@
 
 # Changelog
 
+## v1.0.4
+
+- Optionally install SQLite development libraries on Windows via MSYS2 using the
+  `install-sqlite-deps` input.
+
 ## v1.0.3
 
 - Install PostgreSQL client libraries on Windows via Chocolatey.

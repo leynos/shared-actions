@@ -22,6 +22,11 @@ The provided `access-token` and `installer-checksum` inputs become the
 `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` environment variables
 available to steps within the action.
 
+## Environment variables
+
+- `CS_ACCESS_TOKEN` – CodeScene project access token (required)
+- `CODESCENE_CLI_SHA256` – SHA‑256 checksum for the installer (optional)
+
 ## Outputs
 
 None

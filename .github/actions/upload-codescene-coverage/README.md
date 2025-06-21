@@ -49,9 +49,9 @@ restore key allows reuse across patch releases:
 uses: actions/cache@v4
 with:
   path: ~/.local/bin/cs-coverage
-  key: ${{ runner.os }}-cs-coverage-${{ version }}
+  key: cs-coverage-cache-${{ runner.os }}-${{ version }}
   restore-keys: |
-    ${{ runner.os }}-cs-coverage-${{ major_minor }}
+    cs-coverage-cache-${{ runner.os }}-${{ major_minor }}
 ```
 
 ### Requirements

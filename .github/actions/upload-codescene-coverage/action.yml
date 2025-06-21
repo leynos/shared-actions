@@ -18,6 +18,7 @@ inputs:
     required: false
 runs:
   using: composite
+  # derive environment from inputs; actions cannot access `secrets` or `vars`
   env:
     CS_ACCESS_TOKEN: ${{ inputs.access-token }}
     CODESCENE_CLI_SHA256: ${{ inputs.installer-checksum }}

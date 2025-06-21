@@ -10,8 +10,17 @@ inputs:
     description: Coverage format (cobertura or lcov)
     required: false
     default: cobertura
+  access-token:
+    description: CodeScene project access token
+    required: true
+  installer-checksum:
+    description: SHA-256 checksum of the installer script
+    required: false
 runs:
   using: composite
+  env:
+    CS_ACCESS_TOKEN: ${{ inputs.access-token }}
+    CODESCENE_CLI_SHA256: ${{ inputs.installer-checksum }}
   steps:
     - name: Validate inputs
       run: |
@@ -64,9 +73,9 @@ runs:
       uses: actions/cache@v4
       with:
         path: ~/.local/bin/cs-coverage
-        key: ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.version }}
+        key: cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.version }}
         restore-keys: |
-          ${{ runner.os }}-cs-coverage-${{ steps.installer.outputs.major_minor }}
+          cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.major_minor }}
 
     - name: Install CodeScene Coverage CLI
       if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'

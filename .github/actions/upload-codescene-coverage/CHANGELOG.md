@@ -23,12 +23,15 @@
 - Reworded README reference to CHANGELOG.
 
 ## v1.4.2
-- Fixed action load failure by removing unsupported `secrets` and `vars`
-  references in `action.yml`.
-- Documented required environment variables in the README.
-
-## v1.4.3
-- Added details about caching behavior and usage recommendations to the README.
-
-## v1.4.4
+- Fixed action load failure by removing unsupported `secrets` and `vars` references in `action.yml`.
+- Documented required environment variables and caching usage in the README.
 - Wrapped README lines to 80 columns for consistency.
+
+## v1.4.5
+- Shortened cache description line to avoid exceeding 80 columns.
+
+## v1.5.0
+- Added `access-token` and `installer-checksum` inputs, surfacing required
+  variables in the UI.
+- Documented the restore-keys caching pattern and expanded example usage in the
+  README.

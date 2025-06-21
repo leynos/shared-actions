@@ -35,3 +35,8 @@
   variables in the UI.
 - Documented the restore-keys caching pattern and expanded example usage in the
   README.
+
+## v1.5.1
+- Ensure `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` environment variables are
+  derived from the corresponding inputs. This prevents action load failures
+  caused by unsupported `secrets` or `vars` expressions.

@@ -21,3 +21,11 @@
 - Added restore keys to cache the CLI across minor versions.
 - Removed redundant checksum validation before executing the installer.
 - Reworded README reference to CHANGELOG.
+
+## v1.4.2
+- Fixed action load failure by removing unsupported `secrets` and `vars`
+  references in `action.yml`.
+- Documented required environment variables in the README.
+
+## v1.4.3
+- Added details about caching behavior and usage recommendations to the README.

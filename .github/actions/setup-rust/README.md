@@ -34,7 +34,7 @@ it uses `apt` (`libpq-dev`). On Windows, Chocolatey installs
 When `install-sqlite-deps` is enabled, the action installs SQLite
 development files using MSYS2 on Windows.
 
-Enable SQLite support on Windows by setting up an MSYS2 environment
+SQLite support on Windows is enabled by setting up an MSYS2 environment
 with the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package,
 so the static library and headers are available when compiling crates that
 depend on SQLite.

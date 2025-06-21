@@ -32,3 +32,6 @@
 
 ## v1.4.4
 - Wrapped README lines to 80 columns for consistency.
+
+## v1.4.5
+- Shortened cache description line to avoid exceeding 80 columns.

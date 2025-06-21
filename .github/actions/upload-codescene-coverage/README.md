@@ -38,8 +38,8 @@ None
 
 The CodeScene Coverage CLI is stored in `~/.local/bin/cs-coverage` and cached
 with [actions/cache](https://github.com/actions/cache). The cache key combines
-the runner OS and the CLI version extracted from the installer script. The cache
-is restored at the start of the job and saved after the job finishes.
+the runner OS and the CLI version extracted from the installer script.
+The cache is restored at the start of the job and saved after the job finishes.
 
 ### Requirements
 

@@ -41,7 +41,11 @@ runs:
         set -euo pipefail
         output=$(cargo tarpaulin ${{ inputs.args }} --out lcov)
         echo "$output"
-        percent=$(echo "$output" | grep -oE '[0-9]+\.[0-9]+(?=%)' | head -n1)
+        percent=$(echo "$output" | grep -oP '[0-9]+(?:\.[0-9]+)?(?=%)' | head -n1)
+        if [ -z "$percent" ]; then
+          echo "Unable to extract coverage percentage" >&2
+          exit 1
+        fi
         echo "percent=$percent" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Ratchet coverage

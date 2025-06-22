@@ -20,7 +20,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ inputs.baseline-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.ref_name }}
     - name: Cache cargo artifacts
       uses: actions/cache@v4
       with:
@@ -39,7 +39,7 @@ runs:
       id: cov
       run: |
         set -euo pipefail
-        output=$(cargo tarpaulin ${{ inputs.args }} --out lcov)
+        output=$(cargo tarpaulin ${{ inputs.args }} --out lcov 2>&1)
         echo "$output"
         percent=$(echo "$output" | grep -oP '[0-9]+(?:\.[0-9]+)?(?=%)' | head -n1)
         if [ -z "$percent" ]; then
@@ -64,6 +64,12 @@ runs:
           echo "Invalid coverage values" >&2
           exit 1
         fi
+        # Ensure we're on Linux where `bc` is guaranteed to be installed
+        if [[ "$RUNNER_OS" != "Linux" ]]; then
+          echo "This action only supports Linux runners for float comparisons." >&2
+          exit 1
+        fi
+
         if [ "$(echo "$current < $baseline" | bc -l)" = "1" ]; then
           echo "Coverage decreased" >&2
           exit 1
@@ -72,7 +78,7 @@ runs:
       shell: bash
     - name: Save baseline
       if: success()
-      uses: actions/cache/save@v4
+      uses: actions/cache@v4
       with:
         path: ${{ inputs.baseline-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.ref_name }}

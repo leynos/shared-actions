@@ -35,6 +35,6 @@ The action restores the previous coverage baseline using `actions/cache` and
 installs `cargo-tarpaulin` if necessary. After running the coverage command, it
 compares the new percentage with the stored baseline. The job fails if coverage
 has dropped. On success, the baseline file is updated and saved back to the
-cache for future runs.
+cache using a branch-specific key for future runs.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

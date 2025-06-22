@@ -5,6 +5,10 @@ inputs:
     description: Path to store the coverage baseline
     required: false
     default: .coverage-baseline
+  args:
+    description: Additional arguments passed to cargo tarpaulin
+    required: false
+    default: ''
 outputs:
   percent:
     description: Coverage percentage reported by cargo tarpaulin
@@ -35,7 +39,7 @@ runs:
       id: cov
       run: |
         set -euo pipefail
-        output=$(cargo tarpaulin --out lcov)
+        output=$(cargo tarpaulin ${{ inputs.args }} --out lcov)
         echo "$output"
         percent=$(echo "$output" | grep -oE '[0-9]+\.[0-9]+(?=%)' | head -n1)
         echo "percent=$percent" >> "$GITHUB_OUTPUT"
@@ -51,6 +55,11 @@ runs:
         fi
         echo "Current coverage: $current%"
         echo "Baseline coverage: $baseline%"
+        if ! [[ "$current" =~ ^[0-9]+(\.[0-9]+)?$ ]] || \
+           ! [[ "$baseline" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "Invalid coverage values" >&2
+          exit 1
+        fi
         if [ "$(echo "$current < $baseline" | bc -l)" = "1" ]; then
           echo "Coverage decreased" >&2
           exit 1

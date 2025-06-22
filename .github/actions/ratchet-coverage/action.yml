@@ -1,0 +1,65 @@
+name: Ratchet coverage
+description: Run cargo tarpaulin and fail if coverage decreases
+inputs:
+  baseline-file:
+    description: Path to store the coverage baseline
+    required: false
+    default: .coverage-baseline
+outputs:
+  percent:
+    description: Coverage percentage reported by cargo tarpaulin
+    value: ${{ steps.cov.outputs.percent }}
+runs:
+  using: composite
+  steps:
+    - name: Restore baseline
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.baseline-file }}
+        key: ratchet-baseline-${{ runner.os }}
+    - name: Cache cargo artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/cargo-tarpaulin
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-tarpaulin-
+    - name: Install cargo-tarpaulin
+      run: cargo install cargo-tarpaulin
+      shell: bash
+    - name: Run coverage
+      id: cov
+      run: |
+        set -euo pipefail
+        output=$(cargo tarpaulin --out lcov)
+        echo "$output"
+        percent=$(echo "$output" | grep -oE '[0-9]+\.[0-9]+(?=%)' | head -n1)
+        echo "percent=$percent" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Ratchet coverage
+      run: |
+        set -euo pipefail
+        file="${{ inputs.baseline-file }}"
+        current="${{ steps.cov.outputs.percent }}"
+        baseline=0
+        if [ -f "$file" ]; then
+          baseline=$(cat "$file")
+        fi
+        echo "Current coverage: $current%"
+        echo "Baseline coverage: $baseline%"
+        if [ "$(echo "$current < $baseline" | bc -l)" = "1" ]; then
+          echo "Coverage decreased" >&2
+          exit 1
+        fi
+        printf '%.2f' "$current" > "$file"
+      shell: bash
+    - name: Save baseline
+      if: success()
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.baseline-file }}
+        key: ratchet-baseline-${{ runner.os }}

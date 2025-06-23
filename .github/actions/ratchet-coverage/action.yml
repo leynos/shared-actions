@@ -1,17 +1,17 @@
 name: Ratchet coverage
-description: Run cargo tarpaulin and fail if coverage decreases
+description: Run cargo llvm-cov and fail if coverage decreases
 inputs:
   baseline-file:
     description: Path to store the coverage baseline
     required: false
     default: .coverage-baseline
   args:
-    description: Additional arguments passed to cargo tarpaulin
+    description: Additional arguments passed to cargo llvm-cov
     required: false
     default: ''
 outputs:
   percent:
-    description: Coverage percentage reported by cargo tarpaulin
+    description: Coverage percentage reported by cargo llvm-cov
     value: ${{ steps.cov.outputs.percent }}
 runs:
   using: composite
@@ -25,15 +25,15 @@ runs:
       uses: actions/cache@v4
       with:
         path: |
-          ~/.cargo/bin/cargo-tarpaulin
+          ~/.cargo/bin/cargo-llvm-cov
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-llvmcov-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-tarpaulin-
-    - name: Install cargo-tarpaulin
-      run: cargo install cargo-tarpaulin
+          ${{ runner.os }}-llvmcov-
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
       shell: bash
     - if: runner.os == 'Windows'
       name: Install bc (MSYS2)
@@ -45,7 +45,7 @@ runs:
       id: cov
       run: |
         set -euo pipefail
-        output=$(cargo tarpaulin --out lcov ${{ inputs.args }})
+        output=$(cargo llvm-cov --summary-only ${{ inputs.args }})
         echo "$output"
         percent=$(echo "$output" | grep -oE '[0-9]+(\.[0-9]+)?(?=%)' | head -n1)
         echo "percent=$percent" >> "$GITHUB_OUTPUT"

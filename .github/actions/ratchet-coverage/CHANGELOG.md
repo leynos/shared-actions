@@ -1,8 +1,12 @@
 # Changelog
 
+## v1.0.3
+
+- Remove Linux-only gating so the action runs on all runners.
+
 ## v1.0.2
 
-- Skip gracefully on non-Linux runners
+- Skip gracefully on non-Linux runners.
 
 ## v1.0.1
 

@@ -26,7 +26,7 @@ coverage percentage falls below a stored baseline.
     args: --workspace
 ```
 
-On Windows runners `bc` is installed via MSYS2 so the float comparison works
+On Windows runners `bc` is installed via MSYS2, so the float comparison works
 the same across platforms.
 
 ### How it works

@@ -13,8 +13,7 @@
 - Skip gracefully on non-Linux runners.
 
 ## v1.0.1
-
-- Add `args` input and include it in tarpaulin command.
+- Add the `args` input and include it in the tarpaulin command.
 - Validate numeric coverage values before comparison.
 - Handle integer coverage values in output parsing.
 

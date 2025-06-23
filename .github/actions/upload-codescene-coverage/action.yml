@@ -18,11 +18,12 @@ inputs:
     required: false
 runs:
   using: composite
-  # derive environment from inputs; actions cannot access `secrets` or `vars`
-  env:
-    CS_ACCESS_TOKEN: ${{ inputs.access-token }}
-    CODESCENE_CLI_SHA256: ${{ inputs.installer-checksum }}
   steps:
+    - name: Export env for later steps
+      run: |
+        printf 'CS_ACCESS_TOKEN=%s\n' "${{ inputs.access-token }}" >>"${GITHUB_ENV}"
+        printf 'CODESCENE_CLI_SHA256=%s\n' "${{ inputs.installer-checksum }}" >>"${GITHUB_ENV}"
+      shell: bash
     - name: Validate inputs
       run: |
         case "${{ inputs.format }}" in

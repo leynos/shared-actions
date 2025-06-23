@@ -18,9 +18,8 @@ installer script. If the optional `installer-checksum` input is set,
 the installer is validated before execution. Any other value for
 `format` results in an error.
 
-The provided `access-token` and `installer-checksum` inputs become the
-`CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` environment variables
-available to steps within the action.
+The action exports the `access-token` and `installer-checksum` inputs as
+`CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.
 
 ## Environment variables
 

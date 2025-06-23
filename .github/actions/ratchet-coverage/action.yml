@@ -83,6 +83,7 @@ runs:
           exit 1
         fi
 
+        mkdir -p "$(dirname "$file")"
         printf '%.2f' "$current" > "$file"
       shell: bash
     - name: Save baseline

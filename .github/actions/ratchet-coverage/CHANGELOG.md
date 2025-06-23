@@ -6,9 +6,9 @@
 
 ## v1.0.1
 
-- Add `args` input and include it in tarpaulin command
-- Validate numeric coverage values before comparison
-- Handle integer coverage values in output parsing
+- Add `args` input and include it in tarpaulin command.
+- Validate numeric coverage values before comparison.
+- Handle integer coverage values in output parsing.
 
 ## v1.0.0
 

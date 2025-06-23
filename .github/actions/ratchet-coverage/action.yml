@@ -1,0 +1,86 @@
+name: Ratchet coverage
+description: Run cargo llvm-cov and fail if coverage decreases
+inputs:
+  baseline-file:
+    description: Path to store the coverage baseline
+    required: false
+    default: .coverage-baseline
+  args:
+    description: Additional arguments passed to cargo llvm-cov
+    required: false
+    default: ''
+outputs:
+  percent:
+    description: Coverage percentage reported by cargo llvm-cov
+    value: ${{ steps.cov.outputs.percent }}
+runs:
+  using: composite
+  steps:
+    - name: Restore baseline
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.baseline-file }}
+        key: ratchet-baseline-${{ runner.os }}
+    - name: Cache cargo artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/cargo-llvm-cov
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-llvmcov-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-llvmcov-
+    - name: Install cargo-llvm-cov
+      run: cargo install cargo-llvm-cov
+      shell: bash
+    - if: runner.os == 'Windows'
+      name: Install bc (MSYS2)
+      uses: msys2/setup-msys2@v2
+      with:
+        install: bc
+        path-type: inherit
+    - name: Run coverage
+      id: cov
+      run: |
+        set -euo pipefail
+        output=$(cargo llvm-cov --summary-only ${{ inputs.args }})
+        echo "$output"
+        percent=$(echo "$output" | grep -oE '[0-9]+(\.[0-9]+)?(?=%)' | head -n1)
+        echo "percent=$percent" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - name: Ratchet coverage
+      run: |
+        set -euo pipefail
+        file="${{ inputs.baseline-file }}"
+        current="${{ steps.cov.outputs.percent }}"
+        baseline=0
+        if [ -f "$file" ]; then
+          baseline=$(cat "$file")
+        fi
+        echo "Current coverage: $current%"
+        echo "Baseline coverage: $baseline%"
+
+        if ! echo "$current" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+          echo "Invalid coverage value: $current" >&2
+          exit 1
+        fi
+        if ! echo "$baseline" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+          baseline=0
+        fi
+
+        if (( $(bc -l <<<"$current < $baseline") )); then
+          echo "Coverage decreased" >&2
+          exit 1
+        fi
+
+        mkdir -p "$(dirname "$file")"
+        printf '%.2f' "$current" > "$file"
+      shell: bash
+    - name: Save baseline
+      if: success()
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.baseline-file }}
+        key: ratchet-baseline-${{ runner.os }}

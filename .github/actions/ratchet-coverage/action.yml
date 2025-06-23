@@ -78,7 +78,7 @@ runs:
       shell: bash
     - name: Save baseline
       if: success()
-      uses: actions/cache/save@v4
+      uses: actions/cache@v4
       with:
         path: ${{ inputs.baseline-file }}
         key: ratchet-baseline-${{ runner.os }}

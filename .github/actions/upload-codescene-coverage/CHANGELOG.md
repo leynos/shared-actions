@@ -40,3 +40,7 @@
 - Ensure `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` environment variables are
   derived from the corresponding inputs. This prevents action load failures
   caused by unsupported `secrets` or `vars` expressions.
+
+## v1.5.2
+- Remove unsupported `env` block from the `runs` section.
+- Export `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` via a setup step.

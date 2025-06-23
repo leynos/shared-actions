@@ -6,7 +6,7 @@
 
 ## v1.0.3
 
-- Remove Linux-only gating so the action runs on all runners.
+- Remove Linux-only gating, so the action runs on all runners.
 
 ## v1.0.2
 

@@ -21,8 +21,8 @@ runs:
   steps:
     - name: Export env for later steps
       run: |
-        echo "CS_ACCESS_TOKEN=${{ inputs.access-token }}" >> "$GITHUB_ENV"
-        echo "CODESCENE_CLI_SHA256=${{ inputs.installer-checksum }}" >> "$GITHUB_ENV"
+        printf 'CS_ACCESS_TOKEN=%s\n' "${{ inputs.access-token }}" >>"${GITHUB_ENV}"
+        printf 'CODESCENE_CLI_SHA256=%s\n' "${{ inputs.installer-checksum }}" >>"${GITHUB_ENV}"
       shell: bash
     - name: Validate inputs
       run: |

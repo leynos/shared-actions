@@ -17,16 +17,16 @@ runs:
   using: composite
   steps:
     - if: runner.os != 'Linux'
-      run: |
-        echo "Ratchet coverage runs only on Linux" >&2
-        exit 1
+      run: echo "Skipping ratchet coverage: cargo tarpaulin only runs on Linux"
       shell: bash
     - name: Restore baseline
+      if: runner.os == 'Linux'
       uses: actions/cache@v4
       with:
         path: ${{ inputs.baseline-file }}
         key: ratchet-baseline-${{ runner.os }}
     - name: Cache cargo artifacts
+      if: runner.os == 'Linux'
       uses: actions/cache@v4
       with:
         path: |
@@ -38,9 +38,17 @@ runs:
         restore-keys: |
           ${{ runner.os }}-tarpaulin-
     - name: Install cargo-tarpaulin
+      if: runner.os == 'Linux'
       run: cargo install cargo-tarpaulin
       shell: bash
+    - if: runner.os == 'Windows'
+      name: Install bc (MSYS2)
+      uses: msys2/setup-msys2@v2
+      with:
+        install: bc
+        path-type: inherit
     - name: Run coverage
+      if: runner.os == 'Linux'
       id: cov
       run: |
         set -euo pipefail
@@ -50,6 +58,7 @@ runs:
         echo "percent=$percent" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Ratchet coverage
+      if: runner.os == 'Linux'
       run: |
         set -euo pipefail
         file="${{ inputs.baseline-file }}"
@@ -77,7 +86,7 @@ runs:
         printf '%.2f' "$current" > "$file"
       shell: bash
     - name: Save baseline
-      if: success()
+      if: success() && runner.os == 'Linux'
       uses: actions/cache@v4
       with:
         path: ${{ inputs.baseline-file }}

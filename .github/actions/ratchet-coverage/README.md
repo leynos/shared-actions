@@ -26,8 +26,10 @@ coverage percentage falls below a stored baseline.
     args: --workspace
 ```
 
-`cargo tarpaulin` only runs on Linux hosts, so use this action on
-`ubuntu-latest` runners.
+`cargo tarpaulin` only runs on Linux hosts, so this action executes the
+coverage check on `ubuntu-latest` runners and prints a message on other
+platforms. When running on Windows, `bc` is installed via MSYS2 so the
+float comparison works the same everywhere.
 
 ### How it works
 
@@ -40,6 +42,6 @@ runs.
 
 ### Requirements
 
-- Run on `ubuntu-latest` since `cargo tarpaulin` only supports Linux. The action fails early on other platforms.
+- Use `ubuntu-latest` for the coverage run because `cargo tarpaulin` only supports Linux. On other platforms the step is skipped.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

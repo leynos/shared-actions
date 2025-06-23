@@ -8,7 +8,7 @@ coverage percentage falls below a stored baseline.
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
 | baseline-file | File used to persist the baseline coverage percentage between runs | no | `.coverage-baseline` |
-| args | Additional arguments passed to `cargo tarpaulin` | no | `""` |
+| args | Additional arguments passed to `cargo tarpaulin` | no | `''` |
 
 ## Outputs
 
@@ -34,15 +34,12 @@ coverage percentage falls below a stored baseline.
 The action restores the previous coverage baseline using
 [actions/cache](https://github.com/actions/cache) and installs
 `cargo-tarpaulin` if necessary. After running the coverage command, it compares
-the new percentage with the stored baseline. The job fails if coverage drops. On
-success, the baseline file is updated and saved back to the cache for future
-runs. On Windows, the `bc` utility is installed via
-[`msys2/setup-msys2`](https://github.com/msys2/setup-msys2) so the comparison
-script works the same on all platforms.
+the new percentage with the stored baseline. The job fails if coverage drops.
+On success, the baseline file is updated and saved back to the cache for future
+runs.
 
 ### Requirements
 
-- Run on `ubuntu-latest` since `cargo tarpaulin` only supports Linux.
-- Ensure `bc` is available (the action installs it on Windows).
+- Run on `ubuntu-latest` since `cargo tarpaulin` only supports Linux. The action fails early on other platforms.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

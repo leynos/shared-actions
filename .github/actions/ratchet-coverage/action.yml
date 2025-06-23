@@ -16,6 +16,11 @@ outputs:
 runs:
   using: composite
   steps:
+    - if: runner.os != 'Linux'
+      run: |
+        echo "Ratchet coverage runs only on Linux" >&2
+        exit 1
+      shell: bash
     - name: Restore baseline
       uses: actions/cache@v4
       with:
@@ -35,19 +40,13 @@ runs:
     - name: Install cargo-tarpaulin
       run: cargo install cargo-tarpaulin
       shell: bash
-    - if: runner.os == 'Windows'
-      name: Install bc (MSYS2)
-      uses: msys2/setup-msys2@v2
-      with:
-        install: bc
-        path-type: inherit
     - name: Run coverage
       id: cov
       run: |
         set -euo pipefail
         output=$(cargo tarpaulin --out lcov ${{ inputs.args }})
         echo "$output"
-        percent=$(echo "$output" | grep -oE '[0-9]+\.[0-9]+(?=%)' | head -n1)
+        percent=$(echo "$output" | grep -oE '[0-9]+(\.[0-9]+)?(?=%)' | head -n1)
         echo "percent=$percent" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Ratchet coverage

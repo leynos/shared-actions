@@ -1,5 +1,5 @@
 name: Generate coverage
-description: Run cargo llvm-cov with configurable features
+description: Run test coverage for Rust or Python projects
 inputs:
   features:
     description: Cargo features to enable
@@ -7,6 +7,7 @@ inputs:
   with-default-features:
     description: Enable default features
     required: false
+    type: boolean
     default: true
   output-path:
     description: Output file path
@@ -14,11 +15,57 @@ inputs:
   format:
     description: Coverage format
     required: false
-    default: lcov
+    default: cobertura
+outputs:
+  file:
+    description: Path to the generated coverage file
+    value: ${{ steps.out.outputs.file }}
+  format:
+    description: Format of the coverage file
+    value: ${{ steps.out.outputs.format }}
+  lang:
+    description: Detected project language
+    value: ${{ steps.out.outputs.lang }}
 runs:
   using: composite
   steps:
-    - run: |
+    - id: detect
+      run: |
+        set -euo pipefail
+        if [[ -f Cargo.toml && -f pyproject.toml ]]; then
+          echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
+          exit 1
+        elif [ -f Cargo.toml ]; then
+          echo "lang=rust" >> "$GITHUB_OUTPUT"
+        elif [ -f pyproject.toml ]; then
+          echo "lang=python" >> "$GITHUB_OUTPUT"
+        else
+          echo "Neither Cargo.toml nor pyproject.toml found" >&2
+          exit 1
+        fi
+      shell: bash
+    - id: validate
+      run: |
+        set -euo pipefail
+        case "${{ inputs.format }}" in
+          lcov|cobertura|coveragepy) ;;
+          *)
+            echo "Unsupported format: ${{ inputs.format }}" >&2
+            exit 1
+            ;;
+        esac
+        lang='${{ steps.detect.outputs.lang }}'
+        if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
+          echo "coveragepy format only supported for Python projects" >&2
+          exit 1
+        fi
+        if [[ "$lang" == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
+          echo "lcov format only supported for Rust projects" >&2
+          exit 1
+        fi
+      shell: bash
+    - if: steps.detect.outputs.lang == 'rust'
+      run: |
         set -euo pipefail
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
@@ -30,4 +77,47 @@ runs:
         args+=(--${{ inputs.format }})
         args+=(--output-path "${{ inputs.output-path }}")
         cargo llvm-cov "${args[@]}"
+      shell: bash
+    - name: Install uv and set the python version
+      if: steps.detect.outputs.lang == 'python'
+      uses: astral-sh/setup-uv@v5
+
+    - name: Cache Python deps
+      if: steps.detect.outputs.lang == 'python'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-py-deps-
+
+    - name: Install slipcover and pytest
+      if: steps.detect.outputs.lang == 'python'
+      run: uv pip install --system slipcover pytest
+      shell: bash
+
+    - if: steps.detect.outputs.lang == 'python'
+      run: |
+        set -euo pipefail
+        mkdir -p "$(dirname "${{ inputs.output-path }}")"
+        case "${{ inputs.format }}" in
+          cobertura)
+            python -m slipcover \
+              --branch \
+              --xml "${{ inputs.output-path }}" \
+              -m pytest -v
+            ;;
+          coveragepy)
+            python -m slipcover \
+              --branch \
+              -m pytest -v
+            mv .coverage "${{ inputs.output-path }}"
+            ;;
+        esac
+      shell: bash
+    - id: out
+      run: |
+        echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
+        echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
+        echo "lang=${{ steps.detect.outputs.lang }}" >> "$GITHUB_OUTPUT"
       shell: bash

@@ -5,6 +5,23 @@ Run code coverage for Rust or Python projects. The action uses
 `pytest` when a `pyproject.toml` is present. If both files are found the
 action fails.
 
+## Flow
+
+```mermaid
+flowchart TD
+    A[Start] --> B{Project type?}
+    B -- Cargo.toml present --> C[Set lang=rust]
+    B -- pyproject.toml present --> D[Set lang=python]
+    B -- Neither present --> E[Exit with error]
+    C --> F{lang}
+    D --> F
+    F -- rust --> G[Run cargo llvm-cov]
+    F -- python --> H[Run slipcover with pytest]
+    G --> I[Set outputs: file, format]
+    H --> I
+    I --> J[End]
+```
+
 ## Inputs
 
 | Name | Description | Required | Default |

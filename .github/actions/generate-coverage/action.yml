@@ -36,17 +36,14 @@ runs:
           echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
           exit 1
         elif [ -f Cargo.toml ]; then
-          echo "lang=rust" >> "$GITHUB_OUTPUT"
+          lang=rust
         elif [ -f pyproject.toml ]; then
-          echo "lang=python" >> "$GITHUB_OUTPUT"
+          lang=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2
           exit 1
         fi
-      shell: bash
-    - id: validate
-      run: |
-        set -euo pipefail
+
         case "${{ inputs.format }}" in
           lcov|cobertura|coveragepy) ;;
           *)
@@ -54,7 +51,7 @@ runs:
             exit 1
             ;;
         esac
-        lang='${{ steps.detect.outputs.lang }}'
+
         if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
           echo "coveragepy format only supported for Python projects" >&2
           exit 1
@@ -63,6 +60,8 @@ runs:
           echo "lcov format only supported for Rust projects" >&2
           exit 1
         fi
+
+        echo "lang=$lang" >> "$GITHUB_OUTPUT"
       shell: bash
     - if: steps.detect.outputs.lang == 'rust'
       run: |

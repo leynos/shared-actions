@@ -61,9 +61,9 @@ runs:
           exit 1
         fi
 
-        echo "lang=$lang" >> "$GITHUB_OUTPUT"
+        echo "LANG_DETECTED=$lang" >> "$GITHUB_ENV"
       shell: bash
-    - if: steps.detect.outputs.lang == 'rust'
+    - if: env.LANG_DETECTED == 'rust'
       run: |
         set -euo pipefail
         args=(--workspace)
@@ -78,11 +78,11 @@ runs:
         cargo llvm-cov "${args[@]}"
       shell: bash
     - name: Install uv and set the python version
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       uses: astral-sh/setup-uv@v5
 
     - name: Cache Python deps
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
@@ -91,11 +91,11 @@ runs:
           ${{ runner.os }}-py-deps-
 
     - name: Install slipcover and pytest
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       run: uv pip install --system slipcover pytest
       shell: bash
 
-    - if: steps.detect.outputs.lang == 'python'
+    - if: env.LANG_DETECTED == 'python'
       run: |
         set -euo pipefail
         mkdir -p "$(dirname "${{ inputs.output-path }}")"
@@ -118,5 +118,5 @@ runs:
       run: |
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
         echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
-        echo "lang=${{ steps.detect.outputs.lang }}" >> "$GITHUB_OUTPUT"
+        echo "lang=$LANG_DETECTED" >> "$GITHUB_OUTPUT"
       shell: bash

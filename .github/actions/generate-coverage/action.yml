@@ -73,12 +73,12 @@ runs:
     - if: steps.detect.outputs.lang == 'python'
       run: |
         set -euo pipefail
+        mkdir -p "$(dirname "${{ inputs.output-path }}")"
         case "${{ inputs.format }}" in
           cobertura)
             python -m slipcover \
               --branch \
-              --xml \
-              --out "${{ inputs.output-path }}" \
+              --xml "${{ inputs.output-path }}" \
               -m pytest -v
             ;;
           coveragepy)
@@ -97,4 +97,5 @@ runs:
       run: |
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
         echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
+        echo "lang=${{ steps.detect.outputs.lang }}" >> "$GITHUB_OUTPUT"
       shell: bash

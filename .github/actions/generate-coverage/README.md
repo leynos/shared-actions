@@ -2,7 +2,8 @@
 
 Run code coverage for Rust or Python projects. The action uses
 `cargo llvm-cov` when a `Cargo.toml` is present and `slipcover` with
-`pytest` when a `pyproject.toml` is present.
+`pytest` when a `pyproject.toml` is present. If both files are found the
+action fails.
 
 ## Inputs
 
@@ -11,7 +12,7 @@ Run code coverage for Rust or Python projects. The action uses
 | features | Cargo features to enable (Rust) | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
-| format | Coverage format (`lcov`, `cobertura` or `coveragepy`) | no | `lcov` |
+| format | Coverage format (`lcov`, `cobertura` or `coveragepy`) | no | `cobertura` |
 
 ## Outputs
 

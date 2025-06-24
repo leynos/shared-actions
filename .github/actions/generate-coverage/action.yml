@@ -14,7 +14,7 @@ inputs:
   format:
     description: Coverage format
     required: false
-    default: lcov
+    default: cobertura
 outputs:
   file:
     description: Path to the generated coverage file
@@ -28,7 +28,10 @@ runs:
     - id: detect
       run: |
         set -euo pipefail
-        if [ -f Cargo.toml ]; then
+        if [[ -f Cargo.toml && -f pyproject.toml ]]; then
+          echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
+          exit 1
+        elif [ -f Cargo.toml ]; then
           echo "lang=rust" >> "$GITHUB_OUTPUT"
         elif [ -f pyproject.toml ]; then
           echo "lang=python" >> "$GITHUB_OUTPUT"

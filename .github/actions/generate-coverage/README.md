@@ -30,9 +30,9 @@ flowchart TD
 | features | Cargo features to enable (Rust) | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
-| format | Coverage format (`lcov`*, `cobertura` or `coveragepy`) | no | `cobertura` |
+| format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
 
-\* `lcov` is only supported for Rust projects.
+\* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects.
 
 ## Outputs
 
@@ -40,6 +40,7 @@ flowchart TD
 | --- | --- |
 | file | Path to the generated coverage file |
 | format | Format of the coverage file |
+| lang | Detected language (`rust` or `python`) |
 
 ## Example
 

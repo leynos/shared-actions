@@ -7,6 +7,7 @@ inputs:
   with-default-features:
     description: Enable default features
     required: false
+    type: boolean
     default: true
   output-path:
     description: Output file path
@@ -22,6 +23,9 @@ outputs:
   format:
     description: Format of the coverage file
     value: ${{ steps.out.outputs.format }}
+  lang:
+    description: Detected project language
+    value: ${{ steps.out.outputs.lang }}
 runs:
   using: composite
   steps:
@@ -40,16 +44,29 @@ runs:
           exit 1
         fi
       shell: bash
-    - if: steps.detect.outputs.lang == 'rust'
+    - id: validate
       run: |
         set -euo pipefail
         case "${{ inputs.format }}" in
-          lcov|cobertura) ;;
+          lcov|cobertura|coveragepy) ;;
           *)
             echo "Unsupported format: ${{ inputs.format }}" >&2
             exit 1
             ;;
         esac
+        lang='${{ steps.detect.outputs.lang }}'
+        if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
+          echo "coveragepy format only supported for Python projects" >&2
+          exit 1
+        fi
+        if [[ "$lang" == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
+          echo "lcov format only supported for Rust projects" >&2
+          exit 1
+        fi
+      shell: bash
+    - if: steps.detect.outputs.lang == 'rust'
+      run: |
+        set -euo pipefail
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
           args+=(--no-default-features)
@@ -64,6 +81,15 @@ runs:
     - name: Install uv and set the python version
       if: steps.detect.outputs.lang == 'python'
       uses: astral-sh/setup-uv@v5
+
+    - name: Cache Python deps
+      if: steps.detect.outputs.lang == 'python'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-py-deps-
 
     - name: Install slipcover and pytest
       if: steps.detect.outputs.lang == 'python'
@@ -86,10 +112,6 @@ runs:
               --branch \
               -m pytest -v
             mv .coverage "${{ inputs.output-path }}"
-            ;;
-          *)
-            echo "Unsupported format: ${{ inputs.format }}" >&2
-            exit 1
             ;;
         esac
       shell: bash

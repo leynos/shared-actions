@@ -1,5 +1,5 @@
 name: Generate coverage
-description: Run cargo llvm-cov with configurable features
+description: Run test coverage for Rust or Python projects
 inputs:
   features:
     description: Cargo features to enable
@@ -15,11 +15,38 @@ inputs:
     description: Coverage format
     required: false
     default: lcov
+outputs:
+  file:
+    description: Path to the generated coverage file
+    value: ${{ steps.out.outputs.file }}
+  format:
+    description: Format of the coverage file
+    value: ${{ steps.out.outputs.format }}
 runs:
   using: composite
   steps:
-    - run: |
+    - id: detect
+      run: |
         set -euo pipefail
+        if [ -f Cargo.toml ]; then
+          echo "lang=rust" >> "$GITHUB_OUTPUT"
+        elif [ -f pyproject.toml ]; then
+          echo "lang=python" >> "$GITHUB_OUTPUT"
+        else
+          echo "Neither Cargo.toml nor pyproject.toml found" >&2
+          exit 1
+        fi
+      shell: bash
+    - if: steps.detect.outputs.lang == 'rust'
+      run: |
+        set -euo pipefail
+        case "${{ inputs.format }}" in
+          lcov|cobertura) ;;
+          *)
+            echo "Unsupported format: ${{ inputs.format }}" >&2
+            exit 1
+            ;;
+        esac
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
           args+=(--no-default-features)
@@ -30,4 +57,32 @@ runs:
         args+=(--${{ inputs.format }})
         args+=(--output-path "${{ inputs.output-path }}")
         cargo llvm-cov "${args[@]}"
+      shell: bash
+    - if: steps.detect.outputs.lang == 'python'
+      run: |
+        set -euo pipefail
+        case "${{ inputs.format }}" in
+          cobertura)
+            python -m slipcover \
+              --branch \
+              --xml \
+              --out "${{ inputs.output-path }}" \
+              -m pytest -v
+            ;;
+          coveragepy)
+            python -m slipcover \
+              --branch \
+              -m pytest -v
+            mv .coverage "${{ inputs.output-path }}"
+            ;;
+          *)
+            echo "Unsupported format: ${{ inputs.format }}" >&2
+            exit 1
+            ;;
+        esac
+      shell: bash
+    - id: out
+      run: |
+        echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
+        echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
       shell: bash

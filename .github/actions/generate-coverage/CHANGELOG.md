@@ -2,7 +2,7 @@
 
 ## v1.1.2 (2025-06-25)
 
-- Merge detection and validation into a single step and track the language in `LANG_DETECTED`.
+- Merge detection and validation into a single step and track the language in the `LANG_DETECTED` environment variable.
 
 ## v1.1.1 (2025-06-24)
 

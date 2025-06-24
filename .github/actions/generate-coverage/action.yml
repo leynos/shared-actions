@@ -116,6 +116,7 @@ runs:
       shell: bash
     - id: out
       run: |
+        set -euo pipefail
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
         echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
         echo "lang=$LANG_DETECTED" >> "$GITHUB_OUTPUT"

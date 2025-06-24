@@ -36,17 +36,14 @@ runs:
           echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
           exit 1
         elif [ -f Cargo.toml ]; then
-          echo "lang=rust" >> "$GITHUB_OUTPUT"
+          lang=rust
         elif [ -f pyproject.toml ]; then
-          echo "lang=python" >> "$GITHUB_OUTPUT"
+          lang=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2
           exit 1
         fi
-      shell: bash
-    - id: validate
-      run: |
-        set -euo pipefail
+
         case "${{ inputs.format }}" in
           lcov|cobertura|coveragepy) ;;
           *)
@@ -54,7 +51,7 @@ runs:
             exit 1
             ;;
         esac
-        lang='${{ steps.detect.outputs.lang }}'
+
         if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
           echo "coveragepy format only supported for Python projects" >&2
           exit 1
@@ -63,8 +60,10 @@ runs:
           echo "lcov format only supported for Rust projects" >&2
           exit 1
         fi
+
+        echo "LANG_DETECTED=$lang" >> "$GITHUB_ENV"
       shell: bash
-    - if: steps.detect.outputs.lang == 'rust'
+    - if: env.LANG_DETECTED == 'rust'
       run: |
         set -euo pipefail
         args=(--workspace)
@@ -79,11 +78,11 @@ runs:
         cargo llvm-cov "${args[@]}"
       shell: bash
     - name: Install uv and set the python version
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       uses: astral-sh/setup-uv@v5
 
     - name: Cache Python deps
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
@@ -92,11 +91,11 @@ runs:
           ${{ runner.os }}-py-deps-
 
     - name: Install slipcover and pytest
-      if: steps.detect.outputs.lang == 'python'
+      if: env.LANG_DETECTED == 'python'
       run: uv pip install --system slipcover pytest
       shell: bash
 
-    - if: steps.detect.outputs.lang == 'python'
+    - if: env.LANG_DETECTED == 'python'
       run: |
         set -euo pipefail
         mkdir -p "$(dirname "${{ inputs.output-path }}")"
@@ -117,7 +116,8 @@ runs:
       shell: bash
     - id: out
       run: |
+        set -euo pipefail
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
         echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
-        echo "lang=${{ steps.detect.outputs.lang }}" >> "$GITHUB_OUTPUT"
+        echo "lang=$LANG_DETECTED" >> "$GITHUB_OUTPUT"
       shell: bash

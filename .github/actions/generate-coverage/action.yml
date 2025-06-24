@@ -37,7 +37,7 @@ runs:
           exit 1
         elif [ -f Cargo.toml ]; then
           lang=rust
-        elif [ -f pyproject.toml ]; then
+        elif [[ -f pyproject.toml ]]; then
           lang=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2

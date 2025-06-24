@@ -61,6 +61,15 @@ runs:
         args+=(--output-path "${{ inputs.output-path }}")
         cargo llvm-cov "${args[@]}"
       shell: bash
+    - name: Install uv and set the python version
+      if: steps.detect.outputs.lang == 'python'
+      uses: astral-sh/setup-uv@v5
+
+    - name: Install slipcover and pytest
+      if: steps.detect.outputs.lang == 'python'
+      run: uv pip install --system slipcover pytest
+      shell: bash
+
     - if: steps.detect.outputs.lang == 'python'
       run: |
         set -euo pipefail

@@ -2,8 +2,9 @@
 
 Run code coverage for Rust or Python projects. The action uses
 `cargo llvm-cov` when a `Cargo.toml` is present and `slipcover` with
-`pytest` when a `pyproject.toml` is present. If both files are found the
-action fails.
+`pytest` when a `pyproject.toml` is present. It installs `slipcover` and
+`pytest` automatically via `uv` before running the tests. If both
+configuration files are found the action fails.
 
 ## Flow
 

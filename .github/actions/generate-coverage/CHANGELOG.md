@@ -6,5 +6,9 @@
 - Default coverage format changed to `cobertura`.
 - Fail if both `Cargo.toml` and `pyproject.toml` exist.
 
+## v1.1.1
+- Automatically install `slipcover` and `pytest` using `setup-uv` when running
+  Python coverage.
+
 ## v1.0.0
 - Initial version using `cargo llvm-cov` for Rust projects.

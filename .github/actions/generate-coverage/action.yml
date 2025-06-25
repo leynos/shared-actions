@@ -58,18 +58,22 @@ runs:
             ;;
         esac
 
-        if [[ $found == 'rust' && $fmt == 'coveragepy' ]]; then
-          echo "coveragepy format only supported for Python projects" >&2
-          exit 1
-        fi
-        if [[ $found == 'python' && $fmt == 'lcov' ]]; then
-          echo "lcov format only supported for Rust projects" >&2
-          exit 1
-        fi
-        if [[ $found == 'both' && $fmt != 'cobertura' ]]; then
-          echo "Mixed projects only support cobertura format" >&2
-          exit 1
-        fi
+        case "$found/$fmt" in
+          rust/coveragepy)
+            echo "coveragepy format only supported for Python projects" >&2
+            exit 1
+            ;;
+          python/lcov)
+            echo "lcov format only supported for Rust projects" >&2
+            exit 1
+            ;;
+          both/cobertura)
+            ;;
+          both/*)
+            echo "Mixed projects only support cobertura format" >&2
+            exit 1
+            ;;
+        esac
 
         case $found in
           both)   lang=mixed ;;
@@ -86,7 +90,9 @@ runs:
         set -euo pipefail
         out="${{ inputs.output-path }}"
         if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
-          out="${{ inputs.output-path }}.rust.xml"
+          base="${{ inputs.output-path%.*}}"
+          ext="${{ inputs.output-path##*.}}"
+          out="${base}.rust.${ext}"
         fi
         mkdir -p "$(dirname "$out")"
         args=(--workspace)
@@ -97,7 +103,7 @@ runs:
           args+=(--features "${{ inputs.features }}")
         fi
         fmt="${{ steps.detect.outputs.fmt }}"
-        args+=(--"$fmt")
+        args+=(--$fmt)
         args+=(--output-path "$out")
         cargo llvm-cov "${args[@]}"
         echo "file=$out" >> "$GITHUB_OUTPUT"
@@ -127,7 +133,9 @@ runs:
         mkdir -p "$(dirname "${{ inputs.output-path }}")"
         out="${{ inputs.output-path }}"
         if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
-          out="${{ inputs.output-path }}.python.xml"
+          base="${{ inputs.output-path%.*}}"
+          ext="${{ inputs.output-path##*.}}"
+          out="${base}.python.${ext}"
         fi
         case "${{ steps.detect.outputs.fmt }}" in
           cobertura)
@@ -155,6 +163,7 @@ runs:
           exit 1
         fi
         uvx merge-cobertura "$rust_file" "$python_file" > "${{ inputs.output-path }}"
+        rm "$rust_file" "$python_file"
       shell: bash
     - id: out
       run: |

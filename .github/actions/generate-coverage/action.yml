@@ -47,7 +47,9 @@ runs:
           exit 1
         fi
 
-        fmt="${{ inputs.format,, }}"
+        fmt="${{ inputs.format }}"
+        # Normalise to lower-case inside the shell
+        fmt="${fmt,,}"
         case "$fmt" in
           lcov|cobertura|coveragepy) ;;
           *)
@@ -94,7 +96,8 @@ runs:
         if [ -n "${{ inputs.features }}" ]; then
           args+=(--features "${{ inputs.features }}")
         fi
-        args+=(--${{ steps.detect.outputs.fmt }})
+        fmt="${{ steps.detect.outputs.fmt }}"
+        args+=(--"$fmt")
         args+=(--output-path "$out")
         cargo llvm-cov "${args[@]}"
         echo "file=$out" >> "$GITHUB_OUTPUT"

@@ -1,5 +1,5 @@
 name: Generate coverage
-description: Run test coverage for Rust and Python projects
+description: Run test coverage for Rust, Python and mixed Rust and Python projects
 inputs:
   features:
     description: Cargo features to enable
@@ -47,7 +47,8 @@ runs:
           exit 1
         fi
 
-        case "${{ inputs.format }}" in
+        fmt="${{ inputs.format,, }}"
+        case "$fmt" in
           lcov|cobertura|coveragepy) ;;
           *)
             echo "Unsupported format: ${{ inputs.format }}" >&2
@@ -55,15 +56,15 @@ runs:
             ;;
         esac
 
-        if [[ $found == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
+        if [[ $found == 'rust' && $fmt == 'coveragepy' ]]; then
           echo "coveragepy format only supported for Python projects" >&2
           exit 1
         fi
-        if [[ $found == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
+        if [[ $found == 'python' && $fmt == 'lcov' ]]; then
           echo "lcov format only supported for Rust projects" >&2
           exit 1
         fi
-        if [[ $found == 'both' && "${{ inputs.format }}" != 'cobertura' ]]; then
+        if [[ $found == 'both' && $fmt != 'cobertura' ]]; then
           echo "Mixed projects only support cobertura format" >&2
           exit 1
         fi
@@ -75,6 +76,7 @@ runs:
         esac
 
         echo "lang=$lang" >> "$GITHUB_OUTPUT"
+        echo "fmt=$fmt" >> "$GITHUB_OUTPUT"
       shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
@@ -84,6 +86,7 @@ runs:
         if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
           out="${{ inputs.output-path }}.rust.xml"
         fi
+        mkdir -p "$(dirname "$out")"
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
           args+=(--no-default-features)
@@ -91,7 +94,7 @@ runs:
         if [ -n "${{ inputs.features }}" ]; then
           args+=(--features "${{ inputs.features }}")
         fi
-        args+=(--${{ inputs.format }})
+        args+=(--${{ steps.detect.outputs.fmt }})
         args+=(--output-path "$out")
         cargo llvm-cov "${args[@]}"
         echo "file=$out" >> "$GITHUB_OUTPUT"
@@ -123,7 +126,7 @@ runs:
         if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
           out="${{ inputs.output-path }}.python.xml"
         fi
-        case "${{ inputs.format }}" in
+        case "${{ steps.detect.outputs.fmt }}" in
           cobertura)
             python -m slipcover \
               --branch \
@@ -153,5 +156,5 @@ runs:
     - id: out
       run: |
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
-        echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
+        echo "format=${{ steps.detect.outputs.fmt }}" >> "$GITHUB_OUTPUT"
       shell: bash

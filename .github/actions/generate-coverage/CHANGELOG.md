@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.0 (2025-06-26)
+
+- Support projects containing both Python and Rust. Cobertura reports from
+  each language are merged using `uvx merge-cobertura`.
+
 ## v1.1.2 (2025-06-25)
 
 - Merge detection and validation into a single step to simplify the workflow, routing the `lang` output directly from the `detect` step.

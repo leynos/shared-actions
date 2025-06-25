@@ -1,5 +1,5 @@
 name: Generate coverage
-description: Run test coverage for Rust or Python projects
+description: Run test coverage for Rust and Python projects
 inputs:
   features:
     description: Cargo features to enable
@@ -32,12 +32,16 @@ runs:
     - id: detect
       run: |
         set -euo pipefail
-        if [[ -f Cargo.toml && -f pyproject.toml ]]; then
-          echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
-          exit 1
-        elif [ -f Cargo.toml ]; then
+        has_rust=0
+        has_python=0
+        [[ -f Cargo.toml ]] && has_rust=1
+        [[ -f pyproject.toml ]] && has_python=1
+
+        if [[ $has_rust -eq 1 && $has_python -eq 1 ]]; then
+          lang=mixed
+        elif [[ $has_rust -eq 1 ]]; then
           lang=rust
-        elif [[ -f pyproject.toml ]]; then
+        elif [[ $has_python -eq 1 ]]; then
           lang=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2
@@ -60,12 +64,21 @@ runs:
           echo "lcov format only supported for Rust projects" >&2
           exit 1
         fi
+        if [[ "$lang" == 'mixed' && "${{ inputs.format }}" != 'cobertura' ]]; then
+          echo "Mixed projects only support cobertura format" >&2
+          exit 1
+        fi
 
         echo "lang=$lang" >> "$GITHUB_OUTPUT"
       shell: bash
-    - if: steps.detect.outputs.lang == 'rust'
+    - id: rust
+      if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
+        out="${{ inputs.output-path }}"
+        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
+          out="${{ inputs.output-path }}.rust.xml"
+        fi
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
           args+=(--no-default-features)
@@ -74,15 +87,16 @@ runs:
           args+=(--features "${{ inputs.features }}")
         fi
         args+=(--${{ inputs.format }})
-        args+=(--output-path "${{ inputs.output-path }}")
+        args+=(--output-path "$out")
         cargo llvm-cov "${args[@]}"
+        echo "file=$out" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Install uv and set the python version
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       uses: astral-sh/setup-uv@v5
 
     - name: Cache Python deps
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
@@ -91,28 +105,39 @@ runs:
           ${{ runner.os }}-py-deps-
 
     - name: Install slipcover and pytest
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       run: uv pip install --system slipcover pytest
       shell: bash
 
-    - if: steps.detect.outputs.lang == 'python'
+    - id: python
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
         mkdir -p "$(dirname "${{ inputs.output-path }}")"
+        out="${{ inputs.output-path }}"
+        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
+          out="${{ inputs.output-path }}.python.xml"
+        fi
         case "${{ inputs.format }}" in
           cobertura)
             python -m slipcover \
               --branch \
-              --xml "${{ inputs.output-path }}" \
+              --xml "$out" \
               -m pytest -v
             ;;
           coveragepy)
             python -m slipcover \
               --branch \
               -m pytest -v
-            mv .coverage "${{ inputs.output-path }}"
+            mv .coverage "$out"
             ;;
         esac
+        echo "file=$out" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - if: steps.detect.outputs.lang == 'mixed'
+      run: |
+        set -euo pipefail
+        uvx merge-cobertura "${{ steps.rust.outputs.file }}" "${{ steps.python.outputs.file }}" > "${{ inputs.output-path }}"
       shell: bash
     - id: out
       run: |

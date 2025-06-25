@@ -1,9 +1,10 @@
 name: Generate coverage
-description: Run test coverage for Rust or Python projects
+description: Run test coverage for Rust, Python and mixed Rust and Python projects
 inputs:
   features:
     description: Cargo features to enable
     required: false
+    type: string
   with-default-features:
     description: Enable default features
     required: false
@@ -12,9 +13,11 @@ inputs:
   output-path:
     description: Output file path
     required: true
+    type: string
   format:
     description: Coverage format
     required: false
+    type: string
     default: cobertura
 outputs:
   file:
@@ -32,19 +35,22 @@ runs:
     - id: detect
       run: |
         set -euo pipefail
+
         if [[ -f Cargo.toml && -f pyproject.toml ]]; then
-          echo "Found both Cargo.toml and pyproject.toml; not supported" >&2
-          exit 1
-        elif [ -f Cargo.toml ]; then
-          lang=rust
+          found=both
+        elif [[ -f Cargo.toml ]]; then
+          found=rust
         elif [[ -f pyproject.toml ]]; then
-          lang=python
+          found=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2
           exit 1
         fi
 
-        case "${{ inputs.format }}" in
+        fmt="${{ inputs.format }}"
+        # Normalise to lower-case inside the shell
+        fmt="${fmt,,}"
+        case "$fmt" in
           lcov|cobertura|coveragepy) ;;
           *)
             echo "Unsupported format: ${{ inputs.format }}" >&2
@@ -52,20 +58,43 @@ runs:
             ;;
         esac
 
-        if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
-          echo "coveragepy format only supported for Python projects" >&2
-          exit 1
-        fi
-        if [[ "$lang" == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
-          echo "lcov format only supported for Rust projects" >&2
-          exit 1
-        fi
+        case "$found/$fmt" in
+          rust/coveragepy)
+            echo "coveragepy format only supported for Python projects" >&2
+            exit 1
+            ;;
+          python/lcov)
+            echo "lcov format only supported for Rust projects" >&2
+            exit 1
+            ;;
+          both/cobertura)
+            ;;
+          both/*)
+            echo "Mixed projects only support cobertura format" >&2
+            exit 1
+            ;;
+        esac
+
+        case $found in
+          both)   lang=mixed ;;
+          rust)   lang=rust  ;;
+          python) lang=python ;;
+        esac
 
         echo "lang=$lang" >> "$GITHUB_OUTPUT"
+        echo "fmt=$fmt" >> "$GITHUB_OUTPUT"
       shell: bash
-    - if: steps.detect.outputs.lang == 'rust'
+    - id: rust
+      if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
+        out="${{ inputs.output-path }}"
+        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
+          base="${{ inputs.output-path%.*}}"
+          ext="${{ inputs.output-path##*.}}"
+          out="${base}.rust.${ext}"
+        fi
+        mkdir -p "$(dirname "$out")"
         args=(--workspace)
         if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
           args+=(--no-default-features)
@@ -73,16 +102,18 @@ runs:
         if [ -n "${{ inputs.features }}" ]; then
           args+=(--features "${{ inputs.features }}")
         fi
-        args+=(--${{ inputs.format }})
-        args+=(--output-path "${{ inputs.output-path }}")
+        fmt="${{ steps.detect.outputs.fmt }}"
+        args+=(--$fmt)
+        args+=(--output-path "$out")
         cargo llvm-cov "${args[@]}"
+        echo "file=$out" >> "$GITHUB_OUTPUT"
       shell: bash
     - name: Install uv and set the python version
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       uses: astral-sh/setup-uv@v5
 
     - name: Cache Python deps
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv
@@ -91,31 +122,51 @@ runs:
           ${{ runner.os }}-py-deps-
 
     - name: Install slipcover and pytest
-      if: steps.detect.outputs.lang == 'python'
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       run: uv pip install --system slipcover pytest
       shell: bash
 
-    - if: steps.detect.outputs.lang == 'python'
+    - id: python
+      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
         mkdir -p "$(dirname "${{ inputs.output-path }}")"
-        case "${{ inputs.format }}" in
+        out="${{ inputs.output-path }}"
+        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
+          base="${{ inputs.output-path%.*}}"
+          ext="${{ inputs.output-path##*.}}"
+          out="${base}.python.${ext}"
+        fi
+        case "${{ steps.detect.outputs.fmt }}" in
           cobertura)
             python -m slipcover \
               --branch \
-              --xml "${{ inputs.output-path }}" \
+              --xml "$out" \
               -m pytest -v
             ;;
           coveragepy)
             python -m slipcover \
               --branch \
               -m pytest -v
-            mv .coverage "${{ inputs.output-path }}"
+            mv .coverage "$out"
             ;;
         esac
+        echo "file=$out" >> "$GITHUB_OUTPUT"
+      shell: bash
+    - if: steps.detect.outputs.lang == 'mixed'
+      run: |
+        set -euo pipefail
+        rust_file="${{ steps.rust.outputs.file }}"
+        python_file="${{ steps.python.outputs.file }}"
+        if [[ ! -f "$rust_file" || ! -f "$python_file" ]]; then
+          echo "Coverage files not found: $rust_file $python_file" >&2
+          exit 1
+        fi
+        uvx merge-cobertura "$rust_file" "$python_file" > "${{ inputs.output-path }}"
+        rm "$rust_file" "$python_file"
       shell: bash
     - id: out
       run: |
         echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
-        echo "format=${{ inputs.format }}" >> "$GITHUB_OUTPUT"
+        echo "format=${{ steps.detect.outputs.fmt }}" >> "$GITHUB_OUTPUT"
       shell: bash

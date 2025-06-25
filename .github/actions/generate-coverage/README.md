@@ -1,26 +1,31 @@
 # Generate coverage
 
-Run code coverage for Rust or Python projects. The action uses
+Run code coverage for Rust projects, Python projects, and mixed Rust + Python projects. The action uses
 `cargo llvm-cov` when a `Cargo.toml` is present and `slipcover` with
 `pytest` when a `pyproject.toml` is present. It installs `slipcover` and
 `pytest` automatically via `uv` before running the tests. If both
-configuration files are found, the action fails.
+configuration files are present, coverage is run for each language and
+the Cobertura reports are merged using `uvx merge-cobertura`.
 
 ## Flow
 
 ```mermaid
 flowchart TD
     A[Start] --> B{Project type?}
-    B -- Cargo.toml present --> C[Set lang=rust]
-    B -- pyproject.toml present --> D[Set lang=python]
-    B -- Neither present --> E[Exit with error]
-    C --> F{lang}
-    D --> F
-    F -- rust --> G[Run cargo llvm-cov]
-    F -- python --> H[Run slipcover with pytest]
-    G --> I[Set outputs: file, format]
-    H --> I
-    I --> J[End]
+    B -- Both present --> C[Set lang=mixed]
+    B -- Cargo.toml only --> D[Set lang=rust]
+    B -- pyproject.toml only --> E[Set lang=python]
+    B -- Neither --> F[Exit with error]
+    C --> G{lang}
+    D --> G
+    E --> G
+    G -- rust --> H[Run cargo llvm-cov]
+    G -- python --> I[Run slipcover with pytest]
+    G -- mixed --> J[Run both & merge]
+    H --> K[Set outputs]
+    I --> K
+    J --> K
+    K --> L[End]
 ```
 
 ## Inputs
@@ -32,7 +37,7 @@ flowchart TD
 | output-path | Output file path | yes | |
 | format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
 
-\* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects.
+\* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects. Mixed projects must use `cobertura`.
 
 ## Outputs
 
@@ -40,7 +45,7 @@ flowchart TD
 | --- | --- |
 | file | Path to the generated coverage file |
 | format | Format of the coverage file |
-| lang | Detected language (`rust` or `python`) |
+| lang | Detected language (`rust`, `python` or `mixed`) |
 
 ## Example
 

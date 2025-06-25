@@ -4,6 +4,7 @@ inputs:
   features:
     description: Cargo features to enable
     required: false
+    type: string
   with-default-features:
     description: Enable default features
     required: false
@@ -12,9 +13,11 @@ inputs:
   output-path:
     description: Output file path
     required: true
+    type: string
   format:
     description: Coverage format
     required: false
+    type: string
     default: cobertura
 outputs:
   file:
@@ -32,17 +35,13 @@ runs:
     - id: detect
       run: |
         set -euo pipefail
-        has_rust=0
-        has_python=0
-        [[ -f Cargo.toml ]] && has_rust=1
-        [[ -f pyproject.toml ]] && has_python=1
 
-        if [[ $has_rust -eq 1 && $has_python -eq 1 ]]; then
-          lang=mixed
-        elif [[ $has_rust -eq 1 ]]; then
-          lang=rust
-        elif [[ $has_python -eq 1 ]]; then
-          lang=python
+        if [[ -f Cargo.toml && -f pyproject.toml ]]; then
+          found=both
+        elif [[ -f Cargo.toml ]]; then
+          found=rust
+        elif [[ -f pyproject.toml ]]; then
+          found=python
         else
           echo "Neither Cargo.toml nor pyproject.toml found" >&2
           exit 1
@@ -56,18 +55,24 @@ runs:
             ;;
         esac
 
-        if [[ "$lang" == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
+        if [[ $found == 'rust' && "${{ inputs.format }}" == 'coveragepy' ]]; then
           echo "coveragepy format only supported for Python projects" >&2
           exit 1
         fi
-        if [[ "$lang" == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
+        if [[ $found == 'python' && "${{ inputs.format }}" == 'lcov' ]]; then
           echo "lcov format only supported for Rust projects" >&2
           exit 1
         fi
-        if [[ "$lang" == 'mixed' && "${{ inputs.format }}" != 'cobertura' ]]; then
+        if [[ $found == 'both' && "${{ inputs.format }}" != 'cobertura' ]]; then
           echo "Mixed projects only support cobertura format" >&2
           exit 1
         fi
+
+        case $found in
+          both)   lang=mixed ;;
+          rust)   lang=rust  ;;
+          python) lang=python ;;
+        esac
 
         echo "lang=$lang" >> "$GITHUB_OUTPUT"
       shell: bash
@@ -137,7 +142,13 @@ runs:
     - if: steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
-        uvx merge-cobertura "${{ steps.rust.outputs.file }}" "${{ steps.python.outputs.file }}" > "${{ inputs.output-path }}"
+        rust_file="${{ steps.rust.outputs.file }}"
+        python_file="${{ steps.python.outputs.file }}"
+        if [[ ! -f "$rust_file" || ! -f "$python_file" ]]; then
+          echo "Coverage files not found: $rust_file $python_file" >&2
+          exit 1
+        fi
+        uvx merge-cobertura "$rust_file" "$python_file" > "${{ inputs.output-path }}"
       shell: bash
     - id: out
       run: |

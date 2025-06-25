@@ -1,6 +1,6 @@
 # Generate coverage
 
-Run code coverage for Rust and Python projects. The action uses
+Run code coverage for Rust projects, Python projects, or mixed Rust and Python projects. The action uses
 `cargo llvm-cov` when a `Cargo.toml` is present and `slipcover` with
 `pytest` when a `pyproject.toml` is present. It installs `slipcover` and
 `pytest` automatically via `uv` before running the tests. If both

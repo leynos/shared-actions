@@ -75,4 +75,13 @@ For multiple features:
     with-default-features: false
 ```
 
+Comma-separated feature list:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    features: logging,tracing
+```
+
 Release history is available in [CHANGELOG](CHANGELOG.md).

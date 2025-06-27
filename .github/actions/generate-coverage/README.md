@@ -32,7 +32,7 @@ flowchart TD
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| features | Cargo features to enable (Rust) | no | |
+| features | Cargo features to enable (Rust). Separate multiple features with spaces or commas. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
 | format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
@@ -54,6 +54,34 @@ flowchart TD
   with:
     output-path: coverage.xml
     format: cobertura
+```
+
+For a single feature:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    features: logging
+```
+
+For multiple features:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    features: logging tracing
+    with-default-features: false
+```
+
+Comma-separated feature list:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    features: logging,tracing
 ```
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

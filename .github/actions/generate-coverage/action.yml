@@ -2,9 +2,9 @@ name: Generate coverage
 description: Run test coverage for Rust, Python and mixed Rust and Python projects
 inputs:
   features:
-    description: Cargo features to enable
+    description: List of Cargo features to enable
     required: false
-    type: string
+    type: list
   with-default-features:
     description: Enable default features
     required: false
@@ -100,7 +100,8 @@ runs:
           args+=(--no-default-features)
         fi
         if [ -n "${{ inputs.features }}" ]; then
-          args+=(--features "${{ inputs.features }}")
+          features_csv="$(echo "${{ inputs.features }}" | tr '\n' ',' | sed 's/,$//')"
+          args+=(--features "$features_csv")
         fi
         fmt="${{ steps.detect.outputs.fmt }}"
         args+=(--$fmt)

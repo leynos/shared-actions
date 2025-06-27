@@ -32,7 +32,7 @@ flowchart TD
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| features | Cargo features to enable (Rust) | no | |
+| features | List of Cargo features to enable (Rust) | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
 | format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
@@ -54,6 +54,9 @@ flowchart TD
   with:
     output-path: coverage.xml
     format: cobertura
+    features:
+      - feat-a
+      - feat-b
 ```
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.5
+
+- Round coverage values to two decimals before comparison to avoid failures from
+  minor floating-point differences.
+- Provide clearer error messages when `cargo` commands fail.
+
 ## v1.0.4
 
 - Switch to `cargo-llvm-cov` for coverage generation.

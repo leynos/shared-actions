@@ -23,7 +23,8 @@ def main(
     ),
     current: float = typer.Option(..., envvar="CURRENT_PERCENT"),
 ) -> None:
-    baseline = read_baseline(baseline_file)
+    baseline = round(read_baseline(baseline_file), 2)
+    current = round(current, 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")

@@ -9,6 +9,7 @@ import typer
 
 
 def main() -> None:
+    """Install cargo-llvm-cov via cargo install command."""
     try:
         cargo["install", "cargo-llvm-cov"]()
         typer.echo("cargo-llvm-cov installed successfully")

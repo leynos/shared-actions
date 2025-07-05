@@ -8,7 +8,12 @@ import typer
 
 
 def main() -> None:
-    cargo["install", "cargo-llvm-cov"]()
+    try:
+        cargo["install", "cargo-llvm-cov"]()
+        typer.echo("cargo-llvm-cov installed successfully")
+    except Exception as e:
+        typer.echo(f"Failed to install cargo-llvm-cov: {e}", err=True)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

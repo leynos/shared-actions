@@ -3,21 +3,27 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
+"""Merge Cobertura XML files from Rust and Python coverage runs."""
+
 from pathlib import Path
 
 import typer
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
 
+RUST_FILE_OPT = typer.Option(
+    ..., envvar="RUST_FILE", exists=True, file_okay=True, dir_okay=False
+)
+PYTHON_FILE_OPT = typer.Option(
+    ..., envvar="PYTHON_FILE", exists=True, file_okay=True, dir_okay=False
+)
+OUTPUT_PATH_OPT = typer.Option(..., envvar="OUTPUT_PATH")
+
 
 def main(
-    rust_file: Path = typer.Option(
-        ..., envvar="RUST_FILE", exists=True, file_okay=True, dir_okay=False
-    ),
-    python_file: Path = typer.Option(
-        ..., envvar="PYTHON_FILE", exists=True, file_okay=True, dir_okay=False
-    ),
-    output_path: Path = typer.Option(..., envvar="OUTPUT_PATH"),
+    rust_file: Path = RUST_FILE_OPT,
+    python_file: Path = PYTHON_FILE_OPT,
+    output_path: Path = OUTPUT_PATH_OPT,
 ) -> None:
     """Merge two cobertura XML files and delete the inputs."""
     try:

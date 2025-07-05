@@ -3,11 +3,20 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
+"""Run Rust coverage using ``cargo llvm-cov``."""
+
 from pathlib import Path
 
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
+
+OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
+FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
+WITH_DEFAULT_OPT = typer.Option(True, envvar="INPUT_WITH_DEFAULT_FEATURES")
+LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
+FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
+GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 
 def get_cargo_coverage_cmd(
@@ -24,12 +33,12 @@ def get_cargo_coverage_cmd(
 
 
 def main(
-    output_path: Path = typer.Option(..., envvar="INPUT_OUTPUT_PATH"),
-    features: str = typer.Option("", envvar="INPUT_FEATURES"),
-    with_default: bool = typer.Option(True, envvar="INPUT_WITH_DEFAULT_FEATURES"),
-    lang: str = typer.Option(..., envvar="DETECTED_LANG"),
-    fmt: str = typer.Option(..., envvar="DETECTED_FMT"),
-    github_output: Path = typer.Option(..., envvar="GITHUB_OUTPUT"),
+    output_path: Path = OUTPUT_PATH_OPT,
+    features: str = FEATURES_OPT,
+    with_default: bool = WITH_DEFAULT_OPT,
+    lang: str = LANG_OPT,
+    fmt: str = FMT_OPT,
+    github_output: Path = GITHUB_OUTPUT_OPT,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     out = output_path

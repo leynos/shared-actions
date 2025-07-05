@@ -3,6 +3,8 @@
 # requires-python = ">=3.12"
 # dependencies = ["typer"]
 # ///
+"""Detect the project language and validate coverage format compatibility."""
+
 from enum import StrEnum
 from pathlib import Path
 
@@ -11,22 +13,37 @@ import typer
 
 
 class CoverageFmt(StrEnum):
+    """Supported coverage report formats."""
+
     LCOV = "lcov"
     COBERTURA = "cobertura"
     COVERAGEPY = "coveragepy"
 
 
 class CoverageFmtParam(click.ParamType):
+    """Custom parameter type for coverage format strings."""
+
     name = "format"
 
     def convert(
-        self, value: str, param: click.Parameter | None, ctx: click.Context | None
+        self,
+        value: str,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
     ) -> CoverageFmt:  # type: ignore[override]
         """Convert the incoming value to a ``CoverageFmt`` enum."""
         try:
             return CoverageFmt(value.lower())
         except ValueError:
             self.fail(f"Unsupported format: {value}", param, ctx)
+
+
+FMT_OPT = typer.Option(
+    CoverageFmt.COBERTURA,
+    envvar="INPUT_FORMAT",
+    type=CoverageFmtParam(),
+)
+GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 
 def get_lang() -> str:
@@ -44,10 +61,8 @@ def get_lang() -> str:
 
 
 def main(
-    fmt: CoverageFmt = typer.Option(
-        CoverageFmt.COBERTURA, envvar="INPUT_FORMAT", type=CoverageFmtParam()
-    ),
-    github_output: Path = typer.Option(..., envvar="GITHUB_OUTPUT"),
+    fmt: CoverageFmt = FMT_OPT,
+    github_output: Path = GITHUB_OUTPUT_OPT,
 ) -> None:
     """Detect the project language and write it plus the format to ``GITHUB_OUTPUT``."""
     lang = get_lang()

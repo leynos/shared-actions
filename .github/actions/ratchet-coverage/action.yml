@@ -33,7 +33,7 @@ runs:
         restore-keys: |
           ${{ runner.os }}-llvmcov-
     - name: Install cargo-llvm-cov
-      run: cargo install cargo-llvm-cov
+      run: uv run --script scripts/ratchet_coverage/install_cargo_llvm_cov.py
       shell: bash
     - if: runner.os == 'Windows'
       name: Install bc (MSYS2)
@@ -43,40 +43,12 @@ runs:
         path-type: inherit
     - name: Run coverage
       id: cov
-      run: |
-        set -euo pipefail
-        output=$(cargo llvm-cov --summary-only ${{ inputs.args }})
-        echo "$output"
-        percent=$(echo "$output" | grep -oEm1 '[0-9]+(\.[0-9]+)?%' | tr -d '%')
-        echo "percent=$percent" >> "$GITHUB_OUTPUT"
+      run: uv run --script scripts/ratchet_coverage/run_coverage.py
       shell: bash
     - name: Ratchet coverage
-      run: |
-        set -euo pipefail
-        file="${{ inputs.baseline-file }}"
-        current="${{ steps.cov.outputs.percent }}"
-        baseline=0
-        if [ -f "$file" ]; then
-          baseline=$(cat "$file")
-        fi
-        echo "Current coverage: $current%"
-        echo "Baseline coverage: $baseline%"
-
-        if ! echo "$current" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-          echo "Invalid coverage value: $current" >&2
-          exit 1
-        fi
-        if ! echo "$baseline" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
-          baseline=0
-        fi
-
-        if (( $(bc -l <<<"$current < $baseline") )); then
-          echo "Coverage decreased" >&2
-          exit 1
-        fi
-
-        mkdir -p "$(dirname "$file")"
-        printf '%.2f' "$current" > "$file"
+      run: uv run --script scripts/ratchet_coverage/ratchet_coverage.py
+      env:
+        CURRENT_PERCENT: ${{ steps.cov.outputs.percent }}
       shell: bash
     - name: Save baseline
       if: success()

@@ -15,5 +15,5 @@ special comment header understood by uv.
 
 The [Typer](https://typer.tiangolo.com/) library is used for argument parsing and
 error handling, while [plumbum](https://plumbum.readthedocs.io/) provides simple
-command execution.  By isolating logic in Python we keep the composite action
-YAML minimal and benefit from better readability and testability.
+command execution.  By isolating logic in Python, the composite action YAML
+remains minimal and benefits from better readability and testability.

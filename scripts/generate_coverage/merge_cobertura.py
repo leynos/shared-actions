@@ -5,35 +5,17 @@
 # ///
 from pathlib import Path
 
-import click
 import typer
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
 
 
-class ExistingFile(click.ParamType):
-    name = "file"
-
-    def __init__(self, kind: str) -> None:
-        """Create a validator that ensures the file exists."""
-        self.kind = kind
-
-    def convert(
-        self, value: str, param: click.Parameter | None, ctx: click.Context | None
-    ) -> Path:  # type: ignore[override]
-        """Validate that the provided path points to an existing file."""
-        path = Path(value)
-        if not path.is_file():
-            self.fail(f"{self.kind} file not found: {value}", param, ctx)
-        return path
-
-
 def main(
     rust_file: Path = typer.Option(
-        ..., envvar="RUST_FILE", type=ExistingFile("Rust coverage")
+        ..., envvar="RUST_FILE", exists=True, file_okay=True, dir_okay=False
     ),
     python_file: Path = typer.Option(
-        ..., envvar="PYTHON_FILE", type=ExistingFile("Python coverage")
+        ..., envvar="PYTHON_FILE", exists=True, file_okay=True, dir_okay=False
     ),
     output_path: Path = typer.Option(..., envvar="OUTPUT_PATH"),
 ) -> None:

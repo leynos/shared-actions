@@ -46,7 +46,7 @@ def main(
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
-        Path(".coverage").rename(out)
+        Path(".coverage").replace(out)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

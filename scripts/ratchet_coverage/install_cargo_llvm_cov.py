@@ -16,7 +16,7 @@ def main() -> None:
         typer.echo(
             f"cargo install failed with code {exc.retcode}: {exc.stderr}", err=True
         )
-        raise typer.Exit(code=exc.retcode or 1)
+        raise typer.Exit(code=exc.retcode or 1) from exc
 
 
 if __name__ == "__main__":

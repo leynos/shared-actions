@@ -8,6 +8,7 @@ import re
 import shlex
 import typer
 from plumbum.cmd import cargo
+from plumbum.commands.processes import ProcessExecutionError
 
 
 def extract_percent(output: str) -> str:
@@ -25,7 +26,13 @@ def main(
     cmd = cargo["llvm-cov", "--summary-only"]
     if args:
         cmd = cmd[shlex.split(args)]
-    output = cmd()
+    try:
+        retcode, output, err = cmd.run(retcode=None)
+    except ProcessExecutionError as exc:  # Should not happen but guard anyway
+        retcode, output, err = exc.retcode, exc.stdout, exc.stderr
+    if retcode != 0:
+        typer.echo(f"cargo llvm-cov failed with code {retcode}: {err}", err=True)
+        raise typer.Exit(code=retcode)
     typer.echo(output)
     percent = extract_percent(output)
     with github_output.open("a") as fh:

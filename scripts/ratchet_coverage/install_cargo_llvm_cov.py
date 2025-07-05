@@ -4,6 +4,7 @@
 # dependencies = ["plumbum", "typer"]
 # ///
 from plumbum.cmd import cargo
+from plumbum.commands.processes import ProcessExecutionError
 import typer
 
 
@@ -11,9 +12,11 @@ def main() -> None:
     try:
         cargo["install", "cargo-llvm-cov"]()
         typer.echo("cargo-llvm-cov installed successfully")
-    except Exception as e:
-        typer.echo(f"Failed to install cargo-llvm-cov: {e}", err=True)
-        raise typer.Exit(code=1)
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"cargo install failed with code {exc.retcode}: {exc.stderr}", err=True
+        )
+        raise typer.Exit(code=exc.retcode or 1)
 
 
 if __name__ == "__main__":

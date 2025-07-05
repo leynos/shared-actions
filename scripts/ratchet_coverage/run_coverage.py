@@ -15,7 +15,7 @@ def extract_percent(output: str) -> str:
     if not match:
         typer.echo("Could not parse coverage percent", err=True)
         raise typer.Exit(code=1)
-    return match.group(1)
+    return match[1]
 
 
 def main(

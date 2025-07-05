@@ -33,80 +33,14 @@ runs:
   using: composite
   steps:
     - id: detect
-      run: |
-        set -euo pipefail
-
-        if [[ -f Cargo.toml && -f pyproject.toml ]]; then
-          found=both
-        elif [[ -f Cargo.toml ]]; then
-          found=rust
-        elif [[ -f pyproject.toml ]]; then
-          found=python
-        else
-          echo "Neither Cargo.toml nor pyproject.toml found" >&2
-          exit 1
-        fi
-
-        fmt="${{ inputs.format }}"
-        # Normalise to lower-case inside the shell
-        fmt="${fmt,,}"
-        case "$fmt" in
-          lcov|cobertura|coveragepy) ;;
-          *)
-            echo "Unsupported format: ${{ inputs.format }}" >&2
-            exit 1
-            ;;
-        esac
-
-        case "$found/$fmt" in
-          rust/coveragepy)
-            echo "coveragepy format only supported for Python projects" >&2
-            exit 1
-            ;;
-          python/lcov)
-            echo "lcov format only supported for Rust projects" >&2
-            exit 1
-            ;;
-          both/cobertura)
-            ;;
-          both/*)
-            echo "Mixed projects only support cobertura format" >&2
-            exit 1
-            ;;
-        esac
-
-        case $found in
-          both)   lang=mixed ;;
-          rust)   lang=rust  ;;
-          python) lang=python ;;
-        esac
-
-        echo "lang=$lang" >> "$GITHUB_OUTPUT"
-        echo "fmt=$fmt" >> "$GITHUB_OUTPUT"
+      run: uv run --script scripts/generate_coverage/detect.py
       shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
-      run: |
-        set -euo pipefail
-        out="${{ inputs.output-path }}"
-        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
-          base="${{ inputs.output-path%.*}}"
-          ext="${{ inputs.output-path##*.}}"
-          out="${base}.rust.${ext}"
-        fi
-        mkdir -p "$(dirname "$out")"
-        args=(--workspace)
-        if [[ "${{ inputs.with-default-features }}" == "false" ]]; then
-          args+=(--no-default-features)
-        fi
-        if [ -n "${{ inputs.features }}" ]; then
-          args+=(--features "${{ inputs.features }}")
-        fi
-        fmt="${{ steps.detect.outputs.fmt }}"
-        args+=(--$fmt)
-        args+=(--output-path "$out")
-        cargo llvm-cov "${args[@]}"
-        echo "file=$out" >> "$GITHUB_OUTPUT"
+      run: uv run --script scripts/generate_coverage/run_rust.py
+      env:
+        DETECTED_LANG: ${{ steps.detect.outputs.lang }}
+        DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash
     - name: Install uv and set the python version
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
@@ -128,45 +62,20 @@ runs:
 
     - id: python
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
-      run: |
-        set -euo pipefail
-        mkdir -p "$(dirname "${{ inputs.output-path }}")"
-        out="${{ inputs.output-path }}"
-        if [[ "${{ steps.detect.outputs.lang }}" == 'mixed' ]]; then
-          base="${{ inputs.output-path%.*}}"
-          ext="${{ inputs.output-path##*.}}"
-          out="${base}.python.${ext}"
-        fi
-        case "${{ steps.detect.outputs.fmt }}" in
-          cobertura)
-            python -m slipcover \
-              --branch \
-              --xml "$out" \
-              -m pytest -v
-            ;;
-          coveragepy)
-            python -m slipcover \
-              --branch \
-              -m pytest -v
-            mv .coverage "$out"
-            ;;
-        esac
-        echo "file=$out" >> "$GITHUB_OUTPUT"
+      run: uv run --script scripts/generate_coverage/run_python.py
+      env:
+        DETECTED_LANG: ${{ steps.detect.outputs.lang }}
+        DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
-      run: |
-        set -euo pipefail
-        rust_file="${{ steps.rust.outputs.file }}"
-        python_file="${{ steps.python.outputs.file }}"
-        if [[ ! -f "$rust_file" || ! -f "$python_file" ]]; then
-          echo "Coverage files not found: $rust_file $python_file" >&2
-          exit 1
-        fi
-        uvx merge-cobertura "$rust_file" "$python_file" > "${{ inputs.output-path }}"
-        rm "$rust_file" "$python_file"
+      run: uv run --script scripts/generate_coverage/merge_cobertura.py
+      env:
+        RUST_FILE: ${{ steps.rust.outputs.file }}
+        PYTHON_FILE: ${{ steps.python.outputs.file }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
       shell: bash
     - id: out
-      run: |
-        echo "file=${{ inputs.output-path }}" >> "$GITHUB_OUTPUT"
-        echo "format=${{ steps.detect.outputs.fmt }}" >> "$GITHUB_OUTPUT"
+      run: uv run --script scripts/generate_coverage/set_outputs.py
+      env:
+        DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash

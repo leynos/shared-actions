@@ -45,6 +45,8 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v5
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       shell: bash
@@ -98,9 +100,6 @@ runs:
           ${{ inputs.baseline-python-file }}
         key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
         restore-keys: ratchet-baseline-${{ runner.os }}-
-    - name: Install uv and set the python version
-      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
-      uses: astral-sh/setup-uv@v5
 
     - name: Cache Python deps
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'

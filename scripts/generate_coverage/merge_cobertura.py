@@ -12,10 +12,10 @@ from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
 
 RUST_FILE_OPT = typer.Option(
-    ..., envvar="RUST_FILE", exists=True, file_okay=True, dir_okay=False
+    ..., envvar="RUST_FILE", exists=True, file_okay=True, dir_okay=False,
 )
 PYTHON_FILE_OPT = typer.Option(
-    ..., envvar="PYTHON_FILE", exists=True, file_okay=True, dir_okay=False
+    ..., envvar="PYTHON_FILE", exists=True, file_okay=True, dir_okay=False,
 )
 OUTPUT_PATH_OPT = typer.Option(..., envvar="OUTPUT_PATH")
 

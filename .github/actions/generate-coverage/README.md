@@ -36,6 +36,9 @@ flowchart TD
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
 | format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
+| with-ratchet | Fail if coverage decreases compared to the stored baseline | no | `false` |
+| baseline-rust-file | Path used to persist the Rust coverage baseline | no | `.coverage-baseline.rust` |
+| baseline-python-file | Path used to persist the Python coverage baseline | no | `.coverage-baseline.python` |
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects. Mixed projects must use `cobertura`.
 
@@ -82,6 +85,15 @@ Comma-separated feature list:
   with:
     output-path: coverage.xml
     features: logging,tracing
+```
+
+Enable ratcheting:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    with-ratchet: true
 ```
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

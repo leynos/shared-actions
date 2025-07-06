@@ -6,6 +6,7 @@
 """Run Rust coverage using ``cargo llvm-cov``."""
 
 from pathlib import Path
+import re
 
 import typer
 from plumbum.cmd import cargo
@@ -23,13 +24,22 @@ def get_cargo_coverage_cmd(
     fmt: str, out: Path, features: str, with_default: bool
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
-    args = ["llvm-cov", "--workspace"]
+    args = ["llvm-cov", "--workspace", "--summary-only"]
     if not with_default:
         args.append("--no-default-features")
     if features:
         args += ["--features", features]
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def extract_percent(output: str) -> str:
+    """Return the coverage percentage extracted from ``output``."""
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)%", output)
+    if not match:
+        typer.echo("Could not parse coverage percent", err=True)
+        raise typer.Exit(code=1)
+    return match[1]
 
 
 def main(
@@ -49,15 +59,18 @@ def main(
     args = get_cargo_coverage_cmd(fmt, out, features, with_default)
 
     try:
-        cargo[args]()
-    except ProcessExecutionError as exc:
-        typer.echo(
-            f"cargo llvm-cov failed with code {exc.retcode}: {exc.stderr}", err=True
-        )
-        raise typer.Exit(code=exc.retcode or 1) from exc
+        retcode, stdout, stderr = cargo[args].run(retcode=None)
+    except ProcessExecutionError as exc:  # Guard unexpected failure path
+        retcode, stdout, stderr = exc.retcode, exc.stdout, exc.stderr
+    if retcode != 0:
+        typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
+        raise typer.Exit(code=retcode or 1)
+    typer.echo(stdout)
+    percent = extract_percent(stdout)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")
+        fh.write(f"percent={percent}\n")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 """Run Python coverage analysis using slipcover and pytest."""
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import typer
 from plumbum import FG
@@ -35,6 +36,17 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
 
 
+def percent_from_xml(xml_file: Path) -> str:
+    """Return the total line coverage percentage from a cobertura XML file."""
+    try:
+        root = ET.parse(xml_file).getroot()
+        rate = float(root.attrib["line-rate"])
+    except Exception as exc:  # parse errors or missing attributes
+        typer.echo(f"Failed to parse coverage XML: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    return f"{rate * 100:.2f}"
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     lang: str = LANG_OPT,
@@ -54,10 +66,23 @@ def main(
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
+        xml_tmp = out.with_suffix(".xml")
+        try:
+            python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
+        except ProcessExecutionError as exc:
+            typer.echo(
+                f"coverage xml failed with code {exc.retcode}: {exc.stderr}", err=True
+            )
+            raise typer.Exit(code=exc.retcode or 1) from exc
+        percent = percent_from_xml(xml_tmp)
+        xml_tmp.unlink()
         Path(".coverage").replace(out)
+    else:
+        percent = percent_from_xml(out)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")
+        fh.write(f"percent={percent}\n")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.0 (2025-07-06)
+
+- Add optional ratcheting support via `with-ratchet`. Coverage percentages for
+  Rust and Python are tracked separately and compared against their respective
+  baselines.
+
 ## v1.2.0 (2025-06-26)
 
 - Support projects containing both Python and Rust. Cobertura reports from

@@ -42,8 +42,10 @@ class StubManager:
                 raise NotImplementedError("callable matchers not supported")
         spec = {"variants": variants}
         self._specs[name] = spec
+        spec_file = self.dir / f"{name}.json"
+        spec_file.write_text(json.dumps(spec))
         path = self.dir / name
-        path.write_text(self._wrapper_source(name, spec))
+        path.write_text(self._wrapper_source(name, spec_file))
         path.chmod(0o755)
 
     def calls_of(self, name: str) -> list[Call]:
@@ -64,26 +66,34 @@ class StubManager:
             **os.environ,
         }
 
-    def _wrapper_source(self, name: str, spec: dict) -> str:
+    def _wrapper_source(self, name: str, spec_path: Path) -> str:
         calls_file = str(self._calls_file)
-        spec_json = json.dumps(spec)
+        spec_file = str(spec_path)
         return f"""#!/usr/bin/env python3
 import json, os, sys, datetime as _dt
-spec = json.loads({spec_json!r})
+
+with open({spec_file!r}) as fh:
+    spec = json.load(fh)
+
 calls_file = {calls_file!r}
 argv = sys.argv[1:]
+
 rec = {{"cmd": {name!r}, "argv": argv, "cwd": os.getcwd(), "ts": _dt.datetime.utcnow().isoformat() + 'Z'}}
 with open(calls_file, 'a') as fh:
     json.dump(rec, fh); fh.write('\\n')
+
 chosen = None
 for var in spec['variants']:
     m = var.get('match')
     if m is None:
         chosen = chosen or var
     elif m == argv:
-        chosen = var; break
+        chosen = var
+        break
+
 if chosen is None:
     sys.exit(127)
+
 sys.stdout.write(chosen.get('stdout', ''))
 sys.stderr.write(chosen.get('stderr', ''))
 sys.exit(chosen.get('exit_code', 0))

@@ -81,12 +81,12 @@ runs:
       if: inputs.with-ratchet == 'true'
       run: |
         if [[ "${{ steps.detect.outputs.lang }}" == "rust" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
-          uv run --script "${{ github.action_path }}/../ratchet-coverage/scripts/ratchet_coverage.py" \
+          uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
             --baseline-file "${{ inputs.baseline-rust-file }}" \
             --current "${{ steps.rust.outputs.percent }}"
         fi
         if [[ "${{ steps.detect.outputs.lang }}" == "python" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
-          uv run --script "${{ github.action_path }}/../ratchet-coverage/scripts/ratchet_coverage.py" \
+          uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
             --baseline-file "${{ inputs.baseline-python-file }}" \
             --current "${{ steps.python.outputs.percent }}"
         fi

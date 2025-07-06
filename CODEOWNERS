@@ -2,4 +2,3 @@
 .github/actions/generate-coverage/ @leynos
 .github/actions/setup-rust/ @leynos
 .github/actions/upload-codescene-coverage/ @leynos
-.github/actions/ratchet-coverage/ @leynos

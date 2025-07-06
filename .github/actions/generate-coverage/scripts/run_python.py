@@ -5,10 +5,10 @@
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
-from pathlib import Path
 import contextlib
-import defusedxml.ElementTree as ET
+from pathlib import Path
 
+import defusedxml.ElementTree as ET
 import typer
 from plumbum import FG
 from plumbum.cmd import python

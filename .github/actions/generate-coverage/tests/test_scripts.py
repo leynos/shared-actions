@@ -4,11 +4,16 @@ import subprocess
 from pathlib import Path
 
 
-def run_script(script: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess:
+def run_script(
+    script: Path, env: dict[str, str], *args: str
+) -> subprocess.CompletedProcess:
+    """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
+
     cmd = ["uv", "run", "--script", str(script), *args]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
-def test_run_rust_success(tmp_path, shell_stubs):
+def test_run_rust_success(tmp_path, shell_stubs) -> None:
+    """Happy path for ``run_rust.py``."""
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
 
@@ -39,7 +44,8 @@ def test_run_rust_success(tmp_path, shell_stubs):
     assert "percent=81.5" in data
 
 
-def test_run_rust_failure(tmp_path, shell_stubs):
+def test_run_rust_failure(tmp_path, shell_stubs) -> None:
+    """``run_rust.py`` propagates cargo failures."""
     shell_stubs.register(
         "cargo",
         stderr="boom",
@@ -59,7 +65,8 @@ def test_run_rust_failure(tmp_path, shell_stubs):
 
 
 
-def test_merge_cobertura(tmp_path, shell_stubs):
+def test_merge_cobertura(tmp_path, shell_stubs) -> None:
+    """``merge_cobertura.py`` merges two files and removes them."""
     rust = tmp_path / "r.xml"
     py = tmp_path / "p.xml"
     rust.write_text("<r/>")
@@ -68,7 +75,12 @@ def test_merge_cobertura(tmp_path, shell_stubs):
 
     shell_stubs.register(
         "uvx",
-        variants=[dict(match=["merge-cobertura", str(rust), str(py)], stdout="<merged/>")]
+        variants=[
+            {
+                "match": ["merge-cobertura", str(rust), str(py)],
+                "stdout": "<merged/>",
+            }
+        ],
     )
 
     env = {

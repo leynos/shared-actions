@@ -5,8 +5,8 @@
 # ///
 """Run Rust coverage using ``cargo llvm-cov``."""
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 import typer
 from plumbum.cmd import cargo

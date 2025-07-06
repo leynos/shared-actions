@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.3.0 (2025-07-06)
+
+- Add optional ratcheting support via `with-ratchet`. Coverage percentages for
+  Rust and Python are tracked separately and compared against their respective
+  baselines.
+- Improve baseline caching to allow updates and consolidate ratcheting steps.
+
+## v1.3.1 (2025-07-06)
+
+- Parse coverage XML using `defusedxml` for better security.
+- Fix formatting in the Python runner and improve Rust coverage parsing.
+
 ## v1.2.0 (2025-06-26)
 
 - Support projects containing both Python and Rust. Cobertura reports from

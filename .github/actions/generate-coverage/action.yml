@@ -19,6 +19,19 @@ inputs:
     required: false
     type: string
     default: cobertura
+  with-ratchet:
+    description: Fail if coverage falls below the stored baseline
+    required: false
+    type: boolean
+    default: false
+  baseline-rust-file:
+    description: Path to store the Rust coverage baseline
+    required: false
+    default: .coverage-baseline.rust
+  baseline-python-file:
+    description: Path to store the Python coverage baseline
+    required: false
+    default: .coverage-baseline.python
 outputs:
   file:
     description: Path to the generated coverage file
@@ -35,6 +48,26 @@ runs:
     - id: detect
       run: uv run --script scripts/generate_coverage/detect.py
       shell: bash
+    - name: Restore baselines
+      if: inputs.with-ratchet == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.baseline-rust-file }}
+          ${{ inputs.baseline-python-file }}
+        key: ratchet-baseline-${{ runner.os }}
+    - name: Ensure baseline files
+      if: inputs.with-ratchet == 'true'
+      run: |
+        if [ ! -f "${{ inputs.baseline-rust-file }}" ]; then
+          mkdir -p "$(dirname '${{ inputs.baseline-rust-file }}')"
+          echo 0 > "${{ inputs.baseline-rust-file }}"
+        fi
+        if [ ! -f "${{ inputs.baseline-python-file }}" ]; then
+          mkdir -p "$(dirname '${{ inputs.baseline-python-file }}')"
+          echo 0 > "${{ inputs.baseline-python-file }}"
+        fi
+      shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script scripts/generate_coverage/run_rust.py
@@ -42,6 +75,29 @@ runs:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash
+    - name: Ratchet coverage
+      if: inputs.with-ratchet == 'true'
+      run: |
+        if [[ "${{ steps.detect.outputs.lang }}" == "rust" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
+          uv run --script scripts/ratchet_coverage/ratchet_coverage.py \
+            --baseline-file "${{ inputs.baseline-rust-file }}" \
+            --current "${{ steps.rust.outputs.percent }}"
+        fi
+        if [[ "${{ steps.detect.outputs.lang }}" == "python" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
+          uv run --script scripts/ratchet_coverage/ratchet_coverage.py \
+            --baseline-file "${{ inputs.baseline-python-file }}" \
+            --current "${{ steps.python.outputs.percent }}"
+        fi
+      shell: bash
+    - name: Save baselines
+      if: success() && inputs.with-ratchet == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.baseline-rust-file }}
+          ${{ inputs.baseline-python-file }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: ratchet-baseline-${{ runner.os }}-
     - name: Install uv and set the python version
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       uses: astral-sh/setup-uv@v5

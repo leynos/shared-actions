@@ -1,11 +1,13 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "typer", "defusedxml"]
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
 from pathlib import Path
+import contextlib
+import defusedxml.ElementTree as ET
 
 import typer
 from plumbum import FG
@@ -35,6 +37,34 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
 
 
+def percent_from_xml(xml_file: Path) -> str:
+    """Return the total line coverage percentage from a cobertura XML file."""
+    try:
+        root = ET.parse(xml_file).getroot()
+        rate = float(root.attrib["line-rate"])
+    except Exception as exc:  # parse errors or missing attributes
+        typer.echo(f"Failed to parse coverage XML: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    return f"{rate * 100:.2f}"
+
+
+@contextlib.contextmanager
+def tmp_coveragepy_xml(out: Path) -> Path:
+    """Generate a cobertura XML from coverage.py and clean up afterwards."""
+    xml_tmp = out.with_suffix(".xml")
+    try:
+        python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"coverage xml failed with code {exc.retcode}: {exc.stderr}", err=True,
+        )
+        raise typer.Exit(code=exc.retcode or 1) from exc
+    try:
+        yield xml_tmp
+    finally:
+        xml_tmp.unlink(missing_ok=True)
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     lang: str = LANG_OPT,
@@ -54,10 +84,15 @@ def main(
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
+        with tmp_coveragepy_xml(out) as xml_tmp:
+            percent = percent_from_xml(xml_tmp)
         Path(".coverage").replace(out)
+    else:
+        percent = percent_from_xml(out)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")
+        fh.write(f"percent={percent}\n")
 
 
 if __name__ == "__main__":

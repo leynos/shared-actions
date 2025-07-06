@@ -6,6 +6,7 @@
 """Run Python coverage analysis using slipcover and pytest."""
 
 from pathlib import Path
+import contextlib
 import defusedxml.ElementTree as ET
 
 import typer
@@ -47,6 +48,23 @@ def percent_from_xml(xml_file: Path) -> str:
     return f"{rate * 100:.2f}"
 
 
+@contextlib.contextmanager
+def tmp_coveragepy_xml(out: Path) -> Path:
+    """Generate a cobertura XML from coverage.py and clean up afterwards."""
+    xml_tmp = out.with_suffix(".xml")
+    try:
+        python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"coverage xml failed with code {exc.retcode}: {exc.stderr}", err=True,
+        )
+        raise typer.Exit(code=exc.retcode or 1) from exc
+    try:
+        yield xml_tmp
+    finally:
+        xml_tmp.unlink(missing_ok=True)
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     lang: str = LANG_OPT,
@@ -66,17 +84,8 @@ def main(
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
-        xml_tmp = out.with_suffix(".xml")
-        try:
-            python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
-        except ProcessExecutionError as exc:
-            typer.echo(
-                f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
-                err=True,
-            )
-            raise typer.Exit(code=exc.retcode or 1) from exc
-        percent = percent_from_xml(xml_tmp)
-        xml_tmp.unlink()
+        with tmp_coveragepy_xml(out) as xml_tmp:
+            percent = percent_from_xml(xml_tmp)
         Path(".coverage").replace(out)
     else:
         percent = percent_from_xml(out)

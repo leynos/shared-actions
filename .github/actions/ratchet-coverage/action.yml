@@ -4,6 +4,7 @@ inputs:
   baseline-file:
     description: Path to store the coverage baseline
     required: false
+    type: string
     default: .coverage-baseline
   args:
     description: Additional arguments passed to cargo llvm-cov

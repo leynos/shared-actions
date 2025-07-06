@@ -46,7 +46,7 @@ runs:
   using: composite
   steps:
     - id: detect
-      run: uv run --script scripts/generate_coverage/detect.py
+      run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       shell: bash
     - name: Restore baselines
       if: inputs.with-ratchet == 'true'
@@ -70,7 +70,7 @@ runs:
       shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
-      run: uv run --script scripts/generate_coverage/run_rust.py
+      run: uv run --script "${{ github.action_path }}/scripts/run_rust.py"
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
@@ -79,12 +79,12 @@ runs:
       if: inputs.with-ratchet == 'true'
       run: |
         if [[ "${{ steps.detect.outputs.lang }}" == "rust" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
-          uv run --script scripts/ratchet_coverage/ratchet_coverage.py \
+          uv run --script "${{ github.action_path }}/../ratchet-coverage/scripts/ratchet_coverage.py" \
             --baseline-file "${{ inputs.baseline-rust-file }}" \
             --current "${{ steps.rust.outputs.percent }}"
         fi
         if [[ "${{ steps.detect.outputs.lang }}" == "python" || "${{ steps.detect.outputs.lang }}" == "mixed" ]]; then
-          uv run --script scripts/ratchet_coverage/ratchet_coverage.py \
+          uv run --script "${{ github.action_path }}/../ratchet-coverage/scripts/ratchet_coverage.py" \
             --baseline-file "${{ inputs.baseline-python-file }}" \
             --current "${{ steps.python.outputs.percent }}"
         fi
@@ -118,20 +118,20 @@ runs:
 
     - id: python
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
-      run: uv run --script scripts/generate_coverage/run_python.py
+      run: uv run --script "${{ github.action_path }}/scripts/run_python.py"
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
-      run: uv run --script scripts/generate_coverage/merge_cobertura.py
+      run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"
       env:
         RUST_FILE: ${{ steps.rust.outputs.file }}
         PYTHON_FILE: ${{ steps.python.outputs.file }}
         OUTPUT_PATH: ${{ inputs.output-path }}
       shell: bash
     - id: out
-      run: uv run --script scripts/generate_coverage/set_outputs.py
+      run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash

@@ -33,7 +33,7 @@ runs:
         restore-keys: |
           ${{ runner.os }}-llvmcov-
     - name: Install cargo-llvm-cov
-      run: uv run --script scripts/ratchet_coverage/install_cargo_llvm_cov.py
+      run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
       shell: bash
     - if: runner.os == 'Windows'
       name: Install bc (MSYS2)
@@ -43,10 +43,10 @@ runs:
         path-type: inherit
     - name: Run coverage
       id: cov
-      run: uv run --script scripts/ratchet_coverage/run_coverage.py
+      run: uv run --script "${{ github.action_path }}/scripts/run_coverage.py"
       shell: bash
     - name: Ratchet coverage
-      run: uv run --script scripts/ratchet_coverage/ratchet_coverage.py
+      run: uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py"
       env:
         CURRENT_PERCENT: ${{ steps.cov.outputs.percent }}
       shell: bash

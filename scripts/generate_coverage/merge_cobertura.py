@@ -30,7 +30,7 @@ def main(
         output = uvx["merge-cobertura", str(rust_file), str(python_file)]()
     except ProcessExecutionError as exc:
         typer.echo(
-            f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}", err=True
+            f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}", err=True,
         )
         raise typer.Exit(code=exc.retcode or 1) from exc
     output_path.write_text(output)

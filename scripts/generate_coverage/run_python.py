@@ -1,12 +1,12 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "typer", "defusedxml"]
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
 from pathlib import Path
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 import typer
 from plumbum import FG
@@ -71,7 +71,8 @@ def main(
             python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
         except ProcessExecutionError as exc:
             typer.echo(
-                f"coverage xml failed with code {exc.retcode}: {exc.stderr}", err=True
+                f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
+                err=True,
             )
             raise typer.Exit(code=exc.retcode or 1) from exc
         percent = percent_from_xml(xml_tmp)

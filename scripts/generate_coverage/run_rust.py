@@ -35,7 +35,11 @@ def get_cargo_coverage_cmd(
 
 def extract_percent(output: str) -> str:
     """Return the coverage percentage extracted from ``output``."""
-    match = re.search(r"([0-9]+(?:\.[0-9]+)?)%", output)
+    match = re.search(
+        r"(?:coverage|Coverage).*?([0-9]+(?:\.[0-9]+)?)%",
+        output,
+        re.MULTILINE | re.IGNORECASE,
+    )
     if not match:
         typer.echo("Could not parse coverage percent", err=True)
         raise typer.Exit(code=1)

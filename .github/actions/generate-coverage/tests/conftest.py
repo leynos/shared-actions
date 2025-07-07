@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
@@ -21,7 +23,7 @@ from shellstub import StubManager
 
 
 @pytest.fixture
-def shell_stubs(tmp_path, monkeypatch) -> StubManager:
+def shell_stubs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""
 
     dir_ = tmp_path / "stubs"
@@ -33,3 +35,4 @@ def shell_stubs(tmp_path, monkeypatch) -> StubManager:
         "PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH','')}"
     )
     yield mgr
+

@@ -103,11 +103,10 @@ class StubManager:
     def env(self) -> dict[str, str]:
         """Return environment variables that expose the stub directory."""
 
-        return {
-            "PATH": f"{self.dir}{os.pathsep}{os.getenv('PATH', '')}",
-            "PYTHONPATH": os.getenv("PYTHONPATH", ""),
-            **os.environ,
-        }
+        env = dict(os.environ)
+        env["PATH"] = f"{self.dir}{os.pathsep}{env.get('PATH', '')}"
+        env["PYTHONPATH"] = env.get("PYTHONPATH", "")
+        return env
 
     def _wrapper_source(self, name: str, spec_path: Path) -> str:
         """Return the Python wrapper source code for *name*."""

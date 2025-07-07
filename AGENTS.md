@@ -157,6 +157,15 @@ Each action’s `CODEOWNERS` entry must name **at least one** current maintainer
 
 - "Reusable Workflows vs Actions" blog post – <https://github.blog/changelog/2022-08-03-reusable-workflows-ga/>
 
+For Python development, refer to the detailed guidelines in the `.rules/` directory:
+
+* [Python Code Style Guidelines](.rules/python-00.md) - Core Python 3.13 style conventions
+* [Python Context Managers](.rules/python-context-managers.md) - Best practices for context managers
+* [Python Generators](.rules/python-generators.md) - Generator and iterator patterns
+* [Python Project Configuration](.rules/python-pyproject.md) - pyproject.toml and packaging
+* [Python Return Patterns](.rules/python-return.md) - Function return conventions
+* [Python Typing](.rules/python-typing.md) - Type annotation best practices
+
 ---
 
 Maintainers are encouraged to keep this Codex up to date. Pull requests welcome.

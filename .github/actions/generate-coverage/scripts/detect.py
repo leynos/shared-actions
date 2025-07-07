@@ -5,14 +5,16 @@
 # ///
 """Detect the project language and validate coverage format compatibility."""
 
-from enum import StrEnum
+from __future__ import annotations
+
+import enum
 from pathlib import Path
 
 import click
 import typer
 
 
-class CoverageFmt(StrEnum):
+class CoverageFmt(enum.StrEnum):
     """Supported coverage report formats."""
 
     LCOV = "lcov"

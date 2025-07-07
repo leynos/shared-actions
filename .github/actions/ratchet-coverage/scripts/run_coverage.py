@@ -3,9 +3,13 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
+"""Run ``cargo llvm-cov`` and output the coverage percentage."""
+
+from __future__ import annotations
+
 import re
 import shlex
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
 from plumbum.cmd import cargo
@@ -14,7 +18,6 @@ from plumbum.commands.processes import ProcessExecutionError
 
 def extract_percent(output: str) -> str:
     """Return the coverage percentage parsed from ``output`` text."""
-
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)%", output)
     if not match:
         typer.echo("Could not parse coverage percent", err=True)
@@ -22,12 +25,16 @@ def extract_percent(output: str) -> str:
     return match[1]
 
 
+ARGS_OPT = typer.Option("", envvar="INPUT_ARGS")
+OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
+
+
 def main(
-    args: str = typer.Option("", envvar="INPUT_ARGS"),
-    github_output: Path = typer.Option(..., envvar="GITHUB_OUTPUT"),
+    *,
+    args: str = ARGS_OPT,
+    github_output: Path = OUTPUT_OPT,
 ) -> None:
     """Run ``cargo llvm-cov`` and write the percent value to ``GITHUB_OUTPUT``."""
-
     cmd = cargo["llvm-cov", "--summary-only"]
     if args:
         cmd = cmd[shlex.split(args)]

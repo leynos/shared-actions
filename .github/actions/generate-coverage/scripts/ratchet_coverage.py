@@ -3,9 +3,18 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
+"""Compare current coverage with a baseline and update if higher."""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 import typer
+
+BASELINE_FILE_OPT = typer.Option(
+    Path(".coverage-baseline"), envvar="INPUT_BASELINE_FILE"
+)
+CURRENT_OPT = typer.Option(..., envvar="CURRENT_PERCENT")
 
 
 def read_baseline(file: Path) -> float:
@@ -19,13 +28,11 @@ def read_baseline(file: Path) -> float:
 
 
 def main(
-    baseline_file: Path = typer.Option(
-        Path(".coverage-baseline"), envvar="INPUT_BASELINE_FILE"
-    ),
-    current: float = typer.Option(..., envvar="CURRENT_PERCENT"),
+    baseline_file: Path = BASELINE_FILE_OPT,
+    *,
+    current: float = CURRENT_OPT,
 ) -> None:
     """Compare ``current`` coverage with the stored baseline and update it."""
-
     baseline = round(read_baseline(baseline_file), 2)
     current = round(current, 2)
 

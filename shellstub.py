@@ -1,16 +1,15 @@
-from __future__ import annotations
-
 """Minimal framework for stubbing command line tools in tests."""
 
+from __future__ import annotations
+
+import collections.abc as cabc  # noqa: TC003 - used at runtime
+import dataclasses as dc
 import json
 import os
-import sys
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - used at runtime
 
 
-@dataclass
+@dc.dataclass
 class Call:
     """Record of a stub invocation."""
 
@@ -18,21 +17,23 @@ class Call:
     cwd: str
     timestamp: str
 
-@dataclass
+
+@dc.dataclass
 class Variant:
     """Possible behaviour for a stub based on its arguments."""
 
-    match: Sequence[str] | None
+    match: cabc.Sequence[str] | None
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
 
-@dataclass
+
+@dc.dataclass
 class StubSpec:
     """Specification for a stub including its variants and optional callback."""
 
     variants: list[Variant]
-    func: Callable[[Sequence[str]], int] | None = None
+    func: cabc.Callable[[cabc.Sequence[str]], int] | None = None
 
 
 class StubManager:
@@ -40,7 +41,6 @@ class StubManager:
 
     def __init__(self, dir_: Path) -> None:
         """Create a manager whose wrappers live under ``dir_``."""
-
         self.dir = dir_
         self.dir.mkdir(parents=True, exist_ok=True)
         self._calls_file = self.dir / "calls.jsonl"
@@ -54,7 +54,7 @@ class StubManager:
         stdout: str = "",
         stderr: str = "",
         exit_code: int = 0,
-        func: Callable[[Sequence[str]], int] | None = None,
+        func: cabc.Callable[[cabc.Sequence[str]], int] | None = None,
     ) -> None:
         """Register a new stub with either a variants list or single behaviour."""
         if variants is None:
@@ -66,30 +66,25 @@ class StubManager:
                     "exit_code": exit_code,
                 }
             ]
-        parsed = []
-        for v in variants:
-            parsed.append(
-                Variant(
-                    match=v["match"],
-                    stdout=v.get("stdout", ""),
-                    stderr=v.get("stderr", ""),
-                    exit_code=v.get("exit_code", 0),
-                )
+        parsed = [
+            Variant(
+                match=v["match"],
+                stdout=v.get("stdout", ""),
+                stderr=v.get("stderr", ""),
+                exit_code=v.get("exit_code", 0),
             )
+            for v in variants
+        ]
         spec = StubSpec(parsed, func=func)
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
-        spec_file.write_text(
-            json.dumps({"variants": [v.__dict__ for v in parsed]})
-        )
+        spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
         path = self.dir / name
         path.write_text(self._wrapper_source(name, spec_file))
         path.chmod(0o755)
 
-
     def calls_of(self, name: str) -> list[Call]:
         """Return the list of recorded calls for *name* in order."""
-
         out: list[Call] = []
         if not self._calls_file.exists():
             return out
@@ -102,7 +97,6 @@ class StubManager:
     @property
     def env(self) -> dict[str, str]:
         """Return environment variables that expose the stub directory."""
-
         env = dict(os.environ)
         env["PATH"] = f"{self.dir}{os.pathsep}{env.get('PATH', '')}"
         env["PYTHONPATH"] = env.get("PYTHONPATH", "")
@@ -110,7 +104,6 @@ class StubManager:
 
     def _wrapper_source(self, name: str, spec_path: Path) -> str:
         """Return the Python wrapper source code for *name*."""
-
         calls_file = str(self._calls_file)
         spec_file = str(spec_path)
         return f"""#!/usr/bin/env python3
@@ -127,7 +120,12 @@ with open({spec_file!r}) as fh:
 calls_file = {calls_file!r}
 argv = sys.argv[1:]
 
-rec = {{"cmd": {name!r}, "argv": argv, "cwd": os.getcwd(), "ts": _dt.datetime.utcnow().isoformat() + 'Z'}}
+rec = {{
+    "cmd": {name!r},
+    "argv": argv,
+    "cwd": os.getcwd(),
+    "ts": _dt.datetime.utcnow().isoformat() + 'Z',
+}}
 with open(calls_file, 'a') as fh:
     json.dump(rec, fh)
     fh.write('\\n')
@@ -157,5 +155,3 @@ sys.exit(chosen.get('exit_code', 0))
 
 # single mutable reference, monkey-patched by tests
 _GLOBAL_MANAGER: StubManager | None = None
-
-

@@ -1,18 +1,22 @@
+"""Tests for coverage utility scripts."""
+
 from __future__ import annotations
 
 import subprocess
+import typing as t
 from pathlib import Path
 
-from shellstub import StubManager
+if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+    from shellstub import StubManager
 
 
 def run_script(
     script: Path, env: dict[str, str], *args: str
 ) -> subprocess.CompletedProcess[str]:
     """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
-
     cmd = ["uv", "run", "--script", str(script), *args]
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
+
 
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     """Happy path for ``run_rust.py``."""
@@ -79,7 +83,6 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "cargo llvm-cov failed" in res.stderr
 
 
-
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``merge_cobertura.py`` merges two files and removes them."""
     rust = tmp_path / "r.xml"
@@ -111,6 +114,5 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert not rust.exists()
     assert not py.exists()
     calls = shell_stubs.calls_of("uvx")
-    assert calls and calls[0].argv[:1] == ["merge-cobertura"]
-
-
+    assert calls
+    assert calls[0].argv[:1] == ["merge-cobertura"]

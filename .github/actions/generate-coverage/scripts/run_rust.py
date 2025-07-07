@@ -5,8 +5,10 @@
 # ///
 """Run Rust coverage using ``cargo llvm-cov``."""
 
+from __future__ import annotations
+
 import re
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
 from plumbum.cmd import cargo
@@ -14,14 +16,14 @@ from plumbum.commands.processes import ProcessExecutionError
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
-WITH_DEFAULT_OPT = typer.Option(True, envvar="INPUT_WITH_DEFAULT_FEATURES")
+WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURES")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 
 def get_cargo_coverage_cmd(
-    fmt: str, out: Path, features: str, with_default: bool
+    fmt: str, out: Path, features: str, *, with_default: bool
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
     args = ["llvm-cov", "--workspace", "--summary-only"]
@@ -49,6 +51,7 @@ def extract_percent(output: str) -> str:
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     features: str = FEATURES_OPT,
+    *,
     with_default: bool = WITH_DEFAULT_OPT,
     lang: str = LANG_OPT,
     fmt: str = FMT_OPT,
@@ -60,7 +63,7 @@ def main(
         out = output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    args = get_cargo_coverage_cmd(fmt, out, features, with_default)
+    args = get_cargo_coverage_cmd(fmt, out, features, with_default=with_default)
 
     try:
         retcode, stdout, stderr = cargo[args].run(retcode=None)

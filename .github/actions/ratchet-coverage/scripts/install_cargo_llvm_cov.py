@@ -3,6 +3,8 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
+"""Install the cargo-llvm-cov tool via ``cargo install``."""
+
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError

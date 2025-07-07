@@ -5,15 +5,21 @@
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
+from __future__ import annotations
+
+import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import typing as t
 from pathlib import Path
 
-import defusedxml.ElementTree as ET
+import defusedxml.ElementTree as ET  # noqa: N817 - maintain alias for compatibility
 import typer
 from plumbum import FG
 from plumbum.cmd import python
-from plumbum.commands.base import BoundCommand
 from plumbum.commands.processes import ProcessExecutionError
+
+if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+    from plumbum.commands.base import BoundCommand
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
@@ -49,14 +55,15 @@ def percent_from_xml(xml_file: Path) -> str:
 
 
 @contextlib.contextmanager
-def tmp_coveragepy_xml(out: Path) -> Path:
+def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
     try:
         python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
     except ProcessExecutionError as exc:
         typer.echo(
-            f"coverage xml failed with code {exc.retcode}: {exc.stderr}", err=True,
+            f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
         )
         raise typer.Exit(code=exc.retcode or 1) from exc
     try:

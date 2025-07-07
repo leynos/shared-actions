@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003 - used at runtime
 import dataclasses as dc
 import json
 import os
-import typing as t
 from pathlib import Path  # noqa: TC003 - used at runtime
-
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
-    import collections.abc as cabc
 
 
 @dc.dataclass
@@ -81,7 +78,7 @@ class StubManager:
         spec = StubSpec(parsed, func=func)
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
-        spec_file.write_text(json.dumps({"variants": [v.__dict__ for v in parsed]}))
+        spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
         path = self.dir / name
         path.write_text(self._wrapper_source(name, spec_file))
         path.chmod(0o755)

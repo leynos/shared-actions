@@ -11,7 +11,7 @@ import contextlib
 import typing as t
 from pathlib import Path
 
-import defusedxml.ElementTree as ElementTree
+import defusedxml.ElementTree as ET  # noqa: N817 - maintain alias for compatibility
 import typer
 from plumbum import FG
 from plumbum.cmd import python
@@ -45,7 +45,7 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
 def percent_from_xml(xml_file: Path) -> str:
     """Return the total line coverage percentage from a cobertura XML file."""
     try:
-        root = ElementTree.parse(xml_file).getroot()
+        root = ET.parse(xml_file).getroot()
         rate = float(root.attrib["line-rate"])
     except Exception as exc:  # parse errors or missing attributes
         typer.echo(f"Failed to parse coverage XML: {exc}", err=True)

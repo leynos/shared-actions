@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
 import typing as t
 from pathlib import Path
@@ -54,7 +55,7 @@ def percent_from_xml(xml_file: Path) -> str:
 
 
 @contextlib.contextmanager
-def tmp_coveragepy_xml(out: Path) -> Path:
+def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
     try:

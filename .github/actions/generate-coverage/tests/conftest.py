@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[4]
+
+def _find_root(start: Path) -> Path:
+    """Return the nearest ancestor containing ``pyproject.toml`` or ``.git``."""
+
+    for parent in (start, *start.parents):
+        if (parent / "pyproject.toml").exists() or (parent / ".git").exists():
+            return parent
+    raise FileNotFoundError(f"Project root not found from {start}")
+
+
+ROOT = _find_root(Path(__file__).resolve())
 sys.path.insert(0, str(ROOT))
 
 from shellstub import StubManager

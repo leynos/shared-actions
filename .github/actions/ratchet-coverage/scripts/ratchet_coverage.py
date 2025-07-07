@@ -4,6 +4,7 @@
 # dependencies = ["plumbum", "typer"]
 # ///
 from pathlib import Path
+
 import typer
 
 
@@ -23,6 +24,8 @@ def main(
     ),
     current: float = typer.Option(..., envvar="CURRENT_PERCENT"),
 ) -> None:
+    """Compare ``current`` coverage with the stored baseline and update it."""
+
     baseline = round(read_baseline(baseline_file), 2)
     current = round(current, 2)
 

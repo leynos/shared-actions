@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import textwrap
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +29,8 @@ class Variant:
 
 @dataclass
 class StubSpec:
+    """Specification for a stub including its variants and optional callback."""
+
     variants: list[Variant]
     func: Callable[[Sequence[str]], int] | None = None
 
@@ -114,7 +115,12 @@ class StubManager:
         calls_file = str(self._calls_file)
         spec_file = str(spec_path)
         return f"""#!/usr/bin/env python3
-import json, os, sys, datetime as _dt
+import importlib, json, os, sys, datetime as _dt
+
+mgr = importlib.import_module('shellstub')._GLOBAL_MANAGER
+func = None
+if mgr and {name!r} in mgr._specs:
+    func = mgr._specs[{name!r}].func
 
 with open({spec_file!r}) as fh:
     spec = json.load(fh)
@@ -126,6 +132,9 @@ rec = {{"cmd": {name!r}, "argv": argv, "cwd": os.getcwd(), "ts": _dt.datetime.ut
 with open(calls_file, 'a') as fh:
     json.dump(rec, fh)
     fh.write('\\n')
+
+if func:
+    sys.exit(func(argv))
 
 chosen = None
 for var in spec['variants']:
@@ -145,5 +154,9 @@ sys.stdout.write(out)
 sys.stderr.write(err)
 sys.exit(chosen.get('exit_code', 0))
 """
+
+
+# single mutable reference, monkey-patched by tests
+_GLOBAL_MANAGER: StubManager | None = None
 
 

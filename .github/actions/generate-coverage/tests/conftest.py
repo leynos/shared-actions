@@ -16,6 +16,8 @@ def shell_stubs(tmp_path, monkeypatch) -> StubManager:
 
     dir_ = tmp_path / "stubs"
     mgr = StubManager(dir_)
+    import shellstub as mod
+    mod._GLOBAL_MANAGER = mgr
     monkeypatch.setenv("PATH", f"{dir_}{os.pathsep}{os.getenv('PATH')}")
     monkeypatch.setenv(
         "PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH','')}"

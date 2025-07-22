@@ -6,6 +6,10 @@
 - Optionally install SQLite development libraries on Windows via MSYS2 using the
   `install-sqlite-deps` input.
 
+## v1.0.5
+
+- Integrate `sccache` on non-release runs to speed up compilation.
+
 ## v1.0.3
 
 - Install PostgreSQL client libraries on Windows via Chocolatey.

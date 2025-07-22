@@ -27,6 +27,14 @@ runs:
         key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+    - name: Run sccache-cache only on non-release runs
+      if: github.event_name != 'release'
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Set Rust caching env vars only on non-release runs
+      if: github.event_name != 'release'
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

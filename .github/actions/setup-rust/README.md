@@ -2,7 +2,7 @@
 
 Install the Rust toolchain and cache your build dependencies. Optionally
 install PostgreSQL and SQLite system libraries for crates that require
-them.
+them, and set up macOS or OpenBSD cross-compilers.
 
 ## Inputs
 
@@ -12,6 +12,9 @@ them.
 | install-sqlite-deps | Install SQLite development libraries (Windows) | no | `false` |
 | use-sccache | Enable sccache for non-release runs | no | `true` |
 | sccache-action-version | Version tag for mozilla-actions/sccache-action | no | `v0.0.10` |
+| with-darwin | Install macOS cross build toolchain | no | `false` |
+| with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
+| BUILD_PROFILE | Build profile used for caching | no | `release` |
 
 ## Outputs
 
@@ -25,6 +28,8 @@ uses: ./.github/actions/setup-rust@v1
     install-postgres-deps: 'true'
     install-sqlite-deps: 'true'
     use-sccache: 'false'
+    with-darwin: true
+    with-openbsd: true
 ```
 
 When `install-postgres-deps` is enabled, the action installs PostgreSQL
@@ -40,6 +45,13 @@ SQLite support on Windows is enabled by setting up an MSYS2 environment
 with the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package,
 so the static library and headers are available when compiling crates that
 depend on SQLite.
+
+When `with-darwin` is enabled, the action installs the osxcross toolchain on
+Linux so that Rust crates can be cross-compiled for macOS.
+
+When `with-openbsd` is enabled, the action builds the OpenBSD standard library
+from the Rust source tree and installs it into `rustup` so that the
+`x86_64-unknown-openbsd` target becomes available.
 
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite

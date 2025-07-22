@@ -1,6 +1,11 @@
 
 # Changelog
 
+## v1.0.5
+
+- Install macOS cross build toolchain via `with-darwin`.
+- Build OpenBSD standard library and add target via `with-openbsd`.
+
 ## v1.0.4
 
 - Optionally install SQLite development libraries on Windows via MSYS2 using the

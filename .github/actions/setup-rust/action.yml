@@ -43,7 +43,7 @@ runs:
         key: ${{ runner.os }}-sccache-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-sccache-${{ env.BUILD_PROFILE }}-
-    - name: Run sccache on non-release runs
+    - name: Run sccache only on non-release runs
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       uses: mozilla-actions/sccache-action@${{ inputs.sccache-action-version }}
     - name: Set Rust caching env vars only on non-release runs

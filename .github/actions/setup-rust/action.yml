@@ -4,11 +4,11 @@ inputs:
   install-postgres-deps:
     description: Install PostgreSQL system dependencies
     required: false
-    default: false
+    default: "false"
   install-sqlite-deps:
     description: Install SQLite development libraries on Windows
     required: false
-    default: false
+    default: "false"
   use-sccache:
     description: Enable sccache for non-release runs
     required: false
@@ -35,22 +35,9 @@ runs:
         key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
-    - name: Cache sccache directory
-      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/sccache
-        key: ${{ runner.os }}-sccache-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-sccache-${{ env.BUILD_PROFILE }}-
     - name: Run sccache only on non-release runs
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       uses: mozilla-actions/sccache-action@${{ inputs.sccache-action-version }}
-    - name: Set Rust caching env vars only on non-release runs
-      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
-      run: |
-        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-        echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

@@ -25,6 +25,7 @@ uses: ./.github/actions/setup-rust@v1
   with:
     install-postgres-deps: true
     install-sqlite-deps: true
+    use-sccache: 'false'
 ```
 
 When `install-postgres-deps` is enabled, the action installs PostgreSQL
@@ -75,8 +76,8 @@ enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
 cache compiler output. It sets `SCCACHE_GHA_ENABLED=true` and
 `RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
 compiled objects are stored in `~/.cache/sccache` and cached with a **separate
-cache key** from the directories above. This directory holds sccache’s own
-cache space and does not share data with the standard `actions/cache` entry.
+cache key** from the directories above. This directory holds the sccache cache
+space and does not share data with the standard `actions/cache` entry.
 
 ### Requirements
 

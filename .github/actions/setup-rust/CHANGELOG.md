@@ -12,6 +12,10 @@
 
 - Quote boolean defaults in `action.yml` to avoid type mismatches.
 
+## v1.0.8
+
+- Build OpenBSD standard library using the updated `library/std` path.
+
 ## v1.0.5
 
 - Install macOS cross build toolchain via `with-darwin`.

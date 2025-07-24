@@ -94,7 +94,7 @@ runs:
         git clone --depth 1 --single-branch https://github.com/rust-lang/rust.git
         cd rust
         HOST_TRIPLE=$(rustc -vV | grep '^host:' | awk '{print $2}')
-        ./x.py build --stage 1 --target x86_64-unknown-openbsd src/libstd
+        ./x.py build --stage 1 --target x86_64-unknown-openbsd library/std
         mkdir -p ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
         cp -r build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd/* \
           ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd/

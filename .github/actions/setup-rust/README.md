@@ -10,7 +10,6 @@ them.
 | --- | --- | --- | --- |
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
 | install-sqlite-deps | Install SQLite development libraries (Windows) | no | `false` |
-| BUILD_PROFILE | Build profile used for caching | no | `release` |
 | use-sccache | Enable sccache for non-release runs | no | `true` |
 | sccache-action-version | Version tag for mozilla-actions/sccache-action | no | `v0.0.10` |
 
@@ -23,8 +22,8 @@ None
 ```yaml
 uses: ./.github/actions/setup-rust@v1
   with:
-    install-postgres-deps: true
-    install-sqlite-deps: true
+    install-postgres-deps: 'true'
+    install-sqlite-deps: 'true'
     use-sccache: 'false'
 ```
 

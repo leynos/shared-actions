@@ -32,11 +32,14 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install rust
-      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
-      with:
-        override: true
-        components: rustfmt, clippy, llvm-tools-preview
+      - name: Install rust
+        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+        with:
+          override: true
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
+        if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+        run: rustup toolchain install nightly
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:
@@ -76,11 +79,14 @@ runs:
         install: >-
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-sqlite3
-    - name: Setup osxcross (macOS SDK + linker)
-      if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
-      uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
-      with:
-        osx-version: ${{ inputs.darwin-sdk-version }}
+      - name: Setup osxcross (macOS SDK + linker)
+        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+        uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
+        with:
+          osx-version: ${{ inputs.darwin-sdk-version }}
+      - name: Install Rust macOS targets
+        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
     - name: Cache OpenBSD stdlib
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       id: openbsd-stdlib-cache

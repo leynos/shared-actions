@@ -49,11 +49,14 @@ depend on SQLite.
 
 When `with-darwin` is enabled, the action installs the osxcross toolchain on
 Linux so that Rust crates can be cross-compiled for macOS. The SDK version can
-be configured via the `darwin-sdk-version` input and defaults to `12.3`.
+be configured via the `darwin-sdk-version` input and defaults to `12.3`. The
+`x86_64-apple-darwin` and `aarch64-apple-darwin` Rust targets are installed so
+that Cargo can produce macOS binaries.
 
-When `with-openbsd` is enabled, the action builds the OpenBSD standard library
-from the Rust source tree, installs it into `rustup`, and caches the result so
-that the `x86_64-unknown-openbsd` target is readily available on later runs.
+When `with-openbsd` is enabled, the action installs the nightly toolchain,
+builds the OpenBSD standard library from the Rust source tree, installs it into
+`rustup`, and caches the result so that the `x86_64-unknown-openbsd` target is
+readily available on later runs.
 
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite

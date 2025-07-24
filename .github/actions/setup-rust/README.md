@@ -74,8 +74,9 @@ When the workflow is not triggered by a `release` event and `use-sccache` is
 enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
 cache compiler output. It sets `SCCACHE_GHA_ENABLED=true` and
 `RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
-compiled objects are stored in `~/.cache/sccache`, which is cached separately
-from the directories above.
+compiled objects are stored in `~/.cache/sccache` and cached with a **separate
+cache key** from the directories above. This directory holds sccache’s own
+cache space and does not share data with the standard `actions/cache` entry.
 
 ### Requirements
 

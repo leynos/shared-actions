@@ -12,11 +12,11 @@ inputs:
   use-sccache:
     description: Enable sccache for non-release runs
     required: false
-    default: true
+    default: "true"
   sccache-action-version:
     description: Version tag for mozilla-actions/sccache-action
     required: false
-    default: v0.0.10
+    default: "v0.0.10"
 runs:
   using: composite
   steps:

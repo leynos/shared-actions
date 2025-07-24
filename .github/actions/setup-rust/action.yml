@@ -17,14 +17,29 @@ inputs:
     description: Version tag for mozilla-actions/sccache-action
     required: false
     default: "v0.0.10"
+  with-darwin:
+    description: Install macOS cross build toolchain
+    required: false
+    default: 'false'
+  darwin-sdk-version:
+    description: macOS SDK version for osxcross
+    required: false
+    default: '12.3'
+  with-openbsd:
+    description: Build OpenBSD std library for cross-compilation
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
-    - name: Install rust
-      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
-      with:
-        override: true
-        components: rustfmt, clippy, llvm-tools-preview
+      - name: Install rust
+        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+        with:
+          override: true
+          components: rustfmt, clippy, llvm-tools-preview
+      - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
+        if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+        run: rustup toolchain install nightly
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:
@@ -64,3 +79,31 @@ runs:
         install: >-
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-sqlite3
+      - name: Setup osxcross (macOS SDK + linker)
+        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+        uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
+        with:
+          osx-version: ${{ inputs.darwin-sdk-version }}
+      - name: Install Rust macOS targets
+        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+    - name: Cache OpenBSD stdlib
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+      id: openbsd-stdlib-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
+        key: openbsd-stdlib-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+    - name: Clone Rust repo & build OpenBSD std
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' && steps.openbsd-stdlib-cache.outputs.cache-hit != 'true' }}
+      run: |
+        git clone --depth 1 --single-branch https://github.com/rust-lang/rust.git
+        cd rust
+        HOST_TRIPLE=$(rustc -vV | grep '^host:' | awk '{print $2}')
+        ./x.py build --stage 1 --target x86_64-unknown-openbsd library/std
+        mkdir -p ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
+        cp -r build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd/* \
+          ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd/
+    - name: Add OpenBSD target
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+      run: rustup target add x86_64-unknown-openbsd --toolchain nightly

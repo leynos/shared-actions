@@ -13,6 +13,7 @@ them, and set up macOS or OpenBSD cross-compilers.
 | use-sccache | Enable sccache for non-release runs | no | `true` |
 | sccache-action-version | Version tag for mozilla-actions/sccache-action | no | `v0.0.10` |
 | with-darwin | Install macOS cross build toolchain | no | `false` |
+| darwin-sdk-version | macOS SDK version for osxcross | no | `12.3` |
 | with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
 | BUILD_PROFILE | Build profile used for caching | no | `release` |
 
@@ -47,11 +48,12 @@ so the static library and headers are available when compiling crates that
 depend on SQLite.
 
 When `with-darwin` is enabled, the action installs the osxcross toolchain on
-Linux so that Rust crates can be cross-compiled for macOS.
+Linux so that Rust crates can be cross-compiled for macOS. The SDK version can
+be configured via the `darwin-sdk-version` input and defaults to `12.3`.
 
 When `with-openbsd` is enabled, the action builds the OpenBSD standard library
-from the Rust source tree and installs it into `rustup` so that the
-`x86_64-unknown-openbsd` target becomes available.
+from the Rust source tree, installs it into `rustup`, and caches the result so
+that the `x86_64-unknown-openbsd` target is readily available on later runs.
 
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite

@@ -21,6 +21,10 @@ inputs:
     description: Install macOS cross build toolchain
     required: false
     default: false
+  darwin-sdk-version:
+    description: macOS SDK version for osxcross
+    required: false
+    default: '12.3'
   with-openbsd:
     description: Build OpenBSD std library for cross-compilation
     required: false
@@ -76,17 +80,24 @@ runs:
       if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
       uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
       with:
-        osx-version: '12.3'
-    - name: Clone Rust repo & build OpenBSD std
+        osx-version: ${{ inputs.darwin-sdk-version }}
+    - name: Cache OpenBSD stdlib
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+      id: openbsd-stdlib-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
+        key: openbsd-stdlib-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+    - name: Clone Rust repo & build OpenBSD std
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' && steps.openbsd-stdlib-cache.outputs.cache-hit != 'true' }}
       run: |
-        git clone https://github.com/rust-lang/rust.git
+        git clone --depth 1 --single-branch https://github.com/rust-lang/rust.git
         cd rust
+        HOST_TRIPLE=$(rustc -vV | grep '^host:' | awk '{print $2}')
         ./x.py build --stage 1 --target x86_64-unknown-openbsd src/libstd
-        RUSTUP_TOOLCHAIN=nightly-x86_64-unknown-openbsd \
-          mkdir -p ~/.rustup/toolchains/$RUSTUP_TOOLCHAIN/lib/rustlib/x86_64-unknown-openbsd
-        cp -r build/x86_64-unknown-openbsd/stage1/lib/rustlib/x86_64-unknown-openbsd/* \
-           ~/.rustup/toolchains/$RUSTUP_TOOLCHAIN/lib/rustlib/x86_64-unknown-openbsd/
+        mkdir -p ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
+        cp -r build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd/* \
+          ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd/
     - name: Add OpenBSD target
-      if: ${{ inputs.with-openbsd == 'true' }}
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: rustup target add x86_64-unknown-openbsd --toolchain nightly

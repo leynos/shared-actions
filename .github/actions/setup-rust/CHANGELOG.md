@@ -1,6 +1,13 @@
 
 # Changelog
 
+## v1.0.6
+
+- Cache OpenBSD standard library build and only rebuild on cache miss.
+- Make macOS SDK version configurable via `darwin-sdk-version` input.
+- Scope OpenBSD target installation to Linux runners.
+- Fix README example indentation.
+
 ## v1.0.5
 
 - Install macOS cross build toolchain via `with-darwin`.

@@ -8,6 +8,10 @@
 - Scope OpenBSD target installation to Linux runners.
 - Fix README example indentation.
 
+## v1.0.7
+
+- Quote boolean defaults in `action.yml` to avoid type mismatches.
+
 ## v1.0.5
 
 - Install macOS cross build toolchain via `with-darwin`.

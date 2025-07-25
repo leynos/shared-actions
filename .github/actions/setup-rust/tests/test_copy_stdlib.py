@@ -1,0 +1,37 @@
+"""Tests for copy_openbsd_stdlib.py script."""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+
+def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    cmd = ["uv", "run", "--script", str(script), *args]
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def test_copy_success(tmp_path: Path) -> None:
+    artifact = tmp_path / "build" / "artifacts"
+    artifact.mkdir(parents=True)
+    (artifact / "foo.txt").write_text("hi")
+
+    sysroot = tmp_path / "sysroot"
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
+    res = run_script(script, str(artifact), str(sysroot))
+
+    assert res.returncode == 0
+    dest = sysroot / "lib" / "rustlib" / "x86_64-unknown-openbsd" / "foo.txt"
+    assert dest.read_text() == "hi"
+
+
+def test_copy_missing(tmp_path: Path) -> None:
+    artifact = tmp_path / "missing"
+    sysroot = tmp_path / "sysroot"
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
+    res = run_script(script, str(artifact), str(sysroot))
+
+    assert res.returncode == 1
+    assert "Error: Build artifacts not found" in res.stderr

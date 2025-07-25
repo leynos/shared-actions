@@ -15,6 +15,7 @@ them, and set up macOS or OpenBSD cross-compilers.
 | with-darwin | Install macOS cross build toolchain | no | `false` |
 | darwin-sdk-version | macOS SDK version for osxcross | no | `12.3` |
 | with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
+| openbsd-nightly | Nightly toolchain version for OpenBSD build | no | `nightly-2025-07-20` |
 
 ## Outputs
 
@@ -52,10 +53,11 @@ be configured via the `darwin-sdk-version` input and defaults to `12.3`. The
 `x86_64-apple-darwin` and `aarch64-apple-darwin` Rust targets are installed so
 that Cargo can produce macOS binaries.
 
-When `with-openbsd` is enabled, the action installs the pinned nightly
-toolchain (`nightly-2025-07-20`), builds the OpenBSD standard library from the
-Rust source tree, installs it into `rustup`, and caches the result so that the
-`x86_64-unknown-openbsd` target is readily available on later runs.
+When `with-openbsd` is enabled, the action installs the nightly toolchain
+specified by the `openbsd-nightly` input (default `nightly-2025-07-20`), builds
+the OpenBSD standard library from the Rust source tree, installs it into
+`rustup`, and caches the result so that the `x86_64-unknown-openbsd` target is
+readily available on later runs.
 
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite

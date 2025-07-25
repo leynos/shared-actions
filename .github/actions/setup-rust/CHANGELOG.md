@@ -4,6 +4,7 @@
 ## v1.0.8 - 2025-07-24
 
 - Build OpenBSD standard library using the updated `library/std` path.
+- New `openbsd-nightly` input allows specifying the pinned nightly toolchain.
 
 ## v1.0.7 - 2025-07-24
 

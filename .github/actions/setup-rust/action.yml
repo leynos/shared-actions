@@ -39,7 +39,11 @@ runs:
           components: rustfmt, clippy, llvm-tools-preview
       - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
         if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
-        run: rustup toolchain install nightly
+        run: |
+          OPENBSD_NIGHTLY=nightly-2025-07-20
+          rustup toolchain install "$OPENBSD_NIGHTLY"
+          echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
+          echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:
@@ -92,7 +96,7 @@ runs:
       id: openbsd-stdlib-cache
       uses: actions/cache@v4
       with:
-        path: ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
+        path: ${{ env.NIGHTLY_SYSROOT }}/lib/rustlib/x86_64-unknown-openbsd
         key: openbsd-stdlib-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
     - name: Clone Rust repo & build OpenBSD std
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' && steps.openbsd-stdlib-cache.outputs.cache-hit != 'true' }}
@@ -101,9 +105,13 @@ runs:
         cd rust
         HOST_TRIPLE=$(rustc -vV | grep '^host:' | awk '{print $2}')
         ./x.py build --stage 1 --target x86_64-unknown-openbsd library/std
-        mkdir -p ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd
-        cp -r build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd/* \
-          ~/.rustup/toolchains/nightly/lib/rustlib/x86_64-unknown-openbsd/
+        ARTIFACT_DIR="build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd"
+        if [ ! -d "$ARTIFACT_DIR" ]; then
+          echo "Error: Build artifacts not found at $ARTIFACT_DIR"
+          exit 1
+        fi
+        mkdir -p "$NIGHTLY_SYSROOT/lib/rustlib/x86_64-unknown-openbsd"
+        cp -r "$ARTIFACT_DIR"/* "$NIGHTLY_SYSROOT/lib/rustlib/x86_64-unknown-openbsd/"
     - name: Add OpenBSD target
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
-      run: rustup target add x86_64-unknown-openbsd --toolchain nightly
+      run: rustup target add x86_64-unknown-openbsd --toolchain ${{ env.OPENBSD_NIGHTLY }}

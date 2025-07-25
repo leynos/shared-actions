@@ -26,6 +26,24 @@ def test_copy_success(tmp_path: Path) -> None:
     assert dest.read_text() == "hi"
 
 
+def test_copy_overwrite(tmp_path: Path) -> None:
+    artifact = tmp_path / "build" / "artifacts"
+    artifact.mkdir(parents=True)
+    (artifact / "new.txt").write_text("new")
+
+    sysroot = tmp_path / "sysroot"
+    dest = sysroot / "lib" / "rustlib" / "x86_64-unknown-openbsd"
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "old.txt").write_text("old")
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
+    res = run_script(script, str(artifact), str(sysroot))
+
+    assert res.returncode == 0
+    assert not (dest / "old.txt").exists()
+    assert (dest / "new.txt").read_text() == "new"
+
+
 def test_copy_missing(tmp_path: Path) -> None:
     artifact = tmp_path / "missing"
     sysroot = tmp_path / "sysroot"

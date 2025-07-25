@@ -21,9 +21,6 @@
 
 - Install macOS cross build toolchain via `with-darwin`.
 - Build OpenBSD standard library and add target via `with-openbsd`.
-
-## v1.0.5 – 2025-07-22
-
 - Integrate `sccache` on non-release runs to speed up compilation.
 - New `use-sccache` input controls this behaviour and caches `~/.cache/sccache`.
 - Pin sccache setup via `sccache-action-version` input (default `v0.0.10`).

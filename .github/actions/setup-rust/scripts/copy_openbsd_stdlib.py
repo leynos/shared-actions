@@ -3,12 +3,17 @@
 # requires-python = ">=3.12"
 # dependencies = ["typer"]
 # ///
-"""Copy OpenBSD standard library build artifacts into the nightly sysroot."""
+"""Copy OpenBSD standard library build artifacts into the nightly sysroot.
+
+The copy is performed via ``rsync`` into a temporary directory and then
+renamed into place so consumers never see a partially copied stdlib.
+"""
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
+import shutil
+import subprocess
 
 import typer
 
@@ -22,15 +27,17 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
         typer.echo(f"Error: Build artifacts not found at {artifact_dir}", err=True)
         raise typer.Exit(1)
 
-    dest = nightly_sysroot / "lib" / "rustlib" / "x86_64-unknown-openbsd"
-    dest.mkdir(parents=True, exist_ok=True)
+    base = nightly_sysroot / "lib" / "rustlib"
+    dest = base / "x86_64-unknown-openbsd"
+    tmp = base / "x86_64-unknown-openbsd.new"
 
-    for item in artifact_dir.iterdir():
-        target = dest / item.name
-        if item.is_dir():
-            shutil.copytree(item, target, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, target)
+    tmp.mkdir(parents=True, exist_ok=True)
+    cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
+    subprocess.check_call(cmd)
+
+    if dest.exists():
+        shutil.rmtree(dest)
+    tmp.replace(dest)
 
     typer.echo(f"Copied OpenBSD stdlib from {artifact_dir} to {dest}")
 

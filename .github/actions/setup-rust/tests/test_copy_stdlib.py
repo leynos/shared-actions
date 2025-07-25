@@ -7,11 +7,13 @@ from pathlib import Path
 
 
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Execute *script* using ``uv run --script`` and return the process."""
     cmd = ["uv", "run", "--script", str(script), *args]
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
 
 
 def test_copy_success(tmp_path: Path) -> None:
+    """Copying succeeds and preserves file contents."""
     artifact = tmp_path / "build" / "artifacts"
     artifact.mkdir(parents=True)
     (artifact / "foo.txt").write_text("hi")
@@ -27,6 +29,7 @@ def test_copy_success(tmp_path: Path) -> None:
 
 
 def test_copy_overwrite(tmp_path: Path) -> None:
+    """Existing destination files are overwritten."""
     artifact = tmp_path / "build" / "artifacts"
     artifact.mkdir(parents=True)
     (artifact / "new.txt").write_text("new")
@@ -45,6 +48,7 @@ def test_copy_overwrite(tmp_path: Path) -> None:
 
 
 def test_copy_missing(tmp_path: Path) -> None:
+    """Missing source directory exits with an error."""
     artifact = tmp_path / "missing"
     sysroot = tmp_path / "sysroot"
 

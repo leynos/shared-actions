@@ -11,9 +11,9 @@ renamed into place so consumers never see a partially copied stdlib.
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path  # noqa: TC003
 
 import typer
 
@@ -33,7 +33,7 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
 
     tmp.mkdir(parents=True, exist_ok=True)
     cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
-    subprocess.check_call(cmd)
+    subprocess.check_call(cmd)  # noqa: S603
 
     if dest.exists():
         shutil.rmtree(dest)

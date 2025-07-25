@@ -44,8 +44,9 @@ runs:
       - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
         if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
         run: |
-          OPENBSD_NIGHTLY=${{ inputs.openbsd-nightly }}
-          rustup toolchain install "$OPENBSD_NIGHTLY"
+          set -euo pipefail
+          OPENBSD_NIGHTLY='${{ inputs.openbsd-nightly }}'
+          rustup toolchain install --profile minimal "$OPENBSD_NIGHTLY"
           echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
           echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
     - name: Cache cargo registry

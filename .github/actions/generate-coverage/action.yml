@@ -45,6 +45,8 @@ runs:
       uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
+      env:
+        INPUT_FORMAT: ${{ inputs.format }}
       shell: bash
     - name: Restore baselines
       if: inputs.with-ratchet == 'true'
@@ -72,6 +74,9 @@ runs:
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
+        INPUT_FEATURES: ${{ inputs.features }}
+        INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
       shell: bash
     - name: Ratchet coverage
       if: inputs.with-ratchet == 'true'
@@ -120,6 +125,7 @@ runs:
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"
@@ -132,6 +138,7 @@ runs:
       run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
+        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
       shell: bash
     - name: Archive coverage
       if: always()

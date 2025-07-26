@@ -4,26 +4,21 @@ inputs:
   features:
     description: Cargo features to enable
     required: false
-    type: string
   with-default-features:
     description: Enable default features
     required: false
-    type: boolean
-    default: true
+    default: "true"
   output-path:
     description: Output file path
     required: true
-    type: string
   format:
     description: Coverage format
     required: false
-    type: string
     default: cobertura
   with-ratchet:
     description: Fail if coverage falls below the stored baseline
     required: false
-    type: boolean
-    default: false
+    default: "false"
   baseline-rust-file:
     description: Path to store the Rust coverage baseline
     required: false

@@ -29,7 +29,11 @@ class Lang(enum.StrEnum):
     MIXED = "mixed"
 
 
-FMT_OPT = typer.Option(CoverageFmt.COBERTURA.value, envvar="INPUT_FORMAT")
+FMT_OPT = typer.Option(
+    CoverageFmt.COBERTURA.value,
+    envvar="INPUT_FORMAT",
+    help="Coverage format: lcov, cobertura, or coveragepy",
+)
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 

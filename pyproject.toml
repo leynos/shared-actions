@@ -1,6 +1,6 @@
 [project]
 name = "shared-actions"
-version = "0.0.0"
+version = "1.2.2"
 
 [tool.ruff]
 line-length = 88

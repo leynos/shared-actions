@@ -36,22 +36,23 @@ inputs:
 runs:
   using: composite
   steps:
-      - name: Install rust
-        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
-        with:
-          override: true
-          components: rustfmt, clippy, llvm-tools-preview
-      - name: Install uv
-        # v6.4.3
-        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
-      - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
-        if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
-        run: |
-          set -euo pipefail
-          OPENBSD_NIGHTLY='${{ inputs.openbsd-nightly }}'
-          rustup toolchain install --profile minimal "$OPENBSD_NIGHTLY"
-          echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
-          echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
+    - name: Install rust
+      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+      with:
+        override: true
+        components: rustfmt, clippy, llvm-tools-preview
+    - name: Install uv
+      # v6.4.3
+      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+    - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
+      if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
+      run: |
+        set -euo pipefail
+        OPENBSD_NIGHTLY='${{ inputs.openbsd-nightly }}'
+        rustup toolchain install --profile minimal "$OPENBSD_NIGHTLY"
+        echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
+        echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
+      shell: bash
     - name: Cache cargo registry
       uses: actions/cache@v4
       with:
@@ -91,14 +92,15 @@ runs:
         install: >-
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-sqlite3
-      - name: Setup osxcross (macOS SDK + linker)
-        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
-        uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
-        with:
-          osx-version: ${{ inputs.darwin-sdk-version }}
-      - name: Install Rust macOS targets
-        if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
-        run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+    - name: Setup osxcross (macOS SDK + linker)
+      if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+      uses: mbround18/setup-osxcross@b26146d499c54979ed3d023266865dc188881911
+      with:
+        osx-version: ${{ inputs.darwin-sdk-version }}
+    - name: Install Rust macOS targets
+      if: ${{ inputs.with-darwin == 'true' && runner.os == 'Linux' }}
+      run: rustup target add x86_64-apple-darwin aarch64-apple-darwin
+      shell: bash
     - name: Cache OpenBSD stdlib
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       id: openbsd-stdlib-cache
@@ -116,6 +118,8 @@ runs:
         ARTIFACT_DIR="build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd"
         uv run --script "${{ github.action_path }}/scripts/copy_openbsd_stdlib.py" \
           "$ARTIFACT_DIR" "$NIGHTLY_SYSROOT"
+      shell: bash
     - name: Add OpenBSD target
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: rustup target add x86_64-unknown-openbsd --toolchain ${{ env.OPENBSD_NIGHTLY }}
+      shell: bash

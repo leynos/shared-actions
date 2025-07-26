@@ -1,6 +1,11 @@
 
 # Changelog
 
+## v1.0.10 - 2025-07-26
+
+- Remove `sccache-action-version` input and pin the sccache step to commit
+  `7d986dd989559c6ecdb630a3fd2557667be217ad` for reproducibility.
+
 ## v1.0.9 - 2025-07-26
 
 - Install `uv` for running helper scripts.
@@ -27,7 +32,6 @@
 - Build OpenBSD standard library and add target via `with-openbsd`.
 - Integrate `sccache` on non-release runs to speed up compilation.
 - New `use-sccache` input controls this behaviour and caches `~/.cache/sccache`.
-- Pin sccache setup via `sccache-action-version` input (default `v0.0.10`).
 
 ## v1.0.4 - 2025-06-21
 

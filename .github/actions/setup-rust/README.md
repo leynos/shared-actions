@@ -11,7 +11,6 @@ them, and set up macOS or OpenBSD cross-compilers.
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
 | install-sqlite-deps | Install SQLite development libraries (Windows) | no | `false` |
 | use-sccache | Enable sccache for non-release runs | no | `true` |
-| sccache-action-version | Version tag for mozilla-actions/sccache-action | no | `v0.0.10` |
 | with-darwin | Install macOS cross build toolchain | no | `false` |
 | darwin-sdk-version | macOS SDK version for osxcross | no | `12.3` |
 | with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
@@ -94,7 +93,10 @@ cache compiler output. It sets `SCCACHE_GHA_ENABLED=true` and
 `RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
 compiled objects are stored in `~/.cache/sccache` and cached with a **separate
 cache key** from the directories above. This directory holds the sccache cache
-space and does not share data with the standard `actions/cache` entry.
+space and does not share data with the standard `actions/cache` entry. The
+sccache step itself uses
+`mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad`,
+pinned to a specific commit for reproducibility.
 
 ### Requirements
 

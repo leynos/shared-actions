@@ -13,10 +13,6 @@ inputs:
     description: Enable sccache for non-release runs
     required: false
     default: "true"
-  sccache-action-version:
-    description: Version tag for mozilla-actions/sccache-action
-    required: false
-    default: "v0.0.10"
   with-darwin:
     description: Install macOS cross build toolchain
     required: false
@@ -65,9 +61,9 @@ runs:
         key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
-    - name: Run sccache only on non-release runs
-      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
-      uses: mozilla-actions/sccache-action@${{ inputs.sccache-action-version }}
+      - name: Run sccache only on non-release runs
+        if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

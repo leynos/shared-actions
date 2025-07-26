@@ -138,3 +138,10 @@ runs:
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
       shell: bash
+    - name: Archive coverage
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.out.outputs.format }}
+        path: ${{ steps.out.outputs.file }}
+        retention-days: 14

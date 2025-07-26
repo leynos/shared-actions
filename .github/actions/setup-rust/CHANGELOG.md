@@ -27,7 +27,6 @@
 - Build OpenBSD standard library and add target via `with-openbsd`.
 - Integrate `sccache` on non-release runs to speed up compilation.
 - New `use-sccache` input controls this behaviour and caches `~/.cache/sccache`.
-- Pin sccache setup via `sccache-action-version` input (default `v0.0.10`).
 
 ## v1.0.4 - 2025-06-21
 

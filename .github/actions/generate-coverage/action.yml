@@ -46,7 +46,8 @@ runs:
   using: composite
   steps:
     - name: Setup uv
-      uses: astral-sh/setup-uv@v5
+      # v6.4.3
+      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       shell: bash

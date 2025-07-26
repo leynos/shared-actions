@@ -1,6 +1,10 @@
 
 # Changelog
 
+## v1.0.9 - 2025-07-26
+
+- Install `uv` for running helper scripts.
+
 ## v1.0.8 - 2025-07-24
 
 - Build OpenBSD standard library using the updated `library/std` path.

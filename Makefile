@@ -10,7 +10,7 @@ test: ## Run tests
 lint: ## Check test scripts and actions
 	uvx ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-		| xargs -r -0 -n1 action-validator
+		| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
 
 fmt: ## Apply formatting to Python files
 	uvx ruff format

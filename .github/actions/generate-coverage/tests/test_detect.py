@@ -41,3 +41,26 @@ def test_invalid_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert "Unsupported format" in err
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    ["lcov", "cobertura", "coveragepy", "LCOV"],
+)
+def test_valid_formats(
+    fmt: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``detect.main`` accepts supported formats regardless of case."""
+    out = tmp_path / "gh.txt"
+    exc: detect.typer.Exit | None = None
+    try:
+        detect.main(fmt, out)
+    except detect.typer.Exit as err:
+        exc = err
+    if fmt.lower() == "lcov":
+        assert exc is not None
+        assert exc.code == 1
+    else:
+        assert exc is None
+    err_msg = capsys.readouterr().err
+    assert "Unsupported format" not in err_msg

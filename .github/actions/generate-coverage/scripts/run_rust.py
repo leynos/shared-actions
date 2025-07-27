@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "typer", "lxml"]
 # ///
 """Run Rust coverage using ``cargo llvm-cov``."""
 
@@ -73,6 +73,48 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
     return f"{lines_hit / lines_found * 100:.2f}"
 
 
+def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
+    """Return the overall line coverage percentage from a Cobertura XML file.
+
+    Parameters
+    ----------
+    xml_file : Path
+        Path to the coverage file to read.
+
+    Returns
+    -------
+    str
+        The coverage percentage with two decimal places.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from lxml import etree
+
+    root = etree.parse(str(xml_file)).getroot()
+
+    def num_or_zero(expr: str) -> int:
+        n = root.xpath(f"number({expr})")
+        return 0 if n != n else int(n)
+
+    def lines_from_detail() -> tuple[int, int]:
+        total = int(root.xpath("count(//class/lines/line)"))
+        covered = int(root.xpath("count(//class/lines/line[number(@hits) > 0])"))
+        return covered, total
+
+    covered, total = lines_from_detail()
+    if total == 0:
+        covered = num_or_zero("/coverage/@lines-covered")
+        total = num_or_zero("/coverage/@lines-valid")
+
+    if total == 0:
+        return "0.00"
+
+    percent = (
+        Decimal(covered) / Decimal(total) * 100
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{percent}"
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     features: str = FEATURES_OPT,
@@ -101,6 +143,8 @@ def main(
     percent = (
         get_line_coverage_percent_from_lcov(out)
         if fmt == "lcov"
+        else get_line_coverage_percent_from_cobertura(out)
+        if fmt == "cobertura"
         else extract_percent(stdout)
     )
 

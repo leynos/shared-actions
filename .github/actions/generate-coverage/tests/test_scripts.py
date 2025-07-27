@@ -178,3 +178,83 @@ def test_lcov_malformed_file(tmp_path: Path, run_rust_module: types.ModuleType) 
     lcov = tmp_path / "bad.lcov"
     lcov.write_text("LF:abc\nLH:xyz\n")
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
+
+
+@pytest.fixture
+def run_python_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """Return the ``run_python`` module with dependencies stubbed."""
+    spec = importlib.util.spec_from_file_location(
+        "run_python",
+        Path(__file__).resolve().parents[1] / "scripts" / "run_python.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+
+    dummy_exc = type("DummyError", (Exception,), {})
+    fake_proc = types.SimpleNamespace(ProcessExecutionError=dummy_exc)
+    fake_plumbum = types.SimpleNamespace(
+        cmd=types.SimpleNamespace(python=None),
+        commands=types.SimpleNamespace(processes=fake_proc),
+        FG=None,
+    )
+    monkeypatch.setitem(sys.modules, "plumbum", fake_plumbum)
+    monkeypatch.setitem(sys.modules, "plumbum.cmd", fake_plumbum.cmd)
+    monkeypatch.setitem(sys.modules, "plumbum.commands.processes", fake_proc)
+    monkeypatch.setitem(sys.modules, "plumbum.FG", None)
+
+    fake_typer = types.SimpleNamespace(
+        Option=lambda default=None, **_: default,
+        echo=lambda *a, **k: None,
+        Exit=SystemExit,
+        run=lambda func: func(),
+    )
+    monkeypatch.setitem(sys.modules, "typer", fake_typer)
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_cobertura_detail(tmp_path: Path, run_python_module: types.ModuleType) -> None:
+    """``get_line_coverage_percent_from_cobertura`` handles per-line detail."""
+    xml = tmp_path / "cov.xml"
+    xml.write_text(
+        """
+<coverage>
+  <packages>
+    <package>
+      <classes>
+        <class>
+          <lines>
+            <line hits='1'/>
+            <line hits='0'/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+        """
+    )
+    pct = run_python_module.get_line_coverage_percent_from_cobertura(xml)
+    assert pct == "50.00"
+
+
+def test_cobertura_root_totals(
+    tmp_path: Path, run_python_module: types.ModuleType
+) -> None:
+    """``get_line_coverage_percent_from_cobertura`` falls back to root totals."""
+    xml = tmp_path / "root.xml"
+    xml.write_text("<coverage lines-covered='81' lines-valid='100' />")
+    pct = run_python_module.get_line_coverage_percent_from_cobertura(xml)
+    assert pct == "81.00"
+
+
+def test_cobertura_zero_lines(
+    tmp_path: Path, run_python_module: types.ModuleType
+) -> None:
+    """``get_line_coverage_percent_from_cobertura`` handles zero totals."""
+    xml = tmp_path / "zero.xml"
+    xml.write_text("<coverage lines-covered='0' lines-valid='0' />")
+    pct = run_python_module.get_line_coverage_percent_from_cobertura(xml)
+    assert pct == "0.00"

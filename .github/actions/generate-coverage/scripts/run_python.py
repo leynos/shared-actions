@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer", "defusedxml"]
+# dependencies = ["plumbum", "typer", "lxml"]
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
@@ -12,7 +12,6 @@ import contextlib
 import typing as t
 from pathlib import Path
 
-import defusedxml.ElementTree as ET  # noqa: N817 - maintain alias for compatibility
 import typer
 from plumbum import FG
 from plumbum.cmd import python
@@ -43,15 +42,47 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
 
 
-def percent_from_xml(xml_file: Path) -> str:
-    """Return the total line coverage percentage from a cobertura XML file."""
-    try:
-        root = ET.parse(xml_file).getroot()
-        rate = float(root.attrib["line-rate"])
-    except Exception as exc:  # parse errors or missing attributes
-        typer.echo(f"Failed to parse coverage XML: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    return f"{rate * 100:.2f}"
+
+def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
+    """Return the overall line coverage percentage from a Cobertura XML file.
+
+    Parameters
+    ----------
+    xml_file : Path
+        Path to the coverage file to read.
+
+    Returns
+    -------
+    str
+        The coverage percentage with two decimal places.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from lxml import etree
+
+    root = etree.parse(str(xml_file)).getroot()
+
+    def num_or_zero(expr: str) -> int:
+        n = root.xpath(f"number({expr})")
+        return 0 if n != n else int(n)
+
+    def lines_from_detail() -> tuple[int, int]:
+        total = int(root.xpath("count(//class/lines/line)"))
+        covered = int(root.xpath("count(//class/lines/line[number(@hits) > 0])"))
+        return covered, total
+
+    covered, total = lines_from_detail()
+    if total == 0:
+        covered = num_or_zero("/coverage/@lines-covered")
+        total = num_or_zero("/coverage/@lines-valid")
+
+    if total == 0:
+        return "0.00"
+
+    percent = (
+        Decimal(covered) / Decimal(total) * 100
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{percent}"
 
 
 @contextlib.contextmanager
@@ -92,10 +123,10 @@ def main(
 
     if fmt == "coveragepy":
         with tmp_coveragepy_xml(out) as xml_tmp:
-            percent = percent_from_xml(xml_tmp)
+            percent = get_line_coverage_percent_from_cobertura(xml_tmp)
         Path(".coverage").replace(out)
     else:
-        percent = percent_from_xml(out)
+        percent = get_line_coverage_percent_from_cobertura(out)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

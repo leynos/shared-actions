@@ -160,21 +160,21 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
 def test_lcov_zero_lines_found(
     tmp_path: Path, run_rust_module: types.ModuleType
 ) -> None:
-    """``percent_from_lcov`` returns 0.00 when no lines are found."""
+    """``get_line_coverage_percent_from_lcov`` returns 0.00 when no lines are found."""
     lcov = tmp_path / "zero.lcov"
     lcov.write_text("LF:0\nLH:0\n")
-    assert run_rust_module.percent_from_lcov(lcov) == "0.00"
+    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
 def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
-    """``percent_from_lcov`` handles files missing ``LH`` tags."""
+    """``get_line_coverage_percent_from_lcov`` handles files missing ``LH`` tags."""
     lcov = tmp_path / "missing.lcov"
     lcov.write_text("LF:100\n")
-    assert run_rust_module.percent_from_lcov(lcov) == "0.00"
+    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
 def test_lcov_malformed_file(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
-    """``percent_from_lcov`` treats malformed files as zero coverage."""
+    """``get_line_coverage_percent_from_lcov`` returns 0.00 for malformed files."""
     lcov = tmp_path / "bad.lcov"
     lcov.write_text("LF:abc\nLH:xyz\n")
-    assert run_rust_module.percent_from_lcov(lcov) == "0.00"
+    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"

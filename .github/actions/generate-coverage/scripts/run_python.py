@@ -42,7 +42,6 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
 
 
-
 def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     """Return the overall line coverage percentage from a Cobertura XML file.
 
@@ -79,9 +78,9 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     if total == 0:
         return "0.00"
 
-    percent = (
-        Decimal(covered) / Decimal(total) * 100
-    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    percent = (Decimal(covered) / Decimal(total) * 100).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     return f"{percent}"
 
 

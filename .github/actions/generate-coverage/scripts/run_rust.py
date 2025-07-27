@@ -59,15 +59,29 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
     Returns
     -------
     str
-        The coverage percentage with two decimal places.
+        The coverage percentage with two decimal places. "0.00" is returned if
+        the file cannot be read or parsed.
     """
-    text = lcov_file.read_text(encoding="utf-8")
+    try:
+        text = lcov_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        typer.echo(f"Could not read {lcov_file}: {exc}", err=True)
+        return "0.00"
 
     def total(tag: str) -> int:
-        return sum(map(int, re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)))
+        values = re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)
+        try:
+            return sum(int(v) for v in values)
+        except ValueError as exc:
+            typer.echo(f"Malformed lcov data in {lcov_file}: {exc}", err=True)
+            raise
 
-    lines_found = total("LF")
-    lines_hit = total("LH")
+    try:
+        lines_found = total("LF")
+        lines_hit = total("LH")
+    except ValueError:
+        return "0.00"
+
     if lines_found == 0:
         return "0.00"
     return f"{lines_hit / lines_found * 100:.2f}"
@@ -109,9 +123,9 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     if total == 0:
         return "0.00"
 
-    percent = (
-        Decimal(covered) / Decimal(total) * 100
-    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    percent = (Decimal(covered) / Decimal(total) * 100).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     return f"{percent}"
 
 

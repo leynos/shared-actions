@@ -44,3 +44,7 @@
 ## v1.5.2
 - Remove unsupported `env` block from the `runs` section.
 - Export `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` via a setup step.
+
+## v1.5.3
+- Treat empty `path` input the same as `__auto__` to avoid artifact upload
+  failures.

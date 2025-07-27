@@ -6,13 +6,13 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 
 | Name             | Description                                  | Required | Default |
 | ---------------- | -------------------------------------------- | -------- | ------- |
-| path             | Coverage file path; use `__auto__` to infer   | no       | `__auto__` |
+| path             | Coverage file path; blank or `__auto__` infers automatically | no       | `__auto__` |
 | format           | Coverage format (`cobertura` or `lcov`)       | no       | `cobertura` |
 | access-token     | CodeScene project access token                | yes      |         |
 | installer-checksum | SHA-256 checksum of the installer script    | no       |         |
 
-If `path` is left as `__auto__`, the action will look for `lcov.info` when
-`format` is `lcov`, or `coverage.xml` when `format` is `cobertura`.
+If `path` is empty or `__auto__`, the action looks for `lcov.info` when
+  `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`.
 The CodeScene CLI is cached using its release version extracted from the
 installer script. If the optional `installer-checksum` input is set,
 the installer is validated before execution. Any other value for

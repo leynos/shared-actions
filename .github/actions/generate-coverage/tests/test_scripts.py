@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
+import types
 import typing as t
 from pathlib import Path
+
+import pytest
 
 if t.TYPE_CHECKING:  # pragma: no cover - type hints only
     from shellstub import StubManager
@@ -16,6 +21,39 @@ def run_script(
     """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
     cmd = ["uv", "run", "--script", str(script), *args]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
+
+
+@pytest.fixture
+def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """Return the ``run_rust`` module with dependencies stubbed."""
+    spec = importlib.util.spec_from_file_location(
+        "run_rust",
+        Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py",
+    )
+    assert spec is not None
+    assert spec.loader is not None
+
+    dummy_exc = type("DummyError", (Exception,), {})
+    fake_proc = types.SimpleNamespace(ProcessExecutionError=dummy_exc)
+    fake_plumbum = types.SimpleNamespace(
+        cmd=types.SimpleNamespace(cargo=None),
+        commands=types.SimpleNamespace(processes=fake_proc),
+    )
+    monkeypatch.setitem(sys.modules, "plumbum", fake_plumbum)
+    monkeypatch.setitem(sys.modules, "plumbum.cmd", fake_plumbum.cmd)
+    monkeypatch.setitem(sys.modules, "plumbum.commands.processes", fake_proc)
+
+    fake_typer = types.SimpleNamespace(
+        Option=lambda default=None, **_: default,
+        echo=lambda *a, **k: None,
+        Exit=SystemExit,
+        run=lambda func: func(),
+    )
+    monkeypatch.setitem(sys.modules, "typer", fake_typer)
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
@@ -117,3 +155,26 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     calls = shell_stubs.calls_of("uvx")
     assert calls
     assert calls[0].argv[:1] == ["merge-cobertura"]
+
+
+def test_lcov_zero_lines_found(
+    tmp_path: Path, run_rust_module: types.ModuleType
+) -> None:
+    """``percent_from_lcov`` returns 0.00 when no lines are found."""
+    lcov = tmp_path / "zero.lcov"
+    lcov.write_text("LF:0\nLH:0\n")
+    assert run_rust_module.percent_from_lcov(lcov) == "0.00"
+
+
+def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
+    """``percent_from_lcov`` handles files missing ``LH`` tags."""
+    lcov = tmp_path / "missing.lcov"
+    lcov.write_text("LF:100\n")
+    assert run_rust_module.percent_from_lcov(lcov) == "0.00"
+
+
+def test_lcov_malformed_file(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
+    """``percent_from_lcov`` treats malformed files as zero coverage."""
+    lcov = tmp_path / "bad.lcov"
+    lcov.write_text("LF:abc\nLH:xyz\n")
+    assert run_rust_module.percent_from_lcov(lcov) == "0.00"

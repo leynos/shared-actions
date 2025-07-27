@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.3 (2025-07-27)
+
+- Install `cargo-llvm-cov` automatically when running Rust coverage and cache the
+  binary along with Cargo artifacts.
+
 ## v1.3.2 (2025-07-26)
 
 - Pin `setup-uv` step to v6.4.3.

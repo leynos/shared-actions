@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import math
+import re
 import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 
 import typer
 from lxml import etree
+
+logger = logging.getLogger(__name__)
 
 if t.TYPE_CHECKING:  # pragma: no cover - import for type hints only
     from pathlib import Path
@@ -37,7 +42,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
     def num_or_zero(expr: str) -> int:
         n = root.xpath(f"number({expr})")
-        return 0 if n != n else int(n)
+        return 0 if math.isnan(n) else int(n)
 
     def lines_from_detail() -> tuple[int, int]:
         total = int(root.xpath("count(//class/lines/line)"))
@@ -56,3 +61,32 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
     return f"{percent}"
+
+
+def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
+    """Return the overall line coverage percentage from an ``lcov.info`` file."""
+    try:
+        text = lcov_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        typer.echo(f"Could not read {lcov_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    def total(tag: str) -> int:
+        values = re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)
+        try:
+            return sum(int(v) for v in values)
+        except ValueError as exc:
+            typer.echo(f"Malformed lcov data in {lcov_file}: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+    lines_found = total("LF")
+    lines_hit = total("LH")
+
+    if lines_found == 0:
+        logger.warning(
+            "No lines found in lcov data. This may indicate an empty or "
+            "misconfigured lcov file."
+        )
+        return "0.00"
+
+    return f"{lines_hit / lines_found * 100:.2f}"

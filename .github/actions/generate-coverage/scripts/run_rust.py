@@ -11,7 +11,10 @@ import re
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
-from coverage_parsers import get_line_coverage_percent_from_cobertura
+from coverage_parsers import (
+    get_line_coverage_percent_from_cobertura,
+    get_line_coverage_percent_from_lcov,
+)
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -49,49 +52,6 @@ def extract_percent(output: str) -> str:
     return match[1]
 
 
-def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
-    """Return the overall line coverage percentage from an ``lcov.info`` file.
-
-    Parameters
-    ----------
-    lcov_file : Path
-        Path to the coverage file to read.
-
-    Returns
-    -------
-    str
-        The coverage percentage with two decimal places.
-
-    Raises
-    ------
-    typer.Exit
-        If ``lcov_file`` cannot be read.
-    """
-    try:
-        text = lcov_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        typer.echo(f"Could not read {lcov_file}: {exc}", err=True)
-        raise typer.Exit(1) from exc
-
-    def total(tag: str) -> int:
-        values = re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)
-        try:
-            return sum(int(v) for v in values)
-        except ValueError as exc:
-            typer.echo(f"Malformed lcov data in {lcov_file}: {exc}", err=True)
-            raise
-
-    try:
-        lines_found = total("LF")
-        lines_hit = total("LH")
-    except ValueError:
-        return "0.00"
-
-    if lines_found == 0:
-        return "0.00"
-    return f"{lines_hit / lines_found * 100:.2f}"
-
-
 
 
 def main(
@@ -119,13 +79,12 @@ def main(
         typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
         raise typer.Exit(code=retcode or 1)
     typer.echo(stdout)
-    percent = (
-        get_line_coverage_percent_from_lcov(out)
-        if fmt == "lcov"
-        else get_line_coverage_percent_from_cobertura(out)
-        if fmt == "cobertura"
-        else extract_percent(stdout)
-    )
+    if fmt == "lcov":
+        percent = get_line_coverage_percent_from_lcov(out)
+    elif fmt == "cobertura":
+        percent = get_line_coverage_percent_from_cobertura(out)
+    else:
+        percent = extract_percent(stdout)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

@@ -23,6 +23,7 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
 
+    out.write_text("LF:200\nLH:163\n")
     shell_stubs.register(
         "cargo",
         stdout="Coverage: 81.5%\n",
@@ -60,7 +61,7 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
-    assert "percent=81.5" in data
+    assert "percent=81.50" in data
 
 
 def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:

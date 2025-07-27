@@ -48,6 +48,20 @@ def extract_percent(output: str) -> str:
     return match[1]
 
 
+def percent_from_lcov(lcov_file: Path) -> str:
+    """Return the overall line coverage from an ``lcov.info`` file."""
+    text = lcov_file.read_text(encoding="utf-8")
+
+    def total(tag: str) -> int:
+        return sum(map(int, re.findall(rf"^{tag}:(\d+)$", text, flags=re.MULTILINE)))
+
+    lines_found = total("LF")
+    lines_hit = total("LH")
+    if lines_found == 0:
+        return "0.00"
+    return f"{lines_hit / lines_found * 100:.2f}"
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     features: str = FEATURES_OPT,
@@ -73,7 +87,7 @@ def main(
         typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
         raise typer.Exit(code=retcode or 1)
     typer.echo(stdout)
-    percent = extract_percent(stdout)
+    percent = percent_from_lcov(out) if fmt == "lcov" else extract_percent(stdout)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

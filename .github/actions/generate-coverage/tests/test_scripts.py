@@ -26,10 +26,10 @@ def run_script(
 @pytest.fixture
 def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     """Return the ``run_rust`` module with dependencies stubbed."""
-    spec = importlib.util.spec_from_file_location(
-        "run_rust",
-        Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py",
-    )
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(script_dir)
+    rust_path = script_dir / "run_rust.py"
+    spec = importlib.util.spec_from_file_location("run_rust", rust_path)
     assert spec is not None
     assert spec.loader is not None
 
@@ -42,6 +42,54 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "plumbum", fake_plumbum)
     monkeypatch.setitem(sys.modules, "plumbum.cmd", fake_plumbum.cmd)
     monkeypatch.setitem(sys.modules, "plumbum.commands.processes", fake_proc)
+
+    # lxml is required by coverage_parsers but not used in these tests.
+    import xml.etree.ElementTree as ETree
+
+    class FakeRoot:
+        def __init__(self, elem: ETree.Element) -> None:
+            self._elem = elem
+
+        def xpath(self, expr: str) -> float:
+            if expr.startswith("number(") and expr.endswith(")"):
+                attr = expr[len("number(") : -1]
+                if attr.startswith("/coverage/@"):
+                    return float(self._elem.get(attr.split("@")[1]) or float("nan"))
+            if expr.startswith("count(") and expr.endswith(")"):
+                inner = expr[len("count(") : -1]
+                if inner == "//class/lines/line":
+                    return float(len(self._elem.findall(".//class/lines/line")))
+                if inner == "//class/lines/line[number(@hits) > 0]":
+                    total = 0
+                    for line in self._elem.findall(".//class/lines/line"):
+                        try:
+                            hits = float(line.get("hits", "0"))
+                        except ValueError:
+                            hits = 0
+                        if hits > 0:
+                            total += 1
+                    return float(total)
+            raise NotImplementedError(expr)
+
+    class FakeTree:
+        def __init__(self, elem: ETree.Element) -> None:
+            self._elem = elem
+
+        def getroot(self) -> FakeRoot:
+            return FakeRoot(self._elem)
+
+    def fake_parse(path: str) -> FakeTree:
+        return FakeTree(ETree.parse(path).getroot())  # noqa: S314 - test data
+
+    class FakeEtree:
+        class LxmlError(Exception):
+            pass
+
+        parse = staticmethod(fake_parse)
+
+    fake_lxml = types.SimpleNamespace(etree=FakeEtree)
+    monkeypatch.setitem(sys.modules, "lxml", fake_lxml)
+    monkeypatch.setitem(sys.modules, "lxml.etree", FakeEtree)
 
     fake_typer = types.SimpleNamespace(
         Option=lambda default=None, **_: default,
@@ -181,17 +229,36 @@ def test_lcov_malformed_file(tmp_path: Path, run_rust_module: types.ModuleType) 
 
 
 def test_lcov_file_missing(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
-    """Missing ``lcov.info`` file yields 0.00 without raising."""
-    lcov = tmp_path / "nope.lcov"
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
+    """Non-existent file triggers ``SystemExit``."""
+    with pytest.raises(SystemExit) as excinfo:
+        run_rust_module.get_line_coverage_percent_from_lcov(tmp_path / "nope.lcov")
+    assert excinfo.value.code == 1
+
+
+def test_lcov_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    run_rust_module: types.ModuleType,
+) -> None:
+    """Unreadable file triggers ``SystemExit``."""
+    lcov = tmp_path / "deny.lcov"
+    lcov.write_text("LF:1\nLH:1\n")
+    def bad_read_text(*_: object, **__: object) -> str:
+        raise PermissionError("nope")
+    monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
+    with pytest.raises(SystemExit) as excinfo:
+        run_rust_module.get_line_coverage_percent_from_lcov(lcov)
+    assert excinfo.value.code == 1
 
 
 @pytest.fixture
 def run_python_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     """Return the ``run_python`` module with dependencies stubbed."""
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.syspath_prepend(script_dir)
     spec = importlib.util.spec_from_file_location(
         "run_python",
-        Path(__file__).resolve().parents[1] / "scripts" / "run_python.py",
+        script_dir / "run_python.py",
     )
     assert spec is not None
     assert spec.loader is not None
@@ -208,7 +275,7 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "plumbum.commands.processes", fake_proc)
     monkeypatch.setitem(sys.modules, "plumbum.FG", None)
 
-    import defusedxml.ElementTree as ETree
+    import xml.etree.ElementTree as ETree
 
     class FakeRoot:
         def __init__(self, elem: ETree.Element) -> None:
@@ -243,12 +310,17 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
             return FakeRoot(self._elem)
 
     def fake_parse(path: str) -> FakeTree:
-        return FakeTree(ETree.parse(path).getroot())
+        return FakeTree(ETree.parse(path).getroot())  # noqa: S314 - test data
 
-    fake_etree = types.SimpleNamespace(parse=fake_parse)
-    fake_lxml = types.SimpleNamespace(etree=fake_etree)
+    class FakeEtree:
+        class LxmlError(Exception):
+            pass
+
+        parse = staticmethod(fake_parse)
+
+    fake_lxml = types.SimpleNamespace(etree=FakeEtree)
     monkeypatch.setitem(sys.modules, "lxml", fake_lxml)
-    monkeypatch.setitem(sys.modules, "lxml.etree", fake_etree)
+    monkeypatch.setitem(sys.modules, "lxml.etree", FakeEtree)
 
     fake_typer = types.SimpleNamespace(
         Option=lambda default=None, **_: default,

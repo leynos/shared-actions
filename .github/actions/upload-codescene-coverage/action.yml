@@ -39,7 +39,7 @@ runs:
       id: cov-file
       run: |
         file="${{ inputs.path }}"
-        if [ "$file" = "__auto__" ]; then
+        if [ -z "$file" ] || [ "$file" = "__auto__" ]; then
           if [ "${{ inputs.format }}" = "lcov" ]; then
             file="lcov.info"
           else

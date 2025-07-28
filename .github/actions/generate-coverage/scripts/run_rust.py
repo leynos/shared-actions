@@ -8,13 +8,20 @@
 from __future__ import annotations
 
 import re
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
-from coverage_parsers import (
-    get_line_coverage_percent_from_cobertura,
-    get_line_coverage_percent_from_lcov,
-)
+from coverage_parsers import get_line_coverage_percent_from_lcov
+
+try:  # runtime import for graceful fallback
+    from lxml import etree
+except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
+    typer.echo(
+        "lxml is required for Cobertura parsing. Install with 'pip install lxml'.",
+        err=True,
+    )
+    raise typer.Exit(1) from exc
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -50,6 +57,43 @@ def extract_percent(output: str) -> str:
         typer.echo("Could not parse coverage percent", err=True)
         raise typer.Exit(1)
     return match[1]
+
+
+def _format_percent(covered: int, total: int) -> str:
+    pct = Decimal(covered) * Decimal(100) / Decimal(total)
+    return str(pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
+    """Return overall line coverage % from a Cobertura XML file."""
+    try:
+        root = etree.parse(str(xml_file)).getroot()
+    except (FileNotFoundError, PermissionError) as exc:
+        typer.echo(f"Could not read {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except etree.XMLSyntaxError as exc:
+        typer.echo(f"Invalid XML in {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    try:
+        total = int(root.xpath("count(//class/lines/line)"))
+        covered = int(root.xpath("count(//class/lines/line[@hits>0])"))
+    except etree.XPathError as exc:
+        typer.echo(f"Malformed Cobertura data: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if total == 0:
+        try:
+            covered = int(root.xpath("number(/coverage/@lines-covered)"))
+            total = int(root.xpath("number(/coverage/@lines-valid)"))
+        except etree.XPathError as exc:
+            typer.echo(f"Cobertura summary missing: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+    if total == 0:
+        return "0.00"
+
+    return _format_percent(covered, total)
 
 
 

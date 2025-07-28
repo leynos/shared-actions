@@ -5,6 +5,8 @@ MDLINT ?= markdownlint
 NIXIE ?= nixie
 
 test: ## Run tests
+	uv venv
+	uv sync
 	uv run pytest
 
 lint: ## Check test scripts and actions

@@ -87,6 +87,7 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
             "No lines found in lcov data. This may indicate an empty or "
             "misconfigured lcov file."
         )
-        return "0.00"
 
-    return f"{lines_hit / lines_found * 100:.2f}"
+    return (
+        "0.00" if lines_found == 0 else f"{lines_hit / lines_found * 100:.2f}"
+    )

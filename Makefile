@@ -4,8 +4,12 @@ BUILD_JOBS ?=
 MDLINT ?= markdownlint
 NIXIE ?= nixie
 
-test: ## Run tests
+test: .venv ## Run tests
+	uv sync --group dev
 	uv run pytest
+
+.venv:
+	uv venv
 
 lint: ## Check test scripts and actions
 	uvx ruff check

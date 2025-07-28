@@ -9,7 +9,15 @@ import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 
 import typer
-from lxml import etree
+
+try:  # runtime import for graceful fallback
+    from lxml import etree
+except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
+    typer.echo(
+        "lxml is required for Cobertura parsing. Install with 'pip install lxml'.",
+        err=True,
+    )
+    raise typer.Exit(1) from exc
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +41,37 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     """
     try:
         root = etree.parse(str(xml_file)).getroot()
-    except OSError as exc:
-        typer.echo(f"Could not read {xml_file}: {exc}", err=True)
-        return "0.00"
-    except etree.LxmlError as exc:  # XMLSyntaxError plus related issues
-        typer.echo(f"Failed to parse coverage XML {xml_file}: {exc}", err=True)
-        return "0.00"
+    except FileNotFoundError as exc:
+        typer.echo(f"Coverage file not found: {xml_file}", err=True)
+        raise typer.Exit(1) from exc
+    except PermissionError as exc:
+        typer.echo(f"Permission denied reading coverage file: {xml_file}", err=True)
+        raise typer.Exit(1) from exc
+    except etree.XMLSyntaxError as exc:
+        typer.echo(f"Invalid XML in coverage file {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except Exception as exc:  # pragma: no cover - unexpected failures
+        typer.echo(f"Failed to parse coverage file {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
     def num_or_zero(expr: str) -> int:
-        n = root.xpath(f"number({expr})")
-        return 0 if math.isnan(n) else int(n)
+        try:
+            n = root.xpath(f"number({expr})")
+        except Exception:  # noqa: BLE001 - defensive
+            return 0
+        else:
+            return 0 if math.isnan(n) else int(n)
 
     def lines_from_detail() -> tuple[int, int]:
-        total = int(root.xpath("count(//class/lines/line)"))
-        covered = int(root.xpath("count(//class/lines/line[number(@hits) > 0])"))
-        return covered, total
+        try:
+            total = int(root.xpath("count(//class/lines/line)"))
+            covered = int(
+                root.xpath("count(//class/lines/line[number(@hits) > 0])")
+            )
+        except Exception:  # noqa: BLE001 - defensive
+            return 0, 0
+        else:
+            return covered, total
 
     covered, total = lines_from_detail()
     if total == 0:

@@ -7,14 +7,22 @@
 
 from __future__ import annotations
 
+import math
 import re
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
-from coverage_parsers import (
-    get_line_coverage_percent_from_cobertura,
-    get_line_coverage_percent_from_lcov,
-)
+from coverage_parsers import get_line_coverage_percent_from_lcov
+
+try:  # runtime import for graceful fallback
+    from lxml import etree
+except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
+    typer.echo(
+        "lxml is required for Cobertura parsing. Install with 'pip install lxml'.",
+        err=True,
+    )
+    raise typer.Exit(1) from exc
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -50,6 +58,56 @@ def extract_percent(output: str) -> str:
         typer.echo("Could not parse coverage percent", err=True)
         raise typer.Exit(1)
     return match[1]
+
+
+def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
+    """Return the overall line coverage percentage from a Cobertura XML file."""
+    try:
+        root = etree.parse(str(xml_file)).getroot()
+    except FileNotFoundError as exc:
+        typer.echo(f"Coverage file not found: {xml_file}", err=True)
+        raise typer.Exit(1) from exc
+    except PermissionError as exc:
+        typer.echo(f"Permission denied reading coverage file: {xml_file}", err=True)
+        raise typer.Exit(1) from exc
+    except etree.XMLSyntaxError as exc:
+        typer.echo(f"Invalid XML in coverage file {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except Exception as exc:  # pragma: no cover - unexpected failures
+        typer.echo(f"Failed to parse coverage file {xml_file}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    def num_or_zero(expr: str) -> int:
+        try:
+            n = root.xpath(f"number({expr})")
+        except Exception:  # noqa: BLE001 - defensive
+            return 0
+        else:
+            return 0 if math.isnan(n) else int(n)
+
+    def lines_from_detail() -> tuple[int, int]:
+        try:
+            total = int(root.xpath("count(//class/lines/line)"))
+            covered = int(
+                root.xpath("count(//class/lines/line[number(@hits) > 0])")
+            )
+        except Exception:  # noqa: BLE001 - defensive
+            return 0, 0
+        else:
+            return covered, total
+
+    covered, total = lines_from_detail()
+    if total == 0:
+        covered = num_or_zero("/coverage/@lines-covered")
+        total = num_or_zero("/coverage/@lines-valid")
+
+    if total == 0:
+        return "0.00"
+
+    percent = (Decimal(covered) / Decimal(total) * 100).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    return f"{percent}"
 
 
 

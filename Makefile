@@ -6,7 +6,7 @@ NIXIE ?= nixie
 
 test: ## Run tests
 	uv venv
-	uv sync
+	uv sync --group dev
 	uv run pytest
 
 lint: ## Check test scripts and actions

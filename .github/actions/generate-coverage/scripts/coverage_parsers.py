@@ -65,9 +65,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     def lines_from_detail() -> tuple[int, int]:
         try:
             total = int(root.xpath("count(//class/lines/line)"))
-            covered = int(
-                root.xpath("count(//class/lines/line[number(@hits) > 0])")
-            )
+            covered = int(root.xpath("count(//class/lines/line[number(@hits) > 0])"))
         except Exception:  # noqa: BLE001 - defensive
             return 0, 0
         else:
@@ -112,6 +110,10 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
             "misconfigured lcov file."
         )
 
-    return (
-        "0.00" if lines_found == 0 else f"{lines_hit / lines_found * 100:.2f}"
+    if lines_found == 0:
+        return "0.00"
+
+    percent = (Decimal(lines_hit) / Decimal(lines_found) * 100).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
     )
+    return f"{percent}"

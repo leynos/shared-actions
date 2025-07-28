@@ -22,6 +22,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+
+[dependency-groups]
+dev = ["pytest"]
+
 [tool.ruff]
 line-length = 88
 
@@ -89,12 +93,6 @@ convention = "numpy"
 asyncio_default_fixture_loop_scope = "function"
 # Tests automatically killed after seconds elapsed
 timeout = 30
-
-[project.optional-dependencies]
-dev = ["pytest"]
-
-[tool.uv.dependency-groups]
-dev = ["default", "dev"]
 
 [tool.uv]
 package = false

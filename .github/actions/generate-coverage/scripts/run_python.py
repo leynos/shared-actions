@@ -25,6 +25,7 @@ OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
+BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 
 
 def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
@@ -59,11 +60,22 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
         xml_tmp.unlink(missing_ok=True)
 
 
+def read_previous(baseline: Path | None) -> str | None:
+    """Return the previously stored coverage percentage if available."""
+    if baseline and baseline.is_file():
+        try:
+            return f"{float(baseline.read_text().strip()):.2f}"
+        except ValueError:
+            return None
+    return None
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     lang: str = LANG_OPT,
     fmt: str = FMT_OPT,
     github_output: Path = GITHUB_OUTPUT_OPT,
+    baseline_file: Path | None = BASELINE_OPT,
 ) -> None:
     """Run slipcover coverage and write the output path to ``GITHUB_OUTPUT``."""
     out = output_path
@@ -83,6 +95,11 @@ def main(
         Path(".coverage").replace(out)
     else:
         percent = get_line_coverage_percent_from_cobertura(out)
+
+    typer.echo(f"Current coverage: {percent}%")
+    previous = read_previous(baseline_file)
+    if previous is not None:
+        typer.echo(f"Previous coverage: {previous}%")
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

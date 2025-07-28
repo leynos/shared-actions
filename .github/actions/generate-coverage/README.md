@@ -111,4 +111,8 @@ Enable cucumber-rs:
     cucumber-rs-args: "--tag @ui"
 ```
 
+The action prints the current coverage percentage to the log. When
+``with-ratchet`` is enabled and a baseline file is present, the previous
+percentage is shown as well.
+
 Release history is available in [CHANGELOG](CHANGELOG.md).

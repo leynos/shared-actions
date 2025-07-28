@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.6 (2025-07-28)
+
+- Log the current coverage percentage after each run. When ratcheting is enabled
+  and a baseline exists, the previous percentage is printed as well.
+
 ## v1.3.5
 
 - Fix ratchet step ordering so coverage is checked after Python results are available.

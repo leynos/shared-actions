@@ -10,9 +10,9 @@ authors = [
 ]
 keywords = ["github-actions", "coverage", "testing"]
 dependencies = [
-    "plumbum",
-    "typer",
-    "lxml",
+    "plumbum>=1.8,<2.0",
+    "typer>=0.9,<1.0",
+    "lxml>=5.2,<6.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

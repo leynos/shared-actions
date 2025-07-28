@@ -21,6 +21,10 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
 
 logger = logging.getLogger(__name__)
 
+# Match coverage.py's CLI output which rounds half up to two decimal places.
+# ROUND_HALF_UP ensures we report the same values as the tool's summary.
+QUANT = Decimal("0.01")
+
 if t.TYPE_CHECKING:  # pragma: no cover - import for type hints only
     from pathlib import Path
 
@@ -80,7 +84,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         return "0.00"
 
     percent = (Decimal(covered) / Decimal(total) * 100).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
+        QUANT, rounding=ROUND_HALF_UP
     )
     return f"{percent}"
 
@@ -114,6 +118,6 @@ def get_line_coverage_percent_from_lcov(lcov_file: Path) -> str:
         return "0.00"
 
     percent = (Decimal(lines_hit) / Decimal(lines_found) * 100).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
+        QUANT, rounding=ROUND_HALF_UP
     )
     return f"{percent}"

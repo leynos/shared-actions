@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
@@ -60,54 +59,41 @@ def extract_percent(output: str) -> str:
     return match[1]
 
 
+def _format_percent(covered: int, total: int) -> str:
+    pct = Decimal(covered) * Decimal(100) / Decimal(total)
+    return str(pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
-    """Return the overall line coverage percentage from a Cobertura XML file."""
+    """Return overall line coverage % from a Cobertura XML file."""
     try:
         root = etree.parse(str(xml_file)).getroot()
-    except FileNotFoundError as exc:
-        typer.echo(f"Coverage file not found: {xml_file}", err=True)
-        raise typer.Exit(1) from exc
-    except PermissionError as exc:
-        typer.echo(f"Permission denied reading coverage file: {xml_file}", err=True)
+    except (FileNotFoundError, PermissionError) as exc:
+        typer.echo(f"Could not read {xml_file}: {exc}", err=True)
         raise typer.Exit(1) from exc
     except etree.XMLSyntaxError as exc:
-        typer.echo(f"Invalid XML in coverage file {xml_file}: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    except Exception as exc:  # pragma: no cover - unexpected failures
-        typer.echo(f"Failed to parse coverage file {xml_file}: {exc}", err=True)
+        typer.echo(f"Invalid XML in {xml_file}: {exc}", err=True)
         raise typer.Exit(1) from exc
 
-    def num_or_zero(expr: str) -> int:
-        try:
-            n = root.xpath(f"number({expr})")
-        except Exception:  # noqa: BLE001 - defensive
-            return 0
-        else:
-            return 0 if math.isnan(n) else int(n)
+    try:
+        total = int(root.xpath("count(//class/lines/line)"))
+        covered = int(root.xpath("count(//class/lines/line[@hits>0])"))
+    except etree.XPathError as exc:
+        typer.echo(f"Malformed Cobertura data: {exc}", err=True)
+        raise typer.Exit(1) from exc
 
-    def lines_from_detail() -> tuple[int, int]:
-        try:
-            total = int(root.xpath("count(//class/lines/line)"))
-            covered = int(
-                root.xpath("count(//class/lines/line[number(@hits) > 0])")
-            )
-        except Exception:  # noqa: BLE001 - defensive
-            return 0, 0
-        else:
-            return covered, total
-
-    covered, total = lines_from_detail()
     if total == 0:
-        covered = num_or_zero("/coverage/@lines-covered")
-        total = num_or_zero("/coverage/@lines-valid")
+        try:
+            covered = int(root.xpath("number(/coverage/@lines-covered)"))
+            total = int(root.xpath("number(/coverage/@lines-valid)"))
+        except etree.XPathError as exc:
+            typer.echo(f"Cobertura summary missing: {exc}", err=True)
+            raise typer.Exit(1) from exc
 
     if total == 0:
         return "0.00"
 
-    percent = (Decimal(covered) / Decimal(total) * 100).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
-    return f"{percent}"
+    return _format_percent(covered, total)
 
 
 

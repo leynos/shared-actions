@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer", "defusedxml"]
+# dependencies = ["plumbum", "typer", "lxml"]
 # ///
 """Run Python coverage analysis using slipcover and pytest."""
 
@@ -12,8 +12,8 @@ import contextlib
 import typing as t
 from pathlib import Path
 
-import defusedxml.ElementTree as ET  # noqa: N817 - maintain alias for compatibility
 import typer
+from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum import FG
 from plumbum.cmd import python
 from plumbum.commands.processes import ProcessExecutionError
@@ -41,19 +41,6 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
             "-v",
         ]
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
-
-
-def percent_from_xml(xml_file: Path) -> str:
-    """Return the total line coverage percentage from a cobertura XML file."""
-    try:
-        root = ET.parse(xml_file).getroot()
-        rate = float(root.attrib["line-rate"])
-    except Exception as exc:  # parse errors or missing attributes
-        typer.echo(f"Failed to parse coverage XML: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    return f"{rate * 100:.2f}"
-
-
 @contextlib.contextmanager
 def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
@@ -92,10 +79,10 @@ def main(
 
     if fmt == "coveragepy":
         with tmp_coveragepy_xml(out) as xml_tmp:
-            percent = percent_from_xml(xml_tmp)
+            percent = get_line_coverage_percent_from_cobertura(xml_tmp)
         Path(".coverage").replace(out)
     else:
-        percent = percent_from_xml(out)
+        percent = get_line_coverage_percent_from_cobertura(out)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

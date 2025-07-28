@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "typer", "lxml"]
 # ///
 """Run Rust coverage using ``cargo llvm-cov``."""
 
@@ -11,6 +11,10 @@ import re
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
+from coverage_parsers import (
+    get_line_coverage_percent_from_cobertura,
+    get_line_coverage_percent_from_lcov,
+)
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -44,8 +48,10 @@ def extract_percent(output: str) -> str:
     )
     if not match:
         typer.echo("Could not parse coverage percent", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(1)
     return match[1]
+
+
 
 
 def main(
@@ -73,7 +79,12 @@ def main(
         typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
         raise typer.Exit(code=retcode or 1)
     typer.echo(stdout)
-    percent = extract_percent(stdout)
+    if fmt == "lcov":
+        percent = get_line_coverage_percent_from_lcov(out)
+    elif fmt == "cobertura":
+        percent = get_line_coverage_percent_from_cobertura(out)
+    else:
+        percent = extract_percent(stdout)
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

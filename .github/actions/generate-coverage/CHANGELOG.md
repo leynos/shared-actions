@@ -4,6 +4,7 @@
 
 - Log the current coverage percentage after each run. When ratcheting is enabled
   and a baseline exists, the previous percentage is printed as well.
+- Extracted baseline reading into a shared helper and improved error handling.
 
 ## v1.3.5
 

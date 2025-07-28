@@ -13,6 +13,7 @@ import typing as t
 from pathlib import Path
 
 import typer
+from baseline_utils import read_previous
 from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum import FG
 from plumbum.cmd import python
@@ -42,6 +43,8 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
             "-v",
         ]
     return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
+
+
 @contextlib.contextmanager
 def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
@@ -58,16 +61,6 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
         yield xml_tmp
     finally:
         xml_tmp.unlink(missing_ok=True)
-
-
-def read_previous(baseline: Path | None) -> str | None:
-    """Return the previously stored coverage percentage if available."""
-    if baseline and baseline.is_file():
-        try:
-            return f"{float(baseline.read_text().strip()):.2f}"
-        except ValueError:
-            return None
-    return None
 
 
 def main(

@@ -23,10 +23,11 @@ classifiers = [
 ]
 
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0,<9.0",
 ]
+
 [tool.ruff]
 line-length = 88
 

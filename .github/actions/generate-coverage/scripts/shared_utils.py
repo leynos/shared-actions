@@ -7,10 +7,10 @@ import typing as t
 if t.TYPE_CHECKING:  # pragma: no cover - type hints only
     from pathlib import Path
 
-__all__ = ["read_previous"]
+__all__ = ["read_previous_coverage"]
 
 
-def read_previous(baseline: Path | None) -> str | None:
+def read_previous_coverage(baseline: Path | None) -> str | None:
     """Return the stored coverage percent if the file exists and is valid."""
     if baseline and baseline.is_file():
         try:

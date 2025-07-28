@@ -15,10 +15,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
-from baseline_utils import read_previous
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
+
+from shared_utils import read_previous_coverage
 
 try:  # runtime import for graceful fallback
     from lxml import etree
@@ -258,7 +259,7 @@ def main(
         percent = extract_percent(stdout)
 
     typer.echo(f"Current coverage: {percent}%")
-    previous = read_previous(baseline_file)
+    previous = read_previous_coverage(baseline_file)
     if previous is not None:
         typer.echo(f"Previous coverage: {previous}%")
 

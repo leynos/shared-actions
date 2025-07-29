@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.5
+
+- Fix ratchet step ordering so coverage is checked after Python results are available.
+
 ## v1.3.4
 
 - Force reinstall of `cargo-llvm-cov` so cached binaries don't cause the

@@ -27,6 +27,16 @@ inputs:
     description: Path to store the Python coverage baseline
     required: false
     default: .coverage-baseline.python
+  with-cucumber-rs:
+    description: Run cucumber-rs scenarios under coverage
+    required: false
+    default: "false"
+  cucumber-rs-features:
+    description: Path to cucumber feature files
+    required: false
+  cucumber-rs-args:
+    description: Extra arguments for cucumber
+    required: false
 outputs:
   file:
     description: Path to the generated coverage file
@@ -84,6 +94,10 @@ runs:
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
       shell: bash
+    - name: Install cargo-cucumber
+      if: inputs.with-cucumber-rs == 'true' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
+      run: cargo install cargo-cucumber --force
+      shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/run_rust.py"
@@ -93,6 +107,9 @@ runs:
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         INPUT_FEATURES: ${{ inputs.features }}
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
+        INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
+        INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
+        INPUT_CUCUMBER_RS_ARGS: ${{ inputs.cucumber-rs-args }}
       shell: bash
     - name: Ratchet coverage
       if: inputs.with-ratchet == 'true'

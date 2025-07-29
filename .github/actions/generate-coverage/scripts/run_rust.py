@@ -31,6 +31,9 @@ WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURE
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
+CUCUMBER_RS_FEATURES_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_FEATURES")
+CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
+WITH_CUCUMBER_RS_OPT = typer.Option(default=False, envvar="INPUT_WITH_CUCUMBER_RS")
 
 
 def get_cargo_coverage_cmd(
@@ -106,6 +109,9 @@ def main(
     lang: str = LANG_OPT,
     fmt: str = FMT_OPT,
     github_output: Path = GITHUB_OUTPUT_OPT,
+    cucumber_rs_features: str = CUCUMBER_RS_FEATURES_OPT,
+    cucumber_rs_args: str = CUCUMBER_RS_ARGS_OPT,
+    with_cucumber_rs: bool = WITH_CUCUMBER_RS_OPT,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     out = output_path
@@ -123,6 +129,53 @@ def main(
         typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
         raise typer.Exit(code=retcode or 1)
     typer.echo(stdout)
+
+    cucumber_file: Path | None = None
+    if with_cucumber_rs and cucumber_rs_features:
+        cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+        c_args = get_cargo_coverage_cmd(
+            fmt,
+            cucumber_file,
+            features,
+            with_default=with_default,
+        )
+        c_args += [
+            "--",
+            "--test",
+            "cucumber",
+            "--",
+            "cucumber",
+            "--features",
+            cucumber_rs_features,
+        ]
+        if cucumber_rs_args:
+            c_args += cucumber_rs_args.split()
+        try:
+            retcode, c_out, c_err = cargo[c_args].run(retcode=None)
+        except ProcessExecutionError as exc:
+            retcode, c_out, c_err = exc.retcode, exc.stdout, exc.stderr
+        if retcode != 0:
+            typer.echo(
+                f"cargo llvm-cov failed with code {retcode}: {c_err}",
+                err=True,
+            )
+            raise typer.Exit(code=retcode or 1)
+        typer.echo(c_out)
+        if fmt == "cobertura":
+            from plumbum.cmd import uvx
+            try:
+                merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
+            except ProcessExecutionError as exc:
+                typer.echo(
+                    f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",
+                    err=True,
+                )
+                raise typer.Exit(code=exc.retcode or 1) from exc
+            out.write_text(merged)
+            cucumber_file.unlink()
+        else:
+            out.write_text(out.read_text() + cucumber_file.read_text())
+            cucumber_file.unlink()
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)
     elif fmt == "cobertura":

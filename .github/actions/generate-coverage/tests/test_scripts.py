@@ -159,6 +159,57 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "percent=81.50" in data
 
 
+def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:
+    """``run_rust.py`` runs cucumber scenarios when requested."""
+    out = tmp_path / "cov.lcov"
+    gh = tmp_path / "gh.txt"
+
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    out.write_text("LF:1\nLH:1\n")
+    cuc_file.write_text("LF:1\nLH:1\n")
+
+    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "lcov",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_WITH_CUCUMBER_RS": "true",
+        "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "GITHUB_OUTPUT": str(gh),
+    }
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
+    res = run_script(script, env)
+    assert res.returncode == 0
+
+    calls = shell_stubs.calls_of("cargo")
+    assert len(calls) == 2
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    expected_second = [
+        "llvm-cov",
+        "--workspace",
+        "--summary-only",
+        "--lcov",
+        "--output-path",
+        str(cuc_file),
+        "--",
+        "--test",
+        "cucumber",
+        "--",
+        "cucumber",
+        "--features",
+        "tests/features",
+        "--tag",
+        "fast",
+    ]
+    assert calls[1].argv == expected_second
+
+
 def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``run_rust.py`` propagates cargo failures."""
     shell_stubs.register(

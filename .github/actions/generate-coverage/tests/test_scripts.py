@@ -159,6 +159,144 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "percent=81.50" in data
 
 
+def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:
+    """``run_rust.py`` runs cucumber scenarios when requested."""
+    out = tmp_path / "cov.lcov"
+    gh = tmp_path / "gh.txt"
+
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    out.write_text("TN:test\nend_of_record\n")
+    cuc_file.write_text("TN:cuke\nend_of_record\n")
+
+    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "lcov",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_WITH_CUCUMBER_RS": "true",
+        "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "GITHUB_OUTPUT": str(gh),
+    }
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
+    res = run_script(script, env)
+    assert res.returncode == 0
+
+    calls = shell_stubs.calls_of("cargo")
+    assert len(calls) == 2
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    expected_second = [
+        "llvm-cov",
+        "--workspace",
+        "--summary-only",
+        "--lcov",
+        "--output-path",
+        str(cuc_file),
+        "--",
+        "--test",
+        "cucumber",
+        "--",
+        "cucumber",
+        "--features",
+        "tests/features",
+        "--tag",
+        "fast",
+    ]
+    assert calls[1].argv == expected_second
+    assert out.read_text() == "TN:test\nend_of_record\nTN:cuke\nend_of_record\n"
+    assert not cuc_file.exists()
+
+
+def test_run_rust_with_cucumber_cobertura(
+    tmp_path: Path, shell_stubs: StubManager
+) -> None:
+    """Cobertura format merges cucumber coverage using ``merge-cobertura``."""
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    out.write_text("<cov/>")
+    cuc_file.write_text("<cuke/>")
+
+    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+    shell_stubs.register(
+        "uvx",
+        variants=[{
+            "match": ["merge-cobertura", str(out), str(cuc_file)],
+            "stdout": "<coverage lines-covered='1' lines-valid='1'/>",
+        }],
+    )
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "cobertura",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_WITH_CUCUMBER_RS": "true",
+        "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "",
+        "GITHUB_OUTPUT": str(gh),
+    }
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
+    res = run_script(script, env)
+    assert res.returncode == 0
+
+    uvx_calls = shell_stubs.calls_of("uvx")
+    assert uvx_calls
+    assert uvx_calls[0].argv == ["merge-cobertura", str(out), str(cuc_file)]
+    assert out.read_text() == "<coverage lines-covered='1' lines-valid='1'/>"
+    assert not cuc_file.exists()
+
+
+def test_run_rust_with_cucumber_cobertura_merge_failure(
+    tmp_path: Path, shell_stubs: StubManager
+) -> None:
+    """Failures from ``merge-cobertura`` exit with its code."""
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    out.write_text("<cov/>")
+    cuc_file.write_text("<cuke/>")
+
+    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+    shell_stubs.register(
+        "uvx",
+        variants=[{
+            "match": ["merge-cobertura", str(out), str(cuc_file)],
+            "stderr": "oops",
+            "exit_code": 3,
+        }],
+    )
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "cobertura",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_WITH_CUCUMBER_RS": "true",
+        "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "",
+        "GITHUB_OUTPUT": str(gh),
+    }
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
+    res = run_script(script, env)
+    assert res.returncode == 3
+    assert "merge-cobertura failed" in res.stderr
+    assert cuc_file.exists()
+
+
 def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``run_rust.py`` propagates cargo failures."""
     shell_stubs.register(

@@ -40,6 +40,9 @@ flowchart TD
 | with-ratchet | Fail if coverage decreases compared to the stored baseline | no | `false` |
 | baseline-rust-file | Path used to persist the Rust coverage baseline | no | `.coverage-baseline.rust` |
 | baseline-python-file | Path used to persist the Python coverage baseline | no | `.coverage-baseline.python` |
+| with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
+| cucumber-rs-features | Path to cucumber feature files | no | |
+| cucumber-rs-args | Extra arguments for cucumber | no | |
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects. Mixed projects must use `cobertura`.
 
@@ -95,6 +98,17 @@ Enable ratcheting:
   with:
     output-path: coverage.xml
     with-ratchet: true
+```
+
+Enable cucumber-rs:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    with-cucumber-rs: true
+    cucumber-rs-features: tests/features
+    cucumber-rs-args: "--tag @ui"
 ```
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

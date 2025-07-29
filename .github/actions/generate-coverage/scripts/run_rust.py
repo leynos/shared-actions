@@ -99,6 +99,91 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
     return _format_percent(covered, total)
 
 
+def _run_cargo(args: list[str]) -> str:
+    """Run ``cargo`` with ``args`` and return ``stdout`` or exit."""
+    try:
+        retcode, stdout, stderr = cargo[args].run(retcode=None)
+    except ProcessExecutionError as exc:  # Guard unexpected failure path
+        retcode, stdout, stderr = exc.retcode, exc.stdout, exc.stderr
+    if retcode != 0:
+        typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
+        raise typer.Exit(code=retcode or 1)
+    typer.echo(stdout)
+    return stdout
+
+
+def _merge_lcov(base: Path, extra: Path) -> None:
+    """Merge two lcov files ensuring they end with ``end_of_record``."""
+    try:
+        base_text = base.read_text()
+        extra_text = extra.read_text()
+    except (FileNotFoundError, PermissionError) as exc:
+        typer.echo(f"Could not read coverage file: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if not base_text.rstrip().endswith("end_of_record"):
+        typer.echo(f"Malformed lcov data in {base}", err=True)
+        raise typer.Exit(1)
+    if not extra_text.rstrip().endswith("end_of_record"):
+        typer.echo(f"Malformed lcov data in {extra}", err=True)
+        raise typer.Exit(1)
+
+    if not base_text.endswith("\n"):
+        base_text += "\n"
+    if not extra_text.endswith("\n"):
+        extra_text += "\n"
+
+    base.write_text(base_text + extra_text)
+
+
+def run_cucumber_rs_coverage(
+    out: Path,
+    fmt: str,
+    features: str,
+    *,
+    with_default: bool,
+    cucumber_rs_features: str,
+    cucumber_rs_args: str,
+) -> None:
+    """Run cucumber.rs coverage and merge results into ``out``."""
+    cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    c_args = get_cargo_coverage_cmd(
+        fmt,
+        cucumber_file,
+        features,
+        with_default=with_default,
+    )
+    c_args += [
+        "--",
+        "--test",
+        "cucumber",
+        "--",
+        "cucumber",
+        "--features",
+        cucumber_rs_features,
+    ]
+    if cucumber_rs_args:
+        c_args += cucumber_rs_args.split()
+
+    _run_cargo(c_args)
+
+    if fmt == "cobertura":
+        from plumbum.cmd import uvx
+        try:
+            merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
+        except ProcessExecutionError as exc:
+            typer.echo(
+                f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",
+                err=True,
+            )
+            raise typer.Exit(code=exc.retcode or 1) from exc
+        out.write_text(merged)
+    else:
+        _merge_lcov(out, cucumber_file)
+
+    cucumber_file.unlink()
+
+
 
 
 def main(
@@ -120,62 +205,17 @@ def main(
     out.parent.mkdir(parents=True, exist_ok=True)
 
     args = get_cargo_coverage_cmd(fmt, out, features, with_default=with_default)
+    stdout = _run_cargo(args)
 
-    try:
-        retcode, stdout, stderr = cargo[args].run(retcode=None)
-    except ProcessExecutionError as exc:  # Guard unexpected failure path
-        retcode, stdout, stderr = exc.retcode, exc.stdout, exc.stderr
-    if retcode != 0:
-        typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
-        raise typer.Exit(code=retcode or 1)
-    typer.echo(stdout)
-
-    cucumber_file: Path | None = None
     if with_cucumber_rs and cucumber_rs_features:
-        cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
-        c_args = get_cargo_coverage_cmd(
+        run_cucumber_rs_coverage(
+            out,
             fmt,
-            cucumber_file,
             features,
             with_default=with_default,
+            cucumber_rs_features=cucumber_rs_features,
+            cucumber_rs_args=cucumber_rs_args,
         )
-        c_args += [
-            "--",
-            "--test",
-            "cucumber",
-            "--",
-            "cucumber",
-            "--features",
-            cucumber_rs_features,
-        ]
-        if cucumber_rs_args:
-            c_args += cucumber_rs_args.split()
-        try:
-            retcode, c_out, c_err = cargo[c_args].run(retcode=None)
-        except ProcessExecutionError as exc:
-            retcode, c_out, c_err = exc.retcode, exc.stdout, exc.stderr
-        if retcode != 0:
-            typer.echo(
-                f"cargo llvm-cov failed with code {retcode}: {c_err}",
-                err=True,
-            )
-            raise typer.Exit(code=retcode or 1)
-        typer.echo(c_out)
-        if fmt == "cobertura":
-            from plumbum.cmd import uvx
-            try:
-                merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
-            except ProcessExecutionError as exc:
-                typer.echo(
-                    f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",
-                    err=True,
-                )
-                raise typer.Exit(code=exc.retcode or 1) from exc
-            out.write_text(merged)
-            cucumber_file.unlink()
-        else:
-            out.write_text(out.read_text() + cucumber_file.read_text())
-            cucumber_file.unlink()
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)
     elif fmt == "cobertura":

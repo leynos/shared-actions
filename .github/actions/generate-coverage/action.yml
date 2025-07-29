@@ -49,13 +49,15 @@ runs:
         INPUT_FORMAT: ${{ inputs.format }}
       shell: bash
     - name: Restore baselines
+      id: restore-baselines
       if: inputs.with-ratchet == 'true'
       uses: actions/cache@v4
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: ratchet-baseline-${{ runner.os }}-
     - name: Ensure baseline files
       if: inputs.with-ratchet == 'true'
       run: |
@@ -127,6 +129,7 @@ runs:
     - name: Ratchet coverage
       if: inputs.with-ratchet == 'true'
       run: |
+        set -euo pipefail
         ratchet() {
           uv run --script "${{ github.action_path }}/scripts/ratchet_coverage.py" \
             --baseline-file "$1" \
@@ -142,14 +145,13 @@ runs:
         fi
       shell: bash
     - name: Save baselines
-      if: success() && inputs.with-ratchet == 'true'
+      if: success() && inputs.with-ratchet == 'true' && steps.restore-baselines.outputs.cache-hit != 'true'
       uses: actions/cache@v4
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
-        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
-        restore-keys: ratchet-baseline-${{ runner.os }}-
+        key: ratchet-baseline-${{ runner.os }}
 
     - id: out
       run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"

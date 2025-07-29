@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.6
+
+- Overwrite existing `cargo-llvm-cov` installation using `--force` to avoid
+  failures when the binary is restored from cache.
+
 ## v1.0.5
 
 - Round coverage values to two decimals before comparison to avoid failures from

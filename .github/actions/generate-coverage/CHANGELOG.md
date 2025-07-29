@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.4
+
+- Force reinstall of `cargo-llvm-cov` so cached binaries don't cause the
+  installation step to fail.
+
 ## v1.3.3 (2025-07-27)
 
 - Install `cargo-llvm-cov` automatically when running Rust coverage and cache the

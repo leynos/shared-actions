@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
@@ -163,7 +164,7 @@ def run_cucumber_rs_coverage(
         cucumber_rs_features,
     ]
     if cucumber_rs_args:
-        c_args += cucumber_rs_args.split()
+        c_args += shlex.split(cucumber_rs_args)
 
     _run_cargo(c_args)
 

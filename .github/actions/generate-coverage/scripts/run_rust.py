@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import re
 import shlex
+import subprocess
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
 from coverage_parsers import get_line_coverage_percent_from_lcov
+from plumbum.cmd import cargo
+from plumbum.commands.processes import ProcessExecutionError
 
 try:  # runtime import for graceful fallback
     from lxml import etree
@@ -23,8 +26,6 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
         err=True,
     )
     raise typer.Exit(1) from exc
-from plumbum.cmd import cargo
-from plumbum.commands.processes import ProcessExecutionError
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
@@ -101,16 +102,22 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
 
 def _run_cargo(args: list[str]) -> str:
-    """Run ``cargo`` with ``args`` and return ``stdout`` or exit."""
-    try:
-        retcode, stdout, stderr = cargo[args].run(retcode=None)
-    except ProcessExecutionError as exc:  # Guard unexpected failure path
-        retcode, stdout, stderr = exc.retcode, exc.stdout, exc.stderr
+    """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
+    proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    stdout_lines: list[str] = []
+    if proc.stdout is not None:
+        for line in proc.stdout:
+            typer.echo(line.rstrip())
+            stdout_lines.append(line)
+    stderr = proc.stderr.read() if proc.stderr is not None else ""
+    retcode = proc.wait()
     if retcode != 0:
-        typer.echo(f"cargo llvm-cov failed with code {retcode}: {stderr}", err=True)
+        typer.echo(
+            f"cargo llvm-cov failed with code {retcode}: {stderr}",
+            err=True,
+        )
         raise typer.Exit(code=retcode or 1)
-    typer.echo(stdout)
-    return stdout
+    return "".join(stdout_lines)
 
 
 def _merge_lcov(base: Path, extra: Path) -> None:
@@ -170,6 +177,7 @@ def run_cucumber_rs_coverage(
 
     if fmt == "cobertura":
         from plumbum.cmd import uvx
+
         try:
             merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
         except ProcessExecutionError as exc:
@@ -183,8 +191,6 @@ def run_cucumber_rs_coverage(
         _merge_lcov(out, cucumber_file)
 
     cucumber_file.unlink()
-
-
 
 
 def main(

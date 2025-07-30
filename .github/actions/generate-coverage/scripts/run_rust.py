@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+import selectors
 import shlex
 import subprocess
 from decimal import ROUND_HALF_UP, Decimal
@@ -105,19 +106,32 @@ def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout_lines: list[str] = []
+    sel = selectors.DefaultSelector()
     if proc.stdout is not None:
-        for line in proc.stdout:
-            typer.echo(line.rstrip())
-            stdout_lines.append(line)
-    stderr = proc.stderr.read() if proc.stderr is not None else ""
+        sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
+    if proc.stderr is not None:
+        sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
+
+    while sel.get_map():
+        for key, _ in sel.select():
+            line = key.fileobj.readline()
+            if not line:
+                sel.unregister(key.fileobj)
+                continue
+            if key.data == "stdout":
+                typer.echo(line, nl=False)
+                stdout_lines.append(line.rstrip("\n"))
+            else:
+                typer.echo(line, err=True, nl=False)
+
     retcode = proc.wait()
     if retcode != 0:
         typer.echo(
-            f"cargo llvm-cov failed with code {retcode}: {stderr}",
+            f"cargo {' '.join(args)} failed with code {retcode}",
             err=True,
         )
         raise typer.Exit(code=retcode or 1)
-    return "".join(stdout_lines)
+    return "\n".join(stdout_lines)
 
 
 def _merge_lcov(base: Path, extra: Path) -> None:

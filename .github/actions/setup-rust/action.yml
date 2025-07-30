@@ -40,6 +40,11 @@ runs:
     - name: Install uv
       # v6.4.3
       uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+      with:
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+          **/scripts/*.py
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: |

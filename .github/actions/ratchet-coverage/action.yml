@@ -20,6 +20,10 @@ runs:
       uses: astral-sh/setup-uv@v5
       with:
         uv-version: ">=0.7.19,<0.8.0"
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+          **/scripts/*.py
     - name: Restore baseline
       uses: actions/cache@v4
       with:

@@ -117,6 +117,7 @@ runs:
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
         INPUT_CUCUMBER_RS_ARGS: ${{ inputs.cucumber-rs-args }}
+        BASELINE_RUST_FILE: ${{ inputs.baseline-rust-file }}
       shell: bash
 
     - name: Cache Python deps
@@ -140,6 +141,7 @@ runs:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
+        BASELINE_PYTHON_FILE: ${{ inputs.baseline-python-file }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"

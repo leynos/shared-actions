@@ -18,6 +18,7 @@ import typer
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
+from shared_utils import read_previous_coverage
 
 try:  # runtime import for graceful fallback
     from lxml import etree
@@ -37,6 +38,7 @@ GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 CUCUMBER_RS_FEATURES_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_FEATURES")
 CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
 WITH_CUCUMBER_RS_OPT = typer.Option(default=False, envvar="INPUT_WITH_CUCUMBER_RS")
+BASELINE_OPT = typer.Option(None, envvar="BASELINE_RUST_FILE")
 
 
 def get_cargo_coverage_cmd(
@@ -134,6 +136,16 @@ def _run_cargo(args: list[str]) -> str:
     return "\n".join(stdout_lines)
 
 
+def read_previous(baseline: Path | None) -> str | None:
+    """Return the previously stored coverage percentage if available."""
+    if baseline and baseline.is_file():
+        try:
+            return f"{float(baseline.read_text().strip()):.2f}"
+        except ValueError:
+            return None
+    return None
+
+
 def _merge_lcov(base: Path, extra: Path) -> None:
     """Merge two lcov files ensuring they end with ``end_of_record``."""
     try:
@@ -218,6 +230,7 @@ def main(
     cucumber_rs_features: str = CUCUMBER_RS_FEATURES_OPT,
     cucumber_rs_args: str = CUCUMBER_RS_ARGS_OPT,
     with_cucumber_rs: bool = WITH_CUCUMBER_RS_OPT,
+    baseline_file: Path | None = BASELINE_OPT,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     out = output_path
@@ -243,6 +256,11 @@ def main(
         percent = get_line_coverage_percent_from_cobertura(out)
     else:
         percent = extract_percent(stdout)
+
+    typer.echo(f"Current coverage: {percent}%")
+    previous = read_previous_coverage(baseline_file)
+    if previous is not None:
+        typer.echo(f"Previous coverage: {previous}%")
 
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")

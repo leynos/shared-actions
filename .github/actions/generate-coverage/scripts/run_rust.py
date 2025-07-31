@@ -18,7 +18,6 @@ import typer
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
-
 from shared_utils import read_previous_coverage
 
 try:  # runtime import for graceful fallback
@@ -127,16 +126,6 @@ def _run_cargo(args: list[str]) -> str:
             else:
                 typer.echo(line, err=True, nl=False)
 
-def read_previous(baseline: Path | None) -> str | None:
-    """Return the previously stored coverage percentage if available."""
-    if baseline and baseline.is_file():
-        try:
-            return f"{float(baseline.read_text().strip()):.2f}"
-        except ValueError:
-            return None
-    return None
-
-
     retcode = proc.wait()
     if retcode != 0:
         typer.echo(
@@ -145,6 +134,16 @@ def read_previous(baseline: Path | None) -> str | None:
         )
         raise typer.Exit(code=retcode or 1)
     return "\n".join(stdout_lines)
+
+
+def read_previous(baseline: Path | None) -> str | None:
+    """Return the previously stored coverage percentage if available."""
+    if baseline and baseline.is_file():
+        try:
+            return f"{float(baseline.read_text().strip()):.2f}"
+        except ValueError:
+            return None
+    return None
 
 
 def _merge_lcov(base: Path, extra: Path) -> None:

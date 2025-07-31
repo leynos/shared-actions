@@ -314,7 +314,8 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     res = run_script(script, env)
     assert res.returncode == 2
-    assert "cargo llvm-cov failed" in res.stderr
+    assert "cargo llvm-cov" in res.stderr
+    assert "failed with code 2" in res.stderr
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

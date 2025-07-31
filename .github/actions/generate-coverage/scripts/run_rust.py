@@ -136,16 +136,6 @@ def _run_cargo(args: list[str]) -> str:
     return "\n".join(stdout_lines)
 
 
-def read_previous(baseline: Path | None) -> str | None:
-    """Return the previously stored coverage percentage if available."""
-    if baseline and baseline.is_file():
-        try:
-            return f"{float(baseline.read_text().strip()):.2f}"
-        except ValueError:
-            return None
-    return None
-
-
 def _merge_lcov(base: Path, extra: Path) -> None:
     """Merge two lcov files ensuring they end with ``end_of_record``."""
     try:

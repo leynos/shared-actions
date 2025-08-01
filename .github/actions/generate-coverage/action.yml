@@ -101,10 +101,11 @@ runs:
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
       shell: bash
-    - name: Install cargo-cucumber
-      if: inputs.with-cucumber-rs == 'true' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
-      run: cargo install cargo-cucumber --force
-      shell: bash
+    # This isn't how you install cucumber :'(
+    #- name: Install cargo-cucumber
+    #  if: inputs.with-cucumber-rs == 'true' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
+    #  run: cargo install cargo-cucumber --force
+    #  shell: bash
     - id: rust
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/run_rust.py"

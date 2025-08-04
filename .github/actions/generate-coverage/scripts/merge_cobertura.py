@@ -5,6 +5,7 @@
 # ///
 """Merge Cobertura XML files from Rust and Python coverage runs."""
 
+import shlex
 from pathlib import Path
 
 import typer
@@ -35,7 +36,9 @@ def main(
 ) -> None:
     """Merge two cobertura XML files and delete the inputs."""
     try:
-        output = uvx["merge-cobertura", str(rust_file), str(python_file)]()
+        cmd = uvx["merge-cobertura", str(rust_file), str(python_file)]
+        typer.echo(f"$ {shlex.join(cmd.formulate())}")
+        output = cmd()
     except ProcessExecutionError as exc:
         typer.echo(
             f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import shlex
 import typing as t
 from pathlib import Path
 
@@ -50,7 +51,9 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
     try:
-        python["-m", "coverage", "xml", "-o", str(xml_tmp)]()
+        cmd = python["-m", "coverage", "xml", "-o", str(xml_tmp)]
+        typer.echo(f"$ {shlex.join(cmd.formulate())}")
+        cmd()
     except ProcessExecutionError as exc:
         typer.echo(
             f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
@@ -78,6 +81,7 @@ def main(
 
     cmd = coverage_cmd_for_fmt(fmt, out)
     try:
+        typer.echo(f"$ {shlex.join(cmd.formulate())}")
         cmd & FG
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc

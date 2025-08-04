@@ -5,6 +5,8 @@
 # ///
 """Install the cargo-llvm-cov tool via ``cargo install``."""
 
+import shlex
+
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
@@ -13,7 +15,9 @@ from plumbum.commands.processes import ProcessExecutionError
 def main() -> None:
     """Install cargo-llvm-cov via cargo install command."""
     try:
-        cargo["install", "cargo-llvm-cov", "--force"]()
+        cmd = cargo["install", "cargo-llvm-cov", "--force"]
+        typer.echo(f"$ {shlex.join(cmd.formulate())}")
+        cmd()
         typer.echo("cargo-llvm-cov installed successfully")
     except ProcessExecutionError as exc:
         typer.echo(

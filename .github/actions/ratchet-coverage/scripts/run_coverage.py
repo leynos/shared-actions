@@ -38,6 +38,7 @@ def main(
     cmd = cargo["llvm-cov", "--summary-only"]
     if args:
         cmd = cmd[shlex.split(args)]
+    typer.echo(f"$ {shlex.join(cmd.formulate())}")
     try:
         retcode, output, err = cmd.run(retcode=None)
     except ProcessExecutionError as exc:  # Should not happen but guard anyway

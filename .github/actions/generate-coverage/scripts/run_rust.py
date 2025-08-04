@@ -106,6 +106,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
 def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
+    typer.echo(f"$ cargo {shlex.join(args)}")
     proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout_lines: list[str] = []
     sel = selectors.DefaultSelector()
@@ -195,7 +196,9 @@ def run_cucumber_rs_coverage(
         from plumbum.cmd import uvx
 
         try:
-            merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
+            cmd = uvx["merge-cobertura", str(out), str(cucumber_file)]
+            typer.echo(f"$ {shlex.join(cmd.formulate())}")
+            merged = cmd()
         except ProcessExecutionError as exc:
             typer.echo(
                 f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

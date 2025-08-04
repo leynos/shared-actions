@@ -9,11 +9,14 @@ import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
+from cmd_utils import run_cmd
+
 
 def main() -> None:
     """Install cargo-llvm-cov via cargo install command."""
     try:
-        cargo["install", "cargo-llvm-cov", "--force"]()
+        cmd = cargo["install", "cargo-llvm-cov", "--force"]
+        run_cmd(cmd)
         typer.echo("cargo-llvm-cov installed successfully")
     except ProcessExecutionError as exc:
         typer.echo(

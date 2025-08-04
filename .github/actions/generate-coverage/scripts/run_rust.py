@@ -20,6 +20,8 @@ from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
+from cmd_utils import run_cmd
+
 try:  # runtime import for graceful fallback
     from lxml import etree
 except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
@@ -106,6 +108,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
 def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
+    typer.echo(f"$ cargo {shlex.join(args)}")
     proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout_lines: list[str] = []
     sel = selectors.DefaultSelector()
@@ -195,7 +198,8 @@ def run_cucumber_rs_coverage(
         from plumbum.cmd import uvx
 
         try:
-            merged = uvx["merge-cobertura", str(out), str(cucumber_file)]()
+            cmd = uvx["merge-cobertura", str(out), str(cucumber_file)]
+            merged = run_cmd(cmd)
         except ProcessExecutionError as exc:
             typer.echo(
                 f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

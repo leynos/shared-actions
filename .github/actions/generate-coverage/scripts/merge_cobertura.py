@@ -11,6 +11,8 @@ import typer
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
 
+from cmd_utils import run_cmd
+
 RUST_FILE_OPT = typer.Option(
     ...,
     envvar="RUST_FILE",
@@ -35,7 +37,8 @@ def main(
 ) -> None:
     """Merge two cobertura XML files and delete the inputs."""
     try:
-        output = uvx["merge-cobertura", str(rust_file), str(python_file)]()
+        cmd = uvx["merge-cobertura", str(rust_file), str(python_file)]
+        output = run_cmd(cmd)
     except ProcessExecutionError as exc:
         typer.echo(
             f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

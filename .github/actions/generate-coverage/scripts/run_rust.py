@@ -20,6 +20,8 @@ from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
+from cmd_utils import run_cmd
+
 try:  # runtime import for graceful fallback
     from lxml import etree
 except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
@@ -197,8 +199,7 @@ def run_cucumber_rs_coverage(
 
         try:
             cmd = uvx["merge-cobertura", str(out), str(cucumber_file)]
-            typer.echo(f"$ {shlex.join(cmd.formulate())}")
-            merged = cmd()
+            merged = run_cmd(cmd)
         except ProcessExecutionError as exc:
             typer.echo(
                 f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

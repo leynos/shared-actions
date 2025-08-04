@@ -15,6 +15,8 @@ import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
+from cmd_utils import run_cmd
+
 
 def extract_percent(output: str) -> str:
     """Return the coverage percentage parsed from ``output`` text."""
@@ -38,9 +40,8 @@ def main(
     cmd = cargo["llvm-cov", "--summary-only"]
     if args:
         cmd = cmd[shlex.split(args)]
-    typer.echo(f"$ {shlex.join(cmd.formulate())}")
     try:
-        retcode, output, err = cmd.run(retcode=None)
+        retcode, output, err = run_cmd(cmd, retcode=None)
     except ProcessExecutionError as exc:  # Should not happen but guard anyway
         retcode, output, err = exc.retcode, exc.stdout, exc.stderr
     if retcode != 0:

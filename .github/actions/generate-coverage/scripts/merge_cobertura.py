@@ -5,12 +5,13 @@
 # ///
 """Merge Cobertura XML files from Rust and Python coverage runs."""
 
-import shlex
 from pathlib import Path
 
 import typer
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
+
+from cmd_utils import run_cmd
 
 RUST_FILE_OPT = typer.Option(
     ...,
@@ -37,8 +38,7 @@ def main(
     """Merge two cobertura XML files and delete the inputs."""
     try:
         cmd = uvx["merge-cobertura", str(rust_file), str(python_file)]
-        typer.echo(f"$ {shlex.join(cmd.formulate())}")
-        output = cmd()
+        output = run_cmd(cmd)
     except ProcessExecutionError as exc:
         typer.echo(
             f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",

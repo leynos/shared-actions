@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -9,7 +10,11 @@ from pathlib import Path
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Execute *script* using ``uv run --script`` and return the process."""
     cmd = ["uv", "run", "--script", str(script), *args]
-    return subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    env = {
+        **os.environ,
+        "PYTHONPATH": str(Path(__file__).resolve().parents[4]),
+    }
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
 
 
 def test_copy_success(tmp_path: Path) -> None:

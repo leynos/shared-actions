@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import types
@@ -20,6 +21,8 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
     cmd = ["uv", "run", "--script", str(script), *args]
+    root = Path(__file__).resolve().parents[4]
+    env = {**os.environ, **env, "PYTHONPATH": str(root)}
     return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
 
 
@@ -31,6 +34,7 @@ def _load_module(
     """Import ``name`` from the ``scripts`` directory with stubbed deps."""
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(script_dir)
+    monkeypatch.syspath_prepend(Path(__file__).resolve().parents[4])
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None

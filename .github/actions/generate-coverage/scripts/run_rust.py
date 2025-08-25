@@ -175,6 +175,7 @@ def _run_cargo(args: list[str]) -> str:
                     stdout_lines.append(line.rstrip("\r\n"))
                 else:
                     typer.echo(line, err=True, nl=False)
+        sel.close()
 
     retcode = proc.wait()
     if retcode != 0:

@@ -166,28 +166,35 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
 
 
 def test_run_cargo_windows(
-    shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``_run_cargo`` streams output correctly on Windows."""
-    script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
-    shell_stubs.register("cargo", stdout="out-line\n", stderr="err-line\n")
-    monkeypatch.syspath_prepend(script_dir)
-    spec = importlib.util.spec_from_file_location(
-        "run_rust_win", script_dir / "run_rust.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
-    monkeypatch.setattr(os, "name", "nt")
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
 
     def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
         print(line, end="\n" if nl else "", file=sys.stderr if err else sys.stdout)
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.StringIO("out-line\n")
+            self.stderr = io.StringIO("err-line\n")
+
+        def wait(self) -> int:
+            return 0
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargo())
     res = mod._run_cargo([])
     captured = capsys.readouterr()
     assert "out-line\n" in captured.out
@@ -196,24 +203,15 @@ def test_run_cargo_windows(
 
 
 def test_run_cargo_windows_nonzero_exit(
-    shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` raises on non-zero exit code on Windows."""
-    script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
-    shell_stubs.register("cargo", stdout="out\n", stderr="err\n", exit_code=1)
-    monkeypatch.syspath_prepend(script_dir)
-    spec = importlib.util.spec_from_file_location(
-        "run_rust_win", script_dir / "run_rust.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
-    monkeypatch.delitem(sys.modules, "typer", raising=False)
-    monkeypatch.setattr(os, "name", "nt")
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    import typer as real_typer
+
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
 
     class FakeProc:
         def __init__(self) -> None:
@@ -233,6 +231,39 @@ def test_run_cargo_windows_nonzero_exit(
 
     monkeypatch.setattr(mod, "cargo", FakeCargo())
     with pytest.raises(mod.typer.Exit):
+        mod._run_cargo([])
+
+
+def test_run_cargo_windows_pump_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class BoomIO(io.StringIO):
+        def readline(self) -> str:
+            raise RuntimeError("boom in pump")  # noqa: TRY003
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = BoomIO()
+            self.stderr = io.StringIO("")
+
+        def wait(self) -> int:
+            return 0
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    with pytest.raises(RuntimeError, match="boom in pump"):
         mod._run_cargo([])
 
 

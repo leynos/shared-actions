@@ -35,6 +35,7 @@ def _load_module(
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(script_dir)
     monkeypatch.syspath_prepend(Path(__file__).resolve().parents[4])
+    monkeypatch.delitem(sys.modules, "coverage_parsers", raising=False)
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None
@@ -163,6 +164,36 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "percent=81.50" in data
 
 
+def test_run_cargo_windows(
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``_run_cargo`` streams output correctly on Windows."""
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
+    shell_stubs.register("cargo", stdout="out-line\n", stderr="err-line\n")
+    monkeypatch.syspath_prepend(script_dir)
+    spec = importlib.util.spec_from_file_location(
+        "run_rust_win", script_dir / "run_rust.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
+    monkeypatch.setattr(os, "name", "nt")
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
+        print(line, end="" if not nl else "\n", file=sys.stderr if err else sys.stdout)
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    res = mod._run_cargo([])
+    captured = capsys.readouterr()
+    assert "out-line\n" in captured.out
+    assert "err-line\n" in captured.err
+    assert res == "out-line"
+
+
 def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``run_rust.py`` runs cucumber scenarios when requested."""
     out = tmp_path / "cov.lcov"
@@ -230,10 +261,12 @@ def test_run_rust_with_cucumber_cobertura(
     shell_stubs.register("cargo", stdout="Coverage: 100%\n")
     shell_stubs.register(
         "uvx",
-        variants=[{
-            "match": ["merge-cobertura", str(out), str(cuc_file)],
-            "stdout": "<coverage lines-covered='1' lines-valid='1'/>",
-        }],
+        variants=[
+            {
+                "match": ["merge-cobertura", str(out), str(cuc_file)],
+                "stdout": "<coverage lines-covered='1' lines-valid='1'/>",
+            }
+        ],
     )
 
     env = {
@@ -274,11 +307,13 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
     shell_stubs.register("cargo", stdout="Coverage: 100%\n")
     shell_stubs.register(
         "uvx",
-        variants=[{
-            "match": ["merge-cobertura", str(out), str(cuc_file)],
-            "stderr": "oops",
-            "exit_code": 3,
-        }],
+        variants=[
+            {
+                "match": ["merge-cobertura", str(out), str(cuc_file)],
+                "stderr": "oops",
+                "exit_code": 3,
+            }
+        ],
     )
 
     env = {
@@ -395,8 +430,10 @@ def test_lcov_permission_error(
     """Unreadable file triggers ``SystemExit``."""
     lcov = tmp_path / "deny.lcov"
     lcov.write_text("LF:1\nLH:1\n")
+
     def bad_read_text(*_: object, **__: object) -> str:
         raise PermissionError("nope")
+
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(SystemExit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(lcov)

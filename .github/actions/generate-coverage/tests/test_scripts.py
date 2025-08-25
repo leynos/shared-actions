@@ -133,12 +133,16 @@ def _make_fake_cargo(
             self.stdout = (
                 stdout
                 if hasattr(stdout, "readline")
-                else None if stdout is None else io.StringIO(stdout)
+                else None
+                if stdout is None
+                else io.StringIO(stdout)
             )
             self.stderr = (
                 stderr
                 if hasattr(stderr, "readline")
-                else None if stderr is None else io.StringIO(stderr)
+                else None
+                if stderr is None
+                else io.StringIO(stderr)
             )
             self.killed = False
             self.waited = False
@@ -229,9 +233,7 @@ def test_run_cargo_windows(
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
 
-    monkeypatch.setattr(
-        mod, "cargo", _make_fake_cargo("out-line\r\n", "err-line\n")
-    )
+    monkeypatch.setattr(mod, "cargo", _make_fake_cargo("out-line\r\n", "err-line\n"))
     res = mod._run_cargo([])
     captured = capsys.readouterr()
     assert "out-line\r\n" in captured.out

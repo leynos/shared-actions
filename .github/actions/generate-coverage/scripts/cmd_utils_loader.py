@@ -10,9 +10,9 @@ if t.TYPE_CHECKING:  # pragma: no cover - type hints only
     import collections.abc as cabc
     from types import ModuleType
 
-CMD_UTILS_FILENAME = "cmd_utils.py"
-ERROR_REPO_ROOT_NOT_FOUND = "Repository root not found"
-ERROR_IMPORT_FAILED = "Failed to import cmd_utils from repository root"
+CMD_UTILS_FILENAME: t.Final[str] = "cmd_utils.py"
+ERROR_REPO_ROOT_NOT_FOUND: t.Final[str] = "Repository root not found"
+ERROR_IMPORT_FAILED: t.Final[str] = "Failed to import cmd_utils from repository root"
 
 
 class RepoRootNotFoundError(RuntimeError):

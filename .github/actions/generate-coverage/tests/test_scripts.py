@@ -185,7 +185,7 @@ def test_run_cargo_windows(
     spec.loader.exec_module(mod)
 
     def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
-        print(line, end="" if not nl else "\n", file=sys.stderr if err else sys.stdout)
+        print(line, end="\n" if nl else "", file=sys.stderr if err else sys.stdout)
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
     res = mod._run_cargo([])

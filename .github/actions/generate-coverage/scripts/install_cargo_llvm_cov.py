@@ -5,10 +5,14 @@
 # ///
 """Install the cargo-llvm-cov tool via ``cargo install``."""
 
+import sys
+from pathlib import Path
+
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
+sys.path.append(str(Path(__file__).resolve().parents[4]))
 from cmd_utils import run_cmd
 
 

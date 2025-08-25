@@ -8,10 +8,9 @@
 from pathlib import Path
 
 import typer
+from cmd_utils_loader import run_cmd
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
-
-from cmd_utils import run_cmd
 
 RUST_FILE_OPT = typer.Option(
     ...,

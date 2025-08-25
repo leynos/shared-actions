@@ -13,12 +13,11 @@ import typing as t
 from pathlib import Path
 
 import typer
+from cmd_utils_loader import run_cmd
 from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum.cmd import python
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
-
-from cmd_utils import run_cmd
 
 if t.TYPE_CHECKING:  # pragma: no cover - type hints only
     from plumbum.commands.base import BoundCommand

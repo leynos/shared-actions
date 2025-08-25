@@ -40,29 +40,27 @@ class CmdUtilsImportError(RuntimeError):
 
 def find_repo_root() -> Path:
     """Locate the repository root containing ``CMD_UTILS_FILENAME``."""
-    candidates: list[Path] = []
-    for parent in Path(__file__).resolve().parents:
+    parents = list(Path(__file__).resolve().parents)
+    for parent in parents:
         candidate = parent / CMD_UTILS_FILENAME
-        candidates.append(candidate.resolve())
-        if candidate.is_file() and not candidate.is_symlink():
+        if candidate.is_file():
             return parent
-    searched = " -> ".join(str(p) for p in candidates)
+    searched = " -> ".join(str(parent / CMD_UTILS_FILENAME) for parent in parents)
     raise RepoRootNotFoundError(searched)
 
 
 def load_cmd_utils() -> ModuleType:
     """Import and return the ``cmd_utils`` module."""
     repo_root = find_repo_root()
-    spec = importlib.util.spec_from_file_location(
-        "cmd_utils", repo_root / CMD_UTILS_FILENAME
-    )
+    module_path = repo_root / CMD_UTILS_FILENAME
+    spec = importlib.util.spec_from_file_location("cmd_utils", module_path)
     if spec is None or spec.loader is None:  # pragma: no cover - import-time failure
-        raise CmdUtilsImportError(repo_root)
+        raise CmdUtilsImportError(module_path)
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
     except Exception as exc:  # pragma: no cover - import-time failure
-        raise CmdUtilsImportError(repo_root, original_exception=exc) from exc
+        raise CmdUtilsImportError(module_path, original_exception=exc) from exc
     return module
 
 

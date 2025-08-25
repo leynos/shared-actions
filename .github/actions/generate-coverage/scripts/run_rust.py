@@ -126,7 +126,7 @@ def _run_cargo(args: list[str]) -> str:
                 for line in iter(src.readline, ""):
                     if to_stdout:
                         typer.echo(line, nl=False)
-                        stdout_lines.append(line.rstrip("\n"))
+                        stdout_lines.append(line.rstrip("\r\n"))
                     else:
                         typer.echo(line, err=True, nl=False)
             except Exception as exc:  # noqa: BLE001
@@ -161,7 +161,7 @@ def _run_cargo(args: list[str]) -> str:
                     continue
                 if key.data == "stdout":
                     typer.echo(line, nl=False)
-                    stdout_lines.append(line.rstrip("\n"))
+                    stdout_lines.append(line.rstrip("\r\n"))
                 else:
                     typer.echo(line, err=True, nl=False)
 

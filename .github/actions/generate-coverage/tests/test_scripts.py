@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -192,6 +193,123 @@ def test_run_cargo_windows(
     assert "out-line\n" in captured.out
     assert "err-line\n" in captured.err
     assert res == "out-line"
+
+
+def test_run_cargo_windows_nonzero_exit(
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` raises on non-zero exit code on Windows."""
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
+    shell_stubs.register("cargo", stdout="out\n", stderr="err\n", exit_code=1)
+    monkeypatch.syspath_prepend(script_dir)
+    spec = importlib.util.spec_from_file_location(
+        "run_rust_win", script_dir / "run_rust.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
+    monkeypatch.delitem(sys.modules, "typer", raising=False)
+    monkeypatch.setattr(os, "name", "nt")
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.StringIO("out-line\n")
+            self.stderr = io.StringIO("err-line\n")
+
+        def wait(self) -> int:
+            return 1
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    with pytest.raises(mod.typer.Exit):
+        mod._run_cargo([])
+
+
+def test_run_cargo_windows_none_stdout(
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` fails when stdout is missing on Windows."""
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
+    shell_stubs.register("cargo")
+    monkeypatch.syspath_prepend(script_dir)
+    spec = importlib.util.spec_from_file_location(
+        "run_rust_win", script_dir / "run_rust.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
+    monkeypatch.delitem(sys.modules, "typer", raising=False)
+    monkeypatch.setattr(os, "name", "nt")
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = None
+            self.stderr = io.StringIO()
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    with pytest.raises(RuntimeError):
+        mod._run_cargo([])
+
+
+def test_run_cargo_windows_none_stderr(
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` fails when stderr is missing on Windows."""
+    script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
+    shell_stubs.register("cargo")
+    monkeypatch.syspath_prepend(script_dir)
+    spec = importlib.util.spec_from_file_location(
+        "run_rust_win", script_dir / "run_rust.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
+    monkeypatch.delitem(sys.modules, "typer", raising=False)
+    monkeypatch.setattr(os, "name", "nt")
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.StringIO()
+            self.stderr = None
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    with pytest.raises(RuntimeError):
+        mod._run_cargo([])
 
 
 def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:

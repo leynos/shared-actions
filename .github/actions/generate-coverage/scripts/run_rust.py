@@ -13,6 +13,7 @@ import selectors
 import shlex
 import subprocess
 import threading
+import traceback
 import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
@@ -113,41 +114,44 @@ def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     typer.echo(f"$ cargo {shlex.join(args)}")
     proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.stdout is None or proc.stderr is None:
+        raise RuntimeError("cargo output streams not captured")  # noqa: TRY003
     stdout_lines: list[str] = []
 
     if os.name == "nt":
+        thread_exceptions: list[Exception] = []
 
         def pump(src: t.TextIO, *, to_stdout: bool) -> None:
-            for line in iter(src.readline, ""):
-                if to_stdout:
-                    typer.echo(line, nl=False)
-                    stdout_lines.append(line.rstrip("\n"))
-                else:
-                    typer.echo(line, err=True, nl=False)
+            try:
+                for line in iter(src.readline, ""):
+                    if to_stdout:
+                        typer.echo(line, nl=False)
+                        stdout_lines.append(line.rstrip("\n"))
+                    else:
+                        typer.echo(line, err=True, nl=False)
+            except Exception as exc:  # noqa: BLE001
+                thread_exceptions.append(exc)
+                typer.echo(f"Exception in pump thread: {exc}", err=True)
+                typer.echo(traceback.format_exc(), err=True)
 
-        threads: list[threading.Thread] = []
-        if proc.stdout is not None:
-            threads.append(
-                threading.Thread(
-                    target=pump, args=(proc.stdout,), kwargs={"to_stdout": True}
-                )
-            )
-        if proc.stderr is not None:
-            threads.append(
-                threading.Thread(
-                    target=pump, args=(proc.stderr,), kwargs={"to_stdout": False}
-                )
-            )
+        threads = [
+            threading.Thread(
+                target=pump, args=(proc.stdout,), kwargs={"to_stdout": True}
+            ),
+            threading.Thread(
+                target=pump, args=(proc.stderr,), kwargs={"to_stdout": False}
+            ),
+        ]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
+        if thread_exceptions:
+            raise thread_exceptions[0]
     else:
         sel = selectors.DefaultSelector()
-        if proc.stdout is not None:
-            sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
-        if proc.stderr is not None:
-            sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
+        sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
+        sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
 
         while sel.get_map():
             for key, _ in sel.select():

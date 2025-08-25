@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import importlib.util
-import typing as t
+from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final  # noqa: ICN003
 
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
-    import collections.abc as cabc
+if TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
-CMD_UTILS_FILENAME: t.Final[str] = "cmd_utils.py"
-ERROR_REPO_ROOT_NOT_FOUND: t.Final[str] = "Repository root not found"
-ERROR_IMPORT_FAILED: t.Final[str] = "Failed to import cmd_utils from repository root"
+
+CMD_UTILS_FILENAME: Final[str] = "cmd_utils.py"
+ERROR_REPO_ROOT_NOT_FOUND: Final[str] = "Repository root not found"
+ERROR_IMPORT_FAILED: Final[str] = "Failed to import cmd_utils from repository root"
 
 
 class RepoRootNotFoundError(RuntimeError):
@@ -25,8 +26,15 @@ class RepoRootNotFoundError(RuntimeError):
 class CmdUtilsImportError(RuntimeError):
     """Failed to import cmd_utils from repository root."""
 
-    def __init__(self, path: Path, symbol: str | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        symbol: str | None = None,
+        *,
+        original_exception: Exception | None = None,
+    ) -> None:
         detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
+        self.original_exception = original_exception
         super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}")
 
 
@@ -36,7 +44,10 @@ def find_repo_root() -> Path:
     for parent in parents:
         if (parent / CMD_UTILS_FILENAME).exists():
             return parent
-    searched = " -> ".join(str(p) for p in parents)
+    if len(parents) <= 2:
+        searched = " -> ".join(str(p) for p in parents)
+    else:
+        searched = f"{parents[0]} -> ... -> {parents[-1]}"
     raise RepoRootNotFoundError(searched)
 
 
@@ -49,19 +60,29 @@ def load_cmd_utils() -> ModuleType:
     if spec is None or spec.loader is None:  # pragma: no cover - import-time failure
         raise CmdUtilsImportError(repo_root)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # pragma: no cover - import-time failure
+        raise CmdUtilsImportError(repo_root, original_exception=exc) from exc
     return module
 
 
-cmd_utils = load_cmd_utils()
-try:
-    run_cmd: cabc.Callable[..., t.Any] = cmd_utils.run_cmd
-except AttributeError as exc:  # pragma: no cover - import-time failure
-    missing = find_repo_root() / CMD_UTILS_FILENAME
-    raise CmdUtilsImportError(missing, "run_cmd") from exc
+@cache
+def _get_cmd_utils() -> ModuleType:
+    return load_cmd_utils()
+
+
+def run_cmd(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - passthrough
+    """Proxy ``cmd_utils.run_cmd`` with lazy module loading."""
+    try:
+        return _get_cmd_utils().run_cmd(*args, **kwargs)
+    except AttributeError as exc:  # pragma: no cover - import-time failure
+        missing = find_repo_root() / CMD_UTILS_FILENAME
+        raise CmdUtilsImportError(missing, "run_cmd", original_exception=exc) from exc
 
 
 __all__ = [
+    "CMD_UTILS_FILENAME",
     "CmdUtilsImportError",
     "RepoRootNotFoundError",
     "find_repo_root",

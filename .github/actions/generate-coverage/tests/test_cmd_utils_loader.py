@@ -37,16 +37,21 @@ def _load_loader(
     return module
 
 
-def test_find_repo_root_truncates_path(
+def test_find_repo_root_reports_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``find_repo_root`` truncates long search paths in its error message."""
+    """``find_repo_root`` lists all candidate paths in its error."""
     mod = _load_loader(tmp_path, monkeypatch)
     with pytest.raises(mod.RepoRootNotFoundError) as excinfo:
         mod.find_repo_root()
     msg = str(excinfo.value)
-    assert "..." in msg
-    assert str(tmp_path) in msg
+    loader_file = tmp_path / "cmd_utils_loader.py"
+    expected = [
+        (parent / mod.CMD_UTILS_FILENAME).resolve()
+        for parent in loader_file.resolve().parents
+    ]
+    for candidate in expected:
+        assert str(candidate) in msg
 
 
 def test_run_cmd_missing_symbol(

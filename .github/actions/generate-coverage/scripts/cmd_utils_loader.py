@@ -40,14 +40,13 @@ class CmdUtilsImportError(RuntimeError):
 
 def find_repo_root() -> Path:
     """Locate the repository root containing ``CMD_UTILS_FILENAME``."""
-    parents = list(Path(__file__).resolve().parents)
-    for parent in parents:
-        if (parent / CMD_UTILS_FILENAME).exists():
+    candidates: list[Path] = []
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / CMD_UTILS_FILENAME
+        candidates.append(candidate.resolve())
+        if candidate.is_file() and not candidate.is_symlink():
             return parent
-    if len(parents) <= 2:
-        searched = " -> ".join(str(p) for p in parents)
-    else:
-        searched = f"{parents[0]} -> ... -> {parents[-1]}"
+    searched = " -> ".join(str(p) for p in candidates)
     raise RepoRootNotFoundError(searched)
 
 

@@ -212,7 +212,7 @@ def _run_cargo(args: list[str]) -> str:
     retcode = proc.wait()
     if retcode != 0:
         typer.echo(
-            f"cargo {' '.join(args)} failed with code {retcode}",
+            f"cargo {shlex.join(args)} failed with code {retcode}",
             err=True,
         )
         raise typer.Exit(code=retcode or 1)

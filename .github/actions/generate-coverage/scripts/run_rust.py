@@ -7,10 +7,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import selectors
 import shlex
 import subprocess
+import threading
+import traceback
+import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
@@ -109,25 +114,100 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     typer.echo(f"$ cargo {shlex.join(args)}")
-    proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = cargo[args].popen(
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if proc.stdout is None or proc.stderr is None:
+        raise RuntimeError("cargo output streams not captured")  # noqa: TRY003
     stdout_lines: list[str] = []
-    sel = selectors.DefaultSelector()
-    if proc.stdout is not None:
-        sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
-    if proc.stderr is not None:
-        sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
 
-    while sel.get_map():
-        for key, _ in sel.select():
-            line = key.fileobj.readline()
-            if not line:
-                sel.unregister(key.fileobj)
-                continue
-            if key.data == "stdout":
-                typer.echo(line, nl=False)
-                stdout_lines.append(line.rstrip("\n"))
-            else:
-                typer.echo(line, err=True, nl=False)
+    if os.name == "nt":
+        thread_exceptions: list[Exception] = []
+
+        def pump(src: t.TextIO, *, to_stdout: bool) -> None:
+            try:
+                for line in iter(src.readline, ""):
+                    if to_stdout:
+                        typer.echo(line, nl=False)
+                        stdout_lines.append(line.rstrip("\r\n"))
+                    else:
+                        typer.echo(line, err=True, nl=False)
+            except Exception as exc:  # noqa: BLE001
+                thread_exceptions.append(exc)
+                typer.echo(f"Exception in pump thread: {exc}", err=True)
+                if os.environ.get("RUN_RUST_DEBUG") == "1":
+                    typer.echo(traceback.format_exc(), err=True)
+
+        threads = [
+            threading.Thread(
+                name="cargo-stdout",
+                target=pump,
+                args=(proc.stdout,),
+                kwargs={"to_stdout": True},
+                daemon=True,
+            ),
+            threading.Thread(
+                name="cargo-stderr",
+                target=pump,
+                args=(proc.stderr,),
+                kwargs={"to_stdout": False},
+                daemon=True,
+            ),
+        ]
+        for thread in threads:
+            thread.start()
+        # Kill cargo promptly if a pump fails to avoid deadlocks on the other pipe.
+        while True:
+            if thread_exceptions:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                break
+            if not any(t.is_alive() for t in threads):
+                break
+            for t in threads:
+                t.join(timeout=0.1)
+        # Ensure all threads have finished before closing streams.
+        for thread in threads:
+            thread.join()
+        # Streams are guaranteed non-None by earlier guard.
+        proc.stdout.close()
+        proc.stderr.close()
+        if thread_exceptions:
+            proc.wait()
+            raise thread_exceptions[0]
+    else:
+        sel = selectors.DefaultSelector()
+        try:
+            sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
+            sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
+
+            while sel.get_map():
+                for key, _ in sel.select():
+                    line = key.fileobj.readline()
+                    if not line:
+                        sel.unregister(key.fileobj)
+                        continue
+                    if key.data == "stdout":
+                        typer.echo(line, nl=False)
+                        stdout_lines.append(line.rstrip("\r\n"))
+                    else:
+                        typer.echo(line, err=True, nl=False)
+        except Exception:
+            # Ensure cargo does not outlive the parent if the selector loop fails.
+            with contextlib.suppress(Exception):
+                proc.kill()
+            proc.wait()
+            raise
+        finally:
+            sel.close()
+            # Safe due to earlier guard.
+            proc.stdout.close()
+            proc.stderr.close()
 
     retcode = proc.wait()
     if retcode != 0:

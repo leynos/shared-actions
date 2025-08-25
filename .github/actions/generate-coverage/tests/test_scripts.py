@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import subprocess
 import sys
@@ -35,6 +36,7 @@ def _load_module(
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
     monkeypatch.syspath_prepend(script_dir)
     monkeypatch.syspath_prepend(Path(__file__).resolve().parents[4])
+    monkeypatch.delitem(sys.modules, "coverage_parsers", raising=False)
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None
@@ -117,6 +119,57 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return _load_module(monkeypatch, "run_rust", {"cargo": None})
 
 
+def _make_fake_cargo(
+    stdout: str | t.TextIO | None,
+    stderr: str | t.TextIO | None,
+    *,
+    returncode: int = 0,
+    track_lifecycle: bool = False,
+) -> object:
+    """Return a fake ``cargo`` object yielding the given streams."""
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = (
+                stdout
+                if hasattr(stdout, "readline")
+                else None if stdout is None else io.StringIO(stdout)
+            )
+            self.stderr = (
+                stderr
+                if hasattr(stderr, "readline")
+                else None if stderr is None else io.StringIO(stderr)
+            )
+            self.killed = False
+            self.waited = False
+
+        def kill(self) -> None:
+            if track_lifecycle:
+                self.killed = True
+
+        def wait(self) -> int:
+            if track_lifecycle:
+                self.waited = True
+            return returncode
+
+    class FakeCargo:
+        def __init__(self) -> None:
+            self.last_proc: FakeProc | None = None
+
+        def __getitem__(self, _args: list[str]) -> object:
+            cargo = self
+
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    proc = FakeProc()
+                    cargo.last_proc = proc
+                    return proc
+
+            return Runner()
+
+    return FakeCargo()
+
+
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     """Happy path for ``run_rust.py``."""
     out = tmp_path / "cov.lcov"
@@ -161,6 +214,100 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
     assert "percent=81.50" in data
+
+
+def test_run_cargo_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``_run_cargo`` streams output correctly on Windows."""
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+
+    def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
+        print(line, end="\n" if nl else "", file=sys.stderr if err else sys.stdout)
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+
+    monkeypatch.setattr(
+        mod, "cargo", _make_fake_cargo("out-line\r\n", "err-line\n")
+    )
+    res = mod._run_cargo([])
+    captured = capsys.readouterr()
+    assert "out-line\r\n" in captured.out
+    assert "err-line\n" in captured.err
+    assert res == "out-line"
+
+
+def test_run_cargo_windows_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` raises on non-zero exit code on Windows."""
+    import typer as real_typer
+
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
+
+    monkeypatch.setattr(
+        mod, "cargo", _make_fake_cargo("out-line\n", "err-line\n", returncode=1)
+    )
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo([])
+    # click.exceptions.Exit exposes ``exit_code``; SystemExit uses ``code``.
+    assert (
+        getattr(excinfo.value, "exit_code", None)
+        or getattr(excinfo.value, "code", None)
+    ) == 1
+
+
+def test_run_cargo_windows_pump_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class BoomIO(io.StringIO):
+        def readline(self) -> str:
+            raise RuntimeError("boom in pump")  # noqa: TRY003
+
+    fake_cargo = _make_fake_cargo(BoomIO(), io.StringIO(""), track_lifecycle=True)
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+    with pytest.raises(RuntimeError, match="boom in pump"):
+        mod._run_cargo([])
+    proc = fake_cargo.last_proc
+    assert proc is not None
+    assert proc.killed
+    assert proc.waited
+
+
+def test_run_cargo_windows_none_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` fails when stdout is missing on Windows."""
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    monkeypatch.setattr(mod, "cargo", _make_fake_cargo(None, "err-line\n"))
+    with pytest.raises(RuntimeError):
+        mod._run_cargo([])
+
+
+def test_run_cargo_windows_none_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` fails when stderr is missing on Windows."""
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    monkeypatch.setattr(mod, "cargo", _make_fake_cargo("out-line\n", None))
+    with pytest.raises(RuntimeError):
+        mod._run_cargo([])
 
 
 def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:
@@ -230,10 +377,12 @@ def test_run_rust_with_cucumber_cobertura(
     shell_stubs.register("cargo", stdout="Coverage: 100%\n")
     shell_stubs.register(
         "uvx",
-        variants=[{
-            "match": ["merge-cobertura", str(out), str(cuc_file)],
-            "stdout": "<coverage lines-covered='1' lines-valid='1'/>",
-        }],
+        variants=[
+            {
+                "match": ["merge-cobertura", str(out), str(cuc_file)],
+                "stdout": "<coverage lines-covered='1' lines-valid='1'/>",
+            }
+        ],
     )
 
     env = {
@@ -274,11 +423,13 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
     shell_stubs.register("cargo", stdout="Coverage: 100%\n")
     shell_stubs.register(
         "uvx",
-        variants=[{
-            "match": ["merge-cobertura", str(out), str(cuc_file)],
-            "stderr": "oops",
-            "exit_code": 3,
-        }],
+        variants=[
+            {
+                "match": ["merge-cobertura", str(out), str(cuc_file)],
+                "stderr": "oops",
+                "exit_code": 3,
+            }
+        ],
     )
 
     env = {
@@ -395,8 +546,10 @@ def test_lcov_permission_error(
     """Unreadable file triggers ``SystemExit``."""
     lcov = tmp_path / "deny.lcov"
     lcov.write_text("LF:1\nLH:1\n")
+
     def bad_read_text(*_: object, **__: object) -> str:
         raise PermissionError("nope")
+
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(SystemExit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(lcov)

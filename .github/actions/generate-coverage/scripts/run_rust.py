@@ -115,6 +115,7 @@ def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     typer.echo(f"$ cargo {shlex.join(args)}")
     proc = cargo[args].popen(
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -188,6 +189,12 @@ def _run_cargo(args: list[str]) -> str:
                         stdout_lines.append(line.rstrip("\r\n"))
                     else:
                         typer.echo(line, err=True, nl=False)
+        except Exception:
+            # Ensure cargo does not outlive the parent if the selector loop fails.
+            with contextlib.suppress(Exception):
+                proc.kill()
+            proc.wait()
+            raise
         finally:
             sel.close()
             # Safe due to earlier guard.

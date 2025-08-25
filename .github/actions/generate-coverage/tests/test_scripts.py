@@ -119,6 +119,33 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return _load_module(monkeypatch, "run_rust", {"cargo": None})
 
 
+def _make_fake_cargo(
+    stdout: str | None,
+    stderr: str | None,
+    *,
+    returncode: int = 0,
+) -> object:
+    """Return a fake ``cargo`` object yielding the given streams."""
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = None if stdout is None else io.StringIO(stdout)
+            self.stderr = None if stderr is None else io.StringIO(stderr)
+
+        def wait(self) -> int:
+            return returncode
+
+    class FakeCargo:
+        def __getitem__(self, _args: list[str]) -> object:
+            class Runner:
+                def popen(self, **_kw: object) -> FakeProc:
+                    return FakeProc()
+
+            return Runner()
+
+    return FakeCargo()
+
+
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     """Happy path for ``run_rust.py``."""
     out = tmp_path / "cov.lcov"
@@ -178,23 +205,9 @@ def test_run_cargo_windows(
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
 
-    class FakeProc:
-        def __init__(self) -> None:
-            self.stdout = io.StringIO("out-line\r\n")
-            self.stderr = io.StringIO("err-line\n")
-
-        def wait(self) -> int:
-            return 0
-
-    class FakeCargo:
-        def __getitem__(self, _args: list[str]) -> object:
-            class Runner:
-                def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
-
-            return Runner()
-
-    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    monkeypatch.setattr(
+        mod, "cargo", _make_fake_cargo("out-line\r\n", "err-line\n")
+    )
     res = mod._run_cargo([])
     captured = capsys.readouterr()
     assert "out-line\r\n" in captured.out
@@ -213,25 +226,16 @@ def test_run_cargo_windows_nonzero_exit(
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
     monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
 
-    class FakeProc:
-        def __init__(self) -> None:
-            self.stdout = io.StringIO("out-line\n")
-            self.stderr = io.StringIO("err-line\n")
-
-        def wait(self) -> int:
-            return 1
-
-    class FakeCargo:
-        def __getitem__(self, _args: list[str]) -> object:
-            class Runner:
-                def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
-
-            return Runner()
-
-    monkeypatch.setattr(mod, "cargo", FakeCargo())
-    with pytest.raises(mod.typer.Exit):
+    monkeypatch.setattr(
+        mod, "cargo", _make_fake_cargo("out-line\n", "err-line\n", returncode=1)
+    )
+    with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo([])
+    # click.exceptions.Exit exposes ``exit_code``; SystemExit uses ``code``.
+    assert (
+        getattr(excinfo.value, "exit_code", None)
+        or getattr(excinfo.value, "code", None)
+    ) == 1
 
 
 def test_run_cargo_windows_pump_exception(
@@ -287,20 +291,7 @@ def test_run_cargo_windows_none_stdout(
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
-    class FakeProc:
-        def __init__(self) -> None:
-            self.stdout = None
-            self.stderr = io.StringIO()
-
-    class FakeCargo:
-        def __getitem__(self, _args: list[str]) -> object:
-            class Runner:
-                def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
-
-            return Runner()
-
-    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    monkeypatch.setattr(mod, "cargo", _make_fake_cargo(None, "err-line\n"))
     with pytest.raises(RuntimeError):
         mod._run_cargo([])
 
@@ -313,20 +304,7 @@ def test_run_cargo_windows_none_stderr(
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
-    class FakeProc:
-        def __init__(self) -> None:
-            self.stdout = io.StringIO()
-            self.stderr = None
-
-    class FakeCargo:
-        def __getitem__(self, _args: list[str]) -> object:
-            class Runner:
-                def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
-
-            return Runner()
-
-    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    monkeypatch.setattr(mod, "cargo", _make_fake_cargo("out-line\n", None))
     with pytest.raises(RuntimeError):
         mod._run_cargo([])
 

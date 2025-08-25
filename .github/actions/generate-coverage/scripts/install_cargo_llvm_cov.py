@@ -5,31 +5,56 @@
 # ///
 """Install the cargo-llvm-cov tool via ``cargo install``."""
 
-import sys
+import importlib.util
 from pathlib import Path
 
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
-ERROR_REPO_ROOT_NOT_FOUND = "Could not find repository root containing cmd_utils.py"
+CMD_UTILS_FILENAME = "cmd_utils.py"
+ERROR_REPO_ROOT_NOT_FOUND = "Repository root not found"
 ERROR_IMPORT_FAILED = "Failed to import cmd_utils from repository root"
 
 
+class RepoRootNotFoundError(RuntimeError):
+    """Repository root not found."""
+
+    def __init__(self, searched: str) -> None:
+        super().__init__(f"{ERROR_REPO_ROOT_NOT_FOUND}; searched: {searched}")
+
+
+class CmdUtilsImportError(RuntimeError):
+    """Failed to import cmd_utils from repository root."""
+
+    def __init__(self, path: Path, symbol: str | None = None) -> None:
+        detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
+        super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}")
+
+
 def _find_repo_root() -> Path:
-    """Locate the repository root containing ``cmd_utils.py``."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "cmd_utils.py").exists():
+    """Locate the repository root containing CMD_UTILS_FILENAME."""
+    parents = list(Path(__file__).resolve().parents)
+    for parent in parents:
+        if (parent / CMD_UTILS_FILENAME).exists():
             return parent
-    raise RuntimeError(ERROR_REPO_ROOT_NOT_FOUND)
+    searched = " -> ".join(str(p) for p in parents)
+    raise RepoRootNotFoundError(searched)
 
 
 REPO_ROOT = _find_repo_root()
-sys.path.insert(0, str(REPO_ROOT))
+spec = importlib.util.spec_from_file_location(
+    "cmd_utils", REPO_ROOT / CMD_UTILS_FILENAME
+)
+if spec is None or spec.loader is None:  # pragma: no cover - import-time failure
+    raise CmdUtilsImportError(REPO_ROOT)
+cmd_utils = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cmd_utils)
 try:
-    from cmd_utils import run_cmd  # noqa: E402,RUF100
-except ModuleNotFoundError as exc:  # pragma: no cover - import-time failure
-    raise RuntimeError(ERROR_IMPORT_FAILED) from exc
+    run_cmd = cmd_utils.run_cmd
+except AttributeError as exc:  # pragma: no cover - import-time failure
+    missing = REPO_ROOT / CMD_UTILS_FILENAME
+    raise CmdUtilsImportError(missing, "run_cmd") from exc
 
 
 def main() -> None:

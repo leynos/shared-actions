@@ -120,26 +120,50 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
 
 
 def _make_fake_cargo(
-    stdout: str | None,
-    stderr: str | None,
+    stdout: str | t.TextIO | None,
+    stderr: str | t.TextIO | None,
     *,
     returncode: int = 0,
+    track_lifecycle: bool = False,
 ) -> object:
     """Return a fake ``cargo`` object yielding the given streams."""
 
     class FakeProc:
         def __init__(self) -> None:
-            self.stdout = None if stdout is None else io.StringIO(stdout)
-            self.stderr = None if stderr is None else io.StringIO(stderr)
+            self.stdout = (
+                stdout
+                if hasattr(stdout, "readline")
+                else None if stdout is None else io.StringIO(stdout)
+            )
+            self.stderr = (
+                stderr
+                if hasattr(stderr, "readline")
+                else None if stderr is None else io.StringIO(stderr)
+            )
+            self.killed = False
+            self.waited = False
+
+        def kill(self) -> None:
+            if track_lifecycle:
+                self.killed = True
 
         def wait(self) -> int:
+            if track_lifecycle:
+                self.waited = True
             return returncode
 
     class FakeCargo:
+        def __init__(self) -> None:
+            self.last_proc: FakeProc | None = None
+
         def __getitem__(self, _args: list[str]) -> object:
+            cargo = self
+
             class Runner:
                 def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
+                    proc = FakeProc()
+                    cargo.last_proc = proc
+                    return proc
 
             return Runner()
 
@@ -250,35 +274,12 @@ def test_run_cargo_windows_pump_exception(
         def readline(self) -> str:
             raise RuntimeError("boom in pump")  # noqa: TRY003
 
-    class FakeProc:
-        def __init__(self) -> None:
-            self.stdout = BoomIO()
-            self.stderr = io.StringIO("")
-            self.killed = False
-            self.waited = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        def wait(self) -> int:
-            self.waited = True
-            return 0
-
-    class FakeCargo:
-        def __getitem__(self, _args: list[str]) -> object:
-            class Runner:
-                def popen(self, **_kw: object) -> FakeProc:
-                    proc = FakeProc()
-                    proc_holder["proc"] = proc
-                    return proc
-
-            return Runner()
-
-    proc_holder: dict[str, FakeProc] = {}
-    monkeypatch.setattr(mod, "cargo", FakeCargo())
+    fake_cargo = _make_fake_cargo(BoomIO(), io.StringIO(""), track_lifecycle=True)
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
     with pytest.raises(RuntimeError, match="boom in pump"):
         mod._run_cargo([])
-    proc = proc_holder["proc"]
+    proc = fake_cargo.last_proc
+    assert proc is not None
     assert proc.killed
     assert proc.waited
 

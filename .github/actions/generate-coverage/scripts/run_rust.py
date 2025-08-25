@@ -161,15 +161,23 @@ def _run_cargo(args: list[str]) -> str:
         ]
         for thread in threads:
             thread.start()
+        # Kill cargo promptly if a pump fails to avoid deadlocks on the other pipe.
+        while True:
+            if thread_exceptions:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                break
+            if not any(t.is_alive() for t in threads):
+                break
+            for t in threads:
+                t.join(timeout=0.1)
+        # Ensure all threads have finished before closing streams.
         for thread in threads:
             thread.join()
         # Streams are guaranteed non-None by earlier guard.
         proc.stdout.close()
         proc.stderr.close()
         if thread_exceptions:
-            # Ensure cargo does not outlive the parent if a pump failed.
-            with contextlib.suppress(Exception):
-                proc.kill()
             proc.wait()
             raise thread_exceptions[0]
     else:

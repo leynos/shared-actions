@@ -250,21 +250,33 @@ def test_run_cargo_windows_pump_exception(
         def __init__(self) -> None:
             self.stdout = BoomIO()
             self.stderr = io.StringIO("")
+            self.killed = False
+            self.waited = False
+
+        def kill(self) -> None:
+            self.killed = True
 
         def wait(self) -> int:
+            self.waited = True
             return 0
 
     class FakeCargo:
         def __getitem__(self, _args: list[str]) -> object:
             class Runner:
                 def popen(self, **_kw: object) -> FakeProc:
-                    return FakeProc()
+                    proc = FakeProc()
+                    proc_holder["proc"] = proc
+                    return proc
 
             return Runner()
 
+    proc_holder: dict[str, FakeProc] = {}
     monkeypatch.setattr(mod, "cargo", FakeCargo())
     with pytest.raises(RuntimeError, match="boom in pump"):
         mod._run_cargo([])
+    proc = proc_holder["proc"]
+    assert proc.killed
+    assert proc.waited
 
 
 def test_run_cargo_windows_none_stdout(

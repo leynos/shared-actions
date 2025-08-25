@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import selectors
@@ -158,24 +159,33 @@ def _run_cargo(args: list[str]) -> str:
         proc.stdout.close()
         proc.stderr.close()
         if thread_exceptions:
+            # Ensure cargo does not outlive the parent if a pump failed.
+            with contextlib.suppress(Exception):
+                proc.kill()
+            proc.wait()
             raise thread_exceptions[0]
     else:
         sel = selectors.DefaultSelector()
-        sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
-        sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
+        try:
+            sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
+            sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
 
-        while sel.get_map():
-            for key, _ in sel.select():
-                line = key.fileobj.readline()
-                if not line:
-                    sel.unregister(key.fileobj)
-                    continue
-                if key.data == "stdout":
-                    typer.echo(line, nl=False)
-                    stdout_lines.append(line.rstrip("\r\n"))
-                else:
-                    typer.echo(line, err=True, nl=False)
-        sel.close()
+            while sel.get_map():
+                for key, _ in sel.select():
+                    line = key.fileobj.readline()
+                    if not line:
+                        sel.unregister(key.fileobj)
+                        continue
+                    if key.data == "stdout":
+                        typer.echo(line, nl=False)
+                        stdout_lines.append(line.rstrip("\r\n"))
+                    else:
+                        typer.echo(line, err=True, nl=False)
+        finally:
+            sel.close()
+            # Safe due to earlier guard.
+            proc.stdout.close()
+            proc.stderr.close()
 
     retcode = proc.wait()
     if retcode != 0:

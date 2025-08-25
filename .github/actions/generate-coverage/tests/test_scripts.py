@@ -180,7 +180,7 @@ def test_run_cargo_windows(
 
     class FakeProc:
         def __init__(self) -> None:
-            self.stdout = io.StringIO("out-line\n")
+            self.stdout = io.StringIO("out-line\r\n")
             self.stderr = io.StringIO("err-line\n")
 
         def wait(self) -> int:
@@ -197,7 +197,7 @@ def test_run_cargo_windows(
     monkeypatch.setattr(mod, "cargo", FakeCargo())
     res = mod._run_cargo([])
     captured = capsys.readouterr()
-    assert "out-line\n" in captured.out
+    assert "out-line\r\n" in captured.out
     assert "err-line\n" in captured.err
     assert res == "out-line"
 

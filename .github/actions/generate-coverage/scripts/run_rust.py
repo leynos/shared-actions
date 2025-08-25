@@ -114,7 +114,13 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     typer.echo(f"$ cargo {shlex.join(args)}")
-    proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = cargo[args].popen(
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if proc.stdout is None or proc.stderr is None:
         raise RuntimeError("cargo output streams not captured")  # noqa: TRY003
     stdout_lines: list[str] = []
@@ -133,7 +139,8 @@ def _run_cargo(args: list[str]) -> str:
             except Exception as exc:  # noqa: BLE001
                 thread_exceptions.append(exc)
                 typer.echo(f"Exception in pump thread: {exc}", err=True)
-                typer.echo(traceback.format_exc(), err=True)
+                if os.environ.get("RUN_RUST_DEBUG") == "1":
+                    typer.echo(traceback.format_exc(), err=True)
 
         threads = [
             threading.Thread(

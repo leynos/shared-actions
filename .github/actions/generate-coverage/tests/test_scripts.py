@@ -237,23 +237,11 @@ def test_run_cargo_windows_nonzero_exit(
 
 
 def test_run_cargo_windows_none_stdout(
-    shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stdout is missing on Windows."""
-    script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
-    shell_stubs.register("cargo")
-    monkeypatch.syspath_prepend(script_dir)
-    spec = importlib.util.spec_from_file_location(
-        "run_rust_win", script_dir / "run_rust.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
-    monkeypatch.delitem(sys.modules, "typer", raising=False)
-    monkeypatch.setattr(os, "name", "nt")
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
     class FakeProc:
@@ -275,23 +263,11 @@ def test_run_cargo_windows_none_stdout(
 
 
 def test_run_cargo_windows_none_stderr(
-    shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stderr is missing on Windows."""
-    script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    monkeypatch.setenv("PATH", shell_stubs.env["PATH"])
-    shell_stubs.register("cargo")
-    monkeypatch.syspath_prepend(script_dir)
-    spec = importlib.util.spec_from_file_location(
-        "run_rust_win", script_dir / "run_rust.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, "run_rust_win", mod)
-    monkeypatch.delitem(sys.modules, "typer", raising=False)
-    monkeypatch.setattr(os, "name", "nt")
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
+    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
     class FakeProc:

@@ -136,16 +136,27 @@ def _run_cargo(args: list[str]) -> str:
 
         threads = [
             threading.Thread(
-                target=pump, args=(proc.stdout,), kwargs={"to_stdout": True}
+                name="cargo-stdout",
+                target=pump,
+                args=(proc.stdout,),
+                kwargs={"to_stdout": True},
+                daemon=True,
             ),
             threading.Thread(
-                target=pump, args=(proc.stderr,), kwargs={"to_stdout": False}
+                name="cargo-stderr",
+                target=pump,
+                args=(proc.stderr,),
+                kwargs={"to_stdout": False},
+                daemon=True,
             ),
         ]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join()
+        # Streams are guaranteed non-None by earlier guard.
+        proc.stdout.close()
+        proc.stderr.close()
         if thread_exceptions:
             raise thread_exceptions[0]
     else:

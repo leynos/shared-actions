@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+import os
 import re
 import selectors
 import shlex
 import subprocess
+import threading
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
@@ -111,23 +113,53 @@ def _run_cargo(args: list[str]) -> str:
     typer.echo(f"$ cargo {shlex.join(args)}")
     proc = cargo[args].popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout_lines: list[str] = []
-    sel = selectors.DefaultSelector()
-    if proc.stdout is not None:
-        sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
-    if proc.stderr is not None:
-        sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
 
-    while sel.get_map():
-        for key, _ in sel.select():
-            line = key.fileobj.readline()
-            if not line:
-                sel.unregister(key.fileobj)
-                continue
-            if key.data == "stdout":
-                typer.echo(line, nl=False)
-                stdout_lines.append(line.rstrip("\n"))
-            else:
-                typer.echo(line, err=True, nl=False)
+    if os.name == "nt":  # pragma: win32-cover
+        def pump(stream: subprocess.TextIOWrapper, *, is_stdout: bool) -> None:
+            for line in iter(stream.readline, ""):
+                if is_stdout:
+                    typer.echo(line, nl=False)
+                    stdout_lines.append(line.rstrip("\n"))
+                else:
+                    typer.echo(line, err=True, nl=False)
+
+        threads: list[threading.Thread] = []
+        if proc.stdout is not None:
+            t = threading.Thread(
+                target=pump,
+                args=(proc.stdout,),
+                kwargs={"is_stdout": True},
+            )
+            t.start()
+            threads.append(t)
+        if proc.stderr is not None:
+            t = threading.Thread(
+                target=pump,
+                args=(proc.stderr,),
+                kwargs={"is_stdout": False},
+            )
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join()
+    else:
+        sel = selectors.DefaultSelector()
+        if proc.stdout is not None:
+            sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
+        if proc.stderr is not None:
+            sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
+
+        while sel.get_map():
+            for key, _ in sel.select():
+                line = key.fileobj.readline()
+                if not line:
+                    sel.unregister(key.fileobj)
+                    continue
+                if key.data == "stdout":
+                    typer.echo(line, nl=False)
+                    stdout_lines.append(line.rstrip("\n"))
+                else:
+                    typer.echo(line, err=True, nl=False)
 
     retcode = proc.wait()
     if retcode != 0:

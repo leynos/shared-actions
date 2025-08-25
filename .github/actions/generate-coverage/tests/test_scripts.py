@@ -117,6 +117,39 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return _load_module(monkeypatch, "run_rust", {"cargo": None})
 
 
+def test_run_cargo_windows(
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: types.ModuleType,
+) -> None:
+    """``_run_cargo`` falls back to threads on Windows."""
+
+    class DummyCargo:
+        def __getitem__(self, _: list[str]) -> DummyCargo:
+            return self
+
+        def popen(self, **_: object) -> subprocess.Popen[str]:
+            cmd = [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.write('out\\n'); sys.stderr.write('err\\n')",
+            ]
+            return subprocess.Popen(  # noqa: S603
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+    monkeypatch.setattr(run_rust_module, "cargo", DummyCargo())
+    monkeypatch.setattr(run_rust_module, "os", types.SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        run_rust_module.selectors,
+        "DefaultSelector",
+        lambda: (_ for _ in ()).throw(AssertionError("selectors used")),
+    )
+
+    assert run_rust_module._run_cargo(["ignored"]) == "out"
+
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     """Happy path for ``run_rust.py``."""
     out = tmp_path / "cov.lcov"

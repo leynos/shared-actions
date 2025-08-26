@@ -43,7 +43,7 @@ def find_repo_root() -> Path:
     parents = list(Path(__file__).resolve().parents)
     for parent in parents:
         candidate = parent / CMD_UTILS_FILENAME
-        if candidate.is_file():
+        if candidate.is_file() and not candidate.is_symlink():
             return parent
     searched = " -> ".join(str(parent / CMD_UTILS_FILENAME) for parent in parents)
     raise RepoRootNotFoundError(searched)

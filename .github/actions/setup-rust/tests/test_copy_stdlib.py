@@ -13,8 +13,16 @@ def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
         "PYTHONPATH": str(Path(__file__).resolve().parents[4]),
+        "PYTHONIOENCODING": "utf-8",
     }
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
+    return subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
 
 
 def test_copy_success(tmp_path: Path) -> None:

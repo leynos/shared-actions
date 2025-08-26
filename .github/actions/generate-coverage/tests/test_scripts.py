@@ -23,8 +23,20 @@ def run_script(
     """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
     cmd = ["uv", "run", "--script", str(script), *args]
     root = Path(__file__).resolve().parents[4]
-    env = {**os.environ, **env, "PYTHONPATH": str(root)}
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
+    env = {
+        **os.environ,
+        **env,
+        "PYTHONPATH": str(root),
+        "PYTHONIOENCODING": "utf-8",
+    }
+    return subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
 
 
 def _load_module(

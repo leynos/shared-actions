@@ -26,6 +26,17 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
-      - name: Run tests
+      - name: Install MSYS2 make (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@ca039d1fe3369c66ef8036aa1d384a05776ae664
+        with:
+          update: true
+          install: make
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: make test
+        shell: msys2 {0}
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
         run: make test
         shell: bash

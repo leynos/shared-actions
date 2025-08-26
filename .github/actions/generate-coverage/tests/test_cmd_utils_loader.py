@@ -50,8 +50,20 @@ def test_find_repo_root_reports_candidates(
         (parent / mod.CMD_UTILS_FILENAME).resolve()
         for parent in loader_file.resolve().parents
     ]
-    for candidate in expected:
-        assert str(candidate) in msg
+    chain = " -> ".join(str(path) for path in expected)
+    assert f"searched: {chain} (symlinks ignored)" in msg
+
+
+def test_find_repo_root_ignores_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Symlinked ``cmd_utils.py`` files are ignored."""
+    real = tmp_path / "real_cmd_utils.py"
+    real.write_text("pass")
+    (tmp_path / "cmd_utils.py").symlink_to(real)
+    mod = _load_loader(tmp_path, monkeypatch)
+    with pytest.raises(mod.RepoRootNotFoundError):
+        mod.find_repo_root()
 
 
 def test_run_cmd_missing_symbol(

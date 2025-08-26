@@ -34,18 +34,26 @@ class CmdUtilsImportError(RuntimeError):
         original_exception: Exception | None = None,
     ) -> None:
         detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
+        cause = (
+            f" (cause: {type(original_exception).__name__}: {original_exception})"
+            if original_exception
+            else ""
+        )
         self.original_exception = original_exception
-        super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}")
+        super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}{cause}")
 
 
 def find_repo_root() -> Path:
     """Locate the repository root containing ``CMD_UTILS_FILENAME``."""
-    parents = list(Path(__file__).resolve().parents)
+    parents = Path(__file__).resolve().parents
     for parent in parents:
         candidate = parent / CMD_UTILS_FILENAME
         if candidate.is_file() and not candidate.is_symlink():
             return parent
-    searched = " -> ".join(str(parent / CMD_UTILS_FILENAME) for parent in parents)
+    searched = (
+        " -> ".join(str(parent / CMD_UTILS_FILENAME) for parent in parents)
+        + " (symlinks ignored)"
+    )
     raise RepoRootNotFoundError(searched)
 
 

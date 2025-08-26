@@ -6,7 +6,7 @@ import collections.abc as cabc  # noqa: TC003 - used at runtime
 import dataclasses as dc
 import json
 import os
-import sys
+import sys  # used by Windows launcher
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 

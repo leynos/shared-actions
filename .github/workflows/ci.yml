@@ -36,7 +36,11 @@ jobs:
           install: make
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
-        run: make test
+        run: |
+          # Add uv to PATH for MSYS2 environment
+          UV_PATH=$(find /c/hostedtoolcache/uv -name "uv.exe" -type f | head -1 | xargs dirname)
+          export PATH="$UV_PATH:$PATH"
+          make test
         env:
           PYTHONIOENCODING: utf-8
         shell: msys2 {0}

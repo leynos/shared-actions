@@ -6,7 +6,6 @@ import collections.abc as cabc  # noqa: TC003 - used at runtime
 import dataclasses as dc
 import json
 import os
-import sys  # used by Windows launcher
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 
@@ -81,6 +80,8 @@ class StubManager:
         spec_file = self.dir / f"{name}.json"
         spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
         if os.name == "nt":
+            import sys  # localise import for Windows launcher
+
             script_path = self.dir / f"{name}.py"
             script_path.write_text(self._wrapper_source(name, spec_file))
             cmd_path = self.dir / f"{name}.cmd"

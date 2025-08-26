@@ -61,7 +61,12 @@ if os.name == "nt":
         buf = getattr(stream, "buffer", None)
         if buf is not None:
             try:
-                wrapped = io.TextIOWrapper(buf, encoding="utf-8", errors="replace")
+                wrapped = io.TextIOWrapper(
+                    buf,
+                    encoding="utf-8",
+                    errors="replace",
+                    write_through=True,
+                )
                 setattr(sys, name, wrapped)
             except (ValueError, OSError) as exc:  # pragma: no cover
                 if debug:
@@ -172,8 +177,10 @@ def _run_cargo(args: list[str]) -> str:
                         stdout_lines.append(line.rstrip("\r\n"))
             except Exception as exc:  # noqa: BLE001
                 thread_exceptions.append(exc)
-                sys.stderr.write(f"Exception in pump thread: {exc}\n")
-                if os.environ.get("RUN_RUST_DEBUG") == "1":
+                if os.environ.get("RUN_RUST_DEBUG") == "1" or os.environ.get(
+                    "DEBUG_UTF8"
+                ):
+                    sys.stderr.write(f"Exception in pump thread: {exc}\n")
                     sys.stderr.write(traceback.format_exc())
 
         threads = [

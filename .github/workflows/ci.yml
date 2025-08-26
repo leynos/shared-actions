@@ -32,10 +32,13 @@ jobs:
         uses: msys2/setup-msys2@40677d36a502eb2cf0fb808cc9dec31bf6152638
         with:
           update: true
+          msystem: UCRT64
           install: make
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         run: make test
+        env:
+          PYTHONIOENCODING: utf-8
         shell: msys2 {0}
       - name: Run tests (Unix)
         if: runner.os != 'Windows'

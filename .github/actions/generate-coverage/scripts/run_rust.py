@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import codecs
 import contextlib
+import logging
 import os
 import re
 import selectors
@@ -27,6 +29,8 @@ from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
+logger = logging.getLogger(__name__)
+
 try:  # runtime import for graceful fallback
     from lxml import etree
 except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
@@ -37,9 +41,19 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
     raise typer.Exit(1) from exc
 
 if os.name == "nt":
-    for stream in (sys.stdout, sys.stderr):
-        with contextlib.suppress(Exception):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (
+                OSError,
+                ValueError,
+            ) as exc:  # pragma: no cover - log unexpected error
+                logger.warning("Failed to reconfigure %s: %s", name, exc)
+        else:
+            writer = codecs.getwriter("utf-8")
+            setattr(sys, name, writer(stream.buffer, errors="replace"))
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")

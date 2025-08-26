@@ -115,4 +115,8 @@ The action prints the current coverage percentage to the log. When
 ``with-ratchet`` is enabled and a baseline file is present, the previous
 percentage is shown as well.
 
+Coverage reports are archived as workflow artifacts named
+``<format>-<job>-<index>`` by default, preventing collisions when the action
+is run in matrix jobs.
+
 Release history is available in [CHANGELOG](CHANGELOG.md).

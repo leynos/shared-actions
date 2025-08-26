@@ -13,6 +13,7 @@ import re
 import selectors
 import shlex
 import subprocess
+import sys
 import threading
 import traceback
 import typing as t
@@ -34,6 +35,11 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
         err=True,
     )
     raise typer.Exit(1) from exc
+
+if os.name == "nt":
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(Exception):
+            stream.reconfigure(encoding="utf-8", errors="replace")
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")

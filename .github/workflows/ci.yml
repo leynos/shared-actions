@@ -27,24 +27,10 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
-      - name: Install MSYS2 make (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@40677d36a502eb2cf0fb808cc9dec31bf6152638
-        with:
-          update: true
-          msystem: UCRT64
-          install: make
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
+      - name: Run tests
         run: |
-          # Add uv to PATH for MSYS2 environment
-          UV_PATH=$(find /c/hostedtoolcache/uv -name "uv.exe" -type f | head -1 | xargs dirname)
-          export PATH="$UV_PATH:$PATH"
-          make test
+          uv sync --group dev
+          uv run pytest
         env:
           PYTHONIOENCODING: utf-8
-        shell: msys2 {0}
-      - name: Run tests (Unix)
-        if: runner.os != 'Windows'
-        run: make test
         shell: bash

@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import codecs
 import contextlib
 import io
 import logging
@@ -42,7 +41,9 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
     raise typer.Exit(1) from exc
 
 if os.name == "nt":
-    debug_utf8 = os.getenv("DEBUG_UTF8")
+    debug = os.getenv("RUN_RUST_DEBUG")
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name)
         if hasattr(stream, "reconfigure"):
@@ -55,10 +56,18 @@ if os.name == "nt":
                 io.UnsupportedOperation,
                 OSError,
             ) as exc:  # pragma: no cover - emit debug info when requested
-                if debug_utf8:
+                if debug:
                     logger.debug("Failed to reconfigure %s: %s", name, exc)
-        writer = codecs.getwriter("utf-8")
-        setattr(sys, name, writer(stream.buffer, errors="replace"))
+        buf = getattr(stream, "buffer", None)
+        if buf is not None:
+            try:
+                wrapped = io.TextIOWrapper(buf, encoding="utf-8", errors="replace")
+                setattr(sys, name, wrapped)
+            except (ValueError, OSError) as exc:  # pragma: no cover
+                if debug:
+                    logger.debug("Failed to wrap %s: %s", name, exc)
+        elif debug:
+            logger.debug("%s has no buffer; leaving as-is", name)
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")

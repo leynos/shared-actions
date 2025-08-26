@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import codecs
 import contextlib
+import io
 import logging
 import os
 import re
@@ -41,19 +42,23 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
     raise typer.Exit(1) from exc
 
 if os.name == "nt":
+    debug_utf8 = os.getenv("DEBUG_UTF8")
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name)
         if hasattr(stream, "reconfigure"):
             try:
                 stream.reconfigure(encoding="utf-8", errors="replace")
+                continue
             except (
-                OSError,
+                AttributeError,
                 ValueError,
-            ) as exc:  # pragma: no cover - log unexpected error
-                logger.warning("Failed to reconfigure %s: %s", name, exc)
-        else:
-            writer = codecs.getwriter("utf-8")
-            setattr(sys, name, writer(stream.buffer, errors="replace"))
+                io.UnsupportedOperation,
+                OSError,
+            ) as exc:  # pragma: no cover - emit debug info when requested
+                if debug_utf8:
+                    logger.debug("Failed to reconfigure %s: %s", name, exc)
+        writer = codecs.getwriter("utf-8")
+        setattr(sys, name, writer(stream.buffer, errors="replace"))
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")

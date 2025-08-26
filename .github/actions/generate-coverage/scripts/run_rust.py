@@ -163,18 +163,18 @@ def _run_cargo(args: list[str]) -> str:
         thread_exceptions: list[Exception] = []
 
         def pump(src: t.TextIO, *, to_stdout: bool) -> None:
+            dest = sys.stdout if to_stdout else sys.stderr
             try:
                 for line in iter(src.readline, ""):
+                    dest.write(line)
+                    dest.flush()
                     if to_stdout:
-                        typer.echo(line, nl=False)
                         stdout_lines.append(line.rstrip("\r\n"))
-                    else:
-                        typer.echo(line, err=True, nl=False)
             except Exception as exc:  # noqa: BLE001
                 thread_exceptions.append(exc)
-                typer.echo(f"Exception in pump thread: {exc}", err=True)
+                sys.stderr.write(f"Exception in pump thread: {exc}\n")
                 if os.environ.get("RUN_RUST_DEBUG") == "1":
-                    typer.echo(traceback.format_exc(), err=True)
+                    sys.stderr.write(traceback.format_exc())
 
         threads = [
             threading.Thread(

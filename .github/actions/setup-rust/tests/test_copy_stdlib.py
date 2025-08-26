@@ -10,11 +10,18 @@ from pathlib import Path
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Execute *script* using ``uv run --script`` and return the process."""
     cmd = ["uv", "run", "--script", str(script), *args]
-    env = {
-        **os.environ,
-        "PYTHONPATH": str(Path(__file__).resolve().parents[4]),
-    }
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)  # noqa: S603
+    merged = {**os.environ}
+    root = str(Path(__file__).resolve().parents[4])
+    current_pp = merged.get("PYTHONPATH", "")
+    merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
+    merged["PYTHONIOENCODING"] = "utf-8"
+    return subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env=merged,
+    )
 
 
 def test_copy_success(tmp_path: Path) -> None:

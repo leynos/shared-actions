@@ -11,6 +11,7 @@ renamed into place so consumers never see a partially copied stdlib.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path  # noqa: TC003
 
@@ -32,9 +33,20 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
     dest = base / "x86_64-unknown-openbsd"
     tmp = base / "x86_64-unknown-openbsd.new"
 
-    tmp.mkdir(parents=True, exist_ok=True)
-    cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
-    run_cmd(cmd)
+    if tmp.exists():
+        shutil.rmtree(tmp)
+
+    if os.name == "nt":
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(artifact_dir, tmp)
+    else:
+        tmp.mkdir(parents=True, exist_ok=True)
+        cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
+        try:
+            run_cmd(cmd)
+        except FileNotFoundError:
+            # Fallback when rsync is not available.
+            shutil.copytree(artifact_dir, tmp, dirs_exist_ok=True)
 
     if dest.exists():
         shutil.rmtree(dest)

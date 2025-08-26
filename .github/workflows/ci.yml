@@ -9,7 +9,11 @@ jobs:
   python-tests:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout repository
         # v4
@@ -24,5 +28,9 @@ jobs:
             **/uv.lock
             **/scripts/*.py
       - name: Run tests
-        run: make test
+        run: |
+          uv sync --group dev
+          uv run pytest
+        env:
+          PYTHONIOENCODING: utf-8
         shell: bash

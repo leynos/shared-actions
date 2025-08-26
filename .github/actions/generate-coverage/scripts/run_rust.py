@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import contextlib
+import io
+import logging
 import os
 import re
 import selectors
 import shlex
 import subprocess
+import sys
 import threading
 import traceback
 import typing as t
@@ -26,6 +29,8 @@ from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
+logger = logging.getLogger(__name__)
+
 try:  # runtime import for graceful fallback
     from lxml import etree
 except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
@@ -34,6 +39,40 @@ except ImportError as exc:  # pragma: no cover - fail fast if dependency missing
         err=True,
     )
     raise typer.Exit(1) from exc
+
+if os.name == "nt":
+    debug = os.getenv("RUN_RUST_DEBUG")
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+                continue
+            except (
+                AttributeError,
+                ValueError,
+                io.UnsupportedOperation,
+                OSError,
+            ) as exc:  # pragma: no cover - emit debug info when requested
+                if debug:
+                    logger.debug("Failed to reconfigure %s: %s", name, exc)
+        buf = getattr(stream, "buffer", None)
+        if buf is not None:
+            try:
+                wrapped = io.TextIOWrapper(
+                    buf,
+                    encoding="utf-8",
+                    errors="replace",
+                    write_through=True,
+                )
+                setattr(sys, name, wrapped)
+            except (ValueError, OSError) as exc:  # pragma: no cover
+                if debug:
+                    logger.debug("Failed to wrap %s: %s", name, exc)
+        elif debug:
+            logger.debug("%s has no buffer; leaving as-is", name)
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
@@ -129,18 +168,20 @@ def _run_cargo(args: list[str]) -> str:
         thread_exceptions: list[Exception] = []
 
         def pump(src: t.TextIO, *, to_stdout: bool) -> None:
+            dest = sys.stdout if to_stdout else sys.stderr
             try:
                 for line in iter(src.readline, ""):
+                    dest.write(line)
+                    dest.flush()
                     if to_stdout:
-                        typer.echo(line, nl=False)
                         stdout_lines.append(line.rstrip("\r\n"))
-                    else:
-                        typer.echo(line, err=True, nl=False)
             except Exception as exc:  # noqa: BLE001
                 thread_exceptions.append(exc)
-                typer.echo(f"Exception in pump thread: {exc}", err=True)
-                if os.environ.get("RUN_RUST_DEBUG") == "1":
-                    typer.echo(traceback.format_exc(), err=True)
+                if os.environ.get("RUN_RUST_DEBUG") == "1" or os.environ.get(
+                    "DEBUG_UTF8"
+                ):
+                    sys.stderr.write(f"Exception in pump thread: {exc}\n")
+                    sys.stderr.write(traceback.format_exc())
 
         threads = [
             threading.Thread(

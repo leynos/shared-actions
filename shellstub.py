@@ -79,9 +79,20 @@ class StubManager:
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
         spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
-        path = self.dir / name
-        path.write_text(self._wrapper_source(name, spec_file))
-        path.chmod(0o755)
+        if os.name == "nt":
+            import sys  # localise import for Windows launcher
+
+            script_path = self.dir / f"{name}.py"
+            script_path.write_text(self._wrapper_source(name, spec_file))
+            cmd_path = self.dir / f"{name}.cmd"
+            cmd_path.write_text(
+                f'@echo off\r\n"{sys.executable}" "{script_path}" %*\r\n'
+            )
+            cmd_path.chmod(0o755)
+        else:
+            path = self.dir / name
+            path.write_text(self._wrapper_source(name, spec_file))
+            path.chmod(0o755)
 
     def calls_of(self, name: str) -> list[Call]:
         """Return the list of recorded calls for *name* in order."""

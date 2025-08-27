@@ -20,6 +20,7 @@ class RepoRootNotFoundError(RuntimeError):
     """Repository root not found."""
 
     def __init__(self, searched: str) -> None:
+        self.searched = searched
         super().__init__(f"{ERROR_REPO_ROOT_NOT_FOUND}; searched: {searched}")
 
 
@@ -34,8 +35,13 @@ class CmdUtilsImportError(RuntimeError):
         original_exception: Exception | None = None,
     ) -> None:
         detail = f"'{symbol}' not found in {path}" if symbol is not None else str(path)
+        cause = (
+            f" (cause: {type(original_exception).__name__}: {original_exception})"
+            if original_exception
+            else ""
+        )
         self.original_exception = original_exception
-        super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}")
+        super().__init__(f"{ERROR_IMPORT_FAILED}: {detail}{cause}")
 
 
 def find_repo_root() -> Path:
@@ -43,26 +49,25 @@ def find_repo_root() -> Path:
     candidates: list[Path] = []
     for parent in Path(__file__).resolve().parents:
         candidate = parent / CMD_UTILS_FILENAME
-        candidates.append(candidate.resolve())
+        candidates.append(candidate)
         if candidate.is_file() and not candidate.is_symlink():
             return parent
-    searched = " -> ".join(str(p) for p in candidates)
+    searched = " -> ".join(str(path) for path in candidates) + " (symlinks ignored)"
     raise RepoRootNotFoundError(searched)
 
 
 def load_cmd_utils() -> ModuleType:
     """Import and return the ``cmd_utils`` module."""
     repo_root = find_repo_root()
-    spec = importlib.util.spec_from_file_location(
-        "cmd_utils", repo_root / CMD_UTILS_FILENAME
-    )
+    module_path = repo_root / CMD_UTILS_FILENAME
+    spec = importlib.util.spec_from_file_location("cmd_utils", module_path)
     if spec is None or spec.loader is None:  # pragma: no cover - import-time failure
-        raise CmdUtilsImportError(repo_root)
+        raise CmdUtilsImportError(module_path)
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
     except Exception as exc:  # pragma: no cover - import-time failure
-        raise CmdUtilsImportError(repo_root, original_exception=exc) from exc
+        raise CmdUtilsImportError(module_path, original_exception=exc) from exc
     return module
 
 

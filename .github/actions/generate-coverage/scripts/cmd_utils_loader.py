@@ -20,6 +20,7 @@ class RepoRootNotFoundError(RuntimeError):
     """Repository root not found."""
 
     def __init__(self, searched: str) -> None:
+        self.searched = searched
         super().__init__(f"{ERROR_REPO_ROOT_NOT_FOUND}; searched: {searched}")
 
 
@@ -45,15 +46,13 @@ class CmdUtilsImportError(RuntimeError):
 
 def find_repo_root() -> Path:
     """Locate the repository root containing ``CMD_UTILS_FILENAME``."""
-    parents = Path(__file__).resolve().parents
-    for parent in parents:
+    candidates: list[Path] = []
+    for parent in Path(__file__).resolve().parents:
         candidate = parent / CMD_UTILS_FILENAME
+        candidates.append(candidate)
         if candidate.is_file() and not candidate.is_symlink():
             return parent
-    searched = (
-        " -> ".join(str(parent / CMD_UTILS_FILENAME) for parent in parents)
-        + " (symlinks ignored)"
-    )
+    searched = " -> ".join(str(path) for path in candidates) + " (symlinks ignored)"
     raise RepoRootNotFoundError(searched)
 
 

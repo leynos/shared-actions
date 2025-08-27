@@ -188,7 +188,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.out.outputs.format }}
+        name: ${{ steps.out.outputs.format }}-${{ github.job }}-${{ strategy.job-index }}
         # Fallback to the configured output path when the step that sets
         # outputs didn't run successfully and the file output is empty.
         path: ${{ steps.out.outputs.file || inputs.output-path }}

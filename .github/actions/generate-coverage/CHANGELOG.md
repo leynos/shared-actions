@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.7
+
+- Include job identifier and matrix index in the coverage artifact name to
+  avoid collisions in matrix workflows.
+
 ## v1.3.6 (2025-07-28)
 
 - Log the current coverage percentage after each run. When ratcheting is enabled

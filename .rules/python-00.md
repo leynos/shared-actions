@@ -1,6 +1,6 @@
-## Python 3.13 Code Style Guidelines (with Ruff, Pyright, and pytest)
+# Python 3.13 Code Style Guidelines (with Ruff, Pyright, and pytest)
 
-### Naming Conventions
+## Naming Conventions
 
 * **Directories:** Use *snake\_case* for top-level features or modules (e.g., `data_pipeline`, `user_auth`).
 * **Files:** Use *snake\_case.py*; name for contents (e.g., `http_client.py`, `task_queue.py`).

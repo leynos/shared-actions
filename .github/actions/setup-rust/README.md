@@ -119,5 +119,4 @@ pinned to a specific commit for reproducibility.
 - Set `BUILD_PROFILE` consistently across jobs. For most CI runs, `release` is a
   good choice.
 
-
 Release history is available in [CHANGELOG](CHANGELOG.md).

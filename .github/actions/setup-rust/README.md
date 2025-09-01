@@ -8,7 +8,7 @@ them, and set up macOS or OpenBSD cross-compilers.
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| toolchain | Rust toolchain to install. If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`. | no | _see description_ |
+| toolchain | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`. | no | _see description_ |
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
 | install-sqlite-deps | Install SQLite dev libraries (Windows) | no | `false` |
 | use-sccache | Enable sccache for non-release runs | no | `true` |

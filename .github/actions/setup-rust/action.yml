@@ -1,6 +1,9 @@
 name: Setup Rust
 description: Install Rust and cache cargo registry
 inputs:
+  toolchain:
+    description: Rust toolchain to install
+    required: false
   install-postgres-deps:
     description: Install PostgreSQL system dependencies
     required: false
@@ -32,7 +35,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install rust
+    - name: Install rust (explicit toolchain)
+      if: ${{ inputs.toolchain != '' }}
+      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+      with:
+        override: true
+        toolchain: ${{ inputs.toolchain }}
+        components: rustfmt, clippy, llvm-tools-preview
+    - name: Install rust (auto-detect)
+      if: ${{ inputs.toolchain == '' }}
       uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
       with:
         override: true

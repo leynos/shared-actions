@@ -8,13 +8,14 @@ them, and set up macOS or OpenBSD cross-compilers.
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
+| toolchain | Rust toolchain to install. If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`. | no | _see description_ |
 | install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
-| install-sqlite-deps | Install SQLite development libraries (Windows) | no | `false` |
+| install-sqlite-deps | Install SQLite dev libraries (Windows) | no | `false` |
 | use-sccache | Enable sccache for non-release runs | no | `true` |
 | with-darwin | Install macOS cross build toolchain | no | `false` |
 | darwin-sdk-version | macOS SDK version for osxcross | no | `12.3` |
 | with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
-| openbsd-nightly | Nightly toolchain version for OpenBSD build | no | `nightly-2025-07-20` |
+| openbsd-nightly | Pinned nightly Rust for OpenBSD | no | `nightly-2025-07-20` |
 
 ## Outputs
 
@@ -25,6 +26,7 @@ None
 ```yaml
 uses: ./.github/actions/setup-rust@v1
   with:
+    toolchain: 'nightly'
     install-postgres-deps: 'true'
     install-sqlite-deps: 'true'
     use-sccache: 'false'
@@ -118,6 +120,5 @@ pinned to a specific commit for reproducibility.
   cache keys.
 - Set `BUILD_PROFILE` consistently across jobs. For most CI runs, `release` is a
   good choice.
-
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

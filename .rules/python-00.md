@@ -16,10 +16,11 @@
 
 * **Use typing everywhere.** Enable and maintain full static type coverage. Use
   Pyright for type-checking.
-* **Use `TypedDict` or `Dataclass` for structured data where appropriate.** For
+* **Use `TypedDict` or `dataclass` for structured data where appropriate.** For
   internal-only usage, prefer `@dataclass(slots=True)`.
-* **Avoid `Any`.** Use `Unknown`, generics, or `cast()` when necessary—always
-  document why `Any` is acceptable if used.
+* **Avoid `Any`.** Prefer precise types (`TypeVar`, `Protocol`, `Literal`,
+  `Union`) and use `typing.cast[...]` only when necessary—with a
+  justification. Use `object` for unknown-but-opaque values.
 * **Be explicit with returns.** Use `-> None`, `-> str`, etc., for all public
   functions and class methods.
 * **Favour immutability.** Prefer tuples to lists, and `types.MappingProxyType`

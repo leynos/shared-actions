@@ -1,5 +1,7 @@
 # Generate coverage
 
+Run coverage for Rust, Python, or mixed Rust+Python projects.
+
 Run code coverage for Rust projects, Python projects, and mixed Rust + Python
 projects. The action uses `cargo llvm-cov` when a `Cargo.toml` is present and
 `slipcover` with `pytest` when a `pyproject.toml` is present. It installs
@@ -33,14 +35,14 @@ flowchart TD
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| features | Cargo features to enable; separate with spaces or commas. | no | |
+| features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |
-| baseline-rust-file | Rust baseline file path | no | `.coverage-baseline.rust` |
+| baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
 <!-- markdownlint-disable-next-line MD013 -->
-| baseline-python-file | Python baseline file path | no | `.coverage-baseline.python` |
+| baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |

@@ -1,11 +1,13 @@
 # Generate coverage
 
-Run code coverage for Rust projects, Python projects, and mixed Rust + Python projects. The action uses
-`cargo llvm-cov` when a `Cargo.toml` is present and `slipcover` with
-`pytest` when a `pyproject.toml` is present. It installs `slipcover` and
-`pytest` automatically via `uv` before running the tests. When Rust coverage is
-required, `cargo-llvm-cov` is installed automatically as well. If both
-configuration files are present, coverage is run for each language and
+Run coverage for Rust, Python, or mixed Rust+Python projects.
+
+Run code coverage for Rust projects, Python projects, and mixed Rust + Python
+projects. The action uses `cargo llvm-cov` when a `Cargo.toml` is present and
+`slipcover` with `pytest` when a `pyproject.toml` is present. It installs
+`slipcover` and `pytest` automatically via `uv` before running the tests. When
+Rust coverage is required, `cargo-llvm-cov` is installed automatically as well.
+If both configuration files are present, coverage is run for each language and
 the Cobertura reports are merged using `uvx merge-cobertura`.
 
 ## Flow
@@ -33,18 +35,20 @@ flowchart TD
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| features | Cargo features to enable (Rust). Separate multiple features with spaces or commas. | no | |
+| features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
 | output-path | Output file path | yes | |
-| format | Coverage format (`lcov`*, `cobertura` or `coveragepy`*) | no | `cobertura` |
-| with-ratchet | Fail if coverage decreases compared to the stored baseline | no | `false` |
-| baseline-rust-file | Path used to persist the Rust coverage baseline | no | `.coverage-baseline.rust` |
-| baseline-python-file | Path used to persist the Python coverage baseline | no | `.coverage-baseline.python` |
+| format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
+| with-ratchet | Fail if coverage drops below baseline | no | `false` |
+| baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
+<!-- markdownlint-disable-next-line MD013 -->
+| baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
 
-\* `lcov` is only supported for Rust projects, while `coveragepy` is only supported for Python projects. Mixed projects must use `cobertura`.
+\* `lcov` is only supported for Rust projects, while `coveragepy` is only
+supported for Python projects. Mixed projects must use `cobertura`.
 
 ## Outputs
 

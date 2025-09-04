@@ -82,4 +82,3 @@ with:
   locate it reliably.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).
-

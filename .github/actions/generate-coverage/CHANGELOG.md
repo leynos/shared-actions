@@ -48,7 +48,8 @@
 
 ## v1.1.2 (2025-06-25)
 
-- Merge detection and validation into a single step to simplify the workflow, routing the `lang` output directly from the `detect` step.
+- Merge detection and validation into a single step to simplify the workflow,
+  routing the `lang` output directly from the `detect` step.
 - Enable strict mode in the detection step and explicitly use Bash.
 
 ## v1.1.1 (2025-06-24)

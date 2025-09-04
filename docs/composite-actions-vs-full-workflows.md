@@ -1,6 +1,9 @@
-### Composite Actions vs Full Workflows — Key Limitations
+# Composite Actions vs Full Workflows — Key Limitations
 
-Composite actions are brilliant for bundling a handful of steps you want to reuse, but they remain a *single* workflow-step in the caller job. That design imposes several hard limits you don’t face when you write a full workflow.
+Composite actions are brilliant for bundling a handful of steps you want to
+reuse, but they remain a *single* workflow-step in the caller job. That
+design imposes several hard limits you don’t face when you write a full
+workflow.
 
 | Area | What a **composite action can’t** do | Why a **full workflow** can |
 | --- | --- | --- |
@@ -15,9 +18,10 @@ Composite actions are brilliant for bundling a handful of steps you want to reus
 
 ---
 
-#### Practical consequences
+## Practical consequences
 
-- **Environment propagation** – If your composite needs tokens, checksums, feature flags, etc., the caller must map them in:
+- **Environment propagation** – If your composite needs tokens,
+  checksums, feature flags, etc., the caller must map them in:
 
   ```yaml
   - uses: org/upload-codescene-coverage@v1
@@ -27,15 +31,23 @@ Composite actions are brilliant for bundling a handful of steps you want to reus
   
   ```
 
-- **No parallelism inside** – You cannot spin up *n* test jobs or matrix variants from inside the composite; do that in the workflow.
+- **No parallelism inside** – You cannot spin up *n* test jobs or matrix
+  variants from inside the composite; do that in the workflow.
 
-- **Debugging friction** – Because logs collapse, iterative debugging is slower; wrap flaky commands in verbose `run:` blocks or add `--debug` flags inside the composite.
+- **Debugging friction** – Because logs collapse, iterative debugging is
+  slower; wrap flaky commands in verbose `run:` blocks or add `--debug`
+  flags inside the composite.
 
-- **Upgrade path** – When a composite starts needing multiple jobs, secrets, or different runners, promote it to a *reusable workflow* instead; that removes nearly all the above constraints while still avoiding copy-and-paste.
+- **Upgrade path** – When a composite starts needing multiple jobs,
+  secrets, or different runners, promote it to a *reusable workflow*
+  instead; that removes nearly all the above constraints while still
+  avoiding copy-and-paste.
 
 ---
 
-#### Rule of thumb
+## Rule of thumb
 
-*Use a composite action* for a handful of **steps** that always run together on **one runner** and need only the data you feed them.\
-*Reach for a reusable workflow* (or a plain workflow) as soon as you need **jobs**, **triggers**, **matrix**, or richer environment features.
+*Use a composite action* for a handful of **steps** that always run together on
+**one runner** and need only the data you feed them.\
+*Reach for a reusable workflow* (or a plain workflow) as soon as you need
+**jobs**, **triggers**, **matrix**, or richer environment features.

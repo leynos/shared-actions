@@ -1,11 +1,13 @@
 # Instructions for Agents
 
-> **Audience**: Contributors and maintainers of this repository.\
+<!-- markdownlint-disable MD013 MD004 -->
+
+> **Audience**: Contributors and maintainers of this repository.\\
 > \*\***Scope**: Standards and workflows for creating, versioning, testing, releasing and deprecating GitHub Actions that live **inside this monorepo**.
 
 ## 1  Repository Layout
 
-```
+```text
 shared-actions/
 ├── .github/workflows/     # CI for the actions themselves
 └── .github/actions/       # One directory per action

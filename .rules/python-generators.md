@@ -7,10 +7,10 @@ debug, and refactor. This guidance encourages breaking apart complex
 
 ## Why Prefer Generators?
 
-* **Clarity:** Isolating data flow from control flow clarifies logic.
-* **Efficiency:** Generators are lazy; they avoid building intermediate
+- **Clarity:** Isolating data flow from control flow clarifies logic.
+- **Efficiency:** Generators are lazy; they avoid building intermediate
   data structures unless needed.
-* **Composability:** Generators can be pipelined with other iterators
+- **Composability:** Generators can be pipelined with other iterators
   using `itertools` or comprehensions.
 
 ## Example: Filtering and Transforming
@@ -61,9 +61,9 @@ def top_active_emails(users):
 
 ## Use Generators When
 
-* You're iterating and filtering/mapping data.
-* You want to make early returns or short-circuit behaviour clearer.
-* The function logically produces a sequence over time.
+- You're iterating and filtering/mapping data.
+- You want to make early returns or short-circuit behaviour clearer.
+- The function logically produces a sequence over time.
 
 ## Avoid Overcomplicating
 

@@ -10,9 +10,9 @@ Context managers can be written either with `contextlib.contextmanager`
 
 ## Why Use Context Managers?
 
-* **Safety:** Ensures cleanup occurs even if an exception is raised.
-* **Clarity:** Reduces boilerplate and visually scopes side effects.
-* **Reuse:** Common setup/teardown logic becomes reusable and composable.
+- **Safety:** Ensures cleanup occurs even if an exception is raised.
+- **Clarity:** Reduces boilerplate and visually scopes side effects.
+- **Reuse:** Common setup/teardown logic becomes reusable and composable.
 
 ---
 
@@ -64,22 +64,22 @@ This keeps state encapsulated and makes testing easier.
 
 ## When to Use Which
 
-* Use `@contextmanager` when control flow is linear and no persistent
+- Use `@contextmanager` when control flow is linear and no persistent
   state is required.
-* Use a class when:
+- Use a class when:
 
-  * There is internal state or methods tied to the resource lifecycle.
-  * You need to support re-entry or more advanced context features.
+  - There is internal state or methods tied to the resource lifecycle.
+  - You need to support re-entry or more advanced context features.
 
 ---
 
 ## Common Use Cases
 
-* File or network resource handling
-* Lock acquisition and release
-* Temporary changes to environment (e.g., `os.chdir`, `patch`, `tempfile`)
-* Logging scope control or tracing
-* Transaction control in databases or services
+- File or network resource handling
+- Lock acquisition and release
+- Temporary changes to environment (e.g., `os.chdir`, `patch`, `tempfile`)
+- Logging scope control or tracing
+- Transaction control in databases or services
 
 ---
 

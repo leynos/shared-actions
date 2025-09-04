@@ -39,7 +39,8 @@ flowchart TD
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |
 | baseline-rust-file | Rust baseline file path | no | `.coverage-baseline.rust` |
-| baseline-python-file | Py baseline path | no | `.coverage-baseline.python` |
+<!-- markdownlint-disable-next-line MD013 -->
+| baseline-python-file | Python baseline file path | no | `.coverage-baseline.python` |
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |

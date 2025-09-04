@@ -22,8 +22,9 @@
   document why `Any` is acceptable if used.
 * **Be explicit with returns.** Use `-> None`, `-> str`, etc., for all public
   functions and class methods.
-* **Favour immutability.** Prefer tuples over lists, and `frozendict` or
-  `types.MappingProxyType` where appropriate.
+* **Favour immutability.** Prefer tuples to lists, and `types.MappingProxyType`
+  for read-only mappings. If using a third-party `frozendict`, document the
+  dependency.
 
 ### Tooling and Runtime Practices
 
@@ -34,8 +35,9 @@
   `# pyright: ignore` sparingly and with explanation.
 * **Avoid side effects at import time.** Modules should not modify global state
   or perform actions on import.
-* **Use `.env` or settings modules** for environment-specific configuration.
-  Never hardcode secrets.
+* **Treat `.env` as local-only.** Do not commit `.env` files. Load them in
+  development (e.g. via `python-dotenv`), and use CI/hosted secret stores in
+  pipelines and production.
 
 ### Linting and Formatting
 
@@ -87,7 +89,7 @@ def scale(values: list[float], factor: float) -> list[float]:
   ```
 
 * **Structure integration tests separately.** When tests span multiple
-  components, use `tests/integration/`:
+  components, place them under `tests/integration/`:
 
   ```text
   tests/
@@ -96,7 +98,7 @@ def scale(values: list[float], factor: float) -> list[float]:
       test_user_onboarding.py
   ```
 
-* **Use `pytest` idioms.** Prefer fixtures over setup/teardown methods.
+* **Use `pytest` idioms.** Prefer fixtures to setup/teardown methods.
   Parametrize broadly. Avoid unnecessary mocks.
 
 * **Group related tests** using `class` with method names prefixed by `test_`.
@@ -108,13 +110,17 @@ def scale(values: list[float], factor: float) -> list[float]:
 
 ### Example
 
+#### login_flow.py
+
 ```python
-# login_flow.py
 def login_user(username: str, password: str) -> bool:
     """Return True if the user is authenticated."""
     ...
+```
 
-# login_flow_test.py
+#### login_flow_test.py
+
+```python
 def test_login_success():
     assert login_user("alice", "correct-password") is True
 

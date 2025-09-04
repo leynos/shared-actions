@@ -1,6 +1,11 @@
 name: Setup Rust
 description: Install Rust and cache cargo registry
 inputs:
+  toolchain:
+    description: >
+      Rust toolchain to install (e.g., 'stable', 'nightly', '1.70.0').
+      Accepts any valid Rust toolchain identifier as supported by rustup.
+    required: false
   install-postgres-deps:
     description: Install PostgreSQL system dependencies
     required: false
@@ -32,10 +37,25 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install rust
+    - name: Install rust (explicit toolchain)
+      if: ${{ inputs.toolchain != '' }}
       uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
       with:
         override: true
+        toolchain: ${{ inputs.toolchain }}
+        components: rustfmt, clippy, llvm-tools-preview
+    - name: Install rust (rust-toolchain file)
+      if: ${{ inputs.toolchain == '' && hashFiles('rust-toolchain.toml', 'rust-toolchain') != '' }}
+      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+      with:
+        override: false
+        components: rustfmt, clippy, llvm-tools-preview
+    - name: Install rust (stable default)
+      if: ${{ inputs.toolchain == '' && hashFiles('rust-toolchain.toml', 'rust-toolchain') == '' }}
+      uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
+      with:
+        override: true
+        toolchain: stable
         components: rustfmt, clippy, llvm-tools-preview
     - name: Install uv
       # v6.4.3

@@ -1,6 +1,14 @@
 
 # Changelog
 
+## v1.0.12 - 2025-07-26
+
+- Honor `.rust-toolchain.toml` when `toolchain` input is omitted, falling back to `stable` if no file exists.
+
+## v1.0.11 - 2025-07-26
+
+- Add `toolchain` input to select Rust toolchain.
+
 ## v1.0.10 - 2025-07-26
 
 - Remove `sccache-action-version` input and pin the sccache step to commit
@@ -51,4 +59,5 @@
 - Document caching requirements, limitations and clarify when caches are saved.
 
 ## v1.0.0 - 2025-06-20
+
 - Initial version.

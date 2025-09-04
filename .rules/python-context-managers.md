@@ -1,10 +1,14 @@
-## Using Context Managers for Cleanup and Resource Management
+# Using Context Managers for Cleanup and Resource Management
 
-Use context managers to encapsulate setup and teardown logic cleanly and safely. This reduces the risk of forgetting to release resources (files, locks, connections, etc.) and simplifies error handling.
+Use context managers to encapsulate setup and teardown logic cleanly and
+safely. This reduces the risk of forgetting to release resources (files,
+locks, connections, etc.) and simplifies error handling.
 
-Context managers can be written either with `contextlib.contextmanager` (for simple procedural control flow) or by implementing `__enter__` and `__exit__` in a class (for more complex or stateful use cases).
+Context managers can be written either with `contextlib.contextmanager`
+(for simple procedural control flow) or by implementing `__enter__` and
+`__exit__` in a class (for more complex or stateful use cases).
 
-### Why Use Context Managers?
+## Why Use Context Managers?
 
 * **Safety:** Ensures cleanup occurs even if an exception is raised.
 * **Clarity:** Reduces boilerplate and visually scopes side effects.
@@ -12,7 +16,7 @@ Context managers can be written either with `contextlib.contextmanager` (for sim
 
 ---
 
-### Example: Using `contextlib.contextmanager`
+## Example: Using `contextlib.contextmanager`
 
 Use this for straightforward procedural setup/teardown:
 
@@ -36,7 +40,7 @@ This avoids repeating `try/finally` in every file access.
 
 ---
 
-### Example: Using a Class-Based Context Manager
+## Example: Using a Class-Based Context Manager
 
 Use this when state or lifecycle logic spans methods:
 
@@ -58,9 +62,10 @@ This keeps state encapsulated and makes testing easier.
 
 ---
 
-### When to Use Which
+## When to Use Which
 
-* Use `@contextmanager` when control flow is linear and no persistent state is required.
+* Use `@contextmanager` when control flow is linear and no persistent
+  state is required.
 * Use a class when:
 
   * There is internal state or methods tied to the resource lifecycle.
@@ -68,7 +73,7 @@ This keeps state encapsulated and makes testing easier.
 
 ---
 
-### Common Use Cases
+## Common Use Cases
 
 * File or network resource handling
 * Lock acquisition and release
@@ -78,7 +83,7 @@ This keeps state encapsulated and makes testing easier.
 
 ---
 
-### Don't Do This:
+## Don't Do This
 
 ```python
 f = open("file.txt")
@@ -88,11 +93,12 @@ finally:
     f.close()
 ```
 
-### Do This Instead:
+## Do This Instead
 
 ```python
 with open("file.txt") as f:
     process(f)
 ```
 
-Context managers make your intent and error handling explicit. Prefer them over manual `try/finally` for clearer, safer code.
+Context managers make your intent and error handling explicit. Prefer them
+over manual `try/finally` for clearer, safer code.

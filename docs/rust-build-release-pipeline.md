@@ -58,9 +58,9 @@ workflow.
 The primary build command will be
 `cross build --release --target ${{ matrix.target }}`. The build job matrix
 defines the full set of target platforms, including Linux, macOS, and FreeBSD.
-macOS targets must run on `macos-latest` runners or an image with the Apple SDK,
-as `cross` cannot build them on Linux. Each matrix entry also declares `os` and
-`arch` values so the compiled binary and man page can be staged under
+macOS targets must run on `macos-latest` runners or an image with the Apple
+SDK, as `cross` cannot build them on Linux. Each matrix entry also declares
+`os` and `arch` values so the compiled binary and man page can be staged under
 `dist/<project>_<os>_<arch>/` before upload, matching the paths expected by
 GoReleaser.
 
@@ -130,7 +130,7 @@ project, using `clap_mangen`.
 ```toml
 # In consuming repository (e.g., netsuke/Cargo.toml)
 [build-dependencies]
-clap = "4"
+clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
 time = { version = "0.3", features = ["formatting"] }
 ```

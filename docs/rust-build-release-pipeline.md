@@ -1,4 +1,4 @@
-# Design: A Modernised, Declarative Rust Build and Release Pipeline
+# Design: A Modernized, Declarative Rust Build and Release Pipeline
 
 <!-- markdownlint-disable MD029 -->
 
@@ -14,18 +14,18 @@ scripts, with a declarative, tool-centric workflow.
 
 The new architecture embraces the principle of "Configuration as Code". The
 responsibility for *how* to build and package software is delegated to
-specialised tools, while the developer's intent—*what* to build—is captured in
+specialized tools, while the developer's intent—*what* to build—is captured in
 declarative configuration files.
 
 This pipeline is composed of three core, best-in-class tools:
 
 1. **`cross`**: A zero-setup cross-compilation tool for Rust. It transparently
-   manages containerised build environments (via Docker or Podman) to provide
+   manages containerized build environments (via Docker or Podman) to provide
    the correct C toolchains, linkers, and system libraries for any given target
    triple.
 1. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
    a `clap`-based CLI definition. It is integrated into the build process via a
-   `build.rs` script to ensure documentation is always synchronised with the
+   `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
 1. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
    single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
@@ -38,7 +38,7 @@ for `actions/setup-python` in consuming workflows.
 
 The workflow proceeds in two distinct stages:
 
-1. **Build Stage**: A parallelised matrix job that uses `cross` to compile the
+1. **Build Stage**: A parallelized matrix job that uses `cross` to compile the
    Rust binary and its associated man page for each target platform. The
    resulting artifacts are uploaded for the next stage.
 1. **Release Stage**: A single job that downloads all build artifacts, then
@@ -60,7 +60,7 @@ The primary build command will be
 defines the full set of target platforms, including Linux, macOS, and FreeBSD.
 macOS targets must run on `macos-latest` runners or an image with the Apple
 SDK, as `cross` cannot build them on Linux. Each matrix entry also declares
-`os` and `arch` values so the compiled binary and man page can be staged under
+`os` and `arch` values, so the compiled binary and man page can be staged under
 `dist/<project>_<os>_<arch>/` before upload, matching the paths expected by
 GoReleaser.
 
@@ -102,6 +102,7 @@ jobs:
       - name: Build binary and man page
         run: |
           if [ "${{ matrix.os }}" = "darwin" ]; then
+            rustup target add ${{ matrix.target }}
             cargo build --release --target ${{ matrix.target }}
           else
             cross build --release --target ${{ matrix.target }}
@@ -329,7 +330,7 @@ The E2E test job will:
    - Construct any required Python helper scripts using the self-contained `uv`
      and PEP 723 pattern.
 
-1. **Phase 2: Toolchain Integration and Build Modernisation.**
+1. **Phase 2: Toolchain Integration and Build Modernization.**
 
    - Integrate `cross` into the CI workflow for a single target (e.g.,
      `x86_64-unknown-linux-gnu`).

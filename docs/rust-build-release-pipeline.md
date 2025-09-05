@@ -130,6 +130,7 @@ project, using `clap_mangen`.
 ```toml
 # In consuming repository (e.g., netsuke/Cargo.toml)
 [build-dependencies]
+clap = "4"
 clap_mangen = "0.2"
 time = { version = "0.3", features = ["formatting"] }
 ```
@@ -152,17 +153,18 @@ use time::{format_description::well_known::Iso8601, OffsetDateTime};
 mod cli;
 
 fn main() -> std::io::Result<()> {
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or(std::io::ErrorKind::NotFound)?);
+    let out_dir = PathBuf::from(
+        env::var_os("OUT_DIR")
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set"))?,
+    );
     let cmd = cli::Cli::command();
-    let man = Man::new(cmd);
-
-    // Set a deterministic date for reproducible builds.
     let date = env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
         .and_then(|ts| OffsetDateTime::from_unix_timestamp(ts).ok())
         .and_then(|dt| dt.format(&Iso8601::DATE).ok())
         .unwrap_or_else(|| "1970-01-01".to_string());
+    let man = Man::new(cmd).date(date);
     let mut buffer: Vec<u8> = Default::default();
 
     man.render(&mut buffer)?;

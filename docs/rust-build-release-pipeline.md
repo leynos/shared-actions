@@ -97,9 +97,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install cross
+        if: matrix.os != 'darwin'
         run: cargo install cross --git https://github.com/cross-rs/cross
       - name: Build binary and man page
-        run: cross build --release --target ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.os }}" = "darwin" ]; then
+            cargo build --release --target ${{ matrix.target }}
+          else
+            cross build --release --target ${{ matrix.target }}
+          fi
       - name: Stage artifacts
         run: |
           mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
@@ -110,7 +116,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifacts-${{ matrix.target }}
+          name: dist_${{ matrix.os }}_${{ matrix.arch }}
           path: dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
 ```
 
@@ -186,6 +192,7 @@ before:
 builds:
   - id: netsuke
     builder: prebuilt
+    binary: netsuke
     goos:
       - linux
       - darwin
@@ -194,13 +201,13 @@ builds:
       - amd64
       - arm64
     prebuilt:
-      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
+      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
 
 archives:
   - id: default
     files:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
-        dst: "{{.Binary}}"
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
+        dst: "netsuke"
       - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
         dst: "."
       - LICENSE
@@ -218,8 +225,8 @@ nfpms:
       - rpm
     # ... metadata (maintainer, description, etc.)
     contents:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
-        dst: /usr/bin/{{.Binary}}
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
+        dst: /usr/bin/netsuke
       - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
         dst: /usr/share/man/man1/
 ```
@@ -242,7 +249,7 @@ will be required on dedicated runners for the custom packaging.
         uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: build-artifacts-*
+          pattern: dist_*
           merge-multiple: true
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5

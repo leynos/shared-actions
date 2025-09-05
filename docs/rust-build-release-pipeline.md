@@ -59,10 +59,10 @@ The primary build command will be
 `cross build --release --target ${{ matrix.target }}`. The build job matrix
 defines the full set of target platforms, including Linux, macOS, and FreeBSD.
 macOS targets run on `macos-latest` runners or an image with the Apple SDK
-because `cross` cannot build them on Linux. Each matrix entry declares `os`,
-`arch`, and `runs-on` values, so the compiled binary and man page can be
-staged under `dist/<project>_<os>_<arch>/` before upload, matching the paths
-expected by GoReleaser.
+because `cross` cannot build them on Linux. Each matrix entry also declares
+`os`, `arch`, and `runs-on` values, so the compiled binary and man page can be
+staged under `dist/<project>_<os>_<arch>/` before upload.
+This matches the paths expected by GoReleaser.
 
 ```yaml
 # .github/workflows/release.yml (excerpt)

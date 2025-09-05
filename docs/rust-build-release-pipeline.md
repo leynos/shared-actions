@@ -1,0 +1,318 @@
+# Design: A Modernised, Declarative Rust Build and Release Pipeline
+
+## 1. System Goals
+
+This document outlines a unified, modern design for a reusable Rust build and
+release pipeline, intended for implementation within the `shared-actions`
+repository and consumption by projects such as `netsuke`. The system's primary
+goal is to replace the previous architecture, which relied on imperative Python
+scripts, with a declarative, tool-centric workflow.
+
+## 2. High-Level Architecture: Configuration as Code
+
+The new architecture embraces the principle of "Configuration as Code". The
+responsibility for *how* to build and package software is delegated to
+specialised tools, while the developer's intent—*what* to build—is captured in
+declarative configuration files.
+
+This pipeline is composed of three core, best-in-class tools:
+
+1. **`cross`**: A zero-setup cross-compilation tool for Rust. It transparently
+   manages containerised build environments (via Docker or Podman) to provide
+   the correct C toolchains, linkers, and system libraries for any given target
+   triple.
+2. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
+   a `clap`-based CLI definition. It is integrated into the build process via a
+   `build.rs` script to ensure documentation is always synchronised with the
+   application's interface.
+3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
+   single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
+   packages (`.deb`, `.rpm`), and other formats, as well as checksums and
+   GitHub Releases.
+
+Any necessary "glue" logic will be implemented in self-contained Python scripts
+that use `uv` and PEP 723 to manage their own dependencies, removing the need
+for `actions/setup-python` in consuming workflows.
+
+The workflow proceeds in two distinct stages:
+
+1. **Build Stage**: A parallelised matrix job that uses `cross` to compile the
+   Rust binary and its associated man page for each target platform. The
+   resulting artifacts are uploaded for the next stage.
+2. **Release Stage**: A single job that downloads all build artifacts, then
+   orchestrates GoReleaser to package them into archives and distribution
+   formats before creating a GitHub Release.
+
+## 3. Detailed Component Design for Implementers
+
+### 3.1 Build Stage: Cross-Compilation and Man Page Generation
+
+The build stage is responsible for producing compiled binaries and
+documentation. This is accomplished within a matrix job in the GitHub Actions
+workflow.
+
+#### 3.1.1 Cross-Compilation with `cross`
+
+The primary build command will be
+`cross build --release --target ${{ matrix.target }}`. The build job matrix
+defines the full set of target platforms, including Linux, macOS, and FreeBSD.
+
+```yaml
+# .github/workflows/release.yml (excerpt)
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-unknown-freebsd
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Build binary and man page
+        run: cross build --release --target ${{ matrix.target }}
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/<binary-name>
+            target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1
+```
+
+#### 3.1.2 Man Page Generation via `build.rs`
+
+Man page generation will be automated via a `build.rs` script in the consuming
+project, using `clap_mangen`.
+
+**`Cargo.toml` Configuration:**
+
+```toml
+# In consuming repository (e.g., netsuke/Cargo.toml)
+[build-dependencies]
+clap_mangen = "0.2"
+time = { version = "0.3", features = ["formatting"] }
+```
+
+**`build.rs` Implementation:**
+
+The script must generate the man page into the directory specified by the
+`OUT_DIR` environment variable and honour `SOURCE_DATE_EPOCH` for reproducible
+builds.
+
+```rust
+// In consuming repository (e.g., netsuke/build.rs)
+use clap::CommandFactory;
+use clap_mangen::Man;
+use std::{env, fs, path::PathBuf};
+use time::{format_description::well_known::Iso8601, OffsetDateTime};
+
+// Import the CLI definition from the main application crate.
+#[path = "src/cli.rs"]
+mod cli;
+
+fn main() -> std::io::Result<()> {
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or(std::io::ErrorKind::NotFound)?);
+    let cmd = cli::Cli::command();
+    let man = Man::new(cmd);
+
+    // Set a deterministic date for reproducible builds.
+    let date = env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .and_then(|ts| OffsetDateTime::from_unix_timestamp(ts).ok())
+        .and_then(|dt| dt.format(&Iso8601::DATE).ok())
+        .unwrap_or_else(|| "1970-01-01".to_string());
+    let mut buffer: Vec<u8> = Default::default();
+
+    man.render(&mut buffer)?;
+    fs::write(out_dir.join("netsuke.1"), buffer)?;
+
+    Ok(())
+}
+```
+
+### 3.2 Release Stage: Declarative Packaging with GoReleaser
+
+The release stage uses the `goreleaser/goreleaser-action` to unify packaging.
+
+#### 3.2.1 `.goreleaser.yaml` Configuration
+
+A `.goreleaser.yaml` file defines the release process. It will use GoReleaser's
+`prebuilt` builder and its `nfpms` integration for `.deb` and `.rpm`. For macOS
+and FreeBSD `.pkg` formats, where native support is lacking, it will use custom
+build hooks to invoke system packaging tools.
+
+```yaml
+# .goreleaser.yaml
+project_name: netsuke
+before:
+  hooks:
+    - test -f dist/netsuke_linux_amd64_v1/netsuke.1
+builds:
+  - id: netsuke
+    builder: prebuilt
+    goos:
+      - linux
+      - darwin
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+    prebuilt:
+      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
+
+archives:
+  - id: default
+    files:
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
+        dst: "{{.Binary}}"
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
+        dst: "."
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+# Native support for Linux packages.
+nfpms:
+  - id: packages
+    package_name: netsuke
+    formats:
+      - deb
+      - rpm
+    # ... metadata (maintainer, description, etc.)
+    contents:
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/{{.Binary}}"
+        dst: /usr/bin/{{.Binary}}
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
+        dst: /usr/share/man/man1/
+```
+
+#### 3.2.2 Release Job Workflow
+
+The release job downloads all artifacts and invokes GoReleaser. Separate steps
+will be required on dedicated runners for the custom packaging.
+
+```yaml
+# .github/workflows/release.yml (excerpt)
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: build-artifacts-*
+          merge-multiple: true
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### 3.3 Self-Contained Scripting with `uv` and PEP 723
+
+Helper scripts will be self-contained using `uv` and embedded PEP 723
+dependency metadata, eliminating the need for `actions/setup-python` in
+consumer workflows.
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["plumbum", "typer"]
+# ///
+import typer
+from plumbum.cmd import cross
+# ... script logic ...
+```
+
+## 4. Multi-Layered Testing Strategy
+
+### 4.1 Unit Testing
+
+Unit tests for Python scripts will mock the `run_cmd` function to verify that
+high-level tools (`cross`, `goreleaser`) are invoked with the correct
+arguments. These tests must be executable on a local developer machine without
+a CI environment or container runtime.
+
+### 4.2 Local End-to-End (E2E) Testing Harness
+
+A new local testing harness will be created using `pytest`. This harness will:
+
+- Create a temporary directory structure mimicking a GitHub Actions environment.
+- Populate it with fixture files (e.g., a toy pre-compiled binary).
+- Execute the Python helper scripts against this local environment.
+- Use mocks for external commands (`cross`, `goreleaser`, `pkgbuild`) to assert
+  they are called with the expected arguments based on the fixture state.
+
+This provides a vital intermediate testing layer between isolated unit tests
+and a full CI run.
+
+### 4.3 CI End-to-End (E2E) Testing
+
+The primary validation will occur in the `shared-actions` repository's own CI
+workflow, simulating a release of the dedicated `rust-toy-app`.
+
+The E2E test job will:
+
+1. Execute the full workflow using the local, in-repository versions of the
+   actions.
+2. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
+3. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
+   verify the installation by checking the binary's presence and executability,
+   and the man page's accessibility.
+4. For other package formats (`.rpm`, `.pkg`), the test will perform an
+   inspection (`rpm -qip`, `pkgutil --payload-files`, `pkg info -l`) to verify
+   contents and metadata, as a full installation may require a dedicated runner
+   OS.
+
+## 5. Implementation Roadmap
+
+1. **Phase 1: Project Scaffolding and E2E Test Setup.**
+
+   - Create a minimal "toy" Rust application (`rust-toy-app`) within
+     `shared-actions`. This app will have a `clap` CLI and a `build.rs` for man
+     page generation, serving as the target for all E2E tests.
+   - Construct any required Python helper scripts using the self-contained `uv`
+     and PEP 723 pattern.
+
+2. **Phase 2: Toolchain Integration and Build Modernisation.**
+
+   - Integrate `cross` into the CI workflow for a single target (e.g.,
+     `x86_64-unknown-linux-gnu`).
+   - Validate that a `cross build` command successfully produces both the
+     binary and the man page artifact.
+
+3. **Phase 3: Declarative Packaging and Local Testing.**
+
+   - Create the initial `.goreleaser.yaml` configuration for `.tar.gz`, `.deb`,
+     and `.rpm`.
+   - Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
+     integrate them into the workflow.
+   - Develop the local E2E test harness using `pytest` and fixtures to validate
+     Python script logic against a simulated file system.
+
+4. **Phase 4: Full Workflow Automation and CI E2E Testing.**
+
+   - Provide comprehensive documentation on implementing a full parallel build
+     matrix (Linux, macOS, FreeBSD) and a final, dependent release job.
+   - Implement the comprehensive CI E2E testing strategy.
+   - Deprecate and remove the legacy `build-rust-binary` and
+     `build-rust-package` actions.

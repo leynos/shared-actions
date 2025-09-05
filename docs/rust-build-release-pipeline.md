@@ -33,7 +33,7 @@ This pipeline is composed of three core, best-in-class tools:
    GitHub Releases.
 
 Any necessary "glue" logic will be implemented in self-contained Python scripts
-that use `uv` and PEP 723 to manage their own dependencies, removing the need
+that use `uv` and PEP 723 to manage dependencies, removing the need
 for `actions/setup-python` in consuming workflows.
 
 The workflow proceeds in two distinct stages:

@@ -1,5 +1,7 @@
 # Design: A Modernised, Declarative Rust Build and Release Pipeline
 
+<!-- markdownlint-disable MD029 -->
+
 ## 1. System Goals
 
 This document outlines a unified, modern design for a reusable Rust build and
@@ -21,11 +23,11 @@ This pipeline is composed of three core, best-in-class tools:
    manages containerised build environments (via Docker or Podman) to provide
    the correct C toolchains, linkers, and system libraries for any given target
    triple.
-2. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
+1. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
    a `clap`-based CLI definition. It is integrated into the build process via a
    `build.rs` script to ensure documentation is always synchronised with the
    application's interface.
-3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
+1. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
    single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
    packages (`.deb`, `.rpm`), and other formats, as well as checksums and
    GitHub Releases.
@@ -39,7 +41,7 @@ The workflow proceeds in two distinct stages:
 1. **Build Stage**: A parallelised matrix job that uses `cross` to compile the
    Rust binary and its associated man page for each target platform. The
    resulting artifacts are uploaded for the next stage.
-2. **Release Stage**: A single job that downloads all build artifacts, then
+1. **Release Stage**: A single job that downloads all build artifacts, then
    orchestrates GoReleaser to package them into archives and distribution
    formats before creating a GitHub Release.
 
@@ -56,20 +58,40 @@ workflow.
 The primary build command will be
 `cross build --release --target ${{ matrix.target }}`. The build job matrix
 defines the full set of target platforms, including Linux, macOS, and FreeBSD.
+macOS targets must run on `macos-latest` runners or an image with the Apple SDK,
+as `cross` cannot build them on Linux. Each matrix entry also declares `os` and
+`arch` values so the compiled binary and man page can be staged under
+`dist/<project>_<os>_<arch>/` before upload, matching the paths expected by
+GoReleaser.
 
 ```yaml
 # .github/workflows/release.yml (excerpt)
 jobs:
   build:
-    runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-          - x86_64-apple-darwin
-          - aarch64-apple-darwin
-          - x86_64-unknown-freebsd
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: linux
+            arch: amd64
+            runs-on: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: linux
+            arch: arm64
+            runs-on: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: darwin
+            arch: amd64
+            runs-on: macos-latest
+          - target: aarch64-apple-darwin
+            os: darwin
+            arch: arm64
+            runs-on: macos-latest
+          - target: x86_64-unknown-freebsd
+            os: freebsd
+            arch: amd64
+            runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
@@ -78,13 +100,18 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
       - name: Build binary and man page
         run: cross build --release --target ${{ matrix.target }}
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
+          cp target/${{ matrix.target }}/release/<binary-name> \
+            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
+          cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
+            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/<binary-name>
-            target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1
+          path: dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
 ```
 
 #### 3.1.2 Man Page Generation via `build.rs`
@@ -155,7 +182,7 @@ build hooks to invoke system packaging tools.
 project_name: netsuke
 before:
   hooks:
-    - test -f dist/netsuke_linux_amd64_v1/netsuke.1
+    - test -f dist/netsuke_linux_amd64/netsuke.1
 builds:
   - id: netsuke
     builder: prebuilt
@@ -274,11 +301,11 @@ The E2E test job will:
 
 1. Execute the full workflow using the local, in-repository versions of the
    actions.
-2. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
-3. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
+1. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
+1. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
    verify the installation by checking the binary's presence and executability,
    and the man page's accessibility.
-4. For other package formats (`.rpm`, `.pkg`), the test will perform an
+1. For other package formats (`.rpm`, `.pkg`), the test will perform an
    inspection (`rpm -qip`, `pkgutil --payload-files`, `pkg info -l`) to verify
    contents and metadata, as a full installation may require a dedicated runner
    OS.
@@ -293,14 +320,14 @@ The E2E test job will:
    - Construct any required Python helper scripts using the self-contained `uv`
      and PEP 723 pattern.
 
-2. **Phase 2: Toolchain Integration and Build Modernisation.**
+1. **Phase 2: Toolchain Integration and Build Modernisation.**
 
    - Integrate `cross` into the CI workflow for a single target (e.g.,
      `x86_64-unknown-linux-gnu`).
    - Validate that a `cross build` command successfully produces both the
      binary and the man page artifact.
 
-3. **Phase 3: Declarative Packaging and Local Testing.**
+1. **Phase 3: Declarative Packaging and Local Testing.**
 
    - Create the initial `.goreleaser.yaml` configuration for `.tar.gz`, `.deb`,
      and `.rpm`.
@@ -309,7 +336,7 @@ The E2E test job will:
    - Develop the local E2E test harness using `pytest` and fixtures to validate
      Python script logic against a simulated file system.
 
-4. **Phase 4: Full Workflow Automation and CI E2E Testing.**
+1. **Phase 4: Full Workflow Automation and CI E2E Testing.**
 
    - Provide comprehensive documentation on implementing a full parallel build
      matrix (Linux, macOS, FreeBSD) and a final, dependent release job.

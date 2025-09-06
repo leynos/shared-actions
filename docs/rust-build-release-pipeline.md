@@ -337,6 +337,7 @@ The E2E test job will:
 - Man pages are generated in `build.rs` via `clap_mangen`, ensuring the CLI and documentation stay synchronized.
 - The crate provides a `cli()` helper returning `clap::Command` for use by the build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd` integration test for the binary.
+- The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define the MSRV.
 
 ### Phase 2: Toolchain Integration and Build Modernization.
 

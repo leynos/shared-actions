@@ -1,3 +1,4 @@
+//! Binary entrypoint for `rust-toy-app`.
 use rust_toy_app::cli::Cli;
 use clap::Parser;
 

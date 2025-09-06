@@ -1,5 +1,6 @@
 //! Integration tests for the `rust-toy-app` binary CLI.
 use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use std::process::Command;
 use rstest::rstest;
 
@@ -12,4 +13,22 @@ fn prints_greeting(#[case] args: &[&str], #[case] expected: &'static str) {
         cmd.arg(a);
     }
     cmd.assert().success().stdout(expected);
+}
+
+#[test]
+fn shows_help() {
+    let mut cmd = Command::cargo_bin("rust-toy-app").expect("binary should build");
+    cmd.arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage"));
+}
+
+#[test]
+fn unknown_flag_errors() {
+    let mut cmd = Command::cargo_bin("rust-toy-app").expect("binary should build");
+    cmd.arg("--nope")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("error:"));
 }

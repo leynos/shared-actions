@@ -1,3 +1,4 @@
+//! Command-line interface for `rust-toy-app`. Provides argument parsing and behaviour.
 use clap::{Parser, CommandFactory};
 
 #[derive(Parser, Debug)]
@@ -10,7 +11,7 @@ pub struct Cli {
 
 impl Cli {
     pub fn run(&self) -> String {
-        let name = self.name.clone().unwrap_or_else(|| "world".to_string());
+        let name = self.name.as_deref().unwrap_or("world");
         format!("Hello, {name}!")
     }
 }

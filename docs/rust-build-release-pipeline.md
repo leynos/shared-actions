@@ -337,6 +337,7 @@ The E2E test job will:
 - The crate provides a `cli()` helper returning `clap::Command` for use by the build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd` integration test for the binary.
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define the MSRV.
+- The crate is not published (`publish = false`) and the build script emits `cargo:rerun-if-changed=src/cli.rs` to regenerate the man page when the CLI changes.
 
 ### Phase 2: Toolchain Integration and Build Modernization.
 

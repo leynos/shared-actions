@@ -322,34 +322,40 @@ The E2E test job will:
 
 ## 5. Implementation Roadmap
 
-1. **Phase 1: Project Scaffolding and E2E Test Setup.**
+### Phase 1: Project Scaffolding and E2E Test Setup.
 
-   - Create a minimal "toy" Rust application (`rust-toy-app`) within
-     `shared-actions`. This app will have a `clap` CLI and a `build.rs` for man
-     page generation, serving as the target for all E2E tests.
-   - Construct any required Python helper scripts using the self-contained `uv`
-     and PEP 723 pattern.
+   - [ ] Create a minimal "toy" Rust application (`rust-toy-app`) within
+         `shared-actions`. This app will have a `clap` CLI and a `build.rs` for
+         man page generation, serving as the target for all E2E tests.
+   - [ ] Create a skeleton `rust-build-release`
+   - [ ] Create a Python unit test that calls `cargo mangen` and correctly
+         generates the expected manpage.
 
-1. **Phase 2: Toolchain Integration and Build Modernization.**
+### Phase 2: Toolchain Integration and Build Modernization.
 
-   - Integrate `cross` into the CI workflow for a single target (e.g.,
-     `x86_64-unknown-linux-gnu`).
-   - Validate that a `cross build` command successfully produces both the
-     binary and the man page artifact.
+   - [ ] Create a `rust-build-release` action using `setup-rust` from this repo and
+         `cross`, then integrate this into the CI workflow for a single target:
+         `x86_64-unknown-linux-gnu`.
+   - [ ] Add `cargo_mangen step and validate that a manpage is correctly produced by
+         calling the action with the CI workflow.
+   - [ ] Validate that a `cross build` command successfully produces both the
+         binary and the man page artifact.
+   - [ ] Construct any required Python helper scripts using the self-contained `uv`
+         and PEP 723 pattern.
 
-1. **Phase 3: Declarative Packaging and Local Testing.**
+### Phase 3: Declarative Packaging and Local Testing.
 
-   - Create the initial `.goreleaser.yaml` configuration for `.tar.gz`, `.deb`,
-     and `.rpm`.
-   - Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
-     integrate them into the workflow.
-   - Develop the local E2E test harness using `pytest` and fixtures to validate
-     Python script logic against a simulated file system.
+   - [ ] Create the initial `.goreleaser.yaml` configuration `.deb` and `.rpm`. Add
+         the necessary steps to the action to call goreleaser.
+   - [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
+         integrate them into the action.
+   - [ ] Develop the local E2E packaging test harness using `pytest` and fixtures to
+         validate Python script logic against a simulated file system.
 
-1. **Phase 4: Full Workflow Automation and CI E2E Testing.**
+### Phase 4: Full Workflow Automation and CI E2E Testing.
 
-   - Provide comprehensive documentation on implementing a full parallel build
-     matrix (Linux, macOS, FreeBSD) and a final, dependent release job.
-   - Implement the comprehensive CI E2E testing strategy.
-   - Deprecate and remove the legacy `build-rust-binary` and
-     `build-rust-package` actions.
+   - [ ] Provide comprehensive documentation on implementing a full parallel build
+         matrix (Linux, macOS, FreeBSD) and a final, dependent release job.
+   - [ ] Implement the comprehensive CI E2E testing strategy.
+   - [ ] Deprecate and remove the legacy `build-rust-binary` and
+         `build-rust-package` actions.

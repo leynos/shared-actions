@@ -2,7 +2,8 @@
 
 ## v1.3.8
 
-- Cache script dependencies by referencing the action path in the `setup-uv` cache glob.
+- Invalidate dependency cache when the action version changes by using
+  a `cache-suffix` in the `setup-uv` step.
 
 ## v1.3.7
 

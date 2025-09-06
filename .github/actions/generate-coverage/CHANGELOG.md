@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.3.8
+
+- Cache script dependencies by referencing the action path in the `setup-uv` cache glob.
+
 ## v1.3.7
 
 - Include job identifier and matrix index in the coverage artifact name to

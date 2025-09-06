@@ -1,9 +1,9 @@
-
 # Changelog
 
 ## v1.0.12 - 2025-07-26
 
-- Honor `.rust-toolchain.toml` when `toolchain` input is omitted, falling back to `stable` if no file exists.
+- Honour `.rust-toolchain.toml` when `toolchain` input is omitted, falling
+  back to `stable` if no file exists.
 
 ## v1.0.11 - 2025-07-26
 

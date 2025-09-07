@@ -1,6 +1,6 @@
 # Design: A Modernized, Declarative Rust Build and Release Pipeline
 
-<!-- markdownlint-disable MD029 -->
+<!-- markdownlint-disable MD029 MD007 MD013 MD026 -->
 
 ## 1. System Goals
 
@@ -324,12 +324,20 @@ The E2E test job will:
 
 ### Phase 1: Project Scaffolding and E2E Test Setup.
 
-   - [ ] Create a minimal "toy" Rust application (`rust-toy-app`) within
+   - [x] Create a minimal "toy" Rust application (`rust-toy-app`) within
          `shared-actions`. This app will have a `clap` CLI and a `build.rs` for
          man page generation, serving as the target for all E2E tests.
    - [ ] Create a skeleton `rust-build-release`
-   - [ ] Create a Python unit test that calls `cargo mangen` and correctly
-         generates the expected manpage.
+   - [ ] Create a Python unit test that runs `cargo build` and verifies that the `build.rs` produced the expected man page under `target/*/build/*/out/`.
+
+#### Design Decisions
+
+- The `rust-toy-app` crate exposes a `clap`-based CLI to act as a simple E2E test target.
+- Man pages are generated in `build.rs` via `clap_mangen`, ensuring the CLI and documentation stay synchronized.
+- The crate provides a `cli()` helper returning `clap::Command` for use by the build script.
+- Testing includes a unit test for greeting logic and an `assert_cmd` integration test for the binary.
+- The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define the MSRV.
+- The crate is not published (`publish = false`) and the build script emits `cargo:rerun-if-changed=src/cli.rs` to regenerate the man page when the CLI changes.
 
 ### Phase 2: Toolchain Integration and Build Modernization.
 

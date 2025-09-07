@@ -10,6 +10,7 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// Produce the greeting for the provided name, defaulting to "world".
     pub fn run(&self) -> String {
         let name = self.name.as_deref().unwrap_or("world");
         format!("Hello, {name}!")

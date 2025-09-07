@@ -1,9 +1,10 @@
 # Changelog
 
-## v1.3.8
+## v1.3.8 (2025-09-06)
 
 - Invalidate dependency cache when the action version changes by using
-  a `cache-suffix` in the `setup-uv` step.
+  a `cache-suffix` in the `setup-uv` step. Applies even when `github.action_ref`
+  is empty (local path usage) thanks to the `github.sha` fallback.
 
 ## v1.3.7
 

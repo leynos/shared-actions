@@ -57,7 +57,7 @@ runs:
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
-          **/scripts/*.py
+        cache-suffix: action-${{ github.action_ref || github.sha }}
     - id: detect
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       env:

@@ -328,6 +328,8 @@ The E2E test job will:
 - [ ] Create a skeleton `rust-build-release`.
 - [x] Add a Rust `assert_cmd` test that runs `cargo build` and verifies the
   `build.rs` generated man page under `target/*/build/*/out/`.
+- [x] Wire a CI workflow that runs `cargo +1.89.0 test --manifest-path
+  rust-toy-app/Cargo.toml` for this crate.
 
 #### Design Decisions
 
@@ -343,6 +345,8 @@ The E2E test job will:
   build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd`
   integration test for the binary.
+- A GitHub workflow (`.github/workflows/rust-toy-app.yml`) runs the crate's
+  tests on push and pull request using `dtolnay/rust-toolchain@1.89.0`.
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define
   the MSRV.
 - The crate is not published (`publish = false`) and the build script emits

@@ -357,10 +357,8 @@ jobs:
   documentation stay synchronized.
 - Build script derives the man page date from `SOURCE_DATE_EPOCH` using the
   `time` crate for reproducible output.
-- An `assert_cmd` integration test runs `cargo build` and uses `glob` to
-  confirm the generated man page exists.
-- An `assert_cmd` integration test runs `cargo mangen` to verify the build script
-  emits a man page.
+- An `assert_cmd` integration test triggers a build and asserts the build
+  script emitted a man page under `target/*/build/*/out/` using a glob search.
 - The crate provides a `command()` helper returning `clap::Command` for use by the
   build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd`
@@ -370,8 +368,9 @@ jobs:
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define
   the MSRV.
 - The crate is not published (`publish = false`) and the build script emits
-  `cargo:rerun-if-changed` for `src/cli.rs`, `Cargo.toml`, and `build.rs` to
-  regenerate the man page when the CLI or metadata changes.
+  `cargo:rerun-if-changed` for `src/cli.rs`, `Cargo.toml`, and `build.rs`,
+  plus `cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH`, to regenerate the
+  man page when the CLI, metadata, or reproducible-build epoch changes.
 
 ### Phase 2: Toolchain Integration and Build Modernization
 

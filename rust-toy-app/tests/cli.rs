@@ -29,7 +29,7 @@ fn unknown_flag_errors() {
     let mut cmd = Command::cargo_bin("rust-toy-app").expect("binary should build");
     cmd.arg("--nope")
         .assert()
-        .failure()
+        .failure().code(2)
         .stderr(predicate::str::contains("error:"));
 }
 
@@ -38,7 +38,7 @@ fn missing_name_errors() {
     let mut cmd = Command::cargo_bin("rust-toy-app").expect("binary should build");
     cmd.arg("--name")
         .assert()
-        .failure()
+        .failure().code(2)
         .stderr(predicate::str::contains("a value is required"));
 }
 

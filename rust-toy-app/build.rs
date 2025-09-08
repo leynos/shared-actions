@@ -8,6 +8,8 @@ mod cli;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Rebuild when the CLI definition changes.
     println!("cargo:rerun-if-changed=src/cli.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=build.rs");
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let cmd = cli::command();
     let man = clap_mangen::Man::new(cmd);

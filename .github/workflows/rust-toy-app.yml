@@ -7,6 +7,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89.0
       - uses: Swatinem/rust-cache@v2
-      - name: Install cargo-mangen
-        run: cargo install cargo-mangen --git https://github.com/clap-rs/clap --locked
       - run: cargo test --locked --manifest-path rust-toy-app/Cargo.toml

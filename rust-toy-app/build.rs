@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let cmd = cli::command();
     let man = clap_mangen::Man::new(cmd).date(build_date());

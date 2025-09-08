@@ -156,7 +156,7 @@ fn main() -> std::io::Result<()> {
         env::var_os("OUT_DIR")
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set"))?,
     );
-    let cmd = cli::Cli::command();
+    let cmd = cli::command();
     let date = env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
@@ -341,7 +341,7 @@ The E2E test job will:
   `time` crate for reproducible output.
 - An `assert_cmd` integration test runs `cargo build` and uses `glob` to
   confirm the generated man page exists.
-- The crate provides a `cli()` helper returning `clap::Command` for use by the
+- The crate provides a `command()` helper returning `clap::Command` for use by the
   build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd`
   integration test for the binary.

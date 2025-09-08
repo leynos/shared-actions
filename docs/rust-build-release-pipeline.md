@@ -152,6 +152,12 @@ use time::{format_description::well_known::Iso8601, OffsetDateTime};
 mod cli;
 
 fn main() -> std::io::Result<()> {
+    // Rebuild when CLI, manifest, or build logic changes; respect reproducible builds.
+    println!("cargo:rerun-if-changed=src/cli.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
     let out_dir = PathBuf::from(
         env::var_os("OUT_DIR")
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set"))?,
@@ -329,6 +335,19 @@ The E2E test job will:
 - [x] Validate man-page generation via Rust `assert_cmd` integration tests.
 - [x] Wire a CI workflow that runs `cargo +1.89.0 test --manifest-path
   rust-toy-app/Cargo.toml` for this crate.
+
+```yaml
+# .github/workflows/rust-toy-app.yml
+name: rust-toy-app
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - run: cargo test --manifest-path rust-toy-app/Cargo.toml
+```
 
 #### Design Decisions
 

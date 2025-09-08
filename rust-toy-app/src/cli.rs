@@ -2,7 +2,7 @@
 use clap::{Parser, CommandFactory};
 
 #[derive(Parser, Debug)]
-#[command(name = "rust-toy-app", about = "A toy app for E2E tests.")]
+#[command(name = "rust-toy-app", about = "A toy app for E2E tests.", version, author)]
 pub struct Cli {
     /// Name to greet
     #[arg(short, long, value_name = "NAME")]
@@ -18,6 +18,7 @@ impl Cli {
     }
 }
 
+/// Return the `clap::Command` for this CLI (used by `build.rs` and tests).
 pub fn command() -> clap::Command {
     Cli::command()
 }

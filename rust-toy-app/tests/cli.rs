@@ -4,14 +4,15 @@ use predicates::prelude::*;
 use std::process::Command;
 use rstest::rstest;
 
+mod common;
+use common::assert_manpage_exists;
+
 #[rstest]
 #[case::named(&["--name", "Bob"][..], "Hello, Bob!\n")]
 #[case::default(&[][..], "Hello, world!\n")]
 fn prints_greeting(#[case] args: &[&str], #[case] expected: &'static str) {
     let mut cmd = Command::cargo_bin("rust-toy-app").expect("binary should build");
-    for a in args {
-        cmd.arg(a);
-    }
+    cmd.args(args);
     cmd.assert().success().stdout(expected);
 }
 
@@ -44,28 +45,8 @@ fn missing_name_errors() {
 
 #[test]
 fn builds_manpage_into_out_dir() {
-    // Build the binary (ensures build.rs runs).
     let _ = Command::cargo_bin("rust-toy-app").expect("binary should build");
-
-    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into());
-    let patterns = [
-        format!("{}/debug/build/rust-toy-app-*/out/rust-toy-app.1", target),
-        format!("{}/release/build/rust-toy-app-*/out/rust-toy-app.1", target),
-    ];
-
-    let mut found = false;
-    for pat in &patterns {
-        for entry in glob::glob(pat).expect("valid glob") {
-            if let Ok(path) = entry {
-                if path.exists() {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if found { break; }
-    }
-    assert!(found, "man page not found; searched: {patterns:?}");
+    assert_manpage_exists();
 }
 
 

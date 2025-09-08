@@ -6,4 +6,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.89.0
-      - run: cargo test --manifest-path rust-toy-app/Cargo.toml
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-mangen
+        run: cargo install cargo-mangen
+      - run: cargo test --locked --manifest-path rust-toy-app/Cargo.toml

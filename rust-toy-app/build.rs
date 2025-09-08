@@ -6,27 +6,28 @@ use time::{macros::format_description, OffsetDateTime};
 #[path = "src/cli.rs"]
 mod cli;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::io::Result<()> {
     // Rebuild when the CLI definition changes.
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
-    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let out_dir = env::var("OUT_DIR").map(PathBuf::from).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     let cmd = cli::command();
     let man = clap_mangen::Man::new(cmd).date(build_date());
     let mut buffer = Vec::new();
-    man.render(&mut buffer)?;
+    man.render(&mut buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
     std::fs::write(out_dir.join("rust-toy-app.1"), &buffer)?;
     Ok(())
 }
 
 fn build_date() -> String {
-    let epoch = env::var("SOURCE_DATE_EPOCH")
+    env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
         .and_then(|e| OffsetDateTime::from_unix_timestamp(e).ok())
-        .unwrap_or_else(|| OffsetDateTime::now_utc());
-    epoch.format(&format_description!("[year]-[month]-[day]")).unwrap()
+        .map(|dt| dt.format(&format_description!("[year]-[month]-[day]")).unwrap())
+        .unwrap_or_else(|| "1970-01-01".to_string())
 }
+
 

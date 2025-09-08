@@ -1,6 +1,9 @@
+mod common;
+
 use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use std::process::Command;
-use glob::glob;
+use common::assert_manpage_exists;
 
 #[test]
 fn generates_manpage() {
@@ -18,25 +21,9 @@ fn generates_manpage() {
     Command::new("cargo")
         .args(["mangen", "rust-toy-app"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicates::str::contains("NAME").and(predicates::str::contains("rust-toy-app")));
 
-    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into());
-    let patterns = [
-        format!("{}/debug/build/rust-toy-app-*/out/*.1", target),
-        format!("{}/release/build/rust-toy-app-*/out/*.1", target),
-    ];
-
-    let mut found = false;
-    for pat in &patterns {
-        for entry in glob(pat).expect("valid glob") {
-            if let Ok(path) = entry {
-                if path.exists() {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if found { break; }
-    }
-    assert!(found, "man page not found; searched: {patterns:?}");
+    assert_manpage_exists();
 }
+

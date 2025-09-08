@@ -326,8 +326,7 @@ The E2E test job will:
   `shared-actions`. This app will have a `clap` CLI and a `build.rs` for man
   page generation, serving as the target for all E2E tests.
 - [ ] Create a skeleton `rust-build-release`.
-- [x] Add a Rust `assert_cmd` test that runs `cargo build` and verifies the
-  `build.rs` generated man page under `target/*/build/*/out/`.
+- [x] Validate man-page generation via Rust `assert_cmd` integration tests.
 - [x] Wire a CI workflow that runs `cargo +1.89.0 test --manifest-path
   rust-toy-app/Cargo.toml` for this crate.
 

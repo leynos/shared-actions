@@ -5,14 +5,13 @@ use clap::{Parser, CommandFactory};
 #[command(name = "rust-toy-app", about = "A toy app for E2E tests.")]
 pub struct Cli {
     /// Name to greet
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "NAME")]
     pub name: Option<String>,
 }
 
 impl Cli {
     /// Produce the greeting for the provided name, defaulting to "world".
     #[must_use]
-    #[allow(dead_code)]
     pub fn run(&self) -> String {
         let name = self.name.as_deref().unwrap_or("world");
         format!("Hello, {name}!")

@@ -39,6 +39,6 @@ fn missing_name_errors() {
     cmd.arg("--name")
         .assert()
         .failure().code(2)
-        .stderr(predicate::str::contains("a value is required"));
+        .stderr(predicate::str::contains("requires a value").or(predicate::str::contains("value is required")));
 }
 

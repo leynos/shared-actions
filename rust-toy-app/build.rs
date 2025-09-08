@@ -1,6 +1,7 @@
 use std::env;
 
 use std::path::PathBuf;
+use time::{macros::format_description, OffsetDateTime};
 
 #[path = "src/cli.rs"]
 mod cli;
@@ -12,9 +13,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=build.rs");
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let cmd = cli::command();
-    let man = clap_mangen::Man::new(cmd);
+    let man = clap_mangen::Man::new(cmd).date(build_date());
     let mut buffer = Vec::new();
     man.render(&mut buffer)?;
     std::fs::write(out_dir.join("rust-toy-app.1"), &buffer)?;
     Ok(())
 }
+
+fn build_date() -> String {
+    let epoch = env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .and_then(|e| OffsetDateTime::from_unix_timestamp(e).ok())
+        .unwrap_or_else(|| OffsetDateTime::now_utc());
+    epoch.format(&format_description!("[year]-[month]-[day]")).unwrap()
+}
+

@@ -328,12 +328,14 @@ The E2E test job will:
          `shared-actions`. This app will have a `clap` CLI and a `build.rs` for
          man page generation, serving as the target for all E2E tests.
    - [ ] Create a skeleton `rust-build-release`
-   - [ ] Add a Rust `assert_cmd` test that runs `cargo build` and verifies the `build.rs` generated man page under `target/*/build/*/out/`.
+   - [x] Add a Rust `assert_cmd` test that runs `cargo build` and verifies the `build.rs` generated man page under `target/*/build/*/out/`.
 
 #### Design Decisions
 
 - The `rust-toy-app` crate exposes a `clap`-based CLI to act as a simple E2E test target.
 - Man pages are generated in `build.rs` via `clap_mangen`, ensuring the CLI and documentation stay synchronized.
+- Build script derives the man page date from `SOURCE_DATE_EPOCH` using the `time` crate for reproducible output.
+- An `assert_cmd` integration test runs `cargo build` and uses `glob` to confirm the generated man page exists.
 - The crate provides a `cli()` helper returning `clap::Command` for use by the build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd` integration test for the binary.
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define the MSRV.

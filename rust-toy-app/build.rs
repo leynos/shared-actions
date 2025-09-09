@@ -1,7 +1,7 @@
 use std::env;
 
 use std::path::PathBuf;
-use time::{macros::format_description, OffsetDateTime};
+use time::OffsetDateTime;
 
 #[path = "src/cli.rs"]
 mod cli;
@@ -16,7 +16,7 @@ fn main() -> std::io::Result<()> {
     let cmd = cli::command();
     let man = clap_mangen::Man::new(cmd).date(build_date());
     let mut buffer = Vec::new();
-    man.render(&mut buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    man.render(&mut buffer)?;
     std::fs::write(out_dir.join("rust-toy-app.1"), &buffer)?;
     Ok(())
 }
@@ -26,7 +26,7 @@ fn build_date() -> String {
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
         .and_then(|e| OffsetDateTime::from_unix_timestamp(e).ok())
-        .map(|dt| dt.format(&format_description!("[year]-[month]-[day]")).unwrap())
+        .map(|dt| dt.date().to_string())
         .unwrap_or_else(|| "1970-01-01".to_string())
 }
 

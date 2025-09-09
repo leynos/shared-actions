@@ -179,6 +179,33 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+Figure: Sequence of `build.rs` generating a man page during `cargo build`.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Dev as Developer/CI
+  participant Cargo as cargo build/test
+  participant BuildRS as build.rs
+  participant CLI as cli::command()
+  participant Mangen as clap_mangen
+  participant FS as OUT_DIR
+
+  Dev->>Cargo: Build rust-toy-app
+  activate Cargo
+  Cargo->>BuildRS: Execute build script
+  activate BuildRS
+  BuildRS->>CLI: cli::command()
+  CLI-->>BuildRS: clap::Command
+  BuildRS->>BuildRS: build_date(SOURCE_DATE_EPOCH)
+  BuildRS->>Mangen: Man::new(Command).render()
+  Mangen-->>BuildRS: Man bytes
+  BuildRS->>FS: Write rust-toy-app.1
+  deactivate BuildRS
+  Cargo-->>Dev: Build complete (binary + manpage)
+  deactivate Cargo
+```
+
 ### 3.2 Release Stage: Declarative Packaging with GoReleaser
 
 The release stage uses the `goreleaser/goreleaser-action` to unify packaging.

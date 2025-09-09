@@ -404,8 +404,8 @@ jobs:
 - [ ] Create a `rust-build-release` action using `setup-rust` from this repo and
   `cross`, then integrate this into the CI workflow for a single target:
   `x86_64-unknown-linux-gnu`.
-- [ ] Add a `cargo_mangen` step and validate that a man page is correctly
-  produced by calling the action with the CI workflow.
+- [ ] Ensure the CI workflow verifies that the action generates a man page
+  via the build script.
 - [ ] Validate that a `cross build` command successfully produces both the
   binary and the man page artifact.
 - [ ] Construct any required Python helper scripts using the self-contained

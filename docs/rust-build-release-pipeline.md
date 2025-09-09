@@ -1,7 +1,5 @@
 # Design: A Modernized, Declarative Rust Build and Release Pipeline
 
-<!-- markdownlint-disable MD029 -->
-
 ## 1. System Goals
 
 This document outlines a unified, modern design for a reusable Rust build and
@@ -23,11 +21,11 @@ This pipeline is composed of three core, best-in-class tools:
    manages containerized build environments (via Docker or Podman) to provide
    the correct C toolchains, linkers, and system libraries for any given target
    triple.
-1. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
+2. **`clap_mangen`**: A utility for generating UNIX manual pages directly from
    a `clap`-based CLI definition. It is integrated into the build process via a
    `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
-1. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
+3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
    single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
    packages (`.deb`, `.rpm`), and other formats, as well as checksums and
    GitHub Releases.
@@ -41,7 +39,7 @@ The workflow proceeds in two distinct stages:
 1. **Build Stage**: A parallelized matrix job that uses `cross` to compile the
    Rust binary and its associated man page for each target platform. The
    resulting artifacts are uploaded for the next stage.
-1. **Release Stage**: A single job that downloads all build artifacts, then
+2. **Release Stage**: A single job that downloads all build artifacts, then
    orchestrates GoReleaser to package them into archives and distribution
    formats before creating a GitHub Release.
 
@@ -154,11 +152,17 @@ use time::{format_description::well_known::Iso8601, OffsetDateTime};
 mod cli;
 
 fn main() -> std::io::Result<()> {
+    // Rebuild when CLI, manifest, or build logic changes; respect reproducible builds.
+    println!("cargo:rerun-if-changed=src/cli.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
     let out_dir = PathBuf::from(
         env::var_os("OUT_DIR")
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set"))?,
     );
-    let cmd = cli::Cli::command();
+    let cmd = cli::command();
     let date = env::var("SOURCE_DATE_EPOCH")
         .ok()
         .and_then(|s| s.parse::<i64>().ok())
@@ -173,6 +177,33 @@ fn main() -> std::io::Result<()> {
 
     Ok(())
 }
+```
+
+Figure: Sequence of `build.rs` generating a man page during `cargo build`.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Dev as Developer/CI
+  participant Cargo as cargo build/test
+  participant BuildRS as build.rs
+  participant CLI as cli::command()
+  participant Mangen as clap_mangen
+  participant FS as OUT_DIR
+
+  Dev->>Cargo: Build rust-toy-app
+  activate Cargo
+  Cargo->>BuildRS: Execute build script
+  activate BuildRS
+  BuildRS->>CLI: cli::command()
+  CLI-->>BuildRS: clap::Command
+  BuildRS->>BuildRS: build_date(SOURCE_DATE_EPOCH)
+  BuildRS->>Mangen: Man::new(Command).render()
+  Mangen-->>BuildRS: Man bytes
+  BuildRS->>FS: Write rust-toy-app.1
+  deactivate BuildRS
+  Cargo-->>Dev: Build complete (binary + manpage)
+  deactivate Cargo
 ```
 
 ### 3.2 Release Stage: Declarative Packaging with GoReleaser
@@ -311,51 +342,88 @@ The E2E test job will:
 
 1. Execute the full workflow using the local, in-repository versions of the
    actions.
-1. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
-1. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
-   verify the installation by checking the binary's presence and executability,
-   and the man page's accessibility.
-1. For other package formats (`.rpm`, `.pkg`), the test will perform an
+2. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
+3. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
+   verify the installation by checking the binary's presence and
+   executability, and the man page's accessibility.
+4. For other package formats (`.rpm`, `.pkg`), the test will perform an
    inspection (`rpm -qip`, `pkgutil --payload-files`, `pkg info -l`) to verify
-   contents and metadata, as a full installation may require a dedicated runner
-   OS.
+   contents and metadata, as a full installation may require a dedicated
+   runner OS.
 
 ## 5. Implementation Roadmap
 
-### Phase 1: Project Scaffolding and E2E Test Setup.
+### Phase 1: Project Scaffolding and E2E Test Setup
 
-   - [ ] Create a minimal "toy" Rust application (`rust-toy-app`) within
-         `shared-actions`. This app will have a `clap` CLI and a `build.rs` for
-         man page generation, serving as the target for all E2E tests.
-   - [ ] Create a skeleton `rust-build-release`
-   - [ ] Create a Python unit test that calls `cargo mangen` and correctly
-         generates the expected manpage.
+- [x] Create a minimal "toy" Rust application (`rust-toy-app`) within
+  `shared-actions`. This app will have a `clap` CLI and a `build.rs` for man
+  page generation, serving as the target for all E2E tests.
+- [ ] Create a skeleton `rust-build-release`.
+- [x] Validate man-page generation via Rust `assert_cmd` integration tests.
+- [x] Wire a CI workflow that runs `cargo +1.89.0 test --manifest-path
+  rust-toy-app/Cargo.toml` for this crate.
 
-### Phase 2: Toolchain Integration and Build Modernization.
+```yaml
+# .github/workflows/rust-toy-app.yml
+name: rust-toy-app
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89.0
+      - run: cargo test --manifest-path rust-toy-app/Cargo.toml
+```
 
-   - [ ] Create a `rust-build-release` action using `setup-rust` from this repo and
-         `cross`, then integrate this into the CI workflow for a single target:
-         `x86_64-unknown-linux-gnu`.
-   - [ ] Add `cargo_mangen step and validate that a manpage is correctly produced by
-         calling the action with the CI workflow.
-   - [ ] Validate that a `cross build` command successfully produces both the
-         binary and the man page artifact.
-   - [ ] Construct any required Python helper scripts using the self-contained `uv`
-         and PEP 723 pattern.
+#### Design Decisions
 
-### Phase 3: Declarative Packaging and Local Testing.
+- The `rust-toy-app` crate exposes a `clap`-based CLI to act as a simple E2E
+  test target.
+- Man pages are generated in `build.rs` via `clap_mangen`, ensuring the CLI and
+  documentation stay synchronized.
+- Build script derives the man page date from `SOURCE_DATE_EPOCH` using the
+  `time` crate for reproducible output.
+- An `assert_cmd` integration test runs `cargo build` and asserts the build
+  script emitted a man page under `target/*/build/*/out/` using a glob search.
+- The crate provides a `command()` helper returning `clap::Command` for use by the
+  build script.
+- Testing includes a unit test for greeting logic and an `assert_cmd`
+  integration test for the binary.
+- A GitHub workflow (`.github/workflows/rust-toy-app.yml`) runs the crate's
+  tests on push and pull request using `dtolnay/rust-toolchain@1.89.0`.
+- The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define
+  the MSRV.
+- The crate is not published (`publish = false`) and the build script emits
+  `cargo:rerun-if-changed` for `src/cli.rs`, `Cargo.toml`, and `build.rs`,
+  plus `cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH`, to regenerate the
+  man page when the CLI, metadata, or reproducible-build epoch changes.
 
-   - [ ] Create the initial `.goreleaser.yaml` configuration `.deb` and `.rpm`. Add
-         the necessary steps to the action to call goreleaser.
-   - [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
-         integrate them into the action.
-   - [ ] Develop the local E2E packaging test harness using `pytest` and fixtures to
-         validate Python script logic against a simulated file system.
+### Phase 2: Toolchain Integration and Build Modernization
 
-### Phase 4: Full Workflow Automation and CI E2E Testing.
+- [ ] Create a `rust-build-release` action using `setup-rust` from this repo and
+  `cross`, then integrate this into the CI workflow for a single target:
+  `x86_64-unknown-linux-gnu`.
+- [ ] Ensure the CI workflow verifies that the action generates a man page
+  via the build script.
+- [ ] Validate that a `cross build` command successfully produces both the
+  binary and the man page artifact.
+- [ ] Construct any required Python helper scripts using the self-contained
+  `uv` and PEP 723 pattern.
 
-   - [ ] Provide comprehensive documentation on implementing a full parallel build
-         matrix (Linux, macOS, FreeBSD) and a final, dependent release job.
-   - [ ] Implement the comprehensive CI E2E testing strategy.
-   - [ ] Deprecate and remove the legacy `build-rust-binary` and
-         `build-rust-package` actions.
+### Phase 3: Declarative Packaging and Local Testing
+
+- [ ] Create the initial `.goreleaser.yaml` configuration for `.deb` and `.rpm`,
+  and add the necessary steps to the action to call GoReleaser.
+- [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
+  integrate them into the action.
+- [ ] Develop the local E2E packaging test harness using `pytest` and fixtures
+  to validate Python script logic against a simulated file system.
+
+### Phase 4: Full Workflow Automation and CI E2E Testing
+
+- [ ] Provide comprehensive documentation on implementing a full parallel build
+  matrix (Linux, macOS, and FreeBSD) and a final, dependent release job.
+- [ ] Implement the comprehensive CI E2E testing strategy.
+- [ ] Deprecate and remove the legacy `build-rust-binary` and
+  `build-rust-package` actions.

@@ -18,7 +18,8 @@ impl Cli {
     }
 }
 
-/// Return the `clap::Command` for this CLI (used by `build.rs` and tests).
+/// Returns the Clap `Command` for the CLI defined by [`Cli`].
+/// Convenience wrapper used by `build.rs` and tests.
 pub fn command() -> clap::Command {
     Cli::command()
 }

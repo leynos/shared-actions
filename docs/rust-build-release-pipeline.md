@@ -384,7 +384,7 @@ jobs:
   documentation stay synchronized.
 - Build script derives the man page date from `SOURCE_DATE_EPOCH` using the
   `time` crate for reproducible output.
-- An `assert_cmd` integration test triggers a build and asserts the build
+- An `assert_cmd` integration test runs `cargo build` and asserts the build
   script emitted a man page under `target/*/build/*/out/` using a glob search.
 - The crate provides a `command()` helper returning `clap::Command` for use by the
   build script.

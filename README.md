@@ -11,3 +11,4 @@ GitHub Actions
 | Setup Rust | `.github/actions/setup-rust` | v1 |
 | Upload CodeScene Coverage | `.github/actions/upload-codescene-coverage` | v1 |
 | Ratchet coverage | `.github/actions/ratchet-coverage` | v1 |
+| Rust build release | `.github/actions/rust-build-release` | v1 |

@@ -3,6 +3,7 @@ use std::env;
 use std::path::PathBuf;
 use time::OffsetDateTime;
 
+#[allow(dead_code)]
 #[path = "src/cli.rs"]
 mod cli;
 

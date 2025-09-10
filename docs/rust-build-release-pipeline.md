@@ -92,8 +92,10 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: ./.github/actions/setup-rust@v1
+        with:
+          toolchain: stable
       - name: Install cross
         if: matrix.os != 'darwin'
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -372,7 +374,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: ./.github/actions/setup-rust@v1
+        with:
+          toolchain: 1.89.0
       - run: cargo test --manifest-path rust-toy-app/Cargo.toml
 ```
 
@@ -391,7 +395,7 @@ jobs:
 - Testing includes a unit test for greeting logic and an `assert_cmd`
   integration test for the binary.
 - A GitHub workflow (`.github/workflows/rust-toy-app.yml`) runs the crate's
-  tests on push and pull request using `dtolnay/rust-toolchain@1.89.0`.
+  tests on push and pull request using the `setup-rust` action with toolchain `1.89.0`.
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define
   the MSRV.
 - The crate is not published (`publish = false`) and the build script emits

@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
+if sys.platform == "win32":
+    pytest.skip("bash unavailable on Windows runners", allow_module_level=True)
 
 
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:

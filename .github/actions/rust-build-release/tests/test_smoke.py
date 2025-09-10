@@ -18,8 +18,8 @@ def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_runs_placeholder_script() -> None:
-    """The placeholder build script exits successfully."""
+    """The placeholder build script warns and fails."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.sh"
-    res = run_script(script)
-    assert res.returncode == 0
-    assert "not yet implemented" in res.stdout
+    res = run_script(script, "x86_64-unknown-linux-gnu")
+    assert res.returncode != 0
+    assert "is a stub" in res.stdout

@@ -2,9 +2,12 @@ name: rust-toy-app
 on: [push, pull_request]
 jobs:
   build:
+    permissions:
+      contents: read
     env:
       BUILD_PROFILE: debug
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
@@ -35,6 +38,9 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           toolchain: 1.89.0
+      - name: Add Rust target
+        if: contains(matrix.target, 'linux')
+        run: rustup target add ${{ matrix.target }}
       - name: Build
         if: contains(matrix.target, 'linux')
         run: cargo build --target ${{ matrix.target }} --locked --manifest-path rust-toy-app/Cargo.toml

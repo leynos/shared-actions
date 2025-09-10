@@ -4,9 +4,12 @@ inputs:
   target:
     description: Target triple to build
     required: false
+    default: ""
 runs:
   using: composite
   steps:
     - name: Run build script
       shell: bash
-      run: ${{ github.action_path }}/src/main.sh "${{ inputs.target }}"
+      env:
+        RBR_TARGET: ${{ inputs.target }}
+      run: RBR_TARGET="${RBR_TARGET}" "${{ github.action_path }}/src/main.sh"

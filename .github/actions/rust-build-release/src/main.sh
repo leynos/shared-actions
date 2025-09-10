@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "rust-build-release action not yet implemented for target: ${1:-}"
+target="${RBR_TARGET:-${1:-}}"
+echo "::warning:: rust-build-release is a stub; target='${target}' not built"
+exit 1

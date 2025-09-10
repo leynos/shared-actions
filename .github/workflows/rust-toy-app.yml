@@ -2,6 +2,8 @@ name: rust-toy-app
 on: [push, pull_request]
 jobs:
   build:
+    env:
+      BUILD_PROFILE: debug
     strategy:
       matrix:
         include:
@@ -30,11 +32,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@351f82a4dc29e4159746a068ed925da17341219f
+        uses: ./.github/actions/setup-rust
         with:
           toolchain: 1.89.0
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@7939da402645ba29a2df566723491a2c856e8f8a
       - name: Build
         if: contains(matrix.target, 'linux')
         run: cargo build --target ${{ matrix.target }} --locked --manifest-path rust-toy-app/Cargo.toml

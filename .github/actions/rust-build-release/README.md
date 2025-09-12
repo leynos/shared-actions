@@ -1,12 +1,13 @@
 # rust-build-release
 
-Build Rust application release artefacts.
+Build Rust application release artefacts using the repository's
+`setup-rust` action and `cross`.
 
 ## Inputs
 
 | Name | Type | Default | Description | Required |
 | ---- | ---- | ------- | ----------- | -------- |
-| target | string | `""` | Target triple to build | no |
+| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | yes |
 
 ## Outputs
 

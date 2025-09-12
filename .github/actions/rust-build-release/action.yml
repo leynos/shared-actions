@@ -3,13 +3,18 @@ description: Build Rust project in release mode for a given target
 inputs:
   target:
     description: Target triple to build
-    required: false
-    default: ""
+    required: true
+    default: x86_64-unknown-linux-gnu
 runs:
   using: composite
   steps:
-    - name: Run build script
+    - name: Setup Rust toolchain
+      uses: ../setup-rust
+      with:
+        toolchain: 1.89.0
+    - name: Build release
       shell: bash
       env:
         RBR_TARGET: ${{ inputs.target }}
-      run: RBR_TARGET="${RBR_TARGET}" "${{ github.action_path }}/src/main.sh"
+        RBR_TOOLCHAIN: 1.89.0
+      run: ${{ github.action_path }}/src/main.py

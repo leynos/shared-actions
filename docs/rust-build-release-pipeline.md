@@ -380,7 +380,7 @@ jobs:
       - run: cargo test --manifest-path rust-toy-app/Cargo.toml
 ```
 
-#### Design Decisions
+#### Phase 2 Design Decisions
 
 - The `rust-toy-app` crate exposes a `clap`-based CLI to act as a simple E2E
   test target.
@@ -405,7 +405,7 @@ jobs:
 
 ### Phase 2: Toolchain Integration and Build Modernization
 
-- [ ] Create a `rust-build-release` action using `setup-rust` from this repo and
+- [x] Create a `rust-build-release` action using `setup-rust` from this repo and
   `cross`, then integrate this into the CI workflow for a single target:
   `x86_64-unknown-linux-gnu`.
 - [ ] Ensure the CI workflow verifies that the action generates a man page
@@ -414,6 +414,18 @@ jobs:
   binary and the man page artifact.
 - [ ] Construct any required Python helper scripts using the self-contained
   `uv` and PEP 723 pattern.
+
+#### Design Decisions
+
+- The `rust-build-release` action is a composite action that first invokes the
+  repository’s `setup-rust` action, then installs `cross` if it is absent.
+- The action delegates compilation to a Python script (`main.py`) that installs
+  `cross` on demand and runs `cross build --release` (falling back to `cargo`
+  when no container runtime is available) for the caller-provided target
+  triple.
+- CI executes the action against the `rust-toy-app` crate for the
+  `x86_64-unknown-linux-gnu` target, validating both the release binary and man
+  page outputs.
 
 ### Phase 3: Declarative Packaging and Local Testing
 

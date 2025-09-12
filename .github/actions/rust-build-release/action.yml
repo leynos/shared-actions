@@ -13,7 +13,7 @@ runs:
   using: composite
   steps:
     - name: Setup Rust toolchain
-      uses: leynos/shared-actions/.github/actions/setup-rust@97de6bf6e4d4b83bf58b5c039378a33c7dc0a1be
+      uses: leynos/shared-actions/.github/actions/setup-rust@f9f1c863c8a5bef64aa6779caa746e1a4a6c1ad4
       with:
         toolchain: 1.89.0
     - name: Build release

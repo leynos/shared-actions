@@ -41,3 +41,27 @@ def test_builds_release_binary_and_manpage() -> None:
         "target/x86_64-unknown-linux-gnu/release/build/rust-toy-app-*/out/rust-toy-app.1"
     )
     assert any(manpage_glob)
+
+
+def test_fails_without_target() -> None:
+    """Script exits with an error when no target is provided."""
+    script = Path(__file__).resolve().parents[1] / "src" / "main.py"
+    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    res = run_script(script, cwd=project_dir)
+    assert res.returncode != 0
+    assert "no build target specified" in res.stderr
+
+
+def test_fails_for_invalid_toolchain() -> None:
+    """Script surfaces rustup errors for invalid toolchains."""
+    script = Path(__file__).resolve().parents[1] / "src" / "main.py"
+    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    res = run_script(
+        script,
+        "x86_64-unknown-linux-gnu",
+        "--toolchain",
+        "bogus",
+        cwd=project_dir,
+    )
+    assert res.returncode != 0
+    assert "toolchain 'bogus' is not installed" in res.stderr

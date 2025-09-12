@@ -1,7 +1,9 @@
 # rust-build-release
 
 Build Rust application release artefacts using the repository's
-`setup-rust` action and `cross`.
+`setup-rust` action, `uv`, and `cross`.
+
+The `uv` Python package manager is installed automatically to execute the build script.
 
 ## Inputs
 

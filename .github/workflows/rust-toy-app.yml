@@ -38,7 +38,7 @@ jobs:
         uses: ./.github/actions/rust-build-release
         with:
           target: ${{ matrix.target }}
-        working-directory: rust-toy-app
+          project-dir: rust-toy-app
       - name: Verify artifacts
         run: |
           test -f target/${{ matrix.target }}/release/rust-toy-app

@@ -5,6 +5,10 @@ inputs:
     description: Target triple to build
     required: true
     default: x86_64-unknown-linux-gnu
+  project-dir:
+    description: Path to the Rust project to build
+    required: false
+    default: .
 runs:
   using: composite
   steps:
@@ -17,4 +21,5 @@ runs:
       env:
         RBR_TARGET: ${{ inputs.target }}
         RBR_TOOLCHAIN: 1.89.0
+      working-directory: ${{ inputs.project-dir }}
       run: ${{ github.action_path }}/src/main.py

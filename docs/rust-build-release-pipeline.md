@@ -423,6 +423,8 @@ jobs:
   `cross` on demand and runs `cross build --release` (falling back to `cargo`
   when no container runtime is available) for the caller-provided target
   triple.
+- Workflows select the crate to build via a `project-dir` input because
+  `uses:` steps cannot set a `working-directory`.
 - CI executes the action against the `rust-toy-app` crate for the
   `x86_64-unknown-linux-gnu` target, validating both the release binary and man
   page outputs.

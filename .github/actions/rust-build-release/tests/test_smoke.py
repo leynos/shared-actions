@@ -28,7 +28,7 @@ def run_script(
     )
 
 
-def test_builds_release_binary_and_manpage() -> None:
+def test_action_builds_release_binary_and_manpage() -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"

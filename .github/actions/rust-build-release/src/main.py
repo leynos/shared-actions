@@ -87,9 +87,28 @@ def main(
             )
         else:
             typer.echo(f"Using cached cross ({cross_version})")
+    else:
+        if cross_path:
+            typer.echo("Container runtime not detected; using existing cross")
+        else:
+            typer.echo("Container runtime not detected; cross not installed")
+
+    cross_path = shutil.which("cross")
+    cross_version = get_cross_version(cross_path) if cross_path else None
+
+    use_cross = cross_path is not None
+    if use_cross:
+        if container_available:
+            typer.echo(f"Building with cross ({cross_version})")
+        else:
+            typer.echo(
+                "cross found but container runtime missing; attempting build with cross"
+            )
+    else:
+        typer.echo("cross not installed; using cargo")
 
     cmd = [
-        "cross" if container_available else "cargo",
+        "cross" if use_cross else "cargo",
         f"+{toolchain}",
         "build",
         "--release",

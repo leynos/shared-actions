@@ -93,7 +93,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust toolchain
-        uses: ./.github/actions/setup-rust@v1
+        uses: ./.github/actions/setup-rust
         with:
           toolchain: stable
       - name: Install cross
@@ -374,7 +374,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-rust@v1
+      - uses: ./.github/actions/setup-rust
         with:
           toolchain: 1.89.0
       - run: cargo test --manifest-path rust-toy-app/Cargo.toml
@@ -408,11 +408,11 @@ jobs:
 - [x] Create a `rust-build-release` action using `setup-rust` from this repo and
   `cross`, then integrate this into the CI workflow for a single target:
   `x86_64-unknown-linux-gnu`.
-- [ ] Ensure the CI workflow verifies that the action generates a man page
+- [x] Ensure the CI workflow verifies that the action generates a man page
   via the build script.
-- [ ] Validate that a `cross build` command successfully produces both the
+- [x] Validate that a `cross build` command successfully produces both the
   binary and the man page artifact.
-- [ ] Construct any required Python helper scripts using the self-contained
+- [x] Construct any required Python helper scripts using the self-contained
   `uv` and PEP 723 pattern.
 
 #### Design Decisions

@@ -11,7 +11,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install uv
+    - name: Setup uv
       # v6.6.1
       uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
     - name: Setup Rust toolchain

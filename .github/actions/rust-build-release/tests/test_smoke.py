@@ -32,8 +32,14 @@ def test_action_builds_release_binary_and_manpage() -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
-    run_cmd(["rustup", "toolchain", "list"])
-    run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
+    existing = subprocess.run(
+        ["rustup", "toolchain", "list"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    if "1.89.0" not in existing:
+        run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
     res = run_script(script, "x86_64-unknown-linux-gnu", cwd=project_dir)
     assert res.returncode == 0
     binary = project_dir / "target/x86_64-unknown-linux-gnu/release/rust-toy-app"

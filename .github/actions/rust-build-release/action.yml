@@ -3,7 +3,6 @@ description: Build Rust project in release mode for a given target
 inputs:
   target:
     description: Target triple to build
-    required: true
     default: x86_64-unknown-linux-gnu
   project-dir:
     description: Path to the Rust project to build

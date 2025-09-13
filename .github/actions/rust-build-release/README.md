@@ -9,7 +9,7 @@ The `uv` Python package manager is installed automatically to execute the build 
 
 | Name | Type | Default | Description | Required |
 | ---- | ---- | ------- | ----------- | -------- |
-| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | yes |
+| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | no |
 | project-dir | string | `.` | Path to the Rust project to build | no |
 
 ## Outputs

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -28,10 +29,13 @@ def run_script(
     )
 
 
-def test_action_builds_release_binary_and_manpage() -> None:
+@pytest.mark.parametrize("target", ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"])
+def test_action_builds_release_binary_and_manpage(target: str) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    if target != "x86_64-unknown-linux-gnu" and shutil.which("docker") is None and shutil.which("podman") is None:
+        pytest.skip("container runtime required for cross build")
     existing = subprocess.run(
         ["rustup", "toolchain", "list"],  # noqa: S607
         capture_output=True,
@@ -40,12 +44,12 @@ def test_action_builds_release_binary_and_manpage() -> None:
     ).stdout
     if "1.89.0" not in existing:
         run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
-    res = run_script(script, "x86_64-unknown-linux-gnu", cwd=project_dir)
+    res = run_script(script, target, cwd=project_dir)
     assert res.returncode == 0
-    binary = project_dir / "target/x86_64-unknown-linux-gnu/release/rust-toy-app"
+    binary = project_dir / f"target/{target}/release/rust-toy-app"
     assert binary.exists()
     manpage_glob = project_dir.glob(
-        "target/x86_64-unknown-linux-gnu/release/build/rust-toy-app-*/out/rust-toy-app.1"
+        f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
     )
     assert any(manpage_glob)
 

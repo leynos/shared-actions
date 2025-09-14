@@ -414,6 +414,7 @@ jobs:
   binary and the man page artifact.
 - [x] Construct any required Python helper scripts using the self-contained
   `uv` and PEP 723 pattern.
+- [x] Enable the Linux aarch64 branch of the CI workflow.
 
 #### Design Decisions
 
@@ -426,8 +427,8 @@ jobs:
 - Workflows select the crate to build via a `project-dir` input because
   `uses:` steps cannot set a `working-directory`.
 - CI executes the action against the `rust-toy-app` crate for the
-  `x86_64-unknown-linux-gnu` target, validating both the release binary and man
-  page outputs.
+  `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` targets,
+  validating both the release binary and man page outputs.
 
 ### Phase 3: Declarative Packaging and Local Testing
 

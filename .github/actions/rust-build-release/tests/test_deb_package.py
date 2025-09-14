@@ -62,5 +62,10 @@ def test_deb_package_installs() -> None:
         deb = project_dir / "dist/rust-toy-app_0.1.0_amd64.deb"
         with local.env(DEBIAN_FRONTEND="noninteractive"):
             run_cmd(local["apt"]["install", "-y", str(deb)])
-    assert Path("/usr/bin/rust-toy-app").exists()
-    run_cmd(local["man"]["-w", "rust-toy-app"])
+            try:
+                assert Path("/usr/bin/rust-toy-app").exists()
+                run_cmd(local["man"]["-w", "rust-toy-app"])
+                output = run_cmd(local["/usr/bin/rust-toy-app"])
+                assert "Hello, world!" in output
+            finally:
+                run_cmd(local["apt"]["remove", "-y", "rust-toy-app"])

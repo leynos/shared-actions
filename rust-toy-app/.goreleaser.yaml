@@ -2,23 +2,20 @@ project_name: rust-toy-app
 version: 2
 dist: dist
 builds:
-  - id: prebuilt-amd64
-    main: ./does-not-exist.go
+  - id: prebuilt
+    builder: prebuilt
     binary: rust-toy-app
-    skip: true
-    goos: linux
-    goarch: amd64
-  - id: prebuilt-arm64
-    main: ./does-not-exist.go
-    binary: rust-toy-app
-    skip: true
-    goos: linux
-    goarch: arm64
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    prebuilt:
+      path: "dist/{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .Binary }}"
 nfpms:
   - id: deb
     builds:
-      - prebuilt-amd64
-      - prebuilt-arm64
+      - prebuilt
     package_name: rust-toy-app
     file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
     maintainer: "Example <ops@example.com>"
@@ -28,9 +25,9 @@ nfpms:
     formats:
       - deb
     contents:
-      - src: dist/rust-toy-app_linux_{{ .Arch }}/rust-toy-app
-        dst: /usr/bin/rust-toy-app
+      - src: dist/{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .Binary }}
+        dst: /usr/bin/{{ .Binary }}
         type: file
-      - src: dist/rust-toy-app_linux_{{ .Arch }}/rust-toy-app.1
-        dst: /usr/share/man/man1/rust-toy-app.1
+      - src: dist/{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}/{{ .Binary }}.1
+        dst: /usr/share/man/man1/{{ .Binary }}.1
         type: file

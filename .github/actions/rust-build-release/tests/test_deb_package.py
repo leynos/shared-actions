@@ -1,9 +1,11 @@
-"""E2E packaging test using GoReleaser and apt."""
+"""E2E packaging test using GoReleaser and dpkg-deb."""
 
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
+import tempfile
 
 import pytest
 from plumbum import local
@@ -11,30 +13,35 @@ from plumbum import local
 from cmd_utils import run_cmd
 
 
-@pytest.mark.skipif(shutil.which("apt") is None, reason="apt not available")
+@pytest.mark.skipif(shutil.which("dpkg-deb") is None, reason="dpkg-deb not available")
 def test_deb_package_installs() -> None:
-    """Build, package, and install the .deb."""
+    """Build and validate the .deb without root."""
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     target = "x86_64-unknown-linux-gnu"
     with local.cwd(project_dir):
-        existing = local["rustup"]["toolchain", "list"].run()[1]
-        if "1.89.0" not in existing:
-            run_cmd(
-                local["rustup"][
-                    "toolchain", "install", "1.89.0", "--profile", "minimal"
-                ]
-            )
+        run_cmd(
+            local["rustup"][
+                "toolchain",
+                "install",
+                "1.89.0",
+                "--profile",
+                "minimal",
+                "--no-self-update",
+            ]
+        )
         run_cmd(local[script.as_posix()][target])
         dist = project_dir / "dist" / "rust-toy-app_linux_amd64"
         dist.mkdir(parents=True, exist_ok=True)
         bin_path = project_dir / f"target/{target}/release/rust-toy-app"
         shutil.copy(bin_path, dist)
-        man_src = next(
+        man_matches = list(
             project_dir.glob(
                 f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
             )
         )
+        assert man_matches, "man page not found; ensure 'rust-toy-app.1' is generated"
+        man_src = man_matches[0]
         shutil.copy(man_src, dist)
         pkg = project_dir / "pkg"
         (pkg / "DEBIAN").mkdir(parents=True, exist_ok=True)
@@ -61,12 +68,12 @@ Description: Toy application for release pipeline tests
             ]
         )
         deb = project_dir / "dist/rust-toy-app_0.1.0_amd64.deb"
-        with local.env(DEBIAN_FRONTEND="noninteractive"):
-            run_cmd(local["apt"]["install", "-y", str(deb)])
-            try:
-                assert Path("/usr/bin/rust-toy-app").exists()
-                run_cmd(local["man"]["-w", "rust-toy-app"])
-                output = run_cmd(local["/usr/bin/rust-toy-app"])
-                assert "Hello, world!" in output
-            finally:
-                run_cmd(local["apt"]["remove", "-y", "rust-toy-app"])
+        with tempfile.TemporaryDirectory() as td:
+            run_cmd(local["dpkg-deb"]["-x", str(deb), td])
+            bin_extracted = Path(td, "usr/bin/rust-toy-app")
+            man_extracted = Path(td, "usr/share/man/man1/rust-toy-app.1")
+            assert bin_extracted.exists()
+            assert os.access(bin_extracted, os.X_OK)
+            assert man_extracted.exists()
+            output = run_cmd(local[str(bin_extracted)])
+            assert "Hello, world!" in output

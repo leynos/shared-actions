@@ -29,6 +29,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |
+        set -euo pipefail
         case "${{ inputs.target }}" in
           x86_64-unknown-linux-gnu)
             os=linux
@@ -43,10 +44,10 @@ runs:
             exit 1
             ;;
         esac
-        mkdir -p dist/rust-toy-app_${os}_${arch}
-        cp target/${{ inputs.target }}/release/rust-toy-app dist/rust-toy-app_${os}_${arch}/
-        man_path=$(find target/${{ inputs.target }}/release/build -path "*/out/rust-toy-app.1" -print -quit)
-        cp "$man_path" dist/rust-toy-app_${os}_${arch}/
+        mkdir -p "dist/rust-toy-app_${os}_${arch}"
+        cp "target/${{ inputs.target }}/release/rust-toy-app" "dist/rust-toy-app_${os}_${arch}/"
+        man_path=$(find "target/${{ inputs.target }}/release/build" -path "*/out/rust-toy-app.1" -print -quit)
+        cp "${man_path}" "dist/rust-toy-app_${os}_${arch}/"
     - name: Run GoReleaser
       uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a
       with:

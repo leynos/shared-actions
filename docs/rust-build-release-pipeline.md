@@ -1,10 +1,10 @@
-# Design: A Modernized, Declarative Rust Build and Release Pipeline
+# Design: A Modernised, Declarative Rust Build and Release Pipeline
 
 ## 1. System Goals
 
 This document outlines a unified, modern design for a reusable Rust build and
 release pipeline, intended for implementation within the `shared-actions`
-repository and consumption by projects such as `netsuke`. The system's primary
+repository and consumption by projects such as `rust-toy-app`. The system's primary
 goal is to replace the previous architecture, which relied on imperative Python
 scripts, with a declarative, tool-centric workflow.
 
@@ -109,16 +109,16 @@ jobs:
           fi
       - name: Stage artifacts
         run: |
-          mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
+          mkdir -p dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/release/<binary-name> \
-            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
+            dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/
           cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
-            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
+            dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: dist_${{ matrix.os }}_${{ matrix.arch }}
-          path: dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
+          path: dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}
 ```
 
 #### 3.1.2 Man Page Generation via `build.rs`
@@ -129,7 +129,7 @@ project, using `clap_mangen`.
 **`Cargo.toml` Configuration:**
 
 ```toml
-# In consuming repository (e.g., netsuke/Cargo.toml)
+# In consuming repository (e.g., rust-toy-app/Cargo.toml)
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
@@ -143,7 +143,7 @@ The script must generate the man page into the directory specified by the
 builds.
 
 ```rust
-// In consuming repository (e.g., netsuke/build.rs)
+// In consuming repository (e.g., rust-toy-app/build.rs)
 use clap::CommandFactory;
 use clap_mangen::Man;
 use std::{env, fs, path::PathBuf};
@@ -175,7 +175,7 @@ fn main() -> std::io::Result<()> {
     let mut buffer: Vec<u8> = Default::default();
 
     man.render(&mut buffer)?;
-    fs::write(out_dir.join("netsuke.1"), buffer)?;
+    fs::write(out_dir.join("rust-toy-app.1"), buffer)?;
 
     Ok(())
 }
@@ -221,14 +221,14 @@ build hooks to invoke system packaging tools.
 
 ```yaml
 # .goreleaser.yaml
-project_name: netsuke
+project_name: rust-toy-app
 before:
   hooks:
-    - test -f dist/netsuke_linux_amd64/netsuke.1
+    - test -f dist/rust-toy-app_linux_amd64/rust-toy-app.1
 builds:
-  - id: netsuke
+  - id: rust-toy-app
     builder: prebuilt
-    binary: netsuke
+    binary: rust-toy-app
     goos:
       - linux
       - darwin
@@ -237,13 +237,13 @@ builds:
       - amd64
       - arm64
     prebuilt:
-      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
+      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
 
 archives:
   - id: default
     files:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
-        dst: "netsuke"
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
+        dst: "rust-toy-app"
       - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
         dst: "."
       - LICENSE
@@ -255,14 +255,14 @@ checksum:
 # Native support for Linux packages.
 nfpms:
   - id: packages
-    package_name: netsuke
+    package_name: rust-toy-app
     formats:
       - deb
       - rpm
     # ... metadata (maintainer, description, etc.)
     contents:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
-        dst: /usr/bin/netsuke
+      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
+        dst: /usr/bin/rust-toy-app
       - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
         dst: /usr/share/man/man1/
 ```

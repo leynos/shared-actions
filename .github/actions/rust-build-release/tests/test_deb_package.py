@@ -40,13 +40,14 @@ def test_deb_package_installs() -> None:
         (pkg / "DEBIAN").mkdir(parents=True, exist_ok=True)
         control = pkg / "DEBIAN/control"
         control.write_text(
-            "Package: rust-toy-app\n"
-            "Version: 0.1.0\n"
-            "Section: utils\n"
-            "Priority: optional\n"
-            "Architecture: amd64\n"
-            "Maintainer: Example <ops@example.com>\n"
-            "Description: Toy application for release pipeline tests\n"
+            """Package: rust-toy-app
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Example <ops@example.com>
+Description: Toy application for release pipeline tests
+"""
         )
         (pkg / "usr/bin").mkdir(parents=True, exist_ok=True)
         shutil.copy(bin_path, pkg / "usr/bin/rust-toy-app")

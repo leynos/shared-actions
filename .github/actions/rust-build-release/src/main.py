@@ -34,7 +34,17 @@ def main(
     if not target:
         target = os.environ.get("RBR_TARGET", "")
     if not target:
-        typer.echo("::error:: no build target specified", err=True)
+        env_rbr_target = os.environ.get("RBR_TARGET", "<unset>")
+        env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
+        env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
+        typer.echo(
+            "::error:: no build target specified. "
+            "Provide a target argument or set RBR_TARGET.\n"
+            f"RBR_TARGET={env_rbr_target} "
+            f"INPUT_TARGET={env_input_target} "
+            f"GITHUB_REF={env_github_ref}",
+            err=True,
+        )
         raise typer.Exit(1)
 
     rustup = shutil.which("rustup")

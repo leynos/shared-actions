@@ -56,7 +56,7 @@ def test_fails_without_target() -> None:
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     res = run_script(script, cwd=project_dir)
     assert res.returncode != 0
-    assert "no build target specified" in res.stderr
+    assert "RBR_TARGET=<unset>" in res.stderr
 
 
 def test_fails_for_invalid_toolchain() -> None:

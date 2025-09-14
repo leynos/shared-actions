@@ -38,8 +38,8 @@ def main(
         env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
         env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
         typer.echo(
-            "::error:: no build target specified. "
-            "Provide a target argument or set RBR_TARGET.\n"
+            "::error:: no build target specified; "
+            "set input 'target' or env RBR_TARGET\n"
             f"RBR_TARGET={env_rbr_target} "
             f"INPUT_TARGET={env_input_target} "
             f"GITHUB_REF={env_github_ref}",

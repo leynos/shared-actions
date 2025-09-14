@@ -37,6 +37,21 @@ def main(
         typer.echo("::error:: no build target specified", err=True)
         raise typer.Exit(1)
 
+    rustup = shutil.which("rustup")
+    if rustup is None:
+        typer.echo("::error:: rustup not found", err=True)
+        raise typer.Exit(1)
+    result = subprocess.run(  # noqa: S603
+        [rustup, "toolchain", "list"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    installed = result.stdout.splitlines()
+    if not any(line.startswith(f"{toolchain}-") for line in installed):
+        typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
+        raise typer.Exit(1)
+
     container_available = shutil.which("docker") is not None or shutil.which(
         "podman"
     ) is not None

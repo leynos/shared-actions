@@ -3,13 +3,25 @@ description: Build Rust project in release mode for a given target
 inputs:
   target:
     description: Target triple to build
+    default: x86_64-unknown-linux-gnu
+  project-dir:
+    description: Path to the Rust project to build
     required: false
-    default: ""
+    default: .
 runs:
   using: composite
   steps:
-    - name: Run build script
+    - name: Setup uv
+      # v6.6.1
+      uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
+    - name: Setup Rust toolchain
+      uses: leynos/shared-actions/.github/actions/setup-rust@f9f1c863c8a5bef64aa6779caa746e1a4a6c1ad4
+      with:
+        toolchain: 1.89.0
+    - name: Build release
       shell: bash
       env:
         RBR_TARGET: ${{ inputs.target }}
-      run: RBR_TARGET="${RBR_TARGET}" "${{ github.action_path }}/src/main.sh"
+        RBR_TOOLCHAIN: 1.89.0
+      working-directory: ${{ inputs.project-dir }}
+      run: ${{ github.action_path }}/src/main.py

@@ -444,7 +444,8 @@ jobs:
 - GoReleaser is invoked via the pinned
   `goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a`.
 - The `.deb` packages for `amd64` and `arm64` are assembled with GoReleaser's
-  `nfpms` using pre-built binaries and generated man pages.
+  `nfpms` using pre-built binaries and generated man pages, with explicit build
+  metadata for each architecture to align with staged artifacts.
 - Snapshot releases skip publishing to enable local testing.
 
 ### Phase 4: Full Workflow Automation and CI E2E Testing

@@ -5,6 +5,8 @@ use glob::glob;
 use std::path::PathBuf;
 use std::process::Command;
 
+const TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
+
 #[test]
 fn builds_release_binary_and_manpage() {
     let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -13,17 +15,27 @@ fn builds_release_binary_and_manpage() {
         .unwrap()
         .join(".github/actions/rust-build-release/src/main.py");
 
-    Command::new(script)
-        .arg("x86_64-unknown-linux-gnu")
-        .current_dir(&project_dir)
-        .assert()
-        .success();
+    for target in TARGETS {
+        if *target != "x86_64-unknown-linux-gnu"
+            && Command::new("docker").arg("--version").output().is_err()
+            && Command::new("podman").arg("--version").output().is_err()
+        {
+            eprintln!("skipping {target} (container runtime required)");
+            continue;
+        }
 
-    assert!(project_dir
-        .join("target/x86_64-unknown-linux-gnu/release/rust-toy-app")
-        .exists());
-    let pattern = project_dir.join(
-        "target/x86_64-unknown-linux-gnu/release/build/rust-toy-app-*/out/rust-toy-app.1",
-    );
-    assert!(glob(pattern.to_str().unwrap()).unwrap().next().is_some());
+        Command::new(&script)
+            .arg(target)
+            .current_dir(&project_dir)
+            .assert()
+            .success();
+
+        assert!(project_dir
+            .join(format!("target/{target}/release/rust-toy-app"))
+            .exists());
+        let pattern = project_dir.join(format!(
+            "target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
+        ));
+        assert!(glob(pattern.to_str().unwrap()).unwrap().next().is_some());
+    }
 }

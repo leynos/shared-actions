@@ -1,0 +1,36 @@
+project_name: rust-toy-app
+version: 2
+dist: dist
+builds:
+  - id: prebuilt
+    main: ./does-not-exist.go
+    binary: rust-toy-app
+    skip: true
+nfpms:
+  - id: deb
+    builds:
+      - prebuilt
+    package_name: rust-toy-app
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Arch }}"
+    maintainer: "Example <ops@example.com>"
+    homepage: "https://example.com"
+    description: "Toy application for release pipeline tests"
+    license: "MIT"
+    formats:
+      - deb
+    contents:
+      - src: dist/rust-toy-app_linux_amd64/rust-toy-app
+        dst: /usr/bin/rust-toy-app
+        type: file
+      - src: dist/rust-toy-app_linux_amd64/rust-toy-app.1
+        dst: /usr/share/man/man1/rust-toy-app.1
+        type: file
+    overrides:
+      arm64:
+        contents:
+          - src: dist/rust-toy-app_linux_arm64/rust-toy-app
+            dst: /usr/bin/rust-toy-app
+            type: file
+          - src: dist/rust-toy-app_linux_arm64/rust-toy-app.1
+            dst: /usr/share/man/man1/rust-toy-app.1
+            type: file

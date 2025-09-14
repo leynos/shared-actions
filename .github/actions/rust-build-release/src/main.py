@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer", "packaging"]
+# dependencies = ["typer", "packaging", "plumbum"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -17,6 +17,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
 from packaging import version as pkg_version
+from plumbum import local
 
 from cmd_utils import run_cmd
 
@@ -62,9 +63,9 @@ def main(
         typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
         raise typer.Exit(1)
 
-    container_available = shutil.which("docker") is not None or shutil.which(
-        "podman"
-    ) is not None
+    container_available = (
+        shutil.which("docker") is not None or shutil.which("podman") is not None
+    )
 
     # Determine cross availability and version
 
@@ -102,12 +103,8 @@ def main(
                     f"{cross_version}, required >= {required_cross_version})..."
                 )
             run_cmd(
-                [
-                    "cargo",
-                    "install",
-                    "cross",
-                    "--git",
-                    "https://github.com/cross-rs/cross",
+                local["cargo"][
+                    "install", "cross", "--git", "https://github.com/cross-rs/cross"
                 ]
             )
         else:
@@ -132,13 +129,8 @@ def main(
     else:
         typer.echo("cross not installed; using cargo")
 
-    cmd = [
-        "cross" if use_cross else "cargo",
-        f"+{toolchain}",
-        "build",
-        "--release",
-        "--target",
-        target,
+    cmd = local["cross" if use_cross else "cargo"][
+        f"+{toolchain}", "build", "--release", "--target", target
     ]
     run_cmd(cmd)
 

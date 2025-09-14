@@ -25,3 +25,32 @@ runs:
         RBR_TOOLCHAIN: 1.89.0
       working-directory: ${{ inputs.project-dir }}
       run: ${{ github.action_path }}/src/main.py
+    - name: Stage artifacts
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      run: |
+        case "${{ inputs.target }}" in
+          x86_64-unknown-linux-gnu)
+            os=linux
+            arch=amd64
+            ;;
+          aarch64-unknown-linux-gnu)
+            os=linux
+            arch=arm64
+            ;;
+          *)
+            echo "::error:: unsupported target ${{ inputs.target }}"
+            exit 1
+            ;;
+        esac
+        mkdir -p dist/rust-toy-app_${os}_${arch}
+        cp target/${{ inputs.target }}/release/rust-toy-app dist/rust-toy-app_${os}_${arch}/
+        cp target/${{ inputs.target }}/release/build/rust-toy-app-*/out/rust-toy-app.1 dist/rust-toy-app_${os}_${arch}/
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a
+      with:
+        version: "~> 2"
+        args: release --clean --skip=publish --snapshot
+      env:
+        GORELEASER_CURRENT_TAG: v0.1.0
+      working-directory: ${{ inputs.project-dir }}

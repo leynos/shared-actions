@@ -432,12 +432,20 @@ jobs:
 
 ### Phase 3: Declarative Packaging and Local Testing
 
-- [ ] Create the initial `.goreleaser.yaml` configuration for `.deb` and `.rpm`,
-  and add the necessary steps to the action to call GoReleaser.
+- [x] Create the initial `.goreleaser.yaml` configuration for `.deb` files and
+  add the necessary steps to the action to call GoReleaser.
 - [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
   integrate them into the action.
 - [ ] Develop the local E2E packaging test harness using `pytest` and fixtures
   to validate Python script logic against a simulated file system.
+
+#### Design Decisions
+
+- GoReleaser is invoked via the pinned
+  `goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a`.
+- The `.deb` packages for `amd64` and `arm64` are assembled with GoReleaser's
+  `nfpms` using pre-built binaries and generated man pages.
+- Snapshot releases skip publishing to enable local testing.
 
 ### Phase 4: Full Workflow Automation and CI E2E Testing
 

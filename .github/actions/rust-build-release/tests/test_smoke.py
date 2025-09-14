@@ -29,12 +29,18 @@ def run_script(
     )
 
 
-@pytest.mark.parametrize("target", ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"])
+@pytest.mark.parametrize(
+    "target", ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+)
 def test_action_builds_release_binary_and_manpage(target: str) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
-    if target != "x86_64-unknown-linux-gnu" and shutil.which("docker") is None and shutil.which("podman") is None:
+    if (
+        target != "x86_64-unknown-linux-gnu"
+        and shutil.which("docker") is None
+        and shutil.which("podman") is None
+    ):
         pytest.skip("container runtime required for cross build")
     existing = subprocess.run(
         ["rustup", "toolchain", "list"],  # noqa: S607

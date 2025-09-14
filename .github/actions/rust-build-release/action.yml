@@ -51,7 +51,7 @@ runs:
       uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a
       with:
         version: "~> 2"
+        workdir: ${{ inputs.project-dir }}
         args: release --clean --skip=publish --snapshot
       env:
         GORELEASER_CURRENT_TAG: v0.1.0
-      working-directory: ${{ inputs.project-dir }}

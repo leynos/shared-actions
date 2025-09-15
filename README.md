@@ -12,3 +12,13 @@ GitHub Actions
 | Upload CodeScene Coverage | `.github/actions/upload-codescene-coverage` | v1 |
 | Ratchet coverage | `.github/actions/ratchet-coverage` | v1 |
 | Rust build release | `.github/actions/rust-build-release` | v1 |
+
+## Development
+
+Format, validate and test the repository:
+
+```sh
+make fmt
+make goreleaser-validate
+make test
+```

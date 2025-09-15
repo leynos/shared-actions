@@ -1,4 +1,4 @@
-.PHONY: help test lint markdownlint nixie fmt
+.PHONY: help test lint markdownlint nixie fmt goreleaser-validate
 
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
@@ -24,6 +24,11 @@ markdownlint: ## Lint Markdown files
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)
+
+goreleaser-validate: ## Lint and schema-validate GoReleaser config
+	uvx yamllint rust-toy-app/.goreleaser.yaml
+	goreleaser jsonschema >/tmp/goreleaser.jsonschema
+	npx --yes --package yaml-schema-validator schema validate --schema /tmp/goreleaser.jsonschema --filePath rust-toy-app/.goreleaser.yaml
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

@@ -68,13 +68,12 @@ Description: Toy application for release pipeline tests
             ]
         )
         deb = project_dir / "dist/rust-toy-app_0.1.0_amd64.deb"
-    with local.env(DEBIAN_FRONTEND="noninteractive"):
-        run_cmd(local["apt"]["install", "-y", str(deb)])
-    try:
-        assert Path("/usr/bin/rust-toy-app").exists()
-        run_cmd(local["man"]["-w", "rust-toy-app"])
-        result = run_cmd(local["/usr/bin/rust-toy-app"])
+    with tempfile.TemporaryDirectory() as tmpdir:
+        extract_dir = Path(tmpdir)
+        run_cmd(local["dpkg-deb"]["--extract", str(deb), extract_dir])
+        bin_installed = extract_dir / "usr/bin/rust-toy-app"
+        man_installed = extract_dir / "usr/share/man/man1/rust-toy-app.1"
+        assert bin_installed.exists()
+        assert man_installed.exists()
+        result = run_cmd(local[bin_installed.as_posix()])
         assert "Hello, world!" in result
-    finally:
-        with local.env(DEBIAN_FRONTEND="noninteractive"):
-            run_cmd(local["apt"]["remove", "-y", "rust-toy-app"])

@@ -116,8 +116,8 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist_${{ matrix.os }}_${{ matrix.arch }}
-          path: dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}
+          name: "dist_${{ matrix.os }}_${{ matrix.arch }}"
+          path: "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}"
 ```
 
 #### 3.1.2 Man Page Generation via `build.rs`

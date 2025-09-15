@@ -46,7 +46,7 @@ def test_deb_package_installs() -> None:
             ]
         )
         with local.env(CROSS_CONTAINER_ENGINE="docker"):
-            run_cmd(local[build_script.as_posix()][target])
+            run_cmd(local[sys.executable][build_script.as_posix(), target])
         man_matches = list(
             project_dir.glob(
                 f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"

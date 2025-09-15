@@ -77,6 +77,10 @@ runs:
             ;;
         esac
         man_path="dist/rust-toy-app_linux_${arch}/rust-toy-app.1"
+        if [[ ! -f "${man_path}" ]]; then
+          echo "::error:: missing man page ${man_path}"
+          exit 1
+        fi
         uv run "${{ github.action_path }}/scripts/package.py" \
           --name rust-toy-app \
           --bin-name rust-toy-app \

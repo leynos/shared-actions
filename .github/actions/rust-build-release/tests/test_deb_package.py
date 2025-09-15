@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
 import tempfile
 import sys
+from pathlib import Path
 
 import pytest
 from plumbum import local
 
 from cmd_utils import run_cmd
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
+from script_utils import unique_match  # noqa: E402
 
 
 def polythene_cmd(polythene: Path, *args: str) -> str:
@@ -47,13 +50,12 @@ def test_deb_package_installs() -> None:
         )
         with local.env(CROSS_CONTAINER_ENGINE="docker"):
             run_cmd(local[sys.executable][build_script.as_posix(), target])
-        man_matches = list(
+        man_src = unique_match(
             project_dir.glob(
                 f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
-            )
+            ),
+            description="rust-toy-app man page",
         )
-        assert man_matches, "man page not found; ensure 'rust-toy-app.1' is generated"
-        man_src = man_matches[0]
         if shutil.which("nfpm") is None:
             url = "https://github.com/goreleaser/nfpm/releases/download/v2.39.0/nfpm_2.39.0_Linux_x86_64.tar.gz"
             with tempfile.TemporaryDirectory() as td:

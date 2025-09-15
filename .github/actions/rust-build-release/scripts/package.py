@@ -22,20 +22,17 @@ Assumes the binary already exists at:
 from __future__ import annotations
 
 import gzip
-import os
 import re
-import sys
 import textwrap
 from pathlib import Path
 from string import Template
-from typing import List, Tuple
+from typing import List
 
 import typer
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
-sys.path.append(str(Path(__file__).resolve().parents[4]))
-from cmd_utils import run_cmd
+from script_utils import ensure_directory, ensure_exists, run_cmd
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -89,12 +86,6 @@ def comma_join(items: List[str] | None) -> str:
     return ", ".join(items) if items else ""
 
 
-def ensure_exists(path: Path, message: str) -> None:
-    if not path.exists():
-        typer.secho(f"error: {message}: {path}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(2)
-
-
 def infer_section(path: Path, default: str) -> str:
     m = SECTION_RE.search(path.name)
     return m.group(1) if m else default
@@ -112,7 +103,7 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
     """Return a .gz file path; if src already .gz, copy path through; else gzip into dst_dir."""
     if src.suffix == ".gz":
         return src
-    dst_dir.mkdir(parents=True, exist_ok=True)
+    ensure_directory(dst_dir)
     gz_path = dst_dir / (src.name + ".gz")
     with (
         open(src, "rb") as fin,
@@ -226,8 +217,8 @@ def main(
     arch_val = arch or map_target_to_arch(target)
     bin_path = binary_dir / target / "release" / bin_name
     ensure_exists(bin_path, "built binary not found; build first")
-    outdir.mkdir(parents=True, exist_ok=True)
-    config_out.parent.mkdir(parents=True, exist_ok=True)
+    ensure_directory(outdir)
+    ensure_directory(config_out.parent)
 
     # Optional LICENSE content mapping (if present).
     license_file = Path("LICENSE")
@@ -250,7 +241,9 @@ def main(
         license_block = ""
 
     # Manpage contents entries (already indented and newline-prefixed)
-    man_block = render_man_block(man or [], name, man_section, man_stage)
+    man_block = render_man_block(
+        man or [], name, man_section, ensure_directory(man_stage)
+    )
 
     # Render nfpm.yaml from template.
     yaml_text = NFPM_TEMPLATE.substitute(

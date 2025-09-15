@@ -38,12 +38,10 @@ from pathlib import Path
 from typing import List, Optional
 
 import typer
-from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-sys.path.append(str(Path(__file__).resolve().parents[4]))
-from cmd_utils import run_cmd
+from script_utils import ensure_directory, get_command, run_cmd
 
 
 # -------------------- Configuration --------------------
@@ -66,16 +64,6 @@ def log(msg: str) -> None:
         print(f"[{ts}] {msg}", file=sys.stderr)
 
 
-def ensure_cmd(name: str) -> None:
-    try:
-        _ = local[name]
-    except Exception:
-        typer.secho(
-            f"Required command not found: {name}", fg=typer.colors.RED, err=True
-        )
-        raise typer.Exit(127)
-
-
 def store_path_for(uuid: str, store: Path) -> Path:
     return (store / uuid).resolve()
 
@@ -89,15 +77,14 @@ def generate_uuid() -> str:
 
 def export_rootfs(image: str, dest: Path) -> None:
     """Export a container image filesystem to dest/ via podman create+export."""
-    ensure_cmd("podman")
-    podman = local["podman"]
-    tar = local["tar"]
+    podman = get_command("podman")
+    tar = get_command("tar")
 
     # Pull explicitly (keeps exec fully offline later)
     log(f"Pulling {image} …")
     run_cmd(podman["pull", image], fg=True)
 
-    dest.mkdir(parents=True, exist_ok=False)
+    ensure_directory(dest, exist_ok=False)
 
     # Create a stopped container to export its rootfs
     cid = run_cmd(podman["create", "--pull=never", image, "true"]).strip()
@@ -132,7 +119,7 @@ def export_rootfs(image: str, dest: Path) -> None:
 def _ensure_dirs(root: Path) -> None:
     # Make sure minimal paths exist for binding/tmpfs convenience
     for sub in ("dev", "tmp"):
-        (root / sub).mkdir(exist_ok=True)
+        ensure_directory(root / sub)
 
 
 def _probe_bwrap_userns(bwrap, root: Path) -> List[str]:
@@ -178,8 +165,8 @@ def _probe_bwrap_proc(bwrap, base_flags: List[str], root: Path) -> List[str]:
 
 def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
     try:
-        bwrap = local["bwrap"]
-    except Exception:
+        bwrap = get_command("bwrap")
+    except typer.Exit:
         return None
 
     _ensure_dirs(root)
@@ -235,8 +222,8 @@ def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
 
 def run_with_proot(root: Path, inner_cmd: str) -> Optional[int]:
     try:
-        proot = local["proot"]
-    except Exception:
+        proot = get_command("proot")
+    except typer.Exit:
         return None
 
     _ensure_dirs(root)
@@ -254,8 +241,8 @@ def run_with_proot(root: Path, inner_cmd: str) -> Optional[int]:
 
 def run_with_chroot(root: Path, inner_cmd: str) -> Optional[int]:
     try:
-        chroot = local["chroot"]
-    except Exception:
+        chroot = get_command("chroot")
+    except typer.Exit:
         return None
 
     # Viability probe
@@ -295,8 +282,7 @@ def cmd_pull(
     Pull IMAGE and export its filesystem into a new UUIDv7 directory under STORE.
     Prints the UUID on stdout.
     """
-    ensure_cmd("podman")
-    store.mkdir(parents=True, exist_ok=True)
+    ensure_directory(store)
     uid = generate_uuid()
     root = store_path_for(uid, store)
     try:

@@ -70,9 +70,7 @@ def infer_section(path: Path, default: str) -> str:
 
 def stem_without_section(filename: str) -> str:
     """Drop trailing .<section>(.gz)? once; keep the rest intact."""
-    name = filename
-    if name.endswith(".gz"):
-        name = name[:-3]
+    name = filename.removesuffix(".gz")
     return SECTION_RE.sub("", name)
 
 

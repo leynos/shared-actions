@@ -23,7 +23,7 @@ Environment:
   POLYTHENE_STORE   Root directory for UUID rootfs (default: /var/tmp/polythene)
   POLYTHENE_VERBOSE If set (to any value), prints progress logs to stderr.
 
-Podman env hardening (set automatically if unset):
+Podman environment hardening (set automatically if unset):
   CONTAINERS_STORAGE_DRIVER=vfs
   CONTAINERS_EVENTS_BACKEND=file
 """

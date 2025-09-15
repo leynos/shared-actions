@@ -10,6 +10,12 @@ inputs:
     description: Install PostgreSQL system dependencies
     required: false
     default: "false"
+  workspaces:
+    description: >
+      Cargo workspaces to cache with Swatinem/rust-cache. Each entry has the
+      form "$workspace -> $target" and defaults to ". -> target".
+    required: false
+    default: ""
   install-sqlite-deps:
     description: Install SQLite development libraries on Windows
     required: false
@@ -76,16 +82,10 @@ runs:
         echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
-    - name: Cache cargo registry
-      uses: actions/cache@v4
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@54e2af0a8339c0435fa1de94002eab349a2f15ef
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target/${{ env.BUILD_PROFILE }}
-        key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+        workspaces: ${{ inputs.workspaces }}
     - name: Run sccache only on non-release runs
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad

@@ -27,6 +27,22 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
+      - name: Install nfpm
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          version="v2.39.0"
+          host_arch="$(uname -m)"
+          case "${host_arch}" in
+            x86_64) asset_arch="x86_64" ;;
+            aarch64) asset_arch="arm64" ;;
+            *) asset_arch="x86_64" ;;
+          esac
+          curl -sSL "https://github.com/goreleaser/nfpm/releases/download/${version}/nfpm_${version#v}_Linux_${asset_arch}.tar.gz" -o /tmp/nfpm.tgz
+          tar -xzf /tmp/nfpm.tgz -C /tmp nfpm
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 /tmp/nfpm "$HOME/.local/bin/nfpm"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Run tests
         run: |
           uv sync --group dev

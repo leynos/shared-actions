@@ -59,7 +59,8 @@ def main(
         check=True,
     )
     installed = result.stdout.splitlines()
-    if not any(line.startswith(f"{toolchain}-") for line in installed):
+    toolchain_channel = toolchain.split("-", 1)[0]
+    if not any(line.startswith(f"{toolchain_channel}-") for line in installed):
         typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
         raise typer.Exit(1)
 
@@ -130,7 +131,7 @@ def main(
         typer.echo("cross not installed; using cargo")
 
     cmd = local["cross" if use_cross else "cargo"][
-        f"+{toolchain}", "build", "--release", "--target", target
+        f"+{toolchain_channel}", "build", "--release", "--target", target
     ]
     run_cmd(cmd)
 

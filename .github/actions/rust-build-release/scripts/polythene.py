@@ -35,9 +35,10 @@ import shlex
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import typer
+from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
@@ -82,12 +83,28 @@ def export_rootfs(image: str, dest: Path) -> None:
 
     # Pull explicitly (keeps exec fully offline later)
     log(f"Pulling {image} …")
-    run_cmd(podman["pull", image], fg=True)
+    try:
+        run_cmd(podman["pull", image], fg=True)
+    except ProcessExecutionError as exc:
+        typer.secho(
+            f"Failed to pull image {image}: {exc}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(exc.retcode) from exc
 
     ensure_directory(dest, exist_ok=False)
 
     # Create a stopped container to export its rootfs
-    cid = run_cmd(podman["create", "--pull=never", image, "true"]).strip()
+    try:
+        cid = run_cmd(podman["create", "--pull=never", image, "true"]).strip()
+    except ProcessExecutionError as exc:
+        typer.secho(
+            f"Failed to create container from {image}: {exc}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(exc.retcode) from exc
     try:
         log(f"Exporting rootfs of {cid} → {dest}")
         # Pipe: podman export CID | tar -C dest -x
@@ -122,7 +139,7 @@ def _ensure_dirs(root: Path) -> None:
         ensure_directory(root / sub)
 
 
-def _probe_bwrap_userns(bwrap, root: Path) -> List[str]:
+def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> List[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
         # Quick probe: this tests unpriv userns availability (or setuid bwrap handles it).
@@ -139,13 +156,21 @@ def _probe_bwrap_userns(bwrap, root: Path) -> List[str]:
                 "true",
             ],
             fg=True,
+            timeout=timeout,
         )
         return ["--unshare-user", "--uid", "0", "--gid", "0"]
-    except Exception:
+    except Exception as exc:
+        log(f"User namespace probe failed: {exc}")
         return []
 
 
-def _probe_bwrap_proc(bwrap, base_flags: List[str], root: Path) -> List[str]:
+def _probe_bwrap_proc(
+    bwrap,
+    base_flags: List[str],
+    root: Path,
+    *,
+    timeout: int | None,
+) -> List[str]:
     """Return ['--proc', '/proc'] if allowed; else []."""
     try:
         cmd = bwrap[
@@ -157,27 +182,60 @@ def _probe_bwrap_proc(bwrap, base_flags: List[str], root: Path) -> List[str]:
             "/proc",
             "true",
         ]
-        run_cmd(cmd, fg=True)
+        run_cmd(cmd, fg=True, timeout=timeout)
         return ["--proc", "/proc"]
     except Exception:
         return []
 
 
-def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
+def _build_bwrap_flags(
+    bwrap,
+    root: Path,
+    *,
+    timeout: int | None,
+) -> tuple[List[str], List[str]]:
+    userns_flags = _probe_bwrap_userns(bwrap, root, timeout=timeout)
+    base_flags = [*userns_flags, "--unshare-pid", "--unshare-ipc", "--unshare-uts"]
+    proc_flags = _probe_bwrap_proc(bwrap, base_flags, root, timeout=timeout)
+    return base_flags, proc_flags
+
+
+def _run_with_tool(
+    root: Path,
+    inner_cmd: str,
+    tool_name: str,
+    tool_cmd: BaseCommand,
+    probe_args: List[str],
+    exec_args_fn: Callable[[str], List[str]],
+    *,
+    ensure_dirs: bool = True,
+    timeout: int | None = None,
+) -> Optional[int]:
+    if ensure_dirs:
+        _ensure_dirs(root)
+
+    probe_cmd = tool_cmd[tuple(probe_args)]
+    try:
+        run_cmd(probe_cmd, fg=True, timeout=timeout)
+    except Exception:
+        return None
+
+    log(f"Executing via {tool_name}")
+    exec_cmd = tool_cmd[tuple(exec_args_fn(inner_cmd))]
+    run_cmd(exec_cmd, fg=True, timeout=timeout)
+    return 0
+
+
+def run_with_bwrap(
+    root: Path, inner_cmd: str, timeout: int | None = None
+) -> Optional[int]:
     try:
         bwrap = get_command("bwrap")
     except typer.Exit:
         return None
+    base_flags, proc_flags = _build_bwrap_flags(bwrap, root, timeout=timeout)
 
-    _ensure_dirs(root)
-
-    # Build base flags and probe capabilities
-    userns_flags = _probe_bwrap_userns(bwrap, root)
-    base_flags = [*userns_flags, "--unshare-pid", "--unshare-ipc", "--unshare-uts"]
-    proc_flags = _probe_bwrap_proc(bwrap, base_flags, root)
-
-    # Viability probe (run 'true' inside the environment)
-    probe = bwrap[
+    probe_args = [
         *base_flags,
         "--bind",
         str(root),
@@ -194,71 +252,89 @@ def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
         "-c",
         "true",
     ]
-    try:
-        run_cmd(probe, fg=True)
-    except ProcessExecutionError:
-        return None
 
-    log("Executing via bubblewrap")
-    cmd = bwrap[
-        *base_flags,
-        "--bind",
-        str(root),
-        "/",
-        "--dev-bind",
-        "/dev",
-        "/dev",
-        *proc_flags,
-        "--tmpfs",
-        "/tmp",
-        "--chdir",
-        "/",
-        "/bin/sh",
-        "-lc",
+    def exec_args(cmd: str) -> List[str]:
+        return [
+            *base_flags,
+            "--bind",
+            str(root),
+            "/",
+            "--dev-bind",
+            "/dev",
+            "/dev",
+            *proc_flags,
+            "--tmpfs",
+            "/tmp",
+            "--chdir",
+            "/",
+            "/bin/sh",
+            "-lc",
+            cmd,
+        ]
+
+    return _run_with_tool(
+        root,
         inner_cmd,
-    ]
-    return run_cmd(cmd, fg=True)  # returns exit code
+        "bubblewrap",
+        bwrap,
+        probe_args,
+        exec_args,
+        timeout=timeout,
+    )
 
 
-def run_with_proot(root: Path, inner_cmd: str) -> Optional[int]:
+def run_with_proot(
+    root: Path, inner_cmd: str, timeout: int | None = None
+) -> Optional[int]:
     try:
         proot = get_command("proot")
     except typer.Exit:
         return None
 
-    _ensure_dirs(root)
+    probe_args = ["-R", str(root), "-0", "/bin/sh", "-c", "true"]
 
-    # Viability probe
-    try:
-        run_cmd(proot["-R", str(root), "-0", "/bin/sh", "-c", "true"], fg=True)
-    except ProcessExecutionError:
-        return None
+    def exec_args(cmd: str) -> List[str]:
+        return ["-R", str(root), "-0", "/bin/sh", "-lc", cmd]
 
-    log("Executing via proot")
-    cmd = proot["-R", str(root), "-0", "/bin/sh", "-lc", inner_cmd]
-    return run_cmd(cmd, fg=True)
+    return _run_with_tool(
+        root,
+        inner_cmd,
+        "proot",
+        proot,
+        probe_args,
+        exec_args,
+        timeout=timeout,
+    )
 
 
-def run_with_chroot(root: Path, inner_cmd: str) -> Optional[int]:
+def run_with_chroot(
+    root: Path, inner_cmd: str, timeout: int | None = None
+) -> Optional[int]:
     try:
         chroot = get_command("chroot")
     except typer.Exit:
         return None
 
-    # Viability probe
-    try:
-        run_cmd(chroot[str(root), "/bin/sh", "-c", "true"], fg=True)
-    except ProcessExecutionError:
-        return None
+    probe_args = [str(root), "/bin/sh", "-c", "true"]
 
-    log("Executing via chroot")
-    cmd = chroot[
-        str(root),
-        "/bin/sh",
-        "-lc",
-        f"export PATH=/bin:/sbin:/usr/bin:/usr/sbin; {inner_cmd}",
-    ]
-    return run_cmd(cmd, fg=True)
+    def exec_args(cmd: str) -> List[str]:
+        return [
+            str(root),
+            "/bin/sh",
+            "-lc",
+            f"export PATH=/bin:/sbin:/usr/bin:/usr/sbin; {cmd}",
+        ]
+
+    return _run_with_tool(
+        root,
+        inner_cmd,
+        "chroot",
+        chroot,
+        probe_args,
+        exec_args,
+        ensure_dirs=False,
+        timeout=timeout,
+    )
 
 
 # -------------------- CLI commands --------------------
@@ -315,10 +391,16 @@ def cmd_exec(
         dir_okay=True,
         file_okay=False,
     ),
+    timeout: Optional[int] = typer.Option(
+        None,
+        "--timeout",
+        "-t",
+        help="Timeout in seconds for command execution",
+    ),
 ) -> None:
     """
     Execute CMD within the filesystem identified by UUID, using bwrap → proot → chroot fallback.
-    The command's exit status is propagated.
+    The command's exit status is propagated and an optional timeout can abort long runs.
     """
     if not cmd:
         typer.secho("No command provided", fg=typer.colors.RED, err=True)
@@ -336,16 +418,16 @@ def cmd_exec(
     # Try each backend. Only fall through if the backend is not viable;
     # if viable, we return with that backend's exit code (even if non-zero).
     runners = (
-        (run_with_bwrap, run_with_proot)
-        if not IS_ROOT
-        else (run_with_bwrap, run_with_proot, run_with_chroot)
+        (run_with_bwrap, run_with_proot, run_with_chroot)
+        if IS_ROOT
+        else (run_with_bwrap, run_with_proot)
     )
     for runner in runners:
         try:
-            rc = runner(root, inner_cmd)
+            rc = runner(root, inner_cmd, timeout=timeout)
         except ProcessExecutionError as e:
             # Runner executed and failed; propagate its exit code
-            raise typer.Exit(e.retcode)
+            raise typer.Exit(e.retcode) from e
         if rc is not None:
             raise typer.Exit(rc)
 

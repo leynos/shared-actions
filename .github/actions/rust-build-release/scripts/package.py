@@ -4,6 +4,7 @@
 # dependencies = [
 #   "typer>=0.12",
 #   "plumbum>=1.8",
+#   "pyyaml>=6.0",
 # ]
 # ///
 """
@@ -23,45 +24,17 @@ from __future__ import annotations
 
 import gzip
 import re
-import textwrap
 from pathlib import Path
-from string import Template
-from typing import List
+from typing import Any, List
 
 import typer
+import yaml
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from script_utils import ensure_directory, ensure_exists, run_cmd
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
-
-NFPM_TEMPLATE = Template(
-    textwrap.dedent("""\
-    name: ${name}
-    arch: ${arch}
-    platform: linux
-    version: ${version}
-    release: ${release}
-    section: ${section}
-    priority: optional
-    maintainer: ${maintainer}
-    homepage: ${homepage}
-    license: ${license}
-    description: |
-      ${description}
-    contents:
-      - src: ${binary_path}
-        dst: /usr/bin/${bin_name}
-        file_info:
-          mode: 0755${license_block}${man_block}
-    overrides:
-      deb:
-        depends: [${deb_depends}]
-      rpm:
-        depends: [${rpm_depends}]
-    """)
-)
 
 SECTION_RE = re.compile(
     r"\.(\d[\w-]*)($|\.gz$)"
@@ -79,11 +52,15 @@ def map_target_to_arch(target: str) -> str:
         return "386"
     if t.startswith(("armv7-", "armv6-", "arm-")):
         return "arm"  # GOARM nuance out of scope here
+    if t.startswith("riscv64-"):
+        return "riscv64"
+    if t.startswith(("powerpc64le-", "ppc64le-")):
+        return "ppc64le"
+    if t.startswith("s390x-"):
+        return "s390x"
+    if t.startswith(("loongarch64-", "loong64-")):
+        return "loong64"
     return "amd64"
-
-
-def comma_join(items: List[str] | None) -> str:
-    return ", ".join(items) if items else ""
 
 
 def infer_section(path: Path, default: str) -> str:
@@ -100,60 +77,49 @@ def stem_without_section(filename: str) -> str:
 
 
 def ensure_gz(src: Path, dst_dir: Path) -> Path:
-    """Return a .gz file path; if src already .gz, copy path through; else gzip into dst_dir."""
+    """Return a gzipped file path in ``dst_dir`` for ``src``."""
     if src.suffix == ".gz":
         return src
     ensure_directory(dst_dir)
-    gz_path = dst_dir / (src.name + ".gz")
-    with (
-        open(src, "rb") as fin,
-        gzip.GzipFile(filename=gz_path.as_posix(), mode="wb", mtime=0) as fout,
-    ):
-        fout.write(fin.read())
+    gz_path = dst_dir / f"{src.name}.gz"
+    with open(src, "rb") as fin, open(gz_path, "wb") as fout:
+        with gzip.GzipFile(
+            filename="",
+            fileobj=fout,
+            mode="wb",
+            mtime=0,
+            compresslevel=9,
+        ) as gz:
+            gz.write(fin.read())
     return gz_path
 
 
-def render_man_block(
+def build_man_entries(
     man_sources: List[Path],
-    package_name: str,
     default_section: str,
-    out_staging: Path,
-) -> str:
-    """
-    Convert user-provided manpaths into YAML entries under 'contents:'.
-    Returns a string that is already indented to align under the template.
-    """
+    stage_dir: Path,
+) -> List[dict[str, Any]]:
+    """Return nFPM ``contents`` entries for the provided man pages."""
     if not man_sources:
-        return ""
+        return []
 
-    lines: List[str] = []
+    entries: List[dict[str, Any]] = []
+    stage = ensure_directory(stage_dir)
     for src in man_sources:
         ensure_exists(src, "manpage not found")
         section = infer_section(src, default_section)
-        # Example: src "doc/rust-toy-app.1" -> name "rust-toy-app", section "1"
         base_no_section = stem_without_section(src.name)
-        # Destination filename should be "<name>.<section>.gz"
         dest_filename = f"{base_no_section}.{section}.gz"
-        dest_dir = f"/usr/share/man/man{section}"
-        # Ensure gzipped file exists (in a predictable staging dir near the config)
-        gz = ensure_gz(src, out_staging)
-        # YAML chunk for this manpage
-        lines.append(
-            textwrap.dedent(f"""\
-              - src: {gz.as_posix()}
-                dst: {dest_dir}/{dest_filename}
-                file_info:
-                  mode: 0644""")
+        dest_dir = f"/usr/share/man/man{section}/{dest_filename}"
+        gz = ensure_gz(src, stage)
+        entries.append(
+            {
+                "src": gz.as_posix(),
+                "dst": dest_dir,
+                "file_info": {"mode": 0o644},
+            }
         )
-
-    # Two-space indent to sit under "contents:" list (which already has 6 spaces in the template).
-    block = "".join(
-        "  " + line if line.strip() else line
-        for line in "".join(lines).splitlines(True)
-    )
-    return (
-        "\n" + block
-    )  # leading newline to append cleanly after license or binary entry
+    return entries
 
 
 @app.command()
@@ -220,50 +186,52 @@ def main(
     ensure_directory(outdir)
     ensure_directory(config_out.parent)
 
-    # Optional LICENSE content mapping (if present).
     license_file = Path("LICENSE")
+    contents: List[dict[str, Any]] = [
+        {
+            "src": bin_path.as_posix(),
+            "dst": f"/usr/bin/{bin_name}",
+            "file_info": {"mode": 0o755},
+        }
+    ]
     if license_file.exists():
-        license_entry = textwrap.dedent(f"""\
-          - src: {license_file.as_posix()}
-            dst: /usr/share/doc/{name}/copyright
-            file_info:
-              mode: 0644
-        """)
-        # Indent to align under 'contents:'
-        license_block = "".join(
-            "  " + line if line.strip() else line
-            for line in license_entry.splitlines(True)
+        contents.append(
+            {
+                "src": license_file.as_posix(),
+                "dst": f"/usr/share/doc/{name}/copyright",
+                "file_info": {"mode": 0o644},
+            }
         )
-        license_block = (
-            "\n" + license_block
-        )  # leading newline to come after the binary entry
-    else:
-        license_block = ""
 
-    # Manpage contents entries (already indented and newline-prefixed)
-    man_block = render_man_block(
-        man or [], name, man_section, ensure_directory(man_stage)
-    )
+    man_entries = build_man_entries(man or [], man_section, man_stage)
+    contents.extend(man_entries)
 
-    # Render nfpm.yaml from template.
-    yaml_text = NFPM_TEMPLATE.substitute(
-        name=name,
-        arch=arch_val,
-        version=ver,
-        release=release,
-        section=section,
-        maintainer=maintainer,
-        homepage=homepage,
-        license=license_,
-        description=description,
-        binary_path=bin_path.as_posix(),
-        bin_name=bin_name,
-        license_block=license_block,
-        man_block=man_block,
-        deb_depends=comma_join(deb_depends),
-        rpm_depends=comma_join(rpm_depends or deb_depends),
+    deb_requires = list(deb_depends or [])
+    rpm_requires = list(rpm_depends) if rpm_depends else list(deb_requires)
+
+    config: dict[str, Any] = {
+        "name": name,
+        "arch": arch_val,
+        "platform": "linux",
+        "version": ver,
+        "release": release,
+        "section": section,
+        "priority": "optional",
+        "maintainer": maintainer,
+        "homepage": homepage,
+        "license": license_,
+        "description": description,
+        "contents": contents,
+        "overrides": {
+            "deb": {"depends": deb_requires},
+            "rpm": {"depends": rpm_requires},
+        },
+    }
+
+    config_out.write_text(
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
     )
-    config_out.write_text(yaml_text, encoding="utf-8")
     typer.secho(f"Wrote {config_out}", fg=typer.colors.GREEN)
 
     # Ensure nfpm is available.

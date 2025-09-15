@@ -8,6 +8,9 @@ inputs:
     description: Path to the Rust project to build
     required: false
     default: .
+  version:
+    description: Package version (e.g. 0.1.0)
+    required: true
 runs:
   using: composite
   steps:
@@ -33,9 +36,17 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        curl -sSL https://github.com/goreleaser/nfpm/releases/download/v2.39.0/nfpm_2.39.0_Linux_x86_64.tar.gz -o nfpm.tgz
+        ver="v2.39.0"
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64) asset_arch="x86_64" ;;
+          aarch64) asset_arch="arm64" ;;
+          *) asset_arch="x86_64" ;;
+        esac
+        curl -sSL "https://github.com/goreleaser/nfpm/releases/download/${ver}/nfpm_${ver#v}_Linux_${asset_arch}.tar.gz" -o nfpm.tgz
         tar -xzf nfpm.tgz nfpm
-        sudo install -m 0755 nfpm /usr/local/bin/nfpm
+        install -m 0755 nfpm "${RUNNER_TEMP}/nfpm"
+        echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
     - name: Stage artifacts
       shell: bash
       working-directory: ${{ inputs.project-dir }}
@@ -57,7 +68,12 @@ runs:
         esac
         mkdir -p "dist/rust-toy-app_${os}_${arch}"
         cp "target/${{ inputs.target }}/release/rust-toy-app" "dist/rust-toy-app_${os}_${arch}/"
-        man_path=$(find "target/${{ inputs.target }}/release/build" -path "*/out/rust-toy-app.1" -print -quit)
+        mapfile -t man_matches < <(find "target/${{ inputs.target }}/release/build" -path "*/out/rust-toy-app.1" -print)
+        if [[ ${#man_matches[@]} -ne 1 ]]; then
+          echo "::error:: expected exactly one man page, found ${#man_matches[@]}"
+          exit 1
+        fi
+        man_path="${man_matches[0]}"
         cp "${man_path}" "dist/rust-toy-app_${os}_${arch}/"
     - name: Package with nfpm
       shell: bash
@@ -85,6 +101,6 @@ runs:
           --name rust-toy-app \
           --bin-name rust-toy-app \
           --target "${{ inputs.target }}" \
-          --version "0.1.0" \
+          --version "${{ inputs.version }}" \
           --formats "deb" \
           --man "${man_path}"

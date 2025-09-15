@@ -22,13 +22,17 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     """Execute *script* in *cwd* and return the completed process."""
     cmd = [str(script), *args]
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=cwd,
-    )
+    try:
+        return subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            check=False,
+        )
+    except Exception as exc:  # pragma: no cover - defensive path
+        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
 def test_accepts_toolchain_with_triple() -> None:

@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 import typer
 from packaging import version as pkg_version
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
 
@@ -60,7 +61,11 @@ def main(
     )
     installed = result.stdout.splitlines()
     toolchain_channel = toolchain.split("-", 1)[0]
-    if not any(line.startswith(f"{toolchain_channel}-") for line in installed):
+    if "-" in toolchain and len(toolchain.split("-")) > 1:
+        if not any(toolchain in line for line in installed):
+            typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
+            raise typer.Exit(1)
+    elif not any(line.startswith(f"{toolchain_channel}-") for line in installed):
         typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
         raise typer.Exit(1)
 
@@ -106,11 +111,10 @@ def main(
                     "Upgrading cross (found version "
                     f"{cross_version}, required >= {required_cross_version})..."
                 )
-            run_cmd(
-                local["cargo"][
-                    "install", "cross", "--git", "https://github.com/cross-rs/cross"
-                ]
-            )
+            cmd = local["cargo"][
+                "install", "cross", "--git", "https://github.com/cross-rs/cross"
+            ]
+            run_cmd(cmd)
         else:
             typer.echo(f"Using cached cross ({cross_version})")
     else:
@@ -134,7 +138,19 @@ def main(
     cmd = local["cross" if use_cross else "cargo"][
         f"+{toolchain_channel}", "build", "--release", "--target", target
     ]
-    run_cmd(cmd)
+    try:
+        run_cmd(cmd)
+    except ProcessExecutionError as exc:
+        if use_cross and exc.retcode in {125, 126}:
+            typer.echo(
+                "cross failed to launch the container runtime; falling back to cargo"
+            )
+            fallback = local["cargo"][
+                f"+{toolchain_channel}", "build", "--release", "--target", target
+            ]
+            run_cmd(fallback)
+        else:
+            raise
 
 
 if __name__ == "__main__":

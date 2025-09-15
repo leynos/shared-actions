@@ -17,6 +17,9 @@ def run_cmd(cmd: Command, *, fg: bool = False, **run_kwargs: t.Any) -> t.Any:  #
     if hasattr(cmd, "formulate"):
         typer.echo(f"$ {shlex.join(cmd.formulate())}")
         if fg:
+            if run_kwargs:
+                cmd.run_fg(**run_kwargs)
+                return 0
             from plumbum import FG
 
             return cmd & FG

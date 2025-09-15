@@ -108,11 +108,11 @@ jobs:
           fi
       - name: Stage artifacts
         run: |
-          mkdir -p dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}
-          cp target/${{ matrix.target }}/release/<binary-name> \
-            dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/
-          cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
-            dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/
+          mkdir -p "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}"
+          cp "target/${{ matrix.target }}/release/<binary-name>" \
+            "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/"
+          cp "target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1" \
+            "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

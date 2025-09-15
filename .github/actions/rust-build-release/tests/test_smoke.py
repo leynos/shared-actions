@@ -23,6 +23,11 @@ container_available = (
     if engine
     else (shutil.which("docker") is not None or shutil.which("podman") is not None)
 )
+if engine and not container_available:
+    print(
+        f"Warning: CROSS_CONTAINER_ENGINE={engine} specified but not found",
+        file=sys.stderr,
+    )
 targets = ["x86_64-unknown-linux-gnu"]
 if container_available:
     targets.append("aarch64-unknown-linux-gnu")
@@ -33,13 +38,17 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     """Execute *script* in *cwd* and return the completed process."""
     cmd = [str(script), *args]
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=cwd,
-    )
+    try:
+        return subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            check=False,
+        )
+    except Exception as exc:  # pragma: no cover - defensive path
+        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
 @pytest.mark.parametrize("target", targets)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import sys
+import os
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,7 @@ def test_deb_package_installs() -> None:
                 "--no-self-update",
             ]
         )
-        with local.env(CROSS_CONTAINER_ENGINE="docker"):
+        with local.env(CROSS_CONTAINER_ENGINE="podman"):
             run_cmd(local[sys.executable][build_script.as_posix(), target])
         man_src = unique_match(
             project_dir.glob(
@@ -57,16 +58,26 @@ def test_deb_package_installs() -> None:
             description="rust-toy-app man page",
         )
         if shutil.which("nfpm") is None:
-            url = "https://github.com/goreleaser/nfpm/releases/download/v2.39.0/nfpm_2.39.0_Linux_x86_64.tar.gz"
+            version = "v2.39.0"
+            host = run_cmd(local["uname"]["-m"]).strip()
+            arch_map = {"x86_64": "x86_64", "aarch64": "arm64"}
+            asset_arch = arch_map.get(host, "x86_64")
+            url = (
+                "https://github.com/goreleaser/nfpm/releases/download/"
+                f"{version}/nfpm_{version[1:]}_Linux_{asset_arch}.tar.gz"
+            )
+            tools_dir = project_dir / "dist" / ".tools"
+            tools_dir.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory() as td:
                 tarball = Path(td) / "nfpm.tgz"
                 run_cmd(local["curl"]["-sSL", url, "-o", tarball])
-                run_cmd(local["tar"]["-xf", tarball, "-C", td])
+                run_cmd(local["tar"]["-xzf", tarball, "-C", td, "nfpm"])
                 run_cmd(
                     local["install"][
-                        "-m", "0755", Path(td) / "nfpm", "/usr/local/bin/nfpm"
+                        "-m", "0755", Path(td) / "nfpm", tools_dir / "nfpm"
                     ]
                 )
+            os.environ["PATH"] = f"{tools_dir.as_posix()}:{os.environ.get('PATH', '')}"
         run_cmd(
             local["uv"][
                 "run",

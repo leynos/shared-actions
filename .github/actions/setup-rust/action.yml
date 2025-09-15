@@ -71,6 +71,11 @@ runs:
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    - name: Validate workspace cache mappings
+      shell: bash
+      run: uv run --script "${{ github.action_path }}/scripts/validate_workspaces.py"
+      env:
+        INPUT_WORKSPACES: ${{ inputs.workspaces }}
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: |

@@ -127,3 +127,4 @@ def test_deb_package_installs() -> None:
                 "/usr/bin/rust-toy-app",
             )
             assert "Hello, world!" in result
+            polythene_exec(polythene, uid, store, "dpkg", "-r", "rust-toy-app")

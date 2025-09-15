@@ -349,12 +349,13 @@ jobs:
 
 - [x] Add a Python `nfpm` packaging script for `.deb` files and integrate it into the action.
 - [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and integrate them into the action.
-- [ ] Develop the local E2E packaging test harness using `pytest` and fixtures to validate Python script logic against a simulated file system.
+- [x] Develop the local E2E packaging test harness using `pytest` and fixtures to validate Python script logic against a simulated file system.
 
 #### Design Decisions
 
 - Packaging uses a minimal Python wrapper around `nfpm`, consuming pre-built binaries and generated man pages with explicit build metadata for each architecture.
 - Snapshot-style builds avoid publishing to enable local testing.
+- Package validation runs inside an isolated rootfs via the `polythene` script, avoiding host-level installs.
 
 ### Phase 4: Full Workflow Automation and CI E2E Testing
 

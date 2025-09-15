@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 import pytest
 
 from cmd_utils import run_cmd
+
+os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
 
 if sys.platform == "win32":
     pytest.skip("cross build not supported on Windows runners", allow_module_level=True)

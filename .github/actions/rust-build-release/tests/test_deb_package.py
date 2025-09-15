@@ -1,24 +1,30 @@
-"""E2E packaging test using nFPM and apt."""
+"""E2E packaging test using nFPM and polythene."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import shutil
 import tempfile
+import sys
 
 import pytest
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
 
 
-@pytest.mark.skipif(shutil.which("dpkg-deb") is None, reason="dpkg-deb not available")
+@pytest.mark.skipif(
+    sys.platform == "win32"
+    or shutil.which("dpkg-deb") is None
+    or shutil.which("podman") is None,
+    reason="dpkg-deb or podman not available",
+)
 def test_deb_package_installs() -> None:
-    """Build and install the .deb, verifying binary and man page."""
+    """Build the .deb, install in an isolated rootfs, and verify binary and man page."""
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     build_script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     pkg_script = Path(__file__).resolve().parents[1] / "scripts" / "package.py"
+    polythene = Path(__file__).resolve().parents[1] / "scripts" / "polythene.py"
     target = "x86_64-unknown-linux-gnu"
     with local.cwd(project_dir):
         run_cmd(
@@ -31,7 +37,8 @@ def test_deb_package_installs() -> None:
                 "--no-self-update",
             ]
         )
-        run_cmd(local[build_script.as_posix()][target])
+        with local.env(CROSS_CONTAINER_ENGINE="docker"):
+            run_cmd(local[build_script.as_posix()][target])
         man_matches = list(
             project_dir.glob(
                 f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
@@ -69,15 +76,91 @@ def test_deb_package_installs() -> None:
             ]
         )
         deb = project_dir / "dist/rust-toy-app_0.1.0-1_amd64.deb"
-        with local.env(DEBIAN_FRONTEND="noninteractive"):
+        with tempfile.TemporaryDirectory() as store:
+            uid = (
+                run_cmd(
+                    local["uv"][
+                        "run",
+                        polythene.as_posix(),
+                        "pull",
+                        "docker.io/library/debian:bookworm",
+                        "--store",
+                        store,
+                    ]
+                )
+                .splitlines()[-1]
+                .strip()
+            )
             try:
-                run_cmd(local["dpkg"]["-i", deb.as_posix()])
-                assert Path("/usr/bin/rust-toy-app").exists()
-                run_cmd(local["man"]["-w", "rust-toy-app"])
-                result = run_cmd(local["/usr/bin/rust-toy-app"])
-                assert "Hello, world!" in result
-            finally:
-                try:
-                    run_cmd(local["dpkg"]["-r", "rust-toy-app"])
-                except ProcessExecutionError:
-                    pass
+                run_cmd(
+                    local["uv"][
+                        "run",
+                        polythene.as_posix(),
+                        "exec",
+                        uid,
+                        "--store",
+                        store,
+                        "--",
+                        "true",
+                    ]
+                )
+            except Exception:
+                pytest.skip("isolation unavailable")
+
+            root = Path(store) / uid
+            shutil.copy(deb, root / deb.name)
+            run_cmd(
+                local["uv"][
+                    "run",
+                    polythene.as_posix(),
+                    "exec",
+                    uid,
+                    "--store",
+                    store,
+                    "--",
+                    "dpkg",
+                    "-i",
+                    deb.name,
+                ]
+            )
+            run_cmd(
+                local["uv"][
+                    "run",
+                    polythene.as_posix(),
+                    "exec",
+                    uid,
+                    "--store",
+                    store,
+                    "--",
+                    "test",
+                    "-x",
+                    "/usr/bin/rust-toy-app",
+                ]
+            )
+            run_cmd(
+                local["uv"][
+                    "run",
+                    polythene.as_posix(),
+                    "exec",
+                    uid,
+                    "--store",
+                    store,
+                    "--",
+                    "test",
+                    "-f",
+                    "/usr/share/man/man1/rust-toy-app.1.gz",
+                ]
+            )
+            result = run_cmd(
+                local["uv"][
+                    "run",
+                    polythene.as_posix(),
+                    "exec",
+                    uid,
+                    "--store",
+                    store,
+                    "--",
+                    "/usr/bin/rust-toy-app",
+                ]
+            )
+            assert "Hello, world!" in result

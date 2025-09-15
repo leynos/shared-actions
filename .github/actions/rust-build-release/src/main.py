@@ -67,6 +67,9 @@ def main(
     container_available = (
         shutil.which("docker") is not None or shutil.which("podman") is not None
     )
+    engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+    if engine and shutil.which(engine) is None:
+        container_available = False
 
     # Determine cross availability and version
 
@@ -119,16 +122,14 @@ def main(
     cross_path = shutil.which("cross")
     cross_version = get_cross_version(cross_path) if cross_path else None
 
-    use_cross = cross_path is not None
+    use_cross = cross_path is not None and container_available
     if use_cross:
-        if container_available:
-            typer.echo(f"Building with cross ({cross_version})")
-        else:
-            typer.echo(
-                "cross found but container runtime missing; attempting build with cross"
-            )
+        typer.echo(f"Building with cross ({cross_version})")
     else:
-        typer.echo("cross not installed; using cargo")
+        if cross_path is not None:
+            typer.echo("cross found but container runtime missing; using cargo")
+        else:
+            typer.echo("cross not installed; using cargo")
 
     cmd = local["cross" if use_cross else "cargo"][
         f"+{toolchain_channel}", "build", "--release", "--target", target

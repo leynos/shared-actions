@@ -19,6 +19,5 @@ Format, validate and test the repository:
 
 ```sh
 make fmt
-make goreleaser-validate
 make test
 ```

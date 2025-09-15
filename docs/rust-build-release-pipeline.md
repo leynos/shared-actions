@@ -25,10 +25,9 @@ This pipeline is composed of three core, best-in-class tools:
    a `clap`-based CLI definition. It is integrated into the build process via a
    `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
-3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
-   single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
-   packages (`.deb`, `.rpm`), and other formats, as well as checksums and
-   GitHub Releases.
+3. **nFPM with a Python wrapper**: Packages prebuilt binaries and generated
+   man pages into Linux distribution formats like `.deb` and `.rpm` without a
+   separate configuration file.
 
 Any necessary "glue" logic will be implemented in self-contained Python scripts
 that use `uv` and PEP 723 to manage their dependencies, removing the need
@@ -40,8 +39,8 @@ The workflow proceeds in two distinct stages:
    Rust binary and its associated man page for each target platform. The
    resulting artifacts are uploaded for the next stage.
 2. **Release Stage**: A single job that downloads all build artifacts, then
-   orchestrates GoReleaser to package them into archives and distribution
-   formats before creating a GitHub Release.
+   invokes a small Python script that drives `nfpm` to assemble distribution
+   packages ready for release.
 
 ## 3. Detailed Component Design for Implementers
 
@@ -60,7 +59,7 @@ macOS targets run on `macos-latest` runners or an image with the Apple SDK
 because `cross` cannot build them on Linux. Each matrix entry also declares
 `os`, `arch`, and `runs-on` values, so the compiled binary and man page can be
 staged under `dist/<project>_<os>_<arch>/` before upload.
-This matches the paths expected by GoReleaser.
+This matches the paths expected by the packaging step.
 
 ```yaml
 # .github/workflows/release.yml (excerpt)
@@ -208,93 +207,9 @@ sequenceDiagram
   deactivate Cargo
 ```
 
-### 3.2 Release Stage: Declarative Packaging with GoReleaser
+### 3.2 Release Stage: Declarative Packaging with nFPM
 
-The release stage uses the `goreleaser/goreleaser-action` to unify packaging.
-
-#### 3.2.1 `.goreleaser.yaml` Configuration
-
-A `.goreleaser.yaml` file defines the release process. It will use GoReleaser's
-`prebuilt` builder and its `nfpms` integration for `.deb` and `.rpm`. For macOS
-and FreeBSD `.pkg` formats, where native support is lacking, it will use custom
-build hooks to invoke system packaging tools.
-
-```yaml
-# .goreleaser.yaml
-project_name: rust-toy-app
-before:
-  hooks:
-    - test -f dist/rust-toy-app_linux_amd64/rust-toy-app.1
-builds:
-  - id: rust-toy-app
-    builder: prebuilt
-    binary: rust-toy-app
-    goos:
-      - linux
-      - darwin
-      - freebsd
-    goarch:
-      - amd64
-      - arm64
-    prebuilt:
-      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
-
-archives:
-  - id: default
-    files:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
-        dst: "rust-toy-app"
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
-        dst: "."
-      - LICENSE
-      - README.md
-
-checksum:
-  name_template: "checksums.txt"
-
-# Native support for Linux packages.
-nfpms:
-  - id: packages
-    package_name: rust-toy-app
-    formats:
-      - deb
-      - rpm
-    # ... metadata (maintainer, description, etc.)
-    contents:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/rust-toy-app"
-        dst: /usr/bin/rust-toy-app
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
-        dst: /usr/share/man/man1/
-```
-
-#### 3.2.2 Release Job Workflow
-
-The release job downloads all artifacts and invokes GoReleaser. Separate steps
-will be required on dedicated runners for the custom packaging.
-
-```yaml
-# .github/workflows/release.yml (excerpt)
-  release:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: dist_*
-          merge-multiple: true
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+A small Python script renders an `nfpm.yaml` configuration and runs `nfpm` for each target format. The release job downloads all artifacts and invokes this script; separate steps can handle different package formats.
 
 ### 3.3 Self-Contained Scripting with `uv` and PEP 723
 
@@ -318,7 +233,7 @@ from plumbum.cmd import cross
 ### 4.1 Unit Testing
 
 Unit tests for Python scripts will mock the `run_cmd` function to verify that
-high-level tools (`cross`, `goreleaser`) are invoked with the correct
+high-level tools (`cross`, `nfpm`) are invoked with the correct
 arguments. These tests must be executable on a local developer machine without
 a CI environment or container runtime.
 
@@ -329,7 +244,7 @@ A new local testing harness will be created using `pytest`. This harness will:
 - Create a temporary directory structure mimicking a GitHub Actions environment.
 - Populate it with fixture files (e.g., a toy pre-compiled binary).
 - Execute the Python helper scripts against this local environment.
-- Use mocks for external commands (`cross`, `goreleaser`, `pkgbuild`) to assert
+- Use mocks for external commands (`cross`, `nfpm`, `pkgbuild`) to assert
   they are called with the expected arguments based on the fixture state.
 
 This provides a vital intermediate testing layer between isolated unit tests
@@ -432,21 +347,14 @@ jobs:
 
 ### Phase 3: Declarative Packaging and Local Testing
 
-- [x] Create the initial `.goreleaser.yaml` configuration for `.deb` files and
-  add the necessary steps to the action to call GoReleaser.
-- [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
-  integrate them into the action.
-- [ ] Develop the local E2E packaging test harness using `pytest` and fixtures
-  to validate Python script logic against a simulated file system.
+- [x] Add a Python `nfpm` packaging script for `.deb` files and integrate it into the action.
+- [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and integrate them into the action.
+- [ ] Develop the local E2E packaging test harness using `pytest` and fixtures to validate Python script logic against a simulated file system.
 
 #### Design Decisions
 
-- GoReleaser is invoked via the pinned
-  `goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a`.
-- The `.deb` packages for `amd64` and `arm64` are assembled with GoReleaser's
-  `nfpms` using pre-built binaries and generated man pages, with explicit build
-  metadata for each architecture to align with staged artifacts.
-- Snapshot releases skip publishing to enable local testing.
+- Packaging uses a minimal Python wrapper around `nfpm`, consuming pre-built binaries and generated man pages with explicit build metadata for each architecture.
+- Snapshot-style builds avoid publishing to enable local testing.
 
 ### Phase 4: Full Workflow Automation and CI E2E Testing
 

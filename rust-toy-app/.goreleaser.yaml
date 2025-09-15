@@ -5,14 +5,13 @@ version: 2
 dist: dist
 builds:
   - id: prebuilt
-    builder: rust
+    builder: prebuilt
     binary: rust-toy-app
     goos:
       - linux
     goarch:
       - amd64
       - arm64
-    skip: true
     dir: "dist/{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 nfpms:
   - id: deb

@@ -38,9 +38,12 @@ from pathlib import Path
 from typing import List, Optional
 
 import typer
-from plumbum import local, FG
+from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
+
+sys.path.append(str(Path(__file__).resolve().parents[4]))
+from cmd_utils import run_cmd
 
 
 # -------------------- Configuration --------------------
@@ -92,20 +95,23 @@ def export_rootfs(image: str, dest: Path) -> None:
 
     # Pull explicitly (keeps exec fully offline later)
     log(f"Pulling {image} …")
-    (podman["pull", image] & FG)
+    run_cmd(podman["pull", image], fg=True)
 
     dest.mkdir(parents=True, exist_ok=False)
 
     # Create a stopped container to export its rootfs
-    cid = (podman["create", "--pull=never", image, "true"]()).strip()
+    cid = run_cmd(podman["create", "--pull=never", image, "true"]).strip()
     try:
         log(f"Exporting rootfs of {cid} → {dest}")
         # Pipe: podman export CID | tar -C dest -x
         # plumbum pipes stream in FG without buffering the whole archive
-        ((podman["export", cid] | tar["-C", str(dest), "-x"]) & FG)
+        run_cmd(
+            (podman["export", cid] | tar["-C", str(dest), "-x"]),
+            fg=True,
+        )
     finally:
         try:
-            (podman["rm", cid] & FG)
+            run_cmd(podman["rm", cid], fg=True)
         except ProcessExecutionError:
             pass
 
@@ -133,11 +139,19 @@ def _probe_bwrap_userns(bwrap, root: Path) -> List[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
         # Quick probe: this tests unpriv userns availability (or setuid bwrap handles it).
-        (
+        run_cmd(
             bwrap[
-                "--unshare-user", "--uid", "0", "--gid", "0", "--bind", "/", "/", "true"
-            ]
-            & FG
+                "--unshare-user",
+                "--uid",
+                "0",
+                "--gid",
+                "0",
+                "--bind",
+                "/",
+                "/",
+                "true",
+            ],
+            fg=True,
         )
         return ["--unshare-user", "--uid", "0", "--gid", "0"]
     except Exception:
@@ -156,7 +170,7 @@ def _probe_bwrap_proc(bwrap, base_flags: List[str], root: Path) -> List[str]:
             "/proc",
             "true",
         ]
-        (cmd & FG)
+        run_cmd(cmd, fg=True)
         return ["--proc", "/proc"]
     except Exception:
         return []
@@ -194,7 +208,7 @@ def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
         "true",
     ]
     try:
-        (probe & FG)
+        run_cmd(probe, fg=True)
     except ProcessExecutionError:
         return None
 
@@ -216,7 +230,7 @@ def run_with_bwrap(root: Path, inner_cmd: str) -> Optional[int]:
         "-lc",
         inner_cmd,
     ]
-    return cmd & FG  # returns exit code
+    return run_cmd(cmd, fg=True)  # returns exit code
 
 
 def run_with_proot(root: Path, inner_cmd: str) -> Optional[int]:
@@ -229,13 +243,13 @@ def run_with_proot(root: Path, inner_cmd: str) -> Optional[int]:
 
     # Viability probe
     try:
-        (proot["-R", str(root), "-0", "/bin/sh", "-c", "true"] & FG)
+        run_cmd(proot["-R", str(root), "-0", "/bin/sh", "-c", "true"], fg=True)
     except ProcessExecutionError:
         return None
 
     log("Executing via proot")
     cmd = proot["-R", str(root), "-0", "/bin/sh", "-lc", inner_cmd]
-    return cmd & FG
+    return run_cmd(cmd, fg=True)
 
 
 def run_with_chroot(root: Path, inner_cmd: str) -> Optional[int]:
@@ -246,7 +260,7 @@ def run_with_chroot(root: Path, inner_cmd: str) -> Optional[int]:
 
     # Viability probe
     try:
-        (chroot[str(root), "/bin/sh", "-c", "true"] & FG)
+        run_cmd(chroot[str(root), "/bin/sh", "-c", "true"], fg=True)
     except ProcessExecutionError:
         return None
 
@@ -257,7 +271,7 @@ def run_with_chroot(root: Path, inner_cmd: str) -> Optional[int]:
         "-lc",
         f"export PATH=/bin:/sbin:/usr/bin:/usr/sbin; {inner_cmd}",
     ]
-    return cmd & FG
+    return run_cmd(cmd, fg=True)
 
 
 # -------------------- CLI commands --------------------

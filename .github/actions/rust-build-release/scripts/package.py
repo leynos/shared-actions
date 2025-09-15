@@ -34,6 +34,9 @@ import typer
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
+sys.path.append(str(Path(__file__).resolve().parents[4]))
+from cmd_utils import run_cmd
+
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 NFPM_TEMPLATE = Template(
@@ -286,7 +289,17 @@ def main(
     for fmt in [s.strip() for s in formats.split(",") if s.strip()]:
         typer.echo(f"→ nfpm package -p {fmt} -f {config_out} -t {outdir}/")
         try:
-            nfpm["package", "-p", fmt, "-f", str(config_out), "-t", str(outdir)]()
+            run_cmd(
+                nfpm[
+                    "package",
+                    "-p",
+                    fmt,
+                    "-f",
+                    str(config_out),
+                    "-t",
+                    str(outdir),
+                ]
+            )
         except ProcessExecutionError as pe:
             rc_any = rc_any or pe.retcode
             typer.secho(

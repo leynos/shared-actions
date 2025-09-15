@@ -13,6 +13,14 @@ from plumbum import local
 from cmd_utils import run_cmd
 
 
+def polythene_cmd(polythene: Path, *args: str) -> str:
+    return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
+
+
+def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
+    return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
+
+
 @pytest.mark.skipif(
     sys.platform == "win32"
     or shutil.which("dpkg-deb") is None
@@ -78,89 +86,44 @@ def test_deb_package_installs() -> None:
         deb = project_dir / "dist/rust-toy-app_0.1.0-1_amd64.deb"
         with tempfile.TemporaryDirectory() as store:
             uid = (
-                run_cmd(
-                    local["uv"][
-                        "run",
-                        polythene.as_posix(),
-                        "pull",
-                        "docker.io/library/debian:bookworm",
-                        "--store",
-                        store,
-                    ]
+                polythene_cmd(
+                    polythene,
+                    "pull",
+                    "docker.io/library/debian:bookworm",
+                    "--store",
+                    store,
                 )
                 .splitlines()[-1]
                 .strip()
             )
             try:
-                run_cmd(
-                    local["uv"][
-                        "run",
-                        polythene.as_posix(),
-                        "exec",
-                        uid,
-                        "--store",
-                        store,
-                        "--",
-                        "true",
-                    ]
-                )
+                polythene_exec(polythene, uid, store, "true")
             except Exception:
                 pytest.skip("isolation unavailable")
 
             root = Path(store) / uid
             shutil.copy(deb, root / deb.name)
-            run_cmd(
-                local["uv"][
-                    "run",
-                    polythene.as_posix(),
-                    "exec",
-                    uid,
-                    "--store",
-                    store,
-                    "--",
-                    "dpkg",
-                    "-i",
-                    deb.name,
-                ]
+            polythene_exec(polythene, uid, store, "dpkg", "-i", deb.name)
+            polythene_exec(
+                polythene,
+                uid,
+                store,
+                "test",
+                "-x",
+                "/usr/bin/rust-toy-app",
             )
-            run_cmd(
-                local["uv"][
-                    "run",
-                    polythene.as_posix(),
-                    "exec",
-                    uid,
-                    "--store",
-                    store,
-                    "--",
-                    "test",
-                    "-x",
-                    "/usr/bin/rust-toy-app",
-                ]
+            polythene_exec(
+                polythene,
+                uid,
+                store,
+                "test",
+                "-f",
+                "/usr/share/man/man1/rust-toy-app.1.gz",
             )
-            run_cmd(
-                local["uv"][
-                    "run",
-                    polythene.as_posix(),
-                    "exec",
-                    uid,
-                    "--store",
-                    store,
-                    "--",
-                    "test",
-                    "-f",
-                    "/usr/share/man/man1/rust-toy-app.1.gz",
-                ]
-            )
-            result = run_cmd(
-                local["uv"][
-                    "run",
-                    polythene.as_posix(),
-                    "exec",
-                    uid,
-                    "--store",
-                    store,
-                    "--",
-                    "/usr/bin/rust-toy-app",
-                ]
+            result = polythene_exec(
+                polythene,
+                uid,
+                store,
+                "/usr/bin/rust-toy-app",
             )
             assert "Hello, world!" in result

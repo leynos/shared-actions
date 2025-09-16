@@ -448,6 +448,8 @@ def cmd_exec(
             # Runner executed and failed; propagate its exit code
             raise typer.Exit(e.retcode) from e
         if rc is not None:
+            if rc == 0:
+                return
             raise typer.Exit(rc)
 
     typer.secho(

@@ -33,6 +33,8 @@ runs:
       uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
       with:
         workspaces: ${{ inputs.project-dir }}
+        shared-key: ${{ runner.os }}-toolchain-1.89.0
+        cache-on-failure: true
     - name: Build release
       shell: bash
       env:
@@ -45,13 +47,28 @@ runs:
       run: |
         set -euo pipefail
         ver="v2.39.0"
-        arch="$(uname -m)"
-        case "$arch" in
-          x86_64) asset_arch="x86_64" ;;
-          aarch64) asset_arch="arm64" ;;
-          *) asset_arch="x86_64" ;;
+        uname_s="$(uname -s)"
+        uname_m="$(uname -m)"
+        case "$uname_s" in
+          Linux) asset_os="Linux" ;;
+          Darwin) asset_os="Darwin" ;;
+          *) echo "::error:: unsupported OS: $uname_s"; exit 1 ;;
         esac
-        curl -sSL "https://github.com/goreleaser/nfpm/releases/download/${ver}/nfpm_${ver#v}_Linux_${asset_arch}.tar.gz" -o nfpm.tgz
+        case "$uname_m" in
+          x86_64) asset_arch="x86_64" ;;
+          aarch64|arm64) asset_arch="arm64" ;;
+          *) echo "::error:: unsupported arch: $uname_m"; exit 1 ;;
+        esac
+        asset="nfpm_${ver#v}_${asset_os}_${asset_arch}.tar.gz"
+        base_url="https://github.com/goreleaser/nfpm/releases/download/${ver}"
+        curl -fsSL "${base_url}/${asset}" -o nfpm.tgz
+        curl -fsSL "${base_url}/checksums.txt" -o checksums.txt
+        if command -v sha256sum >/dev/null 2>&1; then
+          grep "  ${asset}$" checksums.txt | sha256sum --check -
+        else
+          expected="$(grep "  ${asset}$" checksums.txt | awk '{print $1}')"
+          echo "${expected}  nfpm.tgz" | shasum -a 256 --check -
+        fi
         tar -xzf nfpm.tgz nfpm
         install -m 0755 nfpm "${RUNNER_TEMP}/nfpm"
         echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"

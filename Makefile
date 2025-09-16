@@ -1,4 +1,9 @@
-.PHONY: help test lint markdownlint nixie fmt typecheck
+.PHONY: all clean help test lint markdownlint nixie fmt typecheck
+
+all: fmt lint typecheck test ## Run format, lint, typecheck, then tests
+
+clean: ## Remove transient artefacts
+	rm -rf .venv .pytest_cache .ruff_cache .pyright workspace/.ruff_cache
 
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
@@ -17,7 +22,7 @@ lint: ## Check test scripts and actions
 	| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
 
 typecheck: .venv ## Run static type checking with Pyright
-	uvx pyright
+	uv run pyright
 
 fmt: ## Apply formatting to Python files
 	uvx ruff format

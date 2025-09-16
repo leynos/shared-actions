@@ -76,18 +76,6 @@ jobs:
             os: linux
             arch: arm64
             runs-on: ubuntu-latest
-          - target: x86_64-apple-darwin
-            os: darwin
-            arch: amd64
-            runs-on: macos-latest
-          - target: aarch64-apple-darwin
-            os: darwin
-            arch: arm64
-            runs-on: macos-latest
-          - target: x86_64-unknown-freebsd
-            os: freebsd
-            arch: amd64
-            runs-on: ubuntu-latest
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +84,8 @@ jobs:
         with:
           toolchain: stable
       - name: Install cross
-        if: matrix.os != 'darwin'
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        if: matrix.os == 'linux'
+        run: cargo install cross --version 0.2.5
       - name: Build binary and man page
         run: |
           if [ "${{ matrix.os }}" = "darwin" ]; then

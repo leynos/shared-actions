@@ -99,3 +99,13 @@ timeout = 30
 
 [tool.uv]
 package = false
+
+[tool.pyright]
+typeCheckingMode = "strict"
+reportUnknownVariableType = "error"
+reportUnknownParameterType = "error"
+reportUnknownMemberType = "error"
+reportMissingTypeStubs = "warning"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"

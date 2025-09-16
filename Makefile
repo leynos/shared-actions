@@ -1,4 +1,4 @@
-.PHONY: help test lint markdownlint nixie fmt
+.PHONY: help test lint markdownlint nixie fmt typecheck
 
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
@@ -14,7 +14,10 @@ test: .venv ## Run tests
 lint: ## Check test scripts and actions
 	uvx ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-		| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
+	| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
+
+typecheck: ## Run static type checking with Pyright
+	uvx pyright
 
 fmt: ## Apply formatting to Python files
 	uvx ruff format

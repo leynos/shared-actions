@@ -7,6 +7,7 @@ import dataclasses as dc
 import json
 import os
 from pathlib import Path  # noqa: TC003 - used at runtime
+import typing as t
 
 
 @dc.dataclass
@@ -26,6 +27,15 @@ class Variant:
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
+
+
+class VariantSpec(t.TypedDict, total=False):
+    """Dictionary form of :class:`Variant` accepted when registering stubs."""
+
+    match: cabc.Sequence[str] | None
+    stdout: str
+    stderr: str
+    exit_code: int
 
 
 @dc.dataclass
@@ -50,35 +60,39 @@ class StubManager:
         self,
         name: str,
         *,
-        variants: list[dict] | None = None,
+        variants: list[VariantSpec] | None = None,
         stdout: str = "",
         stderr: str = "",
         exit_code: int = 0,
         func: cabc.Callable[[cabc.Sequence[str]], int] | None = None,
     ) -> None:
         """Register a new stub with either a variants list or single behaviour."""
+        variant_specs: list[VariantSpec]
         if variants is None:
-            variants = [
-                {
-                    "match": None,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "exit_code": exit_code,
-                }
+            variant_specs = [
+                VariantSpec(
+                    match=None,
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=exit_code,
+                )
             ]
+        else:
+            variant_specs = variants
         parsed = [
             Variant(
-                match=v["match"],
-                stdout=v.get("stdout", ""),
-                stderr=v.get("stderr", ""),
-                exit_code=v.get("exit_code", 0),
+                match=variant.get("match"),
+                stdout=variant.get("stdout", ""),
+                stderr=variant.get("stderr", ""),
+                exit_code=variant.get("exit_code", 0),
             )
-            for v in variants
+            for variant in variant_specs
         ]
         spec = StubSpec(parsed, func=func)
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
-        spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
+        payload = {"variants": [dc.asdict(v) for v in parsed]}
+        spec_file.write_text(json.dumps(payload), encoding="utf-8")
         if os.name == "nt":
             import sys  # localise import for Windows launcher
 

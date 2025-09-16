@@ -97,6 +97,17 @@ def test_deb_package_installs() -> None:
             ]
         )
         deb = project_dir / "dist/rust-toy-app_0.1.0-1_amd64.deb"
+        with tempfile.TemporaryDirectory() as td:
+            run_cmd(local["dpkg-deb"]["-x", str(deb), td])
+            bin_extracted = Path(td, "usr/bin/rust-toy-app")
+            man_extracted = Path(td, "usr/share/man/man1/rust-toy-app.1.gz")
+            assert bin_extracted.is_file()
+            assert man_extracted.is_file()
+            with tempfile.TemporaryDirectory() as cd:
+                run_cmd(local["dpkg-deb"]["-e", str(deb), cd])
+                control_txt = Path(cd, "control").read_text(encoding="utf-8")
+                assert "Package: rust-toy-app" in control_txt
+                assert "Architecture: amd64" in control_txt
         with tempfile.TemporaryDirectory() as store:
             uid = (
                 polythene_cmd(

@@ -23,8 +23,8 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
-      - name: Run Pyright
-        run: make typecheck
+      - name: Run typechecking
+        run: uv run ty check
         shell: bash
   python-tests:
     permissions:

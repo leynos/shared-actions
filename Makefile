@@ -8,6 +8,7 @@ test: .venv ## Run tests
 	uv run pytest
 
 .venv:
+	uv venv
 	uv sync --group dev
 
 lint: ## Check test scripts and actions

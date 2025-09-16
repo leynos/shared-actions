@@ -118,6 +118,10 @@ def main(
     )
     engine = os.environ.get("CROSS_CONTAINER_ENGINE")
     if engine and shutil.which(engine) is None:
+        typer.echo(
+            f"::warning:: CROSS_CONTAINER_ENGINE={engine} specified but not found; disabling container use",
+            err=True,
+        )
         container_available = False
 
     # Determine cross availability and version

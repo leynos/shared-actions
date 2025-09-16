@@ -10,16 +10,29 @@ import typer
 from plumbum import local
 from plumbum.commands.base import BaseCommand
 
-# Ensure the repository root is on ``sys.path`` so ``cmd_utils`` can be imported
-# when these scripts are executed directly via ``python path/to/script.py``.
-REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.append(str(REPO_ROOT))
+try:  # pragma: no cover - exercised during script execution
+    from .cmd_utils import run_cmd
+except ImportError:  # pragma: no cover - fallback when run as a script
+    from importlib import util
+    from types import ModuleType
 
-from cmd_utils import run_cmd as _run_cmd  # noqa: E402
+    _PKG_DIR = Path(__file__).resolve().parent
+    _PKG_NAME = "rust_build_release_scripts"
+    if _PKG_NAME not in sys.modules:
+        pkg = ModuleType(_PKG_NAME)
+        pkg.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+        sys.modules[_PKG_NAME] = pkg
+    _SPEC = util.spec_from_file_location(
+        f"{_PKG_NAME}.cmd_utils", _PKG_DIR / "cmd_utils.py"
+    )
+    if _SPEC is None or _SPEC.loader is None:
+        raise ImportError("Unable to load cmd_utils helper")
+    _MODULE = util.module_from_spec(_SPEC)
+    sys.modules[_SPEC.name] = _MODULE
+    _SPEC.loader.exec_module(_MODULE)
+    run_cmd = getattr(_MODULE, "run_cmd")  # type: ignore[assignment]
 
 __all__ = [
-    "REPO_ROOT",
     "ensure_directory",
     "ensure_exists",
     "get_command",
@@ -65,8 +78,3 @@ def unique_match(paths: Iterable[Path], *, description: str) -> Path:
         )
         raise typer.Exit(2)
     return matches[0]
-
-
-# Re-export the shared ``run_cmd`` helper so callers can import it from this
-# module without having to manipulate ``sys.path`` themselves.
-run_cmd = _run_cmd

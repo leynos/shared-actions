@@ -35,13 +35,6 @@ runs:
         workspaces: ${{ inputs.project-dir }}
         shared-key: ${{ runner.os }}-toolchain-1.89.0
         cache-on-failure: true
-    - name: Build release
-      shell: bash
-      env:
-        RBR_TARGET: ${{ inputs.target }}
-        RBR_TOOLCHAIN: 1.89.0
-      working-directory: ${{ inputs.project-dir }}
-      run: ${{ github.action_path }}/src/main.py
     - name: Install nfpm
       shell: bash
       run: |
@@ -72,6 +65,13 @@ runs:
         tar -xzf nfpm.tgz nfpm
         install -m 0755 nfpm "${RUNNER_TEMP}/nfpm"
         echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+    - name: Build release
+      shell: bash
+      env:
+        RBR_TARGET: ${{ inputs.target }}
+        RBR_TOOLCHAIN: 1.89.0
+      working-directory: ${{ inputs.project-dir }}
+      run: ${{ github.action_path }}/src/main.py
     - name: Stage artifacts
       shell: bash
       working-directory: ${{ inputs.project-dir }}

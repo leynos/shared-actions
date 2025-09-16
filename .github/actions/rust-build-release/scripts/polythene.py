@@ -42,7 +42,29 @@ from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-from script_utils import ensure_directory, get_command, run_cmd
+try:
+    from .script_utils import ensure_directory, get_command, run_cmd
+except ImportError:  # pragma: no cover - fallback for direct execution
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    _PKG_DIR = Path(__file__).resolve().parent
+    _PKG_NAME = "rust_build_release_scripts"
+    pkg_module = sys.modules.get(_PKG_NAME)
+    if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+        _SPEC = importlib.util.spec_from_file_location(
+            _PKG_NAME, _PKG_DIR / "__init__.py"
+        )
+        if _SPEC is None or _SPEC.loader is None:
+            raise ImportError("Unable to load scripts package helper")
+        pkg_module = importlib.util.module_from_spec(_SPEC)
+        sys.modules[_PKG_NAME] = pkg_module
+        _SPEC.loader.exec_module(pkg_module)
+    helpers = pkg_module.load_sibling("script_utils")
+    ensure_directory = helpers.ensure_directory
+    get_command = helpers.get_command
+    run_cmd = helpers.run_cmd
 
 
 # -------------------- Configuration --------------------

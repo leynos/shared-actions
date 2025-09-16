@@ -24,7 +24,7 @@ jobs:
             **/uv.lock
             **/scripts/*.py
       - name: Run typechecking
-        run: uv run ty check
+        run: make typecheck
         shell: bash
   python-tests:
     permissions:

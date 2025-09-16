@@ -22,7 +22,7 @@ lint: ## Check test scripts and actions
 	| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
 
 typecheck: .venv ## Run static type checking with Ty
-	uv run ty check \
+	./.venv/bin/ty check \
 	  --extra-search-path .github/actions/generate-coverage/scripts \
 	  --extra-search-path .github/actions/ratchet-coverage/scripts \
 	  --extra-search-path .github/actions/rust-build-release/scripts \

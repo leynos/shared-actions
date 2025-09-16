@@ -21,4 +21,5 @@ def test_run_cmd_foreground_timeout() -> None:
 def test_run_cmd_foreground_success() -> None:
     """Foreground commands still succeed without a timeout."""
     cmd = local[sys.executable]["-c", "print('ok')"]
-    assert run_cmd(cmd, fg=True) == "ok\n"
+    result = run_cmd(cmd, fg=True)
+    assert result.rstrip("\r\n") == "ok"

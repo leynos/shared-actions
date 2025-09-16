@@ -22,6 +22,26 @@ from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
 
+
+def _cross_toolchain_arg(toolchain: str) -> str:
+    """Return a cross-compatible ``+toolchain`` argument."""
+
+    parts = toolchain.split("-")
+    if len(parts) <= 1:
+        return toolchain
+
+    base_end = 1
+    if len(parts) >= 4 and all(part.isdigit() for part in parts[1:4]):
+        base_end = 4
+    elif parts[1].isdigit():
+        base_end = 2
+
+    if len(parts) > base_end:
+        sanitized = "-".join(parts[:base_end])
+        return sanitized or toolchain
+    return toolchain
+
+
 app = typer.Typer(add_completion=False)
 
 
@@ -159,8 +179,13 @@ def main(
         else:
             typer.echo("cross not installed; using cargo")
 
+    cross_toolchain = _cross_toolchain_arg(toolchain_spec)
     cmd = local["cross" if use_cross else "cargo"][
-        f"+{toolchain_spec}", "build", "--release", "--target", target
+        f"+{cross_toolchain if use_cross else toolchain_spec}",
+        "build",
+        "--release",
+        "--target",
+        target,
     ]
     try:
         run_cmd(cmd)

@@ -12,6 +12,10 @@ inputs:
     description: Name of the binary to stage and package
     required: false
     default: rust-toy-app
+  formats:
+    description: Comma-separated package formats to produce
+    required: false
+    default: deb
   version:
     description: Package version (e.g. 0.1.0)
     required: true
@@ -126,5 +130,5 @@ runs:
           --bin-name "${{ inputs.bin-name }}" \
           --target "${{ inputs.target }}" \
           --version "${{ inputs.version }}" \
-          --formats "deb" \
+          --formats "${{ inputs.formats }}" \
           --man "${man_path}"

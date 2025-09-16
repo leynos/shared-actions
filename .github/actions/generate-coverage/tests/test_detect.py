@@ -22,7 +22,7 @@ _FAKE_TYPER = types.SimpleNamespace(
     Exit=_FakeExit,
     run=lambda func: func(),
 )
-sys.modules.setdefault("typer", _FAKE_TYPER)
+sys.modules["typer"] = _FAKE_TYPER
 
 _SPEC = importlib.util.spec_from_file_location(
     "detect", Path(__file__).resolve().parents[1] / "scripts" / "detect.py"

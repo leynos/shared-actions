@@ -56,10 +56,33 @@ def run_cmd(cmd: Command, *, fg: bool = False, **run_kwargs: t.Any) -> t.Any:  #
     """Echo ``cmd`` before running it."""
     if isinstance(cmd, cabc.Sequence):
         typer.echo(f"$ {shlex.join(cmd)}")
+        timeout = run_kwargs.pop("timeout", None) if fg else None
+        if run_kwargs:
+            msg = "Sequence commands do not accept keyword arguments"
+            raise TypeError(msg)
+        if fg:
+            subprocess.run(list(cmd), check=True, timeout=timeout)  # noqa: S603
+            return 0
         return subprocess.check_call(list(cmd))  # noqa: S603
     args = cmd.formulate()
     typer.echo(f"$ {shlex.join(args)}")
     if fg:
+        timeout = run_kwargs.pop("timeout", None)
+        if timeout is not None:
+            if isinstance(cmd, SupportsRun):
+                run_kwargs.setdefault("stdout", None)
+                run_kwargs.setdefault("stderr", None)
+                from plumbum.commands.processes import (  # pyright: ignore[reportMissingTypeStubs]
+                    ProcessTimedOut,
+                )
+
+                try:
+                    cmd.run(timeout=timeout, **run_kwargs)
+                except ProcessTimedOut as exc:
+                    raise subprocess.TimeoutExpired(args, timeout) from exc
+                return 0
+            subprocess.run(list(args), check=True, timeout=timeout)  # noqa: S603
+            return 0
         if run_kwargs and isinstance(cmd, SupportsRunFg):
             cmd.run_fg(**run_kwargs)
             return 0

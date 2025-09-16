@@ -66,7 +66,35 @@ class StubManager:
         exit_code: int = 0,
         func: cabc.Callable[[cabc.Sequence[str]], int] | None = None,
     ) -> None:
-        """Register a new stub with either a variants list or single behaviour."""
+        """Register a new stub with either a variants list or single behaviour.
+
+        Parameters
+        ----------
+        name : str
+            Command name the stub should respond to.
+        variants : list[VariantSpec] | None, optional
+            Ordered behaviours to evaluate for the stub. Provide
+            ``VariantSpec`` dictionaries describing argument matches,
+            stdout/stderr text, and exit codes. When multiple entries omit a
+            ``match`` value, the first acts as the default and subsequent
+            defaults are ignored.
+        stdout : str, optional
+            Default standard-output text if ``variants`` is omitted.
+        stderr : str, optional
+            Default standard-error text if ``variants`` is omitted.
+        exit_code : int, optional
+            Default exit code if ``variants`` is omitted.
+        func : Callable[[Sequence[str]], int] or None, optional
+            Optional callback to execute when the stub is invoked. When
+            provided, the callback result takes precedence over variant exit
+            codes.
+
+        Returns
+        -------
+        None
+            This method mutates internal state and writes wrapper metadata to
+            disk.
+        """
         variant_specs: list[VariantSpec]
         if variants is None:
             variant_specs = [

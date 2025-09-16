@@ -150,5 +150,5 @@ def test_deb_package_installs() -> None:
                 store,
                 "/usr/bin/rust-toy-app",
             )
-            assert "Hello, world!" in result
+            assert "Hello, world!" in result, f"unexpected output: {result!r}"
             polythene_exec(polythene, uid, store, "dpkg", "-r", "rust-toy-app")

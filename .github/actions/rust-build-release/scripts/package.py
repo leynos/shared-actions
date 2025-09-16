@@ -60,7 +60,10 @@ def map_target_to_arch(target: str) -> str:
         return "s390x"
     if t.startswith(("loongarch64-", "loong64-")):
         return "loong64"
-    return "amd64"
+    typer.secho(
+        f"error: unsupported target triple: {target}", fg=typer.colors.RED, err=True
+    )
+    raise typer.Exit(2)
 
 
 def infer_section(path: Path, default: str) -> str:

@@ -25,7 +25,7 @@ This pipeline is composed of three core, best-in-class tools:
    a `clap`-based CLI definition. It is integrated into the build process via a
    `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
-3. **nFPM with a Python wrapper**: Packages prebuilt binaries and generated
+3. **nfpm with a Python wrapper**: Packages prebuilt binaries and generated
    man pages into Linux distribution formats like `.deb` and `.rpm` without a
    separate configuration file.
 
@@ -195,7 +195,7 @@ sequenceDiagram
   deactivate Cargo
 ```
 
-### 3.2 Release Stage: Declarative Packaging with nFPM
+### 3.2 Release Stage: Declarative Packaging with nfpm
 
 A small Python script renders an `nfpm.yaml` configuration and runs `nfpm` for each target format. The release job downloads all artifacts and invokes this script; separate steps can handle different package formats.
 

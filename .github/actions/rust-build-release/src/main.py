@@ -32,7 +32,30 @@ def main(
         "1.89.0", envvar="RBR_TOOLCHAIN", help="Rust toolchain version"
     ),
 ) -> None:
-    """Build the project for *target* using *toolchain*."""
+    """Build the project for *target* using *toolchain*.
+
+    Parameters
+    ----------
+    target : str
+        Rust target triple to compile. When empty, the value falls back to the
+        ``RBR_TARGET`` environment variable.
+    toolchain : str
+        Rust toolchain channel (for example ``"1.89.0"``) used when invoking
+        ``cargo`` or ``cross``.
+
+    Returns
+    -------
+    None
+        Exits the process with a non-zero status when prerequisites are
+        missing or compilation fails.
+
+    Examples
+    --------
+    Run the command line interface to build a Linux binary:
+
+    >>> # from a shell
+    >>> uv run src/main.py x86_64-unknown-linux-gnu
+    """
     if not target:
         target = os.environ.get("RBR_TARGET", "")
     if not target:

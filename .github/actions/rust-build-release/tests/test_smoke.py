@@ -24,9 +24,9 @@ container_available = (
     else (shutil.which("docker") is not None or shutil.which("podman") is not None)
 )
 if engine and not container_available:
-    print(
-        f"Warning: CROSS_CONTAINER_ENGINE={engine} specified but not found",
-        file=sys.stderr,
+    pytest.skip(
+        f"CROSS_CONTAINER_ENGINE={engine} specified but not found",
+        allow_module_level=True,
     )
 targets = ["x86_64-unknown-linux-gnu"]
 if container_available:

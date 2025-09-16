@@ -4,6 +4,7 @@
 
 - Add `workspaces` input and forward it to `Swatinem/rust-cache`.
 - Validate workspace mappings so misconfigured caches fail fast.
+- Leaving `workspaces` empty uses rust-cache’s default mapping `. -> target`.
 
 ## v1.0.12 - 2025-07-26
 

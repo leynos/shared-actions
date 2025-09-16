@@ -8,6 +8,10 @@ inputs:
     description: Path to the Rust project to build
     required: false
     default: .
+  bin-name:
+    description: Name of the binary to stage and package
+    required: false
+    default: rust-toy-app
   version:
     description: Package version (e.g. 0.1.0)
     required: true
@@ -66,15 +70,15 @@ runs:
             exit 1
             ;;
         esac
-        mkdir -p "dist/rust-toy-app_${os}_${arch}"
-        bin_src="target/${{ inputs.target }}/release/rust-toy-app"
+        mkdir -p "dist/${{ inputs.bin-name }}_${os}_${arch}"
+        bin_src="target/${{ inputs.target }}/release/${{ inputs.bin-name }}"
         if [[ ! -f "${bin_src}" ]]; then
           echo "::error:: binary not found at ${bin_src}"
           exit 1
         fi
         mapfile -d '' -t man_matches < <(
           find "target/${{ inputs.target }}/release/build" \
-            -path "*/out/rust-toy-app.1" \
+            -path "*/out/${{ inputs.bin-name }}.1" \
             -type f -print0
         )
         if [[ ${#man_matches[@]} -eq 0 ]]; then
@@ -93,8 +97,8 @@ runs:
           echo "::error:: located man page ${man_path} is not a file"
           exit 1
         fi
-        install -Dm755 "${bin_src}" "dist/rust-toy-app_${os}_${arch}/rust-toy-app"
-        install -Dm644 "${man_path}" "dist/rust-toy-app_${os}_${arch}/rust-toy-app.1"
+        install -Dm755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
+        install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
     - name: Package with nfpm
       shell: bash
       working-directory: ${{ inputs.project-dir }}
@@ -112,14 +116,14 @@ runs:
             exit 1
             ;;
         esac
-        man_path="dist/rust-toy-app_linux_${arch}/rust-toy-app.1"
+        man_path="dist/${{ inputs.bin-name }}_linux_${arch}/${{ inputs.bin-name }}.1"
         if [[ ! -f "${man_path}" ]]; then
           echo "::error:: missing man page ${man_path}"
           exit 1
         fi
         uv run "${{ github.action_path }}/scripts/package.py" \
-          --name rust-toy-app \
-          --bin-name rust-toy-app \
+          --name "${{ inputs.bin-name }}" \
+          --bin-name "${{ inputs.bin-name }}" \
           --target "${{ inputs.target }}" \
           --version "${{ inputs.version }}" \
           --formats "deb" \

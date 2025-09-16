@@ -76,7 +76,7 @@ def generate_uuid() -> str:
 # -------------------- Image export (“pull”) --------------------
 
 
-def export_rootfs(image: str, dest: Path) -> None:
+def export_rootfs(image: str, dest: Path, *, timeout: int | None = None) -> None:
     """Export a container image filesystem to dest/ via podman create+export."""
     podman = get_command("podman")
     tar = get_command("tar")
@@ -84,7 +84,7 @@ def export_rootfs(image: str, dest: Path) -> None:
     # Pull explicitly (keeps exec fully offline later)
     log(f"Pulling {image} …")
     try:
-        run_cmd(podman["pull", image], fg=True)
+        run_cmd(podman["pull", image], fg=True, timeout=timeout)
     except ProcessExecutionError as exc:
         typer.secho(
             f"Failed to pull image {image}: {exc}",
@@ -97,7 +97,14 @@ def export_rootfs(image: str, dest: Path) -> None:
 
     # Create a stopped container to export its rootfs
     try:
-        cid = run_cmd(podman["create", "--pull=never", image, "true"]).strip()
+        create_result = run_cmd(
+            podman["create", "--pull=never", image, "true"],
+            timeout=timeout,
+        )
+        cid_output = (
+            create_result[1] if isinstance(create_result, tuple) else create_result
+        )
+        cid = str(cid_output).strip()
     except ProcessExecutionError as exc:
         typer.secho(
             f"Failed to create container from {image}: {exc}",
@@ -112,10 +119,11 @@ def export_rootfs(image: str, dest: Path) -> None:
         run_cmd(
             (podman["export", cid] | tar["-C", str(dest), "-x"]),
             fg=True,
+            timeout=timeout,
         )
     finally:
         try:
-            run_cmd(podman["rm", cid], fg=True)
+            run_cmd(podman["rm", cid], fg=True, timeout=timeout)
         except ProcessExecutionError:
             pass
 
@@ -211,6 +219,11 @@ def _run_with_tool(
     ensure_dirs: bool = True,
     timeout: int | None = None,
 ) -> int | None:
+    """Probe *tool_name* and execute *inner_cmd*, returning its exit status.
+
+    Non-zero exits propagate to callers as ``typer.Exit(retcode)`` via the
+    surrounding ``cmd_exec`` handler.
+    """
     if ensure_dirs:
         _ensure_dirs(root)
 
@@ -222,8 +235,8 @@ def _run_with_tool(
 
     log(f"Executing via {tool_name}")
     exec_cmd = tool_cmd[tuple(exec_args_fn(inner_cmd))]
-    run_cmd(exec_cmd, fg=True, timeout=timeout)
-    return 0
+    result = run_cmd(exec_cmd, fg=True, timeout=timeout)
+    return int(result) if result is not None else 0
 
 
 def run_with_bwrap(
@@ -353,6 +366,12 @@ def cmd_pull(
         dir_okay=True,
         file_okay=False,
     ),
+    timeout: int | None = typer.Option(
+        None,
+        "--timeout",
+        "-t",
+        help="Timeout in seconds for pull and export commands",
+    ),
 ) -> None:
     """
     Pull IMAGE and export its filesystem into a new UUIDv7 directory under STORE.
@@ -362,12 +381,12 @@ def cmd_pull(
     uid = generate_uuid()
     root = store_path_for(uid, store)
     try:
-        export_rootfs(image, root)
+        export_rootfs(image, root, timeout=timeout)
     except FileExistsError:
         # Incredibly unlikely with v7; regenerate once
         uid = generate_uuid()
         root = store_path_for(uid, store)
-        export_rootfs(image, root)
+        export_rootfs(image, root, timeout=timeout)
 
     # Ensure minimal dirs for later exec
     _ensure_dirs(root)

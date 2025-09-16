@@ -329,6 +329,8 @@ jobs:
   triple.
 - Workflows select the crate to build via a `project-dir` input because
   `uses:` steps cannot set a `working-directory`.
+- Callers can override the packaged executable via a `bin-name` input so the
+  action stages and ships non-default binaries without modification.
 - CI executes the action against the `rust-toy-app` crate for the
   `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` targets,
   validating both the release binary and man page outputs.

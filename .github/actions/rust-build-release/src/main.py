@@ -84,6 +84,7 @@ def main(
     )
     installed = result.stdout.splitlines()
     toolchain_channel = toolchain.split("-", 1)[0]
+    toolchain_spec = toolchain if "-" in toolchain else toolchain_channel
     if "-" in toolchain and len(toolchain.split("-")) > 1:
         if not any(toolchain in line for line in installed):
             typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
@@ -159,7 +160,7 @@ def main(
             typer.echo("cross not installed; using cargo")
 
     cmd = local["cross" if use_cross else "cargo"][
-        f"+{toolchain_channel}", "build", "--release", "--target", target
+        f"+{toolchain_spec}", "build", "--release", "--target", target
     ]
     try:
         run_cmd(cmd)
@@ -174,7 +175,7 @@ def main(
         if fallback_reason:
             typer.echo(f"cross failed to {fallback_reason}; falling back to cargo")
             fallback = local["cargo"][
-                f"+{toolchain_channel}", "build", "--release", "--target", target
+                f"+{toolchain_spec}", "build", "--release", "--target", target
             ]
             run_cmd(fallback)
         else:

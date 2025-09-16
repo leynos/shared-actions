@@ -10,7 +10,7 @@ MDLINT ?= markdownlint
 NIXIE ?= nixie
 
 test: .venv ## Run tests
-	uv run pytest
+	uv run pytest -v
 
 .venv:
 	uv venv

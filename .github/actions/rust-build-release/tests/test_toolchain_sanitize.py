@@ -35,6 +35,7 @@ def run_script(
         return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
+@pytest.mark.usefixtures("uncapture_if_verbose")
 def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"

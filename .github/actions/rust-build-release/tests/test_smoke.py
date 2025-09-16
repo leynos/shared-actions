@@ -51,6 +51,7 @@ def run_script(
         return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
+@pytest.mark.usefixtures("uncapture_if_verbose")
 @pytest.mark.parametrize("target", targets)
 def test_action_builds_release_binary_and_manpage(target: str) -> None:
     """The build script produces a release binary and man page."""

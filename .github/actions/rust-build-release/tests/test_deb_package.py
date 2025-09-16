@@ -26,6 +26,7 @@ def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
     return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
 
 
+@pytest.mark.usefixtures("uncapture_if_verbose")
 @pytest.mark.skipif(
     sys.platform == "win32"
     or shutil.which("dpkg-deb") is None

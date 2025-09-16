@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import collections.abc as cabc  # noqa: TC003 - used at runtime
+import collections.abc as cabc  # noqa: TC003 - FIXME: used at runtime
 import dataclasses as dc
 import json
 import os
-from pathlib import Path  # noqa: TC003 - used at runtime
+from pathlib import Path  # noqa: TC003 - FIXME: used at runtime
 import typing as t
 
 
@@ -30,7 +30,25 @@ class Variant:
 
 
 class VariantSpec(t.TypedDict, total=False):
-    """Dictionary form of :class:`Variant` accepted when registering stubs."""
+    """Dictionary form of :class:`Variant` accepted when registering stubs.
+
+    Keys
+    ----
+    match : Sequence[str] or None, optional
+        Exact argument vector that should trigger the variant. ``None`` marks
+        the default behaviour when no other variant matches. When multiple
+        entries omit ``match``, the first default supplied during registration
+        wins.
+    stdout, stderr : str
+        Text to emit to the respective streams when the variant applies.
+    exit_code : int
+        Exit status to return after emitting the configured output.
+
+    Examples
+    --------
+    >>> VariantSpec(match=None, stdout="ok", stderr="", exit_code=0)
+    {'match': None, 'stdout': 'ok', 'stderr': '', 'exit_code': 0}
+    """
 
     match: cabc.Sequence[str] | None
     stdout: str
@@ -120,7 +138,7 @@ class StubManager:
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
         payload = {"variants": [dc.asdict(v) for v in parsed]}
-        spec_file.write_text(json.dumps(payload), encoding="utf-8")
+        spec_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         if os.name == "nt":
             import sys  # localise import for Windows launcher
 

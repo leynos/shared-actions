@@ -35,7 +35,7 @@ import shlex
 import sys
 import time
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable
 
 import typer
 from plumbum.commands.base import BaseCommand
@@ -139,7 +139,7 @@ def _ensure_dirs(root: Path) -> None:
         ensure_directory(root / sub)
 
 
-def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> List[str]:
+def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
         # Quick probe: this tests unpriv userns availability (or setuid bwrap handles it).
@@ -166,11 +166,11 @@ def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> List[str]:
 
 def _probe_bwrap_proc(
     bwrap,
-    base_flags: List[str],
+    base_flags: list[str],
     root: Path,
     *,
     timeout: int | None,
-) -> List[str]:
+) -> list[str]:
     """Return ['--proc', '/proc'] if allowed; else []."""
     try:
         cmd = bwrap[
@@ -193,7 +193,7 @@ def _build_bwrap_flags(
     root: Path,
     *,
     timeout: int | None,
-) -> tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     userns_flags = _probe_bwrap_userns(bwrap, root, timeout=timeout)
     base_flags = [*userns_flags, "--unshare-pid", "--unshare-ipc", "--unshare-uts"]
     proc_flags = _probe_bwrap_proc(bwrap, base_flags, root, timeout=timeout)
@@ -205,12 +205,12 @@ def _run_with_tool(
     inner_cmd: str,
     tool_name: str,
     tool_cmd: BaseCommand,
-    probe_args: List[str],
-    exec_args_fn: Callable[[str], List[str]],
+    probe_args: list[str],
+    exec_args_fn: Callable[[str], list[str]],
     *,
     ensure_dirs: bool = True,
     timeout: int | None = None,
-) -> Optional[int]:
+) -> int | None:
     if ensure_dirs:
         _ensure_dirs(root)
 
@@ -228,7 +228,7 @@ def _run_with_tool(
 
 def run_with_bwrap(
     root: Path, inner_cmd: str, timeout: int | None = None
-) -> Optional[int]:
+) -> int | None:
     try:
         bwrap = get_command("bwrap")
     except typer.Exit:
@@ -253,7 +253,7 @@ def run_with_bwrap(
         "true",
     ]
 
-    def exec_args(cmd: str) -> List[str]:
+    def exec_args(cmd: str) -> list[str]:
         return [
             *base_flags,
             "--bind",
@@ -285,7 +285,7 @@ def run_with_bwrap(
 
 def run_with_proot(
     root: Path, inner_cmd: str, timeout: int | None = None
-) -> Optional[int]:
+) -> int | None:
     try:
         proot = get_command("proot")
     except typer.Exit:
@@ -293,7 +293,7 @@ def run_with_proot(
 
     probe_args = ["-R", str(root), "-0", "/bin/sh", "-c", "true"]
 
-    def exec_args(cmd: str) -> List[str]:
+    def exec_args(cmd: str) -> list[str]:
         return ["-R", str(root), "-0", "/bin/sh", "-lc", cmd]
 
     return _run_with_tool(
@@ -309,7 +309,7 @@ def run_with_proot(
 
 def run_with_chroot(
     root: Path, inner_cmd: str, timeout: int | None = None
-) -> Optional[int]:
+) -> int | None:
     try:
         chroot = get_command("chroot")
     except typer.Exit:
@@ -317,7 +317,7 @@ def run_with_chroot(
 
     probe_args = [str(root), "/bin/sh", "-c", "true"]
 
-    def exec_args(cmd: str) -> List[str]:
+    def exec_args(cmd: str) -> list[str]:
         return [
             str(root),
             "/bin/sh",
@@ -380,7 +380,7 @@ def cmd_exec(
     uuid: str = typer.Argument(
         ..., help="UUID of the exported filesystem (from `polythene pull`)"
     ),
-    cmd: List[str] = typer.Argument(
+    cmd: list[str] = typer.Argument(
         ..., help="Command and arguments to execute inside the rootfs"
     ),
     store: Path = typer.Option(
@@ -391,7 +391,7 @@ def cmd_exec(
         dir_okay=True,
         file_okay=False,
     ),
-    timeout: Optional[int] = typer.Option(
+    timeout: int | None = typer.Option(
         None,
         "--timeout",
         "-t",

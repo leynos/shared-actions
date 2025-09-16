@@ -164,10 +164,15 @@ def main(
     try:
         run_cmd(cmd)
     except ProcessExecutionError as exc:
-        if use_cross and exc.retcode in {125, 126}:
-            typer.echo(
-                "cross failed to launch the container runtime; falling back to cargo"
-            )
+        fallback_reason = None
+        if use_cross:
+            stderr_text = getattr(exc, "stderr", "") or ""
+            if exc.retcode in {125, 126}:
+                fallback_reason = "launch the container runtime"
+            elif "could not get os and arch" in stderr_text:
+                fallback_reason = "detect the container platform"
+        if fallback_reason:
+            typer.echo(f"cross failed to {fallback_reason}; falling back to cargo")
             fallback = local["cargo"][
                 f"+{toolchain_channel}", "build", "--release", "--target", target
             ]

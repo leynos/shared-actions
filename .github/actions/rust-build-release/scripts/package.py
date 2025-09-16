@@ -25,20 +25,38 @@ from __future__ import annotations
 import gzip
 import re
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import typer
 import yaml
-from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
-from script_utils import ensure_directory, ensure_exists, run_cmd
+from script_utils import ensure_directory, ensure_exists, get_command, run_cmd
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 SECTION_RE = re.compile(
     r"\.(\d[\w-]*)($|\.gz$)"
 )  # captures e.g. ".1", ".1p", ".8r", with/without .gz
+
+
+class OctalInt(int):
+    """Integer subclass that renders as a zero-padded octal literal."""
+
+    def __new__(cls, value: int, *, width: int = 4) -> "OctalInt":
+        obj = super().__new__(cls, value)
+        obj._octal_width = width
+        return obj
+
+
+def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode:
+    width = getattr(data, "_octal_width", 4)
+    return dumper.represent_scalar(
+        "tag:yaml.org,2002:int", format(int(data), f"0{width}o")
+    )
+
+
+yaml.SafeDumper.add_representer(OctalInt, _represent_octal_int)
 
 
 def map_target_to_arch(target: str) -> str:
@@ -95,16 +113,44 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
     return gz_path
 
 
+def normalise_file_modes(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert string ``mode`` values to octal-preserving integers."""
+
+    normalised: list[dict[str, Any]] = []
+    for entry in entries:
+        new_entry = dict(entry)
+        file_info = entry.get("file_info")
+        if file_info:
+            new_info = dict(file_info)
+            mode = new_info.get("mode")
+            if isinstance(mode, str):
+                cleaned = mode.strip()
+                try:
+                    value = int(cleaned, 8)
+                except ValueError as exc:
+                    target_desc = new_entry.get("dst") or new_entry.get("src", "entry")
+                    typer.secho(
+                        f"error: invalid file mode '{mode}' for {target_desc}",
+                        fg=typer.colors.RED,
+                        err=True,
+                    )
+                    raise typer.Exit(2) from exc
+                new_info["mode"] = OctalInt(value, width=len(cleaned))
+            new_entry["file_info"] = new_info
+        normalised.append(new_entry)
+    return normalised
+
+
 def build_man_entries(
-    man_sources: List[Path],
+    man_sources: list[Path],
     default_section: str,
     stage_dir: Path,
-) -> List[dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return nFPM ``contents`` entries for the provided man pages."""
     if not man_sources:
         return []
 
-    entries: List[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     stage = ensure_directory(stage_dir)
     for src in man_sources:
         ensure_exists(src, "manpage not found")
@@ -117,7 +163,7 @@ def build_man_entries(
             {
                 "src": gz.as_posix(),
                 "dst": dest_dir,
-                "file_info": {"mode": 0o644},
+                "file_info": {"mode": "0644"},
             }
         )
     return entries
@@ -152,10 +198,10 @@ def main(
     license_: str = typer.Option("MIT", "--license"),
     section: str = typer.Option("utils", "--section"),
     description: str = typer.Option("A fast toy app written in Rust.", "--description"),
-    deb_depends: List[str] = typer.Option(
+    deb_depends: list[str] | None = typer.Option(
         None, "--deb-depends", help="Repeatable. Debian runtime deps."
     ),
-    rpm_depends: List[str] = typer.Option(
+    rpm_depends: list[str] | None = typer.Option(
         None, "--rpm-depends", help="Repeatable. RPM runtime deps."
     ),
     binary_dir: Path = typer.Option(
@@ -167,7 +213,7 @@ def main(
         help="Path to write generated nfpm.yaml.",
     ),
     # Manpage bits:
-    man: List[Path] = typer.Option(
+    man: list[Path] | None = typer.Option(
         None,
         "--man",
         help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
@@ -188,11 +234,11 @@ def main(
     ensure_directory(config_out.parent)
 
     license_file = Path("LICENSE")
-    contents: List[dict[str, Any]] = [
+    contents: list[dict[str, Any]] = [
         {
             "src": bin_path.as_posix(),
             "dst": f"/usr/bin/{bin_name}",
-            "file_info": {"mode": 0o755},
+            "file_info": {"mode": "0755"},
         }
     ]
     if license_file.exists():
@@ -200,7 +246,7 @@ def main(
             {
                 "src": license_file.as_posix(),
                 "dst": f"/usr/share/doc/{name}/copyright",
-                "file_info": {"mode": 0o644},
+                "file_info": {"mode": "0644"},
             }
         )
 
@@ -222,7 +268,7 @@ def main(
         "homepage": homepage,
         "license": license_,
         "description": description,
-        "contents": contents,
+        "contents": normalise_file_modes(contents),
         "overrides": {
             "deb": {"depends": deb_requires},
             "rpm": {"depends": rpm_requires},
@@ -236,19 +282,19 @@ def main(
     typer.secho(f"Wrote {config_out}", fg=typer.colors.GREEN)
 
     # Ensure nfpm is available.
-    try:
-        nfpm = local["nfpm"]
-    except Exception as e:  # noqa: BLE001
-        typer.secho(
-            "error: nfpm not found in PATH. Install it first.",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(127) from e
+    nfpm = get_command("nfpm")
 
     # Run nfpm for each requested format.
+    formats_list = [s.strip() for s in formats.split(",") if s.strip()]
+    if not formats_list:
+        typer.secho(
+            "error: no packaging formats provided", fg=typer.colors.RED, err=True
+        )
+        raise typer.Exit(2)
+
     rc_any = 0
-    for fmt in [s.strip() for s in formats.split(",") if s.strip()]:
+    single_format = len(formats_list) == 1
+    for fmt in formats_list:
         typer.echo(f"→ nfpm package -p {fmt} -f {config_out} -t {outdir}/")
         try:
             run_cmd(
@@ -263,12 +309,14 @@ def main(
                 ]
             )
         except ProcessExecutionError as pe:
-            rc_any = rc_any or pe.retcode
             typer.secho(
                 f"nfpm failed for format '{fmt}' (exit {pe.retcode})",
                 fg=typer.colors.RED,
                 err=True,
             )
+            if single_format:
+                raise typer.Exit(pe.retcode) from pe
+            rc_any = rc_any or pe.retcode
         else:
             typer.secho(f"✓ built {fmt} packages in {outdir}", fg=typer.colors.GREEN)
 

@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_workspaces.py"
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
@@ -21,7 +23,7 @@ def run_validator(workspaces: str) -> subprocess.CompletedProcess[str]:
     env["INPUT_WORKSPACES"] = workspaces
     uv_path = shutil.which("uv")
     if uv_path is None:
-        raise FileNotFoundError(UV_NOT_FOUND_MESSAGE)
+        pytest.skip(UV_NOT_FOUND_MESSAGE)
     return subprocess.run(  # noqa: S603
         [uv_path, "run", "--script", str(SCRIPT_PATH)],
         capture_output=True,
@@ -36,15 +38,22 @@ def test_accepts_empty_input() -> None:
     """Blank input is allowed and uses the default mapping."""
     result = run_validator("")
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert result.stderr.strip() == ""
 
 
 def test_accepts_valid_mappings() -> None:
     """Valid mappings pass through without errors."""
-    mappings = "\n".join([". -> target", "# comment", "crate -> target/debug"])
+    mappings = "\n".join(
+        [
+            ". -> target",
+            "# comment",
+            "crate -> target/debug",
+            ". -> target  # inline comment",
+        ]
+    )
     result = run_validator(mappings)
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert result.stderr.strip() == ""
 
 
 def test_requires_arrow_separator() -> None:

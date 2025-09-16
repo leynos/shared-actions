@@ -15,9 +15,17 @@ def _error(message: str) -> int:
     return 1
 
 
+def _strip_inline_comment(text: str) -> str:
+    """Remove inline comments introduced with ``#`` and return the remainder."""
+    for idx, char in enumerate(text):
+        if char == "#" and (idx == 0 or text[idx - 1].isspace()):
+            return text[:idx].rstrip()
+    return text
+
+
 def _validate_line(line: str, line_no: int) -> int:
     """Validate a single mapping line and return an exit status."""
-    stripped = line.strip()
+    stripped = _strip_inline_comment(line.strip())
     if not stripped or stripped.startswith("#"):
         return 0
 

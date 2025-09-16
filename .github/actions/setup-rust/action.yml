@@ -13,7 +13,8 @@ inputs:
   workspaces:
     description: >
       Cargo workspaces to cache with Swatinem/rust-cache. Each entry has the
-      form "$workspace -> $target" and defaults to ". -> target".
+      form "$workspace -> $target". Leave empty to use rust-cache’s default
+      (". -> target").
     required: false
     default: ""
   install-sqlite-deps:

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
-import tempfile
-import sys
+import contextlib
 import os
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -128,27 +129,37 @@ def test_deb_package_installs() -> None:
             root = Path(store) / uid
             shutil.copy(deb, root / deb.name)
             polythene_exec(polythene, uid, store, "dpkg", "-i", deb.name)
-            polythene_exec(
-                polythene,
-                uid,
-                store,
-                "test",
-                "-x",
-                "/usr/bin/rust-toy-app",
-            )
-            polythene_exec(
-                polythene,
-                uid,
-                store,
-                "test",
-                "-f",
-                "/usr/share/man/man1/rust-toy-app.1.gz",
-            )
-            result = polythene_exec(
-                polythene,
-                uid,
-                store,
-                "/usr/bin/rust-toy-app",
-            )
-            assert "Hello, world!" in result, f"unexpected output: {result!r}"
-            polythene_exec(polythene, uid, store, "dpkg", "-r", "rust-toy-app")
+            try:
+                polythene_exec(
+                    polythene,
+                    uid,
+                    store,
+                    "test",
+                    "-x",
+                    "/usr/bin/rust-toy-app",
+                )
+                polythene_exec(
+                    polythene,
+                    uid,
+                    store,
+                    "test",
+                    "-f",
+                    "/usr/share/man/man1/rust-toy-app.1.gz",
+                )
+                result = polythene_exec(
+                    polythene,
+                    uid,
+                    store,
+                    "/usr/bin/rust-toy-app",
+                )
+                assert "Hello, world!" in result, f"unexpected output: {result!r}"
+            finally:
+                with contextlib.suppress(Exception):
+                    polythene_exec(
+                        polythene,
+                        uid,
+                        store,
+                        "dpkg",
+                        "-r",
+                        "rust-toy-app",
+                    )

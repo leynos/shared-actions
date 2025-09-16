@@ -72,13 +72,20 @@ runs:
           echo "::error:: binary not found at ${bin_src}"
           exit 1
         fi
-        mapfile -t man_matches < <(find "target/${{ inputs.target }}/release/build" -path "*/out/rust-toy-app.1" -print)
+        mapfile -d '' -t man_matches < <(
+          find "target/${{ inputs.target }}/release/build" \
+            -path "*/out/rust-toy-app.1" \
+            -type f -print0
+        )
         if [[ ${#man_matches[@]} -eq 0 ]]; then
           echo "::error:: man page not found under target/${{ inputs.target }}/release/build/*/out/"
           exit 1
         fi
         if [[ ${#man_matches[@]} -gt 1 ]]; then
           echo "::error:: expected exactly one man page, found ${#man_matches[@]}"
+          for match in "${man_matches[@]}"; do
+            echo "::error::   ${match}"
+          done
           exit 1
         fi
         man_path="${man_matches[0]}"

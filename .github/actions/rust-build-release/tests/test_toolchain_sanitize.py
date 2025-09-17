@@ -40,14 +40,17 @@ def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
-    existing = subprocess.run(
-        ["rustup", "toolchain", "list"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    if "1.89.0" not in existing:
-        run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
+    run_cmd(
+        [
+            "rustup",
+            "toolchain",
+            "install",
+            "1.89.0",
+            "--profile",
+            "minimal",
+            "--no-self-update",
+        ]
+    )
     res = run_script(
         script,
         "x86_64-unknown-linux-gnu",

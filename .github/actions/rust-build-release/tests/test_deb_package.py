@@ -26,6 +26,27 @@ def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
     return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
 
 
+def deb_arch_for_target(target: str) -> str:
+    """Return the nfpm architecture label for *target*.
+
+    Parameters
+    ----------
+    target : str
+        Rust target triple used for the build.
+
+    Returns
+    -------
+    str
+        Architecture token recognised by nfpm.
+    """
+    lowered = target.lower()
+    if lowered.startswith(("x86_64-", "x86_64_")):
+        return "amd64"
+    if lowered.startswith(("aarch64-", "arm64-")):
+        return "arm64"
+    return "amd64"
+
+
 @pytest.mark.usefixtures("uncapture_if_verbose")
 @pytest.mark.skipif(
     sys.platform == "win32"
@@ -79,7 +100,10 @@ def test_deb_package_installs() -> None:
                         "-m", "0755", Path(td) / "nfpm", tools_dir / "nfpm"
                     ]
                 )
-            os.environ["PATH"] = f"{tools_dir.as_posix()}:{os.environ.get('PATH', '')}"
+            path = os.environ.get("PATH", "")
+            prefix = f"{tools_dir.as_posix()}:"
+            if not path.startswith(prefix):
+                os.environ["PATH"] = f"{prefix}{path}"
         run_cmd(
             local["uv"][
                 "run",
@@ -98,7 +122,8 @@ def test_deb_package_installs() -> None:
                 man_src.as_posix(),
             ]
         )
-        deb = project_dir / "dist/rust-toy-app_0.1.0-1_amd64.deb"
+        deb_arch = deb_arch_for_target(target)
+        deb = project_dir / f"dist/rust-toy-app_0.1.0-1_{deb_arch}.deb"
         with tempfile.TemporaryDirectory() as td:
             run_cmd(local["dpkg-deb"]["-x", str(deb), td])
             bin_extracted = Path(td, "usr/bin/rust-toy-app")

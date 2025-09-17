@@ -35,36 +35,46 @@ import shlex
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 
 import typer
 from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-try:
+if TYPE_CHECKING:
     from .script_utils import ensure_directory, get_command, run_cmd
-except ImportError:  # pragma: no cover - fallback for direct execution
-    import importlib.util
-    import sys
-    from pathlib import Path
+else:
+    try:
+        from .script_utils import ensure_directory, get_command, run_cmd
+    except ImportError:  # pragma: no cover - fallback for direct execution
+        import importlib.util
+        import sys
+        from collections.abc import Callable
+        from pathlib import Path
+        from types import ModuleType
+        from typing import cast
 
-    _PKG_DIR = Path(__file__).resolve().parent
-    _PKG_NAME = "rust_build_release_scripts"
-    pkg_module = sys.modules.get(_PKG_NAME)
-    if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
-        _SPEC = importlib.util.spec_from_file_location(
-            _PKG_NAME, _PKG_DIR / "__init__.py"
+        _PKG_DIR = Path(__file__).resolve().parent
+        _PKG_NAME = "rust_build_release_scripts"
+        pkg_module = sys.modules.get(_PKG_NAME)
+        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+            spec = importlib.util.spec_from_file_location(
+                _PKG_NAME, _PKG_DIR / "__init__.py"
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError("Unable to load scripts package helper")
+            pkg_module = importlib.util.module_from_spec(spec)
+            sys.modules[_PKG_NAME] = pkg_module
+            spec.loader.exec_module(pkg_module)
+
+        load_sibling = cast(
+            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
         )
-        if _SPEC is None or _SPEC.loader is None:
-            raise ImportError("Unable to load scripts package helper")
-        pkg_module = importlib.util.module_from_spec(_SPEC)
-        sys.modules[_PKG_NAME] = pkg_module
-        _SPEC.loader.exec_module(pkg_module)
-    helpers = pkg_module.load_sibling("script_utils")
-    ensure_directory = helpers.ensure_directory
-    get_command = helpers.get_command
-    run_cmd = helpers.run_cmd
+        helpers = cast(Any, load_sibling("script_utils"))
+        ensure_directory = helpers.ensure_directory
+        get_command = helpers.get_command
+        run_cmd = helpers.run_cmd
 
 
 # -------------------- Configuration --------------------

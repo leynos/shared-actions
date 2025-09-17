@@ -25,40 +25,55 @@ from __future__ import annotations
 import gzip
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 
 import typer
 import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
-try:
+if TYPE_CHECKING:
     from .script_utils import (
         ensure_directory,
         ensure_exists,
         get_command,
         run_cmd,
     )
-except ImportError:  # pragma: no cover - fallback for direct execution
-    import importlib.util
-    import sys
-
-    _PKG_DIR = Path(__file__).resolve().parent
-    _PKG_NAME = "rust_build_release_scripts"
-    pkg_module = sys.modules.get(_PKG_NAME)
-    if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
-        _SPEC = importlib.util.spec_from_file_location(
-            _PKG_NAME, _PKG_DIR / "__init__.py"
+else:
+    try:
+        from .script_utils import (
+            ensure_directory,
+            ensure_exists,
+            get_command,
+            run_cmd,
         )
-        if _SPEC is None or _SPEC.loader is None:
-            raise ImportError("Unable to load scripts package helper")
-        pkg_module = importlib.util.module_from_spec(_SPEC)
-        sys.modules[_PKG_NAME] = pkg_module
-        _SPEC.loader.exec_module(pkg_module)
-    helpers = pkg_module.load_sibling("script_utils")
-    ensure_directory = helpers.ensure_directory
-    ensure_exists = helpers.ensure_exists
-    get_command = helpers.get_command
-    run_cmd = helpers.run_cmd
+    except ImportError:  # pragma: no cover - fallback for direct execution
+        import importlib.util
+        import sys
+        from collections.abc import Callable
+        from types import ModuleType
+        from typing import cast
+
+        _PKG_DIR = Path(__file__).resolve().parent
+        _PKG_NAME = "rust_build_release_scripts"
+        pkg_module = sys.modules.get(_PKG_NAME)
+        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+            spec = importlib.util.spec_from_file_location(
+                _PKG_NAME, _PKG_DIR / "__init__.py"
+            )
+            if spec is None or spec.loader is None:
+                raise ImportError("Unable to load scripts package helper")
+            pkg_module = importlib.util.module_from_spec(spec)
+            sys.modules[_PKG_NAME] = pkg_module
+            spec.loader.exec_module(pkg_module)
+
+        load_sibling = cast(
+            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
+        )
+        helpers = cast(Any, load_sibling("script_utils"))
+        ensure_directory = helpers.ensure_directory
+        ensure_exists = helpers.ensure_exists
+        get_command = helpers.get_command
+        run_cmd = helpers.run_cmd
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 

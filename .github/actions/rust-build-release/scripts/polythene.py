@@ -183,7 +183,7 @@ def _ensure_dirs(root: Path) -> None:
 
 
 def _probe_bwrap_userns(
-    bwrap: "BaseCommand", root: Path, *, timeout: int | None
+    bwrap: BaseCommand, root: Path, *, timeout: int | None
 ) -> list[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
@@ -210,7 +210,7 @@ def _probe_bwrap_userns(
 
 
 def _probe_bwrap_proc(
-    bwrap: "BaseCommand",
+    bwrap: BaseCommand,
     base_flags: list[str],
     root: Path,
     *,
@@ -234,7 +234,7 @@ def _probe_bwrap_proc(
 
 
 def _build_bwrap_flags(
-    bwrap: "BaseCommand",
+    bwrap: BaseCommand,
     root: Path,
     *,
     timeout: int | None,

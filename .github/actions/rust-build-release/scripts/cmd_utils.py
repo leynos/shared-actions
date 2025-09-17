@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-import typing as t
+import typing as typ
 from pathlib import Path
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     import collections.abc as cabc
     import types
 
@@ -47,7 +47,7 @@ def _load_cmd_utils_module() -> types.ModuleType:
     return module_obj
 
 
-def _getattr(module: types.ModuleType, attr: str) -> cabc.Callable[..., t.Any]:
+def _getattr(module: types.ModuleType, attr: str) -> cabc.Callable[..., typ.Any]:
     if not hasattr(module, attr):  # pragma: no cover - defensive
         raise CmdUtilsAttributeError(module.__name__, attr)
     return getattr(module, attr)

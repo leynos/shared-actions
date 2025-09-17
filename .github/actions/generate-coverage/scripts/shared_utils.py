@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import typing as t
+import typing as typ
 
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from pathlib import Path
 
 __all__ = ["read_previous_coverage"]

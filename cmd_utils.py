@@ -16,7 +16,7 @@ from __future__ import annotations
 import collections.abc as cabc
 import shlex
 import subprocess
-import typing as t
+import typing as typ
 
 import typer
 
@@ -32,8 +32,8 @@ class TimeoutConflictError(TypeError):
         super().__init__("timeout specified via parameter and run_kwargs")
 
 
-@t.runtime_checkable
-class SupportsFormulate(t.Protocol):
+@typ.runtime_checkable
+class SupportsFormulate(typ.Protocol):
     """Objects that expose a shell representation via ``formulate``."""
 
     def formulate(self) -> cabc.Sequence[str]:  # pragma: no cover - protocol
@@ -45,8 +45,8 @@ class SupportsFormulate(t.Protocol):
         ...
 
 
-@t.runtime_checkable
-class SupportsRun(t.Protocol):
+@typ.runtime_checkable
+class SupportsRun(typ.Protocol):
     """Commands that support ``run`` with keyword arguments."""
 
     def run(
@@ -55,16 +55,16 @@ class SupportsRun(t.Protocol):
         ...
 
 
-@t.runtime_checkable
-class SupportsRunFg(t.Protocol):
+@typ.runtime_checkable
+class SupportsRunFg(typ.Protocol):
     """Commands that expose ``run_fg`` for foreground execution."""
 
     def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
         ...
 
 
-@t.runtime_checkable
-class SupportsAnd(t.Protocol):
+@typ.runtime_checkable
+class SupportsAnd(typ.Protocol):
     """Commands that implement ``cmd & FG`` semantics."""
 
     def __and__(self, other: object) -> object:  # pragma: no cover - protocol
@@ -95,7 +95,7 @@ def _merge_timeout(timeout: float | None, run_kwargs: KwargDict) -> float | None
         if timeout is not None:
             raise TimeoutConflictError
         value = run_kwargs.pop("timeout")
-        return t.cast("float | None", value)
+        return typ.cast("float | None", value)
     return timeout
 
 

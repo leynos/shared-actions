@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import typing as t
+import typing as typ
 
 import pytest
 
-IteratorNone = t.Iterator[None]
+IteratorNone = typ.Iterator[None]
 
 
 @pytest.fixture

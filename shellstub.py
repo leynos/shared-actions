@@ -6,7 +6,7 @@ import collections.abc as cabc  # noqa: TC003  # NOTE: used at runtime
 import dataclasses as dc
 import json
 import os
-import typing as t
+import typing as typ
 from pathlib import Path  # noqa: TC003  # NOTE: used at runtime
 
 
@@ -29,7 +29,7 @@ class Variant:
     exit_code: int = 0
 
 
-class VariantSpec(t.TypedDict, total=False):
+class VariantSpec(typ.TypedDict, total=False):
     """Dictionary form of :class:`Variant` accepted when registering stubs.
 
     Keys
@@ -178,7 +178,7 @@ class StubManager:
         calls_file = str(self._calls_file)
         spec_file = str(spec_path)
         return f"""#!/usr/bin/env python3
-import importlib, json, os, sys, datetime as _dt
+import importlib, json, os, sys, datetime as dt
 
 mgr = importlib.import_module('shellstub')._GLOBAL_MANAGER
 func = None
@@ -195,7 +195,7 @@ rec = {{
     "cmd": {name!r},
     "argv": argv,
     "cwd": os.getcwd(),
-    "ts": _dt.datetime.utcnow().isoformat() + 'Z',
+    "ts": dt.datetime.utcnow().isoformat() + 'Z',
 }}
 with open(calls_file, 'a') as fh:
     json.dump(rec, fh)

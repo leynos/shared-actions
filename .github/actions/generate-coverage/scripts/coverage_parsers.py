@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import re
-import typing as t
+import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
 
 import typer
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ROUND_HALF_UP ensures we report the same values as the tool's summary.
 QUANT = Decimal("0.01")
 
-if t.TYPE_CHECKING:  # pragma: no cover - import for type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - import for type hints only
     from pathlib import Path
 
 

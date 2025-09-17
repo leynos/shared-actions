@@ -26,14 +26,14 @@ from __future__ import annotations
 import gzip
 import re
 import types
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import typer
 import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from .script_utils import (
         ensure_directory,
         ensure_exists,
@@ -70,10 +70,10 @@ else:
             spec.loader.exec_module(module)
             pkg_module = module
 
-        load_sibling = t.cast(
-            "t.Callable[[str], types.ModuleType]", pkg_module.load_sibling
+        load_sibling = typ.cast(
+            "typ.Callable[[str], types.ModuleType]", pkg_module.load_sibling
         )
-        helpers = t.cast("t.Any", load_sibling("script_utils"))
+        helpers = typ.cast("typ.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
@@ -160,9 +160,9 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
     return gz_path
 
 
-def normalise_file_modes(entries: list[dict[str, t.Any]]) -> list[dict[str, t.Any]]:
+def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, typ.Any]]:
     """Convert string ``mode`` values to octal-preserving integers."""
-    normalised: list[dict[str, t.Any]] = []
+    normalised: list[dict[str, typ.Any]] = []
     for entry in entries:
         new_entry = dict(entry)
         file_info = entry.get("file_info")
@@ -191,12 +191,12 @@ def build_man_entries(
     man_sources: list[Path],
     default_section: str,
     stage_dir: Path,
-) -> list[dict[str, t.Any]]:
+) -> list[dict[str, typ.Any]]:
     """Return nFPM ``contents`` entries for the provided man pages."""
     if not man_sources:
         return []
 
-    entries: list[dict[str, t.Any]] = []
+    entries: list[dict[str, typ.Any]] = []
     stage = ensure_directory(stage_dir)
     for src in man_sources:
         ensure_exists(src, "manpage not found")
@@ -306,7 +306,7 @@ def main(
     ensure_directory(config_out.parent)
 
     license_file = Path("LICENSE")
-    contents: list[dict[str, t.Any]] = [
+    contents: list[dict[str, typ.Any]] = [
         {
             "src": bin_path.as_posix(),
             "dst": f"/usr/bin/{bin_name}",
@@ -328,7 +328,7 @@ def main(
     deb_requires = list(deb_depends or [])
     rpm_requires = list(rpm_depends) if rpm_depends else list(deb_requires)
 
-    config: dict[str, t.Any] = {
+    config: dict[str, typ.Any] = {
         "name": name,
         "arch": arch_val,
         "platform": "linux",

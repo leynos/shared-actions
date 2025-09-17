@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import typer
@@ -19,7 +19,7 @@ from plumbum.cmd import python
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from plumbum.commands.base import BoundCommand
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")

@@ -154,7 +154,10 @@ def test_deb_package_installs() -> None:
             try:
                 polythene_exec(polythene, uid, store, "true")
             except (ProcessExecutionError, typer.Exit):
-                pytest.skip("isolation unavailable")
+                pytest.skip(
+                    "podman-based isolation unavailable (polythene exec failed). "
+                    "Ensure rootless Podman is installed and operational."
+                )
 
             root = Path(store) / uid
             shutil.copy(deb, root / deb.name)

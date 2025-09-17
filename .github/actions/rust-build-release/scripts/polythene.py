@@ -38,14 +38,14 @@ import sys
 import tempfile
 import time
 import types
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import typer
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
 
     from .script_utils import ensure_directory, get_command, run_cmd
@@ -74,10 +74,10 @@ else:
             spec.loader.exec_module(module)
             pkg_module = module
 
-        load_sibling = t.cast(
-            "t.Callable[[str], types.ModuleType]", pkg_module.load_sibling
+        load_sibling = typ.cast(
+            "typ.Callable[[str], types.ModuleType]", pkg_module.load_sibling
         )
-        helpers = t.cast("t.Any", load_sibling("script_utils"))
+        helpers = typ.cast("typ.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
@@ -100,7 +100,7 @@ os.environ.setdefault("CONTAINERS_EVENTS_BACKEND", "file")
 
 app = typer.Typer(add_completion=False, help="polythene — Temu podman for Codex")
 
-ExecArgsFn = t.Callable[[str], list[str]]
+ExecArgsFn = typ.Callable[[str], list[str]]
 
 IMAGE_ARGUMENT = typer.Argument(
     ..., help="Image reference, e.g. docker.io/library/busybox:latest"

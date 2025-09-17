@@ -18,7 +18,7 @@ import subprocess
 import sys
 import threading
 import traceback
-import typing as t
+import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path  # noqa: TC003 - used at runtime
 
@@ -167,7 +167,7 @@ def _run_cargo(args: list[str]) -> str:
     if os.name == "nt":
         thread_exceptions: list[Exception] = []
 
-        def pump(src: t.TextIO, *, to_stdout: bool) -> None:
+        def pump(src: typ.TextIO, *, to_stdout: bool) -> None:
             dest = sys.stdout if to_stdout else sys.stderr
             try:
                 for line in iter(src.readline, ""):

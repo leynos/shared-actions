@@ -26,6 +26,7 @@ typecheck: .venv ## Run static type checking with Ty
 	  --extra-search-path .github/actions/generate-coverage/scripts \
 	  --extra-search-path .github/actions/ratchet-coverage/scripts \
 	  --extra-search-path .github/actions/rust-build-release \
+	  --extra-search-path .github/actions/rust-build-release/src \
 	  --extra-search-path .github/actions/rust-build-release/scripts \
 	  --extra-search-path .github/actions/setup-rust/scripts \
 	  cmd_utils.py \

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os  # noqa: TC003
 import subprocess
+import typing as typ
 from pathlib import Path
 
 
@@ -35,4 +36,12 @@ def run_validated(
 ) -> subprocess.CompletedProcess[str]:
     """Execute *executable* with *args* after validating its basename."""
     exec_path = ensure_allowed_executable(executable, allowed_names)
-    return subprocess.run([exec_path, *args], **kwargs)  # noqa: S603
+    subprocess_kwargs: dict[str, object] = dict(kwargs)
+    if (
+        "text" not in subprocess_kwargs
+        and "encoding" not in subprocess_kwargs
+        and "universal_newlines" not in subprocess_kwargs
+    ):
+        subprocess_kwargs["text"] = True
+    result = subprocess.run([exec_path, *args], **subprocess_kwargs)  # noqa: S603
+    return typ.cast(subprocess.CompletedProcess[str], result)

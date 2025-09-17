@@ -97,6 +97,7 @@ runs:
       with:
         workspaces: ${{ inputs.workspaces }}
         shared-key: ${{ runner.os }}-${{ github.ref_name }}
+        cache-on-failure: true
     - name: Run sccache only on non-release runs
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad

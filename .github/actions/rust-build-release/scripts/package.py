@@ -51,6 +51,7 @@ else:
             run_cmd,
         )
     except ImportError:  # pragma: no cover - fallback for direct execution
+        import collections.abc as cabc
         import importlib.util
         import sys
 
@@ -67,10 +68,8 @@ else:
             sys.modules[_PKG_NAME] = pkg_module
             spec.loader.exec_module(pkg_module)
 
-        load_sibling = t.cast(
-            "cabc.Callable[[str], ModuleType]", pkg_module.load_sibling
-        )
-        helpers = t.cast("t.Any", load_sibling("script_utils"))
+        load_sibling = t.cast(cabc.Callable[[str], ModuleType], pkg_module.load_sibling)
+        helpers = t.cast(t.Any, load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
@@ -144,7 +143,7 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
         return src
     ensure_directory(dst_dir)
     gz_path = dst_dir / f"{src.name}.gz"
-    with open(src, "rb") as fin, open(gz_path, "wb") as fout, gzip.GzipFile(
+    with src.open("rb") as fin, gz_path.open("wb") as fout, gzip.GzipFile(
         filename="",
         fileobj=fout,
         mode="wb",
@@ -155,9 +154,9 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
     return gz_path
 
 
-def normalise_file_modes(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalise_file_modes(entries: list[dict[str, t.Any]]) -> list[dict[str, t.Any]]:
     """Convert string ``mode`` values to octal-preserving integers."""
-    normalised: list[dict[str, Any]] = []
+    normalised: list[dict[str, t.Any]] = []
     for entry in entries:
         new_entry = dict(entry)
         file_info = entry.get("file_info")
@@ -186,12 +185,12 @@ def build_man_entries(
     man_sources: list[Path],
     default_section: str,
     stage_dir: Path,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, t.Any]]:
     """Return nFPM ``contents`` entries for the provided man pages."""
     if not man_sources:
         return []
 
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, t.Any]] = []
     stage = ensure_directory(stage_dir)
     for src in man_sources:
         ensure_exists(src, "manpage not found")
@@ -275,7 +274,7 @@ def main(
     ensure_directory(config_out.parent)
 
     license_file = Path("LICENSE")
-    contents: list[dict[str, Any]] = [
+    contents: list[dict[str, t.Any]] = [
         {
             "src": bin_path.as_posix(),
             "dst": f"/usr/bin/{bin_name}",
@@ -297,7 +296,7 @@ def main(
     deb_requires = list(deb_depends or [])
     rpm_requires = list(rpm_depends) if rpm_depends else list(deb_requires)
 
-    config: dict[str, Any] = {
+    config: dict[str, t.Any] = {
         "name": name,
         "arch": arch_val,
         "platform": "linux",

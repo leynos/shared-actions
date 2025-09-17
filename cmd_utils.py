@@ -96,7 +96,7 @@ def run_cmd(
     fg: bool = False,
     timeout: float | None = None,
     **run_kwargs: t.Any,
-) -> t.Any:  # noqa: ANN401  # FIXME: Heterogeneous kwargs required for plumbum/subprocess compatibility
+) -> t.Any:  # noqa: ANN401  # NOTE: heterogeneous kwargs required for plumbum/subprocess compatibility
     """Execute ``cmd`` while echoing it to stderr.
 
     Parameters

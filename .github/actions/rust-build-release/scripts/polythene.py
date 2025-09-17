@@ -16,8 +16,9 @@ Two subcommands:
       Pull/export IMAGE into a per-UUID rootfs; prints the UUID to stdout.
 
   polythene exec UUID -- CMD [ARG...]
-      Execute a command in the rootfs identified by UUID, trying bubblewrap -> proot -> chroot.
-      No networking, no cgroups, no container runtime needed at exec-time.
+      Execute a command in the rootfs identified by UUID, trying
+      bubblewrap -> proot -> chroot. No networking, no cgroups,
+      no container runtime needed at exec-time.
 
 Environment:
   POLYTHENE_STORE   Root directory for UUID rootfs (default: /var/tmp/polythene)
@@ -35,16 +36,15 @@ import os
 import shlex
 import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+import typing as t
+import collections.abc as cabc
 
 import typer
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+if t.TYPE_CHECKING:
     from types import ModuleType
 
     from plumbum.commands.base import BaseCommand
@@ -54,10 +54,11 @@ else:
     try:
         from .script_utils import ensure_directory, get_command, run_cmd
     except ImportError:  # pragma: no cover - fallback for direct execution
+        import collections.abc as cabc
         import importlib.util
         import sys
         from pathlib import Path
-        from typing import cast
+        import typing as t
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
@@ -72,10 +73,8 @@ else:
             sys.modules[_PKG_NAME] = pkg_module
             spec.loader.exec_module(pkg_module)
 
-        load_sibling = cast(
-            "Callable[[str], ModuleType]", pkg_module.load_sibling
-        )
-        helpers = cast("Any", load_sibling("script_utils"))
+        load_sibling = t.cast(cabc.Callable[[str], ModuleType], pkg_module.load_sibling)
+        helpers = t.cast(t.Any, load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
@@ -164,8 +163,9 @@ def export_rootfs(image: str, dest: Path, *, timeout: int | None = None) -> None
     # Metadata (best-effort, does not affect functionality)
     meta = dest / ".polythene-meta"
     with contextlib.suppress(Exception):
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         meta.write_text(
-            f"image={image}\ncreated={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n",
+            f"image={image}\ncreated={timestamp}\n",
             encoding="utf-8",
         )
 
@@ -182,7 +182,7 @@ def _ensure_dirs(root: Path) -> None:
 def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
-        # Quick probe: this tests unpriv userns availability (or setuid bwrap handles it).
+        # Quick probe to test unpriv userns availability (or setuid bwrap handles it).
         run_cmd(
             bwrap[
                 "--unshare-user",
@@ -246,7 +246,7 @@ def _run_with_tool(
     tool_name: str,
     tool_cmd: BaseCommand,
     probe_args: list[str],
-    exec_args_fn: Callable[[str], list[str]],
+    exec_args_fn: cabc.Callable[[str], list[str]],
     *,
     ensure_dirs: bool = True,
     timeout: int | None = None,
@@ -449,9 +449,10 @@ def cmd_exec(
         help="Timeout in seconds for command execution",
     ),
 ) -> None:
-    """
-    Execute CMD within the filesystem identified by UUID, using bwrap → proot → chroot fallback.
-    The command's exit status is propagated and an optional timeout can abort long runs.
+    """Run ``CMD`` inside the UUID's rootfs with bwrap → proot → chroot fallback.
+
+    The command's exit status is propagated.
+    An optional timeout can abort long runs.
     """
     if not cmd:
         typer.secho("No command provided", fg=typer.colors.RED, err=True)

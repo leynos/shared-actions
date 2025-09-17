@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+import typing as t
 
 import typer
 from plumbum import local
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
+if t.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
 
 try:  # pragma: no cover - exercised during script execution
@@ -71,7 +70,7 @@ def ensure_directory(path: Path, *, exist_ok: bool = True) -> Path:
     return path
 
 
-def unique_match(paths: Iterable[Path], *, description: str) -> Path:
+def unique_match(paths: cabc.Iterable[Path], *, description: str) -> Path:
     """Return the sole path in ``paths`` or exit with an error."""
     matches = list(paths)
     if len(matches) != 1:

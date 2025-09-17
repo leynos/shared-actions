@@ -52,7 +52,7 @@ runs:
         workspaces: ${{ inputs.project-dir }}
         cache-on-failure: true
     - name: Install nfpm
-      uses: ../install-nfpm
+      uses: ./.github/actions/install-nfpm
     - name: Build release
       shell: bash
       env:

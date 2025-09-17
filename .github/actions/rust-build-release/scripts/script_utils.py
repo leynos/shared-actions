@@ -42,6 +42,8 @@ __all__ = [
     "unique_match",
 ]
 
+PathIterable = t.Iterable[Path]
+
 
 def get_command(name: str) -> BaseCommand:
     """Return a ``plumbum`` command, exiting with an error if it is missing."""
@@ -69,9 +71,7 @@ def ensure_directory(path: Path, *, exist_ok: bool = True) -> Path:
     return path
 
 
-def unique_match(
-    paths: "t.Iterable[Path]", *, description: str
-) -> Path:
+def unique_match(paths: PathIterable, *, description: str) -> Path:
     """Return the sole path in ``paths`` or exit with an error."""
     matches = list(paths)
     if len(matches) != 1:

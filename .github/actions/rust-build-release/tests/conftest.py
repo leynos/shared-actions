@@ -6,11 +6,13 @@ import typing as t
 
 import pytest
 
+IteratorNone = t.Iterator[None]
+
 
 @pytest.fixture
 def uncapture_if_verbose(
     request: pytest.FixtureRequest, capfd: pytest.CaptureFixture[str]
-) -> "t.Iterator[None]":
+) -> IteratorNone:
     """Disable output capture when pytest runs with ``-v`` or higher verbosity."""
     if request.config.get_verbosity() > 0:
         with capfd.disabled():

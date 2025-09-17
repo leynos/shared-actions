@@ -215,61 +215,86 @@ def build_man_entries(
     return entries
 
 
+NAME_OPTION = typer.Option(..., "--name", help="Package name.")
+BIN_NAME_OPTION = typer.Option(
+    ..., "--bin-name", help="Installed binary name."
+)
+TARGET_OPTION = typer.Option(
+    "x86_64-unknown-linux-gnu",
+    "--target",
+    help="Rust target triple used for the build.",
+)
+VERSION_OPTION = typer.Option(
+    ..., "--version", help="Version (Debian-friendly: starts with a digit)."
+)
+RELEASE_OPTION = typer.Option("1", "--release", help="Package release/revision.")
+ARCH_OPTION = typer.Option(
+    None, "--arch", help="Override nFPM/GOARCH arch (e.g. amd64, arm64)."
+)
+FORMATS_OPTION = typer.Option(
+    "deb,rpm",
+    "--formats",
+    help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
+)
+OUTDIR_OPTION = typer.Option(
+    Path("dist"), "--outdir", help="Where to place packages."
+)
+MAINTAINER_OPTION = typer.Option("Your Name <you@example.com>", "--maintainer")
+HOMEPAGE_OPTION = typer.Option("https://example.com", "--homepage")
+LICENSE_OPTION = typer.Option("MIT", "--license")
+SECTION_OPTION = typer.Option("utils", "--section")
+DESCRIPTION_OPTION = typer.Option(
+    "A fast toy app written in Rust.", "--description"
+)
+DEB_DEPENDS_OPTION = typer.Option(
+    None, "--deb-depends", help="Repeatable. Debian runtime deps."
+)
+RPM_DEPENDS_OPTION = typer.Option(
+    None, "--rpm-depends", help="Repeatable. RPM runtime deps."
+)
+BINARY_DIR_OPTION = typer.Option(
+    Path("target"), "--binary-dir", help="Root of Cargo target dir."
+)
+CONFIG_OUT_OPTION = typer.Option(
+    Path("dist/nfpm.yaml"),
+    "--config-out",
+    help="Path to write generated nfpm.yaml.",
+)
+MAN_OPTION = typer.Option(
+    None,
+    "--man",
+    help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
+)
+MAN_SECTION_OPTION = typer.Option(
+    "1", "--man-section", help="Default man section if the filename lacks one."
+)
+MAN_STAGE_OPTION = typer.Option(
+    Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
+)
+
+
 @app.command()
 def main(
-    name: str = typer.Option(..., "--name", help="Package name."),
-    bin_name: str = typer.Option(..., "--bin-name", help="Installed binary name."),
-    target: str = typer.Option(
-        "x86_64-unknown-linux-gnu",
-        "--target",
-        help="Rust target triple used for the build.",
-    ),
-    version: str = typer.Option(
-        ..., "--version", help="Version (Debian-friendly: starts with a digit)."
-    ),
-    release: str = typer.Option("1", "--release", help="Package release/revision."),
-    arch: str | None = typer.Option(
-        None, "--arch", help="Override nFPM/GOARCH arch (e.g. amd64, arm64)."
-    ),
-    formats: str = typer.Option(
-        "deb,rpm",
-        "--formats",
-        help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
-    ),
-    outdir: Path = typer.Option(
-        Path("dist"), "--outdir", help="Where to place packages."
-    ),
-    maintainer: str = typer.Option("Your Name <you@example.com>", "--maintainer"),
-    homepage: str = typer.Option("https://example.com", "--homepage"),
-    license_: str = typer.Option("MIT", "--license"),
-    section: str = typer.Option("utils", "--section"),
-    description: str = typer.Option("A fast toy app written in Rust.", "--description"),
-    deb_depends: list[str] | None = typer.Option(
-        None, "--deb-depends", help="Repeatable. Debian runtime deps."
-    ),
-    rpm_depends: list[str] | None = typer.Option(
-        None, "--rpm-depends", help="Repeatable. RPM runtime deps."
-    ),
-    binary_dir: Path = typer.Option(
-        Path("target"), "--binary-dir", help="Root of Cargo target dir."
-    ),
-    config_out: Path = typer.Option(
-        Path("dist/nfpm.yaml"),
-        "--config-out",
-        help="Path to write generated nfpm.yaml.",
-    ),
-    # Manpage bits:
-    man: list[Path] | None = typer.Option(
-        None,
-        "--man",
-        help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
-    ),
-    man_section: str = typer.Option(
-        "1", "--man-section", help="Default man section if the filename lacks one."
-    ),
-    man_stage: Path = typer.Option(
-        Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
-    ),
+    name: str = NAME_OPTION,
+    bin_name: str = BIN_NAME_OPTION,
+    target: str = TARGET_OPTION,
+    version: str = VERSION_OPTION,
+    release: str = RELEASE_OPTION,
+    arch: str | None = ARCH_OPTION,
+    formats: str = FORMATS_OPTION,
+    outdir: Path = OUTDIR_OPTION,
+    maintainer: str = MAINTAINER_OPTION,
+    homepage: str = HOMEPAGE_OPTION,
+    license_: str = LICENSE_OPTION,
+    section: str = SECTION_OPTION,
+    description: str = DESCRIPTION_OPTION,
+    deb_depends: list[str] | None = DEB_DEPENDS_OPTION,
+    rpm_depends: list[str] | None = RPM_DEPENDS_OPTION,
+    binary_dir: Path = BINARY_DIR_OPTION,
+    config_out: Path = CONFIG_OUT_OPTION,
+    man: list[Path] | None = MAN_OPTION,
+    man_section: str = MAN_SECTION_OPTION,
+    man_stage: Path = MAN_STAGE_OPTION,
 ) -> None:
     """Build packages for a Rust binary using nFPM configuration derived from inputs."""
     # Normalise/derive fields.

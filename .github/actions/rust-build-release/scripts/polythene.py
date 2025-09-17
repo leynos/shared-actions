@@ -100,6 +100,47 @@ os.environ.setdefault("CONTAINERS_EVENTS_BACKEND", "file")
 
 app = typer.Typer(add_completion=False, help="polythene — Temu podman for Codex")
 
+ExecArgsFn = t.Callable[[str], list[str]]
+
+IMAGE_ARGUMENT = typer.Argument(
+    ..., help="Image reference, e.g. docker.io/library/busybox:latest"
+)
+PULL_STORE_OPTION = typer.Option(
+    DEFAULT_STORE,
+    "--store",
+    "-s",
+    help="Directory to store UUID rootfs trees",
+    dir_okay=True,
+    file_okay=False,
+)
+PULL_TIMEOUT_OPTION = typer.Option(
+    None,
+    "--timeout",
+    "-t",
+    help="Timeout in seconds for pull and export commands",
+)
+
+UUID_ARGUMENT = typer.Argument(
+    ..., help="UUID of the exported filesystem (from `polythene pull`)"
+)
+CMD_ARGUMENT = typer.Argument(
+    ..., help="Command and arguments to execute inside the rootfs"
+)
+EXEC_STORE_OPTION = typer.Option(
+    DEFAULT_STORE,
+    "--store",
+    "-s",
+    help="Directory where UUID rootfs trees are stored",
+    dir_okay=True,
+    file_okay=False,
+)
+EXEC_TIMEOUT_OPTION = typer.Option(
+    None,
+    "--timeout",
+    "-t",
+    help="Timeout in seconds for command execution",
+)
+
 
 def log(msg: str) -> None:
     """Print ``msg`` to stderr with a timestamp when verbose mode is enabled."""
@@ -210,10 +251,11 @@ def _probe_bwrap_userns(
             fg=True,
             timeout=timeout,
         )
-        return ["--unshare-user", "--uid", "0", "--gid", "0"]
     except (ProcessExecutionError, typer.Exit, OSError) as exc:
         log(f"User namespace probe failed: {exc}")
         return []
+    else:
+        return ["--unshare-user", "--uid", "0", "--gid", "0"]
 
 
 def _probe_bwrap_proc(
@@ -235,9 +277,10 @@ def _probe_bwrap_proc(
             "true",
         ]
         run_cmd(cmd, fg=True, timeout=timeout)
-        return ["--proc", "/proc"]
     except (ProcessExecutionError, typer.Exit, OSError):
         return []
+    else:
+        return ["--proc", "/proc"]
 
 
 def _build_bwrap_flags(
@@ -258,7 +301,7 @@ def _run_with_tool(
     tool_name: str,
     tool_cmd: BaseCommand,
     probe_args: list[str],
-    exec_args_fn: "t.Callable[[str], list[str]]",
+    exec_args_fn: ExecArgsFn,
     *,
     ensure_dirs: bool = True,
     timeout: int | None = None,
@@ -402,23 +445,9 @@ def run_with_chroot(
 
 @app.command("pull")
 def cmd_pull(
-    image: str = typer.Argument(
-        ..., help="Image reference, e.g. docker.io/library/busybox:latest"
-    ),
-    store: Path = typer.Option(
-        DEFAULT_STORE,
-        "--store",
-        "-s",
-        help="Directory to store UUID rootfs trees",
-        dir_okay=True,
-        file_okay=False,
-    ),
-    timeout: int | None = typer.Option(
-        None,
-        "--timeout",
-        "-t",
-        help="Timeout in seconds for pull and export commands",
-    ),
+    image: str = IMAGE_ARGUMENT,
+    store: Path = PULL_STORE_OPTION,
+    timeout: int | None = PULL_TIMEOUT_OPTION,
 ) -> None:
     """
     Pull IMAGE and export its filesystem into a new UUIDv7 directory under STORE.
@@ -443,26 +472,10 @@ def cmd_pull(
 
 @app.command("exec")
 def cmd_exec(
-    uuid: str = typer.Argument(
-        ..., help="UUID of the exported filesystem (from `polythene pull`)"
-    ),
-    cmd: list[str] = typer.Argument(
-        ..., help="Command and arguments to execute inside the rootfs"
-    ),
-    store: Path = typer.Option(
-        DEFAULT_STORE,
-        "--store",
-        "-s",
-        help="Directory where UUID rootfs trees are stored",
-        dir_okay=True,
-        file_okay=False,
-    ),
-    timeout: int | None = typer.Option(
-        None,
-        "--timeout",
-        "-t",
-        help="Timeout in seconds for command execution",
-    ),
+    uuid: str = UUID_ARGUMENT,
+    cmd: list[str] = CMD_ARGUMENT,
+    store: Path = EXEC_STORE_OPTION,
+    timeout: int | None = EXEC_TIMEOUT_OPTION,
 ) -> None:
     """Run ``CMD`` inside the UUID's rootfs with bwrap → proot → chroot fallback.
 

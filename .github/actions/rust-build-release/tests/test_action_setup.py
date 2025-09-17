@@ -1,0 +1,136 @@
+"""Tests for composite action setup helpers."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import typing as t
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+if t.TYPE_CHECKING:
+    from types import ModuleType
+
+    from .conftest import HarnessFactory
+
+runner = CliRunner()
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "src" / "action_setup.py"
+
+
+def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:
+    """Valid targets pass validation."""
+    action_setup_module.validate_target("x86_64-unknown-linux-gnu")
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["", "invalid target", "short"],
+)
+def test_validate_target_rejects_invalid(
+    target: str, action_setup_module: ModuleType
+) -> None:
+    """Invalid targets raise TargetValidationError."""
+    with pytest.raises(action_setup_module.TargetValidationError):
+        action_setup_module.validate_target(target)
+
+
+def test_resolve_toolchain_windows_unknown_arch(
+    action_setup_module: ModuleType,
+) -> None:
+    """Unknown architectures raise ToolchainResolutionError."""
+    with pytest.raises(action_setup_module.ToolchainResolutionError):
+        action_setup_module.resolve_toolchain(
+            "1.89.0", "x86_64-pc-windows-gnu", "Windows", "SPARC"
+        )
+
+
+def test_resolve_toolchain_windows_known_arch(
+    action_setup_module: ModuleType,
+) -> None:
+    """Known Windows architectures return the GNU toolchain triple."""
+    resolved = action_setup_module.resolve_toolchain(
+        "1.89.0", "aarch64-pc-windows-gnu", "Windows", "ARM64"
+    )
+    assert resolved == "1.89.0-aarch64-pc-windows-gnu"
+
+
+def test_cli_toolchain_outputs_value(
+    action_setup_module: ModuleType,
+    toolchain_module: ModuleType,
+    module_harness: HarnessFactory,
+    tmp_path: Path,
+) -> None:
+    """CLI command emits the resolved toolchain."""
+    harness = module_harness(toolchain_module)
+    custom_file = tmp_path / "TOOLCHAIN_VERSION"
+    custom_file.write_text("1.99.0\n", encoding="utf-8")
+    harness.monkeypatch.setattr(toolchain_module, "TOOLCHAIN_VERSION_FILE", custom_file)
+    harness.monkeypatch.setattr(
+        action_setup_module,
+        "read_default_toolchain",
+        toolchain_module.read_default_toolchain,
+    )
+    result = runner.invoke(
+        action_setup_module.app,
+        [
+            "toolchain",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--runner-os",
+            "Linux",
+            "--runner-arch",
+            "X64",
+        ],
+    )
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "1.99.0"
+
+
+def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:
+    """CLI validation command reports errors via Typer exit codes."""
+    result = runner.invoke(action_setup_module.app, ["validate", "invalid target"])
+    assert result.exit_code != 0
+    assert "contains invalid characters" in result.stdout
+
+
+def test_script_validate_step_reports_error() -> None:
+    """Running the script like the composite action reports invalid targets."""
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "validate",
+            "short",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    combined = f"{result.stdout}\n{result.stderr}"
+    assert "must contain at least two '-' separated segments" in combined
+
+
+def test_script_toolchain_step_resolves_windows(toolchain_module: ModuleType) -> None:
+    """Script execution mirrors the composite action's toolchain resolution."""
+    default = toolchain_module.read_default_toolchain()
+    result = subprocess.run(  # noqa: S603
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "toolchain",
+            "--target",
+            "aarch64-pc-windows-gnu",
+            "--runner-os",
+            "Windows",
+            "--runner-arch",
+            "ARM64",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == f"{default}-aarch64-pc-windows-gnu"

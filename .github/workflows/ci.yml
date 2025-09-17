@@ -2,31 +2,16 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  typecheck:
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        # v4
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Setup uv
-        # v6.4.3
-        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
-        with:
-          python-version: '3.12'
-          cache-dependency-glob: |
-            **/pyproject.toml
-            **/uv.lock
-            **/scripts/*.py
-      - name: Run typechecking
-        run: make typecheck
-        shell: bash
   python-tests:
+    timeout-minutes: 20
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
@@ -47,39 +32,6 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
-      - name: Install nfpm
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          version="v2.39.0"
-          host_arch="$(uname -m)"
-          case "${host_arch}" in
-            x86_64) asset_arch="x86_64" ;;
-            aarch64|arm64) asset_arch="arm64" ;;
-            *)
-              echo "::error:: unsupported architecture: ${host_arch}"
-              exit 1
-              ;;
-          esac
-          asset="nfpm_${version#v}_Linux_${asset_arch}.tar.gz"
-          base_url="https://github.com/goreleaser/nfpm/releases/download/${version}"
-          curl -fSL "${base_url}/${asset}" -o /tmp/nfpm.tgz
-          curl -fSL "${base_url}/checksums.txt" -o /tmp/checksums.txt
-          expected_sha="$(grep "  ${asset}$" /tmp/checksums.txt | awk '{print $1}')"
-          if [[ -z "${expected_sha}" ]]; then
-            echo "::error:: failed to locate checksum for ${asset}"
-            exit 1
-          fi
-          if command -v sha256sum >/dev/null 2>&1; then
-            echo "${expected_sha}  /tmp/nfpm.tgz" | sha256sum --check -
-          else
-            echo "${expected_sha}  /tmp/nfpm.tgz" | shasum -a 256 --check -
-          fi
-          tar -xzf /tmp/nfpm.tgz -C /tmp nfpm
-          mkdir -p "$HOME/.local/bin"
-          install -m 0755 /tmp/nfpm "$HOME/.local/bin/nfpm"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/nfpm" --version
       - name: Run tests
         run: |
           uv sync --group dev

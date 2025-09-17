@@ -1,0 +1,73 @@
+name: Setup Windows GNU Toolchain
+description: Install MinGW and llvm-mingw toolchains for Windows GNU cross-compilation
+author: Shared Actions Maintainers
+inputs:
+  llvm-mingw-version:
+    description: llvm-mingw release identifier (e.g. 20250910)
+    required: false
+    default: "20250910"
+  llvm-mingw-sha256:
+    description: SHA-256 checksum for the llvm-mingw archive matching the selected version
+    required: false
+    default: "bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737"
+runs:
+  using: composite
+  steps:
+    - name: Install MinGW toolchains
+      uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-gcc-libs
+          # Optional: install cross linkers if you want GCC-based aarch64
+          # aarch64-w64-mingw32-gcc is not always present on msys2; prefer
+          # clang via llvm-mingw instead.
+    - name: Install llvm-mingw
+      shell: pwsh
+      run: |
+        $version = "${{ inputs['llvm-mingw-version'] }}"
+        if (-not $version) {
+          throw "llvm-mingw-version input must not be empty"
+        }
+        $expectedHash = "${{ inputs['llvm-mingw-sha256'] }}"
+        if (-not $expectedHash) {
+          throw "llvm-mingw-sha256 input must not be empty"
+        }
+        $asset = "llvm-mingw-$version-ucrt-x86_64.zip"
+        $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$version/$asset"
+        $archive = Join-Path $Env:RUNNER_TEMP "llvm-mingw.zip"
+        try {
+          Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
+        } catch {
+          Write-Error "Failed to download llvm-mingw archive from $url"
+          throw
+        }
+        $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash
+        if (-not [string]::Equals($actualHash, $expectedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
+          Write-Error "Checksum mismatch for $asset. Expected $expectedHash but found $actualHash."
+          throw "llvm-mingw archive hash verification failed"
+        }
+        $destination = Join-Path $Env:RUNNER_TEMP "llvm-mingw"
+        if (Test-Path $destination) {
+          Remove-Item $destination -Recurse -Force
+        }
+        Expand-Archive $archive -DestinationPath $destination -Force
+        $binPath = Join-Path $destination "llvm-mingw-$version-ucrt-x86_64\bin"
+        if (-not (Test-Path $binPath)) {
+          throw "llvm-mingw bin directory not found at $binPath"
+        }
+        $binPath | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+    - name: Verify GNU toolchains
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+          echo "::warning::x86_64 MinGW GCC not found" >&2
+        fi
+        if ! command -v aarch64-w64-mingw32-gcc >/dev/null 2>&1 \
+          && ! command -v aarch64-w64-mingw32-clang >/dev/null 2>&1; then
+          echo "::error::No aarch64 MinGW compiler found (neither GCC nor clang)" >&2
+          exit 1
+        fi

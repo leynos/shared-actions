@@ -27,14 +27,25 @@ jobs:
           #   target: x86_64-apple-darwin # TODO: re-introduce when implemented
           # - runner: macos-latest
           #   target: aarch64-apple-darwin # TODO: re-introduce when implemented
-          # - runner: windows-latest
-          #   target: x86_64-pc-windows-msvc # TODO: re-introduce when implemented
-          # - runner: windows-latest
-          #   target: aarch64-pc-windows-msvc # TODO: re-introduce when implemented
+          - runner: windows-latest
+            target: x86_64-pc-windows-gnu
+          - runner: windows-latest
+            target: aarch64-pc-windows-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+      - name: Set llvm-mingw metadata
+        if: matrix.runner == 'windows-latest'
+        run: |
+          echo "LLVM_MINGW_VERSION=20250910" >> $GITHUB_ENV
+          echo "LLVM_MINGW_SHA256=bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737" >> $GITHUB_ENV
+      - name: Configure Windows GNU toolchains
+        if: matrix.runner == 'windows-latest'
+        uses: ./.github/actions/setup-windows-gnu
+        with:
+          llvm-mingw-version: ${{ env.LLVM_MINGW_VERSION }}
+          llvm-mingw-sha256: ${{ env.LLVM_MINGW_SHA256 }}
       - name: Build
         uses: ./.github/actions/rust-build-release
         with:
@@ -43,7 +54,13 @@ jobs:
       - name: Verify artifacts
         run: |
           set -euo pipefail
-          test -f "target/${{ matrix.target }}/release/rust-toy-app"
+          bin=rust-toy-app
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            bin=rust-toy-app.exe
+          fi
+          path="target/${{ matrix.target }}/release/$bin"
+          echo "Verifying binary at: $path"
+          test -f "$path"
           shopt -s nullglob
           manpages=(target/${{ matrix.target }}/release/build/rust-toy-app-*/out/rust-toy-app.1)
           (( "${#manpages[@]}" > 0 ))

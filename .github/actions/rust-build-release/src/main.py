@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer", "packaging", "plumbum"]
+# dependencies = ["typer", "packaging"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -16,30 +16,14 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
-from packaging import version as pkg_version
-from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
+from cross_manager import ensure_cross
+from runtime import CROSS_CONTAINER_ERROR_CODES, runtime_available
+from toolchain import configure_windows_linkers, read_default_toolchain
+from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
 from cmd_utils import run_cmd
 
-
-def _cross_toolchain_arg(toolchain: str) -> str:
-    """Return a cross-compatible ``+toolchain`` argument."""
-    parts = toolchain.split("-")
-    if len(parts) <= 1:
-        return toolchain
-
-    base_end = 1
-    if len(parts) >= 4 and all(part.isdigit() for part in parts[1:4]):
-        base_end = 4
-    elif parts[1].isdigit():
-        base_end = 2
-
-    if len(parts) > base_end:
-        sanitized = "-".join(parts[:base_end])
-        return sanitized or toolchain
-    return toolchain
-
+DEFAULT_TOOLCHAIN = read_default_toolchain()
 
 app = typer.Typer(add_completion=False)
 
@@ -48,33 +32,12 @@ app = typer.Typer(add_completion=False)
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
     toolchain: str = typer.Option(
-        "1.89.0", envvar="RBR_TOOLCHAIN", help="Rust toolchain version"
+        DEFAULT_TOOLCHAIN,
+        envvar="RBR_TOOLCHAIN",
+        help="Rust toolchain version",
     ),
 ) -> None:
-    """Build the project for *target* using *toolchain*.
-
-    Parameters
-    ----------
-    target : str
-        Rust target triple to compile. When empty, the value falls back to the
-        ``RBR_TARGET`` environment variable.
-    toolchain : str
-        Rust toolchain channel (for example ``"1.89.0"``) used when invoking
-        ``cargo`` or ``cross``.
-
-    Returns
-    -------
-    None
-        Exits the process with a non-zero status when prerequisites are
-        missing or compilation fails.
-
-    Examples
-    --------
-    Run the command line interface to build a Linux binary:
-
-    >>> # from a shell
-    >>> uv run src/main.py x86_64-unknown-linux-gnu
-    """
+    """Build the project for *target* using *toolchain*."""
     if not target:
         target = os.environ.get("RBR_TARGET", "")
     if not target:
@@ -91,122 +54,114 @@ def main(
         )
         raise typer.Exit(1)
 
-    rustup = shutil.which("rustup")
-    if rustup is None:
+    rustup_path = shutil.which("rustup")
+    if rustup_path is None:
         typer.echo("::error:: rustup not found", err=True)
         raise typer.Exit(1)
-    result = subprocess.run(  # noqa: S603
-        [rustup, "toolchain", "list"],
+    try:
+        rustup_exec = ensure_allowed_executable(rustup_path, ("rustup", "rustup.exe"))
+    except UnexpectedExecutableError:
+        typer.echo("::error:: unexpected rustup executable", err=True)
+        raise typer.Exit(1) from None
+    result = run_validated(
+        rustup_exec,
+        ["toolchain", "list"],
+        allowed_names=("rustup", "rustup.exe"),
         capture_output=True,
         text=True,
         check=True,
     )
     installed = result.stdout.splitlines()
-    toolchain_channel = toolchain.split("-", 1)[0]
-    toolchain_spec = toolchain if "-" in toolchain else toolchain_channel
-    if "-" in toolchain and len(toolchain.split("-")) > 1:
-        if not any(toolchain in line for line in installed):
-            typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
-            raise typer.Exit(1)
-    elif not any(line.startswith(f"{toolchain_channel}-") for line in installed):
-        typer.echo(f"::error:: toolchain '{toolchain}' is not installed", err=True)
+    installed_names = [line.split()[0] for line in installed if line.strip()]
+    # Prefer an installed toolchain that matches the requested target triple.
+    preferred = (f"{toolchain}-{target}", toolchain)
+    toolchain_name = next(
+        (name for name in installed_names if name in preferred),
+        "",
+    )
+    if not toolchain_name:
+        # Fallback: any installed variant that starts with the channel name.
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name == toolchain or name.startswith(channel_prefix)
+            ),
+            "",
+        )
+    if not toolchain_name:
+        typer.echo(
+            f"::error:: requested toolchain '{toolchain}' not installed",
+            err=True,
+        )
+        raise typer.Exit(1)
+    target_installed = True
+    try:
+        run_cmd([rustup_exec, "target", "add", "--toolchain", toolchain_name, target])
+    except subprocess.CalledProcessError:
+        typer.echo(
+            f"::warning:: toolchain '{toolchain_name}' does not support "
+            f"target '{target}'; continuing",
+            err=True,
+        )
+        target_installed = False
+
+    configure_windows_linkers(toolchain_name, target, rustup_exec)
+
+    cross_path, cross_version = ensure_cross("0.2.5")
+    docker_present = runtime_available("docker")
+    podman_present = runtime_available("podman")
+    has_container = docker_present or podman_present
+
+    use_cross = cross_path is not None and has_container
+    if not use_cross and not target_installed:
+        typer.echo(
+            f"::error:: toolchain '{toolchain_name}' does not support "
+            f"target '{target}'",
+            err=True,
+        )
         raise typer.Exit(1)
 
-    container_available = (
-        shutil.which("docker") is not None or shutil.which("podman") is not None
-    )
-    engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    if engine and shutil.which(engine) is None:
-        warning = (
-            f"::warning:: CROSS_CONTAINER_ENGINE={engine} specified but not found; "
-            "disabling container use"
-        )
-        typer.echo(warning, err=True)
-        container_available = False
-
-    # Determine cross availability and version
-
-    def get_cross_version(path: str) -> str | None:
-        try:
-            result = subprocess.run(  # noqa: S603
-                [path, "--version"],
-                capture_output=True,
-                check=True,
-                text=True,
+    if not use_cross:
+        if cross_path is None:
+            typer.echo("cross missing; using cargo")
+        else:
+            typer.echo(
+                f"cross ({cross_version}) requires a container runtime; using cargo "
+                f"(docker={docker_present}, podman={podman_present})"
             )
-            version_line = result.stdout.strip().split("\n")[0]
-            if version_line.startswith("cross "):
-                return version_line.split(" ")[1]
-        except (OSError, subprocess.SubprocessError):
-            return None
-
-    required_cross_version = "0.2.5"
-
-    cross_path = shutil.which("cross")
-    cross_version = get_cross_version(cross_path) if cross_path else None
-
-    def version_compare(installed: str, required: str) -> bool:
-        return pkg_version.parse(installed) >= pkg_version.parse(required)
-
-    if container_available:
-        if cross_path is None or not version_compare(
-            cross_version or "0", required_cross_version
-        ):
-            if cross_path is None:
-                typer.echo("Installing cross (not found)...")
-            else:
-                typer.echo(
-                    "Upgrading cross (found version "
-                    f"{cross_version}, required >= {required_cross_version})..."
-                )
-            cmd = local["cargo"][
-                "install", "cross", "--git", "https://github.com/cross-rs/cross"
-            ]
-            run_cmd(cmd)
-        else:
-            typer.echo(f"Using cached cross ({cross_version})")
     else:
-        if cross_path:
-            typer.echo("Container runtime not detected; using existing cross")
-        else:
-            typer.echo("Container runtime not detected; cross not installed")
-
-    cross_path = shutil.which("cross")
-    cross_version = get_cross_version(cross_path) if cross_path else None
-
-    use_cross = cross_path is not None and container_available
-    if use_cross:
         typer.echo(f"Building with cross ({cross_version})")
-    else:
-        if cross_path is not None:
-            typer.echo("cross found but container runtime missing; using cargo")
-        else:
-            typer.echo("cross not installed; using cargo")
 
-    cross_toolchain = _cross_toolchain_arg(toolchain_spec)
-    cmd = local["cross" if use_cross else "cargo"][
-        f"+{cross_toolchain if use_cross else toolchain_spec}",
+    toolchain_spec = (
+        f"+{toolchain_name.rsplit('-', 4)[0]}" if use_cross else f"+{toolchain_name}"
+    )
+    build_cmd = [
+        "cross" if use_cross else "cargo",
+        toolchain_spec,
         "build",
         "--release",
         "--target",
         target,
     ]
     try:
-        run_cmd(cmd)
-    except ProcessExecutionError as exc:
-        fallback_reason = None
-        if use_cross:
-            stderr_text = getattr(exc, "stderr", "") or ""
-            if exc.retcode in {125, 126}:
-                fallback_reason = "launch the container runtime"
-            elif "could not get os and arch" in stderr_text:
-                fallback_reason = "detect the container platform"
-        if fallback_reason:
-            typer.echo(f"cross failed to {fallback_reason}; falling back to cargo")
-            fallback = local["cargo"][
-                f"+{toolchain_spec}", "build", "--release", "--target", target
+        run_cmd(build_cmd)
+    except subprocess.CalledProcessError as exc:
+        if use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+            typer.echo(
+                "::warning:: cross failed to start a container; retrying with cargo",
+                err=True,
+            )
+            fallback_cmd = [
+                "cargo",
+                f"+{toolchain_name}",
+                "build",
+                "--release",
+                "--target",
+                target,
             ]
-            run_cmd(fallback)
+            run_cmd(fallback_cmd)
         else:
             raise
 

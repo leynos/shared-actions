@@ -5,19 +5,19 @@ from __future__ import annotations
 import hashlib
 import io
 import subprocess
-import typing as t
+import typing as typ
 import zipfile
 
 import pytest
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
     from .conftest import HarnessFactory
 
 
-def _constant_run(stdout: str) -> t.Callable[..., subprocess.CompletedProcess[str]]:
+def _constant_run(stdout: str) -> typ.Callable[..., subprocess.CompletedProcess[str]]:
     """Return a ``run_validated`` stub emitting *stdout*."""
 
     def fake_run(
@@ -218,9 +218,7 @@ def test_install_cross_release_validates_binary(
 
     def fake_urlopen(url: str) -> FakeBinaryResponse | FakeTextResponse:
         assert url.startswith("https://github.com/cross-rs/cross/releases/download/")
-        return (
-            FakeTextResponse() if url.endswith(".sha256") else FakeBinaryResponse()
-        )
+        return FakeTextResponse() if url.endswith(".sha256") else FakeBinaryResponse()
 
     temp_dir = tmp_path / "tmp"
 

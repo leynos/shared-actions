@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory

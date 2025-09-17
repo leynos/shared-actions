@@ -6,7 +6,7 @@ import importlib
 import shutil
 import subprocess
 import sys
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -85,7 +85,7 @@ def run_script(
 
 @pytest.mark.parametrize("target", TARGET_PARAMS)
 def test_action_builds_release_binary_and_manpage(
-    target: str, ensure_toolchain_ready: t.Callable[[str, str], None]
+    target: str, ensure_toolchain_ready: typ.Callable[[str, str], None]
 ) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
@@ -155,7 +155,7 @@ def test_fails_for_invalid_toolchain() -> None:
 
 
 def test_fails_for_unsupported_target(
-    ensure_toolchain_ready: t.Callable[[str, str], None],
+    ensure_toolchain_ready: typ.Callable[[str, str], None],
 ) -> None:
     """Script errors when a valid toolchain lacks the requested target."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
@@ -176,7 +176,7 @@ def test_fails_for_unsupported_target(
 
 
 def test_accepts_full_toolchain_spec(
-    ensure_toolchain_ready: t.Callable[[str, str], None],
+    ensure_toolchain_ready: typ.Callable[[str, str], None],
 ) -> None:
     """Script accepts fully qualified toolchain triples."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"

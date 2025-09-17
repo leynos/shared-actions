@@ -8,21 +8,34 @@ import importlib.util
 import shutil
 import subprocess
 import sys
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import pytest
+from _packaging_utils import (
+    DEFAULT_CONFIG,
+    DEFAULT_TARGET,
+    BuildArtifacts,
+    PackagingConfig,
+    PackagingProject,
+    build_release_artifacts,
+    package_project,
+    packaging_project,
+)
 
 from cmd_utils import run_cmd
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     import types as types_module
 
     ModuleType = types_module.ModuleType
 else:  # pragma: no cover - type checking only
-    ModuleType = t.Any
+    ModuleType = typ.Any
+
+
+IteratorNone = typ.Iterator[None]
 
 
 def _ensure_dependency(name: str, attribute: str | None = None) -> None:
@@ -132,8 +145,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         if all(name not in expected for name in installed_names):
             install_spec = (
                 f"{toolchain_version}-{host_target}"
-                if sys.platform == "win32"
-                and host_target.endswith("-pc-windows-gnu")
+                if sys.platform == "win32" and host_target.endswith("-pc-windows-gnu")
                 else toolchain_version
             )
             run_cmd(
@@ -206,3 +218,62 @@ def toolchain_module() -> ModuleType:
 def utils_module() -> ModuleType:
     """Load the utility helper module."""
     return _load_module("utils.py", "rbr_utils")
+
+
+@pytest.fixture
+def uncapture_if_verbose(
+    request: pytest.FixtureRequest, capfd: pytest.CaptureFixture[str]
+) -> IteratorNone:
+    """Disable output capture when pytest runs with increased verbosity."""
+    if request.config.get_verbosity() > 0:
+        with capfd.disabled():
+            yield
+    else:
+        yield
+
+
+@pytest.fixture(scope="module")
+def packaging_config() -> PackagingConfig:
+    """Return the static metadata for the sample packaging project."""
+    return DEFAULT_CONFIG
+
+
+@pytest.fixture(scope="module")
+def packaging_target() -> str:
+    """Return the Rust target triple used in integration tests."""
+    return DEFAULT_TARGET
+
+
+@pytest.fixture(scope="module")
+def packaging_project_paths() -> PackagingProject:
+    """Resolve the filesystem layout for packaging integration tests."""
+    return packaging_project()
+
+
+@pytest.fixture(scope="module")
+def build_artifacts(
+    packaging_project_paths: PackagingProject,
+    packaging_target: str,
+    packaging_config: PackagingConfig,
+) -> BuildArtifacts:
+    """Ensure the sample project is built for the requested target."""
+    return build_release_artifacts(
+        packaging_project_paths,
+        packaging_target,
+        config=packaging_config,
+    )
+
+
+@pytest.fixture(scope="module")
+def packaged_artifacts(
+    packaging_project_paths: PackagingProject,
+    build_artifacts: BuildArtifacts,
+    packaging_config: PackagingConfig,
+) -> typ.Mapping[str, Path]:
+    """Package the built project as both .deb and .rpm artefacts."""
+    return package_project(
+        packaging_project_paths,
+        build_artifacts,
+        config=packaging_config,
+        formats=("deb", "rpm"),
+    )

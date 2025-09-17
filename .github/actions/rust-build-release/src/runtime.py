@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import typing as typing
+import typing as typ
 
 import typer
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
-if typing.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from pathlib import Path
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}

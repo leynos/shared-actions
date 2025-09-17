@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import typing as t
+import typing as typ
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 

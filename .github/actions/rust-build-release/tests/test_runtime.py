@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-import typing as t
+import typing as typ
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory

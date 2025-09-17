@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import subprocess
-import typing as t
+import typing as typ
 
 import pytest
 
-if t.TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 

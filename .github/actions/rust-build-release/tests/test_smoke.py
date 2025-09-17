@@ -2,96 +2,123 @@
 
 from __future__ import annotations
 
-import os
+import importlib
 import shutil
 import subprocess
 import sys
+import typing as typ
 from pathlib import Path
 
 import pytest
 
-from cmd_utils import run_cmd
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
+runtime_module = importlib.import_module("runtime")
+detect_host_target = runtime_module.detect_host_target
+runtime_available = runtime_module.runtime_available
+
+PROJECT_DIR = Path(__file__).resolve().parents[4] / "rust-toy-app"
+
+TOOLCHAIN_VERSION = (
+    (Path(__file__).resolve().parents[1] / "TOOLCHAIN_VERSION")
+    .read_text(encoding="utf-8")
+    .strip()
+)
+
+WINDOWS_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="requires Windows")
+LINUX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux")
+
+
+HOST_TARGET = detect_host_target()
+
+_targets: list[str] = [HOST_TARGET]
+
+if HOST_TARGET.endswith("-unknown-linux-gnu") and (
+    runtime_available("docker", cwd=PROJECT_DIR)
+    or runtime_available("podman", cwd=PROJECT_DIR)
+):
+    _targets.append("aarch64-unknown-linux-gnu")
 
 if sys.platform == "win32":
-    pytest.skip("cross build not supported on Windows runners", allow_module_level=True)
+    zig_path = shutil.which("zig")
+    if shutil.which("x86_64-w64-mingw32-gcc") or zig_path:
+        _targets.append("x86_64-pc-windows-gnu")
+    if shutil.which("aarch64-w64-mingw32-gcc") or zig_path:
+        _targets.append("aarch64-pc-windows-gnu")
 
-engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-container_available = (
-    shutil.which(engine) is not None
-    if engine
-    else (shutil.which("docker") is not None or shutil.which("podman") is not None)
-)
-if engine and not container_available:
-    pytest.skip(
-        f"CROSS_CONTAINER_ENGINE={engine} specified but not found",
-        allow_module_level=True,
-    )
-_CROSS_RUNTIME_UNAVAILABLE = not container_available
+
+def _param_for_target(target: str) -> object:
+    """Return a parametrization entry for *target* with platform marks."""
+    marks: list[pytest.MarkDecorator] = []
+    if target != HOST_TARGET and target.endswith("-unknown-linux-gnu"):
+        marks.append(LINUX_ONLY)
+    if target.endswith("-pc-windows-gnu"):
+        marks.append(WINDOWS_ONLY)
+    if marks:
+        return pytest.param(target, marks=tuple(marks))
+    return pytest.param(target)
+
+
+TARGET_PARAMS = [_param_for_target(target) for target in _targets]
 
 
 def run_script(
     script: Path, *args: str, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Execute *script* in *cwd* and return the completed process."""
-    cmd = [str(script), *args]
-    try:
-        return subprocess.run(  # noqa: S603
-            cmd,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            check=False,
-        )
-    except (  # pragma: no cover - defensive path
-        OSError,
-        subprocess.SubprocessError,
-        ValueError,
-    ) as exc:
-        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
+    python_exe = sys.executable or shutil.which("python") or "python"
+    uv_path = shutil.which("uv")
+    if uv_path is not None:
+        cmd = [uv_path, "run", python_exe, str(script), *args]
+    else:
+        cmd = [python_exe, str(script), *args]
+    return subprocess.run(  # noqa: S603
+        cmd,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )
 
 
-@pytest.mark.usefixtures("uncapture_if_verbose")
-@pytest.mark.parametrize(
-    "target",
-    [
-        "x86_64-unknown-linux-gnu",
-        pytest.param(
-            "aarch64-unknown-linux-gnu",
-            marks=pytest.mark.skipif(
-                _CROSS_RUNTIME_UNAVAILABLE,
-                reason="container runtime required for cross build",
-            ),
-        ),
-    ],
-)
-def test_action_builds_release_binary_and_manpage(target: str) -> None:
+@pytest.mark.parametrize("target", TARGET_PARAMS)
+def test_action_builds_release_binary_and_manpage(
+    target: str, ensure_toolchain_ready: typ.Callable[[str, str], None]
+) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
-    existing = subprocess.run(
-        ["rustup", "toolchain", "list"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    if "1.89.0" not in existing:
-        run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
+    project_dir = PROJECT_DIR
+    if shutil.which("rustup") is None:
+        pytest.skip("rustup not installed")
+    # On Windows, ensure a linker exists for GNU aarch64 targets.
+    if (
+        sys.platform == "win32"
+        and target.endswith("-pc-windows-gnu")
+        and "aarch64" in target
+        and shutil.which("aarch64-w64-mingw32-gcc") is None
+        and shutil.which("zig") is None
+    ):
+        pytest.skip(
+            "aarch64 GNU linker not available (need aarch64-w64-mingw32-gcc or zig)"
+        )
+    if (
+        sys.platform != "win32"
+        and target != HOST_TARGET
+        and not any(
+            runtime_available(runtime, cwd=project_dir)
+            for runtime in ("docker", "podman")
+        )
+    ):
+        pytest.skip("container runtime required for cross build")
+    ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)
     res = run_script(script, target, cwd=project_dir)
-    if res.returncode != 0:
-        err_out = ((res.stderr or "") + (res.stdout or "")).lower()
-        if (
-            "operation not permitted" in err_out
-            or "exit status 126" in err_out
-            or "container runtime" in err_out
-            or "permission denied" in err_out
-            or "exec format error" in err_out
-        ):
-            pytest.skip("container runtime cannot run cross build in this environment")
     assert res.returncode == 0
-    binary = project_dir / f"target/{target}/release/rust-toy-app"
+    binary = project_dir / (
+        f"target/{target}/release/rust-toy-app"
+        + (".exe" if "windows" in target else "")
+    )
     assert binary.exists()
     manpage_glob = project_dir.glob(
         f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
@@ -102,7 +129,9 @@ def test_action_builds_release_binary_and_manpage(target: str) -> None:
 def test_fails_without_target() -> None:
     """Script exits with an error when no target is provided."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    project_dir = PROJECT_DIR
+    if shutil.which("rustup") is None:
+        pytest.skip("rustup not installed")
     res = run_script(script, cwd=project_dir)
     assert res.returncode != 0
     assert "RBR_TARGET=<unset>" in res.stderr
@@ -111,13 +140,67 @@ def test_fails_without_target() -> None:
 def test_fails_for_invalid_toolchain() -> None:
     """Script surfaces rustup errors for invalid toolchains."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    project_dir = PROJECT_DIR
+    if shutil.which("rustup") is None:
+        pytest.skip("rustup not installed")
     res = run_script(
         script,
-        "x86_64-unknown-linux-gnu",
+        HOST_TARGET,
         "--toolchain",
         "bogus",
         cwd=project_dir,
     )
     assert res.returncode != 0
-    assert "toolchain 'bogus' is not installed" in res.stderr
+    assert "requested toolchain 'bogus' not installed" in res.stderr
+
+
+def test_fails_for_unsupported_target(
+    ensure_toolchain_ready: typ.Callable[[str, str], None],
+) -> None:
+    """Script errors when a valid toolchain lacks the requested target."""
+    script = Path(__file__).resolve().parents[1] / "src" / "main.py"
+    project_dir = PROJECT_DIR
+    if shutil.which("rustup") is None:
+        pytest.skip("rustup not installed")
+    ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)
+    bogus_target = "bogus-target-1234"
+    res = run_script(
+        script,
+        bogus_target,
+        "--toolchain",
+        TOOLCHAIN_VERSION,
+        cwd=project_dir,
+    )
+    assert res.returncode != 0
+    assert f"target '{bogus_target}'" in res.stderr
+
+
+def test_accepts_full_toolchain_spec(
+    ensure_toolchain_ready: typ.Callable[[str, str], None],
+) -> None:
+    """Script accepts fully qualified toolchain triples."""
+    script = Path(__file__).resolve().parents[1] / "src" / "main.py"
+    project_dir = PROJECT_DIR
+    if shutil.which("rustup") is None:
+        pytest.skip("rustup not installed")
+    ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)
+    full_toolchain = f"{TOOLCHAIN_VERSION}-{HOST_TARGET}"
+    res = run_script(
+        script,
+        HOST_TARGET,
+        "--toolchain",
+        full_toolchain,
+        cwd=project_dir,
+    )
+    if res.returncode != 0:
+        stdout = res.stdout or ""
+        stderr = res.stderr or ""
+        print("--- stdout ---", file=sys.stderr)
+        print(stdout, file=sys.stderr)
+        print("--- stderr ---", file=sys.stderr)
+        print(stderr, file=sys.stderr)
+    assert res.returncode == 0, (
+        f"process exited with {res.returncode}\n"
+        f"stdout:\n{res.stdout or ''}\n"
+        f"stderr:\n{res.stderr or ''}"
+    )

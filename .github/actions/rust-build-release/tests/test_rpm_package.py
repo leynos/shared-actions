@@ -145,7 +145,7 @@ def test_rpm_package_metadata(
             release_value = info.get("Release", "")
             assert release_value.startswith("1"), release_value
             arch_value = info.get("Architecture")
-            assert arch_value in {"amd64", "x86_64", "arm64", "aarch64"}, arch_value
+            assert arch_value == "x86_64", arch_value
 
             listing_output = rootfs.exec("rpm", "-qlp", rpm_package_path.name)
             listing = {line.strip() for line in listing_output.splitlines() if line.strip()}

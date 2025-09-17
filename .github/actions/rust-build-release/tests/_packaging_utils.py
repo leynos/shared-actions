@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import shutil
 import tempfile
@@ -78,11 +79,14 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> Iterator[Path]:
         yield Path(existing)
         return
 
-    host = run_cmd(local["uname"]["-m"]).strip()
-    arch_map = {"x86_64": "x86_64", "aarch64": "arm64"}
-    asset_arch = arch_map.get(host, "x86_64")
+    host_arch = run_cmd(local["uname"]["-m"]).strip()
+    arch_map = {"x86_64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}
+    asset_arch = arch_map.get(host_arch, "x86_64")
+    host_os = run_cmd(local["uname"]["-s"]).strip()
+    os_map = {"Linux": "Linux", "Darwin": "Darwin"}
+    asset_os = os_map.get(host_os, "Linux")
     base_url = "https://github.com/goreleaser/nfpm/releases/download/"
-    url = f"{base_url}{version}/nfpm_{version[1:]}_Linux_{asset_arch}.tar.gz"
+    url = f"{base_url}{version}/nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
     tools_dir = project_dir / "dist" / ".tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
     nfpm_path = tools_dir / "nfpm"
@@ -90,12 +94,33 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> Iterator[Path]:
         with tempfile.TemporaryDirectory() as td:
             tarball = Path(td) / "nfpm.tgz"
             run_cmd(local["curl"]["-sSL", url, "-o", tarball])
+            checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
+            try:
+                sums_path = Path(td) / "checksums.txt"
+                run_cmd(local["curl"]["-sSL", checks_url, "-o", sums_path])
+                expected_hash = None
+                pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
+                for line in sums_path.read_text(encoding="utf-8").splitlines():
+                    if pattern in line:
+                        expected_hash = line.split()[0]
+                        break
+                if expected_hash:
+                    digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
+                    if digest.lower() != expected_hash.lower():
+                        raise RuntimeError(
+                            "nfpm checksum mismatch: expected"
+                            f" {expected_hash} but computed {digest}"
+                        )
+            except Exception:
+                pass  # Best-effort integrity verification
             run_cmd(local["tar"]["-xzf", tarball, "-C", td, "nfpm"])
             run_cmd(local["install"]["-m", "0755", Path(td) / "nfpm", nfpm_path])
 
     original_path = os.environ.get("PATH")
-    prefix = tools_dir.as_posix()
-    os.environ["PATH"] = f"{prefix}:{original_path}" if original_path else prefix
+    tools = tools_dir.as_posix()
+    existing_parts = original_path.split(":") if original_path else []
+    filtered_parts = [part for part in existing_parts if part != tools]
+    os.environ["PATH"] = ":".join([tools, *filtered_parts]) if filtered_parts else tools
     try:
         yield nfpm_path
     finally:

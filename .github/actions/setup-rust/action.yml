@@ -77,6 +77,10 @@ runs:
       run: uv run --script "${{ github.action_path }}/scripts/validate_workspaces.py"
       env:
         INPUT_WORKSPACES: ${{ inputs.workspaces }}
+    - name: Note default rust-cache mapping
+      if: ${{ inputs.workspaces == '' }}
+      shell: bash
+      run: echo "::notice title=rust-cache workspaces::Using default mapping '. -> target' (no workspaces provided)"
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: |

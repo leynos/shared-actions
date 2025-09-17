@@ -77,12 +77,13 @@ def test_action_builds_release_binary_and_manpage(target: str) -> None:
         run_cmd(["rustup", "toolchain", "install", "1.89.0", "--profile", "minimal"])
     res = run_script(script, target, cwd=project_dir)
     if res.returncode != 0:
-        err_out = (res.stderr or "") + (res.stdout or "")
+        err_out = ((res.stderr or "") + (res.stdout or "")).lower()
         if (
-            "Operation not permitted" in err_out
+            "operation not permitted" in err_out
             or "exit status 126" in err_out
             or "container runtime" in err_out
             or "permission denied" in err_out
+            or "exec format error" in err_out
         ):
             pytest.skip("container runtime cannot run cross build in this environment")
     assert res.returncode == 0

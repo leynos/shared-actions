@@ -33,8 +33,8 @@ class SupportsFormulate(t.Protocol):
         ...
 
     def __call__(
-        self, *args: t.Any, **run_kwargs: t.Any
-    ) -> t.Any:  # pragma: no cover - protocol
+        self, *args: object, **run_kwargs: object
+    ) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -43,8 +43,8 @@ class SupportsRun(t.Protocol):
     """Commands that support ``run`` with keyword arguments."""
 
     def run(
-        self, *args: t.Any, **run_kwargs: t.Any
-    ) -> t.Any:  # pragma: no cover - protocol
+        self, *args: object, **run_kwargs: object
+    ) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -52,7 +52,7 @@ class SupportsRun(t.Protocol):
 class SupportsRunFg(t.Protocol):
     """Commands that expose ``run_fg`` for foreground execution."""
 
-    def run_fg(self, **run_kwargs: t.Any) -> t.Any:  # pragma: no cover - protocol
+    def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -60,14 +60,16 @@ class SupportsRunFg(t.Protocol):
 class SupportsAnd(t.Protocol):
     """Commands that implement ``cmd & FG`` semantics."""
 
-    def __and__(self, other: t.Any) -> t.Any:  # pragma: no cover - protocol
+    def __and__(self, other: object) -> object:  # pragma: no cover - protocol
         ...
 
 
 Command = cabc.Sequence[str] | SupportsFormulate
 
 
-def _merge_timeout(timeout: float | None, run_kwargs: dict[str, t.Any]) -> float | None:
+def _merge_timeout(
+    timeout: float | None, run_kwargs: dict[str, object]
+) -> float | None:
     """Return a merged timeout value.
 
     Parameters
@@ -84,9 +86,15 @@ def _merge_timeout(timeout: float | None, run_kwargs: dict[str, t.Any]) -> float
     """
     if "timeout" in run_kwargs:
         if timeout is not None:
-            raise TypeError("timeout specified via parameter and run_kwargs")
+            msg = "timeout specified via parameter and run_kwargs"
+            raise TypeError(msg)
         value = run_kwargs.pop("timeout")
-        return t.cast(float | None, value)
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        msg = "timeout override must be a number or None"
+        raise TypeError(msg)
     return timeout
 
 
@@ -95,8 +103,8 @@ def run_cmd(
     *,
     fg: bool = False,
     timeout: float | None = None,
-    **run_kwargs: t.Any,
-) -> t.Any:  # noqa: ANN401  # FIXME: Heterogeneous kwargs required for plumbum/subprocess compatibility
+    **run_kwargs: object,
+) -> object:
     """Execute ``cmd`` while echoing it to stderr.
 
     Parameters

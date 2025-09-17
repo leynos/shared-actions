@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,7 +47,7 @@ def run_script(
             cwd=cwd,
             check=False,
         )
-    except Exception as exc:  # pragma: no cover - defensive path
+    except OSError as exc:  # pragma: no cover - defensive path
         return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 

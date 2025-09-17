@@ -22,7 +22,8 @@ def load_sibling(module: str) -> ModuleType:
         sys.modules[_PACKAGE_NAME] = pkg
     spec = util.spec_from_file_location(full_name, _PACKAGE_PATH / f"{module}.py")
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise ImportError(f"Unable to load module {module!r} from {_PACKAGE_PATH}")
+        msg = f"Unable to load module {module!r} from {_PACKAGE_PATH}"
+        raise ImportError(msg)
     module_obj = util.module_from_spec(spec)
     sys.modules[full_name] = module_obj
     spec.loader.exec_module(module_obj)

@@ -8,7 +8,7 @@
 # ]
 # ///
 """
-polythene — Temu podman for Codex
+polythene — Temu podman for Codex.
 
 Two subcommands:
 
@@ -16,7 +16,8 @@ Two subcommands:
       Pull/export IMAGE into a per-UUID rootfs; prints the UUID to stdout.
 
   polythene exec UUID -- CMD [ARG...]
-      Execute a command in the rootfs identified by UUID, trying bubblewrap -> proot -> chroot.
+      Execute a command in the rootfs identified by UUID,
+      trying bubblewrap -> proot -> chroot.
       No networking, no cgroups, no container runtime needed at exec-time.
 
 Environment:
@@ -30,30 +31,31 @@ Podman environment hardening (set automatically if unset):
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
+import subprocess
 import sys
+import tempfile
 import time
+import typing as t
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 
 import typer
-from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
+    from plumbum.commands.base import BaseCommand
+
     from .script_utils import ensure_directory, get_command, run_cmd
 else:
+    BaseCommand = t.Any
     try:
         from .script_utils import ensure_directory, get_command, run_cmd
     except ImportError:  # pragma: no cover - fallback for direct execution
         import importlib.util
         import sys
-        from collections.abc import Callable
-        from pathlib import Path
-        from types import ModuleType
-        from typing import cast
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
@@ -63,15 +65,15 @@ else:
                 _PKG_NAME, _PKG_DIR / "__init__.py"
             )
             if spec is None or spec.loader is None:
-                raise ImportError("Unable to load scripts package helper")
+                raise ImportError from None
             pkg_module = importlib.util.module_from_spec(spec)
             sys.modules[_PKG_NAME] = pkg_module
             spec.loader.exec_module(pkg_module)
 
-        load_sibling = cast(
-            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
-        )
-        helpers = cast(Any, load_sibling("script_utils"))
+        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+            raise ImportError from None
+
+        helpers = pkg_module.load_sibling("script_utils")
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
@@ -79,8 +81,52 @@ else:
 
 # -------------------- Configuration --------------------
 
-DEFAULT_STORE = Path(os.environ.get("POLYTHENE_STORE", "/var/tmp/polythene")).resolve()
+_DEFAULT_STORE_FALLBACK = Path(tempfile.gettempdir()) / "polythene"
+DEFAULT_STORE = Path(
+    os.environ.get("POLYTHENE_STORE", str(_DEFAULT_STORE_FALLBACK))
+).resolve()
 VERBOSE = bool(os.environ.get("POLYTHENE_VERBOSE"))
+
+IMAGE_ARGUMENT = typer.Argument(
+    ..., help="Image reference, e.g. docker.io/library/busybox:latest"
+)
+PULL_STORE_OPTION = typer.Option(
+    DEFAULT_STORE,
+    "--store",
+    "-s",
+    help="Directory to store UUID rootfs trees",
+    dir_okay=True,
+    file_okay=False,
+)
+PULL_TIMEOUT_OPTION = typer.Option(
+    None,
+    "--timeout",
+    "-t",
+    help="Timeout in seconds for pull and export commands",
+)
+UUID_ARGUMENT = typer.Argument(
+    ..., help="UUID of the exported filesystem (from `polythene pull`)"
+)
+CMD_ARGUMENT = typer.Argument(
+    ..., help="Command and arguments to execute inside the rootfs"
+)
+EXEC_STORE_OPTION = typer.Option(
+    DEFAULT_STORE,
+    "--store",
+    "-s",
+    help="Directory where UUID rootfs trees are stored",
+    dir_okay=True,
+    file_okay=False,
+)
+EXEC_TIMEOUT_OPTION = typer.Option(
+    None,
+    "--timeout",
+    "-t",
+    help="Timeout in seconds for command execution",
+)
+
+_TMPFS_FALLBACK = Path(tempfile.gettempdir()).as_posix()
+TMPFS_TARGET = os.environ.get("POLYTHENE_TMPFS", _TMPFS_FALLBACK)
 
 IS_ROOT = os.geteuid() == 0
 
@@ -92,16 +138,19 @@ app = typer.Typer(add_completion=False, help="polythene — Temu podman for Code
 
 
 def log(msg: str) -> None:
+    """Emit *msg* to stderr when verbose mode is enabled."""
     if VERBOSE:
         ts = time.strftime("%H:%M:%S")
         print(f"[{ts}] {msg}", file=sys.stderr)
 
 
 def store_path_for(uuid: str, store: Path) -> Path:
+    """Return the absolute path for ``uuid`` within ``store``."""
     return (store / uuid).resolve()
 
 
 def generate_uuid() -> str:
+    """Return a fresh UUIDv7 string for new rootfs directories."""
     return str(uuid7())
 
 
@@ -154,20 +203,17 @@ def export_rootfs(image: str, dest: Path, *, timeout: int | None = None) -> None
             timeout=timeout,
         )
     finally:
-        try:
+        with contextlib.suppress(ProcessExecutionError):
             run_cmd(podman["rm", cid], fg=True, timeout=timeout)
-        except ProcessExecutionError:
-            pass
 
     # Metadata (best-effort, does not affect functionality)
     meta = dest / ".polythene-meta"
-    try:
+    created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with contextlib.suppress(OSError):
         meta.write_text(
-            f"image={image}\ncreated={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n",
+            f"image={image}\ncreated={created}\n",
             encoding="utf-8",
         )
-    except Exception:
-        pass
 
 
 # -------------------- Execution backends --------------------
@@ -179,10 +225,13 @@ def _ensure_dirs(root: Path) -> None:
         ensure_directory(root / sub)
 
 
-def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
+def _probe_bwrap_userns(
+    bwrap: BaseCommand, root: Path, *, timeout: int | None
+) -> list[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
-        # Quick probe: this tests unpriv userns availability (or setuid bwrap handles it).
+        # Quick probe: this tests unprivileged user namespace availability.
+        # A setuid bubblewrap binary may handle it automatically.
         run_cmd(
             bwrap[
                 "--unshare-user",
@@ -198,14 +247,14 @@ def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
             fg=True,
             timeout=timeout,
         )
-        return ["--unshare-user", "--uid", "0", "--gid", "0"]
-    except Exception as exc:
+    except (ProcessExecutionError, subprocess.CalledProcessError, typer.Exit) as exc:
         log(f"User namespace probe failed: {exc}")
         return []
+    return ["--unshare-user", "--uid", "0", "--gid", "0"]
 
 
 def _probe_bwrap_proc(
-    bwrap,
+    bwrap: BaseCommand,
     base_flags: list[str],
     root: Path,
     *,
@@ -223,13 +272,13 @@ def _probe_bwrap_proc(
             "true",
         ]
         run_cmd(cmd, fg=True, timeout=timeout)
-        return ["--proc", "/proc"]
-    except Exception:
+    except (ProcessExecutionError, subprocess.CalledProcessError, typer.Exit):
         return []
+    return ["--proc", "/proc"]
 
 
 def _build_bwrap_flags(
-    bwrap,
+    bwrap: BaseCommand,
     root: Path,
     *,
     timeout: int | None,
@@ -246,7 +295,7 @@ def _run_with_tool(
     tool_name: str,
     tool_cmd: BaseCommand,
     probe_args: list[str],
-    exec_args_fn: Callable[[str], list[str]],
+    exec_args_fn: t.Callable[[str], list[str]],
     *,
     ensure_dirs: bool = True,
     timeout: int | None = None,
@@ -262,7 +311,7 @@ def _run_with_tool(
     probe_cmd = tool_cmd[tuple(probe_args)]
     try:
         run_cmd(probe_cmd, fg=True, timeout=timeout)
-    except Exception:
+    except (ProcessExecutionError, subprocess.CalledProcessError, typer.Exit):
         return None
 
     log(f"Executing via {tool_name}")
@@ -274,6 +323,7 @@ def _run_with_tool(
 def run_with_bwrap(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Run *inner_cmd* inside *root* using bubblewrap if available."""
     try:
         bwrap = get_command("bwrap")
     except typer.Exit:
@@ -290,7 +340,7 @@ def run_with_bwrap(
         "/dev",
         *proc_flags,
         "--tmpfs",
-        "/tmp",
+        TMPFS_TARGET,
         "--chdir",
         "/",
         "/bin/sh",
@@ -309,7 +359,7 @@ def run_with_bwrap(
             "/dev",
             *proc_flags,
             "--tmpfs",
-            "/tmp",
+            TMPFS_TARGET,
             "--chdir",
             "/",
             "/bin/sh",
@@ -331,6 +381,7 @@ def run_with_bwrap(
 def run_with_proot(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Run *inner_cmd* inside *root* using proot if bubblewrap is unavailable."""
     try:
         proot = get_command("proot")
     except typer.Exit:
@@ -355,6 +406,7 @@ def run_with_proot(
 def run_with_chroot(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Run *inner_cmd* inside *root* using chroot as a last resort."""
     try:
         chroot = get_command("chroot")
     except typer.Exit:
@@ -387,23 +439,9 @@ def run_with_chroot(
 
 @app.command("pull")
 def cmd_pull(
-    image: str = typer.Argument(
-        ..., help="Image reference, e.g. docker.io/library/busybox:latest"
-    ),
-    store: Path = typer.Option(
-        DEFAULT_STORE,
-        "--store",
-        "-s",
-        help="Directory to store UUID rootfs trees",
-        dir_okay=True,
-        file_okay=False,
-    ),
-    timeout: int | None = typer.Option(
-        None,
-        "--timeout",
-        "-t",
-        help="Timeout in seconds for pull and export commands",
-    ),
+    image: str = IMAGE_ARGUMENT,
+    store: Path = PULL_STORE_OPTION,
+    timeout: int | None = PULL_TIMEOUT_OPTION,
 ) -> None:
     """
     Pull IMAGE and export its filesystem into a new UUIDv7 directory under STORE.
@@ -428,29 +466,13 @@ def cmd_pull(
 
 @app.command("exec")
 def cmd_exec(
-    uuid: str = typer.Argument(
-        ..., help="UUID of the exported filesystem (from `polythene pull`)"
-    ),
-    cmd: list[str] = typer.Argument(
-        ..., help="Command and arguments to execute inside the rootfs"
-    ),
-    store: Path = typer.Option(
-        DEFAULT_STORE,
-        "--store",
-        "-s",
-        help="Directory where UUID rootfs trees are stored",
-        dir_okay=True,
-        file_okay=False,
-    ),
-    timeout: int | None = typer.Option(
-        None,
-        "--timeout",
-        "-t",
-        help="Timeout in seconds for command execution",
-    ),
+    uuid: str = UUID_ARGUMENT,
+    cmd: list[str] = CMD_ARGUMENT,
+    store: Path = EXEC_STORE_OPTION,
+    timeout: int | None = EXEC_TIMEOUT_OPTION,
 ) -> None:
-    """
-    Execute CMD within the filesystem identified by UUID, using bwrap → proot → chroot fallback.
+    """Execute CMD within the UUID rootfs via bwrap → proot → chroot fallback.
+
     The command's exit status is propagated and an optional timeout can abort long runs.
     """
     if not cmd:
@@ -493,6 +515,7 @@ def cmd_exec(
 
 
 def main() -> None:
+    """Entrypoint for the polythene CLI when executed as a script."""
     app()
 
 

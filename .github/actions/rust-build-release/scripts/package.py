@@ -149,13 +149,17 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
         return src
     ensure_directory(dst_dir)
     gz_path = dst_dir / f"{src.name}.gz"
-    with src.open("rb") as fin, gz_path.open("wb") as fout, gzip.GzipFile(
-        filename="",
-        fileobj=fout,
-        mode="wb",
-        mtime=0,
-        compresslevel=9,
-    ) as gz:
+    with (
+        src.open("rb") as fin,
+        gz_path.open("wb") as fout,
+        gzip.GzipFile(
+            filename="",
+            fileobj=fout,
+            mode="wb",
+            mtime=0,
+            compresslevel=9,
+        ) as gz,
+    ):
         gz.write(fin.read())
     return gz_path
 
@@ -216,9 +220,7 @@ def build_man_entries(
 
 
 NAME_OPTION = typer.Option(..., "--name", help="Package name.")
-BIN_NAME_OPTION = typer.Option(
-    ..., "--bin-name", help="Installed binary name."
-)
+BIN_NAME_OPTION = typer.Option(..., "--bin-name", help="Installed binary name.")
 TARGET_OPTION = typer.Option(
     "x86_64-unknown-linux-gnu",
     "--target",
@@ -236,16 +238,12 @@ FORMATS_OPTION = typer.Option(
     "--formats",
     help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
 )
-OUTDIR_OPTION = typer.Option(
-    Path("dist"), "--outdir", help="Where to place packages."
-)
+OUTDIR_OPTION = typer.Option(Path("dist"), "--outdir", help="Where to place packages.")
 MAINTAINER_OPTION = typer.Option("Your Name <you@example.com>", "--maintainer")
 HOMEPAGE_OPTION = typer.Option("https://example.com", "--homepage")
 LICENSE_OPTION = typer.Option("MIT", "--license")
 SECTION_OPTION = typer.Option("utils", "--section")
-DESCRIPTION_OPTION = typer.Option(
-    "A fast toy app written in Rust.", "--description"
-)
+DESCRIPTION_OPTION = typer.Option("A fast toy app written in Rust.", "--description")
 DEB_DEPENDS_OPTION = typer.Option(
     None, "--deb-depends", help="Repeatable. Debian runtime deps."
 )

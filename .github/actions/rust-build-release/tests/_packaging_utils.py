@@ -1,0 +1,345 @@
+"""Utility helpers shared by the packaging integration tests."""
+
+from __future__ import annotations
+
+import contextlib
+import dataclasses as dc
+import hashlib
+import os
+import shutil
+import sys
+import tempfile
+import typing as typ
+from pathlib import Path
+
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
+
+from cmd_utils import run_cmd
+
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(TESTS_ROOT / "scripts"))
+from script_utils import unique_match  # noqa: E402
+
+
+@dc.dataclass(frozen=True, slots=True)
+class PackagingConfig:
+    """Static metadata describing the sample packaging project."""
+
+    name: str
+    bin_name: str
+    version: str
+    release: str
+
+
+@dc.dataclass(frozen=True, slots=True)
+class PackagingProject:
+    """Resolved filesystem paths required for packaging tests."""
+
+    project_dir: Path
+    build_script: Path
+    package_script: Path
+    polythene_script: Path
+
+
+@dc.dataclass(frozen=True, slots=True)
+class BuildArtifacts:
+    """Details about build outputs needed for packaging tests."""
+
+    target: str
+    man_page: Path
+
+
+DEFAULT_TARGET: typ.Final[str] = "x86_64-unknown-linux-gnu"
+DEFAULT_CONFIG: typ.Final[PackagingConfig] = PackagingConfig(
+    name="rust-toy-app",
+    bin_name="rust-toy-app",
+    version="0.1.0",
+    release="1",
+)
+
+
+def packaging_project() -> PackagingProject:
+    """Return the filesystem layout for the packaging fixtures."""
+    test_file = Path(__file__).resolve()
+    tests_root = test_file.parents[1]
+    project_dir = test_file.parents[4] / "rust-toy-app"
+    return PackagingProject(
+        project_dir=project_dir,
+        build_script=tests_root / "src" / "main.py",
+        package_script=tests_root / "scripts" / "package.py",
+        polythene_script=tests_root / "scripts" / "polythene.py",
+    )
+
+
+def deb_arch_for_target(target: str) -> str:
+    """Return the nfpm architecture label for *target*."""
+    lowered = target.lower()
+    if lowered.startswith(("x86_64-", "x86_64_")):
+        return "amd64"
+    if lowered.startswith(("aarch64-", "arm64-")):
+        return "arm64"
+    return "amd64"
+
+
+def build_release_artifacts(
+    project: PackagingProject,
+    target: str,
+    *,
+    config: PackagingConfig = DEFAULT_CONFIG,
+) -> BuildArtifacts:
+    """Compile the Rust project and return the artefacts needed for packaging."""
+    with local.cwd(project.project_dir):
+        run_cmd(
+            local["rustup"][
+                "toolchain",
+                "install",
+                "1.89.0",
+                "--profile",
+                "minimal",
+                "--no-self-update",
+            ]
+        )
+        with local.env(CROSS_CONTAINER_ENGINE="podman"):
+            run_cmd(local[sys.executable][project.build_script.as_posix(), target])
+        man_src = unique_match(
+            project.project_dir.glob(
+                f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
+            ),
+            description=f"{config.name} man page",
+        )
+    return BuildArtifacts(target=target, man_page=man_src)
+
+
+def package_project(
+    project: PackagingProject,
+    build: BuildArtifacts,
+    *,
+    config: PackagingConfig = DEFAULT_CONFIG,
+    formats: typ.Iterable[str] = ("deb",),
+) -> dict[str, Path]:
+    """Package the project with nfpm for the requested formats."""
+    # Normalise and deduplicate formats while preserving order.
+    ordered_formats: list[str] = []
+    for entry in formats:
+        trimmed = entry.strip().lower()
+        if not trimmed:
+            continue
+        if trimmed not in ordered_formats:
+            ordered_formats.append(trimmed)
+
+    if not ordered_formats:
+        return {}
+
+    with local.cwd(project.project_dir):
+        dist_dir = project.project_dir / "dist"
+        if dist_dir.exists():
+            for pattern in (f"{config.name}_*.deb", f"{config.name}-*.rpm"):
+                for existing in dist_dir.glob(pattern):
+                    existing.unlink()
+        with ensure_nfpm(project.project_dir):
+            run_cmd(
+                local["uv"][
+                    "run",
+                    project.package_script.as_posix(),
+                    "--name",
+                    config.name,
+                    "--bin-name",
+                    config.bin_name,
+                    "--target",
+                    build.target,
+                    "--version",
+                    config.version,
+                    "--formats",
+                    ",".join(ordered_formats),
+                    "--man",
+                    build.man_page.as_posix(),
+                ]
+            )
+
+        results: dict[str, Path] = {}
+        for fmt in ordered_formats:
+            if fmt == "deb":
+                pattern = f"dist/{config.name}_{config.version}-{config.release}_*.deb"
+            elif fmt == "rpm":
+                pattern = f"dist/{config.name}-{config.version}-{config.release}*.rpm"
+            else:
+                continue
+            results[fmt] = unique_match(
+                project.project_dir.glob(pattern),
+                description=f"{config.name} {fmt} package",
+            )
+    return results
+
+
+@dc.dataclass(slots=True)
+class PolytheneRootfs:
+    """Descriptor for an exported polythene root filesystem."""
+
+    polythene: Path
+    uid: str
+    store: Path
+
+    def exec(self, *cmd: str) -> str:
+        """Execute ``cmd`` inside the rootfs via polythene."""
+        return polythene_exec(self.polythene, self.uid, self.store.as_posix(), *cmd)
+
+    @property
+    def root(self) -> Path:
+        """Filesystem path to the exported root."""
+        return self.store / self.uid
+
+
+class IsolationUnavailableError(RuntimeError):
+    """Raised when container isolation cannot be established."""
+
+    EMPTY_UID_MESSAGE = "polythene pull returned empty uid"
+
+
+class ChecksumMismatchError(RuntimeError):
+    """Raised when nfpm checksum validation fails."""
+
+    def __init__(self, expected: str, actual: str) -> None:
+        super().__init__(
+            f"nfpm checksum mismatch: expected {expected} but computed {actual}"
+        )
+
+
+def polythene_cmd(polythene: Path, *args: str) -> str:
+    """Execute ``polythene`` with ``uv run`` and return its output."""
+    return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
+
+
+def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
+    """Run a command inside the exported rootfs identified by ``uid``."""
+    return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
+
+
+@contextlib.contextmanager
+def polythene_rootfs(polythene: Path, image: str) -> typ.Iterator[PolytheneRootfs]:
+    """Yield an exported rootfs for ``image`` or raise ``IsolationUnavailableError``."""
+    with tempfile.TemporaryDirectory() as store:
+        try:
+            pull_output = polythene_cmd(polythene, "pull", image, "--store", store)
+        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
+            raise IsolationUnavailableError(str(exc)) from exc
+        uid = pull_output.splitlines()[-1].strip()
+        if not uid:
+            raise IsolationUnavailableError(IsolationUnavailableError.EMPTY_UID_MESSAGE)
+        try:
+            polythene_exec(polythene, uid, store, "true")
+        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
+            raise IsolationUnavailableError(str(exc)) from exc
+        yield PolytheneRootfs(polythene=polythene, uid=uid, store=Path(store))
+
+
+@contextlib.contextmanager
+def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Path]:
+    """Ensure ``nfpm`` is available on ``PATH`` for the duration of the context."""
+    existing = shutil.which("nfpm")
+    if existing is not None:
+        yield Path(existing)
+        return
+
+    # Allow overriding the pinned version in CI environments
+    version = os.environ.get("NFPM_VERSION", version)
+
+    host_arch = run_cmd(local["uname"]["-m"]).strip()
+    arch_map = {"x86_64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}
+    asset_arch = arch_map.get(host_arch, "x86_64")
+    host_os = run_cmd(local["uname"]["-s"]).strip()
+    os_map = {"Linux": "Linux", "Darwin": "Darwin"}
+    asset_os = os_map.get(host_os, "Linux")
+    base_url = "https://github.com/goreleaser/nfpm/releases/download/"
+    url = f"{base_url}{version}/nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
+    tools_dir = project_dir / "dist" / ".tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    nfpm_path = tools_dir / "nfpm"
+    if not nfpm_path.exists():
+        with tempfile.TemporaryDirectory() as td:
+            tarball = Path(td) / "nfpm.tgz"
+            run_cmd(
+                local["curl"][
+                    "-fsSL",
+                    "--retry",
+                    "3",
+                    "--retry-connrefused",
+                    "--max-time",
+                    "120",
+                    url,
+                    "-o",
+                    tarball,
+                ]
+            )
+            checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
+            sums_path = Path(td) / "checksums.txt"
+            try:
+                run_cmd(
+                    local["curl"][
+                        "-fsSL",
+                        "--retry",
+                        "3",
+                        "--retry-connrefused",
+                        "--max-time",
+                        "60",
+                        checks_url,
+                        "-o",
+                        sums_path,
+                    ]
+                )
+            except ProcessExecutionError:
+                sums_text = ""
+            else:
+                try:
+                    sums_text = sums_path.read_text(encoding="utf-8")
+                except OSError:
+                    sums_text = ""
+
+            expected_hash: str | None = None
+            pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
+            for line in sums_text.splitlines():
+                if pattern in line:
+                    expected_hash = line.split()[0]
+                    break
+            if expected_hash:
+                digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
+                if digest.lower() != expected_hash.lower():
+                    raise ChecksumMismatchError(expected_hash, digest)
+            run_cmd(local["tar"]["-xzf", tarball, "-C", td, "nfpm"])
+            run_cmd(local["install"]["-m", "0755", Path(td) / "nfpm", nfpm_path])
+
+    original_path = os.environ.get("PATH")
+    tools = tools_dir.as_posix()
+    existing_parts = original_path.split(":") if original_path else []
+    filtered_parts = [part for part in existing_parts if part != tools]
+    os.environ["PATH"] = ":".join([tools, *filtered_parts]) if filtered_parts else tools
+    try:
+        yield nfpm_path
+    finally:
+        if original_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = original_path
+
+
+__all__ = sorted(
+    [
+        "build_release_artifacts",
+        "BuildArtifacts",
+        "ChecksumMismatchError",
+        "deb_arch_for_target",
+        "DEFAULT_CONFIG",
+        "DEFAULT_TARGET",
+        "ensure_nfpm",
+        "IsolationUnavailableError",
+        "package_project",
+        "packaging_project",
+        "PackagingConfig",
+        "PackagingProject",
+        "polythene_cmd",
+        "polythene_exec",
+        "polythene_rootfs",
+        "PolytheneRootfs",
+    ],
+    key=str.casefold,
+)

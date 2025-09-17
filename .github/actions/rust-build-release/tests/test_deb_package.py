@@ -46,8 +46,9 @@ def deb_arch_for_target(target: str) -> str:
 @pytest.mark.skipif(
     sys.platform == "win32"
     or shutil.which("dpkg-deb") is None
-    or shutil.which("podman") is None,
-    reason="dpkg-deb or podman not available",
+    or shutil.which("podman") is None
+    or shutil.which("uv") is None,
+    reason="dpkg-deb, podman or uv not available",
 )
 def test_deb_package_installs() -> None:
     """Build the .deb, install in an isolated rootfs, and verify binary and man page."""

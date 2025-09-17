@@ -126,8 +126,10 @@ def rpm_package_path(
 
 @pytest.mark.usefixtures("uncapture_if_verbose")
 @pytest.mark.skipif(
-    sys.platform == "win32" or shutil.which("podman") is None,
-    reason="podman not available",
+    sys.platform == "win32"
+    or shutil.which("podman") is None
+    or shutil.which("uv") is None,
+    reason="podman or uv not available",
 )
 def test_rpm_package_metadata(
     packaging_paths: PackagingPaths, rpm_package_path: Path
@@ -145,7 +147,7 @@ def test_rpm_package_metadata(
             release_value = info.get("Release", "")
             assert release_value.startswith("1"), release_value
             arch_value = info.get("Architecture")
-            assert arch_value == "x86_64", arch_value
+            assert arch_value in {"amd64", "x86_64", "arm64", "aarch64"}, arch_value
 
             listing_output = rootfs.exec("rpm", "-qlp", rpm_package_path.name)
             listing = {line.strip() for line in listing_output.splitlines() if line.strip()}

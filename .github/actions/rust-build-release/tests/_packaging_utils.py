@@ -6,15 +6,179 @@ import contextlib
 import hashlib
 import os
 import shutil
+import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
+
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(TESTS_ROOT / "scripts"))
+from script_utils import unique_match  # noqa: E402
+
+
+@dataclass(frozen=True, slots=True)
+class PackagingConfig:
+    """Static metadata describing the sample packaging project."""
+
+    name: str
+    bin_name: str
+    version: str
+    release: str
+
+
+@dataclass(frozen=True, slots=True)
+class PackagingProject:
+    """Resolved filesystem paths required for packaging tests."""
+
+    project_dir: Path
+    build_script: Path
+    package_script: Path
+    polythene_script: Path
+
+
+@dataclass(frozen=True, slots=True)
+class BuildArtifacts:
+    """Details about build outputs needed for packaging tests."""
+
+    target: str
+    man_page: Path
+
+
+DEFAULT_TARGET: Final[str] = "x86_64-unknown-linux-gnu"
+DEFAULT_CONFIG: Final[PackagingConfig] = PackagingConfig(
+    name="rust-toy-app",
+    bin_name="rust-toy-app",
+    version="0.1.0",
+    release="1",
+)
+
+
+def packaging_project() -> PackagingProject:
+    """Return the filesystem layout for the packaging fixtures."""
+
+    test_file = Path(__file__).resolve()
+    tests_root = test_file.parents[1]
+    project_dir = test_file.parents[4] / "rust-toy-app"
+    return PackagingProject(
+        project_dir=project_dir,
+        build_script=tests_root / "src" / "main.py",
+        package_script=tests_root / "scripts" / "package.py",
+        polythene_script=tests_root / "scripts" / "polythene.py",
+    )
+
+
+def deb_arch_for_target(target: str) -> str:
+    """Return the nfpm architecture label for *target*."""
+
+    lowered = target.lower()
+    if lowered.startswith(("x86_64-", "x86_64_")):
+        return "amd64"
+    if lowered.startswith(("aarch64-", "arm64-")):
+        return "arm64"
+    return "amd64"
+
+
+def build_release_artifacts(
+    project: PackagingProject,
+    target: str,
+    *,
+    config: PackagingConfig = DEFAULT_CONFIG,
+) -> BuildArtifacts:
+    """Compile the Rust project and return the artefacts needed for packaging."""
+
+    with local.cwd(project.project_dir):
+        run_cmd(
+            local["rustup"][
+                "toolchain",
+                "install",
+                "1.89.0",
+                "--profile",
+                "minimal",
+                "--no-self-update",
+            ]
+        )
+        with local.env(CROSS_CONTAINER_ENGINE="podman"):
+            run_cmd(local[sys.executable][project.build_script.as_posix(), target])
+        man_src = unique_match(
+            project.project_dir.glob(
+                f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
+            ),
+            description=f"{config.name} man page",
+        )
+    return BuildArtifacts(target=target, man_page=man_src)
+
+
+def package_project(
+    project: PackagingProject,
+    build: BuildArtifacts,
+    *,
+    config: PackagingConfig = DEFAULT_CONFIG,
+    formats: Iterable[str] = ("deb",),
+) -> dict[str, Path]:
+    """Package the project with nfpm for the requested formats."""
+
+    # Normalise and deduplicate formats while preserving order.
+    ordered_formats: list[str] = []
+    for entry in formats:
+        trimmed = entry.strip().lower()
+        if not trimmed:
+            continue
+        if trimmed not in ordered_formats:
+            ordered_formats.append(trimmed)
+
+    if not ordered_formats:
+        return {}
+
+    with local.cwd(project.project_dir):
+        dist_dir = project.project_dir / "dist"
+        if dist_dir.exists():
+            for pattern in (f"{config.name}_*.deb", f"{config.name}-*.rpm"):
+                for existing in dist_dir.glob(pattern):
+                    existing.unlink()
+        with ensure_nfpm(project.project_dir):
+            run_cmd(
+                local["uv"][
+                    "run",
+                    project.package_script.as_posix(),
+                    "--name",
+                    config.name,
+                    "--bin-name",
+                    config.bin_name,
+                    "--target",
+                    build.target,
+                    "--version",
+                    config.version,
+                    "--formats",
+                    ",".join(ordered_formats),
+                    "--man",
+                    build.man_page.as_posix(),
+                ]
+            )
+
+        results: dict[str, Path] = {}
+        for fmt in ordered_formats:
+            if fmt == "deb":
+                pattern = (
+                    f"dist/{config.name}_{config.version}-{config.release}_*.deb"
+                )
+            elif fmt == "rpm":
+                pattern = (
+                    f"dist/{config.name}-{config.version}-{config.release}*.rpm"
+                )
+            else:
+                continue
+            results[fmt] = unique_match(
+                project.project_dir.glob(pattern),
+                description=f"{config.name} {fmt} package",
+            )
+    return results
 
 
 @dataclass(slots=True)
@@ -160,9 +324,18 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> Iterator[Path]:
 
 
 __all__ = [
+    "BuildArtifacts",
+    "DEFAULT_CONFIG",
+    "DEFAULT_TARGET",
     "IsolationUnavailableError",
+    "PackagingConfig",
+    "PackagingProject",
     "PolytheneRootfs",
+    "build_release_artifacts",
+    "deb_arch_for_target",
     "ensure_nfpm",
+    "package_project",
+    "packaging_project",
     "polythene_cmd",
     "polythene_exec",
     "polythene_rootfs",

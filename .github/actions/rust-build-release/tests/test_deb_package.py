@@ -106,7 +106,7 @@ def test_deb_package_installs() -> None:
                 run_cmd(local["dpkg-deb"]["-e", str(deb), cd])
                 control_txt = Path(cd, "control").read_text(encoding="utf-8")
                 assert "Package: rust-toy-app" in control_txt
-                assert "Architecture: amd64" in control_txt
+                assert f"Architecture: {deb_arch}" in control_txt
         try:
             with polythene_rootfs(
                 polythene, "docker.io/library/debian:bookworm"

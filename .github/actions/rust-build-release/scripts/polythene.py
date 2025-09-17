@@ -31,14 +31,14 @@ Podman environment hardening (set automatically if unset):
 
 from __future__ import annotations
 
+import collections.abc as cabc
 import contextlib
 import os
 import shlex
 import sys
 import time
-from pathlib import Path
 import typing as t
-import collections.abc as cabc
+from pathlib import Path
 
 import typer
 from plumbum.commands.processes import ProcessExecutionError
@@ -57,8 +57,9 @@ else:
         import collections.abc as cabc
         import importlib.util
         import sys
-        from pathlib import Path
         import typing as t
+        from pathlib import Path
+        from types import ModuleType
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"

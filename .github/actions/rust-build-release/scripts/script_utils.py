@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import collections.abc as cabc
 import sys
-from pathlib import Path
 import typing as t
+from pathlib import Path
 
 import typer
 from plumbum import local

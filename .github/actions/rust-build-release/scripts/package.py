@@ -54,6 +54,7 @@ else:
         import collections.abc as cabc
         import importlib.util
         import sys
+        from types import ModuleType
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"

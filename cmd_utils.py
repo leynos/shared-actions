@@ -156,8 +156,11 @@ def run_cmd(
                 return 0
             subprocess.run(args, check=True, timeout=timeout)  # noqa: S603
             return 0
-        if run_kwargs and isinstance(cmd, SupportsRunFg):
-            cmd.run_fg(**run_kwargs)
+        if isinstance(cmd, SupportsRunFg):
+            if run_kwargs:
+                cmd.run_fg(**run_kwargs)
+            else:
+                cmd.run_fg()
             return 0
         if isinstance(cmd, SupportsAnd) and not run_kwargs:
             from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
@@ -169,7 +172,8 @@ def run_cmd(
                 f"{sorted(run_kwargs.keys())}"
             )
             raise TypeError(msg)
-        return cmd()
+        result = cmd()
+        return result if isinstance(result, int) else 0
 
     if not fg and timeout is not None and isinstance(cmd, SupportsRun):
         run_kwargs.setdefault("timeout", timeout)

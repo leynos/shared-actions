@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add RPM packaging integration test to mirror the Debian coverage.
+
 ## [0.1.0] - 2025-09-10
 
 ### Added

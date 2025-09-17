@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import os
 import shutil
 import sys
 import tempfile
@@ -15,21 +14,10 @@ from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
+from _packaging_utils import ensure_nfpm, polythene_cmd, polythene_exec
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
 from script_utils import unique_match
-
-
-def polythene_cmd(polythene: Path, *args: str) -> str:
-    """Invoke the polythene script with ``args`` via ``uv run``."""
-    return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
-
-
-def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
-    """Execute ``cmd`` inside the exported rootfs identified by ``uid``."""
-    return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
-
-
 def deb_arch_for_target(target: str) -> str:
     """Return the nfpm architecture label for *target*.
 
@@ -84,30 +72,7 @@ def test_deb_package_installs() -> None:
             ),
             description="rust-toy-app man page",
         )
-        if shutil.which("nfpm") is None:
-            version = "v2.39.0"
-            host = run_cmd(local["uname"]["-m"]).strip()
-            arch_map = {"x86_64": "x86_64", "aarch64": "arm64"}
-            asset_arch = arch_map.get(host, "x86_64")
-            url = (
-                "https://github.com/goreleaser/nfpm/releases/download/"
-                f"{version}/nfpm_{version[1:]}_Linux_{asset_arch}.tar.gz"
-            )
-            tools_dir = project_dir / "dist" / ".tools"
-            tools_dir.mkdir(parents=True, exist_ok=True)
-            with tempfile.TemporaryDirectory() as td:
-                tarball = Path(td) / "nfpm.tgz"
-                run_cmd(local["curl"]["-sSL", url, "-o", tarball])
-                run_cmd(local["tar"]["-xzf", tarball, "-C", td, "nfpm"])
-                run_cmd(
-                    local["install"][
-                        "-m", "0755", Path(td) / "nfpm", tools_dir / "nfpm"
-                    ]
-                )
-            path = os.environ.get("PATH", "")
-            prefix = f"{tools_dir.as_posix()}:"
-            if not path.startswith(prefix):
-                os.environ["PATH"] = f"{prefix}{path}"
+        ensure_nfpm(project_dir)
         run_cmd(
             local["uv"][
                 "run",

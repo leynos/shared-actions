@@ -44,4 +44,4 @@ def run_validated(
     ):
         subprocess_kwargs["text"] = True
     result = subprocess.run([exec_path, *args], **subprocess_kwargs)  # noqa: S603
-    return typ.cast(subprocess.CompletedProcess[str], result)
+    return typ.cast("subprocess.CompletedProcess[str]", result)

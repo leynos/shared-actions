@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import importlib.util
+import typing as typ
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final  # noqa: ICN003
 
-if TYPE_CHECKING:  # pragma: no cover - type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
 
-CMD_UTILS_FILENAME: Final[str] = "cmd_utils.py"
-ERROR_REPO_ROOT_NOT_FOUND: Final[str] = "Repository root not found"
-ERROR_IMPORT_FAILED: Final[str] = "Failed to import cmd_utils from repository root"
+CMD_UTILS_FILENAME: typ.Final[str] = "cmd_utils.py"
+ERROR_REPO_ROOT_NOT_FOUND: typ.Final[str] = "Repository root not found"
+ERROR_IMPORT_FAILED: typ.Final[str] = "Failed to import cmd_utils from repository root"
 
 
 class RepoRootNotFoundError(RuntimeError):
@@ -76,7 +76,7 @@ def _get_cmd_utils() -> ModuleType:
     return load_cmd_utils()
 
 
-def run_cmd(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - passthrough
+def run_cmd(*args: typ.Any, **kwargs: typ.Any) -> typ.Any:  # noqa: ANN401 - passthrough
     """Proxy ``cmd_utils.run_cmd`` with lazy module loading."""
     try:
         return _get_cmd_utils().run_cmd(*args, **kwargs)

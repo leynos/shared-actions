@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.13 - 2025-07-26
+
+- Add `workspaces` input and forward it to `Swatinem/rust-cache`.
+- Validate workspace mappings so misconfigured caches fail fast.
+- Leaving `workspaces` empty uses rust-cache’s default mapping `. -> target`.
+
 ## v1.0.12 - 2025-07-26
 
 - Honour `.rust-toolchain.toml` when `toolchain` input is omitted, falling

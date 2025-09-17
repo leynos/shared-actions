@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import os
 import sys
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import pytest
 
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from shellstub import StubManager
 
 

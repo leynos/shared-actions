@@ -10,6 +10,13 @@ inputs:
     description: Install PostgreSQL system dependencies
     required: false
     default: "false"
+  workspaces:
+    description: >
+      Cargo workspaces to cache with Swatinem/rust-cache. Each entry has the
+      form "$workspace -> $target". Leave empty to use rust-cache’s default
+      (". -> target").
+    required: false
+    default: ""
   install-sqlite-deps:
     description: Install SQLite development libraries on Windows
     required: false
@@ -65,6 +72,15 @@ runs:
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
+    - name: Validate workspace cache mappings
+      shell: bash
+      run: uv run --script "${{ github.action_path }}/scripts/validate_workspaces.py"
+      env:
+        INPUT_WORKSPACES: ${{ inputs.workspaces }}
+    - name: Note default rust-cache mapping
+      if: ${{ inputs.workspaces == '' }}
+      shell: bash
+      run: echo "::notice title=rust-cache workspaces::Using default mapping '. -> target' (no workspaces provided)"
     - name: Install nightly toolchain (needed for OpenBSD cross-compilation)
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       run: |
@@ -76,16 +92,12 @@ runs:
         echo "OPENBSD_NIGHTLY=$OPENBSD_NIGHTLY" >> "$GITHUB_ENV"
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
-    - name: Cache cargo registry
-      uses: actions/cache@v4
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@54e2af0a8339c0435fa1de94002eab349a2f15ef
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target/${{ env.BUILD_PROFILE }}
-        key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+        workspaces: ${{ inputs.workspaces }}
+        shared-key: ${{ runner.os }}-${{ github.ref_name }}
+        cache-on-failure: true
     - name: Run sccache only on non-release runs
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad

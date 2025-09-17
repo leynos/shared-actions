@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import sys
+import typing as typ
 from pathlib import Path
-from typing import Iterable
 
 import typer
 from plumbum import local
-from plumbum.commands.base import BaseCommand
+
+if typ.TYPE_CHECKING:
+    from plumbum.commands.base import BaseCommand
 
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
@@ -26,11 +28,11 @@ except ImportError:  # pragma: no cover - fallback when run as a script
         f"{_PKG_NAME}.cmd_utils", _PKG_DIR / "cmd_utils.py"
     )
     if _SPEC is None or _SPEC.loader is None:
-        raise ImportError("Unable to load cmd_utils helper")
+        raise ImportError(name="cmd_utils") from None
     _MODULE = util.module_from_spec(_SPEC)
     sys.modules[_SPEC.name] = _MODULE
     _SPEC.loader.exec_module(_MODULE)
-    run_cmd = getattr(_MODULE, "run_cmd")  # type: ignore[assignment]
+    run_cmd = _MODULE.run_cmd  # type: ignore[assignment]
 
 __all__ = [
     "ensure_directory",
@@ -39,6 +41,8 @@ __all__ = [
     "run_cmd",
     "unique_match",
 ]
+
+PathIterable = typ.Iterable[Path]
 
 
 def get_command(name: str) -> BaseCommand:
@@ -67,7 +71,7 @@ def ensure_directory(path: Path, *, exist_ok: bool = True) -> Path:
     return path
 
 
-def unique_match(paths: Iterable[Path], *, description: str) -> Path:
+def unique_match(paths: PathIterable, *, description: str) -> Path:
     """Return the sole path in ``paths`` or exit with an error."""
     matches = list(paths)
     if len(matches) != 1:

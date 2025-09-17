@@ -10,7 +10,8 @@
 """
 Minimal nFPM packager for Rust binaries, with manpage support.
 
-Examples:
+Examples
+--------
   uv run package.py --name rust-toy-app --bin-name rust-toy-app \
     --target x86_64-unknown-linux-gnu --version 1.2.3 \
     --formats deb,rpm \
@@ -24,14 +25,15 @@ from __future__ import annotations
 
 import gzip
 import re
+import types
+import typing as typ
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 
 import typer
 import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
-if TYPE_CHECKING:
+if typ.TYPE_CHECKING:
     from .script_utils import (
         ensure_directory,
         ensure_exists,
@@ -49,27 +51,29 @@ else:
     except ImportError:  # pragma: no cover - fallback for direct execution
         import importlib.util
         import sys
-        from collections.abc import Callable
-        from types import ModuleType
-        from typing import cast
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
-        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+        if pkg_module is None:
+            pkg_module = types.ModuleType(_PKG_NAME)
+            pkg_module.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+            sys.modules[_PKG_NAME] = pkg_module
+        if not hasattr(pkg_module, "load_sibling"):
             spec = importlib.util.spec_from_file_location(
                 _PKG_NAME, _PKG_DIR / "__init__.py"
             )
             if spec is None or spec.loader is None:
-                raise ImportError("Unable to load scripts package helper")
-            pkg_module = importlib.util.module_from_spec(spec)
-            sys.modules[_PKG_NAME] = pkg_module
-            spec.loader.exec_module(pkg_module)
+                raise ImportError(name="script_utils") from None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[_PKG_NAME] = module
+            spec.loader.exec_module(module)
+            pkg_module = module
 
-        load_sibling = cast(
-            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
+        load_sibling = typ.cast(
+            "typ.Callable[[str], types.ModuleType]", pkg_module.load_sibling
         )
-        helpers = cast(Any, load_sibling("script_utils"))
+        helpers = typ.cast("typ.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
@@ -85,7 +89,8 @@ SECTION_RE = re.compile(
 class OctalInt(int):
     """Integer subclass that renders as a zero-padded octal literal."""
 
-    def __new__(cls, value: int, *, width: int = 4) -> "OctalInt":
+    def __new__(cls, value: int, *, width: int = 4) -> OctalInt:
+        """Initialise the integer and remember the desired octal width."""
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
@@ -127,6 +132,7 @@ def map_target_to_arch(target: str) -> str:
 
 
 def infer_section(path: Path, default: str) -> str:
+    """Extract the manpage section from ``path`` or fall back to ``default``."""
     m = SECTION_RE.search(path.name)
     return m.group(1) if m else default
 
@@ -143,22 +149,20 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
         return src
     ensure_directory(dst_dir)
     gz_path = dst_dir / f"{src.name}.gz"
-    with open(src, "rb") as fin, open(gz_path, "wb") as fout:
-        with gzip.GzipFile(
-            filename="",
-            fileobj=fout,
-            mode="wb",
-            mtime=0,
-            compresslevel=9,
-        ) as gz:
-            gz.write(fin.read())
+    with src.open("rb") as fin, gz_path.open("wb") as fout, gzip.GzipFile(
+        filename="",
+        fileobj=fout,
+        mode="wb",
+        mtime=0,
+        compresslevel=9,
+    ) as gz:
+        gz.write(fin.read())
     return gz_path
 
 
-def normalise_file_modes(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, typ.Any]]:
     """Convert string ``mode`` values to octal-preserving integers."""
-
-    normalised: list[dict[str, Any]] = []
+    normalised: list[dict[str, typ.Any]] = []
     for entry in entries:
         new_entry = dict(entry)
         file_info = entry.get("file_info")
@@ -187,12 +191,12 @@ def build_man_entries(
     man_sources: list[Path],
     default_section: str,
     stage_dir: Path,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, typ.Any]]:
     """Return nFPM ``contents`` entries for the provided man pages."""
     if not man_sources:
         return []
 
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, typ.Any]] = []
     stage = ensure_directory(stage_dir)
     for src in man_sources:
         ensure_exists(src, "manpage not found")
@@ -211,62 +215,88 @@ def build_man_entries(
     return entries
 
 
+NAME_OPTION = typer.Option(..., "--name", help="Package name.")
+BIN_NAME_OPTION = typer.Option(
+    ..., "--bin-name", help="Installed binary name."
+)
+TARGET_OPTION = typer.Option(
+    "x86_64-unknown-linux-gnu",
+    "--target",
+    help="Rust target triple used for the build.",
+)
+VERSION_OPTION = typer.Option(
+    ..., "--version", help="Version (Debian-friendly: starts with a digit)."
+)
+RELEASE_OPTION = typer.Option("1", "--release", help="Package release/revision.")
+ARCH_OPTION = typer.Option(
+    None, "--arch", help="Override nFPM/GOARCH arch (e.g. amd64, arm64)."
+)
+FORMATS_OPTION = typer.Option(
+    "deb,rpm",
+    "--formats",
+    help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
+)
+OUTDIR_OPTION = typer.Option(
+    Path("dist"), "--outdir", help="Where to place packages."
+)
+MAINTAINER_OPTION = typer.Option("Your Name <you@example.com>", "--maintainer")
+HOMEPAGE_OPTION = typer.Option("https://example.com", "--homepage")
+LICENSE_OPTION = typer.Option("MIT", "--license")
+SECTION_OPTION = typer.Option("utils", "--section")
+DESCRIPTION_OPTION = typer.Option(
+    "A fast toy app written in Rust.", "--description"
+)
+DEB_DEPENDS_OPTION = typer.Option(
+    None, "--deb-depends", help="Repeatable. Debian runtime deps."
+)
+RPM_DEPENDS_OPTION = typer.Option(
+    None, "--rpm-depends", help="Repeatable. RPM runtime deps."
+)
+BINARY_DIR_OPTION = typer.Option(
+    Path("target"), "--binary-dir", help="Root of Cargo target dir."
+)
+CONFIG_OUT_OPTION = typer.Option(
+    Path("dist/nfpm.yaml"),
+    "--config-out",
+    help="Path to write generated nfpm.yaml.",
+)
+MAN_OPTION = typer.Option(
+    None,
+    "--man",
+    help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
+)
+MAN_SECTION_OPTION = typer.Option(
+    "1", "--man-section", help="Default man section if the filename lacks one."
+)
+MAN_STAGE_OPTION = typer.Option(
+    Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
+)
+
+
 @app.command()
 def main(
-    name: str = typer.Option(..., "--name", help="Package name."),
-    bin_name: str = typer.Option(..., "--bin-name", help="Installed binary name."),
-    target: str = typer.Option(
-        "x86_64-unknown-linux-gnu",
-        "--target",
-        help="Rust target triple used for the build.",
-    ),
-    version: str = typer.Option(
-        ..., "--version", help="Version (Debian-friendly: starts with a digit)."
-    ),
-    release: str = typer.Option("1", "--release", help="Package release/revision."),
-    arch: str | None = typer.Option(
-        None, "--arch", help="Override nFPM/GOARCH arch (e.g. amd64, arm64)."
-    ),
-    formats: str = typer.Option(
-        "deb,rpm",
-        "--formats",
-        help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
-    ),
-    outdir: Path = typer.Option(
-        Path("dist"), "--outdir", help="Where to place packages."
-    ),
-    maintainer: str = typer.Option("Your Name <you@example.com>", "--maintainer"),
-    homepage: str = typer.Option("https://example.com", "--homepage"),
-    license_: str = typer.Option("MIT", "--license"),
-    section: str = typer.Option("utils", "--section"),
-    description: str = typer.Option("A fast toy app written in Rust.", "--description"),
-    deb_depends: list[str] | None = typer.Option(
-        None, "--deb-depends", help="Repeatable. Debian runtime deps."
-    ),
-    rpm_depends: list[str] | None = typer.Option(
-        None, "--rpm-depends", help="Repeatable. RPM runtime deps."
-    ),
-    binary_dir: Path = typer.Option(
-        Path("target"), "--binary-dir", help="Root of Cargo target dir."
-    ),
-    config_out: Path = typer.Option(
-        Path("dist/nfpm.yaml"),
-        "--config-out",
-        help="Path to write generated nfpm.yaml.",
-    ),
-    # Manpage bits:
-    man: list[Path] | None = typer.Option(
-        None,
-        "--man",
-        help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
-    ),
-    man_section: str = typer.Option(
-        "1", "--man-section", help="Default man section if the filename lacks one."
-    ),
-    man_stage: Path = typer.Option(
-        Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
-    ),
+    name: str = NAME_OPTION,
+    bin_name: str = BIN_NAME_OPTION,
+    target: str = TARGET_OPTION,
+    version: str = VERSION_OPTION,
+    release: str = RELEASE_OPTION,
+    arch: str | None = ARCH_OPTION,
+    formats: str = FORMATS_OPTION,
+    outdir: Path = OUTDIR_OPTION,
+    maintainer: str = MAINTAINER_OPTION,
+    homepage: str = HOMEPAGE_OPTION,
+    license_: str = LICENSE_OPTION,
+    section: str = SECTION_OPTION,
+    description: str = DESCRIPTION_OPTION,
+    deb_depends: list[str] | None = DEB_DEPENDS_OPTION,
+    rpm_depends: list[str] | None = RPM_DEPENDS_OPTION,
+    binary_dir: Path = BINARY_DIR_OPTION,
+    config_out: Path = CONFIG_OUT_OPTION,
+    man: list[Path] | None = MAN_OPTION,
+    man_section: str = MAN_SECTION_OPTION,
+    man_stage: Path = MAN_STAGE_OPTION,
 ) -> None:
+    """Build packages for a Rust binary using nFPM configuration derived from inputs."""
     # Normalise/derive fields.
     ver = version.lstrip("v")  # Debian wants a digit first.
     arch_val = arch or map_target_to_arch(target)
@@ -276,7 +306,7 @@ def main(
     ensure_directory(config_out.parent)
 
     license_file = Path("LICENSE")
-    contents: list[dict[str, Any]] = [
+    contents: list[dict[str, typ.Any]] = [
         {
             "src": bin_path.as_posix(),
             "dst": f"/usr/bin/{bin_name}",
@@ -298,7 +328,7 @@ def main(
     deb_requires = list(deb_depends or [])
     rpm_requires = list(rpm_depends) if rpm_depends else list(deb_requires)
 
-    config: dict[str, Any] = {
+    config: dict[str, typ.Any] = {
         "name": name,
         "arch": arch_val,
         "platform": "linux",

@@ -10,19 +10,23 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import typer
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
-from script_utils import unique_match  # noqa: E402
+from script_utils import unique_match
 
 
 def polythene_cmd(polythene: Path, *args: str) -> str:
+    """Invoke the polythene script with ``args`` via ``uv run``."""
     return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
 
 
 def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
+    """Execute ``cmd`` inside the exported rootfs identified by ``uid``."""
     return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
 
 
@@ -149,8 +153,11 @@ def test_deb_package_installs() -> None:
             )
             try:
                 polythene_exec(polythene, uid, store, "true")
-            except Exception:
-                pytest.skip("isolation unavailable")
+            except (ProcessExecutionError, typer.Exit):
+                pytest.skip(
+                    "podman-based isolation unavailable (polythene exec failed). "
+                    "Ensure rootless Podman is installed and operational."
+                )
 
             root = Path(store) / uid
             shutil.copy(deb, root / deb.name)

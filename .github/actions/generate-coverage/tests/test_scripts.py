@@ -8,12 +8,12 @@ import os
 import subprocess
 import sys
 import types
-import typing as t
+import typing as typ
 from pathlib import Path
 
 import pytest
 
-if t.TYPE_CHECKING:  # pragma: no cover - type hints only
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from shellstub import StubManager
 
 
@@ -41,7 +41,7 @@ def run_script(
 def _load_module(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
-    cmds: dict[str, t.Any],
+    cmds: dict[str, typ.Any],
 ) -> types.ModuleType:
     """Import ``name`` from the ``scripts`` directory with stubbed deps."""
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
@@ -131,8 +131,8 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
 
 
 def _make_fake_cargo(
-    stdout: str | t.TextIO | None,
-    stderr: str | t.TextIO | None,
+    stdout: str | typ.TextIO | None,
+    stderr: str | typ.TextIO | None,
     *,
     returncode: int = 0,
     track_lifecycle: bool = False,

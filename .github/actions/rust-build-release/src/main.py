@@ -25,7 +25,6 @@ from cmd_utils import run_cmd
 
 def _cross_toolchain_arg(toolchain: str) -> str:
     """Return a cross-compatible ``+toolchain`` argument."""
-
     parts = toolchain.split("-")
     if len(parts) <= 1:
         return toolchain
@@ -118,10 +117,11 @@ def main(
     )
     engine = os.environ.get("CROSS_CONTAINER_ENGINE")
     if engine and shutil.which(engine) is None:
-        typer.echo(
-            f"::warning:: CROSS_CONTAINER_ENGINE={engine} specified but not found; disabling container use",
-            err=True,
+        warning = (
+            f"::warning:: CROSS_CONTAINER_ENGINE={engine} specified but not found; "
+            "disabling container use"
         )
+        typer.echo(warning, err=True)
         container_available = False
 
     # Determine cross availability and version

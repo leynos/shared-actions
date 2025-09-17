@@ -95,16 +95,19 @@ app = typer.Typer(add_completion=False, help="polythene — Temu podman for Code
 
 
 def log(msg: str) -> None:
+    """Print ``msg`` to stderr with a timestamp when verbose mode is enabled."""
     if VERBOSE:
         ts = time.strftime("%H:%M:%S")
         print(f"[{ts}] {msg}", file=sys.stderr)
 
 
 def store_path_for(uuid: str, store: Path) -> Path:
+    """Return the absolute path for ``uuid`` under ``store``."""
     return (store / uuid).resolve()
 
 
 def generate_uuid() -> str:
+    """Generate a UUID for a new root filesystem."""
     return str(uuid7())
 
 
@@ -179,7 +182,9 @@ def _ensure_dirs(root: Path) -> None:
         ensure_directory(root / sub)
 
 
-def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
+def _probe_bwrap_userns(
+    bwrap: "BaseCommand", root: Path, *, timeout: int | None
+) -> list[str]:
     """Return userns flags if permitted; otherwise empty list."""
     try:
         # Quick probe to test unpriv userns availability (or setuid bwrap handles it).
@@ -205,7 +210,7 @@ def _probe_bwrap_userns(bwrap, root: Path, *, timeout: int | None) -> list[str]:
 
 
 def _probe_bwrap_proc(
-    bwrap,
+    bwrap: "BaseCommand",
     base_flags: list[str],
     root: Path,
     *,
@@ -229,7 +234,7 @@ def _probe_bwrap_proc(
 
 
 def _build_bwrap_flags(
-    bwrap,
+    bwrap: "BaseCommand",
     root: Path,
     *,
     timeout: int | None,
@@ -274,6 +279,7 @@ def _run_with_tool(
 def run_with_bwrap(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Attempt to execute ``inner_cmd`` inside ``root`` using bubblewrap."""
     try:
         bwrap = get_command("bwrap")
     except typer.Exit:
@@ -331,6 +337,7 @@ def run_with_bwrap(
 def run_with_proot(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Attempt to execute ``inner_cmd`` inside ``root`` using proot."""
     try:
         proot = get_command("proot")
     except typer.Exit:
@@ -355,6 +362,7 @@ def run_with_proot(
 def run_with_chroot(
     root: Path, inner_cmd: str, timeout: int | None = None
 ) -> int | None:
+    """Attempt to execute ``inner_cmd`` inside ``root`` using chroot."""
     try:
         chroot = get_command("chroot")
     except typer.Exit:
@@ -494,6 +502,7 @@ def cmd_exec(
 
 
 def main() -> None:
+    """Invoke the Typer CLI entry point."""
     app()
 
 

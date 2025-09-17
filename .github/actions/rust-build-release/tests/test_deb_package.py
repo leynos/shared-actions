@@ -19,10 +19,12 @@ from script_utils import unique_match
 
 
 def polythene_cmd(polythene: Path, *args: str) -> str:
+    """Invoke the polythene script with ``args`` via ``uv run``."""
     return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
 
 
 def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
+    """Execute ``cmd`` inside the exported rootfs identified by ``uid``."""
     return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
 
 

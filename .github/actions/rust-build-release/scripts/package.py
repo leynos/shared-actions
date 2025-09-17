@@ -86,6 +86,7 @@ class OctalInt(int):
     """Integer subclass that renders as a zero-padded octal literal."""
 
     def __new__(cls, value: int, *, width: int = 4) -> OctalInt:
+        """Initialise the integer and remember the desired octal width."""
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
@@ -127,6 +128,7 @@ def map_target_to_arch(target: str) -> str:
 
 
 def infer_section(path: Path, default: str) -> str:
+    """Extract the manpage section from ``path`` or fall back to ``default``."""
     m = SECTION_RE.search(path.name)
     return m.group(1) if m else default
 
@@ -265,6 +267,7 @@ def main(
         Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
     ),
 ) -> None:
+    """Build packages for a Rust binary using nFPM configuration derived from inputs."""
     # Normalise/derive fields.
     ver = version.lstrip("v")  # Debian wants a digit first.
     arch_val = arch or map_target_to_arch(target)

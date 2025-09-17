@@ -8,7 +8,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
+from typer.testing import CliRunner
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
@@ -84,6 +84,7 @@ def test_cli_toolchain_outputs_value(
             "--runner-arch",
             "X64",
         ],
+        prog_name="action-setup",
     )
     assert result.exit_code == 0
     assert result.stdout.strip() == "1.99.0"
@@ -91,9 +92,13 @@ def test_cli_toolchain_outputs_value(
 
 def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:
     """CLI validation command reports errors via Typer exit codes."""
-    result = runner.invoke(action_setup_module.app, ["validate", "invalid target"])
+    result = runner.invoke(
+        action_setup_module.app,
+        ["validate", "invalid target"],
+        prog_name="action-setup",
+    )
     assert result.exit_code != 0
-    assert "contains invalid characters" in result.stdout
+    assert "contains invalid characters" in result.stderr
 
 
 def test_script_validate_step_reports_error() -> None:

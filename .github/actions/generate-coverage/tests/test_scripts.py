@@ -7,13 +7,14 @@ import io
 import os
 import subprocess
 import sys
-import types
 import typing as typ
 from pathlib import Path
 
 import pytest
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
+    from types import ModuleType
+
     from shellstub import StubManager
 
 
@@ -41,93 +42,26 @@ def run_script(
 def _load_module(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
-    cmds: dict[str, typ.Any],
-) -> types.ModuleType:
-    """Import ``name`` from the ``scripts`` directory with stubbed deps."""
+) -> ModuleType:
+    """Import ``name`` from the ``scripts`` directory with real dependencies."""
     script_dir = Path(__file__).resolve().parents[1] / "scripts"
+    root_dir = Path(__file__).resolve().parents[4]
     monkeypatch.syspath_prepend(script_dir)
-    monkeypatch.syspath_prepend(Path(__file__).resolve().parents[4])
-    monkeypatch.delitem(sys.modules, "coverage_parsers", raising=False)
+    monkeypatch.syspath_prepend(root_dir)
+    for module_name in (name, "coverage_parsers"):
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None
-
-    dummy_exc = type("DummyError", (Exception,), {})
-    fake_proc = types.SimpleNamespace(ProcessExecutionError=dummy_exc)
-    fake_plumbum = types.SimpleNamespace(
-        cmd=types.SimpleNamespace(**dict.fromkeys(cmds, None)),
-        commands=types.SimpleNamespace(processes=fake_proc),
-    )
-    if "FG" in cmds:
-        fake_plumbum.FG = None
-    monkeypatch.setitem(sys.modules, "plumbum", fake_plumbum)
-    monkeypatch.setitem(sys.modules, "plumbum.cmd", fake_plumbum.cmd)
-    monkeypatch.setitem(sys.modules, "plumbum.commands.processes", fake_proc)
-
-    import xml.etree.ElementTree as ETree
-
-    class FakeRoot:
-        def __init__(self, elem: ETree.Element) -> None:
-            self._elem = elem
-
-        def xpath(self, expr: str) -> float:
-            if expr.startswith("number(") and expr.endswith(")"):
-                attr = expr[len("number(") : -1]
-                if attr.startswith("/coverage/@"):
-                    return float(self._elem.get(attr.split("@")[1]) or float("nan"))
-            if expr.startswith("count(") and expr.endswith(")"):
-                inner = expr[len("count(") : -1]
-                if inner == "//class/lines/line":
-                    return float(len(self._elem.findall(".//class/lines/line")))
-                if inner == "//class/lines/line[number(@hits) > 0]":
-                    total = 0
-                    for line in self._elem.findall(".//class/lines/line"):
-                        try:
-                            hits = float(line.get("hits", "0"))
-                        except ValueError:
-                            hits = 0
-                        if hits > 0:
-                            total += 1
-                    return float(total)
-            raise NotImplementedError(expr)
-
-    class FakeTree:
-        def __init__(self, elem: ETree.Element) -> None:
-            self._elem = elem
-
-        def getroot(self) -> FakeRoot:
-            return FakeRoot(self._elem)
-
-    def fake_parse(path: str) -> FakeTree:
-        return FakeTree(ETree.parse(path).getroot())  # noqa: S314 - test data
-
-    class FakeEtree:
-        class LxmlError(Exception):
-            pass
-
-        parse = staticmethod(fake_parse)
-
-    fake_lxml = types.SimpleNamespace(etree=FakeEtree)
-    monkeypatch.setitem(sys.modules, "lxml", fake_lxml)
-    monkeypatch.setitem(sys.modules, "lxml.etree", FakeEtree)
-
-    fake_typer = types.SimpleNamespace(
-        Option=lambda default=None, **_: default,
-        echo=lambda *a, **k: None,
-        Exit=SystemExit,
-        run=lambda func: func(),
-    )
-    monkeypatch.setitem(sys.modules, "typer", fake_typer)
-
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
-def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
-    """Return the ``run_rust`` module with dependencies stubbed."""
-    return _load_module(monkeypatch, "run_rust", {"cargo": None})
+def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Return a freshly loaded ``run_rust`` module for testing."""
+    return _load_module(monkeypatch, "run_rust")
 
 
 def _make_fake_cargo(
@@ -236,7 +170,7 @@ def test_run_cargo_windows(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """``_run_cargo`` streams output correctly on Windows."""
-    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
 
     def fake_echo(line: str, *, err: bool = False, nl: bool = True) -> None:
@@ -258,7 +192,7 @@ def test_run_cargo_windows_nonzero_exit(
     """``_run_cargo`` raises on non-zero exit code on Windows."""
     import typer as real_typer
 
-    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
     monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
@@ -279,7 +213,7 @@ def test_run_cargo_windows_pump_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
-    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
@@ -301,7 +235,7 @@ def test_run_cargo_windows_none_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stdout is missing on Windows."""
-    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
@@ -314,7 +248,7 @@ def test_run_cargo_windows_none_stderr(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` fails when stderr is missing on Windows."""
-    mod = _load_module(monkeypatch, "run_rust", {"cargo": None})
+    mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
@@ -522,7 +456,7 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
 
 
 def test_lcov_zero_lines_found(
-    tmp_path: Path, run_rust_module: types.ModuleType
+    tmp_path: Path, run_rust_module: ModuleType
 ) -> None:
     """``get_line_coverage_percent_from_lcov`` returns 0.00 when no lines are found."""
     lcov = tmp_path / "zero.lcov"
@@ -530,31 +464,34 @@ def test_lcov_zero_lines_found(
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
-def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
+def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_lcov`` handles files missing ``LH`` tags."""
     lcov = tmp_path / "missing.lcov"
     lcov.write_text("LF:100\n")
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
-def test_lcov_malformed_file(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
+def test_lcov_malformed_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_lcov`` returns 0.00 for malformed files."""
     lcov = tmp_path / "bad.lcov"
     lcov.write_text("LF:abc\nLH:xyz\n")
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
-def test_lcov_file_missing(tmp_path: Path, run_rust_module: types.ModuleType) -> None:
+def test_lcov_file_missing(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """Non-existent file triggers ``SystemExit``."""
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(tmp_path / "nope.lcov")
-    assert excinfo.value.code == 1
+    exit_code = getattr(excinfo.value, "exit_code", None) or getattr(
+        excinfo.value, "code", None
+    )
+    assert exit_code == 1
 
 
 def test_lcov_permission_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    run_rust_module: types.ModuleType,
+    run_rust_module: ModuleType,
 ) -> None:
     """Unreadable file triggers ``SystemExit``."""
     lcov = tmp_path / "deny.lcov"
@@ -564,18 +501,21 @@ def test_lcov_permission_error(
         raise PermissionError("nope")
 
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(lcov)
-    assert excinfo.value.code == 1
+    exit_code = getattr(excinfo.value, "exit_code", None) or getattr(
+        excinfo.value, "code", None
+    )
+    assert exit_code == 1
 
 
 @pytest.fixture
-def run_python_module(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
-    """Return the ``run_python`` module with dependencies stubbed."""
-    return _load_module(monkeypatch, "run_python", {"python": None, "FG": None})
+def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Return a freshly loaded ``run_python`` module for testing."""
+    return _load_module(monkeypatch, "run_python")
 
 
-def test_cobertura_detail(tmp_path: Path, run_python_module: types.ModuleType) -> None:
+def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles per-line detail."""
     xml = tmp_path / "cov.xml"
     xml.write_text(
@@ -601,7 +541,7 @@ def test_cobertura_detail(tmp_path: Path, run_python_module: types.ModuleType) -
 
 
 def test_cobertura_root_totals(
-    tmp_path: Path, run_python_module: types.ModuleType
+    tmp_path: Path, run_python_module: ModuleType
 ) -> None:
     """``get_line_coverage_percent_from_cobertura`` falls back to root totals."""
     xml = tmp_path / "root.xml"
@@ -611,7 +551,7 @@ def test_cobertura_root_totals(
 
 
 def test_cobertura_zero_lines(
-    tmp_path: Path, run_python_module: types.ModuleType
+    tmp_path: Path, run_python_module: ModuleType
 ) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles zero totals."""
     xml = tmp_path / "zero.xml"

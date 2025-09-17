@@ -63,6 +63,8 @@ def polythene_rootfs(polythene: Path, image: str) -> Iterator[PolytheneRootfs]:
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
             raise IsolationUnavailableError(str(exc)) from exc
         uid = pull_output.splitlines()[-1].strip()
+        if not uid:
+            raise IsolationUnavailableError("empty polythene uid from pull")
         try:
             polythene_exec(polythene, uid, store, "true")
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
@@ -79,6 +81,9 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> Iterator[Path]:
         yield Path(existing)
         return
 
+    # Allow overriding the pinned version in CI environments
+    version = os.environ.get("NFPM_VERSION", version)
+
     host_arch = run_cmd(local["uname"]["-m"]).strip()
     arch_map = {"x86_64": "x86_64", "aarch64": "arm64", "arm64": "arm64"}
     asset_arch = arch_map.get(host_arch, "x86_64")
@@ -93,11 +98,35 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> Iterator[Path]:
     if not nfpm_path.exists():
         with tempfile.TemporaryDirectory() as td:
             tarball = Path(td) / "nfpm.tgz"
-            run_cmd(local["curl"]["-sSL", url, "-o", tarball])
+            run_cmd(
+                local["curl"][
+                    "-fsSL",
+                    "--retry",
+                    "3",
+                    "--retry-connrefused",
+                    "--max-time",
+                    "120",
+                    url,
+                    "-o",
+                    tarball,
+                ]
+            )
             checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
             try:
                 sums_path = Path(td) / "checksums.txt"
-                run_cmd(local["curl"]["-sSL", checks_url, "-o", sums_path])
+                run_cmd(
+                    local["curl"][
+                        "-fsSL",
+                        "--retry",
+                        "3",
+                        "--retry-connrefused",
+                        "--max-time",
+                        "60",
+                        checks_url,
+                        "-o",
+                        sums_path,
+                    ]
+                )
                 expected_hash = None
                 pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
                 for line in sums_path.read_text(encoding="utf-8").splitlines():

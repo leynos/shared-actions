@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,7 +86,7 @@ def built_artifacts(packaging_paths: PackagingPaths) -> tuple[str, Path]:
     return target, man_src
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def rpm_package_path(
     packaging_paths: PackagingPaths, built_artifacts: tuple[str, Path]
 ) -> Path:
@@ -145,7 +146,7 @@ def test_rpm_package_metadata(
             assert info.get("Name") == "rust-toy-app"
             assert info.get("Version") == "0.1.0"
             release_value = info.get("Release", "")
-            assert release_value.startswith("1"), release_value
+            assert re.match(r"^1(\.|$)", release_value), release_value
             arch_value = info.get("Architecture")
             assert arch_value in {"amd64", "x86_64", "arm64", "aarch64"}, arch_value
 

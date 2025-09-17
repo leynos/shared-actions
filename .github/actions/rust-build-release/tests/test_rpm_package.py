@@ -5,16 +5,17 @@ from __future__ import annotations
 import re
 import shutil
 import sys
-from collections.abc import Mapping
-from pathlib import Path
+import typing as typ
 
 import pytest
-
 from _packaging_utils import (
     IsolationUnavailableError,
     PackagingProject,
     polythene_rootfs,
 )
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 RPM_BASE_IMAGE = "docker.io/library/rockylinux:9"
 
@@ -38,10 +39,9 @@ def _parse_rpm_info(output: str) -> dict[str, str]:
 )
 def test_rpm_package_metadata(
     packaging_project_paths: PackagingProject,
-    packaged_artifacts: Mapping[str, Path],
+    packaged_artifacts: typ.Mapping[str, Path],
 ) -> None:
     """Build the .rpm package and inspect its metadata inside an isolated rootfs."""
-
     rpm_package_path = packaged_artifacts.get("rpm")
     assert rpm_package_path is not None, "expected RPM package to be built"
 
@@ -60,7 +60,9 @@ def test_rpm_package_metadata(
             assert arch_value in {"amd64", "x86_64", "arm64", "aarch64"}, arch_value
 
             listing_output = rootfs.exec("rpm", "-qlp", rpm_package_path.name)
-            listing = {line.strip() for line in listing_output.splitlines() if line.strip()}
+            listing = {
+                line.strip() for line in listing_output.splitlines() if line.strip()
+            }
             assert "/usr/bin/rust-toy-app" in listing
             assert "/usr/share/man/man1/rust-toy-app.1.gz" in listing
     except IsolationUnavailableError as exc:

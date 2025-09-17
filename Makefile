@@ -1,4 +1,4 @@
-.PHONY: all clean help test lint markdownlint nixie fmt typecheck
+.PHONY: all clean help test lint markdownlint nixie fmt check-fmt typecheck
 
 all: fmt lint typecheck test ## Run format, lint, typecheck, then tests
 
@@ -38,6 +38,9 @@ typecheck: .venv ## Run static type checking with Ty
 
 fmt: ## Apply formatting to Python files
 	uvx ruff format
+
+check-fmt: ## Check Python formatting without modifying files
+	uvx ruff format --check
 
 markdownlint: ## Lint Markdown files
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)

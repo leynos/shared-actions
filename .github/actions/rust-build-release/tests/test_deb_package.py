@@ -6,13 +6,10 @@ import contextlib
 import shutil
 import sys
 import tempfile
-from collections.abc import Mapping
+import typing as typ
 from pathlib import Path
 
 import pytest
-from plumbum import local
-
-from cmd_utils import run_cmd
 from _packaging_utils import (
     BuildArtifacts,
     IsolationUnavailableError,
@@ -20,6 +17,9 @@ from _packaging_utils import (
     deb_arch_for_target,
     polythene_rootfs,
 )
+from plumbum import local
+
+from cmd_utils import run_cmd
 
 
 @pytest.mark.usefixtures("uncapture_if_verbose")
@@ -33,10 +33,9 @@ from _packaging_utils import (
 def test_deb_package_installs(
     packaging_project_paths: PackagingProject,
     build_artifacts: BuildArtifacts,
-    packaged_artifacts: Mapping[str, Path],
+    packaged_artifacts: typ.Mapping[str, Path],
 ) -> None:
     """Build the .deb, install in an isolated rootfs, and verify binary and man page."""
-
     polythene = packaging_project_paths.polythene_script
     deb = packaged_artifacts.get("deb")
     assert deb is not None, "expected Debian package to be built"
@@ -53,9 +52,7 @@ def test_deb_package_installs(
             assert "Package: rust-toy-app" in control_txt
             assert f"Architecture: {deb_arch}" in control_txt
     try:
-        with polythene_rootfs(
-            polythene, "docker.io/library/debian:bookworm"
-        ) as rootfs:
+        with polythene_rootfs(polythene, "docker.io/library/debian:bookworm") as rootfs:
             shutil.copy(deb, rootfs.root / deb.name)
             rootfs.exec("dpkg", "-i", deb.name)
             try:

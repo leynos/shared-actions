@@ -8,7 +8,7 @@
 # ]
 # ///
 """
-polythene — Temu podman for Codex.
+polythene - Temu podman for Codex.
 
 Two subcommands:
 

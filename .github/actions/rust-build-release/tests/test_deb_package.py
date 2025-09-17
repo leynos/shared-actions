@@ -19,6 +19,8 @@ from cmd_utils import run_cmd
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.append(str(SCRIPTS_DIR))
 
+from script_utils import ProcessExecutionError, unique_match  # noqa: E402
+
 
 def polythene_cmd(polythene: Path, *args: str) -> str:
     """Execute the polythene CLI via ``uv run`` and return stdout."""
@@ -60,8 +62,6 @@ def deb_arch_for_target(target: str) -> str:
 )
 def test_deb_package_installs() -> None:
     """Build the .deb, install in an isolated rootfs, and verify binary and man page."""
-    from script_utils import unique_match
-
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     build_script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     pkg_script = Path(__file__).resolve().parents[1] / "scripts" / "package.py"
@@ -155,7 +155,7 @@ def test_deb_package_installs() -> None:
             )
             try:
                 polythene_exec(polythene, uid, store, "true")
-            except (subprocess.CalledProcessError, typer.Exit):
+            except (ProcessExecutionError, subprocess.CalledProcessError, typer.Exit):
                 pytest.skip("isolation unavailable")
 
             root = Path(store) / uid

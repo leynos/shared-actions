@@ -8,6 +8,7 @@ from pathlib import Path
 
 import typer
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
@@ -33,6 +34,7 @@ except ImportError:  # pragma: no cover - fallback when run as a script
     run_cmd = _MODULE.run_cmd  # type: ignore[assignment]
 
 __all__ = [
+    "ProcessExecutionError",
     "ensure_directory",
     "ensure_exists",
     "get_command",

@@ -33,6 +33,7 @@ runs:
       uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
       with:
         toolchain: 1.89.0
+        shared-key: ${{ runner.os }}-toolchain-1.89.0
         workspaces: ${{ inputs.project-dir }}
         cache-on-failure: true
     - name: Install nfpm

@@ -86,7 +86,7 @@ def _merge_timeout(timeout: float | None, run_kwargs: dict[str, t.Any]) -> float
         if timeout is not None:
             raise TypeError("timeout specified via parameter and run_kwargs")
         value = run_kwargs.pop("timeout")
-        return t.cast(float | None, value)
+        return t.cast("float | None", value)
     return timeout
 
 

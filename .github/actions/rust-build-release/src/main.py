@@ -25,7 +25,6 @@ from cmd_utils import run_cmd
 
 def _cross_toolchain_arg(toolchain: str) -> str:
     """Return a cross-compatible ``+toolchain`` argument."""
-
     parts = toolchain.split("-")
     if len(parts) <= 1:
         return toolchain

@@ -15,7 +15,7 @@ from plumbum import local
 from cmd_utils import run_cmd
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
-from script_utils import unique_match  # noqa: E402
+from script_utils import unique_match
 
 
 def polythene_cmd(polythene: Path, *args: str) -> str:

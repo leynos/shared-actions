@@ -6,8 +6,8 @@ import collections.abc as cabc  # noqa: TC003  # FIXME: used at runtime
 import dataclasses as dc
 import json
 import os
-from pathlib import Path  # noqa: TC003  # FIXME: used at runtime
 import typing as t
+from pathlib import Path  # noqa: TC003  # FIXME: used at runtime
 
 
 @dc.dataclass

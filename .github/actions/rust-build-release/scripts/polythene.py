@@ -8,7 +8,7 @@
 # ]
 # ///
 """
-polythene — Temu podman for Codex
+polythene — Temu podman for Codex.
 
 Two subcommands:
 
@@ -30,19 +30,25 @@ Podman environment hardening (set automatically if unset):
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import typer
-from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from types import ModuleType
+
+    from plumbum.commands.base import BaseCommand
+
     from .script_utils import ensure_directory, get_command, run_cmd
 else:
     try:
@@ -50,9 +56,7 @@ else:
     except ImportError:  # pragma: no cover - fallback for direct execution
         import importlib.util
         import sys
-        from collections.abc import Callable
         from pathlib import Path
-        from types import ModuleType
         from typing import cast
 
         _PKG_DIR = Path(__file__).resolve().parent
@@ -69,9 +73,9 @@ else:
             spec.loader.exec_module(pkg_module)
 
         load_sibling = cast(
-            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
+            "Callable[[str], ModuleType]", pkg_module.load_sibling
         )
-        helpers = cast(Any, load_sibling("script_utils"))
+        helpers = cast("Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
@@ -154,20 +158,16 @@ def export_rootfs(image: str, dest: Path, *, timeout: int | None = None) -> None
             timeout=timeout,
         )
     finally:
-        try:
+        with contextlib.suppress(ProcessExecutionError):
             run_cmd(podman["rm", cid], fg=True, timeout=timeout)
-        except ProcessExecutionError:
-            pass
 
     # Metadata (best-effort, does not affect functionality)
     meta = dest / ".polythene-meta"
-    try:
+    with contextlib.suppress(Exception):
         meta.write_text(
             f"image={image}\ncreated={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n",
             encoding="utf-8",
         )
-    except Exception:
-        pass
 
 
 # -------------------- Execution backends --------------------

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import typer
 from plumbum import local
-from plumbum.commands.base import BaseCommand
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from plumbum.commands.base import BaseCommand
 
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
@@ -30,7 +34,7 @@ except ImportError:  # pragma: no cover - fallback when run as a script
     _MODULE = util.module_from_spec(_SPEC)
     sys.modules[_SPEC.name] = _MODULE
     _SPEC.loader.exec_module(_MODULE)
-    run_cmd = getattr(_MODULE, "run_cmd")  # type: ignore[assignment]
+    run_cmd = _MODULE.run_cmd  # type: ignore[assignment]
 
 __all__ = [
     "ensure_directory",

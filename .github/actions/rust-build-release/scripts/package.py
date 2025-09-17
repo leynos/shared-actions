@@ -10,7 +10,8 @@
 """
 Minimal nFPM packager for Rust binaries, with manpage support.
 
-Examples:
+Examples
+--------
   uv run package.py --name rust-toy-app --bin-name rust-toy-app \
     --target x86_64-unknown-linux-gnu --version 1.2.3 \
     --formats deb,rpm \
@@ -24,14 +25,17 @@ from __future__ import annotations
 
 import gzip
 import re
+import typing as t
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
 
 import typer
 import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
+    import collections.abc as cabc
+    from types import ModuleType
+
     from .script_utils import (
         ensure_directory,
         ensure_exists,
@@ -49,9 +53,6 @@ else:
     except ImportError:  # pragma: no cover - fallback for direct execution
         import importlib.util
         import sys
-        from collections.abc import Callable
-        from types import ModuleType
-        from typing import cast
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
@@ -66,10 +67,10 @@ else:
             sys.modules[_PKG_NAME] = pkg_module
             spec.loader.exec_module(pkg_module)
 
-        load_sibling = cast(
-            "Callable[[str], ModuleType]", getattr(pkg_module, "load_sibling")
+        load_sibling = t.cast(
+            "cabc.Callable[[str], ModuleType]", pkg_module.load_sibling
         )
-        helpers = cast(Any, load_sibling("script_utils"))
+        helpers = t.cast("t.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
@@ -85,7 +86,7 @@ SECTION_RE = re.compile(
 class OctalInt(int):
     """Integer subclass that renders as a zero-padded octal literal."""
 
-    def __new__(cls, value: int, *, width: int = 4) -> "OctalInt":
+    def __new__(cls, value: int, *, width: int = 4) -> OctalInt:
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
@@ -143,21 +144,19 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
         return src
     ensure_directory(dst_dir)
     gz_path = dst_dir / f"{src.name}.gz"
-    with open(src, "rb") as fin, open(gz_path, "wb") as fout:
-        with gzip.GzipFile(
-            filename="",
-            fileobj=fout,
-            mode="wb",
-            mtime=0,
-            compresslevel=9,
-        ) as gz:
-            gz.write(fin.read())
+    with open(src, "rb") as fin, open(gz_path, "wb") as fout, gzip.GzipFile(
+        filename="",
+        fileobj=fout,
+        mode="wb",
+        mtime=0,
+        compresslevel=9,
+    ) as gz:
+        gz.write(fin.read())
     return gz_path
 
 
 def normalise_file_modes(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert string ``mode`` values to octal-preserving integers."""
-
     normalised: list[dict[str, Any]] = []
     for entry in entries:
         new_entry = dict(entry)

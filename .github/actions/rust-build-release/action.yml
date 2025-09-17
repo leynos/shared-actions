@@ -54,16 +54,21 @@ runs:
         esac
         asset="nfpm_${ver#v}_${asset_os}_${asset_arch}.tar.gz"
         base_url="https://github.com/goreleaser/nfpm/releases/download/${ver}"
-        curl -fsSL "${base_url}/${asset}" -o nfpm.tgz
-        curl -fsSL "${base_url}/checksums.txt" -o checksums.txt
+        tmp_dir="$(mktemp -d)"
+        trap 'rm -rf "$tmp_dir"' EXIT
+        curl -fsSL "${base_url}/${asset}" -o "${tmp_dir}/${asset}"
+        curl -fsSL "${base_url}/checksums.txt" -o "${tmp_dir}/checksums.txt"
         if command -v sha256sum >/dev/null 2>&1; then
-          grep "  ${asset}$" checksums.txt | sha256sum --check -
+          (
+            cd "${tmp_dir}"
+            grep "  ${asset}$" checksums.txt | sha256sum --check -
+          )
         else
-          expected="$(grep "  ${asset}$" checksums.txt | awk '{print $1}')"
-          echo "${expected}  nfpm.tgz" | shasum -a 256 --check -
+          expected="$(grep "  ${asset}$" "${tmp_dir}/checksums.txt" | awk '{print $1}')"
+          echo "${expected}  ${tmp_dir}/${asset}" | shasum -a 256 --check -
         fi
-        tar -xzf nfpm.tgz nfpm
-        install -m 0755 nfpm "${RUNNER_TEMP}/nfpm"
+        tar -xzf "${tmp_dir}/${asset}" -C "${tmp_dir}" nfpm
+        install -m 0755 "${tmp_dir}/nfpm" "${RUNNER_TEMP}/nfpm"
         echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
     - name: Build release
       shell: bash

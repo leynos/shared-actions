@@ -40,8 +40,8 @@ class SupportsFormulate(t.Protocol):
         ...
 
     def __call__(
-        self, *args: t.Any, **run_kwargs: t.Any
-    ) -> t.Any:  # pragma: no cover - protocol
+        self, *args: object, **run_kwargs: object
+    ) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -50,8 +50,8 @@ class SupportsRun(t.Protocol):
     """Commands that support ``run`` with keyword arguments."""
 
     def run(
-        self, *args: t.Any, **run_kwargs: t.Any
-    ) -> t.Any:  # pragma: no cover - protocol
+        self, *args: object, **run_kwargs: object
+    ) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -59,7 +59,7 @@ class SupportsRun(t.Protocol):
 class SupportsRunFg(t.Protocol):
     """Commands that expose ``run_fg`` for foreground execution."""
 
-    def run_fg(self, **run_kwargs: t.Any) -> t.Any:  # pragma: no cover - protocol
+    def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
         ...
 
 
@@ -67,14 +67,16 @@ class SupportsRunFg(t.Protocol):
 class SupportsAnd(t.Protocol):
     """Commands that implement ``cmd & FG`` semantics."""
 
-    def __and__(self, other: t.Any) -> t.Any:  # pragma: no cover - protocol
+    def __and__(self, other: object) -> object:  # pragma: no cover - protocol
         ...
 
 
 Command = cabc.Sequence[str] | SupportsFormulate
 
+KwargDict = dict[str, object]
 
-def _merge_timeout(timeout: float | None, run_kwargs: dict[str, t.Any]) -> float | None:
+
+def _merge_timeout(timeout: float | None, run_kwargs: KwargDict) -> float | None:
     """Return a merged timeout value.
 
     Parameters
@@ -102,8 +104,8 @@ def run_cmd(
     *,
     fg: bool = False,
     timeout: float | None = None,
-    **run_kwargs: t.Any,
-) -> t.Any:  # noqa: ANN401  # NOTE: heterogeneous kwargs required for plumbum/subprocess compatibility
+    **run_kwargs: object,
+) -> object:
     """Execute ``cmd`` while echoing it to stderr.
 
     Parameters

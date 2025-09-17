@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import collections.abc as cabc  # noqa: TC003 - used at runtime
+import collections.abc as cabc  # noqa: TC003  # FIXME: used at runtime
 import dataclasses as dc
 import json
 import os
-from pathlib import Path  # noqa: TC003 - used at runtime
+from pathlib import Path  # noqa: TC003  # FIXME: used at runtime
+import typing as t
 
 
 @dc.dataclass
@@ -26,6 +27,33 @@ class Variant:
     stdout: str = ""
     stderr: str = ""
     exit_code: int = 0
+
+
+class VariantSpec(t.TypedDict, total=False):
+    """Dictionary form of :class:`Variant` accepted when registering stubs.
+
+    Keys
+    ----
+    match : Sequence[str] or None, optional
+        Exact argument vector that should trigger the variant. ``None`` marks
+        the default behaviour when no other variant matches. When multiple
+        entries omit ``match``, the first default supplied during registration
+        wins.
+    stdout, stderr : str
+        Text to emit to the respective streams when the variant applies.
+    exit_code : int
+        Exit status to return after emitting the configured output.
+
+    Examples
+    --------
+    >>> VariantSpec(match=None, stdout="ok", stderr="", exit_code=0)
+    {'match': None, 'stdout': 'ok', 'stderr': '', 'exit_code': 0}
+    """
+
+    match: cabc.Sequence[str] | None
+    stdout: str
+    stderr: str
+    exit_code: int
 
 
 @dc.dataclass
@@ -50,35 +78,67 @@ class StubManager:
         self,
         name: str,
         *,
-        variants: list[dict] | None = None,
+        variants: list[VariantSpec] | None = None,
         stdout: str = "",
         stderr: str = "",
         exit_code: int = 0,
         func: cabc.Callable[[cabc.Sequence[str]], int] | None = None,
     ) -> None:
-        """Register a new stub with either a variants list or single behaviour."""
+        """Register a new stub with either a variants list or single behaviour.
+
+        Parameters
+        ----------
+        name : str
+            Command name the stub should respond to.
+        variants : list[VariantSpec] | None, optional
+            Ordered behaviours to evaluate for the stub. Provide
+            ``VariantSpec`` dictionaries describing argument matches,
+            stdout/stderr text, and exit codes. When multiple entries omit a
+            ``match`` value, the first acts as the default and subsequent
+            defaults are ignored.
+        stdout : str, optional
+            Default standard-output text if ``variants`` is omitted.
+        stderr : str, optional
+            Default standard-error text if ``variants`` is omitted.
+        exit_code : int, optional
+            Default exit code if ``variants`` is omitted.
+        func : Callable[[Sequence[str]], int] or None, optional
+            Optional callback to execute when the stub is invoked. When
+            provided, the callback result takes precedence over variant exit
+            codes.
+
+        Returns
+        -------
+        None
+            This method mutates internal state and writes wrapper metadata to
+            disk.
+        """
+        variant_specs: list[VariantSpec]
         if variants is None:
-            variants = [
-                {
-                    "match": None,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "exit_code": exit_code,
-                }
+            variant_specs = [
+                VariantSpec(
+                    match=None,
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=exit_code,
+                )
             ]
+        else:
+            variant_specs = variants
         parsed = [
             Variant(
-                match=v["match"],
-                stdout=v.get("stdout", ""),
-                stderr=v.get("stderr", ""),
-                exit_code=v.get("exit_code", 0),
+                match=variant.get("match"),
+                stdout=variant.get("stdout", ""),
+                stderr=variant.get("stderr", ""),
+                exit_code=variant.get("exit_code", 0),
             )
-            for v in variants
+            for variant in variant_specs
         ]
         spec = StubSpec(parsed, func=func)
         self._specs[name] = spec
         spec_file = self.dir / f"{name}.json"
-        spec_file.write_text(json.dumps({"variants": [dc.asdict(v) for v in parsed]}))
+        payload = {"variants": [dc.asdict(v) for v in parsed]}
+        spec_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         if os.name == "nt":
             import sys  # localise import for Windows launcher
 

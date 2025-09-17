@@ -8,6 +8,17 @@ inputs:
     description: Path to the Rust project to build
     required: false
     default: .
+  bin-name:
+    description: Name of the binary to stage and package
+    required: false
+    default: rust-toy-app
+  formats:
+    description: Comma-separated package formats to produce
+    required: false
+    default: deb
+  version:
+    description: Package version (e.g. 0.1.0)
+    required: true
 runs:
   using: composite
   steps:
@@ -18,6 +29,47 @@ runs:
       uses: leynos/shared-actions/.github/actions/setup-rust@f9f1c863c8a5bef64aa6779caa746e1a4a6c1ad4
       with:
         toolchain: 1.89.0
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
+      with:
+        toolchain: 1.89.0
+        workspaces: ${{ inputs.project-dir }}
+        cache-on-failure: true
+    - name: Install nfpm
+      shell: bash
+      run: |
+        set -euo pipefail
+        ver="v2.39.0"
+        uname_s="$(uname -s)"
+        uname_m="$(uname -m)"
+        case "$uname_s" in
+          Linux) asset_os="Linux" ;;
+          Darwin) asset_os="Darwin" ;;
+          *) echo "::error:: unsupported OS: $uname_s"; exit 1 ;;
+        esac
+        case "$uname_m" in
+          x86_64) asset_arch="x86_64" ;;
+          aarch64|arm64) asset_arch="arm64" ;;
+          *) echo "::error:: unsupported arch: $uname_m"; exit 1 ;;
+        esac
+        asset="nfpm_${ver#v}_${asset_os}_${asset_arch}.tar.gz"
+        base_url="https://github.com/goreleaser/nfpm/releases/download/${ver}"
+        tmp_dir="$(mktemp -d)"
+        trap 'rm -rf "$tmp_dir"' EXIT
+        curl -fsSL "${base_url}/${asset}" -o "${tmp_dir}/${asset}"
+        curl -fsSL "${base_url}/checksums.txt" -o "${tmp_dir}/checksums.txt"
+        if command -v sha256sum >/dev/null 2>&1; then
+          (
+            cd "${tmp_dir}"
+            grep "  ${asset}$" checksums.txt | sha256sum --check -
+          )
+        else
+          expected="$(grep "  ${asset}$" "${tmp_dir}/checksums.txt" | awk '{print $1}')"
+          echo "${expected}  ${tmp_dir}/${asset}" | shasum -a 256 --check -
+        fi
+        tar -xzf "${tmp_dir}/${asset}" -C "${tmp_dir}" nfpm
+        install -m 0755 "${tmp_dir}/nfpm" "${RUNNER_TEMP}/nfpm"
+        echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
     - name: Build release
       shell: bash
       env:
@@ -25,3 +77,80 @@ runs:
         RBR_TOOLCHAIN: 1.89.0
       working-directory: ${{ inputs.project-dir }}
       run: ${{ github.action_path }}/src/main.py
+    - name: Stage artifacts
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      run: |
+        set -euo pipefail
+        case "${{ inputs.target }}" in
+          x86_64-unknown-linux-gnu)
+            os=linux
+            arch=amd64
+            ;;
+          aarch64-unknown-linux-gnu)
+            os=linux
+            arch=arm64
+            ;;
+          *)
+            echo "::error:: unsupported target ${{ inputs.target }}"
+            exit 1
+            ;;
+        esac
+        mkdir -p "dist/${{ inputs.bin-name }}_${os}_${arch}"
+        bin_src="target/${{ inputs.target }}/release/${{ inputs.bin-name }}"
+        if [[ ! -f "${bin_src}" ]]; then
+          echo "::error:: binary not found at ${bin_src}"
+          exit 1
+        fi
+        mapfile -d '' -t man_matches < <(
+          find "target/${{ inputs.target }}/release/build" \
+            -path "*/out/${{ inputs.bin-name }}.1" \
+            -type f -print0
+        )
+        if [[ ${#man_matches[@]} -eq 0 ]]; then
+          echo "::error:: man page not found under target/${{ inputs.target }}/release/build/*/out/"
+          exit 1
+        fi
+        if [[ ${#man_matches[@]} -gt 1 ]]; then
+          echo "::error:: expected exactly one man page, found ${#man_matches[@]}"
+          for match in "${man_matches[@]}"; do
+            echo "::error::   ${match}"
+          done
+          exit 1
+        fi
+        man_path="${man_matches[0]}"
+        if [[ ! -f "${man_path}" ]]; then
+          echo "::error:: located man page ${man_path} is not a file"
+          exit 1
+        fi
+        install -Dm755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
+        install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
+    - name: Package with nfpm
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      run: |
+        set -euo pipefail
+        case "${{ inputs.target }}" in
+          x86_64-unknown-linux-gnu)
+            arch=amd64
+            ;;
+          aarch64-unknown-linux-gnu)
+            arch=arm64
+            ;;
+          *)
+            echo "::error:: unsupported target ${{ inputs.target }}"
+            exit 1
+            ;;
+        esac
+        man_path="dist/${{ inputs.bin-name }}_linux_${arch}/${{ inputs.bin-name }}.1"
+        if [[ ! -f "${man_path}" ]]; then
+          echo "::error:: missing man page ${man_path}"
+          exit 1
+        fi
+        uv run "${{ github.action_path }}/scripts/package.py" \
+          --name "${{ inputs.bin-name }}" \
+          --bin-name "${{ inputs.bin-name }}" \
+          --target "${{ inputs.target }}" \
+          --version "${{ inputs.version }}" \
+          --formats "${{ inputs.formats }}" \
+          --man "${man_path}"

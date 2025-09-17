@@ -1,10 +1,10 @@
-# Design: A Modernized, Declarative Rust Build and Release Pipeline
+# Design: A Modernised, Declarative Rust Build and Release Pipeline
 
 ## 1. System Goals
 
 This document outlines a unified, modern design for a reusable Rust build and
 release pipeline, intended for implementation within the `shared-actions`
-repository and consumption by projects such as `netsuke`. The system's primary
+repository and consumption by projects such as `rust-toy-app`. The system's primary
 goal is to replace the previous architecture, which relied on imperative Python
 scripts, with a declarative, tool-centric workflow.
 
@@ -25,10 +25,9 @@ This pipeline is composed of three core, best-in-class tools:
    a `clap`-based CLI definition. It is integrated into the build process via a
    `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
-3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
-   single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
-   packages (`.deb`, `.rpm`), and other formats, as well as checksums and
-   GitHub Releases.
+3. **nfpm with a Python wrapper**: Packages prebuilt binaries and generated
+   man pages into Linux distribution formats like `.deb` and `.rpm` without a
+   separate configuration file.
 
 Any necessary "glue" logic will be implemented in self-contained Python scripts
 that use `uv` and PEP 723 to manage their dependencies, removing the need
@@ -40,8 +39,8 @@ The workflow proceeds in two distinct stages:
    Rust binary and its associated man page for each target platform. The
    resulting artifacts are uploaded for the next stage.
 2. **Release Stage**: A single job that downloads all build artifacts, then
-   orchestrates GoReleaser to package them into archives and distribution
-   formats before creating a GitHub Release.
+   invokes a small Python script that drives `nfpm` to assemble distribution
+   packages ready for release.
 
 ## 3. Detailed Component Design for Implementers
 
@@ -60,7 +59,7 @@ macOS targets run on `macos-latest` runners or an image with the Apple SDK
 because `cross` cannot build them on Linux. Each matrix entry also declares
 `os`, `arch`, and `runs-on` values, so the compiled binary and man page can be
 staged under `dist/<project>_<os>_<arch>/` before upload.
-This matches the paths expected by GoReleaser.
+This matches the paths expected by the packaging step.
 
 ```yaml
 # .github/workflows/release.yml (excerpt)
@@ -77,18 +76,6 @@ jobs:
             os: linux
             arch: arm64
             runs-on: ubuntu-latest
-          - target: x86_64-apple-darwin
-            os: darwin
-            arch: amd64
-            runs-on: macos-latest
-          - target: aarch64-apple-darwin
-            os: darwin
-            arch: arm64
-            runs-on: macos-latest
-          - target: x86_64-unknown-freebsd
-            os: freebsd
-            arch: amd64
-            runs-on: ubuntu-latest
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
@@ -97,8 +84,8 @@ jobs:
         with:
           toolchain: stable
       - name: Install cross
-        if: matrix.os != 'darwin'
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        if: matrix.os == 'linux'
+        run: cargo install cross --version 0.2.5
       - name: Build binary and man page
         run: |
           if [ "${{ matrix.os }}" = "darwin" ]; then
@@ -109,16 +96,16 @@ jobs:
           fi
       - name: Stage artifacts
         run: |
-          mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
-          cp target/${{ matrix.target }}/release/<binary-name> \
-            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
-          cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
-            dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
+          mkdir -p "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}"
+          cp "target/${{ matrix.target }}/release/<binary-name>" \
+            "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/"
+          cp "target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1" \
+            "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}/"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist_${{ matrix.os }}_${{ matrix.arch }}
-          path: dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
+          name: "dist_${{ matrix.os }}_${{ matrix.arch }}"
+          path: "dist/rust-toy-app_${{ matrix.os }}_${{ matrix.arch }}"
 ```
 
 #### 3.1.2 Man Page Generation via `build.rs`
@@ -129,7 +116,7 @@ project, using `clap_mangen`.
 **`Cargo.toml` Configuration:**
 
 ```toml
-# In consuming repository (e.g., netsuke/Cargo.toml)
+# In consuming repository (e.g., rust-toy-app/Cargo.toml)
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_mangen = "0.2"
@@ -143,7 +130,7 @@ The script must generate the man page into the directory specified by the
 builds.
 
 ```rust
-// In consuming repository (e.g., netsuke/build.rs)
+// In consuming repository (e.g., rust-toy-app/build.rs)
 use clap::CommandFactory;
 use clap_mangen::Man;
 use std::{env, fs, path::PathBuf};
@@ -175,7 +162,7 @@ fn main() -> std::io::Result<()> {
     let mut buffer: Vec<u8> = Default::default();
 
     man.render(&mut buffer)?;
-    fs::write(out_dir.join("netsuke.1"), buffer)?;
+    fs::write(out_dir.join("rust-toy-app.1"), buffer)?;
 
     Ok(())
 }
@@ -208,93 +195,9 @@ sequenceDiagram
   deactivate Cargo
 ```
 
-### 3.2 Release Stage: Declarative Packaging with GoReleaser
+### 3.2 Release Stage: Declarative Packaging with nfpm
 
-The release stage uses the `goreleaser/goreleaser-action` to unify packaging.
-
-#### 3.2.1 `.goreleaser.yaml` Configuration
-
-A `.goreleaser.yaml` file defines the release process. It will use GoReleaser's
-`prebuilt` builder and its `nfpms` integration for `.deb` and `.rpm`. For macOS
-and FreeBSD `.pkg` formats, where native support is lacking, it will use custom
-build hooks to invoke system packaging tools.
-
-```yaml
-# .goreleaser.yaml
-project_name: netsuke
-before:
-  hooks:
-    - test -f dist/netsuke_linux_amd64/netsuke.1
-builds:
-  - id: netsuke
-    builder: prebuilt
-    binary: netsuke
-    goos:
-      - linux
-      - darwin
-      - freebsd
-    goarch:
-      - amd64
-      - arm64
-    prebuilt:
-      path: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
-
-archives:
-  - id: default
-    files:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
-        dst: "netsuke"
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
-        dst: "."
-      - LICENSE
-      - README.md
-
-checksum:
-  name_template: "checksums.txt"
-
-# Native support for Linux packages.
-nfpms:
-  - id: packages
-    package_name: netsuke
-    formats:
-      - deb
-      - rpm
-    # ... metadata (maintainer, description, etc.)
-    contents:
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/netsuke"
-        dst: /usr/bin/netsuke
-      - src: "dist/{{.ProjectName}}_{{.Os}}_{{.Arch}}/*.1"
-        dst: /usr/share/man/man1/
-```
-
-#### 3.2.2 Release Job Workflow
-
-The release job downloads all artifacts and invokes GoReleaser. Separate steps
-will be required on dedicated runners for the custom packaging.
-
-```yaml
-# .github/workflows/release.yml (excerpt)
-  release:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: dist
-          pattern: dist_*
-          merge-multiple: true
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
+A small Python script renders an `nfpm.yaml` configuration and runs `nfpm` for each target format. The release job downloads all artifacts and invokes this script; separate steps can handle different package formats.
 
 ### 3.3 Self-Contained Scripting with `uv` and PEP 723
 
@@ -318,7 +221,7 @@ from plumbum.cmd import cross
 ### 4.1 Unit Testing
 
 Unit tests for Python scripts will mock the `run_cmd` function to verify that
-high-level tools (`cross`, `goreleaser`) are invoked with the correct
+high-level tools (`cross`, `nfpm`) are invoked with the correct
 arguments. These tests must be executable on a local developer machine without
 a CI environment or container runtime.
 
@@ -329,7 +232,7 @@ A new local testing harness will be created using `pytest`. This harness will:
 - Create a temporary directory structure mimicking a GitHub Actions environment.
 - Populate it with fixture files (e.g., a toy pre-compiled binary).
 - Execute the Python helper scripts against this local environment.
-- Use mocks for external commands (`cross`, `goreleaser`, `pkgbuild`) to assert
+- Use mocks for external commands (`cross`, `nfpm`, `pkgbuild`) to assert
   they are called with the expected arguments based on the fixture state.
 
 This provides a vital intermediate testing layer between isolated unit tests
@@ -426,18 +329,23 @@ jobs:
   triple.
 - Workflows select the crate to build via a `project-dir` input because
   `uses:` steps cannot set a `working-directory`.
+- Callers can override the packaged executable via a `bin-name` input so the
+  action stages and ships non-default binaries without modification.
 - CI executes the action against the `rust-toy-app` crate for the
   `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` targets,
   validating both the release binary and man page outputs.
 
 ### Phase 3: Declarative Packaging and Local Testing
 
-- [ ] Create the initial `.goreleaser.yaml` configuration for `.deb` and `.rpm`,
-  and add the necessary steps to the action to call GoReleaser.
-- [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and
-  integrate them into the action.
-- [ ] Develop the local E2E packaging test harness using `pytest` and fixtures
-  to validate Python script logic against a simulated file system.
+- [x] Add a Python `nfpm` packaging script for `.deb` files and integrate it into the action.
+- [ ] Add custom packaging scripts for macOS `.pkg` and FreeBSD `.pkg` and integrate them into the action.
+- [x] Develop the local E2E packaging test harness using `pytest` and fixtures to validate Python script logic against a simulated file system.
+
+#### Design Decisions
+
+- Packaging uses a minimal Python wrapper around `nfpm`, consuming pre-built binaries and generated man pages with explicit build metadata for each architecture.
+- Snapshot-style builds avoid publishing to enable local testing.
+- Package validation runs inside an isolated rootfs via the `polythene` script, avoiding host-level installs.
 
 ### Phase 4: Full Workflow Automation and CI E2E Testing
 

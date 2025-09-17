@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 import shutil
 from pathlib import Path
 
@@ -11,8 +12,25 @@ import pytest
 
 from cmd_utils import run_cmd
 
+os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
+
 if sys.platform == "win32":
     pytest.skip("cross build not supported on Windows runners", allow_module_level=True)
+
+engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+container_available = (
+    shutil.which(engine) is not None
+    if engine
+    else (shutil.which("docker") is not None or shutil.which("podman") is not None)
+)
+if engine and not container_available:
+    pytest.skip(
+        f"CROSS_CONTAINER_ENGINE={engine} specified but not found",
+        allow_module_level=True,
+    )
+targets = ["x86_64-unknown-linux-gnu"]
+if container_available:
+    targets.append("aarch64-unknown-linux-gnu")
 
 
 def run_script(
@@ -20,21 +38,26 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     """Execute *script* in *cwd* and return the completed process."""
     cmd = [str(script), *args]
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=cwd,
-    )
+    try:
+        return subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=cwd,
+            check=False,
+        )
+    except Exception as exc:  # pragma: no cover - defensive path
+        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
-@pytest.mark.parametrize("target", ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"])
+@pytest.mark.usefixtures("uncapture_if_verbose")
+@pytest.mark.parametrize("target", targets)
 def test_action_builds_release_binary_and_manpage(target: str) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
-    if target != "x86_64-unknown-linux-gnu" and shutil.which("docker") is None and shutil.which("podman") is None:
+    if target != "x86_64-unknown-linux-gnu" and not container_available:
         pytest.skip("container runtime required for cross build")
     existing = subprocess.run(
         ["rustup", "toolchain", "list"],  # noqa: S607

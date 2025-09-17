@@ -21,10 +21,9 @@ def test_invalid_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     out = tmp_path / "gh.txt"
     with pytest.raises(detect.typer.Exit) as exc:
         detect.main("unknown", out)
-    exit_code = (
-        getattr(exc.value, "exit_code", None)
-        or getattr(exc.value, "code", None)
-    )
+    exit_code = getattr(exc.value, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(exc.value, "code", None)
     assert exit_code == 1
     err = capsys.readouterr().err
     assert "Unsupported format" in err
@@ -46,10 +45,9 @@ def test_valid_formats(
         exc = err
     if fmt.lower() == "lcov":
         assert exc is not None
-        exit_code = (
-            getattr(exc, "exit_code", None)
-            or getattr(exc, "code", None)
-        )
+        exit_code = getattr(exc, "exit_code", None)
+        if exit_code is None:
+            exit_code = getattr(exc, "code", None)
         assert exit_code == 1
     else:
         assert exc is None

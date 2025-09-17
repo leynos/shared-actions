@@ -50,6 +50,9 @@ def _load_module(
     monkeypatch.syspath_prepend(root_dir)
     for module_name in (name, "coverage_parsers"):
         monkeypatch.delitem(sys.modules, module_name, raising=False)
+    import importlib as _importlib  # ensure fresh module state for reloads
+
+    _importlib.invalidate_caches()
     spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
     assert spec is not None
     assert spec.loader is not None
@@ -203,10 +206,10 @@ def test_run_cargo_windows_nonzero_exit(
     with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo([])
     # click.exceptions.Exit exposes ``exit_code``; SystemExit uses ``code``.
-    assert (
-        getattr(excinfo.value, "exit_code", None)
-        or getattr(excinfo.value, "code", None)
-    ) == 1
+    exit_code = getattr(excinfo.value, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(excinfo.value, "code", None)
+    assert exit_code == 1
 
 
 def test_run_cargo_windows_pump_exception(
@@ -464,6 +467,13 @@ def test_lcov_zero_lines_found(
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 
+def test_lcov_empty_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
+    """Empty lcov files report zero coverage."""
+    lcov = tmp_path / "empty.lcov"
+    lcov.write_text("")
+    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
+
+
 def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_lcov`` handles files missing ``LH`` tags."""
     lcov = tmp_path / "missing.lcov"
@@ -482,9 +492,9 @@ def test_lcov_file_missing(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """Non-existent file triggers ``SystemExit``."""
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(tmp_path / "nope.lcov")
-    exit_code = getattr(excinfo.value, "exit_code", None) or getattr(
-        excinfo.value, "code", None
-    )
+    exit_code = getattr(excinfo.value, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(excinfo.value, "code", None)
     assert exit_code == 1
 
 
@@ -503,9 +513,9 @@ def test_lcov_permission_error(
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(lcov)
-    exit_code = getattr(excinfo.value, "exit_code", None) or getattr(
-        excinfo.value, "code", None
-    )
+    exit_code = getattr(excinfo.value, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(excinfo.value, "code", None)
     assert exit_code == 1
 
 
@@ -558,3 +568,17 @@ def test_cobertura_zero_lines(
     xml.write_text("<coverage lines-covered='0' lines-valid='0' />")
     pct = run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert pct == "0.00"
+
+
+def test_cobertura_malformed_xml(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Malformed XML raises ``typer.Exit``."""
+    xml = tmp_path / "bad.xml"
+    xml.write_text("<coverage>")
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.get_line_coverage_percent_from_cobertura(xml)
+    exit_code = getattr(excinfo.value, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(excinfo.value, "code", None)
+    assert exit_code == 1

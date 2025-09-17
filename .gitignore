@@ -136,3 +136,11 @@ dist
 .pnp.*
 
 *~
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# Rust build output
+target/
+**/target/

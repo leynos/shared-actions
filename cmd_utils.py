@@ -25,6 +25,13 @@ __all__ = [
 ]
 
 
+class TimeoutConflictError(TypeError):
+    """Raised when mutually exclusive timeout options are provided."""
+
+    def __init__(self) -> None:
+        super().__init__("timeout specified via parameter and run_kwargs")
+
+
 @t.runtime_checkable
 class SupportsFormulate(t.Protocol):
     """Objects that expose a shell representation via ``formulate``."""
@@ -84,7 +91,7 @@ def _merge_timeout(timeout: float | None, run_kwargs: dict[str, t.Any]) -> float
     """
     if "timeout" in run_kwargs:
         if timeout is not None:
-            raise TypeError("timeout specified via parameter and run_kwargs")
+            raise TimeoutConflictError
         value = run_kwargs.pop("timeout")
         return t.cast("float | None", value)
     return timeout

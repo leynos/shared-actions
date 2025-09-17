@@ -45,7 +45,11 @@ def run_script(
             cwd=cwd,
             check=False,
         )
-    except Exception as exc:  # pragma: no cover - defensive path
+    except (  # pragma: no cover - defensive path
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+    ) as exc:
         return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 

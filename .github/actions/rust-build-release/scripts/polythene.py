@@ -31,12 +31,13 @@ Podman environment hardening (set automatically if unset):
 
 from __future__ import annotations
 
-import collections.abc as cabc
 import contextlib
 import os
 import shlex
 import sys
+import tempfile
 import time
+import types
 import typing as t
 from pathlib import Path
 
@@ -45,8 +46,6 @@ from plumbum.commands.processes import ProcessExecutionError
 from uuid6 import uuid7
 
 if t.TYPE_CHECKING:
-    from types import ModuleType
-
     from plumbum.commands.base import BaseCommand
 
     from .script_utils import ensure_directory, get_command, run_cmd
@@ -54,28 +53,31 @@ else:
     try:
         from .script_utils import ensure_directory, get_command, run_cmd
     except ImportError:  # pragma: no cover - fallback for direct execution
-        import collections.abc as cabc
         import importlib.util
         import sys
-        import typing as t
-        from pathlib import Path
-        from types import ModuleType
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
-        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+        if pkg_module is None:
+            pkg_module = types.ModuleType(_PKG_NAME)
+            pkg_module.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+            sys.modules[_PKG_NAME] = pkg_module
+        if not hasattr(pkg_module, "load_sibling"):
             spec = importlib.util.spec_from_file_location(
                 _PKG_NAME, _PKG_DIR / "__init__.py"
             )
             if spec is None or spec.loader is None:
-                raise ImportError("Unable to load scripts package helper")
-            pkg_module = importlib.util.module_from_spec(spec)
-            sys.modules[_PKG_NAME] = pkg_module
-            spec.loader.exec_module(pkg_module)
+                raise ImportError(name="script_utils") from None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[_PKG_NAME] = module
+            spec.loader.exec_module(module)
+            pkg_module = module
 
-        load_sibling = t.cast(cabc.Callable[[str], ModuleType], pkg_module.load_sibling)
-        helpers = t.cast(t.Any, load_sibling("script_utils"))
+        load_sibling = t.cast(
+            "t.Callable[[str], types.ModuleType]", pkg_module.load_sibling
+        )
+        helpers = t.cast("t.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
@@ -83,7 +85,11 @@ else:
 
 # -------------------- Configuration --------------------
 
-DEFAULT_STORE = Path(os.environ.get("POLYTHENE_STORE", "/var/tmp/polythene")).resolve()
+CONTAINER_TMP = Path(tempfile.gettempdir())
+_DEFAULT_STORE_FALLBACK = Path(tempfile.gettempdir()) / "polythene"
+DEFAULT_STORE = Path(
+    os.environ.get("POLYTHENE_STORE", str(_DEFAULT_STORE_FALLBACK))
+).resolve()
 VERBOSE = bool(os.environ.get("POLYTHENE_VERBOSE"))
 
 IS_ROOT = os.geteuid() == 0
@@ -205,7 +211,7 @@ def _probe_bwrap_userns(
             timeout=timeout,
         )
         return ["--unshare-user", "--uid", "0", "--gid", "0"]
-    except Exception as exc:
+    except (ProcessExecutionError, typer.Exit, OSError) as exc:
         log(f"User namespace probe failed: {exc}")
         return []
 
@@ -230,7 +236,7 @@ def _probe_bwrap_proc(
         ]
         run_cmd(cmd, fg=True, timeout=timeout)
         return ["--proc", "/proc"]
-    except Exception:
+    except (ProcessExecutionError, typer.Exit, OSError):
         return []
 
 
@@ -252,7 +258,7 @@ def _run_with_tool(
     tool_name: str,
     tool_cmd: BaseCommand,
     probe_args: list[str],
-    exec_args_fn: cabc.Callable[[str], list[str]],
+    exec_args_fn: "t.Callable[[str], list[str]]",
     *,
     ensure_dirs: bool = True,
     timeout: int | None = None,
@@ -268,7 +274,7 @@ def _run_with_tool(
     probe_cmd = tool_cmd[tuple(probe_args)]
     try:
         run_cmd(probe_cmd, fg=True, timeout=timeout)
-    except Exception:
+    except (ProcessExecutionError, typer.Exit, OSError):
         return None
 
     log(f"Executing via {tool_name}")
@@ -297,7 +303,7 @@ def run_with_bwrap(
         "/dev",
         *proc_flags,
         "--tmpfs",
-        "/tmp",
+        str(CONTAINER_TMP),
         "--chdir",
         "/",
         "/bin/sh",
@@ -316,7 +322,7 @@ def run_with_bwrap(
             "/dev",
             *proc_flags,
             "--tmpfs",
-            "/tmp",
+            str(CONTAINER_TMP),
             "--chdir",
             "/",
             "/bin/sh",

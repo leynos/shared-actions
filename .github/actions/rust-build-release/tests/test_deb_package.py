@@ -10,7 +10,9 @@ import tempfile
 from pathlib import Path
 
 import pytest
+import typer
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
 
@@ -151,7 +153,7 @@ def test_deb_package_installs() -> None:
             )
             try:
                 polythene_exec(polythene, uid, store, "true")
-            except Exception:
+            except (ProcessExecutionError, typer.Exit):
                 pytest.skip("isolation unavailable")
 
             root = Path(store) / uid

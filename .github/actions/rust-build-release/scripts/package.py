@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import gzip
 import re
+import types
 import typing as t
 from pathlib import Path
 
@@ -33,9 +34,6 @@ import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
 if t.TYPE_CHECKING:
-    import collections.abc as cabc
-    from types import ModuleType
-
     from .script_utils import (
         ensure_directory,
         ensure_exists,
@@ -51,26 +49,31 @@ else:
             run_cmd,
         )
     except ImportError:  # pragma: no cover - fallback for direct execution
-        import collections.abc as cabc
         import importlib.util
         import sys
-        from types import ModuleType
 
         _PKG_DIR = Path(__file__).resolve().parent
         _PKG_NAME = "rust_build_release_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
-        if pkg_module is None or not hasattr(pkg_module, "load_sibling"):
+        if pkg_module is None:
+            pkg_module = types.ModuleType(_PKG_NAME)
+            pkg_module.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+            sys.modules[_PKG_NAME] = pkg_module
+        if not hasattr(pkg_module, "load_sibling"):
             spec = importlib.util.spec_from_file_location(
                 _PKG_NAME, _PKG_DIR / "__init__.py"
             )
             if spec is None or spec.loader is None:
-                raise ImportError("Unable to load scripts package helper")
-            pkg_module = importlib.util.module_from_spec(spec)
-            sys.modules[_PKG_NAME] = pkg_module
-            spec.loader.exec_module(pkg_module)
+                raise ImportError(name="script_utils") from None
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[_PKG_NAME] = module
+            spec.loader.exec_module(module)
+            pkg_module = module
 
-        load_sibling = t.cast(cabc.Callable[[str], ModuleType], pkg_module.load_sibling)
-        helpers = t.cast(t.Any, load_sibling("script_utils"))
+        load_sibling = t.cast(
+            "t.Callable[[str], types.ModuleType]", pkg_module.load_sibling
+        )
+        helpers = t.cast("t.Any", load_sibling("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command

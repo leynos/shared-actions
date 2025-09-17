@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import collections.abc as cabc
 import sys
 import typing as t
 from pathlib import Path
@@ -29,7 +28,7 @@ except ImportError:  # pragma: no cover - fallback when run as a script
         f"{_PKG_NAME}.cmd_utils", _PKG_DIR / "cmd_utils.py"
     )
     if _SPEC is None or _SPEC.loader is None:
-        raise ImportError("Unable to load cmd_utils helper")
+        raise ImportError(name="cmd_utils") from None
     _MODULE = util.module_from_spec(_SPEC)
     sys.modules[_SPEC.name] = _MODULE
     _SPEC.loader.exec_module(_MODULE)
@@ -70,7 +69,9 @@ def ensure_directory(path: Path, *, exist_ok: bool = True) -> Path:
     return path
 
 
-def unique_match(paths: cabc.Iterable[Path], *, description: str) -> Path:
+def unique_match(
+    paths: "t.Iterable[Path]", *, description: str
+) -> Path:
     """Return the sole path in ``paths`` or exit with an error."""
     matches = list(paths)
     if len(matches) != 1:

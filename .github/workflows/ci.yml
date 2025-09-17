@@ -32,6 +32,9 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
+      - name: Install nfpm
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/install-nfpm
       - name: Run tests
         run: |
           uv sync --group dev

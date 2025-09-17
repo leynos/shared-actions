@@ -9,15 +9,18 @@ import tempfile
 from pathlib import Path
 
 import pytest
-import typer
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
-from _packaging_utils import ensure_nfpm, polythene_cmd, polythene_exec
+from _packaging_utils import (
+    IsolationUnavailableError,
+    ensure_nfpm,
+    polythene_rootfs,
+)
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "scripts"))
 from script_utils import unique_match
+
 def deb_arch_for_target(target: str) -> str:
     """Return the nfpm architecture label for *target*.
 
@@ -72,25 +75,25 @@ def test_deb_package_installs() -> None:
             ),
             description="rust-toy-app man page",
         )
-        ensure_nfpm(project_dir)
-        run_cmd(
-            local["uv"][
-                "run",
-                pkg_script.as_posix(),
-                "--name",
-                "rust-toy-app",
-                "--bin-name",
-                "rust-toy-app",
-                "--target",
-                target,
-                "--version",
-                "0.1.0",
-                "--formats",
-                "deb",
-                "--man",
-                man_src.as_posix(),
-            ]
-        )
+        with ensure_nfpm(project_dir):
+            run_cmd(
+                local["uv"][
+                    "run",
+                    pkg_script.as_posix(),
+                    "--name",
+                    "rust-toy-app",
+                    "--bin-name",
+                    "rust-toy-app",
+                    "--target",
+                    target,
+                    "--version",
+                    "0.1.0",
+                    "--formats",
+                    "deb",
+                    "--man",
+                    man_src.as_posix(),
+                ]
+            )
         deb_arch = deb_arch_for_target(target)
         deb = project_dir / f"dist/rust-toy-app_0.1.0-1_{deb_arch}.deb"
         with tempfile.TemporaryDirectory() as td:
@@ -104,60 +107,22 @@ def test_deb_package_installs() -> None:
                 control_txt = Path(cd, "control").read_text(encoding="utf-8")
                 assert "Package: rust-toy-app" in control_txt
                 assert "Architecture: amd64" in control_txt
-        with tempfile.TemporaryDirectory() as store:
-            uid = (
-                polythene_cmd(
-                    polythene,
-                    "pull",
-                    "docker.io/library/debian:bookworm",
-                    "--store",
-                    store,
-                )
-                .splitlines()[-1]
-                .strip()
+        try:
+            with polythene_rootfs(
+                polythene, "docker.io/library/debian:bookworm"
+            ) as rootfs:
+                shutil.copy(deb, rootfs.root / deb.name)
+                rootfs.exec("dpkg", "-i", deb.name)
+                try:
+                    rootfs.exec("test", "-x", "/usr/bin/rust-toy-app")
+                    rootfs.exec("test", "-f", "/usr/share/man/man1/rust-toy-app.1.gz")
+                    result = rootfs.exec("/usr/bin/rust-toy-app")
+                    assert "Hello, world!" in result, f"unexpected output: {result!r}"
+                finally:
+                    with contextlib.suppress(Exception):
+                        rootfs.exec("dpkg", "-r", "rust-toy-app")
+        except IsolationUnavailableError as exc:
+            pytest.skip(
+                "podman-based isolation unavailable (polythene exec failed). "
+                f"Ensure rootless Podman is installed and operational. Details: {exc}"
             )
-            try:
-                polythene_exec(polythene, uid, store, "true")
-            except (ProcessExecutionError, typer.Exit):
-                pytest.skip(
-                    "podman-based isolation unavailable (polythene exec failed). "
-                    "Ensure rootless Podman is installed and operational."
-                )
-
-            root = Path(store) / uid
-            shutil.copy(deb, root / deb.name)
-            polythene_exec(polythene, uid, store, "dpkg", "-i", deb.name)
-            try:
-                polythene_exec(
-                    polythene,
-                    uid,
-                    store,
-                    "test",
-                    "-x",
-                    "/usr/bin/rust-toy-app",
-                )
-                polythene_exec(
-                    polythene,
-                    uid,
-                    store,
-                    "test",
-                    "-f",
-                    "/usr/share/man/man1/rust-toy-app.1.gz",
-                )
-                result = polythene_exec(
-                    polythene,
-                    uid,
-                    store,
-                    "/usr/bin/rust-toy-app",
-                )
-                assert "Hello, world!" in result, f"unexpected output: {result!r}"
-            finally:
-                with contextlib.suppress(Exception):
-                    polythene_exec(
-                        polythene,
-                        uid,
-                        store,
-                        "dpkg",
-                        "-r",
-                        "rust-toy-app",
-                    )

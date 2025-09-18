@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.2 (2025-09-18)
+
+- Add a configurable `python-version` input and ensure all uv commands honour
+  it, letting workflows pin their interpreter version.
+
 ## v1.0.1 (2025-09-18)
 
 - Document required workflow permissions for trusted publishing, clarify that

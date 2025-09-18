@@ -14,6 +14,7 @@ trusted publishing flow.
 | uv-index | Optional uv index name to publish to (e.g. `testpypi`). Must exist in `tool.uv.index`. | no | _(empty)_ |
 | toml-glob | Glob used to discover `pyproject.toml` files for version validation. | no | `**/pyproject.toml` |
 | fail-on-dynamic-version | Fail when a project declares a dynamic PEP 621 version instead of a literal string. | no | `false` |
+| python-version | Python version to install and use for all uv commands. | no | `3.13` |
 
 ## Outputs
 

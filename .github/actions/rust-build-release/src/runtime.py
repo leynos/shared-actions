@@ -105,7 +105,6 @@ def detect_host_target(
             timeout=10,
         )
     except (
-        FileNotFoundError,
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
         OSError,

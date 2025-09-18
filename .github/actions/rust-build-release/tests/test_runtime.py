@@ -189,3 +189,62 @@ def test_detect_host_target_parses_rustc_output(
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
     assert runtime_module.detect_host_target() == "custom-triple"
+
+
+def test_detect_host_target_returns_default_on_timeout(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Falls back to the default triple when rustc probing times out."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustc" if name == "rustc" else None
+    )
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (executable, args, allowed_names)
+        raise subprocess.TimeoutExpired([executable, *args], 10)
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert (
+        runtime_module.detect_host_target(default="fallback-triple")
+        == "fallback-triple"
+    )
+
+
+def test_detect_host_target_passes_timeout_to_run_validated(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Ensures rustc probing is bounded via the timeout parameter."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustc" if name == "rustc" else None
+    )
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    call_kwargs: dict[str, object] = {}
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (executable, args, allowed_names)
+        call_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(
+            [executable, *args], 0, stdout="host: bounded\n"
+        )
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert runtime_module.detect_host_target() == "bounded"
+    assert call_kwargs.get("timeout") == 10

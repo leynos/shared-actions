@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import io
 import os
@@ -578,6 +579,91 @@ def test_cobertura_malformed_xml(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+
+def test_run_python_coveragepy_empty_xml(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """Coverage.py format handles empty XML output and moves the data file."""
+    output = tmp_path / "coveragepy.dat"
+    github_output = tmp_path / "gh.txt"
+    coverage_file = tmp_path / ".coverage"
+    coverage_file.write_text("payload", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_cmd(*_: object, **__: object) -> None:
+        return None
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    @contextlib.contextmanager
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        xml_path = tmp_path / "coverage.xml"
+        xml_path.write_text(
+            "<coverage lines-covered='0' lines-valid='0' />",
+            encoding="utf-8",
+        )
+        try:
+            yield xml_path
+        finally:
+            xml_path.unlink(missing_ok=True)
+
+    monkeypatch.setattr(
+        run_python_module, "tmp_coveragepy_xml", fake_tmp_coveragepy_xml
+    )
+
+    run_python_module.main(output, "python", "coveragepy", github_output, None)
+
+    captured = capsys.readouterr()
+    assert "Current coverage: 0.00%" in captured.out
+
+    assert output.read_text(encoding="utf-8") == "payload"
+    assert not coverage_file.exists()
+
+    data = github_output.read_text(encoding="utf-8").splitlines()
+    assert f"file={output}" in data
+    assert "percent=0.00" in data
+
+
+def test_run_python_coveragepy_malformed_xml_exits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """Malformed coverage.py XML propagates Typer exits."""
+    output = tmp_path / "coveragepy.dat"
+    github_output = tmp_path / "gh.txt"
+    coverage_file = tmp_path / ".coverage"
+    coverage_file.write_text("payload", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_cmd(*_: object, **__: object) -> None:
+        return None
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    @contextlib.contextmanager
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        xml_path = tmp_path / "coverage.xml"
+        xml_path.write_text("<coverage>", encoding="utf-8")
+        try:
+            yield xml_path
+        finally:
+            xml_path.unlink(missing_ok=True)
+
+    monkeypatch.setattr(
+        run_python_module, "tmp_coveragepy_xml", fake_tmp_coveragepy_xml
+    )
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(output, "python", "coveragepy", github_output, None)
+
+    assert _exit_code(excinfo.value) == 1
+    assert coverage_file.exists()
+    assert not github_output.exists()
 
 
 def test_cobertura_missing_file(

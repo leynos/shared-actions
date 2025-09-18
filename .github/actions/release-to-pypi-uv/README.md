@@ -1,7 +1,7 @@
 # Release to PyPI (uv)
 
-Build and publish Python distributions via [uv](https://github.com/astral-sh/uv) with GitHub's
-trusted publishing flow.
+Build and publish Python distributions via
+[uv](https://github.com/astral-sh/uv) with GitHub's trusted publishing flow.
 
 ## Inputs
 

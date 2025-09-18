@@ -4,6 +4,9 @@
 
 - Add a configurable `python-version` input and ensure all uv commands honour
   it, letting workflows pin their interpreter version.
+- Harden release validation: retry GitHub API lookups with exponential
+  backoff, tighten semantic version detection, and expand TOML validation
+  coverage along with unit tests for the helper scripts.
 
 ## v1.0.1 (2025-09-18)
 

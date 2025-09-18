@@ -91,3 +91,63 @@ def test_fails_on_parse_error(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "failed to parse" in result.stderr
+
+
+def test_dynamic_version_allowed_when_flag_false(tmp_path: Path) -> None:
+    project = tmp_path / "pkg"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+dynamic = ["version"]
+""".strip()
+    )
+
+    result = _run(tmp_path, version="1.0.0", fail_dynamic="false")
+
+    assert result.returncode == 0, result.stderr
+    assert "uses dynamic 'version'" in result.stdout
+
+
+def test_missing_project_section_is_ignored(tmp_path: Path) -> None:
+    project = tmp_path / "pkg"
+    project.mkdir()
+    (project / "pyproject.toml").write_text(
+        """
+[tool.poetry]
+name = "demo"
+version = "1.0.0"
+""".strip()
+    )
+
+    result = _run(tmp_path, version="1.0.0")
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_multiple_toml_files_mixed_validity(tmp_path: Path) -> None:
+    valid_pkg = tmp_path / "pkg_valid"
+    valid_pkg.mkdir()
+    (valid_pkg / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "1.0.0"
+""".strip()
+    )
+
+    invalid_pkg = tmp_path / "pkg_invalid"
+    invalid_pkg.mkdir()
+    (invalid_pkg / "pyproject.toml").write_text(
+        """
+[project]
+name = "demo"
+version = "2.0.0"
+""".strip()
+    )
+
+    result = _run(tmp_path, version="1.0.0")
+
+    assert result.returncode == 1
+    assert "!= tag version" in result.stderr

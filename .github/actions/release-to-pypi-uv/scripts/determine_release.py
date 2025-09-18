@@ -40,9 +40,9 @@ def main(tag: str | None = TAG_OPTION, github_output: Path = GITHUB_OUTPUT_OPTIO
         )
         raise typer.Exit(1)
 
-    if not re.fullmatch(r"v[0-9].*", resolved_tag):
+    if not re.fullmatch(r"v\d+\.\d+\.\d+", resolved_tag):
         typer.echo(
-            f"::error::Tag must start with 'v' (e.g. v1.2.3), got '{resolved_tag}'.",
+            f"::error::Tag must be a valid semantic version (e.g. v1.2.3), got '{resolved_tag}'.",
             err=True,
         )
         raise typer.Exit(1)

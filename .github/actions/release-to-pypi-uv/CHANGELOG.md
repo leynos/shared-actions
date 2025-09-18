@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.1 (2025-09-18)
+
+- Document required workflow permissions for trusted publishing in the action
+  metadata and README usage example.
+
 ## v1.0.0 (2025-09-18)
 
 - Initial release: resolve release tags, ensure GitHub Release readiness, and

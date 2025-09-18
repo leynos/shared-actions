@@ -50,6 +50,7 @@ runs:
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
         workspaces: ${{ inputs.project-dir }}
+        shared-key: ${{ runner.os }}-toolchain-${{ env.RBR_TOOLCHAIN }}
         cache-on-failure: true
     - name: Install nfpm
       uses: ./.github/actions/install-nfpm

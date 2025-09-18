@@ -1,5 +1,8 @@
 name: Release to PyPI (uv)
 description: Build and publish Python distributions to PyPI using uv.
+# Required job permissions for OIDC trusted publishing:
+#   contents: read
+#   id-token: write
 inputs:
   tag:
     description: Tag to release (e.g. v1.2.3). Required when the workflow is not running on a tag ref.

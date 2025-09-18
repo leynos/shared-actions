@@ -21,7 +21,16 @@ FAIL_ON_DYNAMIC_OPTION = typer.Option(
     envvar="INPUT_FAIL_ON_DYNAMIC_VERSION",
 )
 
-SKIP_PARTS = {".git", ".venv", "venv", "node_modules", "dist", "build"}
+SKIP_PARTS = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    ".direnv",
+    ".mypy_cache",
+}
 
 
 def _iter_files(pattern: str) -> Iterable[Path]:

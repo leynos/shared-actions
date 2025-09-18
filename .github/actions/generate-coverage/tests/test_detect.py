@@ -86,3 +86,19 @@ def test_detect_appends_to_existing_output_file(
     detect.main("coveragepy", out)
 
     assert out.read_text() == "prev=1\nlang=python\nfmt=coveragepy\n"
+
+
+def test_detect_appends_to_malformed_output_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-existing malformed output lines remain untouched when appending results."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "pyproject.toml").write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+    out.write_text("garbage\nnot=kv\n")
+
+    detect.main("coveragepy", out)
+
+    assert out.read_text() == "garbage\nnot=kv\nlang=python\nfmt=coveragepy\n"

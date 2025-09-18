@@ -55,3 +55,34 @@ def test_valid_formats(
         assert exc is None
     err_msg = capsys.readouterr().err
     assert "Unsupported format" not in err_msg
+
+
+def test_detect_writes_output_for_empty_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valid format writes language and format to an empty ``GITHUB_OUTPUT`` file."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "pyproject.toml").write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+
+    detect.main("coveragepy", out)
+
+    assert out.read_text() == "lang=python\nfmt=coveragepy\n"
+
+
+def test_detect_appends_to_existing_output_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing ``GITHUB_OUTPUT`` contents are preserved when appending results."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "pyproject.toml").write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+    out.write_text("prev=1\n")
+
+    detect.main("coveragepy", out)
+
+    assert out.read_text() == "prev=1\nlang=python\nfmt=coveragepy\n"

@@ -7,14 +7,43 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import typer
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+
+def _extend_sys_path() -> None:
+    candidates: list[Path] = []
+    action_path_env = os.getenv("GITHUB_ACTION_PATH")
+    if action_path_env:
+        action_path = Path(action_path_env).resolve()
+        candidates.append(action_path / "scripts")
+        try:
+            candidates.append(action_path.parents[2])
+        except IndexError:
+            pass
+    else:
+        script_path = Path(__file__).resolve()
+        scripts_dir = script_path.parent
+        candidates.append(scripts_dir)
+        try:
+            candidates.append(scripts_dir.parents[3])
+        except IndexError:
+            pass
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if not candidate.exists():
+            continue
+        path_str = str(candidate)
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
+
+
+_extend_sys_path()
 
 from cmd_utils import run_cmd  # noqa: E402
 

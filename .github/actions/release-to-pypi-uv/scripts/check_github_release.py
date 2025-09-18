@@ -38,11 +38,18 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
         with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
             payload = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:  # pragma: no cover - network failure path
+        detail = exc.read().decode("utf-8", errors="ignore")
         if exc.code == 404:
             raise GithubReleaseError(
                 f"No GitHub release found for tag {tag}. Create and publish the release first."
             ) from exc
-        detail = exc.read().decode("utf-8", errors="ignore")
+        if exc.code == 403:
+            msg = (
+                "GitHub token lacks permission to read releases or has expired. "
+                "Ensure the workflow is using GITHUB_TOKEN with contents:read scope."
+            )
+            context = detail or exc.reason
+            raise GithubReleaseError(f"{msg} ({context})") from exc
         raise GithubReleaseError(
             f"GitHub API request failed with status {exc.code}: {detail or exc.reason}"
         ) from exc

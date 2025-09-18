@@ -97,7 +97,7 @@ def main(
         if "version" in dynamic_set:
             message = f"{path}: uses dynamic 'version' (PEP 621)."
             if fail_dynamic:
-                dynamic_errors.append(message + " Set fail-on-dynamic-version=false to allow.")
+                dynamic_errors.append(f"{message} Set fail-on-dynamic-version=false to allow.")
             else:
                 typer.echo(f"::notice::{message} Skipping version check.")
             continue

@@ -102,8 +102,14 @@ def detect_host_target(
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ):
         return default
 
     triple = next(

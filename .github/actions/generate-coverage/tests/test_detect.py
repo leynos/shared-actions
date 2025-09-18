@@ -16,15 +16,20 @@ detect = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(detect)
 
 
+def _exit_code(exc: BaseException) -> int | None:
+    """Return the exit code from Typer or SystemExit exceptions."""
+    exit_code = getattr(exc, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(exc, "code", None)
+    return exit_code
+
+
 def test_invalid_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """``detect.main`` exits with code 1 for an unknown format."""
     out = tmp_path / "gh.txt"
     with pytest.raises(detect.typer.Exit) as exc:
         detect.main("unknown", out)
-    exit_code = getattr(exc.value, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(exc.value, "code", None)
-    assert exit_code == 1
+    assert _exit_code(exc.value) == 1
     err = capsys.readouterr().err
     assert "Unsupported format" in err
 
@@ -45,10 +50,7 @@ def test_valid_formats(
         exc = err
     if fmt.lower() == "lcov":
         assert exc is not None
-        exit_code = getattr(exc, "exit_code", None)
-        if exit_code is None:
-            exit_code = getattr(exc, "code", None)
-        assert exit_code == 1
+        assert _exit_code(exc) == 1
     else:
         assert exc is None
     err_msg = capsys.readouterr().err

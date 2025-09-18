@@ -18,6 +18,14 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from shellstub import StubManager
 
 
+def _exit_code(exc: BaseException) -> int | None:
+    """Extract an exit code from Typer or SystemExit exceptions."""
+    exit_code = getattr(exc, "exit_code", None)
+    if exit_code is None:
+        exit_code = getattr(exc, "code", None)
+    return exit_code
+
+
 def run_script(
     script: Path, env: dict[str, str], *args: str
 ) -> subprocess.CompletedProcess[str]:
@@ -206,10 +214,7 @@ def test_run_cargo_windows_nonzero_exit(
     with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo([])
     # click.exceptions.Exit exposes ``exit_code``; SystemExit uses ``code``.
-    exit_code = getattr(excinfo.value, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(excinfo.value, "code", None)
-    assert exit_code == 1
+    assert _exit_code(excinfo.value) == 1
 
 
 def test_run_cargo_windows_pump_exception(
@@ -492,10 +497,7 @@ def test_lcov_file_missing(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """Non-existent file triggers ``SystemExit``."""
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(tmp_path / "nope.lcov")
-    exit_code = getattr(excinfo.value, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(excinfo.value, "code", None)
-    assert exit_code == 1
+    assert _exit_code(excinfo.value) == 1
 
 
 def test_lcov_permission_error(
@@ -513,10 +515,7 @@ def test_lcov_permission_error(
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
         run_rust_module.get_line_coverage_percent_from_lcov(lcov)
-    exit_code = getattr(excinfo.value, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(excinfo.value, "code", None)
-    assert exit_code == 1
+    assert _exit_code(excinfo.value) == 1
 
 
 @pytest.fixture
@@ -578,7 +577,4 @@ def test_cobertura_malformed_xml(
     xml.write_text("<coverage>")
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
-    exit_code = getattr(excinfo.value, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(excinfo.value, "code", None)
-    assert exit_code == 1
+    assert _exit_code(excinfo.value) == 1

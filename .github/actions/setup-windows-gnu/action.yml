@@ -18,12 +18,12 @@ runs:
       with:
         msystem: MINGW64
         update: true
-        install: >-
+        # Optional: install cross linkers if you want GCC-based aarch64.
+        # aarch64-w64-mingw32-gcc is not always present on msys2; prefer
+        # clang via llvm-mingw instead.
+        install: |
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-gcc-libs
-          # Optional: install cross linkers if you want GCC-based aarch64
-          # aarch64-w64-mingw32-gcc is not always present on msys2; prefer
-          # clang via llvm-mingw instead.
     - name: Install llvm-mingw
       shell: pwsh
       run: |

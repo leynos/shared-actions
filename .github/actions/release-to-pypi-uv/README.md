@@ -22,6 +22,8 @@ trusted publishing flow.
 | tag | Resolved release tag. |
 | version | Resolved release version (tag without the leading `v`). |
 
+> **Required permissions**: set the job to `permissions: contents: read` and `permissions: id-token: write` so uv Trusted Publishing can exchange an OIDC token with PyPI.
+
 ## Usage
 
 ```yaml
@@ -35,8 +37,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: read        # required for trusted publishing
+      id-token: write       # required for trusted publishing
     steps:
       - uses: actions/checkout@v4
         with:

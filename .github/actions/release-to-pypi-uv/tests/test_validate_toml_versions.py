@@ -80,3 +80,14 @@ dynamic = ["version"]
 
     assert result.returncode == 1
     assert "dynamic 'version'" in result.stderr
+
+
+def test_fails_on_parse_error(tmp_path: Path) -> None:
+    project = tmp_path / "pkg"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("this is not TOML")
+
+    result = _run(tmp_path, version="1.0.0")
+
+    assert result.returncode == 1
+    assert "failed to parse" in result.stderr

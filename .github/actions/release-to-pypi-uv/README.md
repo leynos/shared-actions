@@ -1,0 +1,52 @@
+# Release to PyPI (uv)
+
+Build and publish Python distributions via [uv](https://github.com/astral-sh/uv) with GitHub's
+trusted publishing flow.
+
+## Inputs
+
+| Name | Description | Required | Default |
+| --- | --- | --- | --- |
+| tag | Tag to release (e.g. `v1.2.3`). Required when the workflow is not running on a tag ref. | no | _(empty)_ |
+| require-confirmation | Require a manual confirmation string before publishing. | no | `false` |
+| confirm | Confirmation string. Must equal `release <tag>` when `require-confirmation` is true. | no | _(empty)_ |
+| environment-name | GitHub environment to reference in the release summary. | no | `pypi` |
+| uv-index | Optional uv index name to publish to (e.g. `testpypi`). Must exist in `tool.uv.index`. | no | _(empty)_ |
+| toml-glob | Glob used to discover `pyproject.toml` files for version validation. | no | `**/pyproject.toml` |
+| fail-on-dynamic-version | Fail when a project declares a dynamic PEP 621 version instead of a literal string. | no | `false` |
+
+## Outputs
+
+| Name | Description |
+| --- | --- |
+| tag | Resolved release tag. |
+| version | Resolved release version (tag without the leading `v`). |
+
+## Usage
+
+```yaml
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build and publish
+        uses: ./.github/actions/release-to-pypi-uv@v1
+        with:
+          require-confirmation: true
+          confirm: release ${{ github.ref_name }}
+```
+
+Release history is available in [CHANGELOG](CHANGELOG.md).

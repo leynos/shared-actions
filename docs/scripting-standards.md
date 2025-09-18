@@ -11,32 +11,31 @@ as a default.
 
 ## Rationale for adopting Cyclopts
 
-- **Environment‑first configuration without glue.** Cyclopts reads environment
+- Environment‑first configuration without glue. Cyclopts reads environment
   variables with a defined prefix (for example, `INPUT_`) and maps them to
   parameters directly. Bash argument assembly and bespoke parsing can be
   removed.
-- **Typed lists and paths from env.** Parameters annotated as `list[str]` or
+- Typed lists and paths from env. Parameters annotated as `list[str]` or
   `list[pathlib.Path]` are populated from whitespace‑ or delimiter‑separated
   environment values. Custom split/trim helpers are unnecessary.
-- **Clear precedence model.** CLI flags override environment variables, which
+- Clear precedence model. CLI flags override environment variables, which
   override code defaults. Behaviour is predictable in both CI and local runs.
-- **Small API surface.** The API is explicit and integrates cleanly with type
+- Small API surface. The API is explicit and integrates cleanly with type
   hints, aiding readability and testing.
-- **Backwards‑compatible migration.** Option aliases and per‑parameter
+- Backwards‑compatible migration. Option aliases and per‑parameter
   environment variable names permit preservation of existing interfaces while
   removing shell glue.
 
 ## Language and runtime
 
-- Target Python **3.13** for all new scripts. Older versions may be used only
-  when integration constraints require them; any exception must be documented
+- Target Python 3.13 for all new scripts. Older versions may only be used when
+  integration constraints require them, and any exception must be documented
   inline.
-- Each script starts with a `uv` script block so runtime and dependency
-  expectations travel with the file. Prefer the shebang
-  `#!/usr/bin/env -S uv run python` followed by the metadata block shown below.
-- External processes are invoked via
-  [`plumbum`](https://plumbum.readthedocs.io) to provide structured command
-  execution rather than ad‑hoc shell strings.
+- Each script starts with an `uv` script block so runtime and dependency
+  expectations travel with the file. Prefer the shebang `#!/usr/bin/env -S uv
+  run python` followed by the metadata block shown in the example below.
+- External processes are invoked via [`plumbum`](https://plumbum.readthedocs.io)
+  to provide structured command execution rather than ad‑hoc shell strings.
 - File‑system interactions use `pathlib.Path`. Higher‑level operations (for
   example, copying or removing trees) go through the `shutil` standard library
   module.
@@ -140,7 +139,7 @@ if __name__ == "__main__":
     app()
 ```
 
-**Guidance:**
+Guidance:
 
 - Parameter names should be descriptive and stable. Where a legacy flag name
   must remain available, add an alias:
@@ -371,7 +370,7 @@ def test_patch_python_dependency(mocker):
     # Example: patch a helper function used by the script
     from scripts import helpers
 
-    mocker.patch.object(helpers, "compute_checksum", return_value="deadbeef")
+    mocker.patch_object(helpers, "compute_checksum", return_value="deadbeef")
     assert helpers.compute_checksum(b"abc") == "deadbeef"
 ```
 
@@ -452,17 +451,17 @@ def test_spy_and_record(cmd_mox, monkeypatch, tmp_path):
 
 ## Migration guidance (Typer → Cyclopts)
 
-1. **Dependencies:** replace Typer with Cyclopts in the script’s `uv` block.
-2. **Entry point:** replace `app = typer.Typer(...)` with `app = App(...)` and
+1. Dependencies: replace Typer with Cyclopts in the script’s `uv` block.
+2. Entry point: replace `app = typer.Typer(...)` with `app = App(...)` and
    configure `Env("INPUT_", command=False)` where environment variables are
    authoritative in CI.
-3. **Parameters:** replace `typer.Option(...)` with annotations and
+3. Parameters: replace `typer.Option(...)` with annotations and
    `Parameter(...)`. Mark required options with `required=True`. Map any
    non‑matching environment names via `env_var=...`.
-4. **Lists:** remove custom split/trim code. Use list‑typed parameters; add
+4. Lists: remove custom split/trim code. Use list‑typed parameters; add
    `env_var_split=","` where a non‑whitespace delimiter is required.
-5. **Compatibility:** retain legacy flag names using `aliases=["--old-name"]`.
-6. **Bash glue:** delete argument arrays and conditional appends in GitHub
+5. Compatibility: retain legacy flag names using `aliases=["--old-name"]`.
+6. Bash glue: delete argument arrays and conditional appends in GitHub
    Actions. Export `INPUT_*` environment variables and call `uv run` on the
    script.
 
@@ -492,8 +491,6 @@ def test_spy_and_record(cmd_mox, monkeypatch, tmp_path):
   behaviours (non‑zero exits, stderr contents) via `cmd-mox`.
 - On Windows, newline‑separated lists are recommended for `list[Path]` to
   sidestep `;`/`:` semantics.
-
-______________________________________________________________________
 
 This document should be referenced when introducing or updating automation
 scripts to maintain a consistent developer experience across the repository.

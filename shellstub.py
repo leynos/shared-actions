@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import collections.abc as cabc  # noqa: TC003  # NOTE: used at runtime
 import dataclasses as dc
 import json
 import os
 import typing as typ
-from pathlib import Path  # noqa: TC003  # NOTE: used at runtime
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+    from pathlib import Path
 
 
 @dc.dataclass

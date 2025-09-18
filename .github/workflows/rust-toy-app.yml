@@ -37,9 +37,10 @@ jobs:
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
       - name: Set llvm-mingw metadata
         if: matrix.runner == 'windows-latest'
+        shell: pwsh
         run: |
-          echo "LLVM_MINGW_VERSION=20250910" >> $GITHUB_ENV
-          echo "LLVM_MINGW_SHA256=bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737" >> $GITHUB_ENV
+          "LLVM_MINGW_VERSION=20250910" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_MINGW_SHA256=bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Configure Windows GNU toolchains
         if: matrix.runner == 'windows-latest'
         uses: ./.github/actions/setup-windows-gnu

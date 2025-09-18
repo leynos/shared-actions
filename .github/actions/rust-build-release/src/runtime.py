@@ -36,7 +36,7 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             timeout=10,
             cwd=cwd,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
     if result.returncode != 0:
@@ -54,7 +54,7 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
                 timeout=10,
                 cwd=cwd,
             )
-        except (OSError, subprocess.CalledProcessError):
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return False
 
         try:

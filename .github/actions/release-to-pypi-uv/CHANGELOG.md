@@ -2,8 +2,9 @@
 
 ## v1.0.1 (2025-09-18)
 
-- Document required workflow permissions for trusted publishing and clarify
-  that the action forwards `GITHUB_TOKEN` automatically.
+- Document required workflow permissions for trusted publishing, clarify that
+  the action forwards `GITHUB_TOKEN` automatically, and fix the README usage
+  example to reference the local path without a version suffix.
 
 ## v1.0.0 (2025-09-18)
 

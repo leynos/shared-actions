@@ -85,7 +85,7 @@ def main(
             data = _load_toml(path)
         except RuntimeError as exc:
             typer.echo(f"::error::{exc}", err=True)
-            return
+            raise typer.Exit(1) from exc
 
         project = data.get("project")
         if not isinstance(project, dict):

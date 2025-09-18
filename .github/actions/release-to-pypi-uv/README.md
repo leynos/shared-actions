@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       - name: Build and publish
-        uses: ./.github/actions/release-to-pypi-uv@v1
+        uses: ./.github/actions/release-to-pypi-uv
         with:
           require-confirmation: true
           confirm: release ${{ github.ref_name }}

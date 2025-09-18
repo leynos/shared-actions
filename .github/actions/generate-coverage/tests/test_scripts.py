@@ -578,3 +578,35 @@ def test_cobertura_malformed_xml(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+
+def test_cobertura_missing_file(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Missing Cobertura files raise ``typer.Exit``."""
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.get_line_coverage_percent_from_cobertura(
+            tmp_path / "absent.xml"
+        )
+    assert _exit_code(excinfo.value) == 1
+
+
+def test_cobertura_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """Permission errors when reading Cobertura files raise ``typer.Exit``."""
+    xml = tmp_path / "nope.xml"
+    xml.write_text("<coverage/>")
+
+    def raise_permission_error(*_: object, **__: object) -> object:
+        raise PermissionError("denied")
+
+    import coverage_parsers
+
+    monkeypatch.setattr(coverage_parsers.etree, "parse", raise_permission_error)
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.get_line_coverage_percent_from_cobertura(xml)
+    assert _exit_code(excinfo.value) == 1

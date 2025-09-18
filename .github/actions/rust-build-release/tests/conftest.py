@@ -115,7 +115,8 @@ def module_harness(monkeypatch: pytest.MonkeyPatch) -> HarnessFactory:
 
     def factory(module: ModuleType) -> ModuleHarness:
         harness = ModuleHarness(module, monkeypatch)
-        harness.patch_run_cmd()
+        if hasattr(module, "run_cmd"):
+            harness.patch_run_cmd()
         return harness
 
     return factory

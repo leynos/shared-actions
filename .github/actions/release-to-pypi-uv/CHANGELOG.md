@@ -2,8 +2,8 @@
 
 ## v1.0.1 (2025-09-18)
 
-- Document required workflow permissions for trusted publishing in the action
-  metadata and README usage example.
+- Document required workflow permissions for trusted publishing and clarify
+  that the action forwards `GITHUB_TOKEN` automatically.
 
 ## v1.0.0 (2025-09-18)
 

@@ -37,6 +37,9 @@ on:
 
 jobs:
   publish:
+    concurrency:
+      group: release-pypi-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read        # required for trusted publishing

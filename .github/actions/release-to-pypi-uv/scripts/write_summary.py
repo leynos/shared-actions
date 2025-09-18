@@ -24,10 +24,18 @@ def main(
     summary_path: Path = SUMMARY_OPTION,
 ) -> None:
     index_label = index or "pypi (default)"
+    heading = "## Release summary\n"
+    lines = [
+        f"- Released tag: {tag}\n",
+        f"- Publish index: {index_label}\n",
+        f"- Environment: {environment_name}\n",
+    ]
+
+    prefix = "\n" if summary_path.exists() and summary_path.stat().st_size > 0 else ""
     with summary_path.open("a", encoding="utf-8") as fh:
-        fh.write(f"Released tag: {tag}\n")
-        fh.write(f"Publish index: {index_label}\n")
-        fh.write(f"Environment: {environment_name}\n")
+        fh.write(prefix + heading)
+        for line in lines:
+            fh.write(line)
 
 
 if __name__ == "__main__":

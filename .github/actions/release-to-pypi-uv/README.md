@@ -23,6 +23,7 @@ trusted publishing flow.
 | version | Resolved release version (tag without the leading `v`). |
 
 > **Required permissions**: set the job to `permissions: contents: read` and `permissions: id-token: write` so uv Trusted Publishing can exchange an OIDC token with PyPI.
+> The composite action forwards the workflow's `GITHUB_TOKEN` to its scripts as `GH_TOKEN`, so you do not need to add an extra `env` block.
 
 ## Usage
 

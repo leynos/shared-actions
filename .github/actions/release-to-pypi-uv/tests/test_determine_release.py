@@ -80,3 +80,16 @@ def test_rejects_invalid_tag(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "Tag must start with 'v'" in result.stderr
+
+
+def test_errors_when_no_tag_and_not_on_tag_ref(tmp_path: Path) -> None:
+    env = base_env(tmp_path)
+    env.pop("GITHUB_REF_TYPE", None)
+    env.pop("GITHUB_REF_NAME", None)
+    env.pop("INPUT_TAG", None)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "determine_release.py"
+    result = run_script(script, env=env)
+
+    assert result.returncode == 1
+    assert "No tag was provided" in result.stderr

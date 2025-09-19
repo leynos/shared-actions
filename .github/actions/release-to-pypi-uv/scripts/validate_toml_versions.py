@@ -32,6 +32,8 @@ SKIP_PARTS = {
     ".mypy_cache",
 }
 
+TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
+
 
 def _iter_files(pattern: str) -> Iterable[Path]:
     candidates = [Path(p) for p in glob.glob(pattern, recursive=True)]
@@ -44,8 +46,13 @@ def _iter_files(pattern: str) -> Iterable[Path]:
         yield path
 
 
-def _parse_bool(value: str) -> bool:
-    return value.strip().lower() == "true"
+def _parse_bool(value: str | None) -> bool:
+    if value is None:
+        return False
+    normalized = value.strip().lower()
+    if not normalized:
+        return False
+    return normalized in TRUTHY_STRINGS
 
 
 def _load_toml(path: Path) -> dict[str, object]:

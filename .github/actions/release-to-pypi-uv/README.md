@@ -49,6 +49,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+        with:
+          python-version: ${{ inputs.python-version }}
+
       - name: Build and publish
         uses: ./.github/actions/release-to-pypi-uv
         with:

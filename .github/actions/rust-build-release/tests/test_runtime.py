@@ -240,8 +240,9 @@ def test_detect_host_target_passes_timeout_to_run_validated(
         allowed_names: tuple[str, ...],
         **kwargs: object,
     ) -> subprocess.CompletedProcess[str]:
-        _ = (executable, args, allowed_names)
+        _ = (executable, args)
         call_kwargs.update(kwargs)
+        call_kwargs["allowed_names"] = allowed_names
         return subprocess.CompletedProcess(
             [executable, *args], 0, stdout="host: bounded\n"
         )
@@ -250,3 +251,7 @@ def test_detect_host_target_passes_timeout_to_run_validated(
 
     assert runtime_module.detect_host_target() == "bounded"
     assert call_kwargs.get("timeout") == runtime_module.PROBE_TIMEOUT
+    assert call_kwargs.get("capture_output") is True
+    assert call_kwargs.get("text") is True
+    assert call_kwargs.get("check") is True
+    assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")

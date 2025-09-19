@@ -52,7 +52,7 @@ def test_runtime_available_returns_false_on_timeout(
     ) -> subprocess.CompletedProcess[str]:
         _ = allowed_names
         cmd = [executable, *args]
-        raise subprocess.TimeoutExpired(cmd, 10)
+        raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
@@ -146,7 +146,7 @@ def test_podman_security_timeout_treated_as_unavailable(
         _ = (allowed_names, capture_output, check, text)
         cmd = [executable, *args]
         if "--format" in args:
-            raise subprocess.TimeoutExpired(cmd, 10)
+            raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
         return subprocess.CompletedProcess(cmd, 0, stdout="")
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
@@ -209,7 +209,9 @@ def test_detect_host_target_returns_default_on_timeout(
         **_: object,
     ) -> subprocess.CompletedProcess[str]:
         _ = (executable, args, allowed_names)
-        raise subprocess.TimeoutExpired([executable, *args], 10)
+        raise subprocess.TimeoutExpired(
+            [executable, *args], runtime_module.PROBE_TIMEOUT
+        )
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
@@ -247,4 +249,4 @@ def test_detect_host_target_passes_timeout_to_run_validated(
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
     assert runtime_module.detect_host_target() == "bounded"
-    assert call_kwargs.get("timeout") == 10
+    assert call_kwargs.get("timeout") == runtime_module.PROBE_TIMEOUT

@@ -54,26 +54,27 @@ runs:
         cache-suffix: action-${{ github.action_ref || github.sha }}
     - name: Determine tag and version
       id: resolve
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/determine_release.py"
+      run: uv run --script "${{ github.action_path }}/scripts/determine_release.py"
       shell: bash
       env:
         INPUT_TAG: ${{ inputs.tag }}
     - name: Optional manual confirmation
       if: inputs.require-confirmation == 'true'
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/confirm_release.py"
+      run: uv run --script "${{ github.action_path }}/scripts/confirm_release.py"
       shell: bash
       env:
         EXPECTED: release ${{ steps.resolve.outputs.tag }}
         INPUT_CONFIRM: ${{ inputs.confirm }}
     - name: Ensure GitHub Release exists and is published
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/check_github_release.py"
+      run: uv run --script "${{ github.action_path }}/scripts/check_github_release.py"
       shell: bash
       env:
         RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
         GH_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ github.token }}
         GITHUB_REPOSITORY: ${{ github.repository }}
     - name: Validate TOML files
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/validate_toml_versions.py"
+      run: uv run --script "${{ github.action_path }}/scripts/validate_toml_versions.py"
       shell: bash
       env:
         RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
@@ -83,16 +84,16 @@ runs:
       run: uv python install "${{ inputs.python-version }}"
       shell: bash
     - name: Build distributions
-      run: uv build --python "${{ inputs.python-version }}"
+      run: uv build
       shell: bash
     - name: Publish to PyPI (Trusted Publishing)
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/publish_release.py"
+      run: uv run --script "${{ github.action_path }}/scripts/publish_release.py"
       shell: bash
       env:
         INPUT_UV_INDEX: ${{ inputs.uv-index }}
     - name: Summary
       if: always()
-      run: uv run --python "${{ inputs.python-version }}" --script "${{ github.action_path }}/scripts/write_summary.py"
+      run: uv run --script "${{ github.action_path }}/scripts/write_summary.py"
       shell: bash
       env:
         RESOLVED_TAG: ${{ steps.resolve.outputs.tag }}

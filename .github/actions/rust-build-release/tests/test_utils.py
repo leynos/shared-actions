@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+
+CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
+    sys.platform == "win32", reason="cmd-mox does not support Windows"
+)
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
@@ -34,21 +39,16 @@ def test_ensure_allowed_executable_rejects_unknown(
         utils_module.ensure_allowed_executable(exe_path, ("rustup", "rustup.exe"))
 
 
+@CMD_MOX_UNSUPPORTED
 def test_run_validated_invokes_subprocess_with_validated_path(
-    utils_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    utils_module: ModuleType,
+    cmd_mox,
 ) -> None:
     """run_validated executes subprocess.run with the validated executable."""
-    exe_path = tmp_path / "docker.exe"
-    exe_path.write_text("", encoding="utf-8")
+    exe_path = cmd_mox.environment.shim_dir / "docker.exe"
+    spy = cmd_mox.spy("docker.exe").with_args("info").returns(stdout="ok")
 
-    recorded: dict[str, list[str]] = {}
-
-    def fake_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-        recorded["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout="ok")
-
-    monkeypatch.setattr(utils_module.subprocess, "run", fake_run)
-
+    cmd_mox.replay()
     result = utils_module.run_validated(
         exe_path,
         ["info"],
@@ -57,11 +57,12 @@ def test_run_validated_invokes_subprocess_with_validated_path(
         capture_output=True,
         text=True,
     )
+    cmd_mox.verify()
 
-    assert recorded["cmd"][0] == str(exe_path)
-    assert recorded["cmd"][1:] == ["info"]
     assert isinstance(result, subprocess.CompletedProcess)
+    assert result.args[0] == str(exe_path)
     assert result.stdout == "ok"
+    assert spy.call_count == 1
 
 
 def test_run_validated_raises_for_unexpected_executable(

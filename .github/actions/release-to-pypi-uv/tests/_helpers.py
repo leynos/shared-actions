@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 from typing import Any
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-REPO_ROOT = Path(__file__).resolve().parents[3]
+_ACTION_PATH = os.environ.get("GITHUB_ACTION_PATH")
+
+if _ACTION_PATH:
+    _action_root = Path(_ACTION_PATH).resolve()
+    SCRIPTS_DIR = _action_root / "scripts"
+    REPO_ROOT = _action_root.parents[2]
+else:
+    SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+    REPO_ROOT = SCRIPTS_DIR.parents[3]
 
 
 def load_script_module(name: str) -> Any:

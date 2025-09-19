@@ -23,7 +23,8 @@ def run_script(script: Path, *, env: dict[str, str]) -> subprocess.CompletedProc
 def base_env(tmp_path: Path) -> dict[str, str]:
     merged = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
-    merged["PYTHONPATH"] = f"{root}{os.pathsep}{merged.get('PYTHONPATH', '')}".rstrip(os.pathsep)
+    prev = os.environ.get("PYTHONPATH", "")
+    merged["PYTHONPATH"] = root + (os.pathsep + prev if prev else "")
     merged["PYTHONIOENCODING"] = "utf-8"
     merged["GITHUB_OUTPUT"] = str(tmp_path / "out.txt")
     merged["PWD"] = str(tmp_path)

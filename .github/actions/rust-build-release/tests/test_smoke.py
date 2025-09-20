@@ -35,6 +35,7 @@ WINDOWS_KNOWN_FAILURE = pytest.mark.xfail(
         "Known failure on Windows; see "
         "https://github.com/leynos/shared-actions/issues/93"
     ),
+    strict=True,
 )
 
 
@@ -61,7 +62,7 @@ def _param_for_target(target: str) -> object:
     marks: list[pytest.MarkDecorator] = []
     if target != HOST_TARGET and target.endswith("-unknown-linux-gnu"):
         marks.append(LINUX_ONLY)
-    if target.endswith("-pc-windows-gnu"):
+    if target.endswith("-pc-windows-gnu") or target.endswith("-pc-windows-msvc"):
         marks.append(WINDOWS_ONLY)
     if target.endswith("-pc-windows-gnu") or target.endswith("-pc-windows-msvc"):
         marks.append(WINDOWS_KNOWN_FAILURE)

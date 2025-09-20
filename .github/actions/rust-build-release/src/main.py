@@ -25,7 +25,31 @@ from cmd_utils import run_cmd
 
 DEFAULT_TOOLCHAIN = read_default_toolchain()
 
+WINDOWS_TARGET_SUFFIXES = (
+    "-pc-windows-msvc",
+    "-pc-windows-gnu",
+    "-pc-windows-gnullvm",
+    "-windows-msvc",
+    "-windows-gnu",
+    "-windows-gnullvm",
+)
+
 app = typer.Typer(add_completion=False)
+
+
+def _target_is_windows(target: str) -> bool:
+    """Return True if *target* resolves to a Windows triple."""
+
+    normalized = target.strip().lower()
+    return any(normalized.endswith(suffix) for suffix in WINDOWS_TARGET_SUFFIXES)
+
+
+def should_probe_container(host_platform: str, target: str) -> bool:
+    """Determine whether container runtimes should be probed."""
+
+    if host_platform != "win32":
+        return True
+    return not _target_is_windows(target)
 
 
 @app.command()
@@ -110,8 +134,11 @@ def main(
     configure_windows_linkers(toolchain_name, target, rustup_exec)
 
     cross_path, cross_version = ensure_cross("0.2.5")
-    docker_present = runtime_available("docker")
-    podman_present = runtime_available("podman")
+    docker_present = False
+    podman_present = False
+    if should_probe_container(sys.platform, target):
+        docker_present = runtime_available("docker")
+        podman_present = runtime_available("podman")
     has_container = docker_present or podman_present
 
     use_cross = cross_path is not None and has_container

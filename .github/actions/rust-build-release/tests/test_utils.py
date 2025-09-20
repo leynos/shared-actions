@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
 
-CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
-    sys.platform == "win32", reason="cmd-mox does not support Windows"
-)
+from shared_actions_conftest import CMD_MOX_UNSUPPORTED
 
 if typ.TYPE_CHECKING:
     from types import ModuleType

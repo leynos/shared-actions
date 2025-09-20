@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-import collections
-import collections.abc as cabc
 import hashlib
 import io
 import subprocess
-import sys
 import typing as typ
 import zipfile
 
 import pytest
 
-CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
-    sys.platform == "win32", reason="cmd-mox does not support Windows"
+from shared_actions_conftest import (
+    CMD_MOX_UNSUPPORTED,
+    _register_cross_version_stub,
+    _register_docker_info_stub,
+    _register_rustup_toolchain_stub,
 )
 
 if typ.TYPE_CHECKING:
@@ -22,35 +22,6 @@ if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory
-
-
-def _register_cross_version_stub(
-    cmd_mox, stdout: str | cabc.Iterable[str] = "cross 0.2.5\n"
-) -> str:
-    if isinstance(stdout, str):
-        cmd_mox.stub("cross").with_args("--version").returns(stdout=stdout)
-    else:
-        outputs = collections.deque(stdout)
-        last = outputs[-1] if outputs else "cross 0.2.5\n"
-
-        def _handler(_invocation: object) -> tuple[str, str, int]:
-            data = outputs.popleft() if outputs else last
-            return data, "", 0
-
-        cmd_mox.stub("cross").with_args("--version").runs(_handler)
-    return str(cmd_mox.environment.shim_dir / "cross")
-
-
-def _register_rustup_toolchain_stub(cmd_mox, stdout: str) -> str:
-    cmd_mox.stub("rustup").with_args("toolchain", "list").returns(stdout=stdout)
-    return str(cmd_mox.environment.shim_dir / "rustup")
-
-
-def _register_docker_info_stub(cmd_mox, *, exit_code: int = 0) -> str:
-    cmd_mox.stub("docker").with_args("info").returns(exit_code=exit_code)
-    return str(cmd_mox.environment.shim_dir / "docker")
-
-
 @CMD_MOX_UNSUPPORTED
 def test_installs_cross_when_missing(
     cross_module: ModuleType,

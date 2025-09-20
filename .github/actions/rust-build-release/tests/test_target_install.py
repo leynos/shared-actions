@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import typing as typ
 
 import pytest
 
-CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
-    sys.platform == "win32", reason="cmd-mox does not support Windows"
+from shared_actions_conftest import (
+    CMD_MOX_UNSUPPORTED,
+    _register_cross_version_stub,
+    _register_docker_info_stub,
+    _register_rustup_toolchain_stub,
 )
 
 if typ.TYPE_CHECKING:
@@ -16,26 +18,6 @@ if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory
-
-
-def _register_rustup_toolchain_stub(
-    cmd_mox, default_toolchain: str
-) -> str:  # pragma: no cover - helper
-    stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-    cmd_mox.stub("rustup").with_args("toolchain", "list").returns(stdout=stdout)
-    return str(cmd_mox.environment.shim_dir / "rustup")
-
-
-def _register_cross_version_stub(cmd_mox, stdout: str = "cross 0.2.5\n") -> str:
-    cmd_mox.stub("cross").with_args("--version").returns(stdout=stdout)
-    return str(cmd_mox.environment.shim_dir / "cross")
-
-
-def _register_docker_info_stub(cmd_mox, *, exit_code: int = 0) -> str:
-    cmd_mox.stub("docker").with_args("info").returns(exit_code=exit_code)
-    return str(cmd_mox.environment.shim_dir / "docker")
-
-
 @CMD_MOX_UNSUPPORTED
 def test_skips_target_install_when_cross_available(
     main_module: ModuleType,
@@ -53,7 +35,8 @@ def test_skips_target_install_when_cross_available(
     app_env.patch_run_cmd(run_cmd_side_effect)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
-    rustup_path = _register_rustup_toolchain_stub(cmd_mox, default_toolchain)
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
     cross_path = _register_cross_version_stub(cmd_mox)
     docker_path = _register_docker_info_stub(cmd_mox)
 
@@ -89,7 +72,8 @@ def test_errors_when_target_unsupported_without_cross(
     app_env = module_harness(main_module)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
-    rustup_path = _register_rustup_toolchain_stub(cmd_mox, default_toolchain)
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
 
     def fake_which(name: str) -> str | None:
         return rustup_path if name == "rustup" else None
@@ -131,7 +115,8 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     app_env.patch_run_cmd(run_cmd_side_effect)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
-    rustup_path = _register_rustup_toolchain_stub(cmd_mox, default_toolchain)
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
     cross_path = _register_cross_version_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:

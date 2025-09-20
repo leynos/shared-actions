@@ -1,5 +1,3 @@
-"""Tests target installation fallback behavior."""
-
 from __future__ import annotations
 
 import os
@@ -8,13 +6,19 @@ import typing as typ
 
 import pytest
 
+from shared_actions_conftest import (
+    CMD_MOX_UNSUPPORTED,
+    _register_cross_version_stub,
+    _register_docker_info_stub,
+    _register_rustup_toolchain_stub,
+)
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
     from .conftest import HarnessFactory
-
-
+@CMD_MOX_UNSUPPORTED
 def test_skips_target_install_when_cross_available(
     main_module: ModuleType,
     cross_module: ModuleType,
@@ -30,47 +34,33 @@ def test_skips_target_install_when_cross_available(
 
     app_env.patch_run_cmd(run_cmd_side_effect)
 
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    cross_path = _register_cross_version_stub(cmd_mox)
+    docker_path = _register_docker_info_stub(cmd_mox)
+
     def fake_which(name: str) -> str | None:
         mapping = {
-            "cross": "/usr/bin/cross",
-            "docker": "/usr/bin/docker",
-            "rustup": "/usr/bin/rustup",
+            "cross": cross_path,
+            "docker": docker_path,
+            "rustup": rustup_path,
         }
         return mapping.get(name)
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        if executable == "/usr/bin/docker":
-            return subprocess.CompletedProcess(cmd, 0, stdout="")
-        if len(cmd) > 1 and cmd[1] == "toolchain":
-            stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-            return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
-        return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
-
-    cross_env.patch_subprocess_run(fake_run)
-    app_env.patch_subprocess_run(fake_run)
+    cmd_mox.replay()
 
     main_module.main("aarch64-pc-windows-gnu", default_toolchain)
+    cmd_mox.verify()
     build_cmd = app_env.calls[-1]
     assert build_cmd[0] == "cross"
     assert build_cmd[1] == f"+{default_toolchain}"
 
 
+@CMD_MOX_UNSUPPORTED
 def test_errors_when_target_unsupported_without_cross(
     main_module: ModuleType,
     cross_module: ModuleType,
@@ -81,33 +71,15 @@ def test_errors_when_target_unsupported_without_cross(
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+
     def fake_which(name: str) -> str | None:
-        return "/usr/bin/rustup" if name == "rustup" else None
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
-
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        if len(cmd) > 1 and cmd[1] == "toolchain":
-            stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-            return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
-
-    cross_env.patch_subprocess_run(fake_run)
-    app_env.patch_subprocess_run(fake_run)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if cmd[:3] == ["rustup", "target", "add"]:
@@ -117,13 +89,16 @@ def test_errors_when_target_unsupported_without_cross(
     app_env.patch_attr("ensure_cross", lambda *_: (None, None))
     app_env.patch_attr("runtime_available", lambda name: False)
 
+    cmd_mox.replay()
     with pytest.raises(main_module.typer.Exit):
         main_module.main("thumbv7em-none-eabihf", default_toolchain)
+    cmd_mox.verify()
 
     err = capsys.readouterr().err
     assert "does not support target 'thumbv7em-none-eabihf'" in err
 
 
+@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_cargo_when_cross_container_fails(
     main_module: ModuleType,
     cross_module: ModuleType,
@@ -139,40 +114,23 @@ def test_falls_back_to_cargo_when_cross_container_fails(
 
     app_env.patch_run_cmd(run_cmd_side_effect)
 
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    cross_path = _register_cross_version_stub(cmd_mox)
+
     def fake_which(name: str) -> str | None:
-        mapping = {
-            "rustup": "/usr/bin/rustup",
-        }
-        return mapping.get(name)
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        if len(cmd) > 1 and cmd[1] == "toolchain":
-            stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-            return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
-
-    cross_env.patch_subprocess_run(fake_run)
-    app_env.patch_subprocess_run(fake_run)
-    app_env.patch_attr("ensure_cross", lambda required: ("/usr/bin/cross", required))
+    app_env.patch_attr("ensure_cross", lambda required: (cross_path, required))
     app_env.patch_attr("runtime_available", lambda name: True)
 
+    cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+    cmd_mox.verify()
     build_cmd = app_env.calls[-1]
     assert build_cmd[0] == "cargo"
     assert build_cmd[1] == f"+{default_toolchain}-x86_64-unknown-linux-gnu"

@@ -187,8 +187,8 @@ cmd_mox.verify()
 assert [call.command for call in cmd_mox.journal] == ["git", "curl"]
 ```
 
-When you want to intercept a command without configuring a double—for example to
-ensure it is treated as unexpected—register it explicitly:
+To intercept a command without configuring a double—for example, to ensure it is
+treated as unexpected—register it explicitly:
 
 ```python
 cmd_mox.register_command("name")
@@ -216,7 +216,7 @@ few common ones are:
   receives an `Invocation` and should return either a `(stdout, stderr,
   exit_code)` tuple or a `Response` instance.
 - `times(count)` – expect the command exactly `count` times.
-- `times_called(count)` – alias for `times` that emphasises spy call counts.
+- `times_called(count)` – alias for `times` that emphasizes spy call counts.
 - `in_order()` – enforce strict ordering with other expectations.
 - `any_order()` – allow the expectation to be satisfied in any position.
 - `passthrough()` – for spies, run the real command while recording it.

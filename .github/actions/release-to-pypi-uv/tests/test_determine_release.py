@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
+
+
+pytestmark = pytest.mark.skipif(shutil.which("uv") is None, reason="uv not installed")
 
 
 def run_script(script: Path, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:

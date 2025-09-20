@@ -110,8 +110,14 @@ def main(
     configure_windows_linkers(toolchain_name, target, rustup_exec)
 
     cross_path, cross_version = ensure_cross("0.2.5")
-    docker_present = runtime_available("docker")
-    podman_present = runtime_available("podman")
+    docker_present = False
+    podman_present = False
+    host_is_windows = sys.platform == "win32"
+    target_is_windows = "windows" in target
+    probe_container = not (host_is_windows and target_is_windows)
+    if probe_container:
+        docker_present = runtime_available("docker")
+        podman_present = runtime_available("podman")
     has_container = docker_present or podman_present
 
     use_cross = cross_path is not None and has_container

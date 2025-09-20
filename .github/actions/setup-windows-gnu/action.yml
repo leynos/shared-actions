@@ -54,7 +54,8 @@ runs:
           Remove-Item $destination -Recurse -Force
         }
         Expand-Archive $archive -DestinationPath $destination -Force
-        $binPath = Join-Path $destination "llvm-mingw-$version-ucrt-x86_64\bin"
+        $toolRoot = Join-Path $destination "llvm-mingw-$version-ucrt-x86_64"
+        $binPath = Join-Path $toolRoot "bin"
         if (-not (Test-Path $binPath)) {
           throw "llvm-mingw bin directory not found at $binPath"
         }

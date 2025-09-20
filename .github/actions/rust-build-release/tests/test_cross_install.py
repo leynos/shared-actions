@@ -10,49 +10,41 @@ import zipfile
 
 import pytest
 
+from shared_actions_conftest import (
+    CMD_MOX_UNSUPPORTED,
+    _register_cross_version_stub,
+    _register_docker_info_stub,
+    _register_rustup_toolchain_stub,
+)
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
     from .conftest import HarnessFactory
-
-
-def _constant_run(stdout: str) -> typ.Callable[..., subprocess.CompletedProcess[str]]:
-    """Return a ``run_validated`` stub emitting *stdout*."""
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
-
-    return fake_run
-
-
+@CMD_MOX_UNSUPPORTED
 def test_installs_cross_when_missing(
-    cross_module: ModuleType, module_harness: HarnessFactory
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Installs cross when it is missing."""
     harness = module_harness(cross_module)
-    cross_checks = [None, "/usr/bin/cross"]
+    cross_path = _register_cross_version_stub(cmd_mox)
+    cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
-        return cross_checks.pop(0) if name == "cross" else None
+        if name == "cross":
+            return cross_checks.pop(0) if cross_checks else cross_path
+        return None
 
     harness.patch_shutil_which(fake_which)
-    harness.patch_subprocess_run(_constant_run("cross 0.2.5\n"))
 
+    cmd_mox.replay()
     path, ver = cross_module.ensure_cross("0.2.5")
+    cmd_mox.verify()
 
-    assert path == "/usr/bin/cross"
+    assert path == cross_path
     assert ver == "0.2.5"
     install = next(
         cmd for cmd in harness.calls if cmd[:3] == ["cargo", "install", "cross"]
@@ -85,36 +77,29 @@ def test_cross_install_failure_non_windows(
     assert exc_info.value.output == "install failed"
 
 
+@CMD_MOX_UNSUPPORTED
 def test_upgrades_outdated_cross(
-    cross_module: ModuleType, module_harness: HarnessFactory
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Upgrades cross when an older version is installed."""
     harness = module_harness(cross_module)
 
-    versions = ["cross 0.2.4\n", "cross 0.2.5\n"]
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        return subprocess.CompletedProcess(cmd, 0, stdout=versions.pop(0))
-
-    harness.patch_shutil_which(
-        lambda name: "/usr/bin/cross" if name == "cross" else None
+    cross_path = _register_cross_version_stub(
+        cmd_mox, ["cross 0.2.4\n", "cross 0.2.5\n"]
     )
-    harness.patch_subprocess_run(fake_run)
 
+    def fake_which(name: str) -> str | None:
+        return cross_path if name == "cross" else None
+
+    harness.patch_shutil_which(fake_which)
+
+    cmd_mox.replay()
     path, ver = cross_module.ensure_cross("0.2.5")
+    cmd_mox.verify()
 
-    assert path == "/usr/bin/cross"
+    assert path == cross_path
     assert ver == "0.2.5"
     install = next(
         cmd for cmd in harness.calls if cmd[:3] == ["cargo", "install", "cross"]
@@ -124,35 +109,47 @@ def test_upgrades_outdated_cross(
     assert install[idx + 1] == "0.2.5"
 
 
+@CMD_MOX_UNSUPPORTED
 def test_uses_cached_cross(
-    cross_module: ModuleType, module_harness: HarnessFactory
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Uses cached cross when version is sufficient."""
     harness = module_harness(cross_module)
-    harness.patch_shutil_which(
-        lambda name: "/usr/bin/cross" if name == "cross" else None
-    )
-    harness.patch_subprocess_run(_constant_run("cross 0.2.5\n"))
+    cross_path = _register_cross_version_stub(cmd_mox)
 
+    def fake_which(name: str) -> str | None:
+        return cross_path if name == "cross" else None
+
+    harness.patch_shutil_which(fake_which)
+
+    cmd_mox.replay()
     path, ver = cross_module.ensure_cross("0.2.5")
+    cmd_mox.verify()
 
-    assert path == "/usr/bin/cross"
+    assert path == cross_path
     assert ver == "0.2.5"
     assert not harness.calls
 
 
+@CMD_MOX_UNSUPPORTED
 def test_installs_prebuilt_cross_on_windows(
-    cross_module: ModuleType, module_harness: HarnessFactory
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Uses the prebuilt cross binary on Windows hosts."""
     harness = module_harness(cross_module)
-    cross_checks = [None, "C:/cross.exe"]
+    cross_path = _register_cross_version_stub(cmd_mox)
+    cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
-        return cross_checks.pop(0) if name == "cross" else None
+        if name == "cross":
+            return cross_checks.pop(0) if cross_checks else cross_path
+        return None
 
     harness.patch_shutil_which(fake_which)
-    harness.patch_subprocess_run(_constant_run("cross 0.2.5\n"))
     harness.patch_platform("win32")
 
     release_called = {"value": False}
@@ -163,10 +160,12 @@ def test_installs_prebuilt_cross_on_windows(
 
     harness.patch_attr("install_cross_release", fake_release)
 
+    cmd_mox.replay()
     path, ver = cross_module.ensure_cross("0.2.5")
+    cmd_mox.verify()
 
     assert release_called["value"] is True
-    assert path == "C:/cross.exe"
+    assert path == cross_path
     assert ver == "0.2.5"
     assert all(cmd[:2] != ["cargo", "install"] for cmd in harness.calls)
 
@@ -348,48 +347,36 @@ def test_install_cross_release_rejects_hash_mismatch(
     assert cross_module.install_cross_release("0.2.5") is False
 
 
+@CMD_MOX_UNSUPPORTED
 def test_installs_cross_without_container_runtime(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Installs cross even when no container runtime is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
-    cross_checks = [None, "/usr/bin/cross"]
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    cross_checks = [None, cross_path]
 
     def fake_which(name: str) -> str | None:
         if name == "cross":
-            return cross_checks.pop(0)
-        return None if name in {"docker", "podman"} else "/usr/bin/rustup"
+            return cross_checks.pop(0) if cross_checks else cross_path
+        if name in {"docker", "podman"}:
+            return None
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        if len(cmd) > 1 and cmd[1] == "toolchain":
-            output = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-            return subprocess.CompletedProcess(cmd, 0, stdout=output)
-        return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
-
-    cross_env.patch_subprocess_run(fake_run)
-    app_env.patch_subprocess_run(fake_run)
-
+    cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+    cmd_mox.verify()
 
     install = next(
         cmd for cmd in cross_env.calls if cmd[:3] == ["cargo", "install", "cross"]
@@ -402,76 +389,72 @@ def test_installs_cross_without_container_runtime(
     assert build_cmd[1] == f"+{default_toolchain}-x86_64-unknown-linux-gnu"
 
 
+@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_git_when_crates_io_unavailable(
-    cross_module: ModuleType, module_harness: HarnessFactory
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Falls back to git install when crates.io is unavailable."""
     harness = module_harness(cross_module)
-    cross_checks = [None, "/usr/bin/cross"]
+    cross_path = _register_cross_version_stub(cmd_mox)
+    cross_checks = [None, cross_path]
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if len(harness.calls) == 1:
             raise subprocess.CalledProcessError(1, cmd)
         return
 
-    harness.patch_run_cmd(run_cmd_side_effect)
-    harness.patch_shutil_which(
-        lambda name: cross_checks.pop(0) if name == "cross" else None
-    )
-    harness.patch_subprocess_run(_constant_run("cross 0.2.5\n"))
+    def fake_which(name: str) -> str | None:
+        if name == "cross":
+            return cross_checks.pop(0) if cross_checks else cross_path
+        return None
 
+    harness.patch_run_cmd(run_cmd_side_effect)
+    harness.patch_shutil_which(fake_which)
+
+    cmd_mox.replay()
     path, ver = cross_module.ensure_cross("0.2.5")
+    cmd_mox.verify()
 
     assert len(harness.calls) == 2
     assert "--git" in harness.calls[1]
     assert "--tag" in harness.calls[1]
     assert "v0.2.5" in harness.calls[1]
-    assert path == "/usr/bin/cross"
+    assert path == cross_path
     assert ver == "0.2.5"
 
 
+@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_cargo_when_runtime_unusable(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    docker_path = _register_docker_info_stub(cmd_mox, exit_code=1)
+
     def fake_which(name: str) -> str | None:
         if name == "docker":
-            return "/usr/bin/docker"
-        return "/usr/bin/cross" if name == "cross" else "/usr/bin/rustup"
+            return docker_path
+        if name == "cross":
+            return cross_path
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        if executable == "/usr/bin/docker":
-            return subprocess.CompletedProcess(cmd, 1, stdout="")
-        if len(cmd) > 1 and cmd[1] == "toolchain":
-            output = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-            return subprocess.CompletedProcess(cmd, 0, stdout=output)
-        return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
-
-    cross_env.patch_subprocess_run(fake_run)
-    app_env.patch_subprocess_run(fake_run)
-
+    cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+    cmd_mox.verify()
 
     assert any(cmd[0] == "cargo" for cmd in app_env.calls)
     assert all(cmd[0] != "cross" for cmd in app_env.calls)

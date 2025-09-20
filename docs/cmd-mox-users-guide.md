@@ -5,7 +5,8 @@ commands in your tests. This guide shows common patterns for everyday use.
 
 ## Getting started
 
-Install the package and enable the pytest plugin:
+Install the package and enable the pytest plugin (guarded on Windows where
+cmd-mox is not currently supported):
 
 ```bash
 pip install cmd-mox
@@ -14,11 +15,16 @@ pip install cmd-mox
 In your `conftest.py`:
 
 ```python
-pytest_plugins = ("cmd_mox.pytest_plugin",)
+import sys
+
+if sys.platform != "win32":
+    pytest_plugins = ("cmd_mox.pytest_plugin",)
 ```
 
 Each test receives a `cmd_mox` fixture that provides access to the controller
-object.
+object. Because the IPC transport is Unix-specific, guard any cmd-mox-backed
+tests with `pytest.mark.skipif(sys.platform == "win32", ...)` so CI runners on
+Windows bypass them gracefully.
 
 ## Basic workflow
 

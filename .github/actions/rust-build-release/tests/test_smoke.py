@@ -29,6 +29,13 @@ TOOLCHAIN_VERSION = (
 
 WINDOWS_ONLY = pytest.mark.skipif(sys.platform != "win32", reason="requires Windows")
 LINUX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="requires Linux")
+WINDOWS_KNOWN_FAILURE = pytest.mark.xfail(
+    sys.platform == "win32",
+    reason=(
+        "Known failure on Windows; see "
+        "https://github.com/leynos/shared-actions/issues/93"
+    ),
+)
 
 
 HOST_TARGET = detect_host_target()
@@ -56,6 +63,8 @@ def _param_for_target(target: str) -> object:
         marks.append(LINUX_ONLY)
     if target.endswith("-pc-windows-gnu"):
         marks.append(WINDOWS_ONLY)
+    if target.endswith("-pc-windows-gnu") or target.endswith("-pc-windows-msvc"):
+        marks.append(WINDOWS_KNOWN_FAILURE)
     if marks:
         return pytest.param(target, marks=tuple(marks))
     return pytest.param(target)

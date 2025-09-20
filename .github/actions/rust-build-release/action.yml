@@ -53,6 +53,7 @@ runs:
         shared-key: ${{ runner.os }}-toolchain-${{ env.RBR_TOOLCHAIN }}
         cache-on-failure: true
     - name: Install nfpm
+      if: contains(inputs.target, 'unknown-linux-gnu')
       uses: ./.github/actions/install-nfpm
     - name: Build release
       shell: bash
@@ -62,6 +63,7 @@ runs:
       working-directory: ${{ inputs.project-dir }}
       run: ${{ github.action_path }}/src/main.py
     - name: Stage artifacts
+      if: contains(inputs.target, 'unknown-linux-gnu')
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |
@@ -110,6 +112,7 @@ runs:
         install -Dm755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
         install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
     - name: Package with nfpm
+      if: contains(inputs.target, 'unknown-linux-gnu')
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |

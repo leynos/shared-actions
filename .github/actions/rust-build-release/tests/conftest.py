@@ -135,13 +135,6 @@ class ModuleHarness:
         """Patch ``shutil.which`` for the wrapped module."""
         self.monkeypatch.setattr(self.module.shutil, "which", func)
 
-    def patch_subprocess_run(self, func: cabc.Callable[..., object]) -> None:
-        """Patch ``subprocess.run`` for the wrapped module."""
-        if hasattr(self.module, "run_validated"):
-            self.monkeypatch.setattr(self.module, "run_validated", func)
-        if hasattr(self.module, "subprocess"):
-            self.monkeypatch.setattr(self.module.subprocess, "run", func)
-
     def patch_platform(self, platform: str) -> None:
         """Force ``sys.platform`` to ``platform`` within the module."""
         self.monkeypatch.setattr(self.module.sys, "platform", platform)

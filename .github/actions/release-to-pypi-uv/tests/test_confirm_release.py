@@ -5,7 +5,12 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from shared_actions_conftest import REQUIRES_UV
+
 from .test_determine_release import base_env
+
+
+pytestmark = REQUIRES_UV
 
 
 def run_confirm(tmp_path: Path, expected: str, confirm: str) -> subprocess.CompletedProcess[str]:

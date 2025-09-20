@@ -1,6 +1,6 @@
 # Python Native Command Mocking Design
 
-CmdMox underpins our Python-based command doubling strategy. The library offers
+CmdMox underpins the Python-based command doubling strategy. The library offers
 an ergonomic façade for writing tests while keeping the execution model explicit
 and deterministic. This document captures the architectural decisions and the
 contracts relied upon by the higher-level usage guide.
@@ -27,7 +27,7 @@ CmdMox consists of three cooperating subsystems:
    exposed through attributes such as `environment.shim_dir`.
 3. **IPC Server** – Handles requests from shims, dispatching them to the
    recorded doubles. The server enforces strict sequencing to maintain
-   deterministic behaviour.
+   deterministic behavior.
 
 The pytest plugin creates a controller per test function. When used as a context
 manager (`with CmdMox() as mox:`) the same controller lifecycle is available for
@@ -52,7 +52,7 @@ exception visible to the test runner.
 
 ## Command Doubles and Responses
 
-`CommandDouble` instances configure behaviour with a fluent DSL:
+`CommandDouble` instances configure behavior with a fluent DSL:
 
 - `with_args(*args)` asserts exact argument sequences.
 - `with_matching_args(*matchers)` allows per-position comparator functions such
@@ -104,8 +104,8 @@ named-pipe transports for full parity.
 - Each shim invocation is validated against its matching strategy; mismatches are
   surfaced immediately with descriptive error messages.
 - Journal eviction and verification are both deterministic so repeated runs yield
-  identical behaviour given the same expectations and inputs.
+  identical behavior given the same expectations and inputs.
 
 CmdMox is designed to remain implementation-agnostic at the call site, allowing
-us to evolve the underlying IPC layer or shim mechanism without breaking tests
-that depend on the documented contracts above.
+maintainers to evolve the underlying IPC layer or shim mechanism without
+breaking tests that depend on the documented contracts above.

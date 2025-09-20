@@ -369,9 +369,7 @@ def test_installs_cross_without_container_runtime(
             return cross_checks.pop(0) if cross_checks else cross_path
         if name in {"docker", "podman"}:
             return None
-        if name == "rustup":
-            return rustup_path
-        return None
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
@@ -449,9 +447,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
             return docker_path
         if name == "cross":
             return cross_path
-        if name == "rustup":
-            return rustup_path
-        return None
+        return rustup_path if name == "rustup" else None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)

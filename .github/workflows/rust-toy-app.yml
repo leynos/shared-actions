@@ -48,55 +48,10 @@ jobs:
           llvm-mingw-version: ${{ env.LLVM_MINGW_VERSION }}
           llvm-mingw-sha256: ${{ env.LLVM_MINGW_SHA256 }}
       - name: Build
-        if: runner.os != 'Windows'
         uses: ./.github/actions/rust-build-release
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
-      - name: Setup uv
-        if: runner.os == 'Windows'
-        uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
-      - name: Validate Windows target
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run --script .github/actions/rust-build-release/src/action_setup.py \
-            validate "${{ matrix.target }}"
-      - name: Resolve Rust toolchain
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          toolchain="$(uv run --script .github/actions/rust-build-release/src/action_setup.py \
-            toolchain \
-            --target "${{ matrix.target }}" \
-            --runner-os "${{ runner.os }}" \
-            --runner-arch "${{ runner.arch }}")"
-          echo "RBR_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
-      - name: Setup Rust toolchain
-        if: runner.os == 'Windows'
-        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9
-        with:
-          toolchain: ${{ env.RBR_TOOLCHAIN }}
-          override: true
-          components: rustfmt, clippy, llvm-tools-preview
-      - name: Add Rust target
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup target add --toolchain "${{ env.RBR_TOOLCHAIN }}" "${{ matrix.target }}"
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        working-directory: rust-toy-app
-        env:
-          RBR_TARGET: ${{ matrix.target }}
-          RBR_TOOLCHAIN: ${{ env.RBR_TOOLCHAIN }}
-        run: |
-          set -euo pipefail
-          uv run --script ../.github/actions/rust-build-release/src/main.py
       - name: Verify artifacts
         run: |
           set -euo pipefail

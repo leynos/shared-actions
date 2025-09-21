@@ -48,6 +48,7 @@ runs:
       # v6.4.3
       uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
       with:
+        python-version: ${{ inputs.python-version }}
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock

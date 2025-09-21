@@ -15,7 +15,6 @@ def run_script(
     script: Path, *, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
     """Execute ``determine_release`` with a controlled environment."""
-
     cmd = ["uv", "run", "--script", str(script)]
     return subprocess.run(  # noqa: S603
         cmd,

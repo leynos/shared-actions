@@ -16,7 +16,6 @@ def run_confirm(
     tmp_path: Path, expected: str, confirm: str
 ) -> subprocess.CompletedProcess[str]:
     """Run the ``confirm_release`` script with explicit confirmation inputs."""
-
     env = base_env(tmp_path)
     env["EXPECTED"] = expected
     env["INPUT_CONFIRM"] = confirm

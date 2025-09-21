@@ -17,12 +17,10 @@ class DummyResponse:
 
     def __init__(self, payload: dict[str, typ.Any]):
         """Store the JSON payload returned by the fake response."""
-
         self._payload = json.dumps(payload).encode("utf-8")
 
     def __enter__(self) -> DummyResponse:
         """Return the response instance for context manager usage."""
-
         return self
 
     def __exit__(
@@ -32,19 +30,16 @@ class DummyResponse:
         traceback: object | None,
     ) -> None:
         """Propagate exceptions raised within the context manager."""
-
-        return None
+        return
 
     def read(self) -> bytes:
         """Return the cached payload bytes."""
-
         return self._payload
 
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
     """Load the ``check_github_release`` script module under test."""
-
     return load_script_module("check_github_release")
 
 
@@ -135,7 +130,6 @@ def test_permission_denied(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Exit with a helpful error when GitHub responds with 403 Forbidden."""
-
     detail = b"forbidden"
     error = module.urllib.error.HTTPError(
         url="https://api.github.com",
@@ -163,7 +157,6 @@ def test_retries_then_success(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Retry transient HTTP failures until GitHub releases the metadata."""
-
     attempts: list[int] = []
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401

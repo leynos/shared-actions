@@ -39,9 +39,7 @@ class CmdDouble(Protocol):
     ) -> CmdDouble:
         """Provide canned output for the command invocation."""
 
-    def runs(
-        self, handler: cabc.Callable[[object], tuple[str, str, int]]
-    ) -> CmdDouble:
+    def runs(self, handler: cabc.Callable[[object], tuple[str, str, int]]) -> CmdDouble:
         """Execute a handler when the double is invoked."""
 
 

@@ -20,8 +20,9 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
-    from .conftest import HarnessFactory
     from shared_actions_conftest import CmdMox
+
+    from .conftest import HarnessFactory
 
 
 @CMD_MOX_UNSUPPORTED

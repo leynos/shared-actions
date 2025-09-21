@@ -14,7 +14,6 @@ from ._helpers import REPO_ROOT, load_script_module
 @pytest.fixture(name="publish_module")
 def fixture_publish_module() -> ModuleType:
     """Load the ``publish_release`` script module with repository paths set."""
-
     module = load_script_module("publish_release")
     if str(REPO_ROOT) not in module.sys.path:  # type: ignore[attr-defined]
         module.sys.path.insert(0, str(REPO_ROOT))  # type: ignore[attr-defined]
@@ -25,7 +24,6 @@ def test_publish_default_index(
     monkeypatch: pytest.MonkeyPatch, publish_module: ModuleType
 ) -> None:
     """Invoke ``uv publish`` without an index when none is provided."""
-
     calls: list[list[str]] = []
 
     def fake_run_cmd(args: list[str], **_: object) -> None:
@@ -42,7 +40,6 @@ def test_publish_custom_index(
     monkeypatch: pytest.MonkeyPatch, publish_module: ModuleType
 ) -> None:
     """Add the ``--index`` flag when a custom index value is supplied."""
-
     calls: list[list[str]] = []
 
     def fake_run_cmd(args: list[str], **_: object) -> None:

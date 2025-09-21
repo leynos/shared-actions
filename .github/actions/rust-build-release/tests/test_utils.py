@@ -10,8 +10,9 @@ import pytest
 from shared_actions_conftest import CMD_MOX_UNSUPPORTED
 
 if typ.TYPE_CHECKING:
-    from shared_actions_conftest import CmdMox
     from types import ModuleType
+
+    from shared_actions_conftest import CmdMox
 
 
 def test_ensure_allowed_executable_accepts_valid_name(

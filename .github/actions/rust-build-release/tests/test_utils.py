@@ -43,7 +43,9 @@ def test_run_validated_invokes_subprocess_with_validated_path(
     cmd_mox: CmdMox,
 ) -> None:
     """run_validated executes subprocess.run with the validated executable."""
-    exe_path = cmd_mox.shim_dir / "docker.exe"
+    shim_dir = cmd_mox.environment.shim_dir
+    assert shim_dir is not None
+    exe_path = shim_dir / "docker.exe"
     spy = cmd_mox.spy("docker.exe").with_args("info").returns(stdout="ok")
 
     cmd_mox.replay()

@@ -16,24 +16,12 @@ class DummyResponse:
     """In-memory substitute for an ``urllib`` HTTP response."""
 
     def __init__(self, payload: dict[str, typ.Any]):
-        """Serialise and store the payload for later retrieval.
-
-        Parameters
-        ----------
-        payload : dict[str, Any]
-            JSON payload that should be returned by the fake response.
-        """
+        """Store the JSON payload returned by the fake response."""
 
         self._payload = json.dumps(payload).encode("utf-8")
 
     def __enter__(self) -> DummyResponse:
-        """Return the context manager target for ``with`` statements.
-
-        Returns
-        -------
-        DummyResponse
-            The current response object.
-        """
+        """Return the response instance for context manager usage."""
 
         return self
 
@@ -43,41 +31,19 @@ class DummyResponse:
         exc: BaseException | None,
         traceback: object | None,
     ) -> None:
-        """Allow exceptions to propagate without suppression.
-
-        Parameters
-        ----------
-        exc_type : type[BaseException] or None
-            Exception type raised inside the ``with`` block, if any.
-        exc : BaseException or None
-            Exception instance associated with ``exc_type``.
-        traceback : object or None
-            Captured traceback for the raised exception.
-        """
+        """Propagate exceptions raised within the context manager."""
 
         return None
 
     def read(self) -> bytes:
-        """Return the recorded payload bytes.
-
-        Returns
-        -------
-        bytes
-            JSON payload encoded as UTF-8 bytes.
-        """
+        """Return the cached payload bytes."""
 
         return self._payload
 
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
-    """Load the ``check_github_release`` script module for testing.
-
-    Returns
-    -------
-    ModuleType
-        Imported script module under test.
-    """
+    """Load the ``check_github_release`` script module under test."""
 
     return load_script_module("check_github_release")
 
@@ -87,17 +53,7 @@ def test_success(
     capsys: pytest.CaptureFixture[str],
     module: ModuleType,
 ) -> None:
-    """Report success when a published GitHub release is available.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to replace network calls.
-    capsys : pytest.CaptureFixture[str]
-        Captures stdout and stderr from the script execution.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    """
+    """Print a success message when GitHub marks the release as published."""
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": False, "prerelease": False, "name": "1.2.3"})
@@ -115,17 +71,7 @@ def test_draft_release(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Exit with an error when the GitHub release is still a draft.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to stub the network call returning release metadata.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr output produced by the script.
-    """
+    """Exit with an error when GitHub reports the release as a draft."""
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": True, "prerelease": False, "name": "draft"})
@@ -144,17 +90,7 @@ def test_prerelease(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Exit with an error when the release is marked as prerelease.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to stub the network call returning release metadata.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr output produced by the script.
-    """
+    """Exit with an error when GitHub flags the release as a prerelease."""
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": False, "prerelease": True, "name": "pre"})
@@ -173,17 +109,7 @@ def test_missing_release(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Surface an error when no matching GitHub release is found.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to replace the ``urlopen`` call and raise ``HTTPError``.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr output produced by the script.
-    """
+    """Raise an error when the GitHub API cannot find the release."""
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
         raise module.urllib.error.HTTPError(
@@ -208,17 +134,7 @@ def test_permission_denied(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Fail when the GitHub API rejects the request with 403 Forbidden.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to stub ``urlopen`` so it raises an ``HTTPError``.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr output produced by the script.
-    """
+    """Exit with a helpful error when GitHub responds with 403 Forbidden."""
 
     detail = b"forbidden"
     error = module.urllib.error.HTTPError(
@@ -246,17 +162,7 @@ def test_retries_then_success(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Retry transient failures until the release metadata is retrieved.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to stub ``urlopen`` and ``time.sleep`` during retries.
-    module : ModuleType
-        Loaded ``check_github_release`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stdout emitted by the script.
-    """
+    """Retry transient HTTP failures until GitHub releases the metadata."""
 
     attempts: list[int] = []
 

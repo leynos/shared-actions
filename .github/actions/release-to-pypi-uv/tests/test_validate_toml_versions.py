@@ -15,62 +15,27 @@ from ._helpers import load_script_module
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
-    """Load the ``validate_toml_versions`` script module for testing.
-
-    Returns
-    -------
-    ModuleType
-        Imported script module under test.
-    """
+    """Load the ``validate_toml_versions`` script module under test."""
 
     return load_script_module("validate_toml_versions")
 
 
 @pytest.fixture()
 def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Use a temporary directory as the working tree for each test.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    monkeypatch : pytest.MonkeyPatch
-        Fixture used to update the working directory during the test.
-
-    Returns
-    -------
-    Path
-        Path to the temporary working tree for the current test.
-    """
+    """Use a temporary directory as the working tree for each test."""
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
 
 def _write_pyproject(base: Path, content: str) -> None:
-    """Create a ``pyproject.toml`` file populated with the provided content.
-
-    Parameters
-    ----------
-    base : Path
-        Directory that should receive the generated ``pyproject.toml`` file.
-    content : str
-        TOML content to write to the project configuration file.
-    """
+    """Create a ``pyproject.toml`` file populated with the provided content."""
 
     base.mkdir()
     (base / "pyproject.toml").write_text(content.strip())
 
 
 def _invoke_main(module: ModuleType, **kwargs: str) -> None:
-    """Invoke ``module.main`` with defaults tailored for the tests.
-
-    Parameters
-    ----------
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    **kwargs : str
-        Additional keyword arguments forwarded to ``module.main``.
-    """
+    """Invoke ``module.main`` with defaults tailored for the tests."""
 
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
@@ -80,17 +45,7 @@ def _invoke_main(module: ModuleType, **kwargs: str) -> None:
 def test_passes_when_versions_match(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Succeed when all discovered packages match the expected version.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project root under validation.
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stdout emitted during validation.
-    """
+    """Succeed when all discovered packages match the expected version."""
 
     _write_pyproject(
         project_root / "pkg",
@@ -110,17 +65,7 @@ version = "1.0.0"
 def test_fails_on_mismatch(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Fail when a package declares a version that differs from the tag.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project root under validation.
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr emitted during validation.
-    """
+    """Fail when a package declares a version that differs from the tag."""
 
     _write_pyproject(
         project_root / "pkg",
@@ -141,17 +86,7 @@ version = "1.0.1"
 def test_dynamic_version_failure(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Fail when dynamic versions are disallowed but present in metadata.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project root under validation.
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr emitted during validation.
-    """
+    """Fail when dynamic versions are disallowed but present in metadata."""
 
     _write_pyproject(
         project_root / "pkg",
@@ -176,19 +111,7 @@ def test_dynamic_version_failure_for_truthy_variants(
     capsys: pytest.CaptureFixture[str],
     truthy: str,
 ) -> None:
-    """Fail whenever dynamic versions are disallowed with truthy inputs.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    truthy : str
-        Variant of the ``fail_on_dynamic`` flag expected to trigger a failure.
-    """
+    """Fail whenever dynamic versions are disallowed with truthy inputs."""
     _write_pyproject(
         project_root / "pkg",
         """
@@ -208,17 +131,7 @@ dynamic = ["version"]
 def test_fails_on_parse_error(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Fail gracefully when the TOML configuration cannot be parsed.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project root under validation.
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    capsys : pytest.CaptureFixture[str]
-        Captures stderr emitted during validation.
-    """
+    """Fail gracefully when the TOML configuration cannot be parsed."""
 
     target = project_root / "pkg"
     target.mkdir()
@@ -236,17 +149,7 @@ def test_dynamic_version_allowed_when_flag_false(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Allow dynamic versions when the flag explicitly disables failures.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+    """Allow dynamic versions when the flag explicitly disables failures."""
     _write_pyproject(
         project_root / "pkg",
         """
@@ -269,19 +172,7 @@ def test_dynamic_version_allowed_for_falsey_variants(
     capsys: pytest.CaptureFixture[str],
     falsey: str,
 ) -> None:
-    """Allow dynamic versions for all supported falsey flag values.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    falsey : str
-        Representation of ``fail_on_dynamic`` that should be treated as false.
-    """
+    """Allow dynamic versions for all supported falsey flag values."""
     _write_pyproject(
         project_root / "pkg",
         """
@@ -302,17 +193,7 @@ def test_dynamic_version_allowed_when_flag_unset(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Allow dynamic versions when the flag is omitted entirely.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+    """Allow dynamic versions when the flag is omitted entirely."""
     _write_pyproject(
         project_root / "pkg",
         """
@@ -333,17 +214,7 @@ def test_missing_project_section_is_ignored(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Ignore files lacking a ``[project]`` table when validating versions.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+    """Ignore files lacking a ``[project]`` table when validating versions."""
     _write_pyproject(
         project_root / "pkg",
         """
@@ -364,17 +235,7 @@ def test_multiple_toml_files_mixed_validity(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Fail when any discovered TOML file contains a mismatched version.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+    """Fail when any discovered TOML file contains a mismatched version."""
     _write_pyproject(
         project_root / "pkg_valid",
         """
@@ -401,29 +262,13 @@ version = "2.0.0"
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])
 def test_parse_bool_truthy_values(module: ModuleType, value: str) -> None:
-    """Treat recognised truthy values as ``True`` for configuration flags.
-
-    Parameters
-    ----------
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    value : str
-        String representation expected to evaluate to ``True``.
-    """
+    """Treat recognised truthy values as ``True`` for configuration flags."""
 
     assert module._parse_bool(value) is True
 
 
 @pytest.mark.parametrize("value", [None, "", "false", "no", "0", "off", "n"])
 def test_parse_bool_falsey_values(module: ModuleType, value: str | None) -> None:
-    """Treat recognised falsey values as ``False`` for configuration flags.
-
-    Parameters
-    ----------
-    module : ModuleType
-        Loaded ``validate_toml_versions`` script module.
-    value : str or None
-        Representation expected to evaluate to ``False``.
-    """
+    """Treat recognised falsey values as ``False`` for configuration flags."""
 
     assert module._parse_bool(value) is False

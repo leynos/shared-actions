@@ -14,20 +14,7 @@ pytestmark = REQUIRES_UV
 def run_script(
     script: Path, *, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    """Execute the ``determine_release`` script with a supplied environment.
-
-    Parameters
-    ----------
-    script : Path
-        Path to the script file to execute.
-    env : dict[str, str]
-        Environment variables to provide to the spawned process.
-
-    Returns
-    -------
-    subprocess.CompletedProcess of str
-        Result containing stdout, stderr, and the exit status.
-    """
+    """Execute ``determine_release`` with a controlled environment."""
 
     cmd = ["uv", "run", "--script", str(script)]
     return subprocess.run(  # noqa: S603
@@ -42,18 +29,7 @@ def run_script(
 
 
 def base_env(tmp_path: Path) -> dict[str, str]:
-    """Construct the base environment used by the release script tests.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary working directory provided by pytest.
-
-    Returns
-    -------
-    dict[str, str]
-        Environment mapping that mimics the workflow runtime configuration.
-    """
+    """Construct the base environment shared by the release script tests."""
     merged = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
     prev = os.environ.get("PYTHONPATH", "")
@@ -65,18 +41,7 @@ def base_env(tmp_path: Path) -> dict[str, str]:
 
 
 def read_outputs(tmp_path: Path) -> dict[str, str]:
-    """Read ``GITHUB_OUTPUT`` key/value pairs written by the script.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary working directory containing the output file.
-
-    Returns
-    -------
-    dict[str, str]
-        Parsed mapping of output names to their recorded values.
-    """
+    """Return ``GITHUB_OUTPUT`` key/value pairs emitted by the script."""
     out = {}
     output_file = tmp_path / "out.txt"
     if not output_file.exists():
@@ -89,13 +54,7 @@ def read_outputs(tmp_path: Path) -> dict[str, str]:
 
 
 def test_resolves_tag_from_ref(tmp_path: Path) -> None:
-    """Resolve the release tag from the Git reference metadata.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Derive the release tag from Git reference metadata."""
     env = base_env(tmp_path)
     env["GITHUB_REF_TYPE"] = "tag"
     env["GITHUB_REF_NAME"] = "v1.2.3"
@@ -110,13 +69,7 @@ def test_resolves_tag_from_ref(tmp_path: Path) -> None:
 
 
 def test_resolves_tag_from_input(tmp_path: Path) -> None:
-    """Resolve the release tag from the workflow input when provided.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Derive the release tag from the workflow input when present."""
     env = base_env(tmp_path)
     env["INPUT_TAG"] = "v2.0.0"
 
@@ -130,13 +83,7 @@ def test_resolves_tag_from_input(tmp_path: Path) -> None:
 
 
 def test_rejects_invalid_tag(tmp_path: Path) -> None:
-    """Reject release tags that do not follow the expected SemVer format.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Reject release tags that do not follow the expected SemVer format."""
     env = base_env(tmp_path)
     env["GITHUB_REF_TYPE"] = "tag"
     env["GITHUB_REF_NAME"] = "release-1.0.0"
@@ -149,13 +96,7 @@ def test_rejects_invalid_tag(tmp_path: Path) -> None:
 
 
 def test_errors_when_no_tag_and_not_on_tag_ref(tmp_path: Path) -> None:
-    """Exit with an error when no release tag can be resolved.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Fail when neither Git metadata nor inputs provide a tag."""
     env = base_env(tmp_path)
     env.pop("GITHUB_REF_TYPE", None)
     env.pop("GITHUB_REF_NAME", None)
@@ -169,13 +110,7 @@ def test_errors_when_no_tag_and_not_on_tag_ref(tmp_path: Path) -> None:
 
 
 def test_errors_when_ref_type_missing(tmp_path: Path) -> None:
-    """Exit with an error when ``GITHUB_REF_TYPE`` is missing.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Fail when ``GITHUB_REF_TYPE`` is absent."""
     env = base_env(tmp_path)
     env.pop("GITHUB_REF_TYPE", None)
     env["GITHUB_REF_NAME"] = "v1.2.3"
@@ -188,13 +123,7 @@ def test_errors_when_ref_type_missing(tmp_path: Path) -> None:
 
 
 def test_errors_when_ref_name_missing(tmp_path: Path) -> None:
-    """Exit with an error when ``GITHUB_REF_NAME`` is missing.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Fail when ``GITHUB_REF_NAME`` is not provided."""
     env = base_env(tmp_path)
     env["GITHUB_REF_TYPE"] = "tag"
     env.pop("GITHUB_REF_NAME", None)
@@ -207,13 +136,7 @@ def test_errors_when_ref_name_missing(tmp_path: Path) -> None:
 
 
 def test_errors_when_ref_name_empty(tmp_path: Path) -> None:
-    """Exit with an error when ``GITHUB_REF_NAME`` is empty.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Fail when ``GITHUB_REF_NAME`` is empty."""
     env = base_env(tmp_path)
     env["GITHUB_REF_TYPE"] = "tag"
     env["GITHUB_REF_NAME"] = ""
@@ -226,13 +149,7 @@ def test_errors_when_ref_name_empty(tmp_path: Path) -> None:
 
 
 def test_errors_on_malformed_version_tag(tmp_path: Path) -> None:
-    """Exit with an error when the tag omits components of the version.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Fail when the release tag omits version components."""
     env = base_env(tmp_path)
     env["GITHUB_REF_TYPE"] = "tag"
     env["GITHUB_REF_NAME"] = "v1.2"

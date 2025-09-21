@@ -10,8 +10,8 @@ import pytest
 from shared_actions_conftest import CMD_MOX_UNSUPPORTED
 
 if typ.TYPE_CHECKING:
+    from shared_actions_conftest import CmdMox
     from types import ModuleType
-    from shared_actions_conftest import CmdMoxFixture
 
 
 def test_ensure_allowed_executable_accepts_valid_name(
@@ -39,10 +39,10 @@ def test_ensure_allowed_executable_rejects_unknown(
 @CMD_MOX_UNSUPPORTED
 def test_run_validated_invokes_subprocess_with_validated_path(
     utils_module: ModuleType,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """run_validated executes subprocess.run with the validated executable."""
-    exe_path = cmd_mox.environment.shim_dir / "docker.exe"
+    exe_path = cmd_mox.shim_dir / "docker.exe"
     spy = cmd_mox.spy("docker.exe").with_args("info").returns(stdout="ok")
 
     cmd_mox.replay()

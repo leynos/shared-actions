@@ -21,14 +21,14 @@ if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory
-    from shared_actions_conftest import CmdMoxFixture
+    from shared_actions_conftest import CmdMox
 
 
 @CMD_MOX_UNSUPPORTED
 def test_installs_cross_when_missing(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Installs cross when it is missing."""
     harness = module_harness(cross_module)
@@ -83,7 +83,7 @@ def test_cross_install_failure_non_windows(
 def test_upgrades_outdated_cross(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Upgrades cross when an older version is installed."""
     harness = module_harness(cross_module)
@@ -115,7 +115,7 @@ def test_upgrades_outdated_cross(
 def test_uses_cached_cross(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Uses cached cross when version is sufficient."""
     harness = module_harness(cross_module)
@@ -139,7 +139,7 @@ def test_uses_cached_cross(
 def test_installs_prebuilt_cross_on_windows(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Uses the prebuilt cross binary on Windows hosts."""
     harness = module_harness(cross_module)
@@ -354,7 +354,7 @@ def test_installs_cross_without_container_runtime(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Installs cross even when no container runtime is available."""
     cross_env = module_harness(cross_module)
@@ -395,7 +395,7 @@ def test_installs_cross_without_container_runtime(
 def test_falls_back_to_git_when_crates_io_unavailable(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Falls back to git install when crates.io is unavailable."""
     harness = module_harness(cross_module)
@@ -432,7 +432,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMoxFixture,
+    cmd_mox: CmdMox,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
     cross_env = module_harness(cross_module)

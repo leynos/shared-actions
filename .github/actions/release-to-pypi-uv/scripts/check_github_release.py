@@ -99,6 +99,22 @@ def main(
     token: str = TOKEN_OPTION,
     repo: str = REPO_OPTION,
 ) -> None:
+    """Check that the GitHub release for ``tag`` is published.
+
+    Parameters
+    ----------
+    tag : str
+        Release tag to validate.
+    token : str
+        Token used to authenticate the GitHub API request.
+    repo : str
+        Repository slug in ``owner/name`` form where the release should exist.
+
+    Raises
+    ------
+    typer.Exit
+        Raised when the release is missing or not ready for publication.
+    """
     try:
         data = _fetch_release(repo, tag, token)
         name = _validate_release(tag, data)

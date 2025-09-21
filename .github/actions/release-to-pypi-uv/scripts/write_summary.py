@@ -23,6 +23,19 @@ def main(
     environment_name: str = ENV_OPTION,
     summary_path: Path = SUMMARY_OPTION,
 ) -> None:
+    """Append release details to the GitHub step summary file.
+
+    Parameters
+    ----------
+    tag : str
+        Resolved release tag to report.
+    index : str
+        Optional package index identifier provided to the publish step.
+    environment_name : str
+        Name of the deployment environment associated with the release.
+    summary_path : Path
+        File path to ``GITHUB_STEP_SUMMARY`` that should receive the content.
+    """
     index_label = index or "pypi (default)"
     heading = "## Release summary\n"
     lines = [

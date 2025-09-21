@@ -15,6 +15,23 @@ pytestmark = REQUIRES_UV
 def run_confirm(
     tmp_path: Path, expected: str, confirm: str
 ) -> subprocess.CompletedProcess[str]:
+    """Execute the ``confirm_release`` script with explicit inputs.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Temporary directory that holds the generated workspace files.
+    expected : str
+        Confirmation phrase the script requires for success.
+    confirm : str
+        Value that simulates the operator-provided confirmation text.
+
+    Returns
+    -------
+    subprocess.CompletedProcess of str
+        Completed process containing stdout, stderr, and the exit status.
+    """
+
     env = base_env(tmp_path)
     env["EXPECTED"] = expected
     env["INPUT_CONFIRM"] = confirm

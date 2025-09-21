@@ -14,6 +14,21 @@ pytestmark = REQUIRES_UV
 def run_script(
     script: Path, *, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
+    """Execute the ``determine_release`` script with a supplied environment.
+
+    Parameters
+    ----------
+    script : Path
+        Path to the script file to execute.
+    env : dict[str, str]
+        Environment variables to provide to the spawned process.
+
+    Returns
+    -------
+    subprocess.CompletedProcess of str
+        Result containing stdout, stderr, and the exit status.
+    """
+
     cmd = ["uv", "run", "--script", str(script)]
     return subprocess.run(  # noqa: S603
         cmd,

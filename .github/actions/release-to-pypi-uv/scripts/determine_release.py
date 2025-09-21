@@ -26,6 +26,21 @@ def _emit_outputs(dest: Path, tag: str, version: str) -> None:
 def main(
     tag: str | None = TAG_OPTION, github_output: Path = GITHUB_OUTPUT_OPTION
 ) -> None:
+    """Resolve the release tag for the workflow execution.
+
+    Parameters
+    ----------
+    tag : str or None
+        Optional release tag supplied via the action input or CLI argument.
+    github_output : Path
+        Destination file used to communicate outputs to GitHub Actions.
+
+    Raises
+    ------
+    typer.Exit
+        If a tag cannot be resolved or does not follow the ``vMAJOR.MINOR.PATCH``
+        semantic versioning format.
+    """
     ref_type = os.getenv("GITHUB_REF_TYPE", "")
     ref_name = os.getenv("GITHUB_REF_NAME", "")
 

@@ -15,6 +15,14 @@ from ._helpers import load_script_module
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
+    """Load the ``validate_toml_versions`` script module for testing.
+
+    Returns
+    -------
+    ModuleType
+        Imported script module under test.
+    """
+
     return load_script_module("validate_toml_versions")
 
 
@@ -39,11 +47,31 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _write_pyproject(base: Path, content: str) -> None:
+    """Create a ``pyproject.toml`` file populated with the provided content.
+
+    Parameters
+    ----------
+    base : Path
+        Directory that should receive the generated ``pyproject.toml`` file.
+    content : str
+        TOML content to write to the project configuration file.
+    """
+
     base.mkdir()
     (base / "pyproject.toml").write_text(content.strip())
 
 
 def _invoke_main(module: ModuleType, **kwargs: str) -> None:
+    """Invoke ``module.main`` with defaults tailored for the tests.
+
+    Parameters
+    ----------
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    **kwargs : str
+        Additional keyword arguments forwarded to ``module.main``.
+    """
+
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
     module.main(**kwargs)
@@ -52,6 +80,18 @@ def _invoke_main(module: ModuleType, **kwargs: str) -> None:
 def test_passes_when_versions_match(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Succeed when all discovered packages match the expected version.
+
+    Parameters
+    ----------
+    project_root : Path
+        Temporary project root under validation.
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    capsys : pytest.CaptureFixture[str]
+        Captures stdout emitted during validation.
+    """
+
     _write_pyproject(
         project_root / "pkg",
         """
@@ -70,6 +110,18 @@ version = "1.0.0"
 def test_fails_on_mismatch(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Fail when a package declares a version that differs from the tag.
+
+    Parameters
+    ----------
+    project_root : Path
+        Temporary project root under validation.
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    capsys : pytest.CaptureFixture[str]
+        Captures stderr emitted during validation.
+    """
+
     _write_pyproject(
         project_root / "pkg",
         """
@@ -89,6 +141,18 @@ version = "1.0.1"
 def test_dynamic_version_failure(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Fail when dynamic versions are disallowed but present in metadata.
+
+    Parameters
+    ----------
+    project_root : Path
+        Temporary project root under validation.
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    capsys : pytest.CaptureFixture[str]
+        Captures stderr emitted during validation.
+    """
+
     _write_pyproject(
         project_root / "pkg",
         """
@@ -144,6 +208,18 @@ dynamic = ["version"]
 def test_fails_on_parse_error(
     project_root: Path, module: ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Fail gracefully when the TOML configuration cannot be parsed.
+
+    Parameters
+    ----------
+    project_root : Path
+        Temporary project root under validation.
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    capsys : pytest.CaptureFixture[str]
+        Captures stderr emitted during validation.
+    """
+
     target = project_root / "pkg"
     target.mkdir()
     (target / "pyproject.toml").write_text("this is not TOML")
@@ -325,9 +401,29 @@ version = "2.0.0"
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])
 def test_parse_bool_truthy_values(module: ModuleType, value: str) -> None:
+    """Treat recognised truthy values as ``True`` for configuration flags.
+
+    Parameters
+    ----------
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    value : str
+        String representation expected to evaluate to ``True``.
+    """
+
     assert module._parse_bool(value) is True
 
 
 @pytest.mark.parametrize("value", [None, "", "false", "no", "0", "off", "n"])
 def test_parse_bool_falsey_values(module: ModuleType, value: str | None) -> None:
+    """Treat recognised falsey values as ``False`` for configuration flags.
+
+    Parameters
+    ----------
+    module : ModuleType
+        Loaded ``validate_toml_versions`` script module.
+    value : str or None
+        Representation expected to evaluate to ``False``.
+    """
+
     assert module._parse_bool(value) is False

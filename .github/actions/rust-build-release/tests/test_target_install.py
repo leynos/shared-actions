@@ -18,11 +18,13 @@ if typ.TYPE_CHECKING:
     from types import ModuleType
 
     from .conftest import HarnessFactory
+
 @CMD_MOX_UNSUPPORTED
 def test_skips_target_install_when_cross_available(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Continues when target addition fails but cross is available."""
     cross_env = module_harness(cross_module)
@@ -65,6 +67,7 @@ def test_errors_when_target_unsupported_without_cross(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    cmd_mox,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Emits an error when the toolchain lacks the requested target."""
@@ -103,6 +106,7 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    cmd_mox,
 ) -> None:
     """Falls back to cargo when cross exits with a container error."""
     cross_env = module_harness(cross_module)

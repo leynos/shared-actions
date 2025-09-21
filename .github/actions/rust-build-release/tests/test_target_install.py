@@ -192,7 +192,6 @@ def test_windows_host_skips_container_probe_for_windows_targets(
     target: str,
 ) -> None:
     """Does not probe container runtimes for Windows targets on Windows hosts."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -244,7 +243,6 @@ def test_windows_host_probes_container_for_non_windows_targets(
     module_harness: HarnessFactory,
 ) -> None:
     """Still probes container runtimes for non-Windows targets."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -292,25 +290,26 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
 
 @pytest.mark.parametrize(
-    ("host_platform", "target", "expected"),
+    ("host_platform", "target", "probe_expected"),
     [
-        ("win32", "x86_64-pc-windows-msvc", False),
-        ("win32", "aarch64-pc-windows-gnu", False),
-        ("win32", "x86_64-uwp-windows-msvc", False),
-        ("win32", "x86_64-pc-windows-gnullvm", False),
-        ("win32", "x86_64-unknown-linux-gnu", True),
-        ("linux", "x86_64-pc-windows-msvc", True),
+        ("win32", "x86_64-pc-windows-msvc", "no"),
+        ("win32", "aarch64-pc-windows-gnu", "no"),
+        ("win32", "x86_64-uwp-windows-msvc", "no"),
+        ("win32", "x86_64-pc-windows-gnullvm", "no"),
+        ("win32", "x86_64-unknown-linux-gnu", "yes"),
+        ("linux", "x86_64-pc-windows-msvc", "yes"),
     ],
 )
 def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
-    expected: bool,
+    probe_expected: str,
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-
-    assert main_module.should_probe_container(host_platform, target) is expected
+    assert main_module.should_probe_container(host_platform, target) is (
+        probe_expected == "yes"
+    )
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

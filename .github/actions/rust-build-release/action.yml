@@ -118,7 +118,6 @@ runs:
       with:
         project-dir: ${{ inputs.project-dir }}
         bin-name: ${{ inputs.bin-name }}
-        package-name: ${{ inputs.bin-name }}
         target: ${{ inputs.target }}
         version: ${{ inputs.version }}
         formats: ${{ inputs.formats }}

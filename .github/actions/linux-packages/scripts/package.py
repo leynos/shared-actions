@@ -25,6 +25,7 @@ Assumes the binary already exists at:
 from __future__ import annotations
 
 import gzip
+import os
 import re
 import sys
 import types
@@ -265,6 +266,33 @@ def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str
     return entries
 
 
+def _coerce_optional_path(value: Path | None, env_var: str) -> Path | None:
+    """Return ``None`` when the env var supplies an empty path."""
+    raw = os.environ.get(env_var)
+    if raw is not None and not raw.strip():
+        return None
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return Path(text)
+
+
+def _coerce_path_list(values: list[Path] | None, env_var: str) -> list[Path]:
+    """Return cleaned path list honouring blank env defaults."""
+    raw = os.environ.get(env_var)
+    if raw is not None and not raw.strip():
+        return []
+    cleaned: list[Path] = []
+    for value in values or []:
+        text = str(value).strip()
+        if not text:
+            continue
+        cleaned.append(Path(text))
+    return cleaned
+
+
 @app.default
 def main(
     *,
@@ -297,7 +325,7 @@ def main(
     bin_value = bin_name.strip()
     if not bin_value:
         raise PackagingError.missing_bin()
-    package_value = (package_name or bin_value).strip()
+    package_value = (package_name or bin_value).strip() or bin_value
     version_value = version.strip().lstrip("v")
     if not version_value:
         raise PackagingError.missing_version()
@@ -306,11 +334,23 @@ def main(
     release_value = (release or "1").strip() or "1"
     arch_value = (arch or map_target_to_arch(target_value)).strip()
 
-    binary_root = binary_dir or Path("target")
-    outdir_path = outdir or Path("dist")
-    config_out_path = config_out or Path("dist/nfpm.yaml")
+    binary_root = _coerce_optional_path(
+        binary_dir,
+        "INPUT_BINARY_DIR",
+    ) or Path("target")
+    outdir_path = _coerce_optional_path(
+        outdir,
+        "INPUT_OUTDIR",
+    ) or Path("dist")
+    config_out_path = _coerce_optional_path(
+        config_out,
+        "INPUT_CONFIG_PATH",
+    ) or Path("dist/nfpm.yaml")
     man_section_value = (man_section or "1").strip() or "1"
-    man_stage_path = man_stage or Path("dist/.man")
+    man_stage_path = _coerce_optional_path(
+        man_stage,
+        "INPUT_MAN_STAGE",
+    ) or Path("dist/.man")
 
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
@@ -334,9 +374,8 @@ def main(
             }
         )
 
-    man_entries = build_man_entries(
-        list(man_paths or []), man_section_value, man_stage_path
-    )
+    man_sources = _coerce_path_list(man_paths, "INPUT_MAN_PATHS")
+    man_entries = build_man_entries(man_sources, man_section_value, man_stage_path)
     contents.extend(man_entries)
 
     deb_requires = _normalise_list(deb_depends, default=[])

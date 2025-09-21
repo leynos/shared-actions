@@ -77,6 +77,23 @@ def main(
     pattern: str = PATTERN_OPTION,
     fail_on_dynamic: str = FAIL_ON_DYNAMIC_OPTION,
 ) -> None:
+    """Confirm that project versions in TOML files match the release version.
+
+    Parameters
+    ----------
+    version : str
+        Semantic version resolved for the release tag.
+    pattern : str
+        Glob pattern used to discover ``pyproject.toml`` files to inspect.
+    fail_on_dynamic : str
+        String flag that controls whether dynamic versions should raise an
+        error.
+
+    Raises
+    ------
+    typer.Exit
+        Raised when TOML files cannot be read or contain mismatched versions.
+    """
     files = list(_iter_files(pattern))
     if not files:
         typer.echo(f"::warning::No TOML files matched pattern {pattern}")

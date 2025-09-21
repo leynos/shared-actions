@@ -15,6 +15,7 @@ pytestmark = REQUIRES_UV
 def run_confirm(
     tmp_path: Path, expected: str, confirm: str
 ) -> subprocess.CompletedProcess[str]:
+    """Run the ``confirm_release`` script with explicit confirmation inputs."""
     env = base_env(tmp_path)
     env["EXPECTED"] = expected
     env["INPUT_CONFIRM"] = confirm
@@ -32,13 +33,7 @@ def run_confirm(
 
 
 def test_confirmation_success(tmp_path: Path) -> None:
-    """Accept when the confirmation matches the expected phrase.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Accept matching confirmation phrases."""
     result = run_confirm(tmp_path, expected="release v1.2.3", confirm="release v1.2.3")
 
     assert result.returncode == 0, result.stderr
@@ -46,13 +41,7 @@ def test_confirmation_success(tmp_path: Path) -> None:
 
 
 def test_confirmation_failure(tmp_path: Path) -> None:
-    """Reject confirmation attempts with mismatched input.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory provided by pytest.
-    """
+    """Reject confirmation attempts with mismatched input."""
     result = run_confirm(tmp_path, expected="release v1.2.3", confirm="nope")
 
     assert result.returncode == 1

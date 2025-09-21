@@ -6,6 +6,11 @@ import os
 import subprocess
 from pathlib import Path
 
+from shared_actions_conftest import REQUIRES_UV
+
+
+pytestmark = REQUIRES_UV
+
 
 def run_script(script: Path, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     cmd = ["uv", "run", "--script", str(script)]

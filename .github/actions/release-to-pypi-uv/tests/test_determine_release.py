@@ -8,7 +8,6 @@ from pathlib import Path
 
 from shared_actions_conftest import REQUIRES_UV
 
-
 pytestmark = REQUIRES_UV
 
 

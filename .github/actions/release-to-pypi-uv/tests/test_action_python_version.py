@@ -15,7 +15,6 @@ def _load_action() -> dict[str, typ.Any]:
 
 def test_action_exposes_python_version_input() -> None:
     """Unit test: ensure metadata defines python-version with the expected default."""
-
     data = _load_action()
     python_version = data["inputs"]["python-version"]
     assert python_version["default"] == "3.13"
@@ -24,7 +23,6 @@ def test_action_exposes_python_version_input() -> None:
 
 def test_setup_step_forwards_python_version_input() -> None:
     """Behavioral test: ensure setup-uv installs the requested interpreter."""
-
     data = _load_action()
     steps = data["runs"]["steps"]
     setup_step = next(step for step in steps if step["name"] == "Setup uv")
@@ -33,7 +31,6 @@ def test_setup_step_forwards_python_version_input() -> None:
 
 def test_install_step_uses_python_version_input() -> None:
     """Behavioral test: ensure uv python install receives the requested version."""
-
     data = _load_action()
     steps = data["runs"]["steps"]
     install_step = next(step for step in steps if step["name"] == "Install Python")

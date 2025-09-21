@@ -5,7 +5,6 @@ import subprocess
 import typing as typ
 
 import pytest
-
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,

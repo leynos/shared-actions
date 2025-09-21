@@ -9,7 +9,6 @@ from shared_actions_conftest import REQUIRES_UV
 
 from .test_determine_release import base_env
 
-
 pytestmark = REQUIRES_UV
 
 

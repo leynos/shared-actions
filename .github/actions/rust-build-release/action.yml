@@ -63,29 +63,29 @@ runs:
         uv run --script "$GITHUB_ACTION_PATH/src/main.py"
     - id: stage-linux-artifacts
       name: Stage artifacts
-      if: contains(inputs.target, 'unknown-linux-gnu')
+      if: contains(inputs.target, 'unknown-linux-')
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
         case "${{ inputs.target }}" in
-          x86_64-unknown-linux-gnu)
+          x86_64-unknown-linux-*)
             os=linux
             arch=amd64
             ;;
-          aarch64-unknown-linux-gnu)
+          aarch64-unknown-linux-*)
             os=linux
             arch=arm64
             ;;
-          i686-unknown-linux-gnu)
+          i686-unknown-linux-*)
             os=linux
             arch=i386
             ;;
-          armv7-unknown-linux-gnueabihf|arm-unknown-linux-gnueabihf)
+          armv7-unknown-linux-gnueabihf|arm-unknown-linux-gnueabihf|armv7-unknown-linux-musleabihf|arm-unknown-linux-musleabihf)
             os=linux
             arch=armhf
             ;;
-          riscv64-unknown-linux-gnu)
+          riscv64*-unknown-linux-*)
             os=linux
             arch=riscv64
             ;;
@@ -125,7 +125,7 @@ runs:
         install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
         echo "man-path=dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
     - name: Package Linux artifacts
-      if: contains(inputs.target, 'unknown-linux-gnu')
+      if: contains(inputs.target, 'unknown-linux-')
       uses: ./.github/actions/linux-packages
       with:
         project-dir: ${{ inputs.project-dir }}

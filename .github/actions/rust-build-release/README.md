@@ -1,6 +1,6 @@
 # rust-build-release
 
-Build Rust application release artefacts using the repository's `setup-rust` action, `uv`, and `cross`. Linux packaging is delegated to the [`linux-packages`](../linux-packages) composite action.
+Build Rust application release artefacts using the repository's `setup-rust` action, `uv`, and `cross`. Linux packaging is delegated to the [`linux-packages`](../linux-packages) composite action and supports `unknown-linux-gnu` and `unknown-linux-musl` targets for x86_64, aarch64, i686, armv7/arm (`*-eabihf`), and riscv64 triples.
 
 The `uv` Python package manager is installed automatically to execute the build
 script.

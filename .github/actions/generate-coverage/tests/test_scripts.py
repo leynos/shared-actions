@@ -228,8 +228,8 @@ def test_run_cargo_windows_pump_exception(
 
     class BoomIO(io.StringIO):
         def readline(self) -> str:
-            msg = "boom in pump"
-            raise RuntimeError(msg)
+            message = "boom in pump"
+            raise RuntimeError(message)
 
     fake_cargo = _make_fake_cargo(BoomIO(), io.StringIO(""), track_lifecycle=True)
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -510,8 +510,8 @@ def test_lcov_permission_error(
     lcov.write_text("LF:1\nLH:1\n")
 
     def bad_read_text(*_: object, **__: object) -> str:
-        msg = "nope"
-        raise PermissionError(msg)
+        message = "nope"
+        raise PermissionError(message)
 
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
@@ -679,8 +679,8 @@ def test_cobertura_permission_error(
     xml.write_text("<coverage/>")
 
     def raise_permission_error(*_: object, **__: object) -> object:
-        msg = "denied"
-        raise PermissionError(msg)
+        message = "denied"
+        raise PermissionError(message)
 
     import coverage_parsers
 

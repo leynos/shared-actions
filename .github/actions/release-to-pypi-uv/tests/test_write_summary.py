@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import typing as typ
 from pathlib import Path
-from types import ModuleType
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 import pytest
 
@@ -58,7 +61,7 @@ def test_write_summary_raises_on_io_error(write_module: ModuleType) -> None:
     """Surface file-system errors when the summary path is invalid."""
     summary_path = Path("/nonexistent/path/summary.md")
 
-    with pytest.raises(OSError):
+    with pytest.raises(FileNotFoundError):
         write_module.main(
             tag="v1.0.0",
             index="",

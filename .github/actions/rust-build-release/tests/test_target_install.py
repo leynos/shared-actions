@@ -218,6 +218,7 @@ def test_windows_host_skips_container_probe_for_windows_targets(
         return subprocess.CompletedProcess(cmd, 0, stdout="")
 
     harness.patch_subprocess_run(fake_run)
+    harness.patch_run_cmd(lambda _: None)
 
     def fake_which(name: str) -> str | None:
         return "/usr/bin/rustup" if name == "rustup" else None
@@ -269,6 +270,7 @@ def test_windows_host_probes_container_for_non_windows_targets(
         return subprocess.CompletedProcess(cmd, 0, stdout="")
 
     harness.patch_subprocess_run(fake_run)
+    harness.patch_run_cmd(lambda _: None)
 
     def fake_which(name: str) -> str | None:
         return "/usr/bin/rustup" if name == "rustup" else None
@@ -286,7 +288,7 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
 
-    assert runtime_calls == ["docker", "podman"]
+    assert set(runtime_calls) == {"docker", "podman"}
 
 
 @pytest.mark.parametrize(

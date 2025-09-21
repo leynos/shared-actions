@@ -1,3 +1,5 @@
+"""Tests for the target installation helpers in the rust-build-release action."""
+
 from __future__ import annotations
 
 import os
@@ -16,6 +18,8 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
+    from shared_actions_conftest import CmdMox
+
     from .conftest import HarnessFactory
 
 
@@ -24,7 +28,7 @@ def test_skips_target_install_when_cross_available(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox,
+    cmd_mox: CmdMox,
 ) -> None:
     """Continues when target addition fails but cross is available."""
     cross_env = module_harness(cross_module)
@@ -67,7 +71,7 @@ def test_errors_when_target_unsupported_without_cross(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox,
+    cmd_mox: CmdMox,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Emits an error when the toolchain lacks the requested target."""
@@ -106,7 +110,7 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox,
+    cmd_mox: CmdMox,
 ) -> None:
     """Falls back to cargo when cross exits with a container error."""
     cross_env = module_harness(cross_module)
@@ -154,7 +158,6 @@ def test_windows_host_skips_container_probe_for_windows_targets(
     target: str,
 ) -> None:
     """Does not probe container runtimes for Windows targets on Windows hosts."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -206,7 +209,6 @@ def test_windows_host_probes_container_for_non_windows_targets(
     module_harness: HarnessFactory,
 ) -> None:
     """Still probes container runtimes for non-Windows targets."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -271,7 +273,6 @@ def test_should_probe_container_handles_windows_targets(
     expected: bool,
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-
     assert main_module.should_probe_container(host_platform, target) is expected
 
 

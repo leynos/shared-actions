@@ -31,8 +31,8 @@ This pipeline is composed of three core, best-in-class tools:
    GitHub Releases.
 
 Any necessary "glue" logic will be implemented in self-contained Python scripts
-that use `uv` and PEP 723 to manage their dependencies, removing the need
-for `actions/setup-python` in consuming workflows.
+that use `uv` and PEP 723 to manage their dependencies, removing the need for
+`actions/setup-python` in consuming workflows.
 
 The workflow proceeds in two distinct stages:
 
@@ -59,8 +59,8 @@ defines the full set of target platforms, including Linux, macOS, and FreeBSD.
 macOS targets run on `macos-latest` runners or an image with the Apple SDK
 because `cross` cannot build them on Linux. Each matrix entry also declares
 `os`, `arch`, and `runs-on` values, so the compiled binary and man page can be
-staged under `dist/<project>_<os>_<arch>/` before upload.
-This matches the paths expected by GoReleaser.
+staged under `dist/<project>_<os>_<arch>/` before upload. This matches the
+paths expected by GoReleaser.
 
 ```yaml
 # .github/workflows/release.yml (excerpt)
@@ -348,12 +348,12 @@ The E2E test job will:
    actions.
 2. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
 3. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
-   verify the installation by checking the binary's presence and
-   executability, and the man page's accessibility.
+   verify the installation by checking the binary's presence and executability,
+   and the man page's accessibility.
 4. For other package formats (`.rpm`, `.pkg`), the test will perform an
    inspection (`rpm -qip`, `pkgutil --payload-files`, `pkg info -l`) to verify
-   contents and metadata, as a full installation may require a dedicated
-   runner OS.
+   contents and metadata, as a full installation may require a dedicated runner
+   OS.
 
 ## 5. Implementation Roadmap
 
@@ -364,9 +364,10 @@ The E2E test job will:
   page generation, serving as the target for all E2E tests.
 - [ ] Create a skeleton `rust-build-release`.
 - [x] Validate man-page generation via Rust `assert_cmd` integration tests.
-- [x] Wire a CI workflow that runs `cargo +<default toolchain> test --manifest-path
-  rust-toy-app/Cargo.toml` for this crate. The default toolchain is defined in
-  `.github/actions/rust-build-release/TOOLCHAIN_VERSION`.
+- [x] Wire a CI workflow that runs
+      `cargo +<default toolchain> test --manifest-path
+  rust-toy-app/Cargo.toml` for this crate. The default toolchain is defined in `
+  .github/actions/rust-build-release/TOOLCHAIN_VERSION`.
 
 ```yaml
 # .github/workflows/rust-toy-app.yml
@@ -393,7 +394,8 @@ jobs:
   `time` crate for reproducible output.
 - An `assert_cmd` integration test runs `cargo build` and asserts the build
   script emitted a man page under `target/*/build/*/out/` using a glob search.
-- The crate provides a `command()` helper returning `clap::Command` for use by the
+- The crate provides a `command()` helper returning `clap::Command` for use by
+  the
   build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd`
   integration test for the binary.
@@ -403,9 +405,9 @@ jobs:
 - The crate targets Rust 2024 edition and sets `rust-version = 1.89` to define
   the MSRV.
 - The crate is not published (`publish = false`) and the build script emits
-  `cargo:rerun-if-changed` for `src/cli.rs`, `Cargo.toml`, and `build.rs`,
-  plus `cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH`, to regenerate the
-  man page when the CLI, metadata, or reproducible-build epoch changes.
+  `cargo:rerun-if-changed` for `src/cli.rs`, `Cargo.toml`, and `build.rs`, plus
+  `cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH`, to regenerate the man page
+  when the CLI, metadata, or reproducible-build epoch changes.
 - Windows x86_64 and aarch64 builds run on `windows-latest` with the GNU
   toolchain; when `cross` is available, the action relies on its bundled
   targets instead of invoking `rustup`.
@@ -440,8 +442,8 @@ jobs:
   repository’s `setup-rust` action, then installs `cross` if it is absent.
 - The action delegates compilation to a Python script (`main.py`) that installs
   `cross` on demand and runs `cross build --release`. It verifies container
-  availability via `docker info`/`podman info` and falls back to `cargo` when no
-  usable runtime is detected.
+  availability via `docker info`/`podman info` and falls back to `cargo` when
+  no usable runtime is detected.
 - The helper script now installs or upgrades `cross` before checking container
   availability so Windows GNU builds have the tool even when they later fall
   back to `cargo`; regression tests cover the install path when no runtime is

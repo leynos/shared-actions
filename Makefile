@@ -43,6 +43,7 @@ typecheck: .venv ## Run static type checking with Ty
 	uvx pyright
 fmt: ## Apply formatting to Python files
 	uvx ruff format
+	uvx ruff check --select D202,I001 --fix
 
 check-fmt: ## Check Python formatting without modifying files
 	uvx ruff format --check

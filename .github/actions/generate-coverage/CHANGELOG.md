@@ -3,8 +3,9 @@
 ## v1.3.8 (2025-09-06)
 
 - Invalidate dependency cache when the action version changes by using
-  a `cache-suffix` in the `setup-uv` step. Applies even when `github.action_ref`
-  is empty (local path usage) thanks to the `github.sha` fallback.
+  a `cache-suffix` in the `setup-uv` step. Applies even when
+  `github.action_ref` is empty (local path usage) thanks to the `github.sha`
+  fallback.
 
 ## v1.3.7
 
@@ -19,7 +20,8 @@
 
 ## v1.3.5
 
-- Fix ratchet step ordering so coverage is checked after Python results are available.
+- Fix ratchet step ordering so coverage is checked after Python results are
+  available.
 
 ## v1.3.4
 
@@ -28,7 +30,8 @@
 
 ## v1.3.3 (2025-07-27)
 
-- Install `cargo-llvm-cov` automatically when running Rust coverage and cache the
+- Install `cargo-llvm-cov` automatically when running Rust coverage and cache
+  the
   binary along with Cargo artifacts.
 
 ## v1.3.2 (2025-07-26)
@@ -65,7 +68,8 @@
 
 ## v1.1.0 (2025-06-23)
 
-- Support Python projects by running `slipcover` when `pyproject.toml` is present.
+- Support Python projects by running `slipcover` when `pyproject.toml` is
+  present.
 - Expose `file` and `format` outputs.
 - Default coverage format changed to `cobertura`.
 - Fail fast if both `Cargo.toml` and `pyproject.toml` exist.

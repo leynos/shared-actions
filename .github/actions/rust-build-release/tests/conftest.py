@@ -291,16 +291,21 @@ def pytest_collection_modifyitems(
     """Drop legacy xfail marks for Windows smoke tests now passing."""
 
     for item in items:
-        if item.originalname != WINDOWS_SMOKE_TEST or "windows" not in item.name:
+        nodeid = getattr(item, "nodeid", "")
+        if (
+            WINDOWS_SMOKE_TEST not in nodeid
+            or "-pc-windows-" not in nodeid
+        ):
             continue
-        filtered_marks: list[pytest.Mark] = []
-        removed = False
-        for mark in item.own_markers:
-            if mark.name == "xfail" and WINDOWS_XFAIL_REASON in str(
-                mark.kwargs.get("reason", "")
-            ):
-                removed = True
-                continue
-            filtered_marks.append(mark)
-        if removed:
-            item.own_markers = filtered_marks
+        matching_xfails = [
+            mark
+            for mark in item.iter_markers(name="xfail")
+            if WINDOWS_XFAIL_REASON in str(mark.kwargs.get("reason", ""))
+        ]
+        if not matching_xfails:
+            continue
+        filtered_marks = [
+            mark for mark in item.own_markers if mark not in matching_xfails
+        ]
+        if len(filtered_marks) != len(item.own_markers):
+            item.own_markers[:] = filtered_marks

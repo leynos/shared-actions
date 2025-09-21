@@ -341,7 +341,7 @@ def pytest_collection_modifyitems(
         drop_marks = [
             mark
             for mark in xfail_marks
-            if WINDOWS_XFAIL_REASON in str(mark.kwargs.get("reason", ""))
+            if str(mark.kwargs.get("reason", "")).strip() == WINDOWS_XFAIL_REASON
         ]
         if not drop_marks:
             continue

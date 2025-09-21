@@ -16,6 +16,10 @@ Build and publish Python distributions via
 | fail-on-dynamic-version | Fail when a project declares a dynamic PEP 621 version instead of a literal string. | no | `false` |
 | python-version | Python version to install and use for all uv commands. | no | `3.13` |
 
+The composite action installs the interpreter requested through `python-version`
+before invoking any uv commands, ensuring builds run against the expected
+runtime.
+
 ## Outputs
 
 | Name | Description |
@@ -49,13 +53,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
-        with:
-          python-version: ${{ inputs.python-version }}
-
       - name: Build and publish
         uses: ./.github/actions/release-to-pypi-uv
         with:
+          python-version: '3.12'
           require-confirmation: true
           confirm: release ${{ github.ref_name }}
 ```

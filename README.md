@@ -12,7 +12,7 @@ GitHub Actions
 | Upload CodeScene Coverage | `.github/actions/upload-codescene-coverage` | v1           |
 | Ratchet coverage          | `.github/actions/ratchet-coverage`          | v1           |
 | Rust build release        | `.github/actions/rust-build-release`        | v1           |
-| Windows package           | `.github/actions/windows-package`           | v0           |
+| Windows package           | [`./.github/actions/windows-package`](./.github/actions/windows-package/README.md) | v0           |
 
 ## Development
 

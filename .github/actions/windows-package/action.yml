@@ -76,11 +76,15 @@ runs:
       run: |
         $ErrorActionPreference = 'Stop'
         $toolVersion = $env:WIX_TOOL_VERSION
-        if ([string]::IsNullOrWhiteSpace($toolVersion)) {
-          dotnet tool install --global wix
+        $installArgs = @('--global', 'wix')
+        if (-not [string]::IsNullOrWhiteSpace($toolVersion)) {
+          $installArgs += @('--version', $toolVersion)
         }
-        else {
-          dotnet tool install --global wix --version $toolVersion
+        try {
+          dotnet tool update @installArgs
+        }
+        catch {
+          dotnet tool install @installArgs
         }
         if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
           $extensionCoordinate = $env:WIX_EXTENSION
@@ -94,20 +98,78 @@ runs:
       shell: pwsh
       env:
         INPUT_VERSION: ${{ inputs.version }}
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+        GITHUB_REF_TYPE: ${{ github.ref_type }}
       run: |
         $ErrorActionPreference = 'Stop'
-        $version = $env:INPUT_VERSION
-        if ([string]::IsNullOrWhiteSpace($version)) {
+        function Get-MsiVersion([string] $candidate) {
+          if ([string]::IsNullOrWhiteSpace($candidate)) {
+            return $null
+          }
+          $trimmed = $candidate.Trim()
+          $numeric = $trimmed -replace '^[vV]', ''
+          $numeric = $numeric -replace '[^0-9\.]', ' ' -replace '\s+', ' '
+          $segments = $numeric.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($segments.Count -eq 0) {
+            return $null
+          }
+          $clean = $segments[0] -replace '[^0-9\.]', ''
+          $parts = $clean.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
+          if ($parts.Count -eq 0) {
+            return $null
+          }
+          while ($parts.Count -lt 3) {
+            $parts += '0'
+          }
+          if ($parts.Count -gt 3) {
+            $parts = $parts[0..2]
+          }
+          $validated = @()
+          foreach ($part in $parts) {
+            $value = 0
+            if (-not [int]::TryParse($part, [ref]$value)) {
+              return $null
+            }
+            if ($value -lt 0 -or $value -gt 255) {
+              return $null
+            }
+            $validated += $value
+          }
+          return ($validated -join '.')
+        }
+
+        $versionSource = 'default'
+        $explicitVersion = $env:INPUT_VERSION
+        $resolved = $null
+        if (-not [string]::IsNullOrWhiteSpace($explicitVersion)) {
+          $resolved = Get-MsiVersion $explicitVersion
+          if ($null -eq $resolved) {
+            Write-Error "Invalid MSI version '$explicitVersion'. Provide a numeric major.minor.build triplet with values between 0 and 255."
+            exit 1
+          }
+          $versionSource = 'input'
+        }
+
+        if ($null -eq $resolved) {
+          $refType = $env:GITHUB_REF_TYPE
           $refName = $env:GITHUB_REF_NAME
-          if (-not [string]::IsNullOrWhiteSpace($refName)) {
-            $version = $refName -replace '^v', ''
+          if ($refType -eq 'tag' -and -not [string]::IsNullOrWhiteSpace($refName)) {
+            $resolved = Get-MsiVersion $refName
+            if ($null -eq $resolved) {
+              Write-Warning "Tag '$refName' does not contain a valid MSI ProductVersion. Falling back to 0.0.0."
+            }
+            else {
+              $versionSource = "tag '$refName'"
+            }
           }
         }
-        if ([string]::IsNullOrWhiteSpace($version)) {
-          $version = '0.0.0'
+
+        if ($null -eq $resolved) {
+          $resolved = '0.0.0'
         }
-        Write-Host "Resolved version: $version"
-        "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+        Write-Host "Resolved version ($versionSource): $resolved"
+        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
     - id: build-msi
       name: Build MSI
       shell: pwsh
@@ -124,6 +186,18 @@ runs:
           Write-Error "WiX source file not found: $env:WXS_PATH"
           exit 1
         }
+        function Get-SafeName([string] $value, [string] $fallback) {
+          if ([string]::IsNullOrWhiteSpace($value)) {
+            return $fallback
+          }
+          $sanitised = $value -replace '[^A-Za-z0-9._-]', '-'
+          $sanitised = $sanitised.Trim('-_.')
+          if ([string]::IsNullOrWhiteSpace($sanitised)) {
+            return $fallback
+          }
+          return $sanitised
+        }
+
         $outDir = $env:OUTPUT_DIRECTORY
         if (Test-Path -LiteralPath $outDir) {
           $outDirItem = Get-Item -LiteralPath $outDir
@@ -131,13 +205,19 @@ runs:
         else {
           $outDirItem = New-Item -ItemType Directory -Path $outDir
         }
-        $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $env:OUTPUT_BASENAME, $env:VERSION, $env:ARCHITECTURE)
+        $safeBaseName = Get-SafeName -value $env:OUTPUT_BASENAME -fallback 'package'
+        $safeArchitecture = Get-SafeName -value $env:ARCHITECTURE -fallback 'x64'
+        $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $safeArchitecture)
         $arguments = @('build', $env:WXS_PATH)
         if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
           $arguments += @('-ext', $env:WIX_EXTENSION)
         }
         $arguments += @('-arch', $env:ARCHITECTURE, "-dVersion=$($env:VERSION)", '-o', $outputPath)
         wix @arguments
+        if (-not (Test-Path -LiteralPath $outputPath)) {
+          Write-Error "MSI build failed: output file '$outputPath' was not created."
+          exit 1
+        }
         $resolved = (Resolve-Path -LiteralPath $outputPath).Path
         "msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
     - name: Upload MSI artifact

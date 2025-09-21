@@ -1,22 +1,22 @@
 # Setup Rust
 
 Install the Rust toolchain and cache your build dependencies. Optionally
-install PostgreSQL and SQLite system libraries for crates that require
-them, and set up macOS or OpenBSD cross-compilers.
+install PostgreSQL and SQLite system libraries for crates that require them,
+and set up macOS or OpenBSD cross-compilers.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-| --- | --- | --- | --- |
-| toolchain | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`. | no | _see description_ |
-| install-postgres-deps | Install PostgreSQL system dependencies | no | `false` |
-| workspaces | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no | _(empty)_ (defaults to `. -> target`) |
-| install-sqlite-deps | Install SQLite dev libraries (Windows) | no | `false` |
-| use-sccache | Enable sccache for non-release runs | no | `true` |
-| with-darwin | Install macOS cross build toolchain | no | `false` |
-| darwin-sdk-version | macOS SDK version for osxcross | no | `12.3` |
-| with-openbsd | Build OpenBSD std library for cross-compilation | no | `false` |
-| openbsd-nightly | Pinned nightly Rust for OpenBSD | no | `nightly-2025-07-20` |
+| Name                  | Description                                                                                                                                                                  | Required | Default                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
+| toolchain             | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                   | no       | _see description_                     |
+| install-postgres-deps | Install PostgreSQL system dependencies                                                                                                                                       | no       | `false`                               |
+| workspaces            | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
+| install-sqlite-deps   | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
+| use-sccache           | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
+| with-darwin           | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
+| darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
+| with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
+| openbsd-nightly       | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
 
 ## Outputs
 
@@ -35,19 +35,18 @@ uses: ./.github/actions/setup-rust@v1
     with-openbsd: true
 ```
 
-When `install-postgres-deps` is enabled, the action installs PostgreSQL
-client libraries via the package manager for the runner OS. On Linux,
-it uses `apt` (`libpq-dev`). On Windows, Chocolatey installs
-`postgresql17` and exposes its headers and import libraries through
-`PG_INCLUDE` and `PG_LIB` environment variables.
+When `install-postgres-deps` is enabled, the action installs PostgreSQL client
+libraries via the package manager for the runner OS. On Linux, it uses `apt`
+(`libpq-dev`). On Windows, Chocolatey installs `postgresql17` and exposes its
+headers and import libraries through `PG_INCLUDE` and `PG_LIB` environment
+variables.
 
-When `install-sqlite-deps` is enabled, the action installs SQLite
-development files using MSYS2 on Windows.
+When `install-sqlite-deps` is enabled, the action installs SQLite development
+files using MSYS2 on Windows.
 
-SQLite support on Windows is enabled by setting up an MSYS2 environment
-with the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package,
-so the static library and headers are available when compiling crates that
-depend on SQLite.
+SQLite support on Windows is enabled by setting up an MSYS2 environment with
+the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package, so the static
+library and headers are available when compiling crates that depend on SQLite.
 
 When `with-darwin` is enabled, the action installs the osxcross toolchain on
 Linux so that Rust crates can be cross-compiled for macOS. The SDK version can

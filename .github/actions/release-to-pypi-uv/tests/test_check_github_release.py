@@ -5,9 +5,12 @@ from __future__ import annotations
 import io
 import json
 import typing as typ
-from types import ModuleType
+import uuid
 
 import pytest
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 from ._helpers import load_script_module
 
@@ -15,7 +18,7 @@ from ._helpers import load_script_module
 class DummyResponse:
     """In-memory substitute for an ``urllib`` HTTP response."""
 
-    def __init__(self, payload: dict[str, typ.Any]):
+    def __init__(self, payload: dict[str, typ.Any]) -> None:
         """Store the JSON payload returned by the fake response."""
         self._payload = json.dumps(payload).encode("utf-8")
 
@@ -43,10 +46,17 @@ def fixture_module() -> ModuleType:
     return load_script_module("check_github_release")
 
 
+@pytest.fixture(name="fake_token")
+def fixture_fake_token() -> str:
+    """Generate a unique but fake token for GitHub API requests."""
+    return f"test-token-{uuid.uuid4().hex}"
+
+
 def test_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     module: ModuleType,
+    fake_token: str,
 ) -> None:
     """Print a success message when GitHub marks the release as published."""
 
@@ -55,7 +65,7 @@ def test_success(
 
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
 
-    module.main(tag="v1.2.3", token="token", repo="owner/repo")
+    module.main(tag="v1.2.3", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert "GitHub Release '1.2.3' is published." in captured.out
@@ -65,6 +75,7 @@ def test_draft_release(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    fake_token: str,
 ) -> None:
     """Exit with an error when GitHub reports the release as a draft."""
 
@@ -74,7 +85,7 @@ def test_draft_release(
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
 
     with pytest.raises(module.typer.Exit):
-        module.main(tag="v1.0.0", token="token", repo="owner/repo")
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert "still a draft" in captured.err
@@ -84,6 +95,7 @@ def test_prerelease(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    fake_token: str,
 ) -> None:
     """Exit with an error when GitHub flags the release as a prerelease."""
 
@@ -93,7 +105,7 @@ def test_prerelease(
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
 
     with pytest.raises(module.typer.Exit):
-        module.main(tag="v1.0.0", token="token", repo="owner/repo")
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert "prerelease" in captured.err
@@ -103,6 +115,7 @@ def test_missing_release(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    fake_token: str,
 ) -> None:
     """Raise an error when the GitHub API cannot find the release."""
 
@@ -118,7 +131,7 @@ def test_missing_release(
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
 
     with pytest.raises(module.typer.Exit):
-        module.main(tag="v1.0.0", token="token", repo="owner/repo")
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert "No GitHub release found" in captured.err
@@ -128,6 +141,7 @@ def test_permission_denied(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    fake_token: str,
 ) -> None:
     """Exit with a helpful error when GitHub responds with 403 Forbidden."""
     detail = b"forbidden"
@@ -145,7 +159,7 @@ def test_permission_denied(
     monkeypatch.setattr(module.urllib.request, "urlopen", raising_urlopen)
 
     with pytest.raises(module.typer.Exit):
-        module.main(tag="v1.0.0", token="token", repo="owner/repo")
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert "GitHub token lacks permission" in captured.err
@@ -155,6 +169,7 @@ def test_retries_then_success(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    fake_token: str,
 ) -> None:
     """Retry transient HTTP failures until GitHub releases the metadata."""
     attempts: list[int] = []
@@ -162,13 +177,14 @@ def test_retries_then_success(
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         attempts.append(1)
         if len(attempts) < 3:
-            raise module.urllib.error.URLError("temporary")
+            message = "temporary"
+            raise module.urllib.error.URLError(message)
         return DummyResponse({"draft": False, "prerelease": False, "name": "ok"})
 
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
 
-    module.main(tag="v1.0.0", token="token", repo="owner/repo")
+    module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     assert len(attempts) == 3
     captured = capsys.readouterr()

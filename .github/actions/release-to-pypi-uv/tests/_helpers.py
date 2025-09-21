@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import typing as typ
 from pathlib import Path
-from types import ModuleType
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 _ACTION_PATH = os.environ.get("GITHUB_ACTION_PATH")
 
@@ -25,7 +28,8 @@ def load_script_module(name: str) -> ModuleType:
         f"release_to_pypi_uv_{name}", script_path
     )
     if spec is None or spec.loader is None:  # pragma: no cover - import failure
-        raise RuntimeError(f"Unable to load script module {name} from {script_path}")
+        message = f"Unable to load script module {name} from {script_path}"
+        raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

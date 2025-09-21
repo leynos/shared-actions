@@ -256,23 +256,24 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
 
 @pytest.mark.parametrize(
-    ("host_platform", "target", "expected"),
+    ("host_platform", "target", "probe_outcome"),
     [
-        ("win32", "x86_64-pc-windows-msvc", False),
-        ("win32", "aarch64-pc-windows-gnu", False),
-        ("win32", "x86_64-uwp-windows-msvc", False),
-        ("win32", "x86_64-pc-windows-gnullvm", False),
-        ("win32", "x86_64-unknown-linux-gnu", True),
-        ("linux", "x86_64-pc-windows-msvc", True),
+        ("win32", "x86_64-pc-windows-msvc", "skip"),
+        ("win32", "aarch64-pc-windows-gnu", "skip"),
+        ("win32", "x86_64-uwp-windows-msvc", "skip"),
+        ("win32", "x86_64-pc-windows-gnullvm", "skip"),
+        ("win32", "x86_64-unknown-linux-gnu", "probe"),
+        ("linux", "x86_64-pc-windows-msvc", "probe"),
     ],
 )
 def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
-    expected: bool,
+    probe_outcome: typ.Literal["probe", "skip"],
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
+    expected = probe_outcome == "probe"
     assert main_module.should_probe_container(host_platform, target) is expected
 
 

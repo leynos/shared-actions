@@ -27,6 +27,7 @@ from __future__ import annotations
 import gzip
 import os
 import re
+import shlex
 import sys
 import types
 import typing as typ
@@ -418,35 +419,40 @@ def main(
     if not resolved_formats:
         raise PackagingError.missing_formats()
 
-    rc_any = 0
+    failures: list[tuple[str, int]] = []
     single_format = len(resolved_formats) == 1
     for fmt in resolved_formats:
-        print(f"→ nfpm package -p {fmt} -f {config_out_path} -t {outdir_path}/")
+        cmd = nfpm[
+            "package",
+            "--packager",
+            fmt,
+            "-f",
+            str(config_out_path),
+            "-t",
+            str(outdir_path),
+        ]
+        print(f"→ {shlex.join(cmd.formulate())}")
         try:
-            run_cmd(
-                nfpm[
-                    "package",
-                    "-p",
-                    fmt,
-                    "-f",
-                    str(config_out_path),
-                    "-t",
-                    str(outdir_path),
-                ]
-            )
+            run_cmd(cmd)
         except ProcessExecutionError as pe:
+            retcode = int(pe.retcode or 1)
             print(
-                f"error: nfpm failed for format '{fmt}' (exit {pe.retcode})",
+                f"error: nfpm failed for format '{fmt}' (exit {retcode})",
                 file=sys.stderr,
             )
-            rc_any = rc_any or pe.retcode
             if single_format:
-                raise SystemExit(pe.retcode) from pe
+                raise SystemExit(retcode) from pe
+            failures.append((fmt, retcode))
         else:
             print(f"✓ built {fmt} packages in {outdir_path}")
 
-    if rc_any:
-        raise SystemExit(rc_any)
+    if failures:
+        for fmt, retcode in failures:
+            print(
+                f"format '{fmt}' failed with exit code {retcode}",
+                file=sys.stderr,
+            )
+        raise SystemExit(failures[0][1])
 
 
 def run() -> None:

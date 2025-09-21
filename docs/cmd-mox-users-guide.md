@@ -1,7 +1,7 @@
 # CmdMox Usage Guide
 
 CmdMox provides a fluent API for mocking, stubbing and spying on external
-commands in your tests. This guide shows common patterns for everyday use.
+commands in tests. This guide shows common patterns for everyday use.
 
 ## Related documents
 
@@ -17,7 +17,7 @@ cmd-mox is not currently supported):
 pip install cmd-mox
 ```
 
-In your `conftest.py`:
+In a project's `conftest.py`:
 
 ```python
 import sys
@@ -34,7 +34,7 @@ Windows bypass them gracefully.
 ## Basic workflow
 
 CmdMox follows a strict record → replay → verify lifecycle. First declare
-expectations, then run your code with the shims active, finally verify that
+expectations, then run the code with the shims active, finally verify that
 interactions matched what was recorded.
 
 The three phases are defined in the design document:
@@ -85,7 +85,7 @@ cmd_mox.mock("git") \
     .returns(exit_code=0)
 ```
 
-You can match arguments more flexibly using comparators:
+Arguments can be matched more flexibly using comparators:
 
 ```python
 from cmd_mox import Regex, Contains
@@ -175,8 +175,8 @@ restricted to spy doubles.
 the context-manager API:
 
 - `verify_on_exit` (default `True`) automatically calls `verify()` when a replay
-  phase ends inside a `with CmdMox()` block. Disable it when you need to manage
-  verification manually. Verification still runs if the body raises; when both
+  phase ends inside a `with CmdMox()` block. Disable it when manual verification
+  management is required. Verification still runs if the body raises; when both
   verification and the body fail, the verification error is suppressed so the
   original exception surfaces.
 - `max_journal_entries` bounds the number of stored invocations (oldest entries

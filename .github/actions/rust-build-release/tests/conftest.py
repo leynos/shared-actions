@@ -297,15 +297,21 @@ def pytest_collection_modifyitems(
             or "-pc-windows-" not in nodeid
         ):
             continue
-        matching_xfails = [
+        xfail_marks = [
             mark
             for mark in item.iter_markers(name="xfail")
+            if mark in item.own_markers
+        ]
+        if not xfail_marks:
+            continue
+        drop_marks = [
+            mark
+            for mark in xfail_marks
             if WINDOWS_XFAIL_REASON in str(mark.kwargs.get("reason", ""))
         ]
-        if not matching_xfails:
+        if not drop_marks:
             continue
-        filtered_marks = [
-            mark for mark in item.own_markers if mark not in matching_xfails
-        ]
-        if len(filtered_marks) != len(item.own_markers):
-            item.own_markers[:] = filtered_marks
+        keep_marks = [mark for mark in xfail_marks if mark not in drop_marks]
+        item.remove_marker("xfail")
+        for mark in keep_marks:
+            item.add_marker(pytest.mark.xfail(*mark.args, **mark.kwargs))

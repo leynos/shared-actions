@@ -13,6 +13,7 @@ dependencies = [
     "plumbum>=1.8,<2.0",
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",
+    "cyclopts>=2.9",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

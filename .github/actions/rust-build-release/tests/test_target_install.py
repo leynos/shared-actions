@@ -192,7 +192,6 @@ def test_windows_host_skips_container_probe_for_windows_targets(
     target: str,
 ) -> None:
     """Does not probe container runtimes for Windows targets on Windows hosts."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -244,7 +243,6 @@ def test_windows_host_probes_container_for_non_windows_targets(
     module_harness: HarnessFactory,
 ) -> None:
     """Still probes container runtimes for non-Windows targets."""
-
     harness = module_harness(main_module)
     harness.patch_platform("win32")
 
@@ -306,10 +304,9 @@ def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
-    expected: bool,
+    expected: typ.Literal[True, False],
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-
     assert main_module.should_probe_container(host_platform, target) is expected
 
 

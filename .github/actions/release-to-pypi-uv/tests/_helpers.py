@@ -31,4 +31,4 @@ def load_script_module(name: str) -> ModuleType:
     return module
 
 
-__all__ = ["load_script_module", "REPO_ROOT", "SCRIPTS_DIR"]
+__all__ = ["REPO_ROOT", "SCRIPTS_DIR", "load_script_module"]

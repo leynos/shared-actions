@@ -1,9 +1,9 @@
 # Prefer Generators Over Complex Loop Logic
 
-Using generators improves readability, composability, and memory
-efficiency. Functions built as generators are often simpler to test,
-debug, and refactor. This guidance encourages breaking apart complex
-`for`-loops into generator expressions or functions using `yield`.
+Using generators improves readability, composability, and memory efficiency.
+Functions built as generators are often simpler to test, debug, and refactor.
+This guidance encourages breaking apart complex `for`-loops into generator
+expressions or functions using `yield`.
 
 ## Why Prefer Generators?
 
@@ -67,8 +67,8 @@ def top_active_emails(users):
 
 ## Avoid Overcomplicating
 
-Don't convert everything into generators unnecessarily. Use them to
-simplify logic—not obscure it.
+Don't convert everything into generators unnecessarily. Use them to simplify
+logic—not obscure it.
 
 ### BAD
 
@@ -86,10 +86,9 @@ def iter_even_doubles():
             yield x * 2
 ```
 
----
+______________________________________________________________________
 
-**Rule of thumb:** If your `for` loop has multiple branches, mutations,
-or is hard to explain in one sentence—try rewriting it as a generator.
+**Rule of thumb:** If your `for` loop has multiple branches, mutations, or is
+hard to explain in one sentence—try rewriting it as a generator.
 
-Prefer clear, linear data flows over deeply nested conditionals and loop
-bodies.
+Prefer clear, linear data flows over deeply nested conditionals and loop bodies.

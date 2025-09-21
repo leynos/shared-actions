@@ -19,8 +19,8 @@
 - **Use `TypedDict` or `dataclass` for structured data where appropriate.** For
   internal-only usage, prefer `@dataclass(slots=True)`.
 - **Avoid `Any`.** Prefer precise types (`TypeVar`, `Protocol`, `Literal`,
-  `Union`) and use `typing.cast[...]` only when necessary—with a
-  justification. Use `object` for unknown-but-opaque values.
+  `Union`) and use `typing.cast[...]` only when necessary—with a justification.
+  Use `object` for unknown-but-opaque values.
 - **Be explicit with returns.** Use `-> None`, `-> str`, etc., for all public
   functions and class methods.
 - **Favour immutability.** Prefer tuples to lists, and `types.MappingProxyType`
@@ -71,7 +71,8 @@ def scale(values: list[float], factor: float) -> list[float]:
     return [v * factor for v in values]
 ```
 
-- **Explain tricky code.** Use inline comments for non-obvious logic or decisions.
+- **Explain tricky code.** Use inline comments for non-obvious logic or
+  decisions.
 - **Colocate documentation.** Keep README.md or `docs/` near reusable packages;
   include usage examples.
 
@@ -104,7 +105,8 @@ def scale(values: list[float], factor: float) -> list[float]:
 
 - **Group related tests** using `class` with method names prefixed by `test_`.
 
-- **Write tests from a user's perspective.** Test public behaviour, not internals.
+- **Write tests from a user's perspective.** Test public behaviour, not
+  internals.
 
 - **Avoid mocking too much.** Prefer test doubles only for external services or
   non-deterministic behaviours.
@@ -129,7 +131,7 @@ def test_login_failure():
     assert not login_user("alice", "wrong-password")
 ```
 
----
+______________________________________________________________________
 
 This style guide aims to foster clean, consistent, and maintainable Python 3.13
 code with modern tooling. The priority is correctness, clarity, and developer

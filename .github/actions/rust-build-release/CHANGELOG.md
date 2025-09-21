@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Provide shared packaging fixtures and helpers that build the sample project once and produce `.deb` and `.rpm` artefacts for the integration tests.
+- Provide shared packaging fixtures and helpers that build the sample
+  project once and produce `.deb` and `.rpm` artefacts for the integration
+  tests.
 
 ## [0.1.0] - 2025-09-10
 
-### Added
+### Added (0.1.0)
 
 - Initial skeleton.
 - Replace Bats smoke test with pytest version.

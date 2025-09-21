@@ -54,8 +54,7 @@ dependencies = [
 - **`name` and `version`:** Mandatory per PEP 621. [^pypa-guide] [^reddit-uv]
 - **`description` and `readme`:** Although not mandatory, they help with
   indexing and packaging tools; `readme = "README.md"` tells `uv` (and PyPI) to
-  include your README as the long description. [^astral-guides]
-  [^pypa-guide]
+  include your README as the long description. [^astral-guides] [^pypa-guide]
 - **`requires-python`:** Constrains which Python interpreters your package
   supports (e.g. `>=3.10`). [^pypa-guide] [^reddit-uv]
 - **`license = { text = "MIT" }`:** You can specify a license either as a SPDX
@@ -93,11 +92,9 @@ docs = [
 
 - **`[project.optional-dependencies]`:** Each table key (e.g. `dev`, `docs`)
   defines a "dependency group." You can install a group via
-  `uv add --group dev` or `uv sync --include dev`. [^pypa-guide]
-  [^devsjc]
+  `uv add --group dev` or `uv sync --include dev`. [^pypa-guide] [^devsjc]
 - **Why use groups?** You keep the lockfile deterministic (via `uv.lock`) while
-  still separating concerns (test‐only vs. production). [^medium-uv]
-  [^devsjc]
+  still separating concerns (test‐only vs. production). [^medium-uv] [^devsjc]
 
 ______________________________________________________________________
 
@@ -256,7 +253,8 @@ package = true
 
    - `package = true` ensures that `uv sync` will build and install your own
      project (in editable mode) every time dependencies change. Otherwise, `uv`
-     treats your project as a collection of scripts only (no package). [^astral-config]
+     treats your project as a collection of scripts only (no package).
+     [^astral-config]
 
 ______________________________________________________________________
 

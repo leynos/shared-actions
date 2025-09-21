@@ -51,6 +51,13 @@ INDEX_OPTION = typer.Option("", envvar="INPUT_UV_INDEX")
 
 
 def main(index: str = INDEX_OPTION) -> None:
+    """Publish the built distributions with uv.
+
+    Parameters
+    ----------
+    index : str
+        Optional package index name or URL to pass to ``uv publish``.
+    """
     if index:
         typer.echo(f"Publishing with uv to index '{index}'")
         run_cmd(["uv", "publish", "--index", index])

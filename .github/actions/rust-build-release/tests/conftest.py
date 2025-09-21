@@ -37,6 +37,11 @@ else:  # pragma: no cover - type checking only
 
 IteratorNone = typ.Iterator[None]
 
+WINDOWS_SMOKE_TEST = "test_action_builds_release_binary_and_manpage"
+WINDOWS_XFAIL_REASON = (
+    "Known failure on Windows; see https://github.com/leynos/shared-actions/issues/93"
+)
+
 
 def _ensure_dependency(name: str, attribute: str | None = None) -> None:
     try:
@@ -278,3 +283,24 @@ def packaged_artifacts(
         config=packaging_config,
         formats=("deb", "rpm"),
     )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Drop legacy xfail marks for Windows smoke tests now passing."""
+
+    for item in items:
+        if item.originalname != WINDOWS_SMOKE_TEST or "windows" not in item.name:
+            continue
+        filtered_marks: list[pytest.Mark] = []
+        removed = False
+        for mark in item.own_markers:
+            if mark.name == "xfail" and WINDOWS_XFAIL_REASON in str(
+                mark.kwargs.get("reason", "")
+            ):
+                removed = True
+                continue
+            filtered_marks.append(mark)
+        if removed:
+            item.own_markers = filtered_marks

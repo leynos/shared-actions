@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import glob
 import os
+import typing as typ
 from pathlib import Path
-from typing import Iterable
 
 import typer
 
@@ -35,7 +35,7 @@ SKIP_PARTS = {
 TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 
 
-def _iter_files(pattern: str) -> Iterable[Path]:
+def _iter_files(pattern: str) -> typ.Iterable[Path]:
     candidates = [Path(p) for p in glob.glob(pattern, recursive=True)]
     for path in candidates:
         if not path.is_file():

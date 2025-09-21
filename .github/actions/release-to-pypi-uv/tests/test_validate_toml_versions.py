@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+import typing as typ
+if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
+    from pathlib import Path
 
 import pytest
 
 from ._helpers import load_script_module
 
-@pytest.fixture(name="module")
-def fixture_module() -> Any:
-    """Load the ``validate_toml_versions`` script for tests.
 
-    Returns
-    -------
-    Any
-        Imported module object exposing helper functions and the CLI entrypoint.
-    """
+@pytest.fixture(name="module")
+def fixture_module() -> typ.Any:
     return load_script_module("validate_toml_versions")
 
 
@@ -46,24 +41,15 @@ def _write_pyproject(base: Path, content: str) -> None:
     (base / "pyproject.toml").write_text(content.strip())
 
 
-def _invoke_main(module: Any, **kwargs: Any) -> None:
+def _invoke_main(module: typ.Any, **kwargs: typ.Any) -> None:
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
     module.main(**kwargs)
 
 
-def test_passes_when_versions_match(project_root: Path, module: Any, capsys: pytest.CaptureFixture[str]) -> None:
-    """Pass when project versions match the resolved release version.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+def test_passes_when_versions_match(
+    project_root: Path, module: typ.Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     _write_pyproject(
         project_root / "pkg",
         """
@@ -79,18 +65,9 @@ version = "1.0.0"
     assert "all versions match 1.0.0" in captured.out
 
 
-def test_fails_on_mismatch(project_root: Path, module: Any, capsys: pytest.CaptureFixture[str]) -> None:
-    """Fail when a TOML file contains a mismatched version string.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+def test_fails_on_mismatch(
+    project_root: Path, module: typ.Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     _write_pyproject(
         project_root / "pkg",
         """
@@ -107,18 +84,9 @@ version = "1.0.1"
     assert "version '1.0.1' != tag version '1.0.0'" in captured.err
 
 
-def test_dynamic_version_failure(project_root: Path, module: Any, capsys: pytest.CaptureFixture[str]) -> None:
-    """Fail when dynamic versions are disallowed and the project uses them.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+def test_dynamic_version_failure(
+    project_root: Path, module: typ.Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     _write_pyproject(
         project_root / "pkg",
         """
@@ -138,7 +106,7 @@ dynamic = ["version"]
 @pytest.mark.parametrize("truthy", ["true", "TRUE", "Yes", " y ", "1", "On"])
 def test_dynamic_version_failure_for_truthy_variants(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
     truthy: str,
 ) -> None:
@@ -171,18 +139,9 @@ dynamic = ["version"]
     assert "dynamic 'version'" in captured.err
 
 
-def test_fails_on_parse_error(project_root: Path, module: Any, capsys: pytest.CaptureFixture[str]) -> None:
-    """Surface parse failures encountered when reading TOML files.
-
-    Parameters
-    ----------
-    project_root : Path
-        Temporary project directory for the test run.
-    module : Any
-        Script module under test.
-    capsys : pytest.CaptureFixture[str]
-        Captures output from the command execution.
-    """
+def test_fails_on_parse_error(
+    project_root: Path, module: typ.Any, capsys: pytest.CaptureFixture[str]
+) -> None:
     target = project_root / "pkg"
     target.mkdir()
     (target / "pyproject.toml").write_text("this is not TOML")
@@ -196,7 +155,7 @@ def test_fails_on_parse_error(project_root: Path, module: Any, capsys: pytest.Ca
 
 def test_dynamic_version_allowed_when_flag_false(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Allow dynamic versions when the flag explicitly disables failures.
@@ -228,7 +187,7 @@ dynamic = ["version"]
 @pytest.mark.parametrize("falsey", ["false", "", "no", "0", "off", "n", "False"])
 def test_dynamic_version_allowed_for_falsey_variants(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
     falsey: str,
 ) -> None:
@@ -262,7 +221,7 @@ dynamic = ["version"]
 
 def test_dynamic_version_allowed_when_flag_unset(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Allow dynamic versions when the flag is omitted entirely.
@@ -293,7 +252,7 @@ dynamic = ["version"]
 
 def test_missing_project_section_is_ignored(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Ignore files lacking a ``[project]`` table when validating versions.
@@ -324,7 +283,7 @@ version = "1.0.0"
 
 def test_multiple_toml_files_mixed_validity(
     project_root: Path,
-    module: Any,
+    module: typ.Any,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Fail when any discovered TOML file contains a mismatched version.
@@ -363,28 +322,10 @@ version = "2.0.0"
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])
-def test_parse_bool_truthy_values(module: Any, value: str) -> None:
-    """Interpret various truthy strings as ``True`` when parsing flags.
-
-    Parameters
-    ----------
-    module : Any
-        Script module under test.
-    value : str
-        Truthy string representation to parse.
-    """
+def test_parse_bool_truthy_values(module: typ.Any, value: str) -> None:
     assert module._parse_bool(value) is True
 
 
 @pytest.mark.parametrize("value", [None, "", "false", "no", "0", "off", "n"])
-def test_parse_bool_falsey_values(module: Any, value: str | None) -> None:
-    """Interpret falsey strings and ``None`` as ``False`` when parsing flags.
-
-    Parameters
-    ----------
-    module : Any
-        Script module under test.
-    value : str | None
-        Falsey value to parse with ``_parse_bool``.
-    """
+def test_parse_bool_falsey_values(module: typ.Any, value: str | None) -> None:
     assert module._parse_bool(value) is False

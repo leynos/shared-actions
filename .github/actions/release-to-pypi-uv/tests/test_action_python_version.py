@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import typing as typ
 from pathlib import Path
-from typing import Any
 
 import yaml
 
 
-def _load_action() -> dict[str, Any]:
+def _load_action() -> dict[str, typ.Any]:
     action_path = Path(__file__).resolve().parents[1] / "action.yml"
     return yaml.safe_load(action_path.read_text(encoding="utf-8"))
 

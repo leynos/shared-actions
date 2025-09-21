@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import glob
 import typing as typ
 from pathlib import Path
 
@@ -35,8 +34,8 @@ TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 
 
 def _iter_files(pattern: str) -> typ.Iterable[Path]:
-    candidates = [Path(p) for p in glob.glob(pattern, recursive=True)]
-    for path in candidates:
+    root = Path()
+    for path in root.glob(pattern):
         if not path.is_file():
             continue
         parts = set(path.parts)

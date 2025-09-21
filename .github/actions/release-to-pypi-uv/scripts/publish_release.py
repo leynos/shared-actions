@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -20,18 +21,14 @@ def _extend_sys_path() -> None:
     if action_path_env:
         action_path = Path(action_path_env).resolve()
         candidates.append(action_path / "scripts")
-        try:
+        with contextlib.suppress(IndexError):
             candidates.append(action_path.parents[2])
-        except IndexError:
-            pass
     else:
         script_path = Path(__file__).resolve()
         scripts_dir = script_path.parent
         candidates.append(scripts_dir)
-        try:
+        with contextlib.suppress(IndexError):
             candidates.append(scripts_dir.parents[3])
-        except IndexError:
-            pass
 
     for candidate in candidates:
         if not candidate:

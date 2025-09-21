@@ -6,7 +6,7 @@ import collections
 import collections.abc as cabc
 import shutil
 import sys
-import typing as t
+import typing as typ
 
 import pytest
 
@@ -20,11 +20,11 @@ REQUIRES_UV = pytest.mark.usefixtures("require_uv")
 sys.modules.setdefault("shared_actions_conftest", sys.modules[__name__])
 
 
-if t.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from pathlib import Path
 
 
-class CmdDouble(t.Protocol):
+class CmdDouble(typ.Protocol):
     """Contract for cmd-mox doubles that record expectations and behaviour."""
 
     call_count: int
@@ -46,13 +46,13 @@ class CmdDouble(t.Protocol):
         """Execute a handler when the double is invoked."""
 
 
-class CmdMoxEnvironment(t.Protocol):
+class CmdMoxEnvironment(typ.Protocol):
     """Subset of :class:`cmd_mox.EnvironmentManager` used in tests."""
 
     shim_dir: Path | None
 
 
-class CmdMox(t.Protocol):
+class CmdMox(typ.Protocol):
     """Typed façade for the cmd-mox pytest fixture used in tests."""
 
     environment: CmdMoxEnvironment
@@ -124,11 +124,11 @@ def _register_docker_info_stub(
     return _shim_path(cmd_mox, "docker")
 
 
-if sys.platform != "win32":  # pragma: win32 no cover - Windows lacks cmd-mox support
+if sys.platform != "win32":  # pragma: win32 no cover - windows lacks cmd-mox
     pytest_plugins = ("cmd_mox.pytest_plugin",)
 else:
 
     @pytest.fixture
-    def cmd_mox() -> t.NoReturn:  # pragma: win32 no cover - fixture only used on Windows
+    def cmd_mox() -> typ.NoReturn:  # pragma: win32 no cover
         """Skip tests that rely on cmd-mox on Windows."""
         pytest.skip("cmd-mox does not support Windows")

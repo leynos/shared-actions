@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import typer
@@ -25,7 +26,11 @@ class GithubReleaseError(RuntimeError):
 
 def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
     api = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    request = urllib.request.Request(
+    parsed = urllib.parse.urlsplit(api)
+    if parsed.scheme != "https":  # pragma: no cover - defensive guard
+        message = f"Unsupported URL scheme '{parsed.scheme}' for GitHub API request."
+        raise GithubReleaseError(message)
+    request = urllib.request.Request(  # noqa: S310 - https scheme enforced above
         api,
         headers={
             "Authorization": f"Bearer {token}",
@@ -59,7 +64,7 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
             if exc.code == 403:
                 permission_message = (
                     "GitHub token lacks permission to read releases or has expired. "
-                    "Ensure the workflow is using GITHUB_TOKEN with contents:read scope."
+                    "Use a token with contents:read scope."
                 )
                 context = detail or exc.reason
                 message = f"{permission_message} ({context})"

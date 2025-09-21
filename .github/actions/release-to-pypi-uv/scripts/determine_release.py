@@ -59,7 +59,8 @@ def main(
 
     if not re.fullmatch(r"v\d+\.\d+\.\d+", resolved_tag):
         typer.echo(
-            f"::error::Tag must be a valid semantic version (e.g. v1.2.3), got '{resolved_tag}'.",
+            "::error::Tag must be a valid semantic version (e.g. v1.2.3), "
+            f"got '{resolved_tag}'.",
             err=True,
         )
         raise typer.Exit(1)

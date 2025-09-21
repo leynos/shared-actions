@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
-from pathlib import Path
 import typing as typ
+from pathlib import Path
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType

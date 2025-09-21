@@ -57,7 +57,7 @@ else:
         import sys
 
         _PKG_DIR = Path(__file__).resolve().parent
-        _PKG_NAME = "rust_build_release_scripts"
+        _PKG_NAME = "linux_packages_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
         if pkg_module is None:
             pkg_module = types.ModuleType(_PKG_NAME)

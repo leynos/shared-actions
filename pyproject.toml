@@ -10,6 +10,7 @@ authors = [
 ]
 keywords = ["github-actions", "coverage", "testing"]
 dependencies = [
+    "cyclopts>=2.9,<3.0",
     "plumbum>=1.8,<2.0",
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",

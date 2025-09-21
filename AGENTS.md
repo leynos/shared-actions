@@ -2,8 +2,8 @@
 
 <!-- markdownlint-disable MD013 MD004 -->
 
-> **Audience**: Contributors and maintainers of this repository.\\
-> \*\***Scope**: Standards and workflows for creating, versioning, testing,
+> **Audience**: Contributors and maintainers of this repository.\
+> **Scope**: Standards and workflows for creating, versioning, testing,
 > releasing and deprecating GitHub Actions that live **inside this monorepo**.
 
 ## 1  Repository Layout

@@ -57,8 +57,7 @@ def main(index: str = "") -> None:
     index : str
         Optional package index name or URL to pass to ``uv publish``.
     """
-    index = index.strip()
-    if index:
+    if index := index.strip():
         typer.echo(f"Publishing with uv to index '{index}'")
         run_cmd(["uv", "publish", "--index", index])
     else:

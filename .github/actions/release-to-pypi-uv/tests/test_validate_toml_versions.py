@@ -9,6 +9,7 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
 import pytest
+from typer.testing import CliRunner
 
 from ._helpers import load_script_module
 
@@ -59,6 +60,28 @@ version = "1.0.0"
         captured.out.strip()
         == "Checked 1 PEP 621 project file(s); all versions match 1.0.0."
     )
+
+
+def test_cli_defaults_when_optional_parameters_omitted(
+    project_root: Path, module: ModuleType
+) -> None:
+    """Use default CLI values when optional flags are not provided."""
+    _write_pyproject(
+        project_root / "pkg",
+        """
+[project]
+name = "demo"
+version = "1.0.0"
+""",
+    )
+
+    runner = CliRunner()
+    app = module.typer.Typer()
+    app.command()(module.main)
+    result = runner.invoke(app, ["--version", "1.0.0"])
+
+    assert result.exit_code == 0
+    assert "all versions match 1.0.0" in result.output
 
 
 def test_fails_on_mismatch(

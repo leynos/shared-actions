@@ -178,6 +178,141 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     assert build_cmd[1] == f"+{default_toolchain}-x86_64-unknown-linux-gnu"
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-gnu",
+    ],
+    ids=("x86_64-pc-windows-msvc", "aarch64-pc-windows-gnu"),
+)
+def test_windows_host_skips_container_probe_for_windows_targets(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    target: str,
+) -> None:
+    """Does not probe container runtimes for Windows targets on Windows hosts."""
+
+    harness = module_harness(main_module)
+    harness.patch_platform("win32")
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        capture_output: bool = False,
+        check: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = allowed_names
+        cmd = [executable, *args]
+        if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
+            stdout = f"{default_toolchain}-{target}\n"
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
+        if executable == "/usr/bin/rustup" and args[:2] == ["which", "rustc"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="/fake/rustc")
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    harness.patch_subprocess_run(fake_run)
+    harness.patch_run_cmd(lambda _: None)
+
+    def fake_which(name: str) -> str | None:
+        return "/usr/bin/rustup" if name == "rustup" else None
+
+    harness.patch_shutil_which(fake_which)
+    runtime_calls: list[str] = []
+
+    def fake_runtime(name: str, *, cwd: object | None = None) -> bool:
+        runtime_calls.append(name)
+        _ = cwd
+        return False
+
+    harness.patch_attr("runtime_available", fake_runtime)
+    harness.patch_attr("ensure_cross", lambda *_: (None, None))
+
+    main_module.main(target, default_toolchain)
+
+    assert not runtime_calls
+
+
+def test_windows_host_probes_container_for_non_windows_targets(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+) -> None:
+    """Still probes container runtimes for non-Windows targets."""
+
+    harness = module_harness(main_module)
+    harness.patch_platform("win32")
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        capture_output: bool = False,
+        check: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = allowed_names
+        cmd = [executable, *args]
+        if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
+            stdout = f"{default_toolchain}-x86_64-pc-windows-msvc\n"
+            return subprocess.CompletedProcess(cmd, 0, stdout=stdout)
+        if executable == "/usr/bin/rustup" and args[:2] == ["which", "rustc"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="/fake/rustc")
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    harness.patch_subprocess_run(fake_run)
+    harness.patch_run_cmd(lambda _: None)
+
+    def fake_which(name: str) -> str | None:
+        return "/usr/bin/rustup" if name == "rustup" else None
+
+    harness.patch_shutil_which(fake_which)
+    runtime_calls: list[str] = []
+
+    def fake_runtime(name: str, *, cwd: object | None = None) -> bool:
+        runtime_calls.append(name)
+        _ = cwd
+        return False
+
+    harness.patch_attr("runtime_available", fake_runtime)
+    harness.patch_attr("ensure_cross", lambda *_: (None, None))
+
+    main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+
+    assert set(runtime_calls) == {"docker", "podman"}
+
+
+@pytest.mark.parametrize(
+    ("host_platform", "target", "expected"),
+    [
+        ("win32", "x86_64-pc-windows-msvc", False),
+        ("win32", "aarch64-pc-windows-gnu", False),
+        ("win32", "x86_64-uwp-windows-msvc", False),
+        ("win32", "x86_64-pc-windows-gnullvm", False),
+        ("win32", "x86_64-unknown-linux-gnu", True),
+        ("linux", "x86_64-pc-windows-msvc", True),
+    ],
+)
+def test_should_probe_container_handles_windows_targets(
+    main_module: ModuleType,
+    host_platform: str,
+    target: str,
+    expected: bool,
+) -> None:
+    """Helper correctly decides when to probe container runtimes."""
+
+    assert main_module.should_probe_container(host_platform, target) is expected
+
+
 def test_configure_windows_linkers_prefers_toolchain_gcc(
     main_module: ModuleType,
     module_harness: HarnessFactory,

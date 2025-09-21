@@ -18,14 +18,14 @@ except ImportError:  # pragma: no cover - fallback when run as a script
     from importlib import util
     from types import ModuleType
 
-    _PKG_DIR = Path(__file__).resolve().parent
-    _PKG_NAME = "rust_build_release_scripts"
+    PKG_DIR = Path(__file__).resolve().parent
+    _PKG_NAME = f"{PKG_DIR.parent.name.replace('-', '')}_scripts"
     if _PKG_NAME not in sys.modules:
         pkg = ModuleType(_PKG_NAME)
-        pkg.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+        pkg.__path__ = [str(PKG_DIR)]  # type: ignore[attr-defined]
         sys.modules[_PKG_NAME] = pkg
     _SPEC = util.spec_from_file_location(
-        f"{_PKG_NAME}.cmd_utils", _PKG_DIR / "cmd_utils.py"
+        f"{_PKG_NAME}.cmd_utils", PKG_DIR / "cmd_utils.py"
     )
     if _SPEC is None or _SPEC.loader is None:
         raise ImportError(name="cmd_utils") from None

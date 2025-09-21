@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import typing as typ
@@ -15,6 +16,7 @@ if typ.TYPE_CHECKING:
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
 DEFAULT_HOST_TARGET = "x86_64-unknown-linux-gnu"
+PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 
 def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
@@ -33,10 +35,10 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             allowed_names=(name, f"{name}.exe"),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=10,
+            timeout=PROBE_TIMEOUT,
             cwd=cwd,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
     if result.returncode != 0:
@@ -51,10 +53,10 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=10,
+                timeout=PROBE_TIMEOUT,
                 cwd=cwd,
             )
-        except (OSError, subprocess.CalledProcessError):
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return False
 
         try:
@@ -102,8 +104,13 @@ def detect_host_target(
             capture_output=True,
             text=True,
             check=True,
+            timeout=PROBE_TIMEOUT,
         )
-    except (FileNotFoundError, subprocess.CalledProcessError, OSError):
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ):
         return default
 
     triple = next(

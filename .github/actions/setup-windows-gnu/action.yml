@@ -14,16 +14,15 @@ runs:
   using: composite
   steps:
     - name: Install MinGW toolchains
+      # Consumers can add extra cross linkers in their workflows if they
+      # require GCC-based aarch64 binaries. llvm-mingw provides clang by default.
       uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2
       with:
         msystem: MINGW64
         update: true
-        install: >-
+        install: |
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-gcc-libs
-          # Optional: install cross linkers if you want GCC-based aarch64
-          # aarch64-w64-mingw32-gcc is not always present on msys2; prefer
-          # clang via llvm-mingw instead.
     - name: Install llvm-mingw
       shell: pwsh
       run: |
@@ -54,7 +53,8 @@ runs:
           Remove-Item $destination -Recurse -Force
         }
         Expand-Archive $archive -DestinationPath $destination -Force
-        $binPath = Join-Path $destination "llvm-mingw-$version-ucrt-x86_64\bin"
+        $toolRoot = Join-Path $destination "llvm-mingw-$version-ucrt-x86_64"
+        $binPath = Join-Path $toolRoot "bin"
         if (-not (Test-Path $binPath)) {
           throw "llvm-mingw bin directory not found at $binPath"
         }

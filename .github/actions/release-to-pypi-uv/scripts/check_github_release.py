@@ -45,7 +45,11 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
                 payload = response.read().decode("utf-8")
             break
         except urllib.error.HTTPError as exc:  # pragma: no cover - network failure path
-            detail = exc.read().decode("utf-8", errors="ignore") if hasattr(exc, "read") else ""
+            detail = (
+                exc.read().decode("utf-8", errors="ignore")
+                if hasattr(exc, "read")
+                else ""
+            )
             if exc.code == 404:
                 raise GithubReleaseError(
                     f"No GitHub release found for tag {tag}. Create and publish the release first."
@@ -65,7 +69,9 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
             delay *= backoff_factor
         except urllib.error.URLError as exc:  # pragma: no cover - network failure path
             if attempt == max_attempts:
-                raise GithubReleaseError(f"Failed to reach GitHub API: {exc.reason}") from exc
+                raise GithubReleaseError(
+                    f"Failed to reach GitHub API: {exc.reason}"
+                ) from exc
             time.sleep(delay)
             delay *= backoff_factor
     else:  # pragma: no cover - loop exhausted without break

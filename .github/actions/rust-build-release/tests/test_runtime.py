@@ -35,6 +35,30 @@ def test_runtime_available_requires_allowed_executable(
     assert runtime_module.runtime_available("docker") is False
 
 
+def test_runtime_available_returns_false_on_timeout(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Treats runtimes that hang during discovery as unavailable."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(lambda name: "/usr/bin/docker")
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = allowed_names
+        cmd = [executable, *args]
+        raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert runtime_module.runtime_available("docker") is False
+
+
 def test_podman_without_cap_sys_admin_is_unavailable(
     runtime_module: ModuleType, module_harness: HarnessFactory
 ) -> None:
@@ -101,6 +125,35 @@ def test_podman_with_cap_sys_admin_is_available(
     assert runtime_module.runtime_available("podman") is True
 
 
+def test_podman_security_timeout_treated_as_unavailable(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """If podman security inspection times out the runtime is skipped."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(lambda name: "/usr/bin/podman")
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        capture_output: bool = False,
+        check: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (allowed_names, capture_output, check, text)
+        cmd = [executable, *args]
+        if "--format" in args:
+            raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert runtime_module.runtime_available("podman") is False
+
+
 def test_detect_host_target_returns_default_when_rustc_missing(
     runtime_module: ModuleType, module_harness: HarnessFactory
 ) -> None:
@@ -136,3 +189,69 @@ def test_detect_host_target_parses_rustc_output(
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
     assert runtime_module.detect_host_target() == "custom-triple"
+
+
+def test_detect_host_target_returns_default_on_timeout(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Falls back to the default triple when rustc probing times out."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustc" if name == "rustc" else None
+    )
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (executable, args, allowed_names)
+        raise subprocess.TimeoutExpired(
+            [executable, *args], runtime_module.PROBE_TIMEOUT
+        )
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert (
+        runtime_module.detect_host_target(default="fallback-triple")
+        == "fallback-triple"
+    )
+
+
+def test_detect_host_target_passes_timeout_to_run_validated(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Ensures rustc probing is bounded via the timeout parameter."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustc" if name == "rustc" else None
+    )
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    call_kwargs: dict[str, object] = {}
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (executable, args)
+        call_kwargs.update(kwargs)
+        call_kwargs["allowed_names"] = allowed_names
+        return subprocess.CompletedProcess(
+            [executable, *args], 0, stdout="host: bounded\n"
+        )
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert runtime_module.detect_host_target() == "bounded"
+    assert call_kwargs.get("timeout") == runtime_module.PROBE_TIMEOUT
+    assert call_kwargs.get("capture_output") is True
+    assert call_kwargs.get("text") is True
+    assert call_kwargs.get("check") is True
+    assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")

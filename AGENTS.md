@@ -165,8 +165,13 @@ For Python development, refer to the detailed guidelines in the `.rules/` direct
 * [Python Context Managers](.rules/python-context-managers.md) - Best practices for context managers
 * [Python Generators](.rules/python-generators.md) - Generator and iterator patterns
 * [Python Project Configuration](.rules/python-pyproject.md) - pyproject.toml and packaging
+* [Python Exception Design, Raising, Handling and Logging](.rules/python-exception-design-raising-handling-and-logging.md) - Exceptions and logging patterns
 * [Python Return Patterns](.rules/python-return.md) - Function return conventions
 * [Python Typing](.rules/python-typing.md) - Type annotation best practices
+
+Additional docs:
+
+* [Scripting Standards](docs/scripting-standards.md) - Guidance for writing robust scripts used by actions
 
 ---
 

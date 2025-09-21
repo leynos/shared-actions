@@ -41,7 +41,7 @@ jobs:
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
       - name: Install action-validator
         if: matrix.os == 'ubuntu-latest'
-        run: bun install -g action-validator
+        run: bun install -g @action-validator/core @action-validator/cli
         shell: bash
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'

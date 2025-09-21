@@ -13,10 +13,14 @@ from ._helpers import load_script_module
 
 
 class DummyResponse:
+    """In-memory substitute for an ``urllib`` HTTP response."""
+
     def __init__(self, payload: dict[str, typ.Any]):
+        """Store the JSON payload returned by the fake response."""
         self._payload = json.dumps(payload).encode("utf-8")
 
     def __enter__(self) -> DummyResponse:
+        """Return the response instance for context manager usage."""
         return self
 
     def __exit__(
@@ -25,14 +29,17 @@ class DummyResponse:
         exc: BaseException | None,
         traceback: object | None,
     ) -> None:
-        return None
+        """Propagate exceptions raised within the context manager."""
+        return
 
     def read(self) -> bytes:
+        """Return the cached payload bytes."""
         return self._payload
 
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
+    """Load the ``check_github_release`` script module under test."""
     return load_script_module("check_github_release")
 
 
@@ -41,6 +48,8 @@ def test_success(
     capsys: pytest.CaptureFixture[str],
     module: ModuleType,
 ) -> None:
+    """Print a success message when GitHub marks the release as published."""
+
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": False, "prerelease": False, "name": "1.2.3"})
 
@@ -57,6 +66,8 @@ def test_draft_release(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Exit with an error when GitHub reports the release as a draft."""
+
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": True, "prerelease": False, "name": "draft"})
 
@@ -74,6 +85,8 @@ def test_prerelease(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Exit with an error when GitHub flags the release as a prerelease."""
+
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": False, "prerelease": True, "name": "pre"})
 
@@ -91,6 +104,8 @@ def test_missing_release(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Raise an error when the GitHub API cannot find the release."""
+
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
         raise module.urllib.error.HTTPError(
             url=str(request.full_url),
@@ -114,6 +129,7 @@ def test_permission_denied(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Exit with a helpful error when GitHub responds with 403 Forbidden."""
     detail = b"forbidden"
     error = module.urllib.error.HTTPError(
         url="https://api.github.com",
@@ -140,6 +156,7 @@ def test_retries_then_success(
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Retry transient HTTP failures until GitHub releases the metadata."""
     attempts: list[int] = []
 
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401

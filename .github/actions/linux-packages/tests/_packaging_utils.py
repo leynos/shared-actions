@@ -64,9 +64,10 @@ def packaging_project() -> PackagingProject:
     test_file = Path(__file__).resolve()
     tests_root = test_file.parents[1]
     project_dir = test_file.parents[4] / "rust-toy-app"
+    actions_root = tests_root.parent
     return PackagingProject(
         project_dir=project_dir,
-        build_script=tests_root / "src" / "main.py",
+        build_script=actions_root / "rust-build-release" / "src" / "main.py",
         package_script=tests_root / "scripts" / "package.py",
         polythene_script=tests_root / "scripts" / "polythene.py",
     )
@@ -138,24 +139,21 @@ def package_project(
                 for existing in dist_dir.glob(pattern):
                     existing.unlink()
         with ensure_nfpm(project.project_dir):
-            run_cmd(
-                local["uv"][
-                    "run",
-                    project.package_script.as_posix(),
-                    "--name",
-                    config.name,
-                    "--bin-name",
-                    config.bin_name,
-                    "--target",
-                    build.target,
-                    "--version",
-                    config.version,
-                    "--formats",
-                    ",".join(ordered_formats),
-                    "--man",
-                    build.man_page.as_posix(),
-                ]
-            )
+            env_vars = {
+                "INPUT_PACKAGE_NAME": config.name,
+                "INPUT_BIN_NAME": config.bin_name,
+                "INPUT_TARGET": build.target,
+                "INPUT_VERSION": config.version,
+                "INPUT_RELEASE": config.release,
+                "INPUT_FORMATS": "\n".join(ordered_formats),
+                "INPUT_MAN_PATHS": build.man_page.as_posix(),
+                "INPUT_MAN_SECTION": "1",
+                "INPUT_BINARY_DIR": "target",
+                "INPUT_OUTDIR": "dist",
+                "INPUT_CONFIG_PATH": "dist/nfpm.yaml",
+            }
+            with local.env(**env_vars):
+                run_cmd(local["uv"]["run", project.package_script.as_posix()])
 
         results: dict[str, Path] = {}
         for fmt in ordered_formats:

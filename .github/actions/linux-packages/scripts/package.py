@@ -2,9 +2,10 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#   "typer>=0.12",
+#   "cyclopts>=2.9.0",
 #   "plumbum>=1.8",
 #   "pyyaml>=6.0",
+#   "typer>=0.12",
 # ]
 # ///
 """
@@ -12,10 +13,10 @@ Minimal nFPM packager for Rust binaries, with manpage support.
 
 Examples
 --------
-  uv run package.py --name rust-toy-app --bin-name rust-toy-app \
+  uv run package.py --bin-name rust-toy-app \
     --target x86_64-unknown-linux-gnu --version 1.2.3 \
-    --formats deb,rpm \
-    --man doc/rust-toy-app.1 --man doc/rust-toy-app-subcmd.1
+    --formats deb rpm \
+    --man-paths doc/rust-toy-app.1 doc/rust-toy-app-subcmd.1
 
 Assumes the binary already exists at:
   target/<target>/release/<bin-name>
@@ -25,12 +26,14 @@ from __future__ import annotations
 
 import gzip
 import re
+import sys
 import types
 import typing as typ
 from pathlib import Path
 
-import typer
+import cyclopts
 import yaml
+from cyclopts import App, Parameter
 from plumbum.commands.processes import ProcessExecutionError
 
 if typ.TYPE_CHECKING:
@@ -40,7 +43,7 @@ if typ.TYPE_CHECKING:
         get_command,
         run_cmd,
     )
-else:
+else:  # pragma: no cover - runtime fallback when executed as a script
     try:
         from .script_utils import (
             ensure_directory,
@@ -50,10 +53,9 @@ else:
         )
     except ImportError:  # pragma: no cover - fallback for direct execution
         import importlib.util
-        import sys
 
         _PKG_DIR = Path(__file__).resolve().parent
-        _PKG_NAME = "rust_build_release_scripts"
+        _PKG_NAME = "linux_packages_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
         if pkg_module is None:
             pkg_module = types.ModuleType(_PKG_NAME)
@@ -79,11 +81,50 @@ else:
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
 
-SECTION_RE = re.compile(
-    r"\.(\d[\w-]*)($|\.gz$)"
-)  # captures e.g. ".1", ".1p", ".8r", with/without .gz
+class PackagingError(RuntimeError):
+    """Raised when packaging inputs cannot be processed."""
+
+    @classmethod
+    def unsupported_target(cls, target: str) -> PackagingError:
+        """Return an error describing an unsupported target triple."""
+        return cls(f"unsupported target triple: {target}")
+
+    @classmethod
+    def invalid_mode(cls, mode: str, target_desc: str) -> PackagingError:
+        """Return an error describing an invalid file mode entry."""
+        return cls(f"invalid file mode '{mode}' for {target_desc}")
+
+    @classmethod
+    def missing_bin(cls) -> PackagingError:
+        """Return an error indicating the binary name input was omitted."""
+        return cls("bin-name input is required")
+
+    @classmethod
+    def missing_version(cls) -> PackagingError:
+        """Return an error indicating the version input was omitted."""
+        return cls("version input is required")
+
+    @classmethod
+    def missing_formats(cls) -> PackagingError:
+        """Return an error describing a missing packaging format list."""
+        return cls("no packaging formats provided")
+
+
+SECTION_RE = re.compile(r"\.(\d[\w-]*)($|\.gz$)")
+
+app = App()
+_env_config = cyclopts.config.Env("INPUT_", command=False)
+existing_config = getattr(app, "config", ())
+if existing_config is None:
+    app.config = (_env_config,)
+else:
+    app.config = (*tuple(existing_config), _env_config)
+
+
+def _fail(message: str, *, code: int = 2) -> typ.NoReturn:
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(code)
 
 
 class OctalInt(int):
@@ -116,7 +157,7 @@ def map_target_to_arch(target: str) -> str:
     if t.startswith(("i686-", "i586-", "i386-")):
         return "386"
     if t.startswith(("armv7-", "armv6-", "arm-")):
-        return "arm"  # GOARM nuance out of scope here
+        return "arm"
     if t.startswith("riscv64-"):
         return "riscv64"
     if t.startswith(("powerpc64le-", "ppc64le-")):
@@ -125,10 +166,7 @@ def map_target_to_arch(target: str) -> str:
         return "s390x"
     if t.startswith(("loongarch64-", "loong64-")):
         return "loong64"
-    typer.secho(
-        f"error: unsupported target triple: {target}", fg=typer.colors.RED, err=True
-    )
-    raise typer.Exit(2)
+    raise PackagingError.unsupported_target(target)
 
 
 def infer_section(path: Path, default: str) -> str:
@@ -179,12 +217,7 @@ def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, ty
                     value = int(cleaned, 8)
                 except ValueError as exc:
                     target_desc = new_entry.get("dst") or new_entry.get("src", "entry")
-                    typer.secho(
-                        f"error: invalid file mode '{mode}' for {target_desc}",
-                        fg=typer.colors.RED,
-                        err=True,
-                    )
-                    raise typer.Exit(2) from exc
+                    raise PackagingError.invalid_mode(mode, target_desc) from exc
                 new_info["mode"] = OctalInt(value, width=len(cleaned))
             new_entry["file_info"] = new_info
         normalised.append(new_entry)
@@ -219,95 +252,76 @@ def build_man_entries(
     return entries
 
 
-NAME_OPTION = typer.Option(..., "--name", help="Package name.")
-BIN_NAME_OPTION = typer.Option(..., "--bin-name", help="Installed binary name.")
-TARGET_OPTION = typer.Option(
-    "x86_64-unknown-linux-gnu",
-    "--target",
-    help="Rust target triple used for the build.",
-)
-VERSION_OPTION = typer.Option(
-    ..., "--version", help="Version (Debian-friendly: starts with a digit)."
-)
-RELEASE_OPTION = typer.Option("1", "--release", help="Package release/revision.")
-ARCH_OPTION = typer.Option(
-    None, "--arch", help="Override nFPM/GOARCH arch (e.g. amd64, arm64)."
-)
-FORMATS_OPTION = typer.Option(
-    "deb,rpm",
-    "--formats",
-    help="Comma-separated list: deb,rpm,apk,archlinux,ipk,srpm",
-)
-OUTDIR_OPTION = typer.Option(Path("dist"), "--outdir", help="Where to place packages.")
-MAINTAINER_OPTION = typer.Option("Your Name <you@example.com>", "--maintainer")
-HOMEPAGE_OPTION = typer.Option("https://example.com", "--homepage")
-LICENSE_OPTION = typer.Option("MIT", "--license")
-SECTION_OPTION = typer.Option("utils", "--section")
-DESCRIPTION_OPTION = typer.Option("A fast toy app written in Rust.", "--description")
-DEB_DEPENDS_OPTION = typer.Option(
-    None, "--deb-depends", help="Repeatable. Debian runtime deps."
-)
-RPM_DEPENDS_OPTION = typer.Option(
-    None, "--rpm-depends", help="Repeatable. RPM runtime deps."
-)
-BINARY_DIR_OPTION = typer.Option(
-    Path("target"), "--binary-dir", help="Root of Cargo target dir."
-)
-CONFIG_OUT_OPTION = typer.Option(
-    Path("dist/nfpm.yaml"),
-    "--config-out",
-    help="Path to write generated nfpm.yaml.",
-)
-MAN_OPTION = typer.Option(
-    None,
-    "--man",
-    help="Repeatable. Paths to manpages (e.g. doc/app.1 or app.1.gz).",
-)
-MAN_SECTION_OPTION = typer.Option(
-    "1", "--man-section", help="Default man section if the filename lacks one."
-)
-MAN_STAGE_OPTION = typer.Option(
-    Path("dist/.man"), "--man-stage", help="Where to stage gzipped manpages."
-)
+def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str]:
+    entries: list[str] = []
+    source = values if values is not None else default
+    for item in source:
+        for token in re.split(r"[\s,]+", item.strip()):
+            if not token:
+                continue
+            lowered = token.lower()
+            if lowered not in entries:
+                entries.append(lowered)
+    return entries
 
 
-@app.command()
+@app.default
 def main(
-    name: str = NAME_OPTION,
-    bin_name: str = BIN_NAME_OPTION,
-    target: str = TARGET_OPTION,
-    version: str = VERSION_OPTION,
-    release: str = RELEASE_OPTION,
-    arch: str | None = ARCH_OPTION,
-    formats: str = FORMATS_OPTION,
-    outdir: Path = OUTDIR_OPTION,
-    maintainer: str = MAINTAINER_OPTION,
-    homepage: str = HOMEPAGE_OPTION,
-    license_: str = LICENSE_OPTION,
-    section: str = SECTION_OPTION,
-    description: str = DESCRIPTION_OPTION,
-    deb_depends: list[str] | None = DEB_DEPENDS_OPTION,
-    rpm_depends: list[str] | None = RPM_DEPENDS_OPTION,
-    binary_dir: Path = BINARY_DIR_OPTION,
-    config_out: Path = CONFIG_OUT_OPTION,
-    man: list[Path] | None = MAN_OPTION,
-    man_section: str = MAN_SECTION_OPTION,
-    man_stage: Path = MAN_STAGE_OPTION,
+    *,
+    package_name: str | None = None,
+    bin_name: typ.Annotated[str, Parameter(required=True)],
+    target: str = "x86_64-unknown-linux-gnu",
+    version: typ.Annotated[str, Parameter(required=True)],
+    formats: list[str] | None = None,
+    release: str | None = None,
+    arch: str | None = None,
+    maintainer: str | None = None,
+    homepage: str | None = None,
+    license_: typ.Annotated[str | None, Parameter(env_var="INPUT_LICENSE")] = None,
+    section: str | None = None,
+    description: str | None = None,
+    man_paths: typ.Annotated[
+        list[Path] | None, Parameter(env_var="INPUT_MAN_PATHS")
+    ] = None,
+    man_section: str | None = None,
+    man_stage: Path | None = None,
+    outdir: Path | None = None,
+    binary_dir: Path | None = None,
+    config_out: typ.Annotated[
+        Path | None, Parameter(env_var="INPUT_CONFIG_PATH")
+    ] = None,
+    deb_depends: list[str] | None = None,
+    rpm_depends: list[str] | None = None,
 ) -> None:
     """Build packages for a Rust binary using nFPM configuration derived from inputs."""
-    # Normalise/derive fields.
-    ver = version.lstrip("v")  # Debian wants a digit first.
-    arch_val = arch or map_target_to_arch(target)
-    bin_path = binary_dir / target / "release" / bin_name
+    bin_value = bin_name.strip()
+    if not bin_value:
+        raise PackagingError.missing_bin()
+    package_value = (package_name or bin_value).strip()
+    version_value = version.strip().lstrip("v")
+    if not version_value:
+        raise PackagingError.missing_version()
+
+    target_value = target.strip() or "x86_64-unknown-linux-gnu"
+    release_value = (release or "1").strip() or "1"
+    arch_value = (arch or map_target_to_arch(target_value)).strip()
+
+    binary_root = binary_dir or Path("target")
+    outdir_path = outdir or Path("dist")
+    config_out_path = config_out or Path("dist/nfpm.yaml")
+    man_section_value = (man_section or "1").strip() or "1"
+    man_stage_path = man_stage or Path("dist/.man")
+
+    bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
-    ensure_directory(outdir)
-    ensure_directory(config_out.parent)
+    ensure_directory(outdir_path)
+    ensure_directory(config_out_path.parent)
 
     license_file = Path("LICENSE")
     contents: list[dict[str, typ.Any]] = [
         {
             "src": bin_path.as_posix(),
-            "dst": f"/usr/bin/{bin_name}",
+            "dst": f"/usr/bin/{bin_value}",
             "file_info": {"mode": "0755"},
         }
     ]
@@ -315,29 +329,35 @@ def main(
         contents.append(
             {
                 "src": license_file.as_posix(),
-                "dst": f"/usr/share/doc/{name}/copyright",
+                "dst": f"/usr/share/doc/{package_value}/copyright",
                 "file_info": {"mode": "0644"},
             }
         )
 
-    man_entries = build_man_entries(man or [], man_section, man_stage)
+    man_entries = build_man_entries(
+        list(man_paths or []), man_section_value, man_stage_path
+    )
     contents.extend(man_entries)
 
-    deb_requires = list(deb_depends or [])
-    rpm_requires = list(rpm_depends) if rpm_depends else list(deb_requires)
+    deb_requires = _normalise_list(deb_depends, default=[])
+    rpm_requires = (
+        _normalise_list(rpm_depends, default=[])
+        if rpm_depends is not None
+        else list(deb_requires)
+    )
 
     config: dict[str, typ.Any] = {
-        "name": name,
-        "arch": arch_val,
+        "name": package_value,
+        "arch": arch_value,
         "platform": "linux",
-        "version": ver,
-        "release": release,
-        "section": section,
+        "version": version_value,
+        "release": release_value,
+        "section": (section or "").strip(),
         "priority": "optional",
-        "maintainer": maintainer,
-        "homepage": homepage,
-        "license": license_,
-        "description": description,
+        "maintainer": (maintainer or "").strip(),
+        "homepage": (homepage or "").strip(),
+        "license": (license_ or "").strip(),
+        "description": (description or "").strip(),
         "contents": normalise_file_modes(contents),
         "overrides": {
             "deb": {"depends": deb_requires},
@@ -345,27 +365,22 @@ def main(
         },
     }
 
-    config_out.write_text(
+    config_out_path.write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    typer.secho(f"Wrote {config_out}", fg=typer.colors.GREEN)
+    print(f"Wrote {config_out_path}")
 
-    # Ensure nfpm is available.
     nfpm = get_command("nfpm")
 
-    # Run nfpm for each requested format.
-    formats_list = [s.strip() for s in formats.split(",") if s.strip()]
-    if not formats_list:
-        typer.secho(
-            "error: no packaging formats provided", fg=typer.colors.RED, err=True
-        )
-        raise typer.Exit(2)
+    resolved_formats = _normalise_list(formats, default=["deb"])
+    if not resolved_formats:
+        raise PackagingError.missing_formats()
 
     rc_any = 0
-    single_format = len(formats_list) == 1
-    for fmt in formats_list:
-        typer.echo(f"→ nfpm package -p {fmt} -f {config_out} -t {outdir}/")
+    single_format = len(resolved_formats) == 1
+    for fmt in resolved_formats:
+        print(f"→ nfpm package -p {fmt} -f {config_out_path} -t {outdir_path}/")
         try:
             run_cmd(
                 nfpm[
@@ -373,25 +388,33 @@ def main(
                     "-p",
                     fmt,
                     "-f",
-                    str(config_out),
+                    str(config_out_path),
                     "-t",
-                    str(outdir),
+                    str(outdir_path),
                 ]
             )
         except ProcessExecutionError as pe:
-            typer.secho(
-                f"nfpm failed for format '{fmt}' (exit {pe.retcode})",
-                fg=typer.colors.RED,
-                err=True,
+            print(
+                f"error: nfpm failed for format '{fmt}' (exit {pe.retcode})",
+                file=sys.stderr,
             )
-            if single_format:
-                raise typer.Exit(pe.retcode) from pe
             rc_any = rc_any or pe.retcode
+            if single_format:
+                raise SystemExit(pe.retcode) from pe
         else:
-            typer.secho(f"✓ built {fmt} packages in {outdir}", fg=typer.colors.GREEN)
+            print(f"✓ built {fmt} packages in {outdir_path}")
 
-    raise typer.Exit(rc_any)
+    if rc_any:
+        raise SystemExit(rc_any)
+
+
+def run() -> None:
+    """Execute the CLI, mapping packaging errors to user-friendly exits."""
+    try:
+        app()
+    except PackagingError as exc:
+        _fail(str(exc))
 
 
 if __name__ == "__main__":
-    app()
+    run()

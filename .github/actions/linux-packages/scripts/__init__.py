@@ -1,4 +1,4 @@
-"""Helper package for the rust-build-release action scripts."""
+"""Helper package for the linux-packages action scripts."""
 
 from __future__ import annotations
 

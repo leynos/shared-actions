@@ -12,16 +12,6 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-from _packaging_utils import (
-    DEFAULT_CONFIG,
-    DEFAULT_TARGET,
-    BuildArtifacts,
-    PackagingConfig,
-    PackagingProject,
-    build_release_artifacts,
-    package_project,
-    packaging_project,
-)
 
 from cmd_utils import run_cmd
 

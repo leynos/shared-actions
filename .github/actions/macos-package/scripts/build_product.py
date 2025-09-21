@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run python
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.12"
 # dependencies = ["cyclopts>=2.9", "plumbum"]
 # ///
 
@@ -12,7 +12,7 @@ import typing as typ
 from pathlib import Path
 
 import cyclopts
-from _utils import write_output
+from _utils import action_work_dir, write_output
 from cyclopts import App, Parameter
 from plumbum import local
 
@@ -29,20 +29,23 @@ def main(
 ) -> None:
     """Call `productbuild` and expose the resulting archive path."""
     cwd = Path.cwd()
-    build_dir = cwd / "build"
-    dist_dir = cwd / "dist"
+    work_dir = action_work_dir()
+    build_dir = work_dir / "build"
     component = build_dir / f"{name}-{version}-component.pkg"
     if not component.is_file():
         msg = f"Component package not found: {component}"
         raise FileNotFoundError(msg)
 
+    dist_dir = cwd / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
     output_pkg = dist_dir / f"{name}-{version}.pkg"
+    if output_pkg.exists():
+        output_pkg.unlink()
 
     productbuild = local["productbuild"]
     if include_license_panel:
-        distribution = cwd / "dist.xml"
-        resources = cwd / "Resources"
+        distribution = work_dir / "dist.xml"
+        resources = work_dir / "Resources"
         if not distribution.is_file():
             msg = "Distribution XML missing; run license preparation step"
             raise FileNotFoundError(msg)

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run python
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.12"
 # dependencies = ["cyclopts>=2.9", "plumbum"]
 # ///
 
@@ -35,6 +35,8 @@ def main(
         raise FileNotFoundError(msg)
 
     signed_pkg = dist_dir / f"{name}-{version}-signed.pkg"
+    if signed_pkg.exists():
+        signed_pkg.unlink()
 
     productsign = local["productsign"]
     productsign[

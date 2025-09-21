@@ -37,6 +37,9 @@ outputs:
   version:
     description: Resolved version used to build the package
     value: ${{ steps.compute-version.outputs.version }}
+  version-build-metadata:
+    description: Short commit SHA recorded when falling back to 0.0.0
+    value: ${{ steps.compute-version.outputs.version_build_metadata }}
   pkg-path:
     description: Path to the generated installer package (.pkg)
     value: ${{ steps.build-product.outputs.pkg_path }}

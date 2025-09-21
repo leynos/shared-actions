@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run python
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.12"
 # ///
 
 """Ensure the action is executed on a macOS runner."""

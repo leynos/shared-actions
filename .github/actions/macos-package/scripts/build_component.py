@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run python
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.12"
 # dependencies = ["cyclopts>=2.9", "plumbum"]
 # ///
 
@@ -9,9 +9,9 @@
 from __future__ import annotations
 
 import typing as typ
-from pathlib import Path
 
 import cyclopts
+from _utils import action_work_dir
 from cyclopts import App, Parameter
 from plumbum import local
 
@@ -27,14 +27,15 @@ def main(
     name: typ.Annotated[str, Parameter(required=True)],
 ) -> None:
     """Invoke `pkgbuild` with the resolved package metadata."""
-    cwd = Path.cwd()
-    root = cwd / "pkgroot"
+    work_dir = action_work_dir()
+    root = work_dir / "pkgroot"
     if not root.is_dir():
         msg = f"Package root not found: {root}"
         raise FileNotFoundError(msg)
 
-    component_path = cwd / "build" / f"{name}-{version}-component.pkg"
-    component_path.parent.mkdir(parents=True, exist_ok=True)
+    component_dir = work_dir / "build"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    component_path = component_dir / f"{name}-{version}-component.pkg"
 
     pkgbuild = local["pkgbuild"]
     pkgbuild[

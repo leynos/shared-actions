@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import typing as typ
+from types import ModuleType
 
 import pytest
 
@@ -31,14 +32,14 @@ class DummyResponse:
 
 
 @pytest.fixture(name="module")
-def fixture_module() -> typ.Any:
+def fixture_module() -> ModuleType:
     return load_script_module("check_github_release")
 
 
 def test_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    module: typ.Any,
+    module: ModuleType,
 ) -> None:
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         return DummyResponse({"draft": False, "prerelease": False, "name": "1.2.3"})
@@ -53,7 +54,7 @@ def test_success(
 
 def test_draft_release(
     monkeypatch: pytest.MonkeyPatch,
-    module: typ.Any,
+    module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
@@ -70,7 +71,7 @@ def test_draft_release(
 
 def test_prerelease(
     monkeypatch: pytest.MonkeyPatch,
-    module: typ.Any,
+    module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
@@ -87,7 +88,7 @@ def test_prerelease(
 
 def test_missing_release(
     monkeypatch: pytest.MonkeyPatch,
-    module: typ.Any,
+    module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
@@ -110,7 +111,7 @@ def test_missing_release(
 
 def test_permission_denied(
     monkeypatch: pytest.MonkeyPatch,
-    module: typ.Any,
+    module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     detail = b"forbidden"
@@ -136,7 +137,7 @@ def test_permission_denied(
 
 def test_retries_then_success(
     monkeypatch: pytest.MonkeyPatch,
-    module: typ.Any,
+    module: ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     attempts: list[int] = []

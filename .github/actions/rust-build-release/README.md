@@ -1,18 +1,19 @@
 # rust-build-release
 
-Build Rust application release artefacts using the repository's
-`setup-rust` action, `uv`, and `cross`.
+Build Rust application release artefacts using the repository's `setup-rust`
+action, `uv`, and `cross`.
 
-The `uv` Python package manager is installed automatically to execute the build script.
+The `uv` Python package manager is installed automatically to execute the build
+script.
 
 ## Inputs
 
-| Name | Type | Default | Description | Required |
-| ---- | ---- | ------- | ----------- | -------- |
-| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | no |
-| project-dir | string | `.` | Path to the Rust project to build | no |
-| bin-name | string | `rust-toy-app` | Binary name to stage and package | no |
-| formats | string | `deb` | Comma-separated package formats to produce | no |
+| Name        | Type   | Default                    | Description                                | Required |
+| ----------- | ------ | -------------------------- | ------------------------------------------ | -------- |
+| target      | string | `x86_64-unknown-linux-gnu` | Target triple to build                     | no       |
+| project-dir | string | `.`                        | Path to the Rust project to build          | no       |
+| bin-name    | string | `rust-toy-app`             | Binary name to stage and package           | no       |
+| formats     | string | `deb`                      | Comma-separated package formats to produce | no       |
 
 ## Outputs
 

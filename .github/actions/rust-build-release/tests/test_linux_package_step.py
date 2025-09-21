@@ -21,6 +21,7 @@ def test_linux_packaging_step() -> None:
     with_block = linux_step.get("with") or {}
     assert with_block.get("project-dir") == "${{ inputs.project-dir }}"
     assert with_block.get("bin-name") == "${{ inputs.bin-name }}"
+    assert with_block.get("package-name") is None
     assert (
         with_block.get("man-paths")
         == "${{ steps.stage-linux-artifacts.outputs.man-path }}"

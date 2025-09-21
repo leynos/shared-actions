@@ -20,7 +20,7 @@ inputs:
     description: Package version (for example 1.2.3).
     required: true
   formats:
-    description: Comma-separated list of package formats to produce (deb,rpm,apk,...).
+    description: Comma-, space-, or newline-separated list of package formats to produce (deb,rpm,apk,...).
     required: false
     default: deb
   release:
@@ -94,7 +94,7 @@ runs:
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       env:
-        INPUT_PACKAGE_NAME: ${{ inputs["package-name"] || inputs["bin-name"] }}
+        INPUT_PACKAGE_NAME: ${{ inputs["package-name"] }}
         INPUT_BIN_NAME: ${{ inputs.bin-name }}
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_VERSION: ${{ inputs.version }}

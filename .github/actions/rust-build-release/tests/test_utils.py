@@ -7,7 +7,6 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-
 from shared_actions_conftest import CMD_MOX_UNSUPPORTED
 
 if typ.TYPE_CHECKING:

@@ -155,3 +155,6 @@ target/
 # uv cache and lockfile
 uv.lock
 .uv/
+
+# Crush AI agent
+.crush/

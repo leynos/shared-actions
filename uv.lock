@@ -229,6 +229,16 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+dev = [
+    { name = "cmd-mox" },
+    { name = "lxml-stubs" },
+    { name = "pytest" },
+    { name = "pyyaml" },
+    { name = "ty" },
+    { name = "uuid6" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "cmd-mox" },
@@ -241,10 +251,17 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cmd-mox", marker = "extra == 'dev'", git = "https://github.com/leynos/cmd-mox.git?rev=5bf23d0ae6055397956a3d4440063fa6a77b10d8" },
     { name = "lxml", specifier = ">=5.2,<6.0" },
+    { name = "lxml-stubs", marker = "extra == 'dev'", specifier = ">=0.5.1" },
     { name = "plumbum", specifier = ">=1.8,<2.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<9.0" },
+    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7.0" },
+    { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.1a20" },
     { name = "typer", specifier = ">=0.9,<1.0" },
+    { name = "uuid6", marker = "extra == 'dev'", specifier = ">=2025.0.1" },
 ]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [

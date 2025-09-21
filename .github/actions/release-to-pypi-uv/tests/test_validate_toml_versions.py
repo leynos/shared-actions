@@ -19,7 +19,7 @@ def fixture_module() -> ModuleType:
     return load_script_module("validate_toml_versions")
 
 
-@pytest.fixture()
+@pytest.fixture
 def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Use a temporary directory as the working tree for each test."""
     monkeypatch.chdir(tmp_path)

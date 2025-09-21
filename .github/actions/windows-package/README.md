@@ -21,7 +21,7 @@ one composite call.
 The action expects the following project structure (paths may be overridden via
 inputs):
 
-```
+```text
 .
 ├─ installer/
 │  └─ Package.wxs              # WiX v4 authoring
@@ -76,8 +76,12 @@ In WiX authoring, reference the preprocessor variable supplied via
 `-dVersion=...`:
 
 ```xml
-<Package Version="$(Version)">
+<Package Version="$(var.Version)">
 ```
+
+This expression resolves to the version string the action passes via
+`-dVersion=...`, ensuring the MSI `Package` uses the same value that appears in
+the generated filename.
 
 When `version` is omitted the action inspects `GITHUB_REF_NAME`. If the ref
 starts with `v` (e.g. `v1.2.3`), the prefix is removed and a numeric

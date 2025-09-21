@@ -51,36 +51,43 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
                 else ""
             )
             if exc.code == 404:
-                raise GithubReleaseError(
-                    f"No GitHub release found for tag {tag}. Create and publish the release first."
-                ) from exc
+                message = (
+                    "No GitHub release found for tag "
+                    f"{tag}. Create and publish the release first."
+                )
+                raise GithubReleaseError(message) from exc
             if exc.code == 403:
-                msg = (
+                permission_message = (
                     "GitHub token lacks permission to read releases or has expired. "
                     "Ensure the workflow is using GITHUB_TOKEN with contents:read scope."
                 )
                 context = detail or exc.reason
-                raise GithubReleaseError(f"{msg} ({context})") from exc
+                message = f"{permission_message} ({context})"
+                raise GithubReleaseError(message) from exc
             if attempt == max_attempts:
-                raise GithubReleaseError(
-                    f"GitHub API request failed with status {exc.code}: {detail or exc.reason}"
-                ) from exc
+                failure_reason = detail or exc.reason
+                message = (
+                    "GitHub API request failed with status "
+                    f"{exc.code}: {failure_reason}"
+                )
+                raise GithubReleaseError(message) from exc
             time.sleep(delay)
             delay *= backoff_factor
         except urllib.error.URLError as exc:  # pragma: no cover - network failure path
             if attempt == max_attempts:
-                raise GithubReleaseError(
-                    f"Failed to reach GitHub API: {exc.reason}"
-                ) from exc
+                message = f"Failed to reach GitHub API: {exc.reason}"
+                raise GithubReleaseError(message) from exc
             time.sleep(delay)
             delay *= backoff_factor
     else:  # pragma: no cover - loop exhausted without break
-        raise GithubReleaseError("GitHub API request failed after retries.")
+        message = "GitHub API request failed after retries."
+        raise GithubReleaseError(message)
 
     try:
         return json.loads(payload or "")
     except json.JSONDecodeError as exc:  # pragma: no cover - unexpected payload
-        raise GithubReleaseError("GitHub API returned invalid JSON") from exc
+        message = "GitHub API returned invalid JSON"
+        raise GithubReleaseError(message) from exc
 
 
 def _validate_release(tag: str, data: dict[str, object]) -> str:
@@ -89,13 +96,17 @@ def _validate_release(tag: str, data: dict[str, object]) -> str:
     name = data.get("name") or tag
 
     if draft:
-        raise GithubReleaseError(
-            f"Release '{name}' for {tag} is still a draft. Publish it before running this action."
+        message = (
+            f"Release '{name}' for {tag} is still a draft. "
+            "Publish it before running this action."
         )
+        raise GithubReleaseError(message)
     if prerelease:
-        raise GithubReleaseError(
-            f"Release '{name}' for {tag} is marked as prerelease. Publish a normal release first."
+        message = (
+            f"Release '{name}' for {tag} is marked as prerelease. "
+            "Publish a normal release first."
         )
+        raise GithubReleaseError(message)
 
     return str(name)
 

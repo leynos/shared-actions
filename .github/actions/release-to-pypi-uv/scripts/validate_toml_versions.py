@@ -58,17 +58,20 @@ def _load_toml(path: Path) -> dict[str, object]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise RuntimeError(f"{path}: failed to read: {exc}") from exc
+        message = f"{path}: failed to read: {exc}"
+        raise RuntimeError(message) from exc
 
     try:
         import tomllib
     except ModuleNotFoundError as exc:  # pragma: no cover - python < 3.11
-        raise RuntimeError("tomllib module is unavailable") from exc
+        message = "tomllib module is unavailable"
+        raise RuntimeError(message) from exc
 
     try:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:  # type: ignore[attr-defined]
-        raise RuntimeError(f"{path}: failed to parse: {exc}") from exc
+        message = f"{path}: failed to parse: {exc}"
+        raise RuntimeError(message) from exc
 
 
 def main(

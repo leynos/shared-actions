@@ -5,7 +5,9 @@ from __future__ import annotations
 import io
 import json
 import typing as typ
-from types import ModuleType
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 import pytest
 
@@ -162,7 +164,8 @@ def test_retries_then_success(
     def fake_urlopen(request: typ.Any, timeout: float = 30) -> DummyResponse:  # noqa: ANN401
         attempts.append(1)
         if len(attempts) < 3:
-            raise module.urllib.error.URLError("temporary")
+            message = "temporary"
+            raise module.urllib.error.URLError(message)
         return DummyResponse({"draft": False, "prerelease": False, "name": "ok"})
 
     monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)

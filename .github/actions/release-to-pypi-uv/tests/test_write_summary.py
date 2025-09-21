@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import ModuleType
+import typing as typ
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 import pytest
 

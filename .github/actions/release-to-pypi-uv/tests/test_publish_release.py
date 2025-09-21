@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from types import ModuleType
+import typing as typ
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from types import ModuleType
 
 import pytest
 
@@ -59,7 +62,8 @@ def test_publish_run_cmd_error(
         pass
 
     def fake_run_cmd(_: list[str], **__: object) -> None:
-        raise DummyError("uv publish failed")
+        message = "uv publish failed"
+        raise DummyError(message)
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 

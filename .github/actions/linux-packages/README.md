@@ -1,3 +1,5 @@
+# Linux Packages GitHub Action
+
 Package Rust release artefacts into Linux distribution formats using nFPM.
 
 The action installs `uv` (for inline Python dependencies) and the `nfpm`
@@ -9,17 +11,17 @@ nFPM.
 
 | Name | Type | Default | Description | Required |
 | ---- | ---- | ------- | ----------- | -------- |
-| project-dir | string | `.` | Directory containing the compiled binary, man pages and optional licence file. | no |
+| project-dir | string | `.` | Directory containing the compiled binary, man pages and optional license file. | no |
 | package-name | string | _empty_ | Package identifier written to the nFPM manifest. Defaults to `bin-name` when omitted. | no |
 | bin-name | string | — | Name of the release binary to package. | yes |
 | target | string | `x86_64-unknown-linux-gnu` | Rust target triple used for the build. | no |
 | version | string | — | Version number recorded in the package metadata (for example `1.2.3`). | yes |
-| formats | string | `deb` | Comma- or whitespace-separated list of package formats (for example `deb,rpm` or a multi-line value). | no |
+| formats | string | `deb` | Comma-, space-, or newline-separated list of package formats (for example `deb,rpm` or a multi-line value). | no |
 | release | string | _empty_ | Package release or revision override. Uses the packaging helper default when omitted. | no |
 | arch | string | _empty_ | Override the nFPM/GOARCH architecture. Auto-detected from `target` when not set. | no |
 | maintainer | string | _empty_ | Maintainer entry for the generated package metadata. | no |
 | homepage | string | _empty_ | Homepage URL recorded in package metadata. | no |
-| license | string | _empty_ | Software licence declared in the package metadata. | no |
+| license | string | _empty_ | Software license declared in the package metadata. | no |
 | section | string | _empty_ | Package section/category used by Debian-based distributions. | no |
 | description | string | _empty_ | Long description stored in the package metadata. | no |
 | man-paths | string | _empty_ | Whitespace- or newline-separated list of man page paths relative to `project-dir`. | no |

@@ -13,11 +13,19 @@ def test_linux_packaging_step() -> None:
     data = yaml.safe_load(action.read_text(encoding="utf-8"))
     steps = data["runs"]["steps"]
 
+    stage_step = next(
+        (step for step in steps if step.get("id") == "stage-linux-artifacts"),
+        None,
+    )
+    assert stage_step is not None, "stage-linux-artifacts step missing"
+    assert stage_step.get("if") == "contains(inputs.target, 'unknown-linux-')"
+
     linux_step = next(
         (step for step in steps if "linux-packages" in step.get("uses", "")),
         None,
     )
     assert linux_step is not None, "linux-packages step missing"
+    assert linux_step.get("if") == "contains(inputs.target, 'unknown-linux-')"
     with_block = linux_step.get("with") or {}
     assert with_block.get("project-dir") == "${{ inputs.project-dir }}"
     assert with_block.get("bin-name") == "${{ inputs.bin-name }}"

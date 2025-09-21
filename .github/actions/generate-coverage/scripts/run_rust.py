@@ -161,8 +161,14 @@ def _run_cargo(args: list[str]) -> str:
         errors="replace",
     )
     if proc.stdout is None or proc.stderr is None:
-        msg = "cargo output streams not captured"
-        raise RuntimeError(msg)
+        missing_streams = []
+        if proc.stdout is None:
+            missing_streams.append("stdout")
+        if proc.stderr is None:
+            missing_streams.append("stderr")
+        missing = ", ".join(missing_streams)
+        message = f"cargo output streams not captured: missing {missing}"
+        raise RuntimeError(message)
     stdout_lines: list[str] = []
 
     if os.name == "nt":

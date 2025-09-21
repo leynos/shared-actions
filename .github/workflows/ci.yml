@@ -35,6 +35,14 @@ jobs:
       - name: Install nfpm
         if: matrix.os == 'ubuntu-latest'
         uses: ./.github/actions/install-nfpm
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-fmt
+        shell: bash
+      - name: Run lint checks
+        if: matrix.os == 'ubuntu-latest'
+        run: make lint
+        shell: bash
       - name: Run tests
         run: |
           uv sync --group dev

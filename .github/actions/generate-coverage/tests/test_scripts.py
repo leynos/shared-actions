@@ -464,9 +464,7 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert calls[0].argv[:1] == ["merge-cobertura"]
 
 
-def test_lcov_zero_lines_found(
-    tmp_path: Path, run_rust_module: ModuleType
-) -> None:
+def test_lcov_zero_lines_found(tmp_path: Path, run_rust_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_lcov`` returns 0.00 when no lines are found."""
     lcov = tmp_path / "zero.lcov"
     lcov.write_text("LF:0\nLH:0\n")
@@ -550,9 +548,7 @@ def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None
     assert pct == "50.00"
 
 
-def test_cobertura_root_totals(
-    tmp_path: Path, run_python_module: ModuleType
-) -> None:
+def test_cobertura_root_totals(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` falls back to root totals."""
     xml = tmp_path / "root.xml"
     xml.write_text("<coverage lines-covered='81' lines-valid='100' />")
@@ -560,9 +556,7 @@ def test_cobertura_root_totals(
     assert pct == "81.00"
 
 
-def test_cobertura_zero_lines(
-    tmp_path: Path, run_python_module: ModuleType
-) -> None:
+def test_cobertura_zero_lines(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles zero totals."""
     xml = tmp_path / "zero.xml"
     xml.write_text("<coverage lines-covered='0' lines-valid='0' />")
@@ -570,9 +564,7 @@ def test_cobertura_zero_lines(
     assert pct == "0.00"
 
 
-def test_cobertura_malformed_xml(
-    tmp_path: Path, run_python_module: ModuleType
-) -> None:
+def test_cobertura_malformed_xml(tmp_path: Path, run_python_module: ModuleType) -> None:
     """Malformed XML raises ``typer.Exit``."""
     xml = tmp_path / "bad.xml"
     xml.write_text("<coverage>")
@@ -666,9 +658,7 @@ def test_run_python_coveragepy_malformed_xml_exits(
     assert not github_output.exists()
 
 
-def test_cobertura_missing_file(
-    tmp_path: Path, run_python_module: ModuleType
-) -> None:
+def test_cobertura_missing_file(tmp_path: Path, run_python_module: ModuleType) -> None:
     """Missing Cobertura files raise ``typer.Exit``."""
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(

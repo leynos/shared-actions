@@ -29,10 +29,10 @@ def test_linux_packaging_step() -> None:
     with_block = linux_step.get("with") or {}
     assert with_block.get("project-dir") == "${{ inputs.project-dir }}"
     assert with_block.get("bin-name") == "${{ inputs.bin-name }}"
+    assert with_block.get("package-name") == "${{ inputs.bin-name }}"
     assert with_block.get("target") == "${{ inputs.target }}"
     assert with_block.get("version") == "${{ inputs.version }}"
     assert with_block.get("formats") == "${{ inputs.formats }}"
-    assert "package-name" not in with_block
     assert (
         with_block.get("man-paths")
         == "${{ steps.stage-linux-artifacts.outputs.man-path }}"

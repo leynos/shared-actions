@@ -19,6 +19,7 @@ if typ.TYPE_CHECKING:
 
     from .conftest import HarnessFactory
 
+
 @CMD_MOX_UNSUPPORTED
 def test_skips_target_install_when_cross_available(
     main_module: ModuleType,

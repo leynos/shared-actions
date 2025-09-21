@@ -18,7 +18,12 @@ class DummyResponse:
     def __enter__(self) -> DummyResponse:
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: object | None) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: object | None,
+    ) -> None:
         return None
 
     def read(self) -> bytes:

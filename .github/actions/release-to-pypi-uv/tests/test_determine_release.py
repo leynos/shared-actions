@@ -12,21 +12,9 @@ from shared_actions_conftest import REQUIRES_UV
 pytestmark = REQUIRES_UV
 
 
-def run_script(script: Path, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    """Execute the determine-release script with the provided environment.
-
-    Parameters
-    ----------
-    script : Path
-        Path to the script to execute with ``uv run``.
-    env : dict[str, str]
-        Environment variables to use when invoking the script.
-
-    Returns
-    -------
-    subprocess.CompletedProcess[str]
-        Result object capturing stdout, stderr, and the return code.
-    """
+def run_script(
+    script: Path, *, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
     cmd = ["uv", "run", "--script", str(script)]
     return subprocess.run(  # noqa: S603
         cmd,

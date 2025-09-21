@@ -37,7 +37,4 @@ def test_install_step_uses_python_version_input() -> None:
     data = _load_action()
     steps = data["runs"]["steps"]
     install_step = next(step for step in steps if step["name"] == "Install Python")
-    assert (
-        install_step["run"]
-        == 'uv python install "${{ inputs.python-version }}"'
-    )
+    assert install_step["run"] == 'uv python install "${{ inputs.python-version }}"'

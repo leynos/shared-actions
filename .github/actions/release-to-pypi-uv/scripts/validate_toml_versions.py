@@ -117,11 +117,17 @@ def main(
         checked += 1
 
         dynamic = project.get("dynamic")
-        dynamic_set = {str(item) for item in dynamic} if isinstance(dynamic, (list, tuple)) else set()
+        dynamic_set = (
+            {str(item) for item in dynamic}
+            if isinstance(dynamic, (list, tuple))
+            else set()
+        )
         if "version" in dynamic_set:
             message = f"{path}: uses dynamic 'version' (PEP 621)."
             if fail_dynamic:
-                dynamic_errors.append(f"{message} Set fail-on-dynamic-version=false to allow.")
+                dynamic_errors.append(
+                    f"{message} Set fail-on-dynamic-version=false to allow."
+                )
             else:
                 typer.echo(f"::notice::{message} Skipping version check.")
             continue
@@ -143,7 +149,9 @@ def main(
             typer.echo(f"::error::{error}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Checked {checked} PEP 621 project file(s); all versions match {version}.")
+    typer.echo(
+        f"Checked {checked} PEP 621 project file(s); all versions match {version}."
+    )
 
 
 if __name__ == "__main__":

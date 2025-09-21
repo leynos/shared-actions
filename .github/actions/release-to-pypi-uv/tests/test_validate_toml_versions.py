@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing as typ
+
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from pathlib import Path
 

@@ -61,7 +61,9 @@ runs:
         RBR_TARGET: ${{ inputs.target }}
         RBR_TOOLCHAIN: ${{ env.RBR_TOOLCHAIN }}
       working-directory: ${{ inputs.project-dir }}
-      run: ${{ github.action_path }}/src/main.py
+      run: |
+        set -euo pipefail
+        uv run --script "$GITHUB_ACTION_PATH/src/main.py"
     - name: Stage artifacts
       if: contains(inputs.target, 'unknown-linux-gnu')
       shell: bash

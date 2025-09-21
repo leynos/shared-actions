@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.12"
 # dependencies = [
 #   "cyclopts>=2.9.0",
 #   "plumbum>=1.8",
@@ -118,10 +118,10 @@ SECTION_RE = re.compile(r"\.(\d[\w-]*)($|\.gz$)")
 app = App()
 _env_config = cyclopts.config.Env("INPUT_", command=False)
 existing_config = getattr(app, "config", ())
-if existing_config is None:
-    app.config = (_env_config,)
-else:
+if existing_config:
     app.config = (*tuple(existing_config), _env_config)
+else:
+    app.config = (_env_config,)
 
 
 def _fail(message: str, *, code: int = 2) -> typ.NoReturn:

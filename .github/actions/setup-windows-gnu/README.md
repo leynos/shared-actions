@@ -6,10 +6,10 @@ an `llvm-mingw` release to supply the AArch64 cross linker.
 
 ## Inputs
 
-| Name | Required | Default | Description |
-| --- | --- | --- | --- |
-| `llvm-mingw-version` | No | `20250910` | Release identifier for the `llvm-mingw` archive to install. |
-| `llvm-mingw-sha256` | No | `bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737` | SHA-256 checksum for the archive identified by `llvm-mingw-version`. |
+| Name                 | Required | Default                                                            | Description                                                          |
+| -------------------- | -------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `llvm-mingw-version` | No       | `20250910`                                                         | Release identifier for the `llvm-mingw` archive to install.          |
+| `llvm-mingw-sha256`  | No       | `bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737` | SHA-256 checksum for the archive identified by `llvm-mingw-version`. |
 
 ## Usage
 

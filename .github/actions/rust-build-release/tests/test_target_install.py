@@ -184,6 +184,7 @@ def test_falls_back_to_cargo_when_cross_container_fails(
         "x86_64-pc-windows-msvc",
         "aarch64-pc-windows-gnu",
     ],
+    ids=("x86_64-pc-windows-msvc", "aarch64-pc-windows-gnu"),
 )
 def test_windows_host_skips_container_probe_for_windows_targets(
     main_module: ModuleType,

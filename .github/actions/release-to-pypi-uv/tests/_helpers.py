@@ -6,6 +6,7 @@ import importlib.util
 import os
 import typing as typ
 from pathlib import Path
+from types import ModuleType
 
 _ACTION_PATH = os.environ.get("GITHUB_ACTION_PATH")
 
@@ -18,7 +19,7 @@ else:
     REPO_ROOT = SCRIPTS_DIR.parents[3]
 
 
-def load_script_module(name: str) -> typ.Any:
+def load_script_module(name: str) -> ModuleType:
     """Load a script module by *name* from the action's scripts directory."""
     script_path = SCRIPTS_DIR / f"{name}.py"
     spec = importlib.util.spec_from_file_location(

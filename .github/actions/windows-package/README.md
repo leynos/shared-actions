@@ -37,7 +37,7 @@ inputs):
 | ---- | -------- | ------- | ----------- |
 | `wxs-path` | no | `installer/Package.wxs` | Path to the WiX authoring file used to build the MSI. |
 | `architecture` | no | `x64` | Architecture supplied to `wix build` (`x64` or `x86`). |
-| `version` | no | _auto_ | Version embedded in the MSI. Defaults to `GITHUB_REF_NAME` with a leading `v` removed or `0.0.0`. |
+| `version` | no | _auto_ | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`. |
 | `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
 | `wix-tool-version` | no | _latest_ | Specific version of the `wix` .NET global tool to install. |
 | `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension coordinate loaded during the build. |
@@ -72,12 +72,24 @@ jobs:
           # upload-artifact: 'false'       # disable artifact upload if not needed
 ```
 
-When `version` is omitted the action inspects `GITHUB_REF_NAME`. If the ref
-starts with `v` (e.g. `v1.2.3`) the prefix is removed and the remainder is used
-as the MSI version. All other cases fall back to `0.0.0`.
+In WiX authoring, reference the preprocessor variable supplied via
+`-dVersion=...`:
 
-To show a licence in the installer UI you **must** supply an RTF document and
-reference it from the WiX authoring, for example:
+```xml
+<Package Version="$(Version)">
+```
+
+When `version` is omitted the action inspects `GITHUB_REF_NAME`. If the ref
+starts with `v` (e.g. `v1.2.3`), the prefix is removed and a numeric
+`major.minor.build` triplet is extracted for MSI ProductVersion. Non-numeric
+suffixes are ignored. All other cases fall back to `0.0.0`.
+
+MSI ProductVersion components must be integers in the range `0–255`. Values
+outside that range cause the action to fail fast so that WiX receives a valid
+version.
+
+To display a licence in the installer UI, supply an RTF document and reference
+it from the WiX authoring, for example:
 
 ```xml
 <WixVariable Id="WixUILicenseRtf" Value="assets\LICENSE.rtf" />

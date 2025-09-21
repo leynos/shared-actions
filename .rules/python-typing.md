@@ -8,8 +8,7 @@
 
 Use `Enum` for fixed sets of related constants. Use `enum.auto()` to avoid
 repeating values manually. Use `IntEnum` or `StrEnum` when interoperability
-with integers or strings is required (e.g. for database or JSON
-serialisation).
+with integers or strings is required (e.g. for database or JSON serialisation).
 
 ```python
 import enum
@@ -60,8 +59,8 @@ This is cleaner and avoids the indirection of separate `TypeVar` declarations.
 
 ## `Self` Type (PEP 673)
 
-Use `Self` in fluent interfaces and builder-style APIs to indicate the
-method returns the same instance.
+Use `Self` in fluent interfaces and builder-style APIs to indicate the method
+returns the same instance.
 
 ```python
 import typing
@@ -76,9 +75,8 @@ This improves tool support and enforces correct chaining semantics.
 
 ## `@override` Decorator (PEP 698)
 
-Use `@override` to indicate that a method overrides one from a
-superclass. This enables static analysis tools to detect typos and
-signature mismatches.
+Use `@override` to indicate that a method overrides one from a superclass. This
+enables static analysis tools to detect typos and signature mismatches.
 
 ```python
 import typing
@@ -97,8 +95,8 @@ This decorator is a no-op at runtime but improves tooling correctness.
 
 ## `TypeIs` (PEP 742)
 
-Use `TypeIs[T]` to define custom runtime type guards that narrow types in
-type checkers.
+Use `TypeIs[T]` to define custom runtime type guards that narrow types in type
+checkers.
 
 ```python
 import typing
@@ -112,8 +110,8 @@ Unlike `isinstance`, this informs the type checker that `val` is now
 
 ## Defaults for TypeVars (PEP 696)
 
-Allow generic classes/functions to fall back to default types when no
-specific type is provided.
+Allow generic classes/functions to fall back to default types when no specific
+type is provided.
 
 ```python
 T = typing.TypeVar("T", default=int)
@@ -127,8 +125,8 @@ This makes APIs more ergonomic while retaining type safety.
 
 ## Standard Library Generics (PEP 585)
 
-Use built-in generics from the standard library (`list`, `dict`, `tuple`,
-etc.) instead of `typing.List`, `typing.Dict`, etc.
+Use built-in generics from the standard library (`list`, `dict`, `tuple`, etc.)
+instead of `typing.List`, `typing.Dict`, etc.
 
 ```python
 names: list[str] = ["Alice", "Bob"]
@@ -155,19 +153,18 @@ support.
 type StrDict = dict[str, str]
 ```
 
-This replaces `StrDict = TypeAlias = ...` and is preferred in modern
-Python.
+This replaces `StrDict = TypeAlias = ...` and is preferred in modern Python.
 
 When compatibility with Python < 3.12 is required, keep the older
-``typing.TypeAlias`` syntax and add ``# noqa: UP040`` so ``ruff`` does not
-flag it. Place alias definitions after the import block and group shared
-aliases in ``bournemouth.types`` to avoid duplication.
+``typing.TypeAlias`` syntax and add ``# noqa: UP040`` so ``ruff`` does not flag
+it. Place alias definitions after the import block and group shared aliases in
+``bournemouth.types`` to avoid duplication.
 
 ## `from __future__ import annotations`
 
 Use this import in modules with type annotations to defer evaluation of
-annotation expressions to runtime. This prevents issues with forward
-references and circular imports.
+annotation expressions to runtime. This prevents issues with forward references
+and circular imports.
 
 ```python
 from __future__ import annotations
@@ -200,7 +197,6 @@ import collections.abc as cabc
 This simplifies common types such as `dt.datetime`, `cabc.Iterable`,
 `cabc.Callable`, and helps disambiguate usage.
 
----
+______________________________________________________________________
 
-These conventions promote clarity, tool compatibility, and future-ready
-Python.
+These conventions promote clarity, tool compatibility, and future-ready Python.

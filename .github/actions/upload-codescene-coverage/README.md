@@ -4,19 +4,18 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 
 ## Inputs
 
-| Name             | Description                                  | Required | Default |
-| ---------------- | -------------------------------------------- | -------- | ------- |
-| path             | Coverage file path; blank or `__auto__` infers automatically | no       | `__auto__` |
-| format           | Coverage format (`cobertura` or `lcov`)       | no       | `cobertura` |
-| access-token     | CodeScene project access token                | yes      |         |
-| installer-checksum | SHA-256 checksum of the installer script    | no       |         |
+| Name               | Description                                                  | Required | Default     |
+| ------------------ | ------------------------------------------------------------ | -------- | ----------- |
+| path               | Coverage file path; blank or `__auto__` infers automatically | no       | `__auto__`  |
+| format             | Coverage format (`cobertura` or `lcov`)                      | no       | `cobertura` |
+| access-token       | CodeScene project access token                               | yes      | |
+| installer-checksum | SHA-256 checksum of the installer script                     | no       | |
 
 If `path` is empty or `__auto__`, the action looks for `lcov.info` when
-  `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`.
-The CodeScene CLI is cached using its release version extracted from the
-installer script. If the optional `installer-checksum` input is set,
-the installer is validated before execution. Any other value for
-`format` results in an error.
+`format` is `lcov`, or `coverage.xml` when `format` is `cobertura`. The
+CodeScene CLI is cached using its release version extracted from the installer
+script. If the optional `installer-checksum` input is set, the installer is
+validated before execution. Any other value for `format` results in an error.
 
 The action exports the `access-token` and `installer-checksum` inputs as
 `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.
@@ -45,9 +44,9 @@ None
 
 The CodeScene Coverage CLI is stored in `~/.local/bin/cs-coverage` and cached
 with [actions/cache](https://github.com/actions/cache). The cache key combines
-the runner OS and the CLI version extracted from the installer script. The cache
-is restored at the start of the job and saved after the job finishes. A fallback
-restore key allows reuse across patch releases:
+the runner OS and the CLI version extracted from the installer script. The
+cache is restored at the start of the job and saved after the job finishes. A
+fallback restore key allows reuse across patch releases:
 
 ```yaml
 uses: actions/cache@v4

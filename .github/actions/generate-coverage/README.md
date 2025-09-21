@@ -52,11 +52,11 @@ supported for Python projects. Mixed projects must use `cobertura`.
 
 ## Outputs
 
-| Name | Description |
-| --- | --- |
-| file | Path to the generated coverage file |
-| format | Format of the coverage file |
-| lang | Detected language (`rust`, `python` or `mixed`) |
+| Name   | Description                                     |
+| ------ | ----------------------------------------------- |
+| file   | Path to the generated coverage file             |
+| format | Format of the coverage file                     |
+| lang   | Detected language (`rust`, `python` or `mixed`) |
 
 ## Example
 
@@ -120,7 +120,7 @@ The action prints the current coverage percentage to the log. When
 percentage is shown as well.
 
 Coverage reports are archived as workflow artifacts named
-``<format>-<job>-<index>`` by default, preventing collisions when the action
-is run in matrix jobs.
+``<format>-<job>-<index>`` by default, preventing collisions when the action is
+run in matrix jobs.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

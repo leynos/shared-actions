@@ -1,12 +1,12 @@
 # Using Context Managers for Cleanup and Resource Management
 
 Use context managers to encapsulate setup and teardown logic cleanly and
-safely. This reduces the risk of forgetting to release resources (files,
-locks, connections, etc.) and simplifies error handling.
+safely. This reduces the risk of forgetting to release resources (files, locks,
+connections, etc.) and simplifies error handling.
 
-Context managers can be written either with `contextlib.contextmanager`
-(for simple procedural control flow) or by implementing `__enter__` and
-`__exit__` in a class (for more complex or stateful use cases).
+Context managers can be written either with `contextlib.contextmanager` (for
+simple procedural control flow) or by implementing `__enter__` and `__exit__`
+in a class (for more complex or stateful use cases).
 
 ## Why Use Context Managers?
 
@@ -14,7 +14,7 @@ Context managers can be written either with `contextlib.contextmanager`
 - **Clarity:** Reduces boilerplate and visually scopes side effects.
 - **Reuse:** Common setup/teardown logic becomes reusable and composable.
 
----
+______________________________________________________________________
 
 ## Example: Using `contextlib.contextmanager`
 
@@ -38,7 +38,7 @@ with managed_file("/tmp/data.txt", "w") as f:
 
 This avoids repeating `try/finally` in every file access.
 
----
+______________________________________________________________________
 
 ## Example: Using a Class-Based Context Manager
 
@@ -60,7 +60,7 @@ with Resource() as conn:
 
 This keeps state encapsulated and makes testing easier.
 
----
+______________________________________________________________________
 
 ## When to Use Which
 
@@ -71,7 +71,7 @@ This keeps state encapsulated and makes testing easier.
   - There is internal state or methods tied to the resource lifecycle.
   - You need to support re-entry or more advanced context features.
 
----
+______________________________________________________________________
 
 ## Common Use Cases
 
@@ -81,7 +81,7 @@ This keeps state encapsulated and makes testing easier.
 - Logging scope control or tracing
 - Transaction control in databases or services
 
----
+______________________________________________________________________
 
 ## Don't Do This
 
@@ -100,5 +100,5 @@ with open("file.txt") as f:
     process(f)
 ```
 
-Context managers make your intent and error handling explicit. Prefer them
-over manual `try/finally` for clearer, safer code.
+Context managers make your intent and error handling explicit. Prefer them over
+manual `try/finally` for clearer, safer code.

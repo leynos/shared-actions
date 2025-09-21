@@ -15,7 +15,7 @@ class ScriptImportError(ImportError):
         super().__init__(f"Unable to load module {module!r} from {package_path}")
 
 
-__all__ = ["load_sibling"]
+__all__ = ["ScriptImportError", "load_sibling"]
 
 _PACKAGE_NAME = __name__
 _PACKAGE_PATH = Path(__file__).resolve().parent

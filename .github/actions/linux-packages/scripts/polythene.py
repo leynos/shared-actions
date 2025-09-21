@@ -56,16 +56,16 @@ else:
         import importlib.util
         import sys
 
-        _PKG_DIR = Path(__file__).resolve().parent
-        _PKG_NAME = "linux_packages_scripts"
+        PKG_DIR = Path(__file__).resolve().parent
+        _PKG_NAME = f"{PKG_DIR.parent.name.replace('-', '')}_scripts"
         pkg_module = sys.modules.get(_PKG_NAME)
         if pkg_module is None:
             pkg_module = types.ModuleType(_PKG_NAME)
-            pkg_module.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
+            pkg_module.__path__ = [str(PKG_DIR)]  # type: ignore[attr-defined]
             sys.modules[_PKG_NAME] = pkg_module
         if not hasattr(pkg_module, "load_sibling"):
             spec = importlib.util.spec_from_file_location(
-                _PKG_NAME, _PKG_DIR / "__init__.py"
+                _PKG_NAME, PKG_DIR / "__init__.py"
             )
             if spec is None or spec.loader is None:
                 raise ImportError(name="script_utils") from None

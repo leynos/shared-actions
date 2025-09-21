@@ -24,6 +24,22 @@ def _emit_outputs(dest: Path, tag: str, version: str) -> None:
 
 
 def main(tag: str | None = TAG_OPTION, github_output: Path = GITHUB_OUTPUT_OPTION) -> None:
+    """Resolve the release tag and write outputs for downstream steps.
+
+    Parameters
+    ----------
+    tag : str | None
+        Tag supplied via workflow input when the workflow is not running on a
+        tag reference.
+    github_output : Path
+        Path to the ``GITHUB_OUTPUT`` file that receives the resolved values.
+
+    Raises
+    ------
+    typer.Exit
+        Raised when no tag can be determined or the tag is not SemVer
+        compliant.
+    """
     ref_type = os.getenv("GITHUB_REF_TYPE", "")
     ref_name = os.getenv("GITHUB_REF_NAME", "")
 

@@ -55,7 +55,10 @@ version = "1.0.0"
     _invoke_main(module, version="1.0.0")
 
     captured = capsys.readouterr()
-    assert "all versions match 1.0.0" in captured.out
+    assert (
+        captured.out.strip()
+        == "Checked 1 PEP 621 project file(s); all versions match 1.0.0."
+    )
 
 
 def test_fails_on_mismatch(

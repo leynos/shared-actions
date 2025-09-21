@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import collections.abc as cabc
+import shutil
 import sys
 
 import pytest
@@ -12,8 +13,19 @@ import pytest
 CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
     sys.platform == "win32", reason="cmd-mox does not support Windows"
 )
+HAS_UV = shutil.which("uv") is not None
+
+REQUIRES_UV = pytest.mark.usefixtures("require_uv")
 
 sys.modules.setdefault("shared_actions_conftest", sys.modules[__name__])
+
+
+@pytest.fixture()
+def require_uv() -> None:
+    """Skip tests that exercise uv when the CLI is unavailable."""
+
+    if not HAS_UV:
+        pytest.skip("uv CLI not installed")
 
 
 def _register_cross_version_stub(

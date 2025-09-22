@@ -50,6 +50,21 @@ def should_probe_container(host_platform: str, target: str) -> bool:
     return not _target_is_windows(target)
 
 
+def _probe_runtime(name: str) -> bool:
+    """Return True when *name* runtime is available, tolerating probe timeouts."""
+    try:
+        return runtime_available(name)
+    except subprocess.TimeoutExpired as exc:
+        timeout = getattr(exc, "timeout", None)
+        duration = f" after {timeout}s" if timeout else ""
+        message = (
+            f"::warning::{name} runtime probe timed out{duration}; "
+            "treating runtime as unavailable"
+        )
+        typer.echo(message, err=True)
+        return False
+
+
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
@@ -135,8 +150,8 @@ def main(
     docker_present = False
     podman_present = False
     if should_probe_container(sys.platform, target):
-        docker_present = runtime_available("docker")
-        podman_present = runtime_available("podman")
+        docker_present = _probe_runtime("docker")
+        podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present
 
     use_cross = cross_path is not None and has_container

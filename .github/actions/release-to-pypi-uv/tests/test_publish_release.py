@@ -10,15 +10,16 @@ if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
 import pytest
 from typer.testing import CliRunner
 
-from ._helpers import REPO_ROOT, load_script_module
+from ._helpers import SCRIPTS_DIR, load_script_module
 
 
 @pytest.fixture(name="publish_module")
 def fixture_publish_module() -> ModuleType:
     """Load the ``publish_release`` script module with repository paths set."""
     module = load_script_module("publish_release")
-    if str(REPO_ROOT) not in module.sys.path:  # type: ignore[attr-defined]
-        module.sys.path.insert(0, str(REPO_ROOT))  # type: ignore[attr-defined]
+    scripts_dir = str(SCRIPTS_DIR)
+    if scripts_dir not in module.sys.path:  # type: ignore[attr-defined]
+        module.sys.path.insert(0, scripts_dir)  # type: ignore[attr-defined]
     return module
 
 

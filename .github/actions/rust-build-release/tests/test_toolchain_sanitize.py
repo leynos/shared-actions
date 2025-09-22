@@ -51,6 +51,11 @@ def _host_linux_triple() -> str:
         "amd64": "x86_64",
         "aarch64": "aarch64",
         "arm64": "aarch64",
+        "i686": "i686",
+        "i586": "i686",
+        "i386": "i686",
+        "ppc64le": "powerpc64le",
+        "s390x": "s390x",
     }
     arch = arch_map.get(machine)
     if arch is None:  # pragma: no cover - defensive skip

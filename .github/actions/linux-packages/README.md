@@ -24,14 +24,14 @@ nFPM.
 | license | string | _empty_ | Software license declared in the package metadata. | no |
 | section | string | _empty_ | Package section/category used by Debian-based distributions. | no |
 | description | string | _empty_ | Long description stored in the package metadata. | no |
-| man-paths | string | _empty_ | Whitespace- or newline-separated list of man page paths relative to `project-dir`. | no |
+| man-paths | string | _empty_ | Comma-, space-, or newline-separated list of man page paths relative to `project-dir`. | no |
 | man-section | string | _empty_ | Default man section applied when a path lacks a suffix (for example `1`). | no |
 | man-stage | string | _empty_ | Directory used to stage gzipped man pages before invoking nFPM. | no |
 | binary-dir | string | _empty_ | Cargo `target` directory containing build artefacts. | no |
 | outdir | string | _empty_ | Directory where packages will be written. | no |
 | config-path | string | _empty_ | Location to write the generated `nfpm.yaml` configuration. | no |
-| deb-depends | string | _empty_ | Whitespace- or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
-| rpm-depends | string | _empty_ | Whitespace- or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
+| deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
+| rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
 
 ## Outputs
 
@@ -64,9 +64,10 @@ None.
 ```
 
 The action assumes a release binary is already present at
-`target/<target>/release/<bin-name>` and that any man pages referenced via
-`man-paths` exist relative to `project-dir`. List inputs such as `formats`,
-`man-paths`, `deb-depends` and `rpm-depends` accept comma-, space- or
+`project-dir/target/<target>/release/<bin-name>` (with the default `project-dir`
+resolving to `./target/<target>/release/<bin-name>`) and that any man pages
+referenced via `man-paths` exist relative to `project-dir`. List inputs such as
+`formats`, `man-paths`, `deb-depends` and `rpm-depends` accept comma-, space- or
 newline-separated values; when provided as a multi-line YAML string each line is
 treated as a distinct entry.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer"]
+# dependencies = ["typer>=0.17,<0.18"]
 # ///
 """Resolve the release tag and semantic version for the current run."""
 

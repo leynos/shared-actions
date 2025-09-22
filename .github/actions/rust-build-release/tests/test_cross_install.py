@@ -13,6 +13,7 @@ from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
     _register_docker_info_stub,
+    _register_podman_info_stub,
     _register_rustup_toolchain_stub,
 )
 
@@ -421,9 +422,14 @@ def test_falls_back_to_git_when_crates_io_unavailable(
     cmd_mox.verify()
 
     assert len(harness.calls) == 2
-    assert "--git" in harness.calls[1]
-    assert "--tag" in harness.calls[1]
-    assert "v0.2.5" in harness.calls[1]
+    first, second = harness.calls
+    # First attempt was crates.io
+    assert "--git" not in first
+    assert "--tag" not in first
+    # Second attempt is the git fallback with a tag
+    assert "--git" in second
+    assert "--tag" in second
+    assert "v0.2.5" in second
     assert path == cross_path
     assert ver == "0.2.5"
 
@@ -451,6 +457,43 @@ def test_falls_back_to_cargo_when_runtime_unusable(
         if name == "cross":
             return cross_path
         return rustup_path if name == "rustup" else None
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+    cmd_mox.verify()
+
+    assert any(cmd[0] == "cargo" for cmd in app_env.calls)
+    assert all(cmd[0] != "cross" for cmd in app_env.calls)
+
+
+@CMD_MOX_UNSUPPORTED
+def test_falls_back_to_cargo_when_podman_unusable(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+) -> None:
+    """Falls back to cargo when podman exists but is unusable."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    podman_path = _register_podman_info_stub(cmd_mox, exit_code=1)
+
+    def fake_which(name: str) -> str | None:
+        if name == "podman":
+            return podman_path
+        if name == "cross":
+            return cross_path
+        if name == "rustup":
+            return rustup_path
+        return None
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)

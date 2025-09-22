@@ -60,7 +60,6 @@ def run_script(
 
 def _host_linux_triple() -> str:
     """Return the host's GNU/Linux target triple."""
-
     if not sys.platform.startswith("linux"):  # pragma: no cover - defensive skip
         pytest.skip(f"unsupported platform: {sys.platform!r}")
 
@@ -85,7 +84,6 @@ def _host_linux_triple() -> str:
 @pytest.mark.usefixtures("uncapture_if_verbose")
 def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
-
     target_triple = _host_linux_triple()
     toolchain_spec = f"{RUST_TOOLCHAIN}-{target_triple}"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
@@ -121,9 +119,9 @@ def test_accepts_toolchain_with_triple() -> None:
         cwd=project_dir,
     )
     assert res.returncode == 0
-    binary = project_dir / "target" / target_triple / "release" / "rust-toy-app"
-    assert binary.is_file()
-    manpage_glob = (
-        project_dir / "target" / target_triple / "release" / "build"
-    ).glob("rust-toy-app-*/out/rust-toy-app.1")
-    assert any(path.is_file() for path in manpage_glob)
+    binary = project_dir / f"target/{target_triple}/release/rust-toy-app"
+    assert binary.exists()
+    manpage_glob = project_dir.glob(
+        f"target/{target_triple}/release/build/rust-toy-app-*/out/rust-toy-app.1"
+    )
+    assert any(manpage_glob)

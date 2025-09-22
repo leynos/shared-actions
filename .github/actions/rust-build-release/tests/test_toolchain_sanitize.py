@@ -6,17 +6,19 @@ import os
 import platform
 import subprocess
 import sys
+import typing as typ
 from pathlib import Path
-from types import ModuleType
 
 import pytest
+
+if typ.TYPE_CHECKING:
+    from types import ModuleType
 
 from cmd_utils import run_cmd
 
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
     """The action strips host triples when preparing cross CLI overrides."""
-
     channel = main_module._toolchain_channel("1.89.0-x86_64-unknown-linux-gnu")
     assert channel == "1.89.0"
 
@@ -27,6 +29,7 @@ def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
 
     stable = main_module._toolchain_channel("stable")
     assert stable == "stable"
+
 
 os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
 
@@ -102,7 +105,8 @@ def test_accepts_toolchain_with_triple() -> None:
             "--no-self-update",
         ]
     )
-    # Ensure the host-qualified toolchain name exists as well (no-op if already present).
+    # Ensure the host-qualified toolchain name exists as well
+    # (no-op if already present).
     run_cmd(
         [
             "rustup",

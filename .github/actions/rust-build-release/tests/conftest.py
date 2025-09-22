@@ -18,15 +18,30 @@ from cmd_utils import run_cmd
 try:
     from ._packaging_utils import (
         DEFAULT_CONFIG as _DEFAULT_CONFIG,
+    )
+    from ._packaging_utils import (
         DEFAULT_TARGET as _DEFAULT_TARGET,
+    )
+    from ._packaging_utils import (
         BuildArtifacts as _BuildArtifacts,
+    )
+    from ._packaging_utils import (
         PackagingConfig as _PackagingConfig,
+    )
+    from ._packaging_utils import (
         PackagingProject as _PackagingProject,
+    )
+    from ._packaging_utils import (
         build_release_artifacts as _build_release_artifacts,
+    )
+    from ._packaging_utils import (
         package_project as _package_project,
+    )
+    from ._packaging_utils import (
         packaging_project as _packaging_project,
     )
 except Exception:  # noqa: BLE001
+    _NO_SPEC_MSG = "failed to import packaging utils: spec not found"
     pkg_utils_path = (
         Path(__file__).resolve().parents[2]
         / "linux-packages"
@@ -37,7 +52,7 @@ except Exception:  # noqa: BLE001
         "linux_packages_packaging_utils", pkg_utils_path
     )
     if spec is None or spec.loader is None:
-        raise SystemExit("failed to import packaging utils: spec not found") from None
+        raise SystemExit(_NO_SPEC_MSG) from None
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)

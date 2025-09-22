@@ -122,7 +122,17 @@ def main(
     toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
         try:
-            run_cmd([rustup_exec, "toolchain", "install", toolchain])
+            run_cmd(
+                [
+                    rustup_exec,
+                    "toolchain",
+                    "install",
+                    toolchain,
+                    "--profile",
+                    "minimal",
+                    "--no-self-update",
+                ]
+            )
         except subprocess.CalledProcessError:
             typer.echo(
                 f"::error:: failed to install toolchain '{toolchain}'",

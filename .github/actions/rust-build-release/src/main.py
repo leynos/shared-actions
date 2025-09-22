@@ -191,6 +191,23 @@ def main(
         installed_names = _list_installed_toolchains(rustup_exec)
         toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
+        # Fallback: any installed variant that starts with the channel name.
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name == toolchain or name.startswith(channel_prefix)
+            ),
+            "",
+        )
+    if not toolchain_name:
+        # Accept host-architecture-suffixed installations of the requested channel
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (name for name in installed_names if name.startswith(channel_prefix)), ""
+        )
+    if not toolchain_name:
         typer.echo(
             f"::error:: requested toolchain '{toolchain}' not installed",
             err=True,
@@ -268,6 +285,9 @@ def main(
     else:
         typer.echo(f"Building with cross ({cross_version})")
 
+    toolchain_spec = (
+        f"+{_toolchain_channel(toolchain_name)}" if use_cross else f"+{toolchain_name}"
+    )
     build_cmd = [
         "cross" if use_cross else "cargo",
         cross_toolchain_spec if use_cross else cargo_toolchain_spec,

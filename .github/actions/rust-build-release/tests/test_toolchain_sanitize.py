@@ -85,6 +85,18 @@ def test_accepts_toolchain_with_triple() -> None:
             "--no-self-update",
         ]
     )
+    # Ensure the host-qualified toolchain name exists as well (no-op if already present).
+    run_cmd(
+        [
+            "rustup",
+            "toolchain",
+            "install",
+            toolchain_spec,
+            "--profile",
+            "minimal",
+            "--no-self-update",
+        ]
+    )
     res = run_script(
         script,
         target_triple,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import runpy
 import sys
 import types
@@ -131,11 +132,12 @@ def test_main_uses_default_paths_for_blank_inputs(
     assert man_stage.is_dir()
     assert commands, "nfpm command should be invoked"
     command_args = commands[0]
-    assert "dist/nfpm.yaml" in command_args
     assert "-f" in command_args
-    assert command_args[command_args.index("-f") + 1] == "dist/nfpm.yaml"
+    config_arg = Path(command_args[command_args.index("-f") + 1])
+    assert config_arg == Path("dist") / "nfpm.yaml"
     assert "-t" in command_args
-    assert command_args[command_args.index("-t") + 1] == "dist"
+    target_arg = Path(command_args[command_args.index("-t") + 1])
+    assert target_arg == Path("dist")
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     contents = config["contents"]
@@ -152,10 +154,16 @@ def _run_script_with_fallback(
     module_path = scripts_dir / script
     original_sys_path = list(sys.path)
     original_helper = sys.modules.get("script_utils")
+    missing_geteuid = False
+    if not hasattr(os, "geteuid"):
+        missing_geteuid = True
+        os.geteuid = lambda: 0  # type: ignore[attr-defined]
     try:
         result_globals = runpy.run_path(module_path.as_posix(), run_name=module_name)
         helper_module = sys.modules.get("script_utils")
     finally:
+        if missing_geteuid:
+            delattr(os, "geteuid")
         sys.path[:] = original_sys_path
         if original_helper is None:
             sys.modules.pop("script_utils", None)

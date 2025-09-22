@@ -49,6 +49,22 @@ def test_normalise_list_preserves_case_variants(
     assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("x86_64-unknown-linux-gnu", "amd64"),
+        ("i686-unknown-linux-gnu", "i386"),
+        ("aarch64-unknown-linux-gnu", "arm64"),
+        ("armv7-unknown-linux-gnueabihf", "armhf"),
+        ("riscv64gc-unknown-linux-gnu", "riscv64"),
+        ("powerpc64le-unknown-linux-gnu", "amd64"),
+    ],
+)
+def test_deb_arch_for_target_matches_action_mapping(target: str, expected: str) -> None:
+    """Helper mirrors the Debian arch logic used during staging."""
+    assert pkg_utils.deb_arch_for_target(target) == expected
+
+
 def test_coerce_optional_path_handles_none_and_blank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

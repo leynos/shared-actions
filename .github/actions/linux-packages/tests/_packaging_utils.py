@@ -87,7 +87,20 @@ def deb_arch_for_target(target: str) -> str:
         return "i386"
     if lowered.startswith(("aarch64-", "arm64-")):
         return "arm64"
-    return "riscv64" if lowered.startswith("riscv64") else "amd64"
+    if lowered.startswith(
+        (
+            "armv7-",
+            "armv7_",
+            "armv6-",
+            "armv6_",
+            "arm-unknown-linux-gnueabihf",
+            "arm-unknown-linux-musleabihf",
+        )
+    ):
+        return "armhf"
+    if lowered.startswith("riscv64"):
+        return "riscv64"
+    return "amd64"
 
 
 def build_release_artifacts(

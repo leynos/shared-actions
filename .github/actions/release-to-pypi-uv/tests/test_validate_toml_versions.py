@@ -32,7 +32,7 @@ def _write_pyproject(base: Path, content: str) -> None:
     (base / "pyproject.toml").write_text(content.strip())
 
 
-def _invoke_main(module: ModuleType, **kwargs: str) -> None:
+def _invoke_main(module: ModuleType, **kwargs: typ.Any) -> None:
     """Invoke ``module.main`` with defaults tailored for the tests."""
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
@@ -196,7 +196,7 @@ dynamic = ["version"]
 """,
     )
 
-    _invoke_main(module, version="1.0.0", fail_on_dynamic="")
+    _invoke_main(module, version="1.0.0", fail_on_dynamic=None)
 
     captured = capsys.readouterr()
     assert "uses dynamic 'version'" in captured.out

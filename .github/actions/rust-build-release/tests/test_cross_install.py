@@ -421,9 +421,11 @@ def test_falls_back_to_git_when_crates_io_unavailable(
     cmd_mox.verify()
 
     assert len(harness.calls) == 2
-    assert "--git" in harness.calls[1]
-    assert "--tag" in harness.calls[1]
-    assert "v0.2.5" in harness.calls[1]
+    first, second = harness.calls
+    # First attempt was crates.io
+    assert "--git" not in first and "--tag" not in first
+    # Second attempt is the git fallback with a tag
+    assert "--git" in second and "--tag" in second and "v0.2.5" in second
     assert path == cross_path
     assert ver == "0.2.5"
 

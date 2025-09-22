@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer"]
+# dependencies = ["typer>=0.12,<0.13"]
 # ///
 """Validate that project versions in pyproject.toml files match the release version."""
 
@@ -28,6 +28,9 @@ SKIP_PARTS = {
     "build",
     ".direnv",
     ".mypy_cache",
+    ".pytest_cache",
+    ".cache",
+    "htmlcov",
 }
 
 TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}

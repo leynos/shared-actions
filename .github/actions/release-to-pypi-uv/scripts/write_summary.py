@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer"]
+# dependencies = ["typer>=0.12,<0.13"]
 # ///
 """Append a short release summary for the workflow run."""
 
@@ -12,16 +12,20 @@ from pathlib import Path  # noqa: TC003  # used at runtime for Typer CLI types
 import typer
 
 TAG_OPTION = typer.Option(..., envvar="RESOLVED_TAG")
-INDEX_OPTION = typer.Option("", envvar="INPUT_UV_INDEX")
+INDEX_OPTION = typer.Option(
+    "",
+    envvar="INPUT_UV_INDEX",
+    help="Optional index name or URL for uv publish.",
+)
 ENV_OPTION = typer.Option("pypi", envvar="INPUT_ENVIRONMENT_NAME")
 SUMMARY_OPTION = typer.Option(..., envvar="GITHUB_STEP_SUMMARY")
 
 
 def main(
-    tag: str = TAG_OPTION,
-    index: str = INDEX_OPTION,
-    environment_name: str = ENV_OPTION,
-    summary_path: Path = SUMMARY_OPTION,
+    tag: str,
+    index: str,
+    environment_name: str,
+    summary_path: Path,
 ) -> None:
     """Append release details to the GitHub step summary file.
 
@@ -36,7 +40,7 @@ def main(
     summary_path : Path
         File path to ``GITHUB_STEP_SUMMARY`` that should receive the content.
     """
-    index_label = index or "pypi (default)"
+    index_label = index.strip() or "pypi (default)"
     heading = "## Release summary\n"
     lines = [
         f"- Released tag: {tag}\n",
@@ -51,5 +55,21 @@ def main(
             fh.write(line)
 
 
+def cli(
+    tag: str = TAG_OPTION,
+    index: str = INDEX_OPTION,
+    environment_name: str = ENV_OPTION,
+    summary_path: Path = SUMMARY_OPTION,
+) -> None:
+    """CLI entrypoint."""
+
+    main(
+        tag=tag,
+        index=index,
+        environment_name=environment_name,
+        summary_path=summary_path,
+    )
+
+
 if __name__ == "__main__":
-    typer.run(main)
+    typer.run(cli)

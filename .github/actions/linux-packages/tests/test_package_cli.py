@@ -56,13 +56,34 @@ def test_normalise_list_preserves_case_variants(
         ("i686-unknown-linux-gnu", "i386"),
         ("aarch64-unknown-linux-gnu", "arm64"),
         ("armv7-unknown-linux-gnueabihf", "armhf"),
+        ("armv6-unknown-linux-gnueabihf", "armhf"),
+        ("armv7l-unknown-linux-gnueabihf", "armhf"),
         ("riscv64gc-unknown-linux-gnu", "riscv64"),
-        ("powerpc64le-unknown-linux-gnu", "amd64"),
+        ("powerpc64le-unknown-linux-gnu", "ppc64el"),
     ],
 )
 def test_deb_arch_for_target_matches_action_mapping(target: str, expected: str) -> None:
     """Helper mirrors the Debian arch logic used during staging."""
     assert pkg_utils.deb_arch_for_target(target) == expected
+
+
+def test_deb_arch_for_target_rejects_unknown() -> None:
+    """Helper surfaces unknown targets instead of falling back to amd64."""
+    with pytest.raises(pkg_utils.packaging_script.UnsupportedTargetError):
+        pkg_utils.deb_arch_for_target("mips64-unknown-linux-gnuabi64")
+
+
+def test_main_errors_for_unknown_target(packaging_module: types.ModuleType) -> None:
+    """CLI exits early when the target cannot be mapped to an architecture."""
+    with pytest.raises(packaging_module.PackagingError) as exc:
+        packaging_module.main(
+            bin_name="toy",
+            version="1.2.3",
+            formats=["deb"],
+            target="mips64-unknown-linux-gnuabi64",
+        )
+
+    assert "unsupported target triple" in str(exc.value)
 
 
 def test_coerce_optional_path_handles_none_and_blank(

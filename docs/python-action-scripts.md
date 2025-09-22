@@ -14,7 +14,8 @@ header so the runner can install dependencies on demand.
 #   "cyclopts>=2.9,<3.0",
 #   "plumbum>=1.8,<2.0",
 #   "pyyaml>=6.0,<7.0",
-#   "typer>=0.9,<1.0",  # optional: coloured error reporting via script_utils
+#   "typer>=0.9,<1.0",
+#   # optional: coloured error reporting via script_utils
 # ]
 # ///
 ```

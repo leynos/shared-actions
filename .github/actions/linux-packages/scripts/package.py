@@ -38,6 +38,7 @@ from cyclopts import App, Parameter
 from plumbum.commands.processes import ProcessExecutionError
 
 if typ.TYPE_CHECKING:
+    from .architectures import UnsupportedTargetError, nfpm_arch_for_target
     from .script_utils import (
         ensure_directory,
         ensure_exists,
@@ -46,6 +47,7 @@ if typ.TYPE_CHECKING:
     )
 else:  # pragma: no cover - runtime fallback when executed as a script
     try:
+        from .architectures import UnsupportedTargetError, nfpm_arch_for_target
         from .script_utils import (
             ensure_directory,
             ensure_exists,
@@ -60,6 +62,9 @@ else:  # pragma: no cover - runtime fallback when executed as a script
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd
+        arch_helpers = typ.cast("typ.Any", __import__("architectures"))
+        nfpm_arch_for_target = arch_helpers.nfpm_arch_for_target
+        UnsupportedTargetError = arch_helpers.UnsupportedTargetError
 
 
 class PackagingError(RuntimeError):
@@ -121,30 +126,6 @@ def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode
 
 
 yaml.SafeDumper.add_representer(OctalInt, _represent_octal_int)
-
-
-def map_target_to_arch(target: str) -> str:
-    """Map a Rust target triple to nFPM/GOARCH arch strings."""
-    t = target.lower()
-    if t.startswith(("x86_64-", "x86_64_")):
-        return "amd64"
-    if t.startswith(("aarch64-", "arm64-")):
-        return "arm64"
-    if t.startswith(("i686-", "i586-", "i386-")):
-        return "386"
-    if t.startswith(("armv7-", "armv6-", "arm-")):
-        return "arm"
-    if t.startswith("riscv64-"):
-        return "riscv64"
-    if t.startswith(("powerpc64le-", "ppc64le-")):
-        return "ppc64le"
-    if t.startswith("s390x-"):
-        return "s390x"
-    if t.startswith(("loongarch64-", "loong64-")):
-        return "loong64"
-    # Unknown triples intentionally fall through; PackagingError.unsupported_target
-    # surfaces a clear failure for unsupported combinations.
-    raise PackagingError.unsupported_target(target)
 
 
 def infer_section(path: Path, default: str) -> str:
@@ -308,7 +289,10 @@ def main(
 
     target_value = target.strip() or "x86_64-unknown-linux-gnu"
     release_value = (release or "1").strip() or "1"
-    arch_value = (arch or map_target_to_arch(target_value)).strip()
+    try:
+        arch_value = (arch or nfpm_arch_for_target(target_value)).strip()
+    except UnsupportedTargetError as exc:
+        raise PackagingError.unsupported_target(target_value) from exc
 
     binary_root = _coerce_optional_path(
         binary_dir,

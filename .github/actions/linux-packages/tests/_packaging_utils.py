@@ -24,7 +24,10 @@ from script_utils import unique_match  # noqa: E402
 
 SCRIPTS_DIR = TESTS_ROOT.parent / "scripts"
 sys.path.append(str(SCRIPTS_DIR))
+import architectures  # noqa: E402
 import package as packaging_script  # noqa: E402
+
+deb_arch_for_target = architectures.deb_arch_for_target
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -76,31 +79,6 @@ def packaging_project() -> PackagingProject:
         package_script=tests_root / "scripts" / "package.py",
         polythene_script=tests_root / "scripts" / "polythene.py",
     )
-
-
-def deb_arch_for_target(target: str) -> str:
-    """Return the nfpm architecture label for *target*."""
-    lowered = target.lower()
-    if lowered.startswith(("x86_64-", "x86_64_")):
-        return "amd64"
-    if lowered.startswith(("i686-", "i686_", "i586-", "i586_", "i386-", "i386_")):
-        return "i386"
-    if lowered.startswith(("aarch64-", "arm64-")):
-        return "arm64"
-    if lowered.startswith(
-        (
-            "armv7-",
-            "armv7_",
-            "armv6-",
-            "armv6_",
-            "arm-unknown-linux-gnueabihf",
-            "arm-unknown-linux-musleabihf",
-        )
-    ):
-        return "armhf"
-    if lowered.startswith("riscv64"):
-        return "riscv64"
-    return "amd64"
 
 
 def build_release_artifacts(

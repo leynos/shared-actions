@@ -232,11 +232,17 @@ def build_man_entries(
 
 def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str]:
     entries: list[str] = []
+    seen: set[str] = set()
     source = values if values is not None else default
     for item in source:
         for token in re.split(r"[\s,]+", item.strip()):
-            if token and token not in entries:
-                entries.append(token)
+            if not token:
+                continue
+            lowered = token.casefold()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            entries.append(token)
     return entries
 
 
@@ -250,9 +256,7 @@ def _coerce_optional_path(
     if value is None:
         return fallback
     text = str(value).strip()
-    if not text:
-        return fallback
-    return Path(text)
+    return fallback if not text else Path(text)
 
 
 def _coerce_path_list(values: list[Path] | None, env_var: str) -> list[Path]:

@@ -87,9 +87,7 @@ def deb_arch_for_target(target: str) -> str:
         return "i386"
     if lowered.startswith(("aarch64-", "arm64-")):
         return "arm64"
-    if lowered.startswith("riscv64"):
-        return "riscv64"
-    return "amd64"
+    return "riscv64" if lowered.startswith("riscv64") else "amd64"
 
 
 def build_release_artifacts(
@@ -295,20 +293,28 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
             )
             checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
             sums_path = Path(td) / "checksums.txt"
-            run_cmd(
-                local["curl"][
-                    "-fsSL",
-                    "--retry",
-                    "3",
-                    "--retry-connrefused",
-                    "--max-time",
-                    "60",
-                    checks_url,
-                    "-o",
-                    sums_path,
-                ]
-            )
-            sums_text = sums_path.read_text(encoding="utf-8")
+            sums_text = ""
+            try:
+                run_cmd(
+                    local["curl"][
+                        "-fsSL",
+                        "--retry",
+                        "3",
+                        "--retry-connrefused",
+                        "--max-time",
+                        "60",
+                        checks_url,
+                        "-o",
+                        sums_path,
+                    ]
+                )
+            except ProcessExecutionError:
+                pass
+            else:
+                try:
+                    sums_text = sums_path.read_text(encoding="utf-8")
+                except OSError:
+                    sums_text = ""
 
             expected_hash: str | None = None
             pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"

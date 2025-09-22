@@ -15,6 +15,41 @@ import pytest
 
 from cmd_utils import run_cmd
 
+try:
+    from ._packaging_utils import (
+        DEFAULT_CONFIG as _DEFAULT_CONFIG,
+        DEFAULT_TARGET as _DEFAULT_TARGET,
+        BuildArtifacts as _BuildArtifacts,
+        PackagingConfig as _PackagingConfig,
+        PackagingProject as _PackagingProject,
+        build_release_artifacts as _build_release_artifacts,
+        package_project as _package_project,
+        packaging_project as _packaging_project,
+    )
+except Exception:  # noqa: BLE001
+    pkg_utils_path = (
+        Path(__file__).resolve().parents[2]
+        / "linux-packages"
+        / "tests"
+        / "_packaging_utils.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "linux_packages_packaging_utils", pkg_utils_path
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit("failed to import packaging utils: spec not found") from None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    _DEFAULT_CONFIG = mod.DEFAULT_CONFIG
+    _DEFAULT_TARGET = mod.DEFAULT_TARGET
+    _BuildArtifacts = mod.BuildArtifacts
+    _PackagingConfig = mod.PackagingConfig
+    _PackagingProject = mod.PackagingProject
+    _build_release_artifacts = mod.build_release_artifacts
+    _package_project = mod.package_project
+    _packaging_project = mod.packaging_project
+
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 if typ.TYPE_CHECKING:
@@ -229,31 +264,31 @@ def uncapture_if_verbose(
 
 
 @pytest.fixture(scope="module")
-def packaging_config() -> PackagingConfig:
+def packaging_config() -> _PackagingConfig:
     """Return the static metadata for the sample packaging project."""
-    return DEFAULT_CONFIG
+    return _DEFAULT_CONFIG
 
 
 @pytest.fixture(scope="module")
 def packaging_target() -> str:
     """Return the Rust target triple used in integration tests."""
-    return DEFAULT_TARGET
+    return _DEFAULT_TARGET
 
 
 @pytest.fixture(scope="module")
-def packaging_project_paths() -> PackagingProject:
+def packaging_project_paths() -> _PackagingProject:
     """Resolve the filesystem layout for packaging integration tests."""
-    return packaging_project()
+    return _packaging_project()
 
 
 @pytest.fixture(scope="module")
 def build_artifacts(
-    packaging_project_paths: PackagingProject,
+    packaging_project_paths: _PackagingProject,
     packaging_target: str,
-    packaging_config: PackagingConfig,
-) -> BuildArtifacts:
+    packaging_config: _PackagingConfig,
+) -> _BuildArtifacts:
     """Ensure the sample project is built for the requested target."""
-    return build_release_artifacts(
+    return _build_release_artifacts(
         packaging_project_paths,
         packaging_target,
         config=packaging_config,
@@ -262,12 +297,12 @@ def build_artifacts(
 
 @pytest.fixture(scope="module")
 def packaged_artifacts(
-    packaging_project_paths: PackagingProject,
-    build_artifacts: BuildArtifacts,
-    packaging_config: PackagingConfig,
+    packaging_project_paths: _PackagingProject,
+    build_artifacts: _BuildArtifacts,
+    packaging_config: _PackagingConfig,
 ) -> typ.Mapping[str, Path]:
     """Package the built project as both .deb and .rpm artefacts."""
-    return package_project(
+    return _package_project(
         packaging_project_paths,
         build_artifacts,
         config=packaging_config,
@@ -279,18 +314,12 @@ def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     """Drop legacy xfail marks for Windows smoke tests now passing."""
-
     for item in items:
         nodeid = getattr(item, "nodeid", "")
-        if (
-            WINDOWS_SMOKE_TEST not in nodeid
-            or "-pc-windows-" not in nodeid
-        ):
+        if WINDOWS_SMOKE_TEST not in nodeid or "-pc-windows-" not in nodeid:
             continue
         xfail_marks = [
-            mark
-            for mark in item.iter_markers(name="xfail")
-            if mark in item.own_markers
+            mark for mark in item.iter_markers(name="xfail") if mark in item.own_markers
         ]
         if not xfail_marks:
             continue

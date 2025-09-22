@@ -34,6 +34,31 @@ WINDOWS_TARGET_SUFFIXES = (
     "-windows-gnullvm",
 )
 
+_TRIPLE_OS_COMPONENTS = {
+    "linux",
+    "windows",
+    "darwin",
+    "freebsd",
+    "netbsd",
+    "openbsd",
+    "dragonfly",
+    "solaris",
+    "android",
+    "ios",
+    "emscripten",
+    "haiku",
+    "hermit",
+    "fuchsia",
+    "wasi",
+    "redox",
+    "illumos",
+    "uefi",
+    "macabi",
+    "rumprun",
+    "vita",
+    "psp",
+}
+
 app = typer.Typer(add_completion=False)
 
 
@@ -81,6 +106,28 @@ def _resolve_toolchain_name(
         if name == toolchain or name.startswith(channel_prefix):
             return name
     return ""
+
+
+def _looks_like_triple(candidate: str) -> bool:
+    """Return ``True`` when *candidate* resembles a target triple."""
+
+    components = [part for part in candidate.split("-") if part]
+    if len(components) < 3:
+        return False
+    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
+
+
+def _toolchain_channel(toolchain_name: str) -> str:
+    """Strip any target triple suffix from *toolchain_name* for CLI overrides."""
+
+    for suffix_parts in (4, 3):
+        parts = toolchain_name.rsplit("-", suffix_parts)
+        if len(parts) != suffix_parts + 1:
+            continue
+        candidate = "-".join(parts[-suffix_parts:])
+        if _looks_like_triple(candidate):
+            return parts[0]
+    return toolchain_name
 
 
 @app.command()
@@ -173,6 +220,37 @@ def main(
     has_container = docker_present or podman_present
 
     use_cross = cross_path is not None and has_container
+    cargo_toolchain_spec = f"+{toolchain_name}"
+    cross_toolchain_spec = cargo_toolchain_spec
+    if use_cross:
+        cross_toolchain_name = _toolchain_channel(toolchain_name)
+        if (
+            cross_toolchain_name != toolchain_name
+            and cross_toolchain_name not in installed_names
+        ):
+            try:
+                run_cmd(
+                    [
+                        rustup_exec,
+                        "toolchain",
+                        "install",
+                        cross_toolchain_name,
+                        "--profile",
+                        "minimal",
+                        "--no-self-update",
+                    ]
+                )
+            except subprocess.CalledProcessError:
+                typer.echo(
+                    "::warning:: failed to install sanitized toolchain; using cargo",
+                    err=True,
+                )
+                use_cross = False
+            else:
+                installed_names = _list_installed_toolchains(rustup_exec)
+        if use_cross:
+            cross_toolchain_spec = f"+{cross_toolchain_name}"
+
     if not use_cross and not target_installed:
         typer.echo(
             f"::error:: toolchain '{toolchain_name}' does not support "
@@ -184,7 +262,7 @@ def main(
     if not use_cross:
         if cross_path is None:
             typer.echo("cross missing; using cargo")
-        else:
+        elif not has_container:
             typer.echo(
                 f"cross ({cross_version}) requires a container runtime; using cargo "
                 f"(docker={docker_present}, podman={podman_present})"
@@ -192,10 +270,9 @@ def main(
     else:
         typer.echo(f"Building with cross ({cross_version})")
 
-    toolchain_spec = f"+{toolchain_name}"
     build_cmd = [
         "cross" if use_cross else "cargo",
-        toolchain_spec,
+        cross_toolchain_spec if use_cross else cargo_toolchain_spec,
         "build",
         "--release",
         "--target",
@@ -211,7 +288,7 @@ def main(
             )
             fallback_cmd = [
                 "cargo",
-                f"+{toolchain_name}",
+                cargo_toolchain_spec,
                 "build",
                 "--release",
                 "--target",

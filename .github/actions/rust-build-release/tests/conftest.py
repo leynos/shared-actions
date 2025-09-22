@@ -326,22 +326,14 @@ def pytest_collection_modifyitems(
         nodeid = getattr(item, "nodeid", "")
         if WINDOWS_SMOKE_TEST not in nodeid or "-pc-windows-" not in nodeid:
             continue
-        xfail_marks = [
-            mark for mark in item.iter_markers(name="xfail") if mark in item.own_markers
-        ]
-        if not xfail_marks:
-            continue
-        drop_marks = [
+        original_count = len(item.own_markers)
+        filtered_markers = [
             mark
-            for mark in xfail_marks
-            if (
-                isinstance(reason := mark.kwargs.get("reason"), str)
-                and reason.strip() == WINDOWS_XFAIL_REASON
+            for mark in item.own_markers
+            if not (
+                mark.name == "xfail"
+                and mark.kwargs.get("reason") == WINDOWS_XFAIL_REASON
             )
         ]
-        if not drop_marks:
-            continue
-        keep_marks = [mark for mark in xfail_marks if mark not in drop_marks]
-        item.remove_marker("xfail")
-        for mark in keep_marks:
-            item.add_marker(pytest.mark.xfail(*mark.args, **mark.kwargs))
+        if len(filtered_markers) != original_count:
+            item.own_markers[:] = filtered_markers

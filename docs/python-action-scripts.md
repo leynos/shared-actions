@@ -29,7 +29,8 @@ import cyclopts
 from cyclopts import App
 
 app = App()
-app.config = (*app.config, cyclopts.config.Env("INPUT_", command=False))
+env_config = cyclopts.config.Env("INPUT_", command=False)
+app.config = (*tuple(getattr(app, "config", ())), env_config)
 
 
 @app.default

@@ -143,7 +143,7 @@ def test_main_uses_default_paths_for_blank_inputs(
 
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     contents = config["contents"]
-    assert contents[0]["src"] == str(bin_path)
+    assert contents[0]["src"] == bin_path.as_posix()
     staged_files = list(man_stage.glob("*.gz"))
     assert staged_files, "expected gzipped manpage in fallback stage directory"
 

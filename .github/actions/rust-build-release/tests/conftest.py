@@ -282,18 +282,12 @@ def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
     """Drop legacy xfail marks for Windows smoke tests now passing."""
-
     for item in items:
         nodeid = getattr(item, "nodeid", "")
-        if (
-            WINDOWS_SMOKE_TEST not in nodeid
-            or "-pc-windows-" not in nodeid
-        ):
+        if WINDOWS_SMOKE_TEST not in nodeid or "-pc-windows-" not in nodeid:
             continue
         xfail_marks = [
-            mark
-            for mark in item.iter_markers(name="xfail")
-            if mark in item.own_markers
+            mark for mark in item.iter_markers(name="xfail") if mark in item.own_markers
         ]
         if not xfail_marks:
             continue

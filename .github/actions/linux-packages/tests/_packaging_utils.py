@@ -12,6 +12,7 @@ import tempfile
 import typing as typ
 from pathlib import Path
 
+import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
@@ -20,6 +21,10 @@ from cmd_utils import run_cmd
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(TESTS_ROOT / "scripts"))
 from script_utils import unique_match  # noqa: E402
+
+SCRIPTS_DIR = TESTS_ROOT.parent / "scripts"
+sys.path.append(str(SCRIPTS_DIR))
+import package as packaging_script  # noqa: E402
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -78,9 +83,11 @@ def deb_arch_for_target(target: str) -> str:
     lowered = target.lower()
     if lowered.startswith(("x86_64-", "x86_64_")):
         return "amd64"
+    if lowered.startswith(("i686-", "i686_", "i586-", "i586_", "i386-", "i386_")):
+        return "i386"
     if lowered.startswith(("aarch64-", "arm64-")):
         return "arm64"
-    return "amd64"
+    return "riscv64" if lowered.startswith("riscv64") else "amd64"
 
 
 def build_release_artifacts(
@@ -168,6 +175,21 @@ def package_project(
                 description=f"{config.name} {fmt} package",
             )
     return results
+
+
+def test_coerce_optional_path_uses_default_for_blank_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Blank INPUT_BINARY_DIR falls back to the default target directory."""
+    monkeypatch.setenv("INPUT_BINARY_DIR", "")
+    result = packaging_script._coerce_optional_path(
+        Path("target"),
+        "INPUT_BINARY_DIR",
+        fallback=Path("target"),
+    )
+    expected = Path("target")
+    if result != expected:
+        pytest.fail(f"expected {expected} but received {result}")
 
 
 @dc.dataclass(slots=True)
@@ -271,6 +293,7 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
             )
             checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
             sums_path = Path(td) / "checksums.txt"
+            sums_text = ""
             try:
                 run_cmd(
                     local["curl"][
@@ -286,7 +309,7 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                     ]
                 )
             except ProcessExecutionError:
-                sums_text = ""
+                pass
             else:
                 try:
                     sums_text = sums_path.read_text(encoding="utf-8")

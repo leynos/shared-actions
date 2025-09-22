@@ -19,7 +19,7 @@ test: .venv ## Run tests
 lint: ## Check test scripts and actions
 	uvx ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
+	| xargs -r -0 -n1 bunx -y @action-validator/cli
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \

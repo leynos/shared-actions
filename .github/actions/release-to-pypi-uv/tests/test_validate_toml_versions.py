@@ -256,6 +256,47 @@ version = "2.0.0"
     assert "!= tag version" in captured.err
 
 
+def test_iter_files_discovers_paths_in_deterministic_order(
+    project_root: Path,
+    module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure TOML discovery yields paths in a stable, sorted order."""
+    _write_pyproject(
+        project_root / "pkg_b",
+        """
+[project]
+name = "pkg-b"
+version = "1.0.0"
+""",
+    )
+    _write_pyproject(
+        project_root / "pkg_a",
+        """
+[project]
+name = "pkg-a"
+version = "1.0.0"
+""",
+    )
+
+    first = project_root / "pkg_a" / "pyproject.toml"
+    second = project_root / "pkg_b" / "pyproject.toml"
+
+    def fake_glob(
+        self: Path,
+        pattern: str,
+    ) -> typ.Iterator[Path]:
+        _ = self
+        assert pattern == "**/pyproject.toml"
+        return iter((second, first))
+
+    monkeypatch.setattr(module.Path, "glob", fake_glob, raising=False)
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+
+    assert discovered == [first, second]
+
+
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])
 def test_parse_bool_truthy_values(module: ModuleType, value: str) -> None:
     """Treat recognised truthy values as ``True`` for configuration flags."""

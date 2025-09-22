@@ -34,6 +34,31 @@ WINDOWS_TARGET_SUFFIXES = (
     "-windows-gnullvm",
 )
 
+_TRIPLE_OS_COMPONENTS = {
+    "linux",
+    "windows",
+    "darwin",
+    "freebsd",
+    "netbsd",
+    "openbsd",
+    "dragonfly",
+    "solaris",
+    "android",
+    "ios",
+    "emscripten",
+    "haiku",
+    "hermit",
+    "fuchsia",
+    "wasi",
+    "redox",
+    "illumos",
+    "uefi",
+    "macabi",
+    "rumprun",
+    "vita",
+    "psp",
+}
+
 app = typer.Typer(add_completion=False)
 
 
@@ -50,6 +75,59 @@ def should_probe_container(host_platform: str, target: str) -> bool:
     if host_platform != "win32":
         return True
     return not _target_is_windows(target)
+
+
+def _list_installed_toolchains(rustup_exec: str) -> list[str]:
+    """Return installed rustup toolchain names."""
+
+    result = run_validated(
+        rustup_exec,
+        ["toolchain", "list"],
+        allowed_names=("rustup", "rustup.exe"),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    installed = result.stdout.splitlines()
+    return [line.split()[0] for line in installed if line.strip()]
+
+
+def _resolve_toolchain_name(
+    toolchain: str, target: str, installed_names: list[str]
+) -> str:
+    """Choose the best matching installed toolchain for *toolchain*."""
+
+    preferred = (f"{toolchain}-{target}", toolchain)
+    for name in installed_names:
+        if name in preferred:
+            return name
+    channel_prefix = f"{toolchain}-"
+    for name in installed_names:
+        if name == toolchain or name.startswith(channel_prefix):
+            return name
+    return ""
+
+
+def _looks_like_triple(candidate: str) -> bool:
+    """Return ``True`` when *candidate* resembles a target triple."""
+
+    components = [part for part in candidate.split("-") if part]
+    if len(components) < 3:
+        return False
+    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
+
+
+def _toolchain_channel(toolchain_name: str) -> str:
+    """Strip any target triple suffix from *toolchain_name* for CLI overrides."""
+
+    for suffix_parts in (4, 3):
+        parts = toolchain_name.rsplit("-", suffix_parts)
+        if len(parts) != suffix_parts + 1:
+            continue
+        candidate = "-".join(parts[-suffix_parts:])
+        if _looks_like_triple(candidate):
+            return parts[0]
+    return toolchain_name
 
 
 @app.command()
@@ -87,33 +165,33 @@ def main(
     except UnexpectedExecutableError:
         typer.echo("::error:: unexpected rustup executable", err=True)
         raise typer.Exit(1) from None
-    result = run_validated(
-        rustup_exec,
-        ["toolchain", "list"],
-        allowed_names=("rustup", "rustup.exe"),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    installed = result.stdout.splitlines()
-    installed_names = [line.split()[0] for line in installed if line.strip()]
-    # Prefer an installed toolchain that matches the requested target triple.
-    preferred = (f"{toolchain}-{target}", toolchain)
-    toolchain_name = next(
-        (name for name in installed_names if name in preferred),
-        "",
-    )
+    installed_names = _list_installed_toolchains(rustup_exec)
+    toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
-        # Fallback: any installed variant that starts with the channel name.
-        channel_prefix = f"{toolchain}-"
-        toolchain_name = next(
-            (
-                name
-                for name in installed_names
-                if name == toolchain or name.startswith(channel_prefix)
-            ),
-            "",
-        )
+        try:
+            run_cmd(
+                [
+                    rustup_exec,
+                    "toolchain",
+                    "install",
+                    toolchain,
+                    "--profile",
+                    "minimal",
+                    "--no-self-update",
+                ]
+            )
+        except subprocess.CalledProcessError:
+            typer.echo(
+                f"::error:: failed to install toolchain '{toolchain}'",
+                err=True,
+            )
+            typer.echo(
+                f"::error:: requested toolchain '{toolchain}' not installed",
+                err=True,
+            )
+            raise typer.Exit(1) from None
+        installed_names = _list_installed_toolchains(rustup_exec)
+        toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
         typer.echo(
             f"::error:: requested toolchain '{toolchain}' not installed",
@@ -142,6 +220,37 @@ def main(
     has_container = docker_present or podman_present
 
     use_cross = cross_path is not None and has_container
+    cargo_toolchain_spec = f"+{toolchain_name}"
+    cross_toolchain_spec = cargo_toolchain_spec
+    if use_cross:
+        cross_toolchain_name = _toolchain_channel(toolchain_name)
+        if (
+            cross_toolchain_name != toolchain_name
+            and cross_toolchain_name not in installed_names
+        ):
+            try:
+                run_cmd(
+                    [
+                        rustup_exec,
+                        "toolchain",
+                        "install",
+                        cross_toolchain_name,
+                        "--profile",
+                        "minimal",
+                        "--no-self-update",
+                    ]
+                )
+            except subprocess.CalledProcessError:
+                typer.echo(
+                    "::warning:: failed to install sanitized toolchain; using cargo",
+                    err=True,
+                )
+                use_cross = False
+            else:
+                installed_names = _list_installed_toolchains(rustup_exec)
+        if use_cross:
+            cross_toolchain_spec = f"+{cross_toolchain_name}"
+
     if not use_cross and not target_installed:
         typer.echo(
             f"::error:: toolchain '{toolchain_name}' does not support "
@@ -153,7 +262,7 @@ def main(
     if not use_cross:
         if cross_path is None:
             typer.echo("cross missing; using cargo")
-        else:
+        elif not has_container:
             typer.echo(
                 f"cross ({cross_version}) requires a container runtime; using cargo "
                 f"(docker={docker_present}, podman={podman_present})"
@@ -161,12 +270,9 @@ def main(
     else:
         typer.echo(f"Building with cross ({cross_version})")
 
-    toolchain_spec = (
-        f"+{toolchain_name.rsplit('-', 4)[0]}" if use_cross else f"+{toolchain_name}"
-    )
     build_cmd = [
         "cross" if use_cross else "cargo",
-        toolchain_spec,
+        cross_toolchain_spec if use_cross else cargo_toolchain_spec,
         "build",
         "--release",
         "--target",
@@ -182,7 +288,7 @@ def main(
             )
             fallback_cmd = [
                 "cargo",
-                f"+{toolchain_name}",
+                cargo_toolchain_spec,
                 "build",
                 "--release",
                 "--target",

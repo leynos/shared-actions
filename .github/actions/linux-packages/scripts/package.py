@@ -2,10 +2,10 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#   "cyclopts>=2.9.0",
-#   "plumbum>=1.8",
-#   "pyyaml>=6.0",
-#   "typer>=0.12",
+#   "cyclopts>=2.9,<3.0",
+#   "plumbum>=1.8,<2.0",
+#   "pyyaml>=6.0,<7.0",
+#   "typer>=0.9,<1.0",
 # ]
 # ///
 """
@@ -29,7 +29,6 @@ import os
 import re
 import shlex
 import sys
-import types
 import typing as typ
 from pathlib import Path
 
@@ -54,30 +53,9 @@ else:  # pragma: no cover - runtime fallback when executed as a script
             run_cmd,
         )
     except ImportError:  # pragma: no cover - fallback for direct execution
-        import importlib.util
-
-        PKG_DIR = Path(__file__).resolve().parent
-        _PKG_NAME = f"{PKG_DIR.parent.name.replace('-', '')}_scripts"
-        pkg_module = sys.modules.get(_PKG_NAME)
-        if pkg_module is None:
-            pkg_module = types.ModuleType(_PKG_NAME)
-            pkg_module.__path__ = [str(PKG_DIR)]  # type: ignore[attr-defined]
-            sys.modules[_PKG_NAME] = pkg_module
-        if not hasattr(pkg_module, "load_sibling"):
-            spec = importlib.util.spec_from_file_location(
-                _PKG_NAME, PKG_DIR / "__init__.py"
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(name="script_utils") from None
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[_PKG_NAME] = module
-            spec.loader.exec_module(module)
-            pkg_module = module
-
-        load_sibling = typ.cast(
-            "typ.Callable[[str], types.ModuleType]", pkg_module.load_sibling
-        )
-        helpers = typ.cast("typ.Any", load_sibling("script_utils"))
+        scripts_dir = Path(__file__).resolve().parent
+        sys.path.insert(0, scripts_dir.as_posix())
+        helpers = typ.cast("typ.Any", __import__("script_utils"))
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command
@@ -117,11 +95,7 @@ SECTION_RE = re.compile(r"\.(\d[\w-]*)($|\.gz$)")
 
 app = App()
 _env_config = cyclopts.config.Env("INPUT_", command=False)
-existing_config = getattr(app, "config", ())
-if existing_config:
-    app.config = (*tuple(existing_config), _env_config)
-else:
-    app.config = (_env_config,)
+app.config = (*tuple(getattr(app, "config", ())), _env_config)
 
 
 def _fail(message: str, *, code: int = 2) -> typ.NoReturn:
@@ -258,28 +232,30 @@ def build_man_entries(
 
 def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str]:
     entries: list[str] = []
+    seen: set[str] = set()
     source = values if values is not None else default
     for item in source:
         for token in re.split(r"[\s,]+", item.strip()):
             if not token:
                 continue
-            lowered = token.lower()
-            if lowered not in entries:
-                entries.append(lowered)
+            if token in seen:
+                continue
+            seen.add(token)
+            entries.append(token)
     return entries
 
 
-def _coerce_optional_path(value: Path | None, env_var: str) -> Path | None:
-    """Return ``None`` when the env var supplies an empty path."""
+def _coerce_optional_path(
+    value: Path | None, env_var: str, *, fallback: Path | None = None
+) -> Path | None:
+    """Return a cleaned path, honouring blank environment overrides."""
     raw = os.environ.get(env_var)
     if raw is not None and not raw.strip():
-        return None
+        return fallback
     if value is None:
-        return None
+        return fallback
     text = str(value).strip()
-    if not text:
-        return None
-    return Path(text)
+    return fallback if not text else Path(text)
 
 
 def _coerce_path_list(values: list[Path] | None, env_var: str) -> list[Path]:
@@ -340,19 +316,23 @@ def main(
     binary_root = _coerce_optional_path(
         binary_dir,
         "INPUT_BINARY_DIR",
+        fallback=Path("target"),
     ) or Path("target")
     outdir_path = _coerce_optional_path(
         outdir,
         "INPUT_OUTDIR",
+        fallback=Path("dist"),
     ) or Path("dist")
     config_out_path = _coerce_optional_path(
         config_out,
         "INPUT_CONFIG_PATH",
+        fallback=Path("dist/nfpm.yaml"),
     ) or Path("dist/nfpm.yaml")
     man_section_value = (man_section or "1").strip() or "1"
     man_stage_path = _coerce_optional_path(
         man_stage,
         "INPUT_MAN_STAGE",
+        fallback=Path("dist/.man"),
     ) or Path("dist/.man")
 
     bin_path = binary_root / target_value / "release" / bin_value

@@ -121,8 +121,8 @@ runs:
           echo "::error:: located man page ${man_path} is not a file"
           exit 1
         fi
-        install -Dm755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
-        install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
+        install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
+        install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
         echo "man-path=dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
     - name: Package Linux artifacts
       if: contains(inputs.target, 'unknown-linux-')

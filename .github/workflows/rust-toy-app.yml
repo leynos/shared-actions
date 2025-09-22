@@ -47,11 +47,29 @@ jobs:
         with:
           llvm-mingw-version: ${{ env.LLVM_MINGW_VERSION }}
           llvm-mingw-sha256: ${{ env.LLVM_MINGW_SHA256 }}
+      - name: Extract crate version
+        id: crate-version
+        shell: bash
+        working-directory: rust-toy-app
+        run: |
+          set -euo pipefail
+          version=$(python - <<'PY'
+import tomllib
+from pathlib import Path
+
+with Path("Cargo.toml").open("rb") as handle:
+    data = tomllib.load(handle)
+
+print(data["package"]["version"])
+PY
+)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Build
         uses: ./.github/actions/rust-build-release
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
+          version: ${{ steps.crate-version.outputs.version }}
       - name: Verify artifacts
         run: |
           set -euo pipefail

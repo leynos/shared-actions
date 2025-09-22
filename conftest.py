@@ -124,6 +124,16 @@ def _register_docker_info_stub(
     return _shim_path(cmd_mox, "docker")
 
 
+def _register_podman_info_stub(
+    cmd_mox: CmdMox,
+    *,
+    exit_code: int = 0,
+) -> str:  # pragma: no cover - helper
+    """Register a stub for ``podman info`` and return the shim path."""
+    cmd_mox.stub("podman").with_args("info").returns(exit_code=exit_code)
+    return _shim_path(cmd_mox, "podman")
+
+
 if sys.platform != "win32":  # pragma: win32 no cover - windows lacks cmd-mox
     pytest_plugins = ("cmd_mox.pytest_plugin",)
 else:

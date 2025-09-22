@@ -53,16 +53,7 @@ jobs:
         working-directory: rust-toy-app
         run: |
           set -euo pipefail
-          version=$(python - <<'PY'
-import tomllib
-from pathlib import Path
-
-with Path("Cargo.toml").open("rb") as handle:
-    data = tomllib.load(handle)
-
-print(data["package"]["version"])
-PY
-)
+          version=$(python -c 'import pathlib, tomllib; data = tomllib.loads(pathlib.Path("Cargo.toml").read_text("utf-8")); print(data["package"]["version"])')
           echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Build
         uses: ./.github/actions/rust-build-release

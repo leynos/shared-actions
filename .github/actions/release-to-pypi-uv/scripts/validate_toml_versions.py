@@ -35,7 +35,9 @@ TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 
 def _iter_files(pattern: str) -> typ.Iterable[Path]:
     root = Path()
-    for path in root.glob(pattern):
+    for path in sorted(
+        root.glob(pattern), key=lambda candidate: tuple(candidate.parts)
+    ):
         if not path.is_file():
             continue
         parts = set(path.parts)

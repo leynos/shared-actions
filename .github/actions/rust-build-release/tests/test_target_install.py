@@ -11,6 +11,7 @@ from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
     _register_docker_info_stub,
+    _register_podman_info_stub,
     _register_rustup_toolchain_stub,
 )
 
@@ -142,6 +143,48 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     build_cmd = app_env.calls[-1]
     assert build_cmd[0] == "cargo"
     assert build_cmd[1] == f"+{default_toolchain}-x86_64-unknown-linux-gnu"
+
+
+@CMD_MOX_UNSUPPORTED
+def test_falls_back_to_cargo_when_podman_unusable(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+) -> None:
+    """Fallback to cargo when podman runtime detection fails quickly (issue #97)."""
+
+    cross_env = module_harness(cross_module)
+    runtime_env = module_harness(runtime_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    podman_path = _register_podman_info_stub(cmd_mox, exit_code=1)
+
+    def fake_which(name: str) -> str | None:
+        if name == "podman":
+            return podman_path
+        if name == "cross":
+            return cross_path
+        return rustup_path if name == "rustup" else None
+
+    cross_env.patch_shutil_which(fake_which)
+    runtime_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+
+    app_env.patch_attr("ensure_cross", lambda required: (cross_path, required))
+    app_env.patch_attr("runtime_available", runtime_module.runtime_available)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
+    cmd_mox.verify()
+
+    assert any(cmd[0] == "cargo" for cmd in app_env.calls)
+    assert all(cmd[0] != "cross" for cmd in app_env.calls)
 
 
 @pytest.mark.parametrize(

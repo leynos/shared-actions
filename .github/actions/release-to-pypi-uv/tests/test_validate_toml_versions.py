@@ -213,15 +213,17 @@ def test_skips_files_in_ignored_directories(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Warn and exit when only ignored directories match the pattern."""
-    ignored = project_root / ".venv" / "pkg"
-    _write_pyproject(
-        ignored,
-        """
+    skip_dirs = {".venv", ".mypy_cache", ".pytest_cache", ".cache", "htmlcov"}
+    assert skip_dirs <= module.SKIP_PARTS
+    for name in skip_dirs:
+        _write_pyproject(
+            project_root / name / "pkg",
+            """
 [project]
 name = "ignored"
 version = "9.9.9"
 """,
-    )
+        )
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out

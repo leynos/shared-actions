@@ -52,6 +52,37 @@ def should_probe_container(host_platform: str, target: str) -> bool:
     return not _target_is_windows(target)
 
 
+def _list_installed_toolchains(rustup_exec: str) -> list[str]:
+    """Return installed rustup toolchain names."""
+
+    result = run_validated(
+        rustup_exec,
+        ["toolchain", "list"],
+        allowed_names=("rustup", "rustup.exe"),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    installed = result.stdout.splitlines()
+    return [line.split()[0] for line in installed if line.strip()]
+
+
+def _resolve_toolchain_name(
+    toolchain: str, target: str, installed_names: list[str]
+) -> str:
+    """Choose the best matching installed toolchain for *toolchain*."""
+
+    preferred = (f"{toolchain}-{target}", toolchain)
+    for name in installed_names:
+        if name in preferred:
+            return name
+    channel_prefix = f"{toolchain}-"
+    for name in installed_names:
+        if name == toolchain or name.startswith(channel_prefix):
+            return name
+    return ""
+
+
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
@@ -87,33 +118,23 @@ def main(
     except UnexpectedExecutableError:
         typer.echo("::error:: unexpected rustup executable", err=True)
         raise typer.Exit(1) from None
-    result = run_validated(
-        rustup_exec,
-        ["toolchain", "list"],
-        allowed_names=("rustup", "rustup.exe"),
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    installed = result.stdout.splitlines()
-    installed_names = [line.split()[0] for line in installed if line.strip()]
-    # Prefer an installed toolchain that matches the requested target triple.
-    preferred = (f"{toolchain}-{target}", toolchain)
-    toolchain_name = next(
-        (name for name in installed_names if name in preferred),
-        "",
-    )
+    installed_names = _list_installed_toolchains(rustup_exec)
+    toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
-        # Fallback: any installed variant that starts with the channel name.
-        channel_prefix = f"{toolchain}-"
-        toolchain_name = next(
-            (
-                name
-                for name in installed_names
-                if name == toolchain or name.startswith(channel_prefix)
-            ),
-            "",
-        )
+        try:
+            run_cmd([rustup_exec, "toolchain", "install", toolchain])
+        except subprocess.CalledProcessError:
+            typer.echo(
+                f"::error:: failed to install toolchain '{toolchain}'",
+                err=True,
+            )
+            typer.echo(
+                f"::error:: requested toolchain '{toolchain}' not installed",
+                err=True,
+            )
+            raise typer.Exit(1) from None
+        installed_names = _list_installed_toolchains(rustup_exec)
+        toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if not toolchain_name:
         typer.echo(
             f"::error:: requested toolchain '{toolchain}' not installed",

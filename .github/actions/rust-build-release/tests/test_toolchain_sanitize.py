@@ -14,6 +14,8 @@ from cmd_utils import run_cmd
 
 os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
 
+RUST_TOOLCHAIN = os.getenv("RUST_TOOLCHAIN", "1.89.0")
+
 if sys.platform == "win32":
     pytest.skip("cross build not supported on Windows runners", allow_module_level=True)
 
@@ -43,7 +45,7 @@ def run_script(
 def _host_linux_triple() -> str:
     """Return the host's GNU/Linux target triple."""
 
-    if sys.platform != "linux":  # pragma: no cover - defensive skip
+    if not sys.platform.startswith("linux"):  # pragma: no cover - defensive skip
         pytest.skip(f"unsupported platform: {sys.platform!r}")
 
     machine = platform.machine().lower()
@@ -55,6 +57,7 @@ def _host_linux_triple() -> str:
         "riscv64": "riscv64",
         "ppc64le": "powerpc64le",
         "ppc64": "powerpc64",
+        "ppc64be": "powerpc64",
         "s390x": "s390x",
     }
     arch = arch_map.get(machine)
@@ -68,7 +71,7 @@ def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
 
     target_triple = _host_linux_triple()
-    toolchain_spec = f"1.89.0-{target_triple}"
+    toolchain_spec = f"{RUST_TOOLCHAIN}-{target_triple}"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     run_cmd(
@@ -76,7 +79,7 @@ def test_accepts_toolchain_with_triple() -> None:
             "rustup",
             "toolchain",
             "install",
-            "1.89.0",
+            RUST_TOOLCHAIN,
             "--profile",
             "minimal",
             "--no-self-update",
@@ -90,9 +93,9 @@ def test_accepts_toolchain_with_triple() -> None:
         cwd=project_dir,
     )
     assert res.returncode == 0
-    binary = project_dir / f"target/{target_triple}/release/rust-toy-app"
-    assert binary.exists()
-    manpage_glob = project_dir.glob(
-        f"target/{target_triple}/release/build/rust-toy-app-*/out/rust-toy-app.1"
-    )
+    binary = project_dir / "target" / target_triple / "release" / "rust-toy-app"
+    assert binary.is_file()
+    manpage_glob = (
+        project_dir / "target" / target_triple / "release" / "build"
+    ).glob("rust-toy-app-*/out/rust-toy-app.1")
     assert any(manpage_glob)

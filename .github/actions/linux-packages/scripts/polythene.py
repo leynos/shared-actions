@@ -50,14 +50,14 @@ if typ.TYPE_CHECKING:
     from .script_utils import ensure_directory, get_command, run_cmd
 else:
     try:
-        from .script_utils import ensure_directory, get_command, run_cmd
+        from .bootstrap import load_script_utils
     except ImportError:  # pragma: no cover - fallback for direct execution
-        scripts_dir = Path(__file__).resolve().parent
-        sys.path.insert(0, scripts_dir.as_posix())
-        helpers = typ.cast("typ.Any", __import__("script_utils"))
-        ensure_directory = helpers.ensure_directory
-        get_command = helpers.get_command
-        run_cmd = helpers.run_cmd
+        from bootstrap import load_script_utils  # type: ignore[import-not-found]
+
+    helpers = typ.cast("typ.Any", load_script_utils())
+    ensure_directory = helpers.ensure_directory
+    get_command = helpers.get_command
+    run_cmd = helpers.run_cmd
 
 
 # -------------------- Configuration --------------------

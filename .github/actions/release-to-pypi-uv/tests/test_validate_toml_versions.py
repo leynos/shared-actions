@@ -33,7 +33,7 @@ def _write_pyproject(base: Path, content: str) -> None:
     (base / "pyproject.toml").write_text(content.strip())
 
 
-def _invoke_main(module: ModuleType, **kwargs: typ.Any) -> None:
+def _invoke_main(module: ModuleType, **kwargs: object) -> None:
     """Invoke ``module.main`` with defaults tailored for the tests."""
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
@@ -222,7 +222,7 @@ dynamic = ["version"]
 """,
     )
 
-    _invoke_main(module, version="1.0.0", fail_on_dynamic=None)
+    _invoke_main(module, version="1.0.0")
 
     captured = capsys.readouterr()
     assert "uses dynamic 'version'" in captured.out
@@ -318,6 +318,26 @@ version = "1.0.0"
     discovered = list(module._iter_files("**/pyproject.toml"))
 
     assert discovered == [first, second]
+
+
+def test_iter_files_discovers_paths_in_sorted_order(
+    project_root: Path,
+    module: ModuleType,
+) -> None:
+    """Ensure discovery order remains deterministic for reproducible output."""
+    for name in ("pkg_c", "pkg_a", "pkg_b"):
+        _write_pyproject(
+            project_root / name,
+            """
+[project]
+name = "demo"
+version = "1.0.0"
+""",
+        )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    relative = [path.as_posix() for path in discovered]
+    assert relative == sorted(relative)
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])

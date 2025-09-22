@@ -67,7 +67,6 @@ def main(index: str = "") -> None:
 
 def cli(index: str = INDEX_OPTION) -> None:
     """CLI entrypoint."""
-
     main(index=index)
 
 

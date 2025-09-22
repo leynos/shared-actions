@@ -57,10 +57,11 @@ def _probe_runtime(name: str) -> bool:
     except subprocess.TimeoutExpired as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
-        typer.echo(
-            f"::warning::{name} runtime probe timed out{duration}; treating runtime as unavailable",
-            err=True,
+        message = (
+            f"::warning::{name} runtime probe timed out{duration}; "
+            "treating runtime as unavailable"
         )
+        typer.echo(message, err=True)
         return False
 
 

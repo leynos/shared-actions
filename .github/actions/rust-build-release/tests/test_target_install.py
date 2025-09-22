@@ -433,8 +433,14 @@ def test_runtime_available_handles_timeout(
         "::warning::podman runtime probe timed out after 10s; "
         "treating runtime as unavailable"
     )
+    expected_toolchain = (
+        f"::error:: toolchain '{default_toolchain}-x86_64-unknown-linux-gnu' "
+        "does not support target 'thumbv7em-none-eabihf'"
+    )
     assert expected_docker in err
     assert expected_podman in err
+    assert expected_toolchain in err
+    assert "TimeoutExpired" not in err
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

@@ -224,6 +224,9 @@ name = "ignored"
 version = "9.9.9"
 """,
         )
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    assert not discovered
+
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out

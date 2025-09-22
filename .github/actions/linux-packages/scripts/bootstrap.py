@@ -8,12 +8,12 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
-import typing as typ
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _PACKAGE_NAME = _PACKAGE_DIR.name
 _HELPER_MODULE = "script_utils"
 _QUALIFIED_HELPER = f"{_PACKAGE_NAME}.{_HELPER_MODULE}"
+_IMPORT_ERROR_TEMPLATE = "Unable to load {!r} from {}"
 
 
 def _get_from_sys_modules() -> ModuleType | None:
@@ -50,9 +50,9 @@ def _import_via_path() -> ModuleType:
     module_path = _PACKAGE_DIR / f"{_HELPER_MODULE}.py"
     spec = importlib.util.spec_from_file_location(_QUALIFIED_HELPER, module_path)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise ImportError(f"Unable to load {_HELPER_MODULE!r} from {module_path}")
+        raise ImportError(_IMPORT_ERROR_TEMPLATE.format(_HELPER_MODULE, module_path))
     module = importlib.util.module_from_spec(spec)
-    loader = typ.cast(importlib.abc.Loader, spec.loader)
+    loader = spec.loader
     sys.modules[_QUALIFIED_HELPER] = module
     sys.modules[_HELPER_MODULE] = module
     loader.exec_module(module)

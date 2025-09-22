@@ -47,7 +47,9 @@ as a default.
 #!/usr/bin/env -S uv run python
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["plumbum", "cmd-mox"]
+# dependencies = [
+#   "plumbum>=1.8,<2.0",
+# ]
 # ///
 
 from __future__ import annotations
@@ -77,7 +79,12 @@ Employ Cyclopts when a script requires parameters, particularly under CI with
 #!/usr/bin/env -S uv run python
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["cyclopts>=2.9", "plumbum", "cmd-mox"]
+# dependencies = [
+#   "cyclopts>=2.9,<3.0",
+#   "plumbum>=1.8,<2.0",
+#   "pyyaml>=6.0,<7.0",
+#   "typer>=0.9,<1.0",
+# ]
 # ///
 
 from __future__ import annotations
@@ -288,7 +295,12 @@ except FileNotFoundError:
 #!/usr/bin/env -S uv run python
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["cyclopts>=2.9", "plumbum", "cmd-mox"]
+# dependencies = [
+#   "cyclopts>=2.9,<3.0",
+#   "plumbum>=1.8,<2.0",
+#   "pyyaml>=6.0,<7.0",
+#   "typer>=0.9,<1.0",
+# ]
 # ///
 
 from __future__ import annotations

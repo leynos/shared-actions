@@ -97,10 +97,54 @@ def main(
     installed_names = [line.split()[0] for line in installed if line.strip()]
     # Prefer an installed toolchain that matches the requested target triple.
     preferred = (f"{toolchain}-{target}", toolchain)
-    toolchain_name = next(
-        (name for name in installed_names if name in preferred),
-        "",
-    )
+    toolchain_name = next((name for name in installed_names if name in preferred), "")
+    if not toolchain_name and toolchain.count("-") >= 3:
+        channel, requested_triple = toolchain.split("-", 1)
+        # Prefer exact triple match if installed
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name.startswith(f"{channel}-") and name.endswith(requested_triple)
+            ),
+            "",
+        )
+        # If exact not found and target arch mismatches requested triple arch,
+        # prefer same-arch channel variant
+        if not toolchain_name:
+            target_arch = target.split("-", 1)[0]
+            toolchain_name = next(
+                (
+                    name
+                    for name in installed_names
+                    if name.startswith(f"{channel}-")
+                    and name.split("-", 1)[1].split("-", 1)[0] == target_arch
+                ),
+                "",
+            )
+            if (
+                toolchain_name
+                and toolchain_name.split("-", 1)[1].split("-", 1)[0] != target_arch
+            ):
+                toolchain_name = channel
+    if not toolchain_name and toolchain.count("-") >= 3:
+        # If toolchain includes a triple (e.g. 1.89.0-x86_64-unknown-linux-gnu),
+        # prefer same-arch install
+        channel = toolchain.split("-", 1)[0]
+        requested_triple = toolchain.split("-", 1)[1]
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name.startswith(f"{channel}-") and name.endswith(requested_triple)
+            ),
+            "",
+        )
+        if not toolchain_name:
+            toolchain_name = next(
+                (name for name in installed_names if name.split("-", 1)[0] == channel),
+                "",
+            )
     if not toolchain_name:
         # Fallback: any installed variant that starts with the channel name.
         channel_prefix = f"{toolchain}-"
@@ -111,6 +155,23 @@ def main(
                 if name == toolchain or name.startswith(channel_prefix)
             ),
             "",
+        )
+    if not toolchain_name:
+        # Fallback: any installed variant that starts with the channel name.
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name == toolchain or name.startswith(channel_prefix)
+            ),
+            "",
+        )
+    if not toolchain_name:
+        # Accept host-architecture-suffixed installations of the requested channel
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (name for name in installed_names if name.startswith(channel_prefix)), ""
         )
     if not toolchain_name:
         typer.echo(
@@ -160,7 +221,7 @@ def main(
         typer.echo(f"Building with cross ({cross_version})")
 
     toolchain_spec = (
-        f"+{toolchain_name.rsplit('-', 4)[0]}" if use_cross else f"+{toolchain_name}"
+        f"+{toolchain.split('-', 1)[0]}" if use_cross else f"+{toolchain_name}"
     )
     build_cmd = [
         "cross" if use_cross else "cargo",

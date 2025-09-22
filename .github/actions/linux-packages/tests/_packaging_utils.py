@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses as dc
 import hashlib
+import importlib
 import os
 import shutil
 import sys
@@ -16,6 +17,9 @@ from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils import run_cmd
+
+if typ.TYPE_CHECKING:
+    import pytest
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(TESTS_ROOT / "scripts"))
@@ -64,9 +68,10 @@ def packaging_project() -> PackagingProject:
     test_file = Path(__file__).resolve()
     tests_root = test_file.parents[1]
     project_dir = test_file.parents[4] / "rust-toy-app"
+    actions_root = tests_root.parent
     return PackagingProject(
         project_dir=project_dir,
-        build_script=tests_root / "src" / "main.py",
+        build_script=actions_root / "rust-build-release" / "src" / "main.py",
         package_script=tests_root / "scripts" / "package.py",
         polythene_script=tests_root / "scripts" / "polythene.py",
     )
@@ -77,8 +82,12 @@ def deb_arch_for_target(target: str) -> str:
     lowered = target.lower()
     if lowered.startswith(("x86_64-", "x86_64_")):
         return "amd64"
+    if lowered.startswith(("i686-", "i686_")):
+        return "i386"
     if lowered.startswith(("aarch64-", "arm64-")):
         return "arm64"
+    if lowered.startswith("riscv64"):
+        return "riscv64"
     return "amd64"
 
 
@@ -138,24 +147,21 @@ def package_project(
                 for existing in dist_dir.glob(pattern):
                     existing.unlink()
         with ensure_nfpm(project.project_dir):
-            run_cmd(
-                local["uv"][
-                    "run",
-                    project.package_script.as_posix(),
-                    "--name",
-                    config.name,
-                    "--bin-name",
-                    config.bin_name,
-                    "--target",
-                    build.target,
-                    "--version",
-                    config.version,
-                    "--formats",
-                    ",".join(ordered_formats),
-                    "--man",
-                    build.man_page.as_posix(),
-                ]
-            )
+            env_vars = {
+                "INPUT_PACKAGE_NAME": config.name,
+                "INPUT_BIN_NAME": config.bin_name,
+                "INPUT_TARGET": build.target,
+                "INPUT_VERSION": config.version,
+                "INPUT_RELEASE": config.release,
+                "INPUT_FORMATS": "\n".join(ordered_formats),
+                "INPUT_MAN_PATHS": build.man_page.as_posix(),
+                "INPUT_MAN_SECTION": "1",
+                "INPUT_BINARY_DIR": "target",
+                "INPUT_OUTDIR": "dist",
+                "INPUT_CONFIG_PATH": "dist/nfpm.yaml",
+            }
+            with local.env(**env_vars):
+                run_cmd(local["uv"]["run", project.package_script.as_posix()])
 
         results: dict[str, Path] = {}
         for fmt in ordered_formats:
@@ -203,6 +209,27 @@ class ChecksumMismatchError(RuntimeError):
         super().__init__(
             f"nfpm checksum mismatch: expected {expected} but computed {actual}"
         )
+
+
+class ChecksumFetchError(RuntimeError):
+    """Raised when nfpm checksum retrieval fails."""
+
+    def __init__(self, url: str) -> None:
+        super().__init__(f"failed to download nfpm checksums from {url}")
+
+
+class ChecksumReadError(RuntimeError):
+    """Raised when nfpm checksum files cannot be read."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"unable to read nfpm checksums from {path}")
+
+
+class ChecksumEntryMissingError(RuntimeError):
+    """Raised when the expected nfpm checksum is absent from the manifest."""
+
+    def __init__(self, pattern: str, url: str) -> None:
+        super().__init__(f"missing checksum entry for {pattern} in {url}")
 
 
 def polythene_cmd(polythene: Path, *args: str) -> str:
@@ -287,13 +314,12 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                         sums_path,
                     ]
                 )
-            except ProcessExecutionError:
-                sums_text = ""
-            else:
-                try:
-                    sums_text = sums_path.read_text(encoding="utf-8")
-                except OSError:
-                    sums_text = ""
+            except ProcessExecutionError as exc:
+                raise ChecksumFetchError(checks_url) from exc
+            try:
+                sums_text = sums_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ChecksumReadError(sums_path) from exc
 
             expected_hash: str | None = None
             pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
@@ -301,10 +327,11 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                 if pattern in line:
                     expected_hash = line.split()[0]
                     break
-            if expected_hash:
-                digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
-                if digest.lower() != expected_hash.lower():
-                    raise ChecksumMismatchError(expected_hash, digest)
+            if expected_hash is None:
+                raise ChecksumEntryMissingError(pattern, checks_url)
+            digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
+            if digest.lower() != expected_hash.lower():
+                raise ChecksumMismatchError(expected_hash, digest)
             run_cmd(local["tar"]["-xzf", tarball, "-C", td, "nfpm"])
             run_cmd(local["install"]["-m", "0755", Path(td) / "nfpm", nfpm_path])
 
@@ -322,11 +349,26 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
             os.environ["PATH"] = original_path
 
 
+def test_coerce_optional_path_empty_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blank binary directory env defaults to the canonical target path."""
+    package_module = importlib.import_module("package")
+    monkeypatch.setenv("INPUT_BINARY_DIR", "")
+    result = package_module._coerce_optional_path(  # type: ignore[attr-defined]
+        Path("target"),
+        "INPUT_BINARY_DIR",
+        default=Path("target"),
+    )
+    assert result == Path("target")  # noqa: S101
+
+
 __all__ = sorted(
     [
         "build_release_artifacts",
         "BuildArtifacts",
         "ChecksumMismatchError",
+        "ChecksumEntryMissingError",
+        "ChecksumFetchError",
+        "ChecksumReadError",
         "deb_arch_for_target",
         "DEFAULT_CONFIG",
         "DEFAULT_TARGET",

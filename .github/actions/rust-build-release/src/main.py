@@ -39,14 +39,12 @@ app = typer.Typer(add_completion=False)
 
 def _target_is_windows(target: str) -> bool:
     """Return True if *target* resolves to a Windows triple."""
-
     normalized = target.strip().lower()
     return any(normalized.endswith(suffix) for suffix in WINDOWS_TARGET_SUFFIXES)
 
 
 def should_probe_container(host_platform: str, target: str) -> bool:
     """Determine whether container runtimes should be probed."""
-
     if host_platform != "win32":
         return True
     return not _target_is_windows(target)

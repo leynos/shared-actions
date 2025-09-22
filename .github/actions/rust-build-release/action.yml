@@ -52,9 +52,6 @@ runs:
         workspaces: ${{ inputs.project-dir }}
         shared-key: ${{ runner.os }}-toolchain-${{ env.RBR_TOOLCHAIN }}
         cache-on-failure: true
-    - name: Install nfpm
-      if: contains(inputs.target, 'unknown-linux-gnu')
-      uses: ./.github/actions/install-nfpm
     - name: Build release
       shell: bash
       env:
@@ -64,20 +61,33 @@ runs:
       run: |
         set -euo pipefail
         uv run --script "$GITHUB_ACTION_PATH/src/main.py"
-    - name: Stage artifacts
-      if: contains(inputs.target, 'unknown-linux-gnu')
+    - id: stage-linux-artifacts
+      name: Stage artifacts
+      if: contains(inputs.target, 'unknown-linux-')
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
         case "${{ inputs.target }}" in
-          x86_64-unknown-linux-gnu)
+          x86_64-unknown-linux-*)
             os=linux
             arch=amd64
             ;;
-          aarch64-unknown-linux-gnu)
+          aarch64-unknown-linux-*)
             os=linux
             arch=arm64
+            ;;
+          i686-unknown-linux-*)
+            os=linux
+            arch=i386
+            ;;
+          armv7-unknown-linux-gnueabihf|arm-unknown-linux-gnueabihf|armv7-unknown-linux-musleabihf|arm-unknown-linux-musleabihf)
+            os=linux
+            arch=armhf
+            ;;
+          riscv64*-unknown-linux-*)
+            os=linux
+            arch=riscv64
             ;;
           *)
             echo "::error:: unsupported target ${{ inputs.target }}"
@@ -111,35 +121,17 @@ runs:
           echo "::error:: located man page ${man_path} is not a file"
           exit 1
         fi
-        install -Dm755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
-        install -Dm644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
-    - name: Package with nfpm
-      if: contains(inputs.target, 'unknown-linux-gnu')
-      shell: bash
-      working-directory: ${{ inputs.project-dir }}
-      run: |
-        set -euo pipefail
-        case "${{ inputs.target }}" in
-          x86_64-unknown-linux-gnu)
-            arch=amd64
-            ;;
-          aarch64-unknown-linux-gnu)
-            arch=arm64
-            ;;
-          *)
-            echo "::error:: unsupported target ${{ inputs.target }}"
-            exit 1
-            ;;
-        esac
-        man_path="dist/${{ inputs.bin-name }}_linux_${arch}/${{ inputs.bin-name }}.1"
-        if [[ ! -f "${man_path}" ]]; then
-          echo "::error:: missing man page ${man_path}"
-          exit 1
-        fi
-        uv run "${{ github.action_path }}/scripts/package.py" \
-          --name "${{ inputs.bin-name }}" \
-          --bin-name "${{ inputs.bin-name }}" \
-          --target "${{ inputs.target }}" \
-          --version "${{ inputs.version }}" \
-          --formats "${{ inputs.formats }}" \
-          --man "${man_path}"
+        install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
+        install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
+        echo "man-path=dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
+    - name: Package Linux artifacts
+      if: contains(inputs.target, 'unknown-linux-')
+      uses: ./.github/actions/linux-packages
+      with:
+        project-dir: ${{ inputs.project-dir }}
+        bin-name: ${{ inputs.bin-name }}
+        package-name: ${{ inputs.bin-name }}
+        target: ${{ inputs.target }}
+        version: ${{ inputs.version }}
+        formats: ${{ inputs.formats }}
+        man-paths: ${{ steps.stage-linux-artifacts.outputs.man-path }}

@@ -10,39 +10,42 @@ import typer
 from plumbum import local
 
 if typ.TYPE_CHECKING:
+    from types import ModuleType
+
     from plumbum.commands.base import BaseCommand
+
+try:
+    from . import _bootstrap
+except ImportError:  # pragma: no cover - fallback for direct execution
+    SCRIPTS_DIR = Path(__file__).resolve().parent
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.append(str(SCRIPTS_DIR))
+    import _bootstrap  # type: ignore[import-not-found]
+
+PKG_DIR = _bootstrap.PKG_DIR
 
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
 except ImportError:  # pragma: no cover - fallback when run as a script
-    from importlib import util
-    from types import ModuleType
-
-    _PKG_DIR = Path(__file__).resolve().parent
-    _PKG_NAME = "rust_build_release_scripts"
-    if _PKG_NAME not in sys.modules:
-        pkg = ModuleType(_PKG_NAME)
-        pkg.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
-        sys.modules[_PKG_NAME] = pkg
-    _SPEC = util.spec_from_file_location(
-        f"{_PKG_NAME}.cmd_utils", _PKG_DIR / "cmd_utils.py"
-    )
-    if _SPEC is None or _SPEC.loader is None:
-        raise ImportError(name="cmd_utils") from None
-    _MODULE = util.module_from_spec(_SPEC)
-    sys.modules[_SPEC.name] = _MODULE
-    _SPEC.loader.exec_module(_MODULE)
-    run_cmd = _MODULE.run_cmd  # type: ignore[assignment]
+    helpers = _bootstrap.load_helper_module("cmd_utils")
+    run_cmd = helpers.run_cmd  # type: ignore[assignment]
 
 __all__ = [
+    "PKG_DIR",
     "ensure_directory",
     "ensure_exists",
     "get_command",
+    "load_helper_module",
     "run_cmd",
     "unique_match",
 ]
 
 PathIterable = typ.Iterable[Path]
+
+
+def load_helper_module(name: str) -> ModuleType:
+    """Load a helper module from the scripts package."""
+    return _bootstrap.load_helper_module(name)
 
 
 def get_command(name: str) -> BaseCommand:

@@ -1,0 +1,119 @@
+name: Linux Packages
+description: Build Linux packages for a Rust binary using nFPM.
+inputs:
+  project-dir:
+    description: Directory containing the built artefacts and packaging metadata.
+    required: false
+    default: .
+  package-name:
+    description: Package name recorded in the nFPM manifest (defaults to the binary name).
+    required: false
+    default: ''
+  bin-name:
+    description: Release binary to package.
+    required: true
+  target:
+    description: Target triple used for the build.
+    required: false
+    default: x86_64-unknown-linux-gnu
+  version:
+    description: Package version (for example 1.2.3).
+    required: true
+  formats:
+    description: Comma-, space-, or newline-separated list of package formats to produce (deb,rpm,apk,...).
+    required: false
+    default: deb
+  release:
+    description: Optional package release or revision value.
+    required: false
+    default: ''
+  arch:
+    description: Override the nfpm/GOARCH architecture (auto-detected from the target by default).
+    required: false
+    default: ''
+  maintainer:
+    description: Maintainer string recorded in package metadata.
+    required: false
+    default: ''
+  homepage:
+    description: Project homepage URL for package metadata.
+    required: false
+    default: ''
+  license:
+    description: Software license recorded in package metadata.
+    required: false
+    default: ''
+  section:
+    description: Package section/category used for Debian metadata.
+    required: false
+    default: ''
+  description:
+    description: Long-form package description shown in package managers.
+    required: false
+    default: ''
+  man-paths:
+    description: Comma-, space-, or newline-separated man page paths relative to the project directory.
+    required: false
+    default: ''
+  man-section:
+    description: Default man section applied when a path lacks a suffix (for example 1).
+    required: false
+    default: ''
+  man-stage:
+    description: Directory used to stage gzipped man pages prior to packaging.
+    required: false
+    default: ''
+  binary-dir:
+    description: Cargo target directory that holds built artefacts.
+    required: false
+    default: ''
+  outdir:
+    description: Destination directory for generated packages.
+    required: false
+    default: ''
+  config-path:
+    description: Path to write the generated nfpm configuration YAML.
+    required: false
+    default: ''
+  deb-depends:
+    description: Comma-, space-, or newline-separated runtime dependencies for Debian packages.
+    required: false
+    default: ''
+  rpm-depends:
+    description: Comma-, space-, or newline-separated runtime dependencies for RPM packages.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
+    - name: Install nfpm
+      uses: ./.github/actions/install-nfpm
+    - name: Build Linux packages
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        INPUT_PACKAGE_NAME: ${{ inputs["package-name"] }}
+        INPUT_BIN_NAME: ${{ inputs.bin-name }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_FORMATS: ${{ inputs.formats }}
+        INPUT_RELEASE: ${{ inputs.release }}
+        INPUT_ARCH: ${{ inputs.arch }}
+        INPUT_MAINTAINER: ${{ inputs.maintainer }}
+        INPUT_HOMEPAGE: ${{ inputs.homepage }}
+        INPUT_LICENSE: ${{ inputs.license }}
+        INPUT_SECTION: ${{ inputs.section }}
+        INPUT_DESCRIPTION: ${{ inputs.description }}
+        INPUT_MAN_PATHS: ${{ inputs.man-paths }}
+        INPUT_MAN_SECTION: ${{ inputs.man-section }}
+        INPUT_MAN_STAGE: ${{ inputs.man-stage }}
+        INPUT_BINARY_DIR: ${{ inputs.binary-dir }}
+        INPUT_OUTDIR: ${{ inputs.outdir }}
+        INPUT_CONFIG_PATH: ${{ inputs.config-path }}
+        INPUT_DEB_DEPENDS: ${{ inputs.deb-depends }}
+        INPUT_RPM_DEPENDS: ${{ inputs.rpm-depends }}
+      run: |
+        set -euo pipefail
+        uv run "${GITHUB_ACTION_PATH}/scripts/package.py"

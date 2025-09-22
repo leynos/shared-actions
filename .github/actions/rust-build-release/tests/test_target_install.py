@@ -304,6 +304,7 @@ def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
+    *,
     expected_probe: bool,
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""

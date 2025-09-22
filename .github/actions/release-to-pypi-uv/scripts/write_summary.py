@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer"]
+# dependencies = ["typer>=0.17,<0.18"]
 # ///
 """Append a short release summary for the workflow run."""
 

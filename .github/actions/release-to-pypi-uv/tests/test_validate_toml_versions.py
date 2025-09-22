@@ -9,6 +9,7 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
 import pytest
+from typer.testing import CliRunner
 
 from ._helpers import load_script_module
 
@@ -32,7 +33,7 @@ def _write_pyproject(base: Path, content: str) -> None:
     (base / "pyproject.toml").write_text(content.strip())
 
 
-def _invoke_main(module: ModuleType, **kwargs: str) -> None:
+def _invoke_main(module: ModuleType, **kwargs: object) -> None:
     """Invoke ``module.main`` with defaults tailored for the tests."""
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
@@ -59,6 +60,28 @@ version = "1.0.0"
         captured.out.strip()
         == "Checked 1 PEP 621 project file(s); all versions match 1.0.0."
     )
+
+
+def test_cli_defaults_when_optional_parameters_omitted(
+    project_root: Path, module: ModuleType
+) -> None:
+    """Use default CLI values when optional flags are not provided."""
+    _write_pyproject(
+        project_root / "pkg",
+        """
+[project]
+name = "demo"
+version = "1.0.0"
+""",
+    )
+
+    runner = CliRunner()
+    app = module.typer.Typer()
+    app.command()(module.main)
+    result = runner.invoke(app, ["--version", "1.0.0"])
+
+    assert result.exit_code == 0
+    assert "all versions match 1.0.0" in result.output
 
 
 def test_fails_on_mismatch(
@@ -199,7 +222,7 @@ dynamic = ["version"]
 """,
     )
 
-    _invoke_main(module, version="1.0.0", fail_on_dynamic="")
+    _invoke_main(module, version="1.0.0")
 
     captured = capsys.readouterr()
     assert "uses dynamic 'version'" in captured.out
@@ -295,6 +318,26 @@ version = "1.0.0"
     discovered = list(module._iter_files("**/pyproject.toml"))
 
     assert discovered == [first, second]
+
+
+def test_iter_files_discovers_paths_in_sorted_order(
+    project_root: Path,
+    module: ModuleType,
+) -> None:
+    """Ensure discovery order remains deterministic for reproducible output."""
+    for name in ("pkg_c", "pkg_a", "pkg_b"):
+        _write_pyproject(
+            project_root / name,
+            """
+[project]
+name = "demo"
+version = "1.0.0"
+""",
+        )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    relative = [path.as_posix() for path in discovered]
+    assert relative == sorted(relative)
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])

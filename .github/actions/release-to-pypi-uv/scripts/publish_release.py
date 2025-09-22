@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer"]
+# dependencies = ["typer>=0.17,<0.18"]
 # ///
 """Publish the built distributions using uv."""
 
@@ -31,8 +31,6 @@ def _extend_sys_path() -> None:
             candidates.append(scripts_dir.parents[3])
 
     for candidate in candidates:
-        if not candidate:
-            continue
         if not candidate.exists():
             continue
         path_str = str(candidate)
@@ -44,10 +42,14 @@ _extend_sys_path()
 
 from cmd_utils import run_cmd  # noqa: E402
 
-INDEX_OPTION = typer.Option("", envvar="INPUT_UV_INDEX")
+INDEX_OPTION = typer.Option(
+    "",
+    envvar="INPUT_UV_INDEX",
+    help="Optional index name or URL for uv publish.",
+)
 
 
-def main(index: str = INDEX_OPTION) -> None:
+def main(index: str = "") -> None:
     """Publish the built distributions with uv.
 
     Parameters
@@ -55,7 +57,7 @@ def main(index: str = INDEX_OPTION) -> None:
     index : str
         Optional package index name or URL to pass to ``uv publish``.
     """
-    if index:
+    if index := index.strip():
         typer.echo(f"Publishing with uv to index '{index}'")
         run_cmd(["uv", "publish", "--index", index])
     else:
@@ -63,5 +65,10 @@ def main(index: str = INDEX_OPTION) -> None:
         run_cmd(["uv", "publish"])
 
 
+def cli(index: str = INDEX_OPTION) -> None:
+    """CLI entrypoint."""
+    main(index=index)
+
+
 if __name__ == "__main__":
-    typer.run(main)
+    typer.run(cli)

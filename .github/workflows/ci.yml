@@ -39,9 +39,12 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         # v2.0.2
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
-      - name: Install action-validator
+      - name: Validate GitHub Actions metadata
         if: matrix.os == 'ubuntu-latest'
-        run: bun install -g @action-validator/core @action-validator/cli
+        run: |
+          set -euxo pipefail
+          find . -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
+            | xargs -0 -n1 bunx -y @action-validator/cli validate
         shell: bash
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'

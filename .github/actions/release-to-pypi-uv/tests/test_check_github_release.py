@@ -189,3 +189,25 @@ def test_retries_then_success(
     assert len(attempts) == 3
     captured = capsys.readouterr()
     assert "GitHub Release 'ok' is published." in captured.out
+
+
+def test_retries_then_fail(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    fake_token: str,
+) -> None:
+    """Abort after exhausting retries when transient errors persist."""
+
+    def failing_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
+        _ = request, timeout
+        raise module.urllib.error.URLError("temporary")
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", failing_urlopen)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+
+    with pytest.raises(module.typer.Exit):
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
+
+    captured = capsys.readouterr()
+    assert "temporary" in captured.err or "fetch" in captured.err

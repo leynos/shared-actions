@@ -110,4 +110,4 @@ def test_accepts_toolchain_with_triple() -> None:
     manpage_glob = (
         project_dir / "target" / target_triple / "release" / "build"
     ).glob("rust-toy-app-*/out/rust-toy-app.1")
-    assert any(manpage_glob)
+    assert any(path.is_file() for path in manpage_glob)

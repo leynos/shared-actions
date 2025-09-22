@@ -40,11 +40,13 @@ def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
     assert len(env_configs_reloaded) == 1
 
 
-def test_normalise_list_dedupes_casefold(packaging_module: types.ModuleType) -> None:
-    """Tokens differing only by case are deduplicated while preserving order."""
+def test_normalise_list_preserves_case_variants(
+    packaging_module: types.ModuleType,
+) -> None:
+    """Tokens that differ only by case remain distinct while preserving order."""
     values = ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
     result = packaging_module._normalise_list(values, default=[])
-    assert result == ["Foo", "BAR", "Mixed"]
+    assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
 def test_coerce_optional_path_handles_none_and_blank(

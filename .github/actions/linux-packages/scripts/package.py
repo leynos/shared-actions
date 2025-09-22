@@ -238,10 +238,9 @@ def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str
         for token in re.split(r"[\s,]+", item.strip()):
             if not token:
                 continue
-            lowered = token.casefold()
-            if lowered in seen:
+            if token in seen:
                 continue
-            seen.add(lowered)
+            seen.add(token)
             entries.append(token)
     return entries
 

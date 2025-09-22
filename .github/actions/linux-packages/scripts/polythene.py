@@ -2,9 +2,9 @@
 # /// script
 # requires-python = ">=3.9"
 # dependencies = [
-#   "typer>=0.12.3",
-#   "plumbum>=1.8.2",
-#   "uuid6>=2023.5.29",
+#   "typer>=0.9,<1.0",
+#   "plumbum>=1.8,<2.0",
+#   "uuid6>=2025.0.1",
 # ]
 # ///
 """

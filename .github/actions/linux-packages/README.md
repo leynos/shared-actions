@@ -63,13 +63,16 @@ None.
     formats: deb
 ```
 
-The action assumes a release binary is already present at
-`project-dir/target/<target>/release/<bin-name>` (with the default `project-dir`
-resolving to `./target/<target>/release/<bin-name>`) and that any man pages
-referenced via `man-paths` exist relative to `project-dir`. List inputs such as
-`formats`, `man-paths`, `deb-depends` and `rpm-depends` accept comma-, space- or
-newline-separated values; when provided as a multi-line YAML string each line is
-treated as a distinct entry.
+The action assumes a release binary is already present at:
+
+`<project-dir>/target/<target>/release/<bin-name>`
+
+With the default `project-dir` of `.`, this resolves to
+`./target/<target>/release/<bin-name>`. Any man pages referenced via `man-paths`
+must exist relative to `project-dir`. List inputs such as `formats`, `man-paths`,
+`deb-depends` and `rpm-depends` accept comma-, space- or newline-separated
+values; when provided as a multi-line YAML string each line is treated as a
+distinct entry.
 
 ## Release History
 

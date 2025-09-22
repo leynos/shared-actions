@@ -290,25 +290,24 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
 
 @pytest.mark.parametrize(
-    ("host_platform", "target", "probe_decision"),
+    ("host_platform", "target", "expected_probe"),
     [
-        ("win32", "x86_64-pc-windows-msvc", "skip"),
-        ("win32", "aarch64-pc-windows-gnu", "skip"),
-        ("win32", "x86_64-uwp-windows-msvc", "skip"),
-        ("win32", "x86_64-pc-windows-gnullvm", "skip"),
-        ("win32", "x86_64-unknown-linux-gnu", "probe"),
-        ("linux", "x86_64-pc-windows-msvc", "probe"),
+        ("win32", "x86_64-pc-windows-msvc", False),
+        ("win32", "aarch64-pc-windows-gnu", False),
+        ("win32", "x86_64-uwp-windows-msvc", False),
+        ("win32", "x86_64-pc-windows-gnullvm", False),
+        ("win32", "x86_64-unknown-linux-gnu", True),
+        ("linux", "x86_64-pc-windows-msvc", True),
     ],
 )
 def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
-    probe_decision: typ.Literal["probe", "skip"],
+    expected_probe: bool,
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-    expect_probe = probe_decision == "probe"
-    assert main_module.should_probe_container(host_platform, target) == expect_probe
+    assert main_module.should_probe_container(host_platform, target) is expected_probe
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

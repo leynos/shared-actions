@@ -35,6 +35,7 @@ def _host_linux_triple() -> str:
         "riscv64": "riscv64gc-unknown-linux-gnu",
         "ppc64le": "powerpc64le-unknown-linux-gnu",
         "s390x": "s390x-unknown-linux-gnu",
+        "loongarch64": "loongarch64-unknown-linux-gnu",
     }
     triple = triple_map.get(machine)
     if triple is None:  # pragma: no cover - defensive skip
@@ -79,7 +80,6 @@ def test_accepts_toolchain_with_triple() -> None:
             "--profile",
             "minimal",
             "--no-self-update",
-            "1.89.0",
             toolchain,
         ]
     )

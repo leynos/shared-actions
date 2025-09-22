@@ -68,33 +68,10 @@ runs:
       working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
-        case "${{ inputs.target }}" in
-          x86_64-unknown-linux-*)
-            os=linux
-            arch=amd64
-            ;;
-          aarch64-unknown-linux-*)
-            os=linux
-            arch=arm64
-            ;;
-          i686-unknown-linux-*)
-            os=linux
-            arch=i386
-            ;;
-          armv7-unknown-linux-gnueabihf|arm-unknown-linux-gnueabihf|armv7-unknown-linux-musleabihf|arm-unknown-linux-musleabihf)
-            os=linux
-            arch=armhf
-            ;;
-          riscv64*-unknown-linux-*)
-            os=linux
-            arch=riscv64
-            ;;
-          *)
-            echo "::error:: unsupported target ${{ inputs.target }}"
-            exit 1
-            ;;
-        esac
-        mkdir -p "dist/${{ inputs.bin-name }}_${os}_${arch}"
+        targets_script="$(dirname "${GITHUB_ACTION_PATH}")/linux-packages/scripts/targets.py"
+        read -r platform arch <<< "$(uv run "${targets_script}" --target "${{ inputs.target }}" --field platform --field staging-arch)"
+        stage_dir="dist/${{ inputs.bin-name }}_${platform}_${arch}"
+        mkdir -p "${stage_dir}"
         bin_src="target/${{ inputs.target }}/release/${{ inputs.bin-name }}"
         if [[ ! -f "${bin_src}" ]]; then
           echo "::error:: binary not found at ${bin_src}"
@@ -121,9 +98,9 @@ runs:
           echo "::error:: located man page ${man_path} is not a file"
           exit 1
         fi
-        install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
-        install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
-        echo "man-path=dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
+        install -m 0755 "${bin_src}" "${stage_dir}/${{ inputs.bin-name }}"
+        install -m 0644 "${man_path}" "${stage_dir}/${{ inputs.bin-name }}.1"
+        echo "man-path=${stage_dir}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
     - name: Package Linux artifacts
       if: contains(inputs.target, 'unknown-linux-')
       uses: ./.github/actions/linux-packages

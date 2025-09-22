@@ -14,7 +14,6 @@ header so the runner can install dependencies on demand.
 #   "cyclopts>=2.9,<3.0",
 #   "plumbum>=1.8,<2.0",
 #   "pyyaml>=6.0,<7.0",
-#   "typer>=0.9,<1.0",  # optional: coloured error reporting via script_utils
 # ]
 # ///
 ```
@@ -24,13 +23,14 @@ Command-line parsing is handled by
 inputs directly from `INPUT_*` environment variables. Mapping the environment is
 as simple as configuring the application with the shared prefix:
 
+In composite actions, export inputs as environment variables so scripts can read
+them, for example: `env: INPUT_BIN_NAME: ${{ inputs.bin-name }}`.
+
 ```python
 import cyclopts
 from cyclopts import App
 
-app = App()
-env_config = cyclopts.config.Env("INPUT_", command=False)
-app.config = (*tuple(getattr(app, "config", ())), env_config)
+app = App(config=(cyclopts.config.Env("INPUT_", command=False),))
 
 
 @app.default

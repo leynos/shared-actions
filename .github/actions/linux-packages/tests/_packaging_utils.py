@@ -24,6 +24,7 @@ if typ.TYPE_CHECKING:
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(TESTS_ROOT / "scripts"))
 from script_utils import unique_match  # noqa: E402
+from targets import resolve_target  # noqa: E402
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -78,17 +79,8 @@ def packaging_project() -> PackagingProject:
 
 
 def deb_arch_for_target(target: str) -> str:
-    """Return the nfpm architecture label for *target*."""
-    lowered = target.lower()
-    if lowered.startswith(("x86_64-", "x86_64_")):
-        return "amd64"
-    if lowered.startswith(("i686-", "i686_")):
-        return "i386"
-    if lowered.startswith(("aarch64-", "arm64-")):
-        return "arm64"
-    if lowered.startswith("riscv64"):
-        return "riscv64"
-    return "amd64"
+    """Return the Debian architecture recorded for *target*."""
+    return resolve_target(target).deb_arch
 
 
 def build_release_artifacts(

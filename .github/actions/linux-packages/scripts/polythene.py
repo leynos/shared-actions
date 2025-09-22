@@ -52,6 +52,9 @@ else:
     try:
         from .script_utils import ensure_directory, get_command, run_cmd
     except ImportError:  # pragma: no cover - fallback for direct execution
+        scripts_dir = Path(__file__).resolve().parent
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
         import _bootstrap  # type: ignore[import-not-found]
 
         helpers = typ.cast("typ.Any", _bootstrap.load_helper_module("script_utils"))

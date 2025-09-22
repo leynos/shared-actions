@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support staging and packaging for `unknown-linux-musl` targets alongside GNU
   triples for x86_64, aarch64, i686, arm*, and riscv64 builds.
 
+### Changed
+
+- Derive staging architecture labels via the linux-packages target helper to
+  keep the action and CLI in sync, and streamline toolchain sanitisation
+  to install only the requested triple.
+
 ## [0.1.0] - 2025-09-10
 
 ### Added

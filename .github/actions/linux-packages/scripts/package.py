@@ -25,6 +25,7 @@ relative to the working directory (the action runs from ``project-dir``).
 
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import os
 import re
@@ -38,29 +39,46 @@ import yaml
 from cyclopts import App, Parameter
 from plumbum.commands.processes import ProcessExecutionError
 
-if typ.TYPE_CHECKING:
-    from .script_utils import (
-        ensure_directory,
-        ensure_exists,
-        get_command,
-        run_cmd,
-    )
-else:  # pragma: no cover - runtime fallback when executed as a script
-    try:
-        from .script_utils import (
-            ensure_directory,
-            ensure_exists,
-            get_command,
-            run_cmd,
-        )
-    except ImportError:  # pragma: no cover - fallback for direct execution
-        import _bootstrap  # type: ignore[import-not-found]
+try:  # pragma: no cover - exercised when packaged as a module
+    from . import _bootstrap  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - fallback for direct execution
+    SCRIPTS_DIR = Path(__file__).resolve().parent
+    if str(SCRIPTS_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_DIR))
+    import _bootstrap  # type: ignore[import-not-found]
 
+if typ.TYPE_CHECKING:
+    from .script_utils import ensure_directory, ensure_exists, get_command, run_cmd
+    from .targets import TargetInfo, TargetResolutionError
+
+
+try:
+    from . import targets as _targets_module
+except ImportError:  # pragma: no cover - executed for direct runs
+    _targets_module = typ.cast("typ.Any", _bootstrap.load_helper_module("targets"))
+
+
+TargetInfo = _targets_module.TargetInfo  # type: ignore[assignment]
+TargetResolutionError = _targets_module.TargetResolutionError  # type: ignore[assignment]
+resolve_target = _targets_module.resolve_target  # type: ignore[assignment]
+
+
+def _import_script_utils() -> tuple[typ.Any, typ.Any, typ.Any, typ.Any]:
+    try:
+        from .script_utils import ensure_directory, ensure_exists, get_command, run_cmd
+    except ImportError:  # pragma: no cover - executed for direct runs
         helpers = typ.cast("typ.Any", _bootstrap.load_helper_module("script_utils"))
-        ensure_directory = helpers.ensure_directory
-        ensure_exists = helpers.ensure_exists
-        get_command = helpers.get_command
-        run_cmd = helpers.run_cmd
+        return (
+            helpers.ensure_directory,
+            helpers.ensure_exists,
+            helpers.get_command,
+            helpers.run_cmd,
+        )
+    else:
+        return ensure_directory, ensure_exists, get_command, run_cmd
+
+
+ensure_directory, ensure_exists, get_command, run_cmd = _import_script_utils()
 
 
 class PackagingError(RuntimeError):
@@ -94,9 +112,8 @@ class PackagingError(RuntimeError):
 
 SECTION_RE = re.compile(r"\.(\d[\w-]*)($|\.gz$)")
 
-app = App()
-_env_config = cyclopts.config.Env("INPUT_", command=False)
-app.config = (*tuple(getattr(app, "config", ())), _env_config)
+_APP_CONFIG = {"config": (cyclopts.config.Env("INPUT_", command=False),)}
+app = App(**typ.cast("dict[str, typ.Any]", _APP_CONFIG))
 
 
 def _fail(message: str, *, code: int = 2) -> typ.NoReturn:
@@ -124,28 +141,240 @@ def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode
 yaml.SafeDumper.add_representer(OctalInt, _represent_octal_int)
 
 
-def map_target_to_arch(target: str) -> str:
-    """Map a Rust target triple to nFPM/GOARCH arch strings."""
-    t = target.lower()
-    if t.startswith(("x86_64-", "x86_64_")):
-        return "amd64"
-    if t.startswith(("aarch64-", "arm64-")):
-        return "arm64"
-    if t.startswith(("i686-", "i586-", "i386-")):
-        return "386"
-    if t.startswith(("armv7-", "armv6-", "arm-")):
-        return "arm"
-    if t.startswith("riscv64-"):
-        return "riscv64"
-    if t.startswith(("powerpc64le-", "ppc64le-")):
-        return "ppc64le"
-    if t.startswith("s390x-"):
-        return "s390x"
-    if t.startswith(("loongarch64-", "loong64-")):
-        return "loong64"
-    # Unknown triples intentionally fall through; PackagingError.unsupported_target
-    # surfaces a clear failure for unsupported combinations.
-    raise PackagingError.unsupported_target(target)
+@dataclasses.dataclass(slots=True)
+class ResolvedInputs:
+    """Normalised values derived from CLI and environment inputs."""
+
+    package: str
+    bin_name: str
+    version: str
+    target: str
+    release: str
+    arch: str
+    man_section: str
+
+
+@dataclasses.dataclass(slots=True)
+class ResolvedPaths:
+    """Concrete filesystem paths used during packaging."""
+
+    binary_root: Path
+    outdir: Path
+    config_out: Path
+    man_stage: Path
+    bin_path: Path
+
+
+def _resolve_target_info(target: str) -> TargetInfo:
+    """Return metadata for *target* or raise a PackagingError."""
+    try:
+        return resolve_target(target)
+    except TargetResolutionError as exc:  # pragma: no cover - error path
+        raise PackagingError.unsupported_target(target) from exc
+
+
+def _normalise_inputs(
+    package_name: str | None,
+    bin_name: str,
+    target: str,
+    version: str,
+    release: str | None,
+    arch: str | None,
+    man_section: str | None,
+) -> tuple[ResolvedInputs, TargetInfo]:
+    """Validate and coerce raw inputs into concrete values."""
+    bin_value = bin_name.strip()
+    if not bin_value:
+        raise PackagingError.missing_bin()
+
+    package_value = (package_name or bin_value).strip() or bin_value
+    version_value = version.strip().lstrip("v")
+    if not version_value:
+        raise PackagingError.missing_version()
+
+    target_value = target.strip() or "x86_64-unknown-linux-gnu"
+    target_info = _resolve_target_info(target_value)
+    arch_value = (arch or target_info.nfpm_arch).strip() or target_info.nfpm_arch
+    release_value = (release or "1").strip() or "1"
+    man_section_value = (man_section or "1").strip() or "1"
+
+    return (
+        ResolvedInputs(
+            package=package_value,
+            bin_name=bin_value,
+            version=version_value,
+            target=target_value,
+            release=release_value,
+            arch=arch_value,
+            man_section=man_section_value,
+        ),
+        target_info,
+    )
+
+
+def _resolve_paths(
+    inputs: ResolvedInputs,
+    binary_dir: Path | None,
+    outdir: Path | None,
+    config_out: Path | None,
+    man_stage: Path | None,
+) -> ResolvedPaths:
+    """Resolve filesystem paths, honouring blank environment overrides."""
+    binary_root = _coerce_path(binary_dir, "INPUT_BINARY_DIR", default=Path("target"))
+    outdir_path = _coerce_path(outdir, "INPUT_OUTDIR", default=Path("dist"))
+    config_out_path = _coerce_path(
+        config_out,
+        "INPUT_CONFIG_PATH",
+        default=Path("dist/nfpm.yaml"),
+    )
+    man_stage_path = _coerce_path(
+        man_stage,
+        "INPUT_MAN_STAGE",
+        default=Path("dist/.man"),
+    )
+
+    bin_path = binary_root / inputs.target / "release" / inputs.bin_name
+    ensure_exists(bin_path, "built binary not found; build first")
+    ensure_directory(outdir_path)
+    ensure_directory(config_out_path.parent)
+
+    return ResolvedPaths(
+        binary_root=binary_root,
+        outdir=outdir_path,
+        config_out=config_out_path,
+        man_stage=man_stage_path,
+        bin_path=bin_path,
+    )
+
+
+def _resolve_dependencies(
+    deb_depends: list[str] | None,
+    rpm_depends: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Return Debian and RPM dependency lists honouring fallbacks."""
+    deb_requires = _normalise_list(deb_depends, default=[])
+    rpm_candidates = _normalise_list(rpm_depends, default=[])
+    rpm_requires = rpm_candidates if rpm_candidates else list(deb_requires)
+    return deb_requires, rpm_requires
+
+
+def _build_contents(
+    inputs: ResolvedInputs,
+    paths: ResolvedPaths,
+    man_sources: list[Path],
+) -> list[dict[str, typ.Any]]:
+    """Assemble nfpm contents entries for the binary, license, and man pages."""
+    contents: list[dict[str, typ.Any]] = [
+        {
+            "src": paths.bin_path.as_posix(),
+            "dst": f"/usr/bin/{inputs.bin_name}",
+            "file_info": {"mode": "0755"},
+        }
+    ]
+
+    license_file = Path("LICENSE")
+    if license_file.exists():
+        contents.append(
+            {
+                "src": license_file.as_posix(),
+                "dst": f"/usr/share/doc/{inputs.package}/copyright",
+                "file_info": {"mode": "0644"},
+            }
+        )
+
+    man_entries = build_man_entries(man_sources, inputs.man_section, paths.man_stage)
+    contents.extend(man_entries)
+    return normalise_file_modes(contents)
+
+
+def _clean(value: str | None) -> str:
+    """Return a whitespace-trimmed string for optional metadata."""
+    return (value or "").strip()
+
+
+def _write_config(
+    inputs: ResolvedInputs,
+    target_info: TargetInfo,
+    paths: ResolvedPaths,
+    contents: list[dict[str, typ.Any]],
+    maintainer: str | None,
+    homepage: str | None,
+    license_: str | None,
+    section: str | None,
+    description: str | None,
+    deb_requires: list[str],
+    rpm_requires: list[str],
+) -> Path:
+    """Write the nfpm configuration file and return its path."""
+    config: dict[str, typ.Any] = {
+        "name": inputs.package,
+        "arch": inputs.arch,
+        "platform": target_info.platform,
+        "version": inputs.version,
+        "release": inputs.release,
+        "section": _clean(section),
+        "priority": "optional",
+        "maintainer": _clean(maintainer),
+        "homepage": _clean(homepage),
+        "license": _clean(license_),
+        "description": _clean(description),
+        "contents": contents,
+        "overrides": {
+            "deb": {"depends": deb_requires},
+            "rpm": {"depends": rpm_requires},
+        },
+    }
+
+    paths.config_out.write_text(
+        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    print(f"Wrote {paths.config_out}")
+    return paths.config_out
+
+
+def _package_formats(
+    formats: list[str],
+    config_path: Path,
+    outdir: Path,
+) -> None:
+    """Invoke nfpm for each requested format and surface aggregated failures."""
+    nfpm = get_command("nfpm")
+    failures: list[tuple[str, int]] = []
+    single_format = len(formats) == 1
+
+    for fmt in formats:
+        cmd = nfpm[
+            "package",
+            "--packager",
+            fmt,
+            "-f",
+            str(config_path),
+            "-t",
+            str(outdir),
+        ]
+        print(f"→ {shlex.join(cmd.formulate())}")
+        try:
+            run_cmd(cmd)
+        except ProcessExecutionError as pe:
+            retcode = int(pe.retcode or 1)
+            print(
+                f"error: nfpm failed for format '{fmt}' (exit {retcode})",
+                file=sys.stderr,
+            )
+            if single_format:
+                raise SystemExit(retcode) from pe
+            failures.append((fmt, retcode))
+        else:
+            print(f"✓ built {fmt} packages in {outdir}")
+
+    if failures:
+        for fmt, retcode in failures:
+            print(
+                f"format '{fmt}' failed with exit code {retcode}",
+                file=sys.stderr,
+            )
+        raise SystemExit(failures[0][1])
 
 
 def infer_section(path: Path, default: str) -> str:
@@ -186,8 +415,7 @@ def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, ty
     normalised: list[dict[str, typ.Any]] = []
     for entry in entries:
         new_entry = dict(entry)
-        file_info = entry.get("file_info")
-        if file_info:
+        if file_info := entry.get("file_info"):
             new_info = dict(file_info)
             mode = new_info.get("mode")
             if isinstance(mode, str):
@@ -256,9 +484,7 @@ def _coerce_optional_path(
     if value is None:
         return default
     text = str(value).strip()
-    if not text:
-        return default
-    return Path(text)
+    return default if not text else Path(text)
 
 
 def _coerce_path_list(values: list[Path] | None, env_var: str) -> list[Path]:
@@ -266,13 +492,7 @@ def _coerce_path_list(values: list[Path] | None, env_var: str) -> list[Path]:
     raw = os.environ.get(env_var)
     if raw is not None and not raw.strip():
         return []
-    cleaned: list[Path] = []
-    for value in values or []:
-        text = str(value).strip()
-        if not text:
-            continue
-        cleaned.append(Path(text))
-    return cleaned
+    return [Path(text) for value in values or [] if (text := str(value).strip())]
 
 
 def _coerce_path(value: Path | None, env_var: str, *, default: Path) -> Path:
@@ -310,138 +530,39 @@ def main(
     rpm_depends: list[str] | None = None,
 ) -> None:
     """Build packages for a Rust binary using nFPM configuration derived from inputs."""
-    bin_value = bin_name.strip()
-    if not bin_value:
-        raise PackagingError.missing_bin()
-    package_value = (package_name or bin_value).strip() or bin_value
-    version_value = version.strip().lstrip("v")
-    if not version_value:
-        raise PackagingError.missing_version()
-
-    target_value = target.strip() or "x86_64-unknown-linux-gnu"
-    release_value = (release or "1").strip() or "1"
-    arch_value = (arch or map_target_to_arch(target_value)).strip()
-
-    binary_root = _coerce_path(
-        binary_dir,
-        "INPUT_BINARY_DIR",
-        default=Path("target"),
+    inputs, target_info = _normalise_inputs(
+        package_name,
+        bin_name,
+        target,
+        version,
+        release,
+        arch,
+        man_section,
     )
-    outdir_path = _coerce_path(
-        outdir,
-        "INPUT_OUTDIR",
-        default=Path("dist"),
-    )
-    config_out_path = _coerce_path(
-        config_out,
-        "INPUT_CONFIG_PATH",
-        default=Path("dist/nfpm.yaml"),
-    )
-    man_section_value = (man_section or "1").strip() or "1"
-    man_stage_path = _coerce_path(
-        man_stage,
-        "INPUT_MAN_STAGE",
-        default=Path("dist/.man"),
-    )
-
-    bin_path = binary_root / target_value / "release" / bin_value
-    ensure_exists(bin_path, "built binary not found; build first")
-    ensure_directory(outdir_path)
-    ensure_directory(config_out_path.parent)
-
-    license_file = Path("LICENSE")
-    contents: list[dict[str, typ.Any]] = [
-        {
-            "src": bin_path.as_posix(),
-            "dst": f"/usr/bin/{bin_value}",
-            "file_info": {"mode": "0755"},
-        }
-    ]
-    if license_file.exists():
-        contents.append(
-            {
-                "src": license_file.as_posix(),
-                "dst": f"/usr/share/doc/{package_value}/copyright",
-                "file_info": {"mode": "0644"},
-            }
-        )
+    paths = _resolve_paths(inputs, binary_dir, outdir, config_out, man_stage)
 
     man_sources = _coerce_path_list(man_paths, "INPUT_MAN_PATHS")
-    man_entries = build_man_entries(man_sources, man_section_value, man_stage_path)
-    contents.extend(man_entries)
+    contents = _build_contents(inputs, paths, man_sources)
+    deb_requires, rpm_requires = _resolve_dependencies(deb_depends, rpm_depends)
 
-    deb_requires = _normalise_list(deb_depends, default=[])
-    rpm_requires = (
-        _normalise_list(rpm_depends, default=[])
-        if rpm_depends is not None
-        else list(deb_requires)
+    config_path = _write_config(
+        inputs,
+        target_info,
+        paths,
+        contents,
+        maintainer,
+        homepage,
+        license_,
+        section,
+        description,
+        deb_requires,
+        rpm_requires,
     )
-
-    config: dict[str, typ.Any] = {
-        "name": package_value,
-        "arch": arch_value,
-        "platform": "linux",
-        "version": version_value,
-        "release": release_value,
-        "section": (section or "").strip(),
-        "priority": "optional",
-        "maintainer": (maintainer or "").strip(),
-        "homepage": (homepage or "").strip(),
-        "license": (license_ or "").strip(),
-        "description": (description or "").strip(),
-        "contents": normalise_file_modes(contents),
-        "overrides": {
-            "deb": {"depends": deb_requires},
-            "rpm": {"depends": rpm_requires},
-        },
-    }
-
-    config_out_path.write_text(
-        yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-    print(f"Wrote {config_out_path}")
-
-    nfpm = get_command("nfpm")
 
     resolved_formats = _normalise_list(formats, default=["deb"])
     if not resolved_formats:
         raise PackagingError.missing_formats()
-
-    failures: list[tuple[str, int]] = []
-    single_format = len(resolved_formats) == 1
-    for fmt in resolved_formats:
-        cmd = nfpm[
-            "package",
-            "--packager",
-            fmt,
-            "-f",
-            str(config_out_path),
-            "-t",
-            str(outdir_path),
-        ]
-        print(f"→ {shlex.join(cmd.formulate())}")
-        try:
-            run_cmd(cmd)
-        except ProcessExecutionError as pe:
-            retcode = int(pe.retcode or 1)
-            print(
-                f"error: nfpm failed for format '{fmt}' (exit {retcode})",
-                file=sys.stderr,
-            )
-            if single_format:
-                raise SystemExit(retcode) from pe
-            failures.append((fmt, retcode))
-        else:
-            print(f"✓ built {fmt} packages in {outdir_path}")
-
-    if failures:
-        for fmt, retcode in failures:
-            print(
-                f"format '{fmt}' failed with exit code {retcode}",
-                file=sys.stderr,
-            )
-        raise SystemExit(failures[0][1])
+    _package_formats(resolved_formats, config_path, paths.outdir)
 
 
 def run() -> None:

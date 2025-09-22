@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import typing as typ
 from pathlib import Path
@@ -12,29 +13,23 @@ from plumbum import local
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
 
+PKG_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = PKG_DIR.parent.parent.parent.parent
+
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
 except ImportError:  # pragma: no cover - fallback when run as a script
-    from importlib import util
-    from types import ModuleType
-
-    PKG_DIR = Path(__file__).resolve().parent
-    _PKG_NAME = f"{PKG_DIR.parent.name.replace('-', '')}_scripts"
-    if _PKG_NAME not in sys.modules:
-        pkg = ModuleType(_PKG_NAME)
-        pkg.__path__ = [str(PKG_DIR)]  # type: ignore[attr-defined]
-        sys.modules[_PKG_NAME] = pkg
-    _SPEC = util.spec_from_file_location(
-        f"{_PKG_NAME}.cmd_utils", PKG_DIR / "cmd_utils.py"
-    )
-    if _SPEC is None or _SPEC.loader is None:
+    module_path = _REPO_ROOT / "cmd_utils.py"
+    spec = importlib.util.spec_from_file_location("cmd_utils", module_path)
+    if spec is None or spec.loader is None:
         raise ImportError(name="cmd_utils") from None
-    _MODULE = util.module_from_spec(_SPEC)
-    sys.modules[_SPEC.name] = _MODULE
-    _SPEC.loader.exec_module(_MODULE)
-    run_cmd = _MODULE.run_cmd  # type: ignore[assignment]
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    run_cmd = module.run_cmd  # type: ignore[assignment]
 
 __all__ = [
+    "PKG_DIR",
     "ensure_directory",
     "ensure_exists",
     "get_command",

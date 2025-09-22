@@ -52,7 +52,7 @@ inputs:
     required: false
     default: ''
   man-paths:
-    description: Newline-separated list of man page paths relative to the project directory.
+    description: Comma-, space-, or newline-separated man page paths relative to the project directory.
     required: false
     default: ''
   man-section:
@@ -76,11 +76,11 @@ inputs:
     required: false
     default: ''
   deb-depends:
-    description: Newline-separated list of runtime dependencies for Debian packages.
+    description: Comma-, space-, or newline-separated runtime dependencies for Debian packages.
     required: false
     default: ''
   rpm-depends:
-    description: Newline-separated list of runtime dependencies for RPM packages.
+    description: Comma-, space-, or newline-separated runtime dependencies for RPM packages.
     required: false
     default: ''
 runs:

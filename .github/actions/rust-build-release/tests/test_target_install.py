@@ -319,6 +319,46 @@ def test_should_probe_container_handles_windows_targets(
     assert main_module.should_probe_container(host_platform, target) is expected
 
 
+def test_runtime_available_handles_timeout(
+    main_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Treat runtime probe timeouts as unavailable instead of crashing."""
+    harness = module_harness(main_module)
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustup" if name == "rustup" else None
+    )
+
+    def fake_run_validated(executable: str, args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
+            stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+            return subprocess.CompletedProcess([executable, *args], 0, stdout=stdout)
+        raise AssertionError(f"unexpected run_validated call: {executable} {args}")
+
+    harness.patch_attr("run_validated", fake_run_validated)
+
+    def run_cmd_side_effect(cmd: list[str]) -> None:
+        if cmd[:3] == ["/usr/bin/rustup", "target", "add"]:
+            raise subprocess.CalledProcessError(1, cmd)
+        if cmd and cmd[0] == "cargo":
+            return None
+        raise AssertionError(f"unexpected run_cmd call: {cmd}")
+
+    harness.patch_run_cmd(run_cmd_side_effect)
+    harness.patch_attr("configure_windows_linkers", lambda *_: None)
+
+    def timeout_runtime(_name: str, *, cwd: object | None = None) -> bool:
+        _ = cwd
+        raise subprocess.TimeoutExpired(cmd="podman info", timeout=10)
+
+    harness.patch_attr("runtime_available", timeout_runtime)
+    harness.patch_attr("ensure_cross", lambda *_: (None, None))
+
+    with pytest.raises(main_module.typer.Exit):
+        main_module.main("thumbv7em-none-eabihf", default_toolchain)
+
+
 def test_configure_windows_linkers_prefers_toolchain_gcc(
     main_module: ModuleType,
     module_harness: HarnessFactory,

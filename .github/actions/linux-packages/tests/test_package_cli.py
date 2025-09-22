@@ -77,6 +77,14 @@ def test_coerce_optional_path_handles_none_and_blank(
         == fallback
     )
 
+    monkeypatch.setenv("INPUT_BINARY_DIR", "")
+    assert (
+        module._coerce_optional_path(
+            Path("custom"), "INPUT_BINARY_DIR", fallback=fallback
+        )
+        == fallback
+    )
+
     monkeypatch.setenv("INPUT_BINARY_DIR", "   ")
     assert (
         module._coerce_optional_path(Path("  "), "INPUT_BINARY_DIR", fallback=fallback)

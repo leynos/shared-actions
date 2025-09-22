@@ -232,16 +232,13 @@ def build_man_entries(
 
 def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str]:
     entries: list[str] = []
-    seen: set[str] = set()
     source = values if values is not None else default
     for item in source:
         for token in re.split(r"[\s,]+", item.strip()):
             if not token:
                 continue
-            if token in seen:
-                continue
-            seen.add(token)
-            entries.append(token)
+            if token not in entries:
+                entries.append(token)
     return entries
 
 

@@ -154,7 +154,6 @@ def test_falls_back_to_cargo_when_podman_unusable(
     cmd_mox: CmdMox,
 ) -> None:
     """Fallback to cargo when podman runtime detection fails quickly (issue #97)."""
-
     cross_env = module_harness(cross_module)
     runtime_env = module_harness(runtime_module)
     app_env = module_harness(main_module)

@@ -319,6 +319,124 @@ def test_should_probe_container_handles_windows_targets(
     assert main_module.should_probe_container(host_platform, target) is should_probe
 
 
+def test_probe_runtime_returns_runtime_available(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_probe_runtime returns the underlying runtime availability flag."""
+    harness = module_harness(main_module)
+    harness.patch_attr("runtime_available", lambda name: name == "docker")
+
+    assert main_module._probe_runtime("docker") is True
+    assert main_module._probe_runtime("podman") is False
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+def test_probe_runtime_warns_on_timeout(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Timeouts are converted into warnings and treated as unavailable."""
+    harness = module_harness(main_module)
+
+    def raise_timeout(name: str) -> bool:
+        raise subprocess.TimeoutExpired(cmd=f"{name} info", timeout=5)
+
+    harness.patch_attr("runtime_available", raise_timeout)
+
+    assert main_module._probe_runtime("podman") is False
+
+    err = capsys.readouterr().err
+    expected = (
+        "::warning::podman runtime probe timed out after 5s; "
+        "treating runtime as unavailable"
+    )
+    assert expected in err
+
+
+def test_probe_runtime_propagates_unexpected_error(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Errors other than timeouts propagate to the caller."""
+    harness = module_harness(main_module)
+
+    class ProbeError(RuntimeError):
+        """Sentinel error for runtime probe tests."""
+
+    def raise_error(name: str) -> bool:
+        raise ProbeError
+
+    harness.patch_attr("runtime_available", raise_error)
+
+    with pytest.raises(ProbeError):
+        main_module._probe_runtime("docker")
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+
+
+def test_runtime_available_handles_timeout(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Treat runtime probe timeouts as unavailable instead of crashing."""
+    harness = module_harness(main_module)
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+
+    harness.patch_shutil_which(
+        lambda name: "/usr/bin/rustup" if name == "rustup" else None
+    )
+
+    def fake_run_validated(
+        executable: str, args: list[str], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        if executable == "/usr/bin/rustup" and args[:2] == ["toolchain", "list"]:
+            stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+            return subprocess.CompletedProcess([executable, *args], 0, stdout=stdout)
+        pytest.fail(f"unexpected run_validated call: {executable} {args}")
+
+    harness.patch_attr("run_validated", fake_run_validated)
+
+    def run_cmd_side_effect(cmd: list[str]) -> None:
+        if cmd[:3] == ["/usr/bin/rustup", "target", "add"]:
+            raise subprocess.CalledProcessError(1, cmd)
+        if cmd and cmd[0] == "cargo":
+            return
+        pytest.fail(f"unexpected run_cmd call: {cmd}")
+
+    harness.patch_run_cmd(run_cmd_side_effect)
+    harness.patch_attr("configure_windows_linkers", lambda *_: None)
+
+    def timeout_runtime(_name: str, *, cwd: object | None = None) -> bool:
+        _ = cwd
+        raise subprocess.TimeoutExpired(cmd="podman info", timeout=10)
+
+    harness.patch_attr("runtime_available", timeout_runtime)
+    harness.patch_attr("ensure_cross", lambda *_: (None, None))
+
+    with pytest.raises(main_module.typer.Exit):
+        main_module.main("thumbv7em-none-eabihf", default_toolchain)
+
+    err = capsys.readouterr().err
+    expected_docker = (
+        "::warning::docker runtime probe timed out after 10s; "
+        "treating runtime as unavailable"
+    )
+    expected_podman = (
+        "::warning::podman runtime probe timed out after 10s; "
+        "treating runtime as unavailable"
+    )
+    assert expected_docker in err
+    assert expected_podman in err
+
+
 def test_configure_windows_linkers_prefers_toolchain_gcc(
     main_module: ModuleType,
     module_harness: HarnessFactory,

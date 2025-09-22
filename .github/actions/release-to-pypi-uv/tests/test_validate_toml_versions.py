@@ -29,7 +29,7 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _write_pyproject(base: Path, content: str) -> None:
     """Create a ``pyproject.toml`` file populated with the provided content."""
-    base.mkdir()
+    base.mkdir(parents=True, exist_ok=True)
     (base / "pyproject.toml").write_text(content.strip())
 
 
@@ -207,6 +207,26 @@ dynamic = ["version"]
     assert "uses dynamic 'version'" in captured.out
 
 
+def test_skips_files_in_ignored_directories(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Warn and exit when only ignored directories match the pattern."""
+    ignored = project_root / ".venv" / "pkg"
+    _write_pyproject(
+        ignored,
+        """
+[project]
+name = "ignored"
+version = "9.9.9"
+""",
+    )
+    _invoke_main(module, version="1.0.0")
+    captured = capsys.readouterr()
+    assert "::warning::No TOML files matched pattern" in captured.out
+
+
 def test_dynamic_version_allowed_when_flag_unset(
     project_root: Path,
     module: ModuleType,
@@ -247,6 +267,25 @@ version = "1.0.0"
 
     captured = capsys.readouterr()
     assert captured.err == ""
+
+
+def test_fails_when_project_version_missing(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Error when a project lacks a version and is not marked dynamic."""
+    _write_pyproject(
+        project_root / "pkg",
+        """
+[project]
+name = "demo"
+""",
+    )
+    with pytest.raises(module.typer.Exit):
+        _invoke_main(module, version="1.0.0")
+    captured = capsys.readouterr()
+    assert "missing [project].version" in captured.err
 
 
 def test_multiple_toml_files_mixed_validity(

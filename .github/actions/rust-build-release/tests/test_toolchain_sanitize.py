@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -39,9 +40,29 @@ def run_script(
         return subprocess.CompletedProcess(cmd, 1, "", str(exc))
 
 
+def _host_linux_triple() -> str:
+    """Return the host's GNU/Linux target triple."""
+    if sys.platform != "linux":  # pragma: no cover - defensive skip
+        pytest.skip(f"unsupported platform: {sys.platform!r}")
+
+    machine = platform.machine().lower()
+    arch_map = {
+        "x86_64": "x86_64",
+        "amd64": "x86_64",
+        "aarch64": "aarch64",
+        "arm64": "aarch64",
+    }
+    arch = arch_map.get(machine)
+    if arch is None:  # pragma: no cover - defensive skip
+        pytest.skip(f"unsupported architecture: {machine!r}")
+    return f"{arch}-unknown-linux-gnu"
+
+
 @pytest.mark.usefixtures("uncapture_if_verbose")
 def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
+    target_triple = _host_linux_triple()
+    toolchain_spec = f"1.89.0-{target_triple}"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     run_cmd(
@@ -57,15 +78,15 @@ def test_accepts_toolchain_with_triple() -> None:
     )
     res = run_script(
         script,
-        "x86_64-unknown-linux-gnu",
+        target_triple,
         "--toolchain",
-        "1.89.0-x86_64-unknown-linux-gnu",
+        toolchain_spec,
         cwd=project_dir,
     )
     assert res.returncode == 0
-    binary = project_dir / "target/x86_64-unknown-linux-gnu/release/rust-toy-app"
+    binary = project_dir / f"target/{target_triple}/release/rust-toy-app"
     assert binary.exists()
     manpage_glob = project_dir.glob(
-        "target/x86_64-unknown-linux-gnu/release/build/rust-toy-app-*/out/rust-toy-app.1"
+        f"target/{target_triple}/release/build/rust-toy-app-*/out/rust-toy-app.1"
     )
     assert any(manpage_glob)

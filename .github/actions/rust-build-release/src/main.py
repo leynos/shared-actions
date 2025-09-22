@@ -182,9 +182,7 @@ def main(
     else:
         typer.echo(f"Building with cross ({cross_version})")
 
-    toolchain_spec = (
-        f"+{toolchain_name.rsplit('-', 4)[0]}" if use_cross else f"+{toolchain_name}"
-    )
+    toolchain_spec = f"+{toolchain_name}"
     build_cmd = [
         "cross" if use_cross else "cargo",
         toolchain_spec,

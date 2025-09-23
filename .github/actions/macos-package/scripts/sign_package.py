@@ -11,13 +11,17 @@ from __future__ import annotations
 import typing as typ
 from pathlib import Path
 
-import cyclopts
-from _utils import write_output
-from cyclopts import App, Parameter
+from _utils import (
+    ActionError,
+    Parameter,
+    configure_app,
+    remove_file,
+    run_app,
+    write_output,
+)
 from plumbum import local
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 @app.default
@@ -32,11 +36,10 @@ def main(
     unsigned_pkg = dist_dir / f"{name}-{version}.pkg"
     if not unsigned_pkg.is_file():
         msg = f"Unsigned package not found: {unsigned_pkg}"
-        raise FileNotFoundError(msg)
+        raise ActionError(msg)
 
     signed_pkg = dist_dir / f"{name}-{version}-signed.pkg"
-    if signed_pkg.exists():
-        signed_pkg.unlink()
+    remove_file(signed_pkg, context=f"signed package '{signed_pkg}'")
 
     productsign = local["productsign"]
     productsign[
@@ -51,4 +54,4 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

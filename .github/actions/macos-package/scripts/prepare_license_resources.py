@@ -14,12 +14,15 @@ from pathlib import Path
 from textwrap import dedent
 from xml.sax.saxutils import escape
 
-import cyclopts
-from _utils import action_work_dir
-from cyclopts import App, Parameter
+from _utils import (
+    Parameter,
+    action_work_dir,
+    configure_app,
+    ensure_regular_file,
+    run_app,
+)
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 @app.default
@@ -35,10 +38,7 @@ def main(
     resources_dir = work_dir / "Resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
 
-    license_path = Path(license_file)
-    if not license_path.is_file():
-        msg = f"License file not found: {license_path}"
-        raise FileNotFoundError(msg)
+    license_path = ensure_regular_file(Path(license_file), "License file")
 
     dest_license = resources_dir / "License.txt"
     shutil.copy2(license_path, dest_license)
@@ -69,4 +69,4 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

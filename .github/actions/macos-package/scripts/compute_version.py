@@ -11,14 +11,11 @@ from __future__ import annotations
 import os
 import typing as typ
 
-import cyclopts
-from _utils import write_env, write_output
-from cyclopts import App, Parameter
+from _utils import Parameter, configure_app, run_app, write_env, write_output
 
 TAG_VERSION_PREFIX_ENV = "TAG_VERSION_PREFIX"
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 @app.default
@@ -35,7 +32,10 @@ def main(
     resolved = ""
     build_metadata = ""
     if override:
-        resolved = override.removeprefix("v")
+        if tag_version_prefix and override.startswith(tag_version_prefix):
+            resolved = override[len(tag_version_prefix) :]
+        else:
+            resolved = override
     else:
         tag_prefix = "refs/tags/"
         if github_ref.startswith(tag_prefix):
@@ -61,4 +61,4 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

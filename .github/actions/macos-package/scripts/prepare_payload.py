@@ -13,12 +13,17 @@ import shutil
 import typing as typ
 from pathlib import Path
 
-import cyclopts
-from _utils import action_work_dir
-from cyclopts import App, Parameter
+from _utils import (
+    ActionError,
+    Parameter,
+    action_work_dir,
+    configure_app,
+    ensure_regular_file,
+    remove_file,
+    run_app,
+)
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 def _safe_unlink(path: Path) -> None:
@@ -46,7 +51,7 @@ def _normalise_prefix(root: Path, install_prefix: str) -> Path:
     root_resolved = root.resolve()
     if destination != root_resolved and root_resolved not in destination.parents:
         msg = f"install_prefix escapes pkgroot: {install_prefix!r}"
-        raise ValueError(msg)
+        raise ActionError(msg)
     destination.mkdir(parents=True, exist_ok=True)
     return destination
 
@@ -69,7 +74,7 @@ def _man_section(manpage_path: Path) -> str:
 
 def _stage_manpage(manpage_path: Path, destination_prefix: Path, name: str) -> None:
     section = _man_section(manpage_path)
-    man_dir = destination_prefix / "share" / "man" / f"man{section[0]}"
+    man_dir = destination_prefix / "share" / "man" / f"man{section}"
     man_dir.mkdir(parents=True, exist_ok=True)
     man_dest = man_dir / f"{name}.{section}"
     man_dest_gz = Path(f"{man_dest}.gz")
@@ -105,10 +110,7 @@ def main(
     license_file: typ.Annotated[str | None, Parameter()] = None,
 ) -> None:
     """Create the directory layout expected by `pkgbuild`."""
-    binary_path = Path(binary).resolve()
-    if not binary_path.is_file():
-        msg = f"Binary not found: {binary_path}"
-        raise FileNotFoundError(msg)
+    binary_path = ensure_regular_file(Path(binary), "Binary")
 
     work_dir = action_work_dir()
     root = work_dir / "pkgroot"
@@ -117,28 +119,22 @@ def main(
 
     _reset_staging_dirs(root, build_dir, resources_dir)
     dist_xml = work_dir / "dist.xml"
-    _safe_unlink(dist_xml)
+    remove_file(dist_xml, context=f"Distribution XML '{dist_xml}'")
 
     destination_prefix = _normalise_prefix(root, install_prefix)
 
     _stage_binary(binary_path, destination_prefix, name)
 
     if manpage:
-        manpage_path = Path(manpage)
-        if not manpage_path.is_file():
-            msg = f"Manpage not found: {manpage_path}"
-            raise FileNotFoundError(msg)
+        manpage_path = ensure_regular_file(Path(manpage), "Manpage")
         _stage_manpage(manpage_path, destination_prefix, name)
 
     if license_file:
-        license_path = Path(license_file)
-        if not license_path.is_file():
-            msg = f"License file not found: {license_path}"
-            raise FileNotFoundError(msg)
+        license_path = ensure_regular_file(Path(license_file), "License file")
         _stage_license(license_path, destination_prefix, name)
 
     print(f"Prepared payload root at {root}")
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

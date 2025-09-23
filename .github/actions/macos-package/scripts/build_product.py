@@ -11,13 +11,18 @@ from __future__ import annotations
 import typing as typ
 from pathlib import Path
 
-import cyclopts
-from _utils import action_work_dir, write_output
-from cyclopts import App, Parameter
+from _utils import (
+    ActionError,
+    Parameter,
+    action_work_dir,
+    configure_app,
+    remove_file,
+    run_app,
+    write_output,
+)
 from plumbum import local
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 @app.default
@@ -34,26 +39,24 @@ def main(
     component = build_dir / f"{name}-{version}-component.pkg"
     if not component.is_file():
         msg = f"Component package not found: {component}"
-        raise FileNotFoundError(msg)
+        raise ActionError(msg)
 
     dist_dir = cwd / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
     output_pkg = dist_dir / f"{name}-{version}.pkg"
-    if output_pkg.exists():
-        output_pkg.unlink()
+    remove_file(output_pkg, context=f"output package '{output_pkg}'")
 
-    productbuild = local["productbuild"]
     if include_license_panel:
         distribution = work_dir / "dist.xml"
         resources = work_dir / "Resources"
         if not distribution.is_file():
             msg = "Distribution XML missing; run license preparation step"
-            raise FileNotFoundError(msg)
+            raise ActionError(msg)
         if not resources.is_dir():
             msg = "Resources directory missing; run license preparation step"
-            raise FileNotFoundError(msg)
+            raise ActionError(msg)
 
-        productbuild[
+        args = [
             "--distribution",
             str(distribution),
             "--resources",
@@ -61,17 +64,20 @@ def main(
             "--package-path",
             str(build_dir),
             str(output_pkg),
-        ]()
+        ]
     else:
-        productbuild[
+        args = [
             "--package",
             str(component),
             str(output_pkg),
-        ]()
+        ]
+
+    productbuild = local["productbuild"]
+    productbuild[tuple(args)]()
 
     write_output("pkg_path", str(output_pkg))
     print(f"Created product archive at {output_pkg}")
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import typing as typ
 
-import cyclopts
-from _utils import action_work_dir
-from cyclopts import App, Parameter
+from _utils import (
+    ActionError,
+    Parameter,
+    action_work_dir,
+    configure_app,
+    remove_file,
+    run_app,
+)
 from plumbum import local
 
-app = App()
-app.config = cyclopts.config.Env("INPUT_", command=False)
+app = configure_app()
 
 
 @app.default
@@ -31,11 +35,12 @@ def main(
     root = work_dir / "pkgroot"
     if not root.is_dir():
         msg = f"Package root not found: {root}"
-        raise FileNotFoundError(msg)
+        raise ActionError(msg)
 
     component_dir = work_dir / "build"
     component_dir.mkdir(parents=True, exist_ok=True)
     component_path = component_dir / f"{name}-{version}-component.pkg"
+    remove_file(component_path, context=f"component package '{component_path}'")
 
     pkgbuild = local["pkgbuild"]
     pkgbuild[
@@ -56,4 +61,4 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    run_app(app)

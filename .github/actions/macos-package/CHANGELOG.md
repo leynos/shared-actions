@@ -9,3 +9,5 @@ All notable changes to the `macos-package` action are documented in this file.
   installation prefixes.
 - Capture fallback build metadata separately from the package version and
   expose it as an action output.
+- Centralise Cyclopts configuration, standardise error handling, and add
+  behavioural and unit tests for the Python helper scripts.

@@ -13,6 +13,8 @@ from typer.testing import CliRunner
 
 from ._helpers import load_script_module
 
+SKIP_PARTS = tuple(sorted(load_script_module("validate_toml_versions").SKIP_PARTS))
+
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
@@ -207,21 +209,27 @@ dynamic = ["version"]
     assert "uses dynamic 'version'" in captured.out
 
 
-def test_skips_files_in_ignored_directories(
+@pytest.mark.parametrize("skip_part", SKIP_PARTS, ids=lambda part: part)
+def test_skips_files_in_ignored_directory(
     project_root: Path,
     module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    skip_part: str,
 ) -> None:
-    """Warn and exit when only ignored directories match the pattern."""
-    ignored = project_root / ".venv" / "pkg"
+    """Warn and exit when only a single ignored directory matches the pattern."""
+    assert skip_part in module.SKIP_PARTS
     _write_pyproject(
-        ignored,
+        project_root / skip_part / "pkg",
         """
 [project]
 name = "ignored"
 version = "9.9.9"
 """,
     )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    assert not discovered
+
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out

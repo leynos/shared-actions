@@ -218,7 +218,8 @@ def test_retries_then_fail(
 
     def failing_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
         _ = request, timeout
-        raise module.urllib.error.URLError("temporary")
+        message = "temporary"
+        raise module.urllib.error.URLError(message)
 
     monkeypatch.setattr(module.urllib.request, "urlopen", failing_urlopen)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)

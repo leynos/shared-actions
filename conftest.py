@@ -31,6 +31,7 @@ class CmdDouble(typ.Protocol):
 
     def with_args(self, *args: str) -> CmdDouble:
         """Set the expected argv for the double."""
+        ...
 
     def returns(
         self,
@@ -41,9 +42,11 @@ class CmdDouble(typ.Protocol):
         **_: object,
     ) -> CmdDouble:
         """Provide canned output for the command invocation."""
+        ...
 
     def runs(self, handler: cabc.Callable[[object], tuple[str, str, int]]) -> CmdDouble:
         """Execute a handler when the double is invoked."""
+        ...
 
 
 class CmdMoxEnvironment(typ.Protocol):
@@ -59,15 +62,19 @@ class CmdMox(typ.Protocol):
 
     def stub(self, command: str) -> CmdDouble:
         """Register a stubbed command double."""
+        ...
 
     def spy(self, command: str) -> CmdDouble:
         """Register a spying command double."""
+        ...
 
     def replay(self) -> None:
         """Activate the recorded doubles."""
+        ...
 
     def verify(self) -> None:
         """Assert that recorded expectations were satisfied."""
+        ...
 
 
 def _shim_path(cmd_mox: CmdMox, command: str) -> str:
@@ -142,3 +149,5 @@ else:
     def cmd_mox() -> typ.NoReturn:  # pragma: win32 no cover
         """Skip tests that rely on cmd-mox on Windows."""
         pytest.skip("cmd-mox does not support Windows")
+        unreachable = "unreachable"
+        raise RuntimeError(unreachable)

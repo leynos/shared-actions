@@ -77,7 +77,6 @@ def should_probe_container(host_platform: str, target: str) -> bool:
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
     """Return installed rustup toolchain names."""
-
     result = run_validated(
         rustup_exec,
         ["toolchain", "list"],
@@ -94,7 +93,6 @@ def _resolve_toolchain_name(
     toolchain: str, target: str, installed_names: list[str]
 ) -> str:
     """Choose the best matching installed toolchain for *toolchain*."""
-
     preferred = (f"{toolchain}-{target}", toolchain)
     for name in installed_names:
         if name in preferred:
@@ -108,7 +106,6 @@ def _resolve_toolchain_name(
 
 def _looks_like_triple(candidate: str) -> bool:
     """Return ``True`` when *candidate* resembles a target triple."""
-
     components = [part for part in candidate.split("-") if part]
     if len(components) < 3:
         return False
@@ -117,7 +114,6 @@ def _looks_like_triple(candidate: str) -> bool:
 
 def _toolchain_channel(toolchain_name: str) -> str:
     """Strip any target triple suffix from *toolchain_name* for CLI overrides."""
-
     for suffix_parts in (4, 3):
         parts = toolchain_name.rsplit("-", suffix_parts)
         if len(parts) != suffix_parts + 1:
@@ -190,6 +186,23 @@ def main(
             raise typer.Exit(1) from None
         installed_names = _list_installed_toolchains(rustup_exec)
         toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
+    if not toolchain_name:
+        # Fallback: any installed variant that starts with the channel name.
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (
+                name
+                for name in installed_names
+                if name == toolchain or name.startswith(channel_prefix)
+            ),
+            "",
+        )
+    if not toolchain_name:
+        # Accept host-architecture-suffixed installations of the requested channel
+        channel_prefix = f"{toolchain}-"
+        toolchain_name = next(
+            (name for name in installed_names if name.startswith(channel_prefix)), ""
+        )
     if not toolchain_name:
         typer.echo(
             f"::error:: requested toolchain '{toolchain}' not installed",

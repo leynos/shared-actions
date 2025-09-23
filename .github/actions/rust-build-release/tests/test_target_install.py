@@ -290,7 +290,7 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
 
 @pytest.mark.parametrize(
-    ("host_platform", "target", "expected"),
+    ("host_platform", "target", "should_probe"),
     [
         ("win32", "x86_64-pc-windows-msvc", False),
         ("win32", "aarch64-pc-windows-gnu", False),
@@ -298,16 +298,17 @@ def test_windows_host_probes_container_for_non_windows_targets(
         ("win32", "x86_64-pc-windows-gnullvm", False),
         ("win32", "x86_64-unknown-linux-gnu", True),
         ("linux", "x86_64-pc-windows-msvc", True),
+        ("linux", "x86_64-unknown-linux-gnu", False),
     ],
 )
 def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
-    expected: typ.Literal[True, False],
+    should_probe: bool,  # noqa: FBT001
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-    assert main_module.should_probe_container(host_platform, target) is expected
+    assert main_module.should_probe_container(host_platform, target) is should_probe
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

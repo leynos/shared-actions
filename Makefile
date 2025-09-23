@@ -23,19 +23,20 @@ lint: ## Check test scripts and actions
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
-	  --extra-search-path .github/actions/generate-coverage/scripts \
-	  --extra-search-path .github/actions/ratchet-coverage/scripts \
-	  --extra-search-path .github/actions/rust-build-release \
-	  --extra-search-path .github/actions/rust-build-release/src \
-	  --extra-search-path .github/actions/rust-build-release/scripts \
-	  --extra-search-path .github/actions/setup-rust/scripts \
-	  cmd_utils.py \
-	  .github/actions/generate-coverage/scripts \
-	  .github/actions/ratchet-coverage/scripts \
-	  .github/actions/rust-build-release/scripts \
-	  .github/actions/rust-build-release/src \
-	  .github/actions/setup-rust/scripts \
-	  shellstub.py
+	    --extra-search-path .github/actions/generate-coverage/scripts \
+	    --extra-search-path .github/actions/ratchet-coverage/scripts \
+	    --extra-search-path .github/actions/rust-build-release \
+	    --extra-search-path .github/actions/rust-build-release/src \
+	    --extra-search-path .github/actions/linux-packages \
+	    --extra-search-path .github/actions/linux-packages/scripts \
+	    --extra-search-path .github/actions/setup-rust/scripts \
+	    cmd_utils.py \
+	    .github/actions/generate-coverage/scripts \
+	    .github/actions/ratchet-coverage/scripts \
+	    .github/actions/linux-packages/scripts \
+	    .github/actions/rust-build-release/src \
+	    .github/actions/setup-rust/scripts \
+	    shellstub.py
 	./.venv/bin/ty check \
 	  --extra-search-path .github/actions/macos-package/scripts \
 	  .github/actions/macos-package/scripts

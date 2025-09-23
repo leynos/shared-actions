@@ -2,9 +2,9 @@
 # /// script
 # requires-python = ">=3.9"
 # dependencies = [
-#   "typer>=0.12.3",
-#   "plumbum>=1.8.2",
-#   "uuid6>=2023.5.29",
+#   "typer>=0.9,<1.0",
+#   "plumbum>=1.8,<2.0",
+#   "uuid6>=2025.0.1",
 # ]
 # ///
 """
@@ -37,7 +37,6 @@ import shlex
 import sys
 import tempfile
 import time
-import types
 import typing as typ
 from pathlib import Path
 
@@ -53,31 +52,9 @@ else:
     try:
         from .script_utils import ensure_directory, get_command, run_cmd
     except ImportError:  # pragma: no cover - fallback for direct execution
-        import importlib.util
-        import sys
+        from script_utils import load_script_helpers
 
-        _PKG_DIR = Path(__file__).resolve().parent
-        _PKG_NAME = "rust_build_release_scripts"
-        pkg_module = sys.modules.get(_PKG_NAME)
-        if pkg_module is None:
-            pkg_module = types.ModuleType(_PKG_NAME)
-            pkg_module.__path__ = [str(_PKG_DIR)]  # type: ignore[attr-defined]
-            sys.modules[_PKG_NAME] = pkg_module
-        if not hasattr(pkg_module, "load_sibling"):
-            spec = importlib.util.spec_from_file_location(
-                _PKG_NAME, _PKG_DIR / "__init__.py"
-            )
-            if spec is None or spec.loader is None:
-                raise ImportError(name="script_utils") from None
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[_PKG_NAME] = module
-            spec.loader.exec_module(module)
-            pkg_module = module
-
-        load_sibling = typ.cast(
-            "typ.Callable[[str], types.ModuleType]", pkg_module.load_sibling
-        )
-        helpers = typ.cast("typ.Any", load_sibling("script_utils"))
+        helpers = load_script_helpers()
         ensure_directory = helpers.ensure_directory
         get_command = helpers.get_command
         run_cmd = helpers.run_cmd

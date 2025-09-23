@@ -47,11 +47,27 @@ jobs:
         with:
           llvm-mingw-version: ${{ env.LLVM_MINGW_VERSION }}
           llvm-mingw-sha256: ${{ env.LLVM_MINGW_SHA256 }}
+      - name: Setup uv
+        # v6.4.3
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4
+        with:
+          python-version: '3.12'
+      - name: Extract crate version
+        id: crate-version
+        shell: bash
+        working-directory: rust-toy-app
+        run: |
+          set -euo pipefail
+          version=$(
+            uv run --python 3.12 python -c "from pathlib import Path; import tomllib; print(tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8'))['package']['version'])"
+          )
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Build
         uses: ./.github/actions/rust-build-release
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
+          version: ${{ steps.crate-version.outputs.version }}
       - name: Verify artifacts
         run: |
           set -euo pipefail

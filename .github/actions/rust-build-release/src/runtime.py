@@ -18,59 +18,36 @@ if typ.TYPE_CHECKING:
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
 
+_ARCH_TO_WINDOWS_DEFAULT = {
+    "amd64": "x86_64-pc-windows-msvc",
+    "x86_64": "x86_64-pc-windows-msvc",
+    "arm64": "aarch64-pc-windows-msvc",
+    "aarch64": "aarch64-pc-windows-msvc",
+}
 
-def _normalize_arch(machine: str) -> str:
-    mapping = {
-        "amd64": "x86_64",
-        "x64": "x86_64",
-        "x86_64": "x86_64",
-        "i386": "i686",
-        "i486": "i686",
-        "i586": "i686",
-        "i686": "i686",
-        "x86": "i686",
-        "arm64": "aarch64",
-        "aarch64": "aarch64",
-        "armv8": "aarch64",
-        "armv8a": "aarch64",
-        "armv8l": "aarch64",
-        "armv7": "armv7",
-        "armv7a": "armv7",
-        "armv7hl": "armv7",
-        "armv7l": "armv7",
-        "armv6": "armv6",
-        "armv6l": "armv6",
-        "ppc64": "ppc64",
-        "ppc64le": "ppc64le",
-        "powerpc64": "ppc64",
-        "powerpc64le": "ppc64le",
-        "s390x": "s390x",
-        "riscv64": "riscv64",
-        "loongarch64": "loongarch64",
-    }
-    if not machine:
-        return "x86_64"
-    machine_lower = machine.lower()
-    return mapping.get(machine_lower, machine_lower)
+_ARCH_TO_DARWIN_DEFAULT = {
+    "x86_64": "x86_64-apple-darwin",
+    "amd64": "x86_64-apple-darwin",
+    "arm64": "aarch64-apple-darwin",
+    "aarch64": "aarch64-apple-darwin",
+}
 
 
-def _default_host_target_for_current_platform() -> str:
-    arch = _normalize_arch(platform.machine()) or "x86_64"
-    system_name = platform.system().lower()
-    platform_id = sys.platform.lower()
-    if system_name == "windows":
-        return f"{arch}-pc-windows-msvc"
-    if system_name.startswith(("cygwin", "msys")) or platform_id in {"cygwin", "msys"}:
-        return f"{arch}-pc-windows-gnu"
-    if system_name == "darwin":
-        return f"{arch}-apple-darwin"
-    if system_name.startswith("linux"):
-        return f"{arch}-unknown-linux-gnu"
-    identifier = system_name or platform_id or "linux"
-    return f"{arch}-unknown-{identifier}"
+def _platform_default_host_target() -> str:
+    """Return a platform-specific fallback host triple."""
+    machine = (
+        platform.machine().lower()
+        or os.environ.get("PROCESSOR_ARCHITECTURE", "").lower()
+    )
+    if sys_platform := sys.platform:
+        if sys_platform == "win32":
+            return _ARCH_TO_WINDOWS_DEFAULT.get(machine, "x86_64-pc-windows-msvc")
+        if sys_platform == "darwin":
+            return _ARCH_TO_DARWIN_DEFAULT.get(machine, "x86_64-apple-darwin")
+    return "x86_64-unknown-linux-gnu"
 
 
-DEFAULT_HOST_TARGET = _default_host_target_for_current_platform()
+DEFAULT_HOST_TARGET = _platform_default_host_target()
 PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 

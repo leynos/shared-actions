@@ -28,9 +28,13 @@ def main(expected: str = EXPECTED_OPTION, confirm: str = CONFIRM_OPTION) -> None
     typer.Exit
         Raised when the supplied confirmation does not match ``expected``.
     """
+    # Normalise whitespace in both inputs before comparison.
+    expected = expected.strip()
+    confirm = confirm.strip()
     if confirm != expected:
         typer.echo(
-            f"::error::Confirmation failed. Set the 'confirm' input to: {expected}",
+            "::error::Confirmation failed. "
+            "Set the 'confirm' input to the expected phrase.",
             err=True,
         )
         raise typer.Exit(1)

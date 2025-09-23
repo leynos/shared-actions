@@ -13,12 +13,21 @@ Build and publish Python distributions via
 | environment-name | GitHub environment to reference in the release summary. | no | `pypi` |
 | uv-index | Optional uv index name to publish to (e.g. `testpypi`). Must exist in `tool.uv.index`. | no | _(empty)_ |
 | toml-glob | Glob used to discover `pyproject.toml` files for version validation. | no | `**/pyproject.toml` |
+| skip-directories | Comma- or newline-separated directory names to skip during discovery. | no | _(empty)_ |
 | fail-on-dynamic-version | Fail when a project declares a dynamic PEP 621 version instead of a literal string. | no | `false` |
+| fail-on-empty | Fail when no `pyproject.toml` files match the discovery glob. | no | `false` |
 | python-version | Python version to install and use for all uv commands. | no | `3.13` |
 
 The composite action installs the interpreter requested through `python-version`
 before invoking any uv commands, ensuring builds run against the expected
-runtime.
+runtime. Set `fail-on-empty: true` when your repository must always contain at
+least one `pyproject.toml`. This turns the default warning into a failing error
+so misconfigured globs surface early.
+
+Directories named `.venv`, `venv`, `.mypy_cache`, `.pytest_cache`, `.cache`,
+`htmlcov`, and `node_modules` are skipped during TOML discovery. Provide a
+comma- or newline-separated list via `skip-directories` when your repository
+uses additional transient paths that should be excluded.
 
 ## Outputs
 

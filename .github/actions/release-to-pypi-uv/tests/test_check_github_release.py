@@ -52,6 +52,23 @@ def fixture_fake_token() -> str:
     return f"test-token-{uuid.uuid4().hex}"
 
 
+def test_sleep_with_jitter_allows_custom_rng(module: ModuleType) -> None:
+    """Allow tests to provide deterministic jitter and sleep functions."""
+    calls: list[float] = []
+
+    class FixedRandom:
+        """Stub RNG that always returns a fixed jitter fraction."""
+
+        def uniform(self, a: float, b: float) -> float:
+            assert a == 0.0
+            assert b == 0.1
+            return 0.05
+
+    module._sleep_with_jitter(4.0, jitter=FixedRandom(), sleep=calls.append)
+
+    assert calls == [4.2]
+
+
 def test_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -206,8 +223,9 @@ def test_retries_then_fail(
     monkeypatch.setattr(module.urllib.request, "urlopen", failing_urlopen)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(module.typer.Exit) as exc_info:
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 1
     assert "temporary" in captured.err or "fetch" in captured.err

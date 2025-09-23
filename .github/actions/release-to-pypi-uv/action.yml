@@ -26,8 +26,16 @@ inputs:
     description: Glob used to discover pyproject.toml files for version validation.
     required: false
     default: "**/pyproject.toml"
+  skip-directories:
+    description: Comma- or newline-separated directory names to skip during TOML discovery.
+    required: false
+    default: ''
   fail-on-dynamic-version:
     description: Fail if any project declares a dynamic version instead of a literal string.
+    required: false
+    default: 'false'
+  fail-on-empty:
+    description: Fail when no pyproject.toml files match the configured glob.
     required: false
     default: 'false'
   python-version:
@@ -53,6 +61,9 @@ runs:
           **/pyproject.toml
           **/uv.lock
         cache-suffix: action-${{ github.action_ref || github.sha }}
+    - name: Install Python
+      run: uv python install "${{ inputs.python-version }}"
+      shell: bash
     - name: Determine tag and version
       id: resolve
       run: uv run --script "${{ github.action_path }}/scripts/determine_release.py"
@@ -81,9 +92,8 @@ runs:
         RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
         INPUT_TOML_GLOB: ${{ inputs.toml-glob }}
         INPUT_FAIL_ON_DYNAMIC_VERSION: ${{ inputs.fail-on-dynamic-version }}
-    - name: Install Python
-      run: uv python install "${{ inputs.python-version }}"
-      shell: bash
+        INPUT_FAIL_ON_EMPTY: ${{ inputs.fail-on-empty }}
+        INPUT_SKIP_DIRECTORIES: ${{ inputs.skip-directories }}
     - name: Build distributions
       run: uv build
       shell: bash

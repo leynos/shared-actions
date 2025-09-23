@@ -89,6 +89,10 @@ runs:
             os=linux
             arch=riscv64
             ;;
+          powerpc64le-unknown-linux-*|ppc64le-unknown-linux-*)
+            os=linux
+            arch=ppc64el
+            ;;
           *)
             echo "::error:: unsupported target ${{ inputs.target }}"
             exit 1

@@ -15,7 +15,7 @@ header so the runner can install dependencies on demand.
 #   "plumbum>=1.8,<2.0",
 #   "pyyaml>=6.0,<7.0",
 #   "typer>=0.9,<1.0",
-#       # optional: coloured error reporting via script_utils
+#   # optional: coloured error reporting via script_utils
 # ]
 # ///
 ```

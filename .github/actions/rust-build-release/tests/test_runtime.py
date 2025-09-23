@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import typing as typ
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 if typ.TYPE_CHECKING:
-    from types import ModuleType
-
     from .conftest import HarnessFactory, ModuleHarness
 
 
@@ -269,3 +270,44 @@ def test_detect_host_target_passes_timeout_to_run_validated(
     assert call_kwargs.get("text") is True
     assert call_kwargs.get("check") is True
     assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")
+
+
+def test_probe_timeout_env_override(
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Respect RUNTIME_PROBE_TIMEOUT when importing the module."""
+    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "2")
+    module_path = getattr(runtime_module, "__file__", None)
+    if module_path is None:
+        pytest.fail("runtime module does not expose a __file__ path")
+    module_spec = importlib.util.spec_from_file_location(
+        "rbr_runtime_reloaded", module_path
+    )
+    if module_spec is None or module_spec.loader is None:
+        pytest.fail("failed to load runtime module specification")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    harness = module_harness(module)
+
+    harness.patch_shutil_which(lambda name: "/usr/bin/rustc")
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    captured: dict[str, object] = {}
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            [executable, *args], 0, stdout="host: x86_64-unknown-linux-gnu\n"
+        )
+
+    harness.monkeypatch.setattr(module, "run_validated", fake_run)
+    module.detect_host_target()
+    assert captured.get("timeout") == 2

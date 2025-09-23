@@ -63,6 +63,26 @@ def read_outputs(tmp_path: Path) -> dict[str, str]:
     return out
 
 
+def test_outputs_use_multiline_format(tmp_path: Path) -> None:
+    """Write GitHub Action outputs using the recommended heredoc syntax."""
+    env = base_env(tmp_path)
+    env["INPUT_TAG"] = "v3.1.4"
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "determine_release.py"
+    result = run_script(script, env=env)
+
+    assert result.returncode == 0, result.stderr
+    lines = (tmp_path / "out.txt").read_text(encoding="utf-8").splitlines()
+    assert lines == [
+        "tag<<__EOF__",
+        "v3.1.4",
+        "__EOF__",
+        "version<<__EOF__",
+        "3.1.4",
+        "__EOF__",
+    ]
+
+
 def test_resolves_tag_from_ref(tmp_path: Path) -> None:
     """Derive the release tag from Git reference metadata."""
     env = base_env(tmp_path)

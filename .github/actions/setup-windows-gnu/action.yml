@@ -10,6 +10,26 @@ inputs:
     description: SHA-256 checksum for the llvm-mingw archive matching the selected version
     required: false
     default: "bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737"
+  require-aarch64:
+    description: Fail if no aarch64 MinGW compiler is available
+    required: false
+    default: "true"
+  download-retry-attempts:
+    description: Maximum number of attempts when downloading the llvm-mingw archive
+    required: false
+    default: "5"
+  download-retry-initial-delay:
+    description: Initial retry delay in seconds before applying exponential backoff
+    required: false
+    default: "2"
+  download-retry-max-delay:
+    description: Upper bound in seconds for retry delays when downloading the archive
+    required: false
+    default: "30"
+  download-retry-jitter:
+    description: Maximum random jitter in seconds added to retry delays
+    required: false
+    default: "0"
 runs:
   using: composite
   steps:
@@ -37,11 +57,81 @@ runs:
         $asset = "llvm-mingw-$version-ucrt-x86_64.zip"
         $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$version/$asset"
         $archive = Join-Path $Env:RUNNER_TEMP "llvm-mingw.zip"
-        try {
-          Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
-        } catch {
-          Write-Error "Failed to download llvm-mingw archive from $url"
-          throw
+        $culture = [System.Globalization.CultureInfo]::InvariantCulture
+        $numberStyles = [System.Globalization.NumberStyles]::Float
+
+        $attempts = 5
+        $attemptsParsed = 0
+        $attemptsRaw = "${{ inputs['download-retry-attempts'] }}"
+        if ([int]::TryParse($attemptsRaw, [ref]$attemptsParsed) -and $attemptsParsed -ge 1) {
+          $attempts = $attemptsParsed
+        }
+
+        $initialDelay = 2.0
+        $initialDelayParsed = 0.0
+        $initialDelayRaw = "${{ inputs['download-retry-initial-delay'] }}"
+        if (
+          [double]::TryParse(
+            $initialDelayRaw,
+            $numberStyles,
+            $culture,
+            [ref]$initialDelayParsed
+          ) -and $initialDelayParsed -gt 0
+        ) {
+          $initialDelay = $initialDelayParsed
+        }
+
+        $maxDelay = 30.0
+        $maxDelayParsed = 0.0
+        $maxDelayRaw = "${{ inputs['download-retry-max-delay'] }}"
+        if (
+          [double]::TryParse(
+            $maxDelayRaw,
+            $numberStyles,
+            $culture,
+            [ref]$maxDelayParsed
+          ) -and $maxDelayParsed -gt 0
+        ) {
+          $maxDelay = $maxDelayParsed
+        }
+        if ($maxDelay -lt $initialDelay) {
+          $maxDelay = $initialDelay
+        }
+
+        $jitter = 0.0
+        $jitterParsed = 0.0
+        $jitterRaw = "${{ inputs['download-retry-jitter'] }}"
+        if (
+          [double]::TryParse(
+            $jitterRaw,
+            $numberStyles,
+            $culture,
+            [ref]$jitterParsed
+          ) -and $jitterParsed -ge 0
+        ) {
+          $jitter = $jitterParsed
+        }
+        $retryRandom = if ($jitter -gt 0) { [System.Random]::new() } else { $null }
+
+        for ($i = 1; $i -le $attempts; $i++) {
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
+            break
+          } catch {
+            if ($i -eq $attempts) {
+              Write-Error "Failed to download llvm-mingw archive from $url after $attempts attempts"
+              throw
+            }
+            $backoffExponent = $i - 1
+            $backoff = [math]::Min($initialDelay * [math]::Pow(2, $backoffExponent), $maxDelay)
+            $sleepSeconds = $backoff
+            if ($retryRandom) {
+              $sleepSeconds = [math]::Min($backoff + ($retryRandom.NextDouble() * $jitter), $maxDelay)
+            }
+            $displayDelay = [math]::Round($sleepSeconds, 2, [System.MidpointRounding]::AwayFromZero)
+            Write-Warning "Download failed (attempt $i). Retrying in ${displayDelay}s..."
+            Start-Sleep -Seconds ([int][math]::Ceiling($sleepSeconds))
+          }
         }
         $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash
         if (-not [string]::Equals($actualHash, $expectedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -59,6 +149,11 @@ runs:
           throw "llvm-mingw bin directory not found at $binPath"
         }
         $binPath | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+        Add-Content -Path $Env:GITHUB_ENV -Value "LLVM_MINGW_ROOT=$toolRoot"
+        Add-Content -Path $Env:GITHUB_ENV -Value "LLVM_MINGW_BIN=$binPath"
+        # Toolchain hints (useful for Autotools/CMake; override as needed)
+        Add-Content -Path $Env:GITHUB_ENV -Value "CC_aarch64_pc_windows_gnu=aarch64-w64-mingw32-clang"
+        Add-Content -Path $Env:GITHUB_ENV -Value "CXX_aarch64_pc_windows_gnu=aarch64-w64-mingw32-clang++"
     - name: Verify GNU toolchains
       shell: bash
       run: |
@@ -66,8 +161,13 @@ runs:
         if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
           echo "::warning::x86_64 MinGW GCC not found" >&2
         fi
+        require_a64="${{ inputs.require-aarch64 }}"
         if ! command -v aarch64-w64-mingw32-gcc >/dev/null 2>&1 \
           && ! command -v aarch64-w64-mingw32-clang >/dev/null 2>&1; then
-          echo "::error::No aarch64 MinGW compiler found (neither GCC nor clang)" >&2
-          exit 1
+          if [ "${require_a64}" = "true" ]; then
+            echo "::error::No aarch64 MinGW compiler found (neither GCC nor clang)" >&2
+            exit 1
+          else
+            echo "::warning::No aarch64 MinGW compiler found; proceeding because require-aarch64=false" >&2
+          fi
         fi

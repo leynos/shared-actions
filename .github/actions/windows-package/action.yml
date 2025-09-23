@@ -111,17 +111,12 @@ runs:
             return $null
           }
           $trimmed = $candidate.Trim()
-          $numeric = $trimmed -replace '^[vV]', ''
-          $numeric = $numeric -replace '[^0-9\.]', ' ' -replace '\s+', ' '
-          $segments = $numeric.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
-          if ($segments.Count -eq 0) {
+          $pattern = '^[vV]?\d+(\.\d+){0,2}$'
+          if ($trimmed -notmatch $pattern) {
             return $null
           }
-          $clean = $segments[0] -replace '[^0-9\.]', ''
-          $parts = $clean.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
-          if ($parts.Count -eq 0) {
-            return $null
-          }
+          $numeric = $trimmed.TrimStart('v', 'V')
+          $parts = $numeric.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
           while ($parts.Count -lt 3) {
             $parts += '0'
           }
@@ -160,11 +155,14 @@ runs:
           if ($refType -eq 'tag' -and -not [string]::IsNullOrWhiteSpace($refName)) {
             $resolved = Get-MsiVersion $refName
             if ($null -eq $resolved) {
-              Write-Warning "Tag '$refName' does not contain a valid MSI ProductVersion. Falling back to 0.0.0."
+              Write-Warning "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
             }
             else {
               $versionSource = "tag '$refName'"
             }
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($refName)) {
+            Write-Host "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
           }
         }
 

@@ -13,13 +13,14 @@ from typer.testing import CliRunner
 
 from ._helpers import load_script_module
 
-SKIP_PARTS = tuple(sorted(load_script_module("validate_toml_versions").SKIP_PARTS))
+MODULE: ModuleType = load_script_module("validate_toml_versions")
+SKIP_PARTS = tuple(sorted(MODULE.SKIP_PARTS))
 
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
     """Load the ``validate_toml_versions`` script module under test."""
-    return load_script_module("validate_toml_versions")
+    return MODULE
 
 
 @pytest.fixture

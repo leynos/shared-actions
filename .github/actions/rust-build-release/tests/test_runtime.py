@@ -6,13 +6,11 @@ import importlib.util
 import json
 import subprocess
 import typing as typ
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 if typ.TYPE_CHECKING:
-    from types import ModuleType
-
-    import pytest
-
     from .conftest import HarnessFactory, ModuleHarness
 
 
@@ -283,14 +281,12 @@ def test_probe_timeout_env_override(
     monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "2")
     module_path = getattr(runtime_module, "__file__", None)
     if module_path is None:
-        msg = "runtime module does not expose a __file__ path"
-        raise RuntimeError(msg)
+        pytest.fail("runtime module does not expose a __file__ path")
     module_spec = importlib.util.spec_from_file_location(
         "rbr_runtime_reloaded", module_path
     )
     if module_spec is None or module_spec.loader is None:
-        msg = "failed to load runtime module specification"
-        raise RuntimeError(msg)
+        pytest.fail("failed to load runtime module specification")
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
     harness = module_harness(module)

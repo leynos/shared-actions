@@ -14,6 +14,22 @@ inputs:
     description: Fail if no aarch64 MinGW compiler is available
     required: false
     default: "true"
+  download-retry-attempts:
+    description: Maximum number of attempts when downloading the llvm-mingw archive
+    required: false
+    default: "5"
+  download-retry-initial-delay:
+    description: Initial retry delay in seconds before applying exponential backoff
+    required: false
+    default: "2"
+  download-retry-max-delay:
+    description: Upper bound in seconds for retry delays when downloading the archive
+    required: false
+    default: "30"
+  download-retry-jitter:
+    description: Maximum random jitter in seconds added to retry delays
+    required: false
+    default: "0"
 runs:
   using: composite
   steps:
@@ -41,7 +57,62 @@ runs:
         $asset = "llvm-mingw-$version-ucrt-x86_64.zip"
         $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$version/$asset"
         $archive = Join-Path $Env:RUNNER_TEMP "llvm-mingw.zip"
+        $culture = [System.Globalization.CultureInfo]::InvariantCulture
+        $numberStyles = [System.Globalization.NumberStyles]::Float
+
         $attempts = 5
+        $attemptsParsed = 0
+        $attemptsRaw = "${{ inputs['download-retry-attempts'] }}"
+        if ([int]::TryParse($attemptsRaw, [ref]$attemptsParsed) -and $attemptsParsed -ge 1) {
+          $attempts = $attemptsParsed
+        }
+
+        $initialDelay = 2.0
+        $initialDelayParsed = 0.0
+        $initialDelayRaw = "${{ inputs['download-retry-initial-delay'] }}"
+        if (
+          [double]::TryParse(
+            $initialDelayRaw,
+            $numberStyles,
+            $culture,
+            [ref]$initialDelayParsed
+          ) -and $initialDelayParsed -gt 0
+        ) {
+          $initialDelay = $initialDelayParsed
+        }
+
+        $maxDelay = 30.0
+        $maxDelayParsed = 0.0
+        $maxDelayRaw = "${{ inputs['download-retry-max-delay'] }}"
+        if (
+          [double]::TryParse(
+            $maxDelayRaw,
+            $numberStyles,
+            $culture,
+            [ref]$maxDelayParsed
+          ) -and $maxDelayParsed -gt 0
+        ) {
+          $maxDelay = $maxDelayParsed
+        }
+        if ($maxDelay -lt $initialDelay) {
+          $maxDelay = $initialDelay
+        }
+
+        $jitter = 0.0
+        $jitterParsed = 0.0
+        $jitterRaw = "${{ inputs['download-retry-jitter'] }}"
+        if (
+          [double]::TryParse(
+            $jitterRaw,
+            $numberStyles,
+            $culture,
+            [ref]$jitterParsed
+          ) -and $jitterParsed -ge 0
+        ) {
+          $jitter = $jitterParsed
+        }
+        $retryRandom = if ($jitter -gt 0) { [System.Random]::new() } else { $null }
+
         for ($i = 1; $i -le $attempts; $i++) {
           try {
             Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
@@ -51,9 +122,15 @@ runs:
               Write-Error "Failed to download llvm-mingw archive from $url after $attempts attempts"
               throw
             }
-            $delay = [math]::Min([int][math]::Pow(2, $i), 30)
-            Write-Warning "Download failed (attempt $i). Retrying in ${delay}s..."
-            Start-Sleep -Seconds $delay
+            $backoffExponent = $i - 1
+            $backoff = [math]::Min($initialDelay * [math]::Pow(2, $backoffExponent), $maxDelay)
+            $sleepSeconds = $backoff
+            if ($retryRandom) {
+              $sleepSeconds = [math]::Min($backoff + ($retryRandom.NextDouble() * $jitter), $maxDelay)
+            }
+            $displayDelay = [math]::Round($sleepSeconds, 2, [System.MidpointRounding]::AwayFromZero)
+            Write-Warning "Download failed (attempt $i). Retrying in ${displayDelay}s..."
+            Start-Sleep -Seconds ([int][math]::Ceiling($sleepSeconds))
           }
         }
         $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash

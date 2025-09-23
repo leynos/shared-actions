@@ -28,6 +28,9 @@ SKIP_PARTS = {
     "build",
     ".direnv",
     ".mypy_cache",
+    ".pytest_cache",
+    ".cache",
+    "htmlcov",
 }
 
 TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}

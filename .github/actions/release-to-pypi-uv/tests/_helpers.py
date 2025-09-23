@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 import typing as typ
 from pathlib import Path
 
@@ -31,6 +32,8 @@ def load_script_module(name: str) -> ModuleType:
         message = f"Unable to load script module {name} from {script_path}"
         raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
+    # Register module in sys.modules so importlib.reload works in tests
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

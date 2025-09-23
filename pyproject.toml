@@ -68,6 +68,7 @@ select = [
     "RSE",
     "PERF",
     "TRY",
+    "EM",
     "D",
     "ANN",
 ]
@@ -105,15 +106,25 @@ asyncio_default_fixture_loop_scope = "function"
 # Tests automatically killed after seconds elapsed
 timeout = 30
 
+[tool.setuptools]
+py-modules = [
+    "cmd_utils",
+    "shellstub",
+]
+
 [tool.uv]
-package = false
+package = true
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.pyright]
 typeCheckingMode = "strict"
 reportUnknownVariableType = "error"
 reportUnknownParameterType = "error"
 reportUnknownMemberType = "error"
-reportMissingTypeStubs = "warning"
+reportMissingTypeStubs = "error"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"

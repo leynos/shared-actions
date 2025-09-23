@@ -39,6 +39,7 @@ typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
 	  --extra-search-path .github/actions/macos-package/scripts \
 	  .github/actions/macos-package/scripts
+	uvx pyright
 fmt: ## Apply formatting to Python files
 	uvx ruff format
 

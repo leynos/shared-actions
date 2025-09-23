@@ -273,7 +273,7 @@ wheels = [
 [[package]]
 name = "shared-actions"
 version = "1.2.2"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "cyclopts" },
     { name = "lxml" },

@@ -1,0 +1,104 @@
+name: Build macOS package
+description: Build a macOS installer package (.pkg) from a CLI binary and optional documentation
+inputs:
+  name:
+    description: Display name of the packaged CLI (used for binary and documentation paths)
+    required: true
+  identifier:
+    description: Reverse-DNS package identifier (e.g. com.example.mytool)
+    required: true
+  install-prefix:
+    description: Installation prefix inside the package root
+    default: /usr/local
+    required: false
+  binary:
+    description: Path to the built binary that should be installed
+    required: true
+  manpage:
+    description: Optional path to a man page to include (supports .1 or pre-compressed .gz)
+    required: false
+    default: ""
+  license-file:
+    description: Path to the license file to embed in the package
+    required: false
+    default: LICENSE
+  include-license-panel:
+    description: Show the license panel in the macOS installer UI
+    required: false
+    default: "false"
+  version:
+    description: Override the package version. Defaults to using the Git ref or commit SHA.
+    required: false
+  developer-id-installer:
+    description: Optional Developer ID Installer identity for signing the final package
+    required: false
+    default: ""
+outputs:
+  version:
+    description: Resolved version used to build the package
+    value: ${{ steps.compute-version.outputs.version }}
+  version-build-metadata:
+    description: Short commit SHA recorded when falling back to 0.0.0
+    value: ${{ steps.compute-version.outputs.version_build_metadata }}
+  pkg-path:
+    description: Path to the generated installer package (.pkg)
+    value: ${{ steps.build-product.outputs.pkg_path }}
+  signed-pkg-path:
+    description: Path to the signed installer package (.pkg) when signing succeeds
+    value: ${{ steps.sign.outputs.signed_pkg_path }}
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+    - name: Ensure macOS runner
+      shell: bash
+      run: uv run "${{ github.action_path }}/scripts/check_platform.py"
+    - id: compute-version
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+      run: uv run "${{ github.action_path }}/scripts/compute_version.py"
+    - name: Prepare payload root
+      shell: bash
+      env:
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_INSTALL_PREFIX: ${{ inputs["install-prefix"] }}
+        INPUT_BINARY: ${{ inputs.binary }}
+        INPUT_MANPAGE: ${{ inputs.manpage }}
+        INPUT_LICENSE_FILE: ${{ inputs["license-file"] }}
+      run: uv run "${{ github.action_path }}/scripts/prepare_payload.py"
+    - name: Build component package
+      shell: bash
+      env:
+        INPUT_IDENTIFIER: ${{ inputs.identifier }}
+        INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
+        INPUT_NAME: ${{ inputs.name }}
+      run: uv run "${{ github.action_path }}/scripts/build_component.py"
+    - name: Prepare license resources
+      if: inputs.include-license-panel == 'true'
+      shell: bash
+      env:
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_IDENTIFIER: ${{ inputs.identifier }}
+        INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
+        INPUT_LICENSE_FILE: ${{ inputs["license-file"] }}
+      run: uv run "${{ github.action_path }}/scripts/prepare_license_resources.py"
+    - id: build-product
+      shell: bash
+      env:
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
+        INPUT_INCLUDE_LICENSE_PANEL: ${{ inputs["include-license-panel"] }}
+      run: uv run "${{ github.action_path }}/scripts/build_product.py"
+    - id: sign
+      if: inputs["developer-id-installer"] != ''
+      shell: bash
+      env:
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
+        INPUT_DEVELOPER_ID_INSTALLER: ${{ inputs["developer-id-installer"] }}
+      run: uv run "${{ github.action_path }}/scripts/sign_package.py"
+branding:
+  icon: package
+  color: gray-dark

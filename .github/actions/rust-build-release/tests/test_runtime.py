@@ -11,7 +11,36 @@ import pytest
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-    from .conftest import HarnessFactory
+    from .conftest import HarnessFactory, ModuleHarness
+
+
+def _patch_run_validated_timeout(
+    runtime_module: ModuleType,
+    harness: ModuleHarness,
+    *,
+    predicate: typ.Callable[[list[str]], bool] | None = None,
+    success_factory: typ.Callable[[list[str]], subprocess.CompletedProcess[str]]
+    | None = None,
+) -> None:
+    """Patch ``run_validated`` to raise ``TimeoutExpired`` when *predicate* matches."""
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = (allowed_names, kwargs)
+        cmd = [executable, *args]
+        should_timeout = predicate(args) if predicate is not None else True
+        if should_timeout:
+            raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
+        if success_factory is not None:
+            return success_factory(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
 
 def test_runtime_available_false_when_missing(
@@ -44,19 +73,7 @@ def test_runtime_available_returns_false_on_timeout(
     harness = module_harness(runtime_module)
     harness.patch_shutil_which(lambda name: "/usr/bin/docker")
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = allowed_names
-        cmd = [executable, *args]
-        raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
-
-    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+    _patch_run_validated_timeout(runtime_module, harness)
 
     assert runtime_module.runtime_available("docker") is False
 
@@ -134,24 +151,11 @@ def test_podman_security_timeout_treated_as_unavailable(
     harness = module_harness(runtime_module)
     harness.patch_shutil_which(lambda name: "/usr/bin/podman")
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = (allowed_names, capture_output, check, text)
-        cmd = [executable, *args]
-        if "--format" in args:
-            raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
-
-    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+    _patch_run_validated_timeout(
+        runtime_module,
+        harness,
+        predicate=lambda args: "--format" in args,
+    )
 
     assert runtime_module.runtime_available("podman") is False
 
@@ -202,20 +206,7 @@ def test_detect_host_target_returns_default_on_timeout(
         lambda name: "/usr/bin/rustc" if name == "rustc" else None
     )
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
-        _ = (executable, args, allowed_names)
-        raise subprocess.TimeoutExpired(
-            [executable, *args], runtime_module.PROBE_TIMEOUT
-        )
-
-    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+    _patch_run_validated_timeout(runtime_module, harness)
 
     assert (
         runtime_module.detect_host_target(default="fallback-triple")

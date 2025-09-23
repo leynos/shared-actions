@@ -13,12 +13,13 @@ from typer.testing import CliRunner
 
 from ._helpers import load_script_module
 
-SKIP_PARTS = tuple(sorted(load_script_module("validate_toml_versions").SKIP_PARTS))
+MODULE: ModuleType = load_script_module("validate_toml_versions")
+SKIP_PARTS = tuple(sorted(MODULE.SKIP_PARTS))
 
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
-    """Load the ``validate_toml_versions`` script module under test."""
+    """Reload the ``validate_toml_versions`` script for a clean state."""
     return load_script_module("validate_toml_versions")
 
 
@@ -233,6 +234,12 @@ version = "9.9.9"
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out
+
+
+def test_skip_parts_cover_transient_tooling_dirs(module: ModuleType) -> None:
+    """Ensure tooling artefact directories remain excluded from discovery."""
+    expected = {".pytest_cache", ".cache", "htmlcov"}
+    assert expected <= module.SKIP_PARTS
 
 
 def test_dynamic_version_allowed_when_flag_unset(

@@ -7,8 +7,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import random
 import time
+import typing as typ
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +21,32 @@ import typer
 TAG_OPTION = typer.Option(..., envvar="RELEASE_TAG")
 TOKEN_OPTION = typer.Option(..., envvar="GH_TOKEN")
 REPO_OPTION = typer.Option(..., envvar="GITHUB_REPOSITORY")
+
+
+class _UniformGenerator(typ.Protocol):
+    """Protocol describing RNG objects that provide ``uniform``."""
+
+    def uniform(self, a: float, b: float) -> float:
+        """Return a random floating point number N such that ``a <= N <= b``."""
+
+
+SleepFn = typ.Callable[[float], None]
+
+_JITTER = random.SystemRandom()
+
+
+def _sleep_with_jitter(
+    delay: float,
+    *,
+    jitter: _UniformGenerator | None = None,
+    sleep: SleepFn | None = None,
+) -> None:
+    """Sleep for ``delay`` seconds with a deterministic jitter hook for tests."""
+    sleep_base = max(delay, 0.0)
+    jitter_source = _JITTER if jitter is None else jitter
+    sleep_fn = time.sleep if sleep is None else sleep
+    jitter_amount = sleep_base * jitter_source.uniform(0.0, 0.1)
+    sleep_fn(sleep_base + jitter_amount)
 
 
 class GithubReleaseError(RuntimeError):
@@ -76,13 +105,19 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
                     f"{exc.code}: {failure_reason}"
                 )
                 raise GithubReleaseError(message) from exc
-            time.sleep(delay)
+            retry_after = None
+            if hasattr(exc, "headers") and exc.headers is not None:
+                retry_after = exc.headers.get("Retry-After")
+            if retry_after:
+                with contextlib.suppress(Exception):
+                    delay = float(retry_after)
+            _sleep_with_jitter(delay)
             delay *= backoff_factor
         except urllib.error.URLError as exc:  # pragma: no cover - network failure path
             if attempt == max_attempts:
                 message = f"Failed to reach GitHub API: {exc.reason}"
                 raise GithubReleaseError(message) from exc
-            time.sleep(delay)
+            _sleep_with_jitter(delay)
             delay *= backoff_factor
     else:  # pragma: no cover - loop exhausted without break
         message = "GitHub API request failed after retries."

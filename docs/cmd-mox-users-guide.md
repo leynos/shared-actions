@@ -40,7 +40,7 @@ interactions matched what was recorded.
 The three phases are defined in the design document:
 
 1. **Record** – describe each expected command call, including its arguments
-   and behavior.
+   and behaviour.
 2. **Replay** – run the code under test while CmdMox intercepts command
    executions.
 3. **Verify** – ensure every expectation was met and nothing unexpected
@@ -73,7 +73,7 @@ cmd_mox.spy("curl")
 - **Spies** record every call for later inspection and can behave like stubs.
 
 Each call returns a `CommandDouble` that offers a fluent DSL to configure
-behavior.
+behaviour.
 
 ## Defining expectations
 

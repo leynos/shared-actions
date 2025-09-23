@@ -18,12 +18,20 @@ FAIL_ON_DYNAMIC_OPTION = typer.Option(
     "false",
     envvar="INPUT_FAIL_ON_DYNAMIC_VERSION",
 )
+FAIL_ON_EMPTY_OPTION = typer.Option(
+    "false",
+    envvar="INPUT_FAIL_ON_EMPTY",
+)
+SKIP_DIRECTORIES_OPTION = typer.Option(
+    "",
+    envvar="INPUT_SKIP_DIRECTORIES",
+)
 
 # Common transient directories created by tooling (virtualenvs, caches,
 # pytest artefacts such as ``.pytest_cache``/``.cache`` and coverage reports
 # under ``htmlcov``) that should be ignored when searching for
 # ``pyproject.toml`` files to validate.
-SKIP_PARTS = {
+DEFAULT_SKIP_PARTS = {
     ".git",
     ".venv",
     "venv",
@@ -37,20 +45,32 @@ SKIP_PARTS = {
     "htmlcov",
 }
 
+SKIP_PARTS = frozenset(DEFAULT_SKIP_PARTS)
+
 TRUTHY_STRINGS = {"true", "1", "yes", "y", "on"}
 
 
-def _iter_files(pattern: str) -> typ.Iterable[Path]:
+def _iter_files(
+    pattern: str, *, skip_parts: typ.Collection[str] | None = None
+) -> typ.Iterable[Path]:
     root = Path()
+    skip = set(SKIP_PARTS if skip_parts is None else skip_parts)
     for path in sorted(
         root.glob(pattern), key=lambda candidate: tuple(candidate.parts)
     ):
         if not path.is_file():
             continue
         parts = set(path.parts)
-        if parts & SKIP_PARTS:
+        if parts & skip:
             continue
         yield path
+
+
+def _parse_skip_directories(raw: str | None) -> set[str]:
+    if not raw:
+        return set()
+    normalized = raw.replace(",", "\n")
+    return {part.strip() for part in normalized.splitlines() if part.strip()}
 
 
 def _parse_bool(value: str | None) -> bool:
@@ -86,6 +106,8 @@ def main(
     version: str = VERSION_OPTION,
     pattern: str = PATTERN_OPTION,
     fail_on_dynamic: str = FAIL_ON_DYNAMIC_OPTION,
+    fail_on_empty: str = FAIL_ON_EMPTY_OPTION,
+    skip_directories: str = SKIP_DIRECTORIES_OPTION,
 ) -> None:
     """Confirm that project versions in TOML files match the release version.
 
@@ -98,14 +120,27 @@ def main(
     fail_on_dynamic : str
         String flag that controls whether dynamic versions should raise an
         error.
+    fail_on_empty : str
+        String flag that controls whether missing matches should raise an
+        error instead of logging a warning.
+    skip_directories : str
+        Comma- or newline-separated list of directory name components to ignore
+        when matching ``pyproject.toml`` files.
 
     Raises
     ------
     typer.Exit
         Raised when TOML files cannot be read or contain mismatched versions.
     """
-    files = list(_iter_files(pattern))
+    skip_parts = set(SKIP_PARTS) | _parse_skip_directories(skip_directories)
+    files = list(_iter_files(pattern, skip_parts=skip_parts))
     if not files:
+        if _parse_bool(fail_on_empty):
+            typer.echo(
+                f"::error::No TOML files matched pattern {pattern}",
+                err=True,
+            )
+            raise typer.Exit(1)
         typer.echo(f"::warning::No TOML files matched pattern {pattern}")
         return
 

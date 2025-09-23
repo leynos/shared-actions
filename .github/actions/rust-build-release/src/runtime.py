@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import typing as typ
 
 import typer
@@ -15,7 +17,36 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
-DEFAULT_HOST_TARGET = "x86_64-unknown-linux-gnu"
+_ARCH_TO_WINDOWS_DEFAULT = {
+    "amd64": "x86_64-pc-windows-msvc",
+    "x86_64": "x86_64-pc-windows-msvc",
+    "arm64": "aarch64-pc-windows-msvc",
+    "aarch64": "aarch64-pc-windows-msvc",
+}
+
+_ARCH_TO_DARWIN_DEFAULT = {
+    "x86_64": "x86_64-apple-darwin",
+    "amd64": "x86_64-apple-darwin",
+    "arm64": "aarch64-apple-darwin",
+    "aarch64": "aarch64-apple-darwin",
+}
+
+
+def _platform_default_host_target() -> str:
+    """Return a platform-specific fallback host triple."""
+    machine = (
+        platform.machine().lower()
+        or os.environ.get("PROCESSOR_ARCHITECTURE", "").lower()
+    )
+    if sys_platform := sys.platform:
+        if sys_platform == "win32":
+            return _ARCH_TO_WINDOWS_DEFAULT.get(machine, "x86_64-pc-windows-msvc")
+        if sys_platform == "darwin":
+            return _ARCH_TO_DARWIN_DEFAULT.get(machine, "x86_64-apple-darwin")
+    return "x86_64-unknown-linux-gnu"
+
+
+DEFAULT_HOST_TARGET = _platform_default_host_target()
 PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 

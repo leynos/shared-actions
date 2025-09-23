@@ -19,8 +19,8 @@ GITHUB_OUTPUT_OPTION = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 def _emit_outputs(dest: Path, tag: str, version: str) -> None:
     with dest.open("a", encoding="utf-8") as fh:
-        fh.write(f"tag={tag}\n")
-        fh.write(f"version={version}\n")
+        for key, value in (("tag", tag), ("version", version)):
+            fh.write(f"{key}={value}\n")
 
 
 def main(
@@ -45,10 +45,12 @@ def main(
     ref_name = os.getenv("GITHUB_REF_NAME", "")
 
     resolved_tag: str | None = None
-    if ref_type == "tag" and ref_name:
+    candidate_tag = (tag or "").strip()
+    ref_name = ref_name.strip()
+    if candidate_tag:
+        resolved_tag = candidate_tag
+    elif ref_type == "tag" and ref_name:
         resolved_tag = ref_name
-    elif tag:
-        resolved_tag = tag
 
     if not resolved_tag:
         typer.echo(
@@ -57,7 +59,8 @@ def main(
         )
         raise typer.Exit(1)
 
-    if not re.fullmatch(r"v\d+\.\d+\.\d+", resolved_tag):
+    semver_pattern = r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+    if not re.fullmatch(semver_pattern, resolved_tag):
         typer.echo(
             "::error::Tag must be a valid semantic version (e.g. v1.2.3), "
             f"got '{resolved_tag}'.",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import typing as typ
+from types import SimpleNamespace
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
@@ -210,6 +211,28 @@ def test_detect_host_target_returns_default_on_timeout(
         runtime_module.detect_host_target(default="fallback-triple")
         == "fallback-triple"
     )
+
+
+def test_platform_default_host_target_windows(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Windows fallbacks prefer the MSVC triple for common architectures."""
+    harness = module_harness(runtime_module)
+    harness.patch_attr("platform", SimpleNamespace(machine=lambda: "AMD64"))
+    harness.monkeypatch.setattr(runtime_module.sys, "platform", "win32")
+
+    assert runtime_module._platform_default_host_target() == "x86_64-pc-windows-msvc"
+
+
+def test_platform_default_host_target_darwin_arm(
+    runtime_module: ModuleType, module_harness: HarnessFactory
+) -> None:
+    """Ensure macOS ARM platforms fall back to the aarch64 Apple triple."""
+    harness = module_harness(runtime_module)
+    harness.patch_attr("platform", SimpleNamespace(machine=lambda: "arm64"))
+    harness.monkeypatch.setattr(runtime_module.sys, "platform", "darwin")
+
+    assert runtime_module._platform_default_host_target() == "aarch64-apple-darwin"
 
 
 def test_detect_host_target_passes_timeout_to_run_validated(

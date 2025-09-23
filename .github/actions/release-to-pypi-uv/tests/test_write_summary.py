@@ -36,6 +36,7 @@ def test_write_summary_appends_markdown(
     assert "## Release summary" in content
     assert "- Released tag: v1.2.3" in content
     assert "- Publish index: pypi (default)" in content
+    assert "- Environment: pypi" in content
 
 
 def test_write_summary_handles_existing_content(

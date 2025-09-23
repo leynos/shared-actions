@@ -33,13 +33,15 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _write_pyproject(base: Path, content: str) -> None:
     """Create a ``pyproject.toml`` file populated with the provided content."""
     base.mkdir(parents=True, exist_ok=True)
-    (base / "pyproject.toml").write_text(content.strip())
+    (base / "pyproject.toml").write_text(content.strip(), encoding="utf-8")
 
 
 def _invoke_main(module: ModuleType, **kwargs: object) -> None:
     """Invoke ``module.main`` with defaults tailored for the tests."""
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
+    kwargs.setdefault("fail_on_empty", "false")
+    kwargs.setdefault("skip_directories", "")
     module.main(**kwargs)
 
 
@@ -56,7 +58,7 @@ version = "1.0.0"
 """,
     )
 
-    _invoke_main(module, version="1.0.0")
+    _invoke_main(module, version="1.0.0", fail_on_dynamic=None)
 
     captured = capsys.readouterr()
     assert (
@@ -217,13 +219,21 @@ def test_skips_files_in_ignored_directory(
     capsys: pytest.CaptureFixture[str],
     skip_part: str,
 ) -> None:
-    """Warn and exit when only a single ignored directory matches the pattern."""
+    """Warn and exit when matches appear solely under ignored directories."""
     assert skip_part in module.SKIP_PARTS
     _write_pyproject(
         project_root / skip_part / "pkg",
         """
 [project]
 name = "ignored"
+version = "9.9.9"
+""",
+    )
+    _write_pyproject(
+        project_root / "nested" / skip_part / "pkg",
+        """
+[project]
+name = "nested-ignored"
 version = "9.9.9"
 """,
     )
@@ -236,9 +246,99 @@ version = "9.9.9"
     assert "::warning::No TOML files matched pattern" in captured.out
 
 
+def test_iter_files_skips_virtualenv_and_mypy_cache(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Ignore matches located under virtualenv and mypy cache directories."""
+    _write_pyproject(
+        project_root / ".venv" / "pkg",
+        """
+[project]
+name = "ignored-venv"
+version = "0.1.0"
+""",
+    )
+    _write_pyproject(
+        project_root / "src" / ".mypy_cache" / "pkg",
+        """
+[project]
+name = "ignored-mypy"
+version = "0.2.0"
+""",
+    )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    assert not discovered
+
+    _invoke_main(module, version="1.0.0")
+    captured = capsys.readouterr()
+    assert "::warning::No TOML files matched pattern" in captured.out
+
+
+def test_custom_skip_directories_filter_matches(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Allow repositories to skip additional transient directory names."""
+    _write_pyproject(
+        project_root / "cache_dir" / "pkg",
+        """
+[project]
+name = "ignored-cache"
+version = "0.3.0"
+""",
+    )
+    _write_pyproject(
+        project_root / "alt-dir" / "pkg",
+        """
+[project]
+name = "ignored-alt"
+version = "0.4.0"
+""",
+    )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    assert discovered
+    assert "cache_dir" not in module.SKIP_PARTS
+
+    _invoke_main(
+        module,
+        version="1.0.0",
+        skip_directories="cache_dir\nalt-dir",
+    )
+
+    captured = capsys.readouterr()
+    assert "::warning::No TOML files matched pattern" in captured.out
+    assert "cache_dir" not in module.SKIP_PARTS
+
+
+def test_fail_on_empty_errors_when_enabled(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Raise an error instead of a warning when ``fail_on_empty`` is truthy."""
+    with pytest.raises(module.typer.Exit):
+        _invoke_main(module, version="1.0.0", fail_on_empty="true")
+
+    captured = capsys.readouterr()
+    assert "::error::No TOML files matched pattern" in captured.err
+
+
 def test_skip_parts_cover_transient_tooling_dirs(module: ModuleType) -> None:
     """Ensure tooling artefact directories remain excluded from discovery."""
-    expected = {".pytest_cache", ".cache", "htmlcov"}
+    expected = {
+        ".venv",
+        "venv",
+        ".direnv",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".cache",
+        "htmlcov",
+    }
     assert expected <= module.SKIP_PARTS
 
 

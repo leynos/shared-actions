@@ -168,7 +168,12 @@ def _run_cargo(args: list[str]) -> str:
             missing_streams.append("stderr")
         missing = ", ".join(missing_streams)
         message = f"cargo output streams not captured: missing {missing}"
-        raise RuntimeError(message)
+        with contextlib.suppress(Exception):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
+        typer.echo(f"::error::{message}", err=True)
+        raise typer.Exit(1)
     stdout_lines: list[str] = []
 
     if os.name == "nt":

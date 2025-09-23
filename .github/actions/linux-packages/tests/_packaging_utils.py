@@ -299,8 +299,10 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                         sums_path,
                     ]
                 )
-            except ProcessExecutionError:
-                pass
+            except ProcessExecutionError as exc:
+                raise RuntimeError(
+                    f"failed to download nfpm checksums from {checks_url}"
+                ) from exc
             else:
                 try:
                     sums_text = sums_path.read_text(encoding="utf-8")

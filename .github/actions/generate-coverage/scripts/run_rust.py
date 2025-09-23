@@ -172,6 +172,12 @@ def _run_cargo(args: list[str]) -> str:
             proc.kill()
         with contextlib.suppress(Exception):
             proc.wait(timeout=5)
+        if proc.stdout is not None:
+            with contextlib.suppress(Exception):
+                proc.stdout.close()
+        if proc.stderr is not None:
+            with contextlib.suppress(Exception):
+                proc.stderr.close()
         typer.echo(f"::error::{message}", err=True)
         raise typer.Exit(1)
     stdout_lines: list[str] = []

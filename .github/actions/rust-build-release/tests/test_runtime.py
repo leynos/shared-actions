@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 import typing as typ
 from types import ModuleType, SimpleNamespace
 
@@ -12,6 +13,24 @@ import pytest
 
 if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness
+
+
+@pytest.fixture
+def echo_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> typ.Callable[[ModuleType], list[tuple[str, bool]]]:
+    """Return a helper that patches ``typer.echo`` and records messages."""
+
+    def install(module: ModuleType) -> list[tuple[str, bool]]:
+        messages: list[tuple[str, bool]] = []
+
+        def fake_echo(message: str, *, err: bool = False) -> None:
+            messages.append((message, err))
+
+        monkeypatch.setattr(module.typer, "echo", fake_echo)
+        return messages
+
+    return install
 
 
 def _patch_run_validated_timeout(
@@ -52,7 +71,11 @@ def _reload_runtime_module(runtime_module: ModuleType, module_name: str) -> Modu
     if module_spec is None or module_spec.loader is None:
         pytest.fail("failed to load runtime module specification")
     module = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(module)
+    sys.modules[module_name] = module
+    try:
+        module_spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
     return module
 
 
@@ -80,18 +103,15 @@ def test_runtime_available_requires_allowed_executable(
 
 
 def test_runtime_available_returns_false_on_timeout(
-    runtime_module: ModuleType, module_harness: HarnessFactory
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
 ) -> None:
     """Treats runtimes that hang during discovery as unavailable."""
     harness = module_harness(runtime_module)
     harness.patch_shutil_which(lambda name: "/usr/bin/docker")
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
-    harness.monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
+    messages = echo_recorder(runtime_module)
     _patch_run_validated_timeout(runtime_module, harness)
 
     assert runtime_module.runtime_available("docker") is False
@@ -103,8 +123,30 @@ def test_runtime_available_returns_false_on_timeout(
     ), "docker info probe timeout warning missing"
 
 
+def test_runtime_available_oserror_does_not_warn(
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
+) -> None:
+    """OSError during runtime detection should not emit warnings."""
+    harness = module_harness(runtime_module)
+    harness.patch_shutil_which(lambda name: "/usr/bin/docker")
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+    messages = echo_recorder(runtime_module)
+
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
+        raise OSError("simulated OSError")
+
+    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
+
+    assert runtime_module.runtime_available("docker") is False
+    assert not any(err for _, err in messages), "unexpected warning for OSError"
+
+
 def test_podman_without_cap_sys_admin_is_unavailable(
-    runtime_module: ModuleType, module_harness: HarnessFactory
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
 ) -> None:
     """Podman runtimes lacking CAP_SYS_ADMIN are reported as unavailable."""
     harness = module_harness(runtime_module)
@@ -128,13 +170,8 @@ def test_podman_without_cap_sys_admin_is_unavailable(
             return subprocess.CompletedProcess(cmd, 0, stdout=data)
         return subprocess.CompletedProcess(cmd, 0, stdout="")
 
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
+    messages = echo_recorder(runtime_module)
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
-    harness.monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
 
     assert runtime_module.runtime_available("podman") is False
     assert any("CAP_SYS_ADMIN" in msg for msg, err in messages if err)
@@ -170,18 +207,15 @@ def test_podman_with_cap_sys_admin_is_available(
 
 
 def test_podman_security_timeout_treated_as_unavailable(
-    runtime_module: ModuleType, module_harness: HarnessFactory
+    runtime_module: ModuleType,
+    module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
 ) -> None:
     """If podman security inspection times out the runtime is skipped."""
     harness = module_harness(runtime_module)
     harness.patch_shutil_which(lambda name: "/usr/bin/podman")
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
-    harness.monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
+    messages = echo_recorder(runtime_module)
     _patch_run_validated_timeout(
         runtime_module,
         harness,
@@ -342,61 +376,93 @@ def test_probe_timeout_env_override(
     assert captured.get("timeout") == 2
 
 
-def test_probe_timeout_invalid_value_warns_and_defaults(
-    runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("env_value", "expected_kind", "message_fragment"),
+    [
+        pytest.param(
+            "not-a-number",
+            "default",
+            "Invalid RUNTIME_PROBE_TIMEOUT value",
+            id="invalid",
+        ),
+        pytest.param("0", "default", "0s raised to", id="zero"),
+        pytest.param("-5", "default", "-5s raised to", id="negative"),
+        pytest.param("999", "max", "999s capped to", id="capped"),
+    ],
+)
+def test_probe_timeout_sanitization_warnings(
+    runtime_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
+    request: pytest.FixtureRequest,
+    env_value: str,
+    expected_kind: str,
+    message_fragment: str,
 ) -> None:
-    """Invalid timeout values emit a warning and fall back to the default."""
-    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "not-a-number")
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
-    monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
-    module = _reload_runtime_module(runtime_module, "rbr_runtime_invalid_timeout")
-
-    assert module.PROBE_TIMEOUT == module._DEFAULT_PROBE_TIMEOUT
-    assert any(err for _, err in messages), (
-        "expected stderr warning for invalid timeout"
+    """Probe timeout overrides produce warnings when sanitized."""
+    messages = echo_recorder(runtime_module)
+    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", env_value)
+    module = _reload_runtime_module(
+        runtime_module,
+        f"rbr_runtime_timeout_{request.node.callspec.id}",
     )
+    if expected_kind == "default":
+        expected = module._DEFAULT_PROBE_TIMEOUT
+    elif expected_kind == "max":
+        expected = module._MAX_PROBE_TIMEOUT
+    else:
+        expected = int(env_value)
+    assert module.PROBE_TIMEOUT == expected
+    assert any(err for _, err in messages), "expected stderr warning for timeout"
     assert any(
-        "Invalid RUNTIME_PROBE_TIMEOUT value" in msg for msg, err in messages if err
+        message_fragment in msg and str(expected) in msg for msg, err in messages if err
     )
 
 
-def test_probe_timeout_non_positive_warns_and_defaults(
-    runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("env_value", "expected_kind", "message_fragment"),
+    [
+        pytest.param(None, "default", None, id="unset"),
+        pytest.param("5", "value", None, id="custom-value"),
+        pytest.param(
+            "not-a-number",
+            "default",
+            "Invalid RUNTIME_PROBE_TIMEOUT value",
+            id="invalid",
+        ),
+        pytest.param("0", "default", "0s raised to", id="zero"),
+        pytest.param("-5", "default", "-5s raised to", id="negative"),
+        pytest.param("999", "max", "999s capped to", id="capped"),
+    ],
+)
+def test_get_probe_timeout_sanitizes_values(
+    runtime_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
+    env_value: str | None,
+    expected_kind: str,
+    message_fragment: str | None,
 ) -> None:
-    """Zero or negative timeout values are rejected with a warning."""
-    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "0")
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
-    monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
-    module = _reload_runtime_module(runtime_module, "rbr_runtime_non_positive_timeout")
-
-    assert module.PROBE_TIMEOUT == module._DEFAULT_PROBE_TIMEOUT
-    assert any(err for _, err in messages), (
-        "expected stderr warning for non-positive timeout"
-    )
-    assert any("must be positive" in msg for msg, err in messages if err)
-
-
-def test_probe_timeout_caps_maximum(
-    runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Values above the maximum are capped and reported via warning."""
-    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "999")
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
-
-    monkeypatch.setattr(runtime_module.typer, "echo", fake_echo)
-    module = _reload_runtime_module(runtime_module, "rbr_runtime_capped_timeout")
-
-    assert module.PROBE_TIMEOUT == module._MAX_PROBE_TIMEOUT
-    assert any(err for _, err in messages), "expected stderr warning for capped timeout"
-    assert any("capping to" in msg for msg, err in messages if err)
+    """Unit tests for probe timeout sanitization helper."""
+    messages = echo_recorder(runtime_module)
+    if env_value is None:
+        monkeypatch.delenv("RUNTIME_PROBE_TIMEOUT", raising=False)
+    else:
+        monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", env_value)
+    result = runtime_module._get_probe_timeout()
+    if expected_kind == "default":
+        expected = runtime_module._DEFAULT_PROBE_TIMEOUT
+    elif expected_kind == "max":
+        expected = runtime_module._MAX_PROBE_TIMEOUT
+    else:
+        expected = int(env_value or runtime_module._DEFAULT_PROBE_TIMEOUT)
+    assert result == expected
+    if message_fragment is None:
+        assert not any(err for _, err in messages), "unexpected stderr warning"
+    else:
+        assert any(err for _, err in messages), "expected stderr warning"
+        assert any(
+            message_fragment in msg and str(expected) in msg
+            for msg, err in messages
+            if err
+        )

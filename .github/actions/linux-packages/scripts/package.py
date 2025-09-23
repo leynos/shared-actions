@@ -100,7 +100,8 @@ SECTION_RE = re.compile(r"\.(\d[\w-]*)($|\.gz$)")
 
 app = App()
 _env_config = cyclopts.config.Env("INPUT_", command=False)
-app.config = (*tuple(getattr(app, "config", ())), _env_config)
+existing_config = getattr(app, "config", ()) or ()
+app.config = (*tuple(existing_config), _env_config)
 
 
 def _fail(message: str, *, code: int = 2) -> typ.NoReturn:

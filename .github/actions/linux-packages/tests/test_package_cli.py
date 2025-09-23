@@ -7,12 +7,14 @@ import os
 import runpy
 import sys
 import types
+import typing as typ
 from pathlib import Path
 
 import _packaging_utils as pkg_utils
 import cyclopts
 import pytest
 import yaml
+from plumbum.commands.processes import ProcessExecutionError
 
 
 @pytest.fixture
@@ -21,13 +23,130 @@ def packaging_module() -> types.ModuleType:
     return importlib.reload(pkg_utils.packaging_script)
 
 
-def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
-    """The cyclopts environment mapping is appended exactly once."""
-    env_configs = [
+def _env_mappings(module: types.ModuleType) -> list[cyclopts.config.Env]:
+    """Return the cyclopts environment mapping entries for the module app."""
+    return [
         entry
-        for entry in packaging_module.app.config
+        for entry in getattr(module.app, "config", ())
         if isinstance(entry, cyclopts.config.Env)
     ]
+
+
+class _FakeBoundCommand:
+    """Minimal plumbum-like command proxy for unit tests."""
+
+    def __init__(self, name: str, args: tuple[object, ...] = ()) -> None:
+        self._name = name
+        self._args = tuple(args)
+
+    def __getitem__(self, args: object) -> _FakeBoundCommand:
+        if not isinstance(args, tuple):
+            args = (args,)
+        return _FakeBoundCommand(self._name, self._args + tuple(args))
+
+    def formulate(self) -> list[str]:
+        result = [self._name]
+        for arg in self._args:
+            if isinstance(arg, Path):
+                result.append(arg.as_posix())
+            else:
+                result.append(str(arg))
+        return result
+
+
+class _FakeLocal:
+    """Lightweight shim emulating ``plumbum.local`` for unit tests."""
+
+    def __getitem__(self, name: str) -> _FakeBoundCommand:
+        return _FakeBoundCommand(name)
+
+
+def _make_fake_run_cmd(
+    *, checksum_text: str | None = None, fail_checksums: bool = False
+) -> typ.Callable[..., str]:
+    """Return a ``run_cmd`` stub that emulates the nfpm download flow."""
+
+    def fake_run_cmd(cmd: _FakeBoundCommand, *args: object, **kwargs: object) -> str:
+        argv = [str(part) for part in cmd.formulate()]
+        name = Path(argv[0]).name
+        if name == "uname":
+            if "-m" in argv:
+                return "x86_64"
+            if "-s" in argv:
+                return "Linux"
+            pytest.fail(f"unexpected uname invocation: {argv}")
+        if name == "curl":
+            output_idx = argv.index("-o") + 1
+            output_path = Path(argv[output_idx])
+            if output_path.name.endswith("_checksums.txt"):
+                if fail_checksums:
+                    raise ProcessExecutionError(argv, 1, "", "not found")
+                output_path.write_text(checksum_text or "", encoding="utf-8")
+                return ""
+            output_path.write_bytes(b"dummy nfpm archive")
+            return ""
+        if name in {"tar", "install"}:
+            return ""
+        pytest.fail(f"unexpected command invocation: {argv}")
+
+    return fake_run_cmd
+
+
+def test_app_config_handles_missing_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Script initialisation tolerates ``App`` implementations without ``config``."""
+
+    class ConfiglessApp:
+        def __init__(self) -> None:
+            self.registered: list[types.FunctionType] = []
+
+        def default(
+            self,
+            func: types.FunctionType | None = None,
+            **kwargs: object,
+        ) -> types.FunctionType:  # type: ignore[override]
+            if func is None:
+
+                def decorator(fn: types.FunctionType) -> types.FunctionType:
+                    self.registered.append(fn)
+                    return fn
+
+                return decorator
+            self.registered.append(func)
+            return func
+
+    try:
+        with monkeypatch.context() as ctx:
+            ctx.setattr(cyclopts, "App", ConfiglessApp)
+            module = importlib.reload(pkg_utils.packaging_script)
+            env_configs = _env_mappings(module)
+            assert len(env_configs) == 1
+            assert env_configs[0].prefix == "INPUT_"
+    finally:
+        importlib.reload(pkg_utils.packaging_script)
+
+
+def test_app_config_handles_none_initial_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``App`` instances that zero ``config`` still acquire the env mapping."""
+    original_init = cyclopts.App.__init__
+
+    def init_with_none(self: cyclopts.App, *args: object, **kwargs: object) -> None:
+        original_init(self, *args, **kwargs)
+        self.config = None  # type: ignore[attr-defined]
+
+    try:
+        with monkeypatch.context() as ctx:
+            ctx.setattr(cyclopts.App, "__init__", init_with_none)
+            module = importlib.reload(pkg_utils.packaging_script)
+            env_configs = _env_mappings(module)
+            assert len(env_configs) == 1
+            assert env_configs[0].prefix == "INPUT_"
+    finally:
+        importlib.reload(pkg_utils.packaging_script)
+
+
+def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
+    """The cyclopts environment mapping is appended exactly once."""
+    env_configs = _env_mappings(packaging_module)
     assert len(env_configs) == 1
     env_cfg = env_configs[0]
     assert env_cfg.prefix == "INPUT_"
@@ -191,6 +310,50 @@ def test_main_uses_default_paths_for_blank_inputs(
     assert contents[0]["src"] == bin_path.as_posix()
     staged_files = list(man_stage.glob("*.gz"))
     assert staged_files, "expected gzipped manpage in fallback stage directory"
+
+
+def test_ensure_nfpm_raises_when_checksum_download_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Checksum download failures abort nfpm provisioning."""
+    monkeypatch.delenv("NFPM_VERSION", raising=False)
+    monkeypatch.setattr(pkg_utils.shutil, "which", lambda _: None)
+    monkeypatch.setattr(pkg_utils, "local", _FakeLocal())
+    monkeypatch.setattr(
+        pkg_utils,
+        "run_cmd",
+        _make_fake_run_cmd(fail_checksums=True),
+    )
+    checks_url = (
+        "https://github.com/goreleaser/nfpm/releases/download/"
+        "v2.39.0/nfpm_2.39.0_checksums.txt"
+    )
+
+    with pytest.raises(RuntimeError) as excinfo, pkg_utils.ensure_nfpm(tmp_path):
+        pass
+
+    assert checks_url in str(excinfo.value)
+
+
+def test_ensure_nfpm_errors_when_checksum_entry_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Missing checksum entries surface as runtime errors."""
+    monkeypatch.delenv("NFPM_VERSION", raising=False)
+    monkeypatch.setattr(pkg_utils.shutil, "which", lambda _: None)
+    monkeypatch.setattr(pkg_utils, "local", _FakeLocal())
+    monkeypatch.setattr(
+        pkg_utils,
+        "run_cmd",
+        _make_fake_run_cmd(checksum_text="deadbeef  other_asset.tar.gz\n"),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo, pkg_utils.ensure_nfpm(tmp_path):
+        pass
+
+    message = str(excinfo.value)
+    assert "missing entry" in message
+    assert "nfpm_2.39.0_Linux_x86_64.tar.gz" in message
 
 
 def _run_script_with_fallback(

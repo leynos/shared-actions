@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import typing as typ
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -21,7 +20,7 @@ SKIP_PARTS = tuple(sorted(MODULE.SKIP_PARTS))
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
     """Reload the ``validate_toml_versions`` script for a clean state."""
-    return importlib.reload(MODULE)
+    return load_script_module("validate_toml_versions")
 
 
 @pytest.fixture

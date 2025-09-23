@@ -55,17 +55,22 @@ def test_accepts_toolchain_with_triple() -> None:
             "--no-self-update",
         ]
     )
+    host = os.uname().machine
+    if host == "aarch64":
+        target = "aarch64-unknown-linux-gnu"
+    else:
+        target = "x86_64-unknown-linux-gnu"
     res = run_script(
         script,
-        "x86_64-unknown-linux-gnu",
+        target,
         "--toolchain",
-        "1.89.0-x86_64-unknown-linux-gnu",
+        f"1.89.0-{target}",
         cwd=project_dir,
     )
     assert res.returncode == 0
-    binary = project_dir / "target/x86_64-unknown-linux-gnu/release/rust-toy-app"
+    binary = project_dir / f"target/{target}/release/rust-toy-app"
     assert binary.exists()
     manpage_glob = project_dir.glob(
-        "target/x86_64-unknown-linux-gnu/release/build/rust-toy-app-*/out/rust-toy-app.1"
+        f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
     )
     assert any(manpage_glob)

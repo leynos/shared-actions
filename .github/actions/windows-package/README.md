@@ -36,7 +36,7 @@ inputs):
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
 | `wxs-path` | no | `installer/Package.wxs` | Path to the WiX authoring file used to build the MSI. |
-| `architecture` | no | `x64` | Architecture supplied to `wix build` (`x64` or `x86`). |
+| `architecture` | no | `x64` | Architecture supplied to `wix build` (`x86`, `x64`, or `arm64`). |
 | `version` | no | _auto_ | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`. |
 | `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
 | `wix-tool-version` | no | _latest_ | Specific version of the `wix` .NET global tool to install. |
@@ -79,9 +79,9 @@ In WiX authoring, reference the preprocessor variable supplied via
 <Package Version="$(var.Version)">
 ```
 
-This expression resolves to the version string the action passes via
-`-dVersion=...`, ensuring the MSI `Package` uses the same value that appears in
-the generated filename.
+The `$(var.Version)` preprocessor expression resolves to the version string the
+action passes via `-dVersion=...`, ensuring the MSI `Package` uses the same
+value that appears in the generated filename.
 
 When `version` is omitted the action inspects `GITHUB_REF_TYPE` and
 `GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>` (the
@@ -89,9 +89,9 @@ minor and build segments are optional) are used to derive the MSI version. All
 other refs—including branches and tags with non-numeric suffixes—fall back to
 `0.0.0`.
 
-MSI ProductVersion components must be integers in the range `0–255`. Values
-outside that range cause the action to fail fast so that WiX receives a valid
-version.
+MSI ProductVersion components must be integers where the major and minor
+segments are `0–255` and the build segment is `0–65535`. Values outside those
+ranges cause the action to fail fast so that WiX receives a valid version.
 
 To display a licence in the installer UI, supply an RTF document and reference
 it from the WiX authoring, for example:

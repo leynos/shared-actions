@@ -164,7 +164,7 @@ def main(
         dynamic = project.get("dynamic")
         dynamic_set = (
             {str(item) for item in dynamic}
-            if isinstance(dynamic, (list, tuple))
+            if isinstance(dynamic, list | tuple)
             else set()
         )
         if "version" in dynamic_set:

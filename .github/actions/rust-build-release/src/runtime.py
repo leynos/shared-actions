@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import typing as typ
 
 import typer
@@ -15,7 +17,60 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
-DEFAULT_HOST_TARGET = "x86_64-unknown-linux-gnu"
+
+
+def _normalize_arch(machine: str) -> str:
+    mapping = {
+        "amd64": "x86_64",
+        "x64": "x86_64",
+        "x86_64": "x86_64",
+        "i386": "i686",
+        "i486": "i686",
+        "i586": "i686",
+        "i686": "i686",
+        "x86": "i686",
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+        "armv8": "aarch64",
+        "armv8a": "aarch64",
+        "armv8l": "aarch64",
+        "armv7": "armv7",
+        "armv7a": "armv7",
+        "armv7hl": "armv7",
+        "armv7l": "armv7",
+        "armv6": "armv6",
+        "armv6l": "armv6",
+        "ppc64": "ppc64",
+        "ppc64le": "ppc64le",
+        "powerpc64": "ppc64",
+        "powerpc64le": "ppc64le",
+        "s390x": "s390x",
+        "riscv64": "riscv64",
+        "loongarch64": "loongarch64",
+    }
+    if not machine:
+        return "x86_64"
+    machine_lower = machine.lower()
+    return mapping.get(machine_lower, machine_lower)
+
+
+def _default_host_target_for_current_platform() -> str:
+    arch = _normalize_arch(platform.machine()) or "x86_64"
+    system_name = platform.system().lower()
+    platform_id = sys.platform.lower()
+    if system_name == "windows":
+        return f"{arch}-pc-windows-msvc"
+    if system_name.startswith(("cygwin", "msys")) or platform_id in {"cygwin", "msys"}:
+        return f"{arch}-pc-windows-gnu"
+    if system_name == "darwin":
+        return f"{arch}-apple-darwin"
+    if system_name.startswith("linux"):
+        return f"{arch}-unknown-linux-gnu"
+    identifier = system_name or platform_id or "linux"
+    return f"{arch}-unknown-{identifier}"
+
+
+DEFAULT_HOST_TARGET = _default_host_target_for_current_platform()
 PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 

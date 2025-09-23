@@ -52,6 +52,23 @@ def fixture_fake_token() -> str:
     return f"test-token-{uuid.uuid4().hex}"
 
 
+def test_sleep_with_jitter_allows_custom_rng(module: ModuleType) -> None:
+    """Allow tests to provide deterministic jitter and sleep functions."""
+    calls: list[float] = []
+
+    class FixedRandom:
+        """Stub RNG that always returns a fixed jitter fraction."""
+
+        def uniform(self, a: float, b: float) -> float:
+            assert a == 0.0
+            assert b == 0.1
+            return 0.05
+
+    module._sleep_with_jitter(4.0, jitter=FixedRandom(), sleep=calls.append)
+
+    assert calls == [4.2]
+
+
 def test_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

@@ -11,6 +11,7 @@ import contextlib
 import json
 import random
 import time
+import typing as typ
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,13 +23,30 @@ TOKEN_OPTION = typer.Option(..., envvar="GH_TOKEN")
 REPO_OPTION = typer.Option(..., envvar="GITHUB_REPOSITORY")
 
 
+class _UniformGenerator(typ.Protocol):
+    """Protocol describing RNG objects that provide ``uniform``."""
+
+    def uniform(self, a: float, b: float) -> float:
+        """Return a random floating point number N such that ``a <= N <= b``."""
+
+
+SleepFn = typ.Callable[[float], None]
+
 _JITTER = random.SystemRandom()
 
 
-def _sleep_with_jitter(delay: float) -> None:
+def _sleep_with_jitter(
+    delay: float,
+    *,
+    jitter: _UniformGenerator | None = None,
+    sleep: SleepFn | None = None,
+) -> None:
+    """Sleep for ``delay`` seconds with a deterministic jitter hook for tests."""
     sleep_base = max(delay, 0.0)
-    jitter = sleep_base * _JITTER.uniform(0.0, 0.1)
-    time.sleep(sleep_base + jitter)
+    jitter_source = _JITTER if jitter is None else jitter
+    sleep_fn = time.sleep if sleep is None else sleep
+    jitter_amount = sleep_base * jitter_source.uniform(0.0, 0.1)
+    sleep_fn(sleep_base + jitter_amount)
 
 
 class GithubReleaseError(RuntimeError):

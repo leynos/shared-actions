@@ -48,15 +48,18 @@ def read_outputs(tmp_path: Path) -> dict[str, str]:
     lines = output_file.read_text(encoding="utf-8").splitlines()
     iterator = iter(lines)
     for line in iterator:
-        if "<<__EOF__" not in line:
+        if line.endswith("<<__EOF__"):
+            key, _ = line.split("<<", 1)
+            value_lines: list[str] = []
+            for value_line in iterator:
+                if value_line == "__EOF__":
+                    break
+                value_lines.append(value_line)
+            out[key] = "\n".join(value_lines)
             continue
-        key, _ = line.split("<<", 1)
-        value_lines: list[str] = []
-        for value_line in iterator:
-            if value_line == "__EOF__":
-                break
-            value_lines.append(value_line)
-        out[key] = "\n".join(value_lines)
+        if "=" in line:
+            key, value = line.split("=", 1)
+            out[key] = value
     return out
 
 

@@ -41,6 +41,7 @@ def _invoke_main(module: ModuleType, **kwargs: object) -> None:
     kwargs.setdefault("pattern", "**/pyproject.toml")
     kwargs.setdefault("fail_on_dynamic", "false")
     kwargs.setdefault("fail_on_empty", "false")
+    kwargs.setdefault("skip_directories", "")
     module.main(**kwargs)
 
 
@@ -274,6 +275,44 @@ version = "0.2.0"
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out
+
+
+def test_custom_skip_directories_filter_matches(
+    project_root: Path,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Allow repositories to skip additional transient directory names."""
+    _write_pyproject(
+        project_root / "cache_dir" / "pkg",
+        """
+[project]
+name = "ignored-cache"
+version = "0.3.0"
+""",
+    )
+    _write_pyproject(
+        project_root / "alt-dir" / "pkg",
+        """
+[project]
+name = "ignored-alt"
+version = "0.4.0"
+""",
+    )
+
+    discovered = list(module._iter_files("**/pyproject.toml"))
+    assert discovered
+    assert "cache_dir" not in module.SKIP_PARTS
+
+    _invoke_main(
+        module,
+        version="1.0.0",
+        skip_directories="cache_dir\nalt-dir",
+    )
+
+    captured = capsys.readouterr()
+    assert "::warning::No TOML files matched pattern" in captured.out
+    assert "cache_dir" not in module.SKIP_PARTS
 
 
 def test_fail_on_empty_errors_when_enabled(

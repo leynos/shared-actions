@@ -20,7 +20,7 @@ GITHUB_OUTPUT_OPTION = typer.Option(..., envvar="GITHUB_OUTPUT")
 def _emit_outputs(dest: Path, tag: str, version: str) -> None:
     with dest.open("a", encoding="utf-8") as fh:
         for key, value in (("tag", tag), ("version", version)):
-            fh.write(f"{key}<<__EOF__\n{value}\n__EOF__\n")
+            fh.write(f"{key}={value}\n")
 
 
 def main(

@@ -26,6 +26,10 @@ inputs:
     description: Glob used to discover pyproject.toml files for version validation.
     required: false
     default: "**/pyproject.toml"
+  skip-directories:
+    description: Comma- or newline-separated directory names to skip during TOML discovery.
+    required: false
+    default: ''
   fail-on-dynamic-version:
     description: Fail if any project declares a dynamic version instead of a literal string.
     required: false
@@ -89,6 +93,7 @@ runs:
         INPUT_TOML_GLOB: ${{ inputs.toml-glob }}
         INPUT_FAIL_ON_DYNAMIC_VERSION: ${{ inputs.fail-on-dynamic-version }}
         INPUT_FAIL_ON_EMPTY: ${{ inputs.fail-on-empty }}
+        INPUT_SKIP_DIRECTORIES: ${{ inputs.skip-directories }}
     - name: Build distributions
       run: uv build
       shell: bash

@@ -46,3 +46,14 @@ def test_validate_step_passes_fail_on_empty_flag() -> None:
     )
     env = validate_step["env"]
     assert env["INPUT_FAIL_ON_EMPTY"] == "${{ inputs.fail-on-empty }}"
+
+
+def test_validate_step_passes_skip_directories_input() -> None:
+    """Ensure the validation step forwards the skip-directories input."""
+    data = _load_action()
+    steps = data["runs"]["steps"]
+    validate_step = next(
+        step for step in steps if step["name"] == "Validate TOML files"
+    )
+    env = validate_step["env"]
+    assert env["INPUT_SKIP_DIRECTORIES"] == "${{ inputs.skip-directories }}"

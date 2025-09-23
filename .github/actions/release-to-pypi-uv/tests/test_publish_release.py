@@ -23,12 +23,26 @@ def fixture_publish_module() -> ModuleType:
     return module
 
 
-def test_publish_default_index(
+@pytest.mark.parametrize(
+    ("index", "expected_calls", "expected_message"),
+    [
+        ("", [["uv", "publish"]], "Publishing with uv to default index (PyPI)"),
+        (
+            "  testpypi  ",
+            [["uv", "publish", "--index", "testpypi"]],
+            "Publishing with uv to index 'testpypi'",
+        ),
+    ],
+)
+def test_publish_index_behaviour(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     publish_module: ModuleType,
+    index: str,
+    expected_calls: list[list[str]],
+    expected_message: str,
 ) -> None:
-    """Invoke ``uv publish`` without an index when none is provided."""
+    """Exercise publishing for both default and custom index inputs."""
     calls: list[list[str]] = []
 
     def fake_run_cmd(args: list[str], **_: object) -> None:
@@ -36,31 +50,11 @@ def test_publish_default_index(
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
-    publish_module.main(index="")
+    publish_module.main(index=index)
 
-    assert calls == [["uv", "publish"]]
+    assert calls == expected_calls
     captured = capsys.readouterr()
-    assert "Publishing with uv to default index (PyPI)" in captured.out
-
-
-def test_publish_custom_index(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    publish_module: ModuleType,
-) -> None:
-    """Add the ``--index`` flag when a custom index value is supplied."""
-    calls: list[list[str]] = []
-
-    def fake_run_cmd(args: list[str], **_: object) -> None:
-        calls.append(args)
-
-    monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
-
-    publish_module.main(index="  testpypi  ")
-
-    assert calls == [["uv", "publish", "--index", "testpypi"]]
-    captured = capsys.readouterr()
-    assert "Publishing with uv to index 'testpypi'" in captured.out
+    assert expected_message in captured.out
 
 
 def test_publish_run_cmd_error(

@@ -152,6 +152,7 @@ def test_falls_back_to_cargo_when_podman_unusable(
     runtime_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Fallback to cargo when podman runtime detection fails quickly (issue #97)."""
     cross_env = module_harness(cross_module)
@@ -184,6 +185,12 @@ def test_falls_back_to_cargo_when_podman_unusable(
 
     assert any(cmd[0] == "cargo" for cmd in app_env.calls)
     assert all(cmd[0] != "cross" for cmd in app_env.calls)
+    captured = capsys.readouterr()
+    assert (
+        "cross (0.2.5) requires a container runtime; "
+        "using cargo (docker=False, podman=False)" in captured.out
+    )
+    assert "TimeoutExpired" not in captured.err
 
 
 @pytest.mark.parametrize(

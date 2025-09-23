@@ -8,6 +8,7 @@
   back to `0.0.0` for non-tag builds.
 - Accept MSI build numbers up to `65535` and normalise architecture inputs to
   `x86`, `x64` or `arm64` before invoking WiX.
+- Clarify documentation to use the `$(var.Version)` preprocessor form.
 
 ## windows-package-v0.1.0
 

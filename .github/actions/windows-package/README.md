@@ -73,7 +73,8 @@ jobs:
 ```
 
 In WiX authoring, reference the preprocessor variable supplied via
-`-dVersion=...`:
+`-dVersion=...` using the `$(var.Name)` form expected by the WiX
+preprocessor:
 
 ```xml
 <Package Version="$(var.Version)">

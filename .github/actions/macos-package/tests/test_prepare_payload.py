@@ -18,6 +18,7 @@ def test_prepare_payload_stages_assets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     load_module: cabc.Callable[[str], object],
+    assert_permissions: cabc.Callable[[Path, int], None],
 ) -> None:
     """Stage binaries, manpages, and licences into the pkgroot."""
     module = load_module("prepare_payload")
@@ -49,14 +50,14 @@ def test_prepare_payload_stages_assets(
     license_dest = root / "usr/local/share/doc/mytool/LICENSE"
 
     assert binary_dest.read_bytes() == b"#!/bin/sh\n"
-    assert (binary_dest.stat().st_mode & 0o777) == 0o755
+    assert_permissions(binary_dest, 0o755)
 
     with gzip.open(manpage_dest, "rt", encoding="utf-8") as handle:
         assert handle.read() == "manpage"
-    assert (manpage_dest.stat().st_mode & 0o777) == 0o644
+    assert_permissions(manpage_dest, 0o644)
 
     assert license_dest.read_text(encoding="utf-8") == "license text"
-    assert (license_dest.stat().st_mode & 0o777) == 0o644
+    assert_permissions(license_dest, 0o644)
 
     build_dir = work_dir / "build"
     resources_dir = work_dir / "Resources"

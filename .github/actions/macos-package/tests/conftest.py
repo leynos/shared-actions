@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import typing as typ
 from pathlib import Path
@@ -55,6 +56,28 @@ def load_module(monkeypatch: pytest.MonkeyPatch) -> cabc.Callable[[str], object]
         return module
 
     return _load
+
+
+@pytest.fixture
+def assert_permissions() -> cabc.Callable[[Path, int], None]:
+    """Return a helper that validates staged file permissions."""
+
+    def _assert_permissions(path: Path, expected: int) -> None:
+        mode = path.stat().st_mode & 0o777
+        if sys.platform == "win32":
+            # Windows only tracks the read-only attribute, so best-effort verify
+            # that staged files remain readable and, when expected, writable.
+            if not os.access(path, os.R_OK):
+                pytest.fail(f"{path} should be readable")
+            if (expected & 0o200) and not os.access(path, os.W_OK):
+                pytest.fail(f"{path} should be writable")
+            return
+        if mode != expected:
+            pytest.fail(
+                f"Expected mode {oct(expected)}, got {oct(mode)} for {path}",
+            )
+
+    return _assert_permissions
 
 
 @pytest.fixture(autouse=True)

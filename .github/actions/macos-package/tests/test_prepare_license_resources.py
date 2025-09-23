@@ -17,6 +17,7 @@ def test_prepare_license_resources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     load_module: cabc.Callable[[str], object],
+    assert_permissions: cabc.Callable[[Path, int], None],
 ) -> None:
     """Copy the licence text and render the Distribution XML."""
     module = load_module("prepare_license_resources")
@@ -38,7 +39,7 @@ def test_prepare_license_resources(
     copied_license = Path(resources / "License.txt")
 
     assert copied_license.read_text(encoding="utf-8") == 'Terms "and" conditions\n'
-    assert (copied_license.stat().st_mode & 0o777) == 0o644
+    assert_permissions(copied_license, 0o644)
 
     xml_content = dist_xml.read_text(encoding="utf-8")
     assert "MyTool &amp; Co." in xml_content

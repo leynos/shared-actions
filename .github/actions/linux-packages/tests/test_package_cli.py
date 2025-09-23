@@ -21,13 +21,66 @@ def packaging_module() -> types.ModuleType:
     return importlib.reload(pkg_utils.packaging_script)
 
 
-def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
-    """The cyclopts environment mapping is appended exactly once."""
-    env_configs = [
+def _env_mappings(module: types.ModuleType) -> list[cyclopts.config.Env]:
+    """Return the cyclopts environment mapping entries for the module app."""
+    return [
         entry
-        for entry in packaging_module.app.config
+        for entry in getattr(module.app, "config", ())
         if isinstance(entry, cyclopts.config.Env)
     ]
+
+
+def test_app_config_handles_missing_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Script initialisation tolerates ``App`` implementations without ``config``."""
+
+    class ConfiglessApp:
+        def __init__(self) -> None:
+            self.registered: list[types.FunctionType] = []
+
+        def default(self, func=None, **kwargs):  # type: ignore[override]
+            if func is None:
+                def decorator(fn):
+                    self.registered.append(fn)
+                    return fn
+
+                return decorator
+            self.registered.append(func)
+            return func
+
+    try:
+        with monkeypatch.context() as ctx:
+            ctx.setattr(cyclopts, "App", ConfiglessApp)
+            module = importlib.reload(pkg_utils.packaging_script)
+            env_configs = _env_mappings(module)
+            assert len(env_configs) == 1
+            assert env_configs[0].prefix == "INPUT_"
+    finally:
+        importlib.reload(pkg_utils.packaging_script)
+
+
+def test_app_config_handles_none_initial_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``App`` instances that zero ``config`` still acquire the env mapping."""
+
+    original_init = cyclopts.App.__init__
+
+    def init_with_none(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        original_init(self, *args, **kwargs)
+        self.config = None  # type: ignore[attr-defined]
+
+    try:
+        with monkeypatch.context() as ctx:
+            ctx.setattr(cyclopts.App, "__init__", init_with_none)
+            module = importlib.reload(pkg_utils.packaging_script)
+            env_configs = _env_mappings(module)
+            assert len(env_configs) == 1
+            assert env_configs[0].prefix == "INPUT_"
+    finally:
+        importlib.reload(pkg_utils.packaging_script)
+
+
+def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
+    """The cyclopts environment mapping is appended exactly once."""
+    env_configs = _env_mappings(packaging_module)
     assert len(env_configs) == 1
     env_cfg = env_configs[0]
     assert env_cfg.prefix == "INPUT_"

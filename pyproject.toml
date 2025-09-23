@@ -28,7 +28,7 @@ dev = [
     "pyyaml>=6.0,<7.0",
     "ty>=0.0.1a20",
     "uuid6>=2025.0.1",
-    "cmd-mox@git+https://github.com/leynos/cmd-mox.git",
+    "cmd-mox@git+https://github.com/leynos/cmd-mox.git@baaaf89862837b8a1565fab2c18c34d498e08601",
 ]
 
 [tool.ruff]

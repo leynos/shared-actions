@@ -45,10 +45,18 @@ def read_outputs(tmp_path: Path) -> dict[str, str]:
     output_file = tmp_path / "out.txt"
     if not output_file.exists():
         return out
-    for line in output_file.read_text(encoding="utf-8").splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            out[key] = value
+    lines = output_file.read_text(encoding="utf-8").splitlines()
+    iterator = iter(lines)
+    for line in iterator:
+        if "<<__EOF__" not in line:
+            continue
+        key, _ = line.split("<<", 1)
+        value_lines: list[str] = []
+        for value_line in iterator:
+            if value_line == "__EOF__":
+                break
+            value_lines.append(value_line)
+        out[key] = "\n".join(value_lines)
     return out
 
 
@@ -79,6 +87,36 @@ def test_resolves_tag_from_input(tmp_path: Path) -> None:
     outputs = read_outputs(tmp_path)
     assert outputs["tag"] == "v2.0.0"
     assert outputs["version"] == "2.0.0"
+
+
+def test_input_tag_overrides_ref(tmp_path: Path) -> None:
+    """Prefer the workflow input tag when both sources are present."""
+    env = base_env(tmp_path)
+    env["GITHUB_REF_TYPE"] = "tag"
+    env["GITHUB_REF_NAME"] = "v0.9.9"
+    env["INPUT_TAG"] = "v2.3.4"
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "determine_release.py"
+    result = run_script(script, env=env)
+
+    assert result.returncode == 0, result.stderr
+    outputs = read_outputs(tmp_path)
+    assert outputs["tag"] == "v2.3.4"
+    assert outputs["version"] == "2.3.4"
+
+
+def test_accepts_prerelease_and_build_tags(tmp_path: Path) -> None:
+    """Allow SemVer pre-release and build metadata components."""
+    env = base_env(tmp_path)
+    env["INPUT_TAG"] = "v1.2.3-rc.1+build.5"
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "determine_release.py"
+    result = run_script(script, env=env)
+
+    assert result.returncode == 0, result.stderr
+    outputs = read_outputs(tmp_path)
+    assert outputs["tag"] == "v1.2.3-rc.1+build.5"
+    assert outputs["version"] == "1.2.3-rc.1+build.5"
 
 
 def test_rejects_invalid_tag(tmp_path: Path) -> None:

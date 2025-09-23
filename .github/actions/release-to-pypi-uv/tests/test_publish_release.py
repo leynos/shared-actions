@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 import typing as typ
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
@@ -57,6 +58,23 @@ def test_publish_index_behaviour(
     assert expected_message in captured.out
 
 
+def test_ensure_python_runtime_errors_without_uv(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    publish_module: ModuleType,
+) -> None:
+    """Guard the fail-fast check when Python < 3.13 and uv is unavailable."""
+    stub_sys = types.SimpleNamespace(version_info=(3, 12, 0))
+    monkeypatch.setattr(publish_module, "sys", stub_sys)
+    monkeypatch.setattr(publish_module.shutil, "which", lambda name: None)
+
+    with pytest.raises(publish_module.typer.Exit):
+        publish_module._ensure_python_runtime()
+
+    err = capsys.readouterr().err
+    assert "Python >= 3.13" in err
+
+
 def test_publish_run_cmd_error(
     monkeypatch: pytest.MonkeyPatch, publish_module: ModuleType
 ) -> None:
@@ -71,7 +89,7 @@ def test_publish_run_cmd_error(
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
-    with pytest.raises(DummyError):
+    with pytest.raises(DummyError, match="uv publish failed"):
         publish_module.main(index="")
 
 

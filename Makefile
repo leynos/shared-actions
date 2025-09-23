@@ -8,6 +8,7 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
 NIXIE ?= nixie
+RUFF_FIX_RULES ?= D202,I001
 
 test: .venv ## Run tests
 	uv run --with typer --with packaging --with plumbum --with pyyaml pytest -v
@@ -39,7 +40,7 @@ typecheck: .venv ## Run static type checking with Ty
 
 fmt: ## Apply formatting to Python files
 	uvx ruff format
-	uvx ruff check --select D202,I001 --fix
+	uvx ruff check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
 	uvx ruff format --check

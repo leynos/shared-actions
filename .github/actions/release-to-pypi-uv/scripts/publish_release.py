@@ -9,10 +9,24 @@ from __future__ import annotations
 
 import contextlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
 import typer
+
+
+def _ensure_python_runtime() -> None:
+    """Fail fast when Python 3.13+ or uv provisioning is unavailable."""
+    if sys.version_info >= (3, 13):
+        return
+    if shutil.which("uv") is not None:
+        return
+    typer.echo(
+        "::error::Python >= 3.13 or uv must be available before publishing.",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 def _extend_sys_path() -> None:
@@ -38,6 +52,7 @@ def _extend_sys_path() -> None:
             sys.path.insert(0, path_str)
 
 
+_ensure_python_runtime()
 _extend_sys_path()
 
 from cmd_utils import run_cmd  # noqa: E402

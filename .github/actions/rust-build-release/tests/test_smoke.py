@@ -62,10 +62,8 @@ def _param_for_target(target: str) -> object:
     marks: list[pytest.MarkDecorator] = []
     if target != HOST_TARGET and target.endswith("-unknown-linux-gnu"):
         marks.append(LINUX_ONLY)
-    if target.endswith("-pc-windows-gnu") or target.endswith("-pc-windows-msvc"):
-        marks.append(WINDOWS_ONLY)
-    if target.endswith("-pc-windows-gnu") or target.endswith("-pc-windows-msvc"):
-        marks.append(WINDOWS_KNOWN_FAILURE)
+    if target.endswith(("-pc-windows-gnu", "-pc-windows-msvc")):
+        marks.extend((WINDOWS_ONLY, WINDOWS_KNOWN_FAILURE))
     if marks:
         return pytest.param(target, marks=tuple(marks))
     return pytest.param(target)

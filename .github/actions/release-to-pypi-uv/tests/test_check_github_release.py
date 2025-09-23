@@ -206,8 +206,9 @@ def test_retries_then_fail(
     monkeypatch.setattr(module.urllib.request, "urlopen", failing_urlopen)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(module.typer.Exit) as exc_info:
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
+    assert exc_info.value.exit_code == 1
     assert "temporary" in captured.err or "fetch" in captured.err

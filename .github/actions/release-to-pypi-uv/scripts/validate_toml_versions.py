@@ -18,6 +18,10 @@ FAIL_ON_DYNAMIC_OPTION = typer.Option(
     "false",
     envvar="INPUT_FAIL_ON_DYNAMIC_VERSION",
 )
+FAIL_ON_EMPTY_OPTION = typer.Option(
+    "false",
+    envvar="INPUT_FAIL_ON_EMPTY",
+)
 
 # Common transient directories created by tooling (virtualenvs, caches,
 # pytest artefacts such as ``.pytest_cache``/``.cache`` and coverage reports
@@ -86,6 +90,7 @@ def main(
     version: str = VERSION_OPTION,
     pattern: str = PATTERN_OPTION,
     fail_on_dynamic: str = FAIL_ON_DYNAMIC_OPTION,
+    fail_on_empty: str = FAIL_ON_EMPTY_OPTION,
 ) -> None:
     """Confirm that project versions in TOML files match the release version.
 
@@ -98,6 +103,9 @@ def main(
     fail_on_dynamic : str
         String flag that controls whether dynamic versions should raise an
         error.
+    fail_on_empty : str
+        String flag that controls whether missing matches should raise an
+        error instead of logging a warning.
 
     Raises
     ------
@@ -106,6 +114,12 @@ def main(
     """
     files = list(_iter_files(pattern))
     if not files:
+        if _parse_bool(fail_on_empty):
+            typer.echo(
+                f"::error::No TOML files matched pattern {pattern}",
+                err=True,
+            )
+            raise typer.Exit(1)
         typer.echo(f"::warning::No TOML files matched pattern {pattern}")
         return
 

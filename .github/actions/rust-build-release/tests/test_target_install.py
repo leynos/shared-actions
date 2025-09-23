@@ -370,6 +370,29 @@ def test_probe_runtime_warns_on_timeout(
     assert expected in err
 
 
+def test_probe_runtime_warns_on_timeout_without_duration(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Timeout warnings omit duration when the exception lacks a timeout."""
+    harness = module_harness(main_module)
+
+    def raise_timeout(name: str) -> bool:
+        _ = name
+        raise subprocess.TimeoutExpired(cmd="docker info", timeout=None)
+
+    harness.patch_attr("runtime_available", raise_timeout)
+
+    assert main_module._probe_runtime("docker") is False
+
+    err = capsys.readouterr().err
+    expected = (
+        "::warning::docker runtime probe timed out; treating runtime as unavailable"
+    )
+    assert expected in err
+
+
 def test_probe_runtime_propagates_unexpected_error(
     main_module: ModuleType,
     module_harness: HarnessFactory,
@@ -398,7 +421,7 @@ def test_runtime_available_handles_timeout(
     module_harness: HarnessFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Treat runtime probe timeouts as unavailable instead of crashing."""
+    """Treat runtime probe timeouts as unavailable while still completing the build."""
     harness = module_harness(main_module)
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 
@@ -416,14 +439,17 @@ def test_runtime_available_handles_timeout(
 
     harness.patch_attr("run_validated", fake_run_validated)
 
-    def run_cmd_side_effect(cmd: list[str]) -> None:
+    commands: list[list[str]] = []
+
+    def record_run_cmd(cmd: list[str]) -> None:
+        commands.append(cmd)
         if cmd[:3] == ["/usr/bin/rustup", "target", "add"]:
-            raise subprocess.CalledProcessError(1, cmd)
+            return
         if cmd and cmd[0] == "cargo":
             return
         pytest.fail(f"unexpected run_cmd call: {cmd}")
 
-    harness.patch_run_cmd(run_cmd_side_effect)
+    harness.patch_run_cmd(record_run_cmd)
     harness.patch_attr("configure_windows_linkers", lambda *_: None)
 
     def timeout_runtime(_name: str, *, cwd: object | None = None) -> bool:
@@ -433,10 +459,9 @@ def test_runtime_available_handles_timeout(
     harness.patch_attr("runtime_available", timeout_runtime)
     harness.patch_attr("ensure_cross", lambda *_: (None, None))
 
-    with pytest.raises(main_module.typer.Exit):
-        main_module.main("thumbv7em-none-eabihf", default_toolchain)
+    main_module.main("thumbv7em-none-eabihf", default_toolchain)
 
-    err = capsys.readouterr().err
+    out, err = capsys.readouterr()
     expected_docker = (
         "::warning::docker runtime probe timed out after 10s; "
         "treating runtime as unavailable"
@@ -445,14 +470,16 @@ def test_runtime_available_handles_timeout(
         "::warning::podman runtime probe timed out after 10s; "
         "treating runtime as unavailable"
     )
-    expected_toolchain = (
-        f"::error:: toolchain '{default_toolchain}-x86_64-unknown-linux-gnu' "
-        "does not support target 'thumbv7em-none-eabihf'"
-    )
     assert expected_docker in err
     assert expected_podman in err
-    assert expected_toolchain in err
+    assert "cross missing; using cargo" in out
     _assert_no_timeout_trace(err)
+
+    assert len(commands) >= 2
+    assert commands[0][:3] == ["/usr/bin/rustup", "target", "add"]
+    assert commands[1][0] == "cargo"
+    assert commands[1][1].startswith("+")
+    assert commands[1][-1] == "thumbv7em-none-eabihf"
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

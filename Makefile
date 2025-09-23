@@ -48,6 +48,7 @@ fmt: ## Apply formatting to Python files
 
 check-fmt: ## Check Python formatting without modifying files
 	uvx ruff format --check
+	uvx ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)

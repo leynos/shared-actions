@@ -10,6 +10,10 @@ inputs:
     description: SHA-256 checksum for the llvm-mingw archive matching the selected version
     required: false
     default: "bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737"
+  require-aarch64:
+    description: Fail if no aarch64 MinGW compiler is available
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -37,11 +41,20 @@ runs:
         $asset = "llvm-mingw-$version-ucrt-x86_64.zip"
         $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$version/$asset"
         $archive = Join-Path $Env:RUNNER_TEMP "llvm-mingw.zip"
-        try {
-          Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
-        } catch {
-          Write-Error "Failed to download llvm-mingw archive from $url"
-          throw
+        $attempts = 5
+        for ($i = 1; $i -le $attempts; $i++) {
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $archive -ErrorAction Stop
+            break
+          } catch {
+            if ($i -eq $attempts) {
+              Write-Error "Failed to download llvm-mingw archive from $url after $attempts attempts"
+              throw
+            }
+            $delay = [math]::Min([int][math]::Pow(2, $i), 30)
+            Write-Warning "Download failed (attempt $i). Retrying in ${delay}s..."
+            Start-Sleep -Seconds $delay
+          }
         }
         $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash
         if (-not [string]::Equals($actualHash, $expectedHash, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -59,6 +72,11 @@ runs:
           throw "llvm-mingw bin directory not found at $binPath"
         }
         $binPath | Out-File -FilePath $Env:GITHUB_PATH -Encoding utf8 -Append
+        Add-Content -Path $Env:GITHUB_ENV -Value "LLVM_MINGW_ROOT=$toolRoot"
+        Add-Content -Path $Env:GITHUB_ENV -Value "LLVM_MINGW_BIN=$binPath"
+        # Toolchain hints (useful for Autotools/CMake; override as needed)
+        Add-Content -Path $Env:GITHUB_ENV -Value "CC_aarch64_pc_windows_gnu=aarch64-w64-mingw32-clang"
+        Add-Content -Path $Env:GITHUB_ENV -Value "CXX_aarch64_pc_windows_gnu=aarch64-w64-mingw32-clang++"
     - name: Verify GNU toolchains
       shell: bash
       run: |
@@ -66,8 +84,13 @@ runs:
         if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
           echo "::warning::x86_64 MinGW GCC not found" >&2
         fi
+        require_a64="${{ inputs.require-aarch64 }}"
         if ! command -v aarch64-w64-mingw32-gcc >/dev/null 2>&1 \
           && ! command -v aarch64-w64-mingw32-clang >/dev/null 2>&1; then
-          echo "::error::No aarch64 MinGW compiler found (neither GCC nor clang)" >&2
-          exit 1
+          if [ "${require_a64}" = "true" ]; then
+            echo "::error::No aarch64 MinGW compiler found (neither GCC nor clang)" >&2
+            exit 1
+          else
+            echo "::warning::No aarch64 MinGW compiler found; proceeding because require-aarch64=false" >&2
+          fi
         fi

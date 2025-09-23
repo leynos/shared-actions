@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import typing as typ
 
 import typer
@@ -15,7 +17,43 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
-DEFAULT_HOST_TARGET = "x86_64-unknown-linux-gnu"
+
+
+def _normalize_arch(machine: str) -> str:
+    mapping = {
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "x64": "x86_64",
+        "i386": "i686",
+        "i686": "i686",
+        "x86": "i686",
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+        "armv8": "aarch64",
+    }
+    normalized = mapping.get(machine.lower()) if machine else None
+    if normalized:
+        return normalized
+    if machine:
+        return machine.lower()
+    return "x86_64"
+
+
+def _default_host_target_for_current_platform() -> str:
+    platform_id = sys.platform
+    arch = _normalize_arch(platform.machine())
+    if not arch:
+        arch = "x86_64"
+    if platform_id == "win32":
+        return f"{arch}-pc-windows-msvc"
+    if platform_id in {"cygwin", "msys"}:
+        return f"{arch}-pc-windows-gnu"
+    if platform_id == "darwin":
+        return f"{arch}-apple-darwin"
+    return f"{arch}-unknown-linux-gnu"
+
+
+DEFAULT_HOST_TARGET = _default_host_target_for_current_platform()
 PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 

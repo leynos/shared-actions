@@ -527,5 +527,7 @@ def test_returns_none_when_install_fails_on_windows(
     assert len(harness.calls) == 2
     assert path is None
     assert ver is None
-    out = capsys.readouterr().out.lower()
-    assert "warning" in out
+    io = capsys.readouterr()
+    msg = io.err.lower()
+    assert "warning" in msg
+    assert "cross install failed; continuing without cross" in msg

@@ -67,24 +67,34 @@ def _host_linux_triple() -> str:
         pytest.skip(f"unsupported platform: {sys.platform!r}")
 
     machine = platform.machine().lower()
-    arch_map = {
-        "x86_64": "x86_64",
-        "amd64": "x86_64",
-        "aarch64": "aarch64",
-        "arm64": "aarch64",
-        "i686": "i686",
-        "i586": "i686",
-        "i386": "i686",
-        "riscv64": "riscv64",
-        "ppc64le": "powerpc64le",
-        "ppc64": "powerpc64",
-        "ppc64be": "powerpc64",
-        "s390x": "s390x",
+    triple_map = {
+        "x86_64": "x86_64-unknown-linux-gnu",
+        "amd64": "x86_64-unknown-linux-gnu",
+        "aarch64": "aarch64-unknown-linux-gnu",
+        "arm64": "aarch64-unknown-linux-gnu",
+        "i686": "i686-unknown-linux-gnu",
+        "i586": "i686-unknown-linux-gnu",
+        "i386": "i686-unknown-linux-gnu",
+        "riscv64": "riscv64-unknown-linux-gnu",
+        "ppc64le": "powerpc64le-unknown-linux-gnu",
+        "ppc64": "powerpc64-unknown-linux-gnu",
+        "ppc64be": "powerpc64-unknown-linux-gnu",
+        "s390x": "s390x-unknown-linux-gnu",
+        "armv8l": "armv7-unknown-linux-gnueabihf",
+        "armv7l": "armv7-unknown-linux-gnueabihf",
+        "armv7": "armv7-unknown-linux-gnueabihf",
+        "armv7a": "armv7-unknown-linux-gnueabihf",
+        "armv7hl": "armv7-unknown-linux-gnueabihf",
+        "armv7hnl": "armv7-unknown-linux-gnueabihf",
+        "armhf": "armv7-unknown-linux-gnueabihf",
+        "armv6l": "arm-unknown-linux-gnueabihf",
+        "armv6": "arm-unknown-linux-gnueabihf",
+        "armel": "arm-unknown-linux-gnueabi",
     }
-    arch = arch_map.get(machine)
-    if arch is None:  # pragma: no cover - defensive skip
+    triple = triple_map.get(machine)
+    if triple is None:  # pragma: no cover - defensive skip
         pytest.skip(f"unsupported architecture: {machine!r}")
-    return f"{arch}-unknown-linux-gnu"
+    return triple
 
 
 @pytest.mark.usefixtures("uncapture_if_verbose")

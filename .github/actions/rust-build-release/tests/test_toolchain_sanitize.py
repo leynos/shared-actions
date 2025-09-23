@@ -6,17 +6,19 @@ import os
 import platform
 import subprocess
 import sys
+import typing as typ
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
 from cmd_utils import run_cmd
 
+if typ.TYPE_CHECKING:
+    from types import ModuleType
+
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
     """The action strips host triples when preparing cross CLI overrides."""
-
     channel = main_module._toolchain_channel("1.89.0-x86_64-unknown-linux-gnu")
     assert channel == "1.89.0"
 
@@ -27,6 +29,7 @@ def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
 
     stable = main_module._toolchain_channel("stable")
     assert stable == "stable"
+
 
 os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")
 
@@ -60,7 +63,6 @@ def run_script(
 
 def _host_linux_triple() -> str:
     """Return the host's GNU/Linux target triple."""
-
     if not sys.platform.startswith("linux"):  # pragma: no cover - defensive skip
         pytest.skip(f"unsupported platform: {sys.platform!r}")
 
@@ -85,7 +87,6 @@ def _host_linux_triple() -> str:
 @pytest.mark.usefixtures("uncapture_if_verbose")
 def test_accepts_toolchain_with_triple() -> None:
     """Running with a full toolchain triple succeeds."""
-
     target_triple = _host_linux_triple()
     toolchain_spec = f"{RUST_TOOLCHAIN}-{target_triple}"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
@@ -101,7 +102,8 @@ def test_accepts_toolchain_with_triple() -> None:
             "--no-self-update",
         ]
     )
-    # Ensure the host-qualified toolchain name exists as well (no-op if already present).
+    # Ensure the host-qualified toolchain name exists as well.
+    # This is a no-op when the toolchain is already present.
     run_cmd(
         [
             "rustup",
@@ -123,7 +125,7 @@ def test_accepts_toolchain_with_triple() -> None:
     assert res.returncode == 0
     binary = project_dir / "target" / target_triple / "release" / "rust-toy-app"
     assert binary.is_file()
-    manpage_glob = (
-        project_dir / "target" / target_triple / "release" / "build"
-    ).glob("rust-toy-app-*/out/rust-toy-app.1")
+    manpage_glob = (project_dir / "target" / target_triple / "release" / "build").glob(
+        "rust-toy-app-*/out/rust-toy-app.1"
+    )
     assert any(path.is_file() for path in manpage_glob)

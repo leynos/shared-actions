@@ -52,12 +52,12 @@ _MAX_PROBE_TIMEOUT = 300
 
 
 def _run_probe(
-    exec_path: str | "Path",
+    exec_path: str | Path,
     name: str,
     probe: str,
     args: list[str],
     *,
-    cwd: str | "Path" | None = None,
+    cwd: str | Path | None = None,
     **kwargs: object,
 ) -> subprocess.CompletedProcess[str] | None:
     """Execute a runtime probe and handle common failure modes."""

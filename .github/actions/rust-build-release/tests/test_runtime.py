@@ -135,7 +135,8 @@ def test_runtime_available_oserror_does_not_warn(
     messages = echo_recorder(runtime_module)
 
     def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
-        raise OSError("simulated OSError")
+        message = "simulated OSError"
+        raise OSError(message)
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
@@ -412,7 +413,7 @@ def test_probe_timeout_sanitization_warnings(
         expected = module._MAX_PROBE_TIMEOUT
     else:
         expected = int(env_value)
-    assert module.PROBE_TIMEOUT == expected
+    assert expected == module.PROBE_TIMEOUT
     assert any(err for _, err in messages), "expected stderr warning for timeout"
     assert any(
         message_fragment in msg and str(expected) in msg for msg, err in messages if err

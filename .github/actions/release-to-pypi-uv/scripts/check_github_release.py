@@ -90,6 +90,15 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
                     f"{tag}. Create and publish the release first."
                 )
                 raise GithubReleaseError(message) from exc
+            if exc.code == 401:
+                context = detail or exc.reason
+                message = (
+                    "GitHub rejected the token (401 Unauthorized). "
+                    "Verify that GH_TOKEN is correct and has not expired."
+                )
+                if context:
+                    message = f"{message} ({context})"
+                raise GithubReleaseError(message) from exc
             if exc.code == 403:
                 permission_message = (
                     "GitHub token lacks permission to read releases or has expired. "

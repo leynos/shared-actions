@@ -154,6 +154,36 @@ def test_missing_release(
     assert "No GitHub release found" in captured.err
 
 
+def test_authentication_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    fake_token: str,
+) -> None:
+    """Exit with guidance when GitHub rejects the authentication token."""
+    detail = b"Bad credentials"
+    error = module.urllib.error.HTTPError(
+        url="https://api.github.com",
+        code=401,
+        msg="Unauthorized",
+        hdrs=None,
+        fp=io.BytesIO(detail),
+    )
+
+    def raising_urlopen(request: typ.Any, timeout: float = 30) -> typ.Any:  # noqa: ANN401
+        _ = request, timeout
+        raise error
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", raising_urlopen)
+
+    with pytest.raises(module.typer.Exit):
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
+
+    captured = capsys.readouterr()
+    assert "Verify that GH_TOKEN" in captured.err
+    assert "Unauthorized" in captured.err
+
+
 def test_permission_denied(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,

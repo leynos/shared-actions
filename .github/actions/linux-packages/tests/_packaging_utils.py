@@ -216,6 +216,31 @@ class ChecksumMismatchError(RuntimeError):
         )
 
 
+class ChecksumDownloadError(RuntimeError):
+    """Raised when the nfpm checksum manifest cannot be downloaded."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        super().__init__(f"failed to download nfpm checksums from {url}")
+
+
+class ChecksumReadError(RuntimeError):
+    """Raised when the nfpm checksum manifest cannot be read from disk."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        super().__init__(f"failed to read nfpm checksums from {url}")
+
+
+class ChecksumManifestEntryMissingError(RuntimeError):
+    """Raised when the nfpm manifest does not contain the expected asset entry."""
+
+    def __init__(self, url: str, asset: str) -> None:
+        self.url = url
+        self.asset = asset
+        super().__init__(f"nfpm checksum manifest missing entry for {asset} from {url}")
+
+
 def polythene_cmd(polythene: Path, *args: str) -> str:
     """Execute ``polythene`` with ``uv run`` and return its output."""
     return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
@@ -300,14 +325,11 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                     ]
                 )
             except ProcessExecutionError as exc:
-                raise RuntimeError(
-                    f"failed to download nfpm checksums from {checks_url}"
-                ) from exc
-            else:
-                try:
-                    sums_text = sums_path.read_text(encoding="utf-8")
-                except OSError:
-                    sums_text = ""
+                raise ChecksumDownloadError(checks_url) from exc
+            try:
+                sums_text = sums_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ChecksumReadError(checks_url) from exc
 
             expected_hash: str | None = None
             pattern = f"nfpm_{version[1:]}_{asset_os}_{asset_arch}.tar.gz"
@@ -315,6 +337,8 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                 if pattern in line:
                     expected_hash = line.split()[0]
                     break
+            if expected_hash is None:
+                raise ChecksumManifestEntryMissingError(checks_url, pattern)
             if expected_hash:
                 digest = hashlib.sha256(tarball.read_bytes()).hexdigest()
                 if digest.lower() != expected_hash.lower():
@@ -341,10 +365,13 @@ __all__ = sorted(
         "build_release_artifacts",
         "BuildArtifacts",
         "ChecksumMismatchError",
+        "ChecksumDownloadError",
+        "ChecksumManifestEntryMissingError",
         "deb_arch_for_target",
         "DEFAULT_CONFIG",
         "DEFAULT_TARGET",
         "ensure_nfpm",
+        "ChecksumReadError",
         "IsolationUnavailableError",
         "package_project",
         "packaging_project",

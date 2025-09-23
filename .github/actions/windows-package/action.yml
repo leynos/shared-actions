@@ -217,7 +217,13 @@ runs:
         $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $arch)
         $arguments = @('build', $env:WXS_PATH)
         if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-          $arguments += @('-ext', $env:WIX_EXTENSION)
+          $extensions = $env:WIX_EXTENSION -split '[,\s]+'
+          foreach ($extension in $extensions) {
+            $trimmed = $extension.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+              $arguments += @('-ext', $trimmed)
+            }
+          }
         }
         $arguments += @('-arch', $arch, "-dVersion=$($env:VERSION)", '-o', $outputPath)
         wix @arguments

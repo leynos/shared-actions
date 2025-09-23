@@ -83,10 +83,11 @@ This expression resolves to the version string the action passes via
 `-dVersion=...`, ensuring the MSI `Package` uses the same value that appears in
 the generated filename.
 
-When `version` is omitted the action inspects `GITHUB_REF_NAME`. If the ref
-starts with `v` (e.g. `v1.2.3`), the prefix is removed and a numeric
-`major.minor.build` triplet is extracted for MSI ProductVersion. Non-numeric
-suffixes are ignored. All other cases fall back to `0.0.0`.
+When `version` is omitted the action inspects `GITHUB_REF_TYPE` and
+`GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>` (the
+minor and build segments are optional) are used to derive the MSI version. All
+other refs—including branches and tags with non-numeric suffixes—fall back to
+`0.0.0`.
 
 MSI ProductVersion components must be integers in the range `0–255`. Values
 outside that range cause the action to fail fast so that WiX receives a valid

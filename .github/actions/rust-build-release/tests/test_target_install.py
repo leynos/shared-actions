@@ -24,6 +24,11 @@ if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory
 
 
+def _assert_no_timeout_trace(output: str) -> None:
+    """Ensure TimeoutExpired tracebacks do not leak into CLI output."""
+    assert "TimeoutExpired" not in output, output
+
+
 @CMD_MOX_UNSUPPORTED
 def test_skips_target_install_when_cross_available(
     main_module: ModuleType,
@@ -190,7 +195,7 @@ def test_falls_back_to_cargo_when_podman_unusable(
         "cross (0.2.5) requires a container runtime; "
         "using cargo (docker=False, podman=False)" in captured.out
     )
-    assert "TimeoutExpired" not in captured.err
+    _assert_no_timeout_trace(captured.err)
 
 
 @pytest.mark.parametrize(
@@ -447,7 +452,7 @@ def test_runtime_available_handles_timeout(
     assert expected_docker in err
     assert expected_podman in err
     assert expected_toolchain in err
-    assert "TimeoutExpired" not in err
+    _assert_no_timeout_trace(err)
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(

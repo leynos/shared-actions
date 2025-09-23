@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import typing as typ
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -19,8 +20,8 @@ SKIP_PARTS = tuple(sorted(MODULE.SKIP_PARTS))
 
 @pytest.fixture(name="module")
 def fixture_module() -> ModuleType:
-    """Load the ``validate_toml_versions`` script module under test."""
-    return MODULE
+    """Reload the ``validate_toml_versions`` script for a clean state."""
+    return importlib.reload(MODULE)
 
 
 @pytest.fixture
@@ -234,6 +235,12 @@ version = "9.9.9"
     _invoke_main(module, version="1.0.0")
     captured = capsys.readouterr()
     assert "::warning::No TOML files matched pattern" in captured.out
+
+
+def test_skip_parts_cover_transient_tooling_dirs(module: ModuleType) -> None:
+    """Ensure tooling artefact directories remain excluded from discovery."""
+    expected = {".pytest_cache", ".cache", "htmlcov"}
+    assert expected <= module.SKIP_PARTS
 
 
 def test_dynamic_version_allowed_when_flag_unset(

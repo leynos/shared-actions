@@ -19,6 +19,10 @@ FAIL_ON_DYNAMIC_OPTION = typer.Option(
     envvar="INPUT_FAIL_ON_DYNAMIC_VERSION",
 )
 
+# Common transient directories created by tooling (virtualenvs, caches,
+# pytest artefacts such as ``.pytest_cache``/``.cache`` and coverage reports
+# under ``htmlcov``) that should be ignored when searching for
+# ``pyproject.toml`` files to validate.
 SKIP_PARTS = {
     ".git",
     ".venv",

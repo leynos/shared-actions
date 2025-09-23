@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.machinery
 import importlib.util
 import sys
 import typing as typ
@@ -12,6 +14,7 @@ from plumbum import local
 
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
+
 
 PKG_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = PKG_DIR.parent.parent.parent.parent
@@ -30,14 +33,59 @@ except ImportError:  # pragma: no cover - fallback when run as a script
 
 __all__ = [
     "PKG_DIR",
+    "ScriptHelperExports",
     "ensure_directory",
     "ensure_exists",
     "get_command",
+    "load_script_helpers",
     "run_cmd",
     "unique_match",
 ]
 
 PathIterable = typ.Iterable[Path]
+
+
+class ScriptHelperExports(typ.NamedTuple):
+    """Container for helper callables needed by standalone scripts."""
+
+    ensure_directory: typ.Callable[..., Path]
+    ensure_exists: typ.Callable[[Path, str], None]
+    get_command: typ.Callable[[str], typ.Any]
+    run_cmd: typ.Callable[..., typ.Any]
+
+
+def _as_any(value: object) -> typ.Any:  # noqa: ANN401 - intentional escape hatch
+    """Return *value* typed as ``Any`` for the benefit of static analysis."""
+    return value
+
+
+def load_script_helpers() -> ScriptHelperExports:
+    """Return helper callables for scripts executed outside the package."""
+    module_name = f"{__package__}.script_utils" if __package__ else "script_utils"
+    raw_module: typ.Any | None = None
+    try:
+        raw_module = _as_any(importlib.import_module(module_name))
+    except ImportError:  # pragma: no cover - exercised via fallback tests
+        module_path = PKG_DIR / "script_utils.py"
+        loader = importlib.machinery.SourceFileLoader(
+            "script_utils", module_path.as_posix()
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        if spec is None:
+            raise ImportError(name="script_utils") from None
+        raw_module = _as_any(importlib.util.module_from_spec(spec))
+        loader.exec_module(raw_module)
+
+    if raw_module is None:  # pragma: no cover - defensive fallback
+        raise ImportError(name="script_utils") from None
+
+    helpers_mod: typ.Any = raw_module
+    return ScriptHelperExports(
+        helpers_mod.ensure_directory,
+        helpers_mod.ensure_exists,
+        helpers_mod.get_command,
+        helpers_mod.run_cmd,
+    )
 
 
 def get_command(name: str) -> BaseCommand:

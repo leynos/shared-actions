@@ -53,9 +53,9 @@ else:  # pragma: no cover - runtime fallback when executed as a script
             run_cmd,
         )
     except ImportError:  # pragma: no cover - fallback for direct execution
-        scripts_dir = Path(__file__).resolve().parent
-        sys.path.insert(0, scripts_dir.as_posix())
-        helpers = typ.cast("typ.Any", __import__("script_utils"))
+        from script_utils import load_script_helpers
+
+        helpers = load_script_helpers()
         ensure_directory = helpers.ensure_directory
         ensure_exists = helpers.ensure_exists
         get_command = helpers.get_command

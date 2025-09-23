@@ -6,6 +6,8 @@ import json
 import subprocess
 import typing as typ
 
+import pytest
+
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
@@ -161,6 +163,28 @@ def test_detect_host_target_returns_default_when_rustc_missing(
     harness = module_harness(runtime_module)
     harness.patch_shutil_which(lambda name: None)
     assert runtime_module.detect_host_target() == runtime_module.DEFAULT_HOST_TARGET
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "machine", "expected"),
+    (
+        ("win32", "AMD64", "x86_64-pc-windows-msvc"),
+        ("win32", "ARM64", "aarch64-pc-windows-msvc"),
+        ("darwin", "x86_64", "x86_64-apple-darwin"),
+        ("darwin", "arm64", "aarch64-apple-darwin"),
+        ("linux", "x86_64", "x86_64-unknown-linux-gnu"),
+        ("linux", "aarch64", "aarch64-unknown-linux-gnu"),
+        ("linux", "armv7l", "armv7-unknown-linux-gnueabihf"),
+        ("plan9", "mips", "x86_64-unknown-linux-gnu"),
+    ),
+)
+def test_platform_default_host_target_matrix(
+    runtime_module: ModuleType, platform_name: str, machine: str, expected: str
+) -> None:
+    """Derives platform-appropriate fallbacks for common triples."""
+
+    result = runtime_module._platform_default_host_target(platform_name, machine)
+    assert result == expected
 
 
 def test_detect_host_target_parses_rustc_output(

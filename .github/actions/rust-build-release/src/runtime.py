@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
+import sys
 import typing as typ
 
 import typer
@@ -15,7 +17,49 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
-DEFAULT_HOST_TARGET = "x86_64-unknown-linux-gnu"
+
+
+def _platform_default_host_target(
+    platform_name: str | None = None, machine: str | None = None
+) -> str:
+    """Return a best-effort Rust host triple for the current platform."""
+
+    detected_platform = (platform_name or sys.platform or "").lower()
+    detected_machine = (machine or platform.machine() or "").lower()
+
+    # Normalise common architecture labels.
+    match detected_machine:
+        case "amd64" | "x64":
+            detected_machine = "x86_64"
+        case "arm64":
+            detected_machine = "aarch64"
+
+    match detected_platform:
+        case platform_name if platform_name.startswith("win"):
+            match detected_machine:
+                case "aarch64":
+                    return "aarch64-pc-windows-msvc"
+                case _:
+                    return "x86_64-pc-windows-msvc"
+        case "darwin":
+            match detected_machine:
+                case "aarch64":
+                    return "aarch64-apple-darwin"
+                case _:
+                    return "x86_64-apple-darwin"
+        case platform_name if platform_name.startswith("linux"):
+            match detected_machine:
+                case "aarch64":
+                    return "aarch64-unknown-linux-gnu"
+                case "armv7l" | "armv7":
+                    return "armv7-unknown-linux-gnueabihf"
+                case _:
+                    return "x86_64-unknown-linux-gnu"
+        case _:
+            return "x86_64-unknown-linux-gnu"
+
+
+DEFAULT_HOST_TARGET = _platform_default_host_target()
 PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
 
 

@@ -47,7 +47,42 @@ def _platform_default_host_target() -> str:
 
 
 DEFAULT_HOST_TARGET = _platform_default_host_target()
-PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
+_DEFAULT_PROBE_TIMEOUT = 10
+_MAX_PROBE_TIMEOUT = 300
+
+
+def _get_probe_timeout() -> int:
+    """Return the sanitized probe timeout for runtime detection."""
+    raw = os.environ.get("RUNTIME_PROBE_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_PROBE_TIMEOUT
+    try:
+        value = int(raw)
+    except ValueError:
+        typer.echo(
+            "::warning:: Invalid RUNTIME_PROBE_TIMEOUT value"
+            f" {raw!r}; using {_DEFAULT_PROBE_TIMEOUT}s fallback",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value <= 0:
+        typer.echo(
+            "::warning:: RUNTIME_PROBE_TIMEOUT must be positive; "
+            f"using {_DEFAULT_PROBE_TIMEOUT}s fallback",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value > _MAX_PROBE_TIMEOUT:
+        typer.echo(
+            "::warning:: RUNTIME_PROBE_TIMEOUT exceeds maximum of "
+            f"{_MAX_PROBE_TIMEOUT}s; capping to {_MAX_PROBE_TIMEOUT}s",
+            err=True,
+        )
+        return _MAX_PROBE_TIMEOUT
+    return value
+
+
+PROBE_TIMEOUT = _get_probe_timeout()
 
 
 def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
@@ -69,7 +104,14 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             timeout=PROBE_TIMEOUT,
             cwd=cwd,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        if isinstance(exc, subprocess.TimeoutExpired):
+            typer.echo(
+                "::warning:: "
+                f"{name} info probe exceeded {PROBE_TIMEOUT}s timeout; "
+                "treating runtime as unavailable",
+                err=True,
+            )
         return False
 
     if result.returncode != 0:
@@ -87,7 +129,18 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
                 timeout=PROBE_TIMEOUT,
                 cwd=cwd,
             )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ) as exc:
+            if isinstance(exc, subprocess.TimeoutExpired):
+                typer.echo(
+                    "::warning:: "
+                    f"{name} security probe exceeded {PROBE_TIMEOUT}s timeout; "
+                    "treating runtime as unavailable",
+                    err=True,
+                )
             return False
 
         try:

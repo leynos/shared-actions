@@ -59,10 +59,14 @@ def test_run_validated_invokes_subprocess_with_validated_path(
     )
     cmd_mox.verify()
 
-    assert isinstance(result, subprocess.CompletedProcess)
-    assert result.args[0] == str(exe_path)
-    assert result.stdout == "ok"
-    assert spy.call_count == 1
+    assert isinstance(result, subprocess.CompletedProcess), (
+        "run_validated should return subprocess.CompletedProcess"
+    )
+    assert result.args[0] == str(exe_path), (
+        "subprocess should be invoked with the validated executable path"
+    )
+    assert result.stdout == "ok", "stdout should propagate from the command double"
+    assert spy.call_count == 1, "command double should be invoked exactly once"
 
 
 def test_run_validated_raises_for_unexpected_executable(

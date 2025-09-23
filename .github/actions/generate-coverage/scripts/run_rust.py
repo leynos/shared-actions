@@ -151,7 +151,6 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
 def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
     """Close ``stream`` while suppressing any cleanup errors."""
-
     if stream is None:
         return
     with contextlib.suppress(Exception):
@@ -182,6 +181,8 @@ def _run_cargo(args: list[str]) -> str:
                 proc.kill()
             with contextlib.suppress(Exception):
                 proc.wait(timeout=5)
+            _safe_close_text_stream(proc.stdout)
+            _safe_close_text_stream(proc.stderr)
             typer.echo(f"::error::{message}", err=True)
             raise typer.Exit(1)
         stdout_lines: list[str] = []

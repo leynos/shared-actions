@@ -202,7 +202,6 @@ def test_run_cargo_windows_closes_streams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` closes captured streams on success."""
-
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
@@ -313,7 +312,6 @@ def test_run_cargo_stream_close_error_suppressed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Errors closing streams are suppressed during cleanup."""
-
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
@@ -326,7 +324,8 @@ def test_run_cargo_stream_close_error_suppressed(
         def close(self) -> None:
             self.close_calls += 1
             super().close()
-            raise RuntimeError("close failure")
+            message = "close failure"
+            raise RuntimeError(message)
 
     stdout = ExplodingStream("out-line\n")
     stderr = io.StringIO("err-line\n")

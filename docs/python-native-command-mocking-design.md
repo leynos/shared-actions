@@ -88,7 +88,7 @@ Two environment variables tie the controller and shims together:
   controller API.
 
 These variables are injected automatically when the pytest fixture or context
-manager initialises the controller.
+manager initializes the controller.
 
 ## Platform Notes
 

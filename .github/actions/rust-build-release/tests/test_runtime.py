@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import typing as typ
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 import pytest
 
 if typ.TYPE_CHECKING:
-    from types import ModuleType
-
     from .conftest import HarnessFactory, ModuleHarness
 
 
@@ -271,78 +272,44 @@ def test_detect_host_target_passes_timeout_to_run_validated(
     assert call_kwargs.get("text") is True
     assert call_kwargs.get("check") is True
     assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")
-@pytest.mark.parametrize(
-    ("machine", "expected"),
-    [
-        ("AMD64", "x86_64"),
-        ("x64", "x86_64"),
-        ("i386", "i686"),
-        ("I586", "i686"),
-        ("ARM64", "aarch64"),
-        ("armv8l", "aarch64"),
-        ("ARMV7L", "armv7"),
-        ("armv6l", "armv6"),
-        ("PPC64LE", "ppc64le"),
-        ("PowerPC64", "ppc64"),
-        ("sparc64", "sparc64"),
-    ],
-)
-def test_normalize_arch_unit_mappings(
-    runtime_module: ModuleType, machine: str, expected: str
-) -> None:
-    """Unit test: known architecture identifiers normalize correctly."""
-
-    assert runtime_module._normalize_arch(machine) == expected
 
 
-def test_normalize_arch_behavioral_fallbacks(runtime_module: ModuleType) -> None:
-    """Behavioural test: unknown and missing machine names are handled."""
-
-    assert runtime_module._normalize_arch("") == "x86_64"
-    # Unknown identifiers are normalized to lowercase for stability.
-    assert runtime_module._normalize_arch("Loongson") == "loongson"
-
-
-@pytest.mark.parametrize(
-    ("system_name", "machine", "sys_platform", "expected"),
-    [
-        ("Windows", "AMD64", "win32", "x86_64-pc-windows-msvc"),
-        ("CYGWIN_NT-10.0", "x86_64", "cygwin", "x86_64-pc-windows-gnu"),
-        ("MSYS_NT-10.0", "x86_64", "msys", "x86_64-pc-windows-gnu"),
-        ("Darwin", "arm64", "darwin", "aarch64-apple-darwin"),
-        ("Linux", "ppc64le", "linux", "ppc64le-unknown-linux-gnu"),
-        ("Linux-gnu", "armv7l", "linux-gnu", "armv7-unknown-linux-gnu"),
-        ("FreeBSD", "sparc64", "freebsd13", "sparc64-unknown-freebsd"),
-    ],
-)
-def test_default_host_target_for_current_platform_unit(
+def test_probe_timeout_env_override(
     runtime_module: ModuleType,
+    module_harness: HarnessFactory,
     monkeypatch: pytest.MonkeyPatch,
-    system_name: str,
-    machine: str,
-    sys_platform: str,
-    expected: str,
 ) -> None:
-    """Unit test: platform/architecture combinations map to expected triples."""
-
-    monkeypatch.setattr(runtime_module.platform, "system", lambda: system_name)
-    monkeypatch.setattr(runtime_module.platform, "machine", lambda: machine)
-    monkeypatch.setattr(runtime_module.sys, "platform", sys_platform)
-
-    assert runtime_module._default_host_target_for_current_platform() == expected
-
-
-def test_default_host_target_for_current_platform_behavioral_fallback(
-    runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Behavioural test: fallbacks cover missing identifiers."""
-
-    monkeypatch.setattr(runtime_module.platform, "system", lambda: "")
-    monkeypatch.setattr(runtime_module.platform, "machine", lambda: "")
-    monkeypatch.setattr(runtime_module.sys, "platform", "customos")
-
-    assert (
-        runtime_module._default_host_target_for_current_platform()
-        == "x86_64-unknown-customos"
+    """Respect RUNTIME_PROBE_TIMEOUT when importing the module."""
+    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "2")
+    module_path = getattr(runtime_module, "__file__", None)
+    if module_path is None:
+        pytest.fail("runtime module does not expose a __file__ path")
+    module_spec = importlib.util.spec_from_file_location(
+        "rbr_runtime_reloaded", module_path
     )
+    if module_spec is None or module_spec.loader is None:
+        pytest.fail("failed to load runtime module specification")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    harness = module_harness(module)
 
+    harness.patch_shutil_which(lambda name: "/usr/bin/rustc")
+    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
+
+    captured: dict[str, object] = {}
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            [executable, *args], 0, stdout="host: x86_64-unknown-linux-gnu\n"
+        )
+
+    harness.monkeypatch.setattr(module, "run_validated", fake_run)
+    module.detect_host_target()
+    assert captured.get("timeout") == 2

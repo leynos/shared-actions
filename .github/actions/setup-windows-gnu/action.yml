@@ -33,6 +33,14 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: "Guard: Windows runner only"
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${RUNNER_OS}" != "Windows" ]; then
+          echo "::error::setup-windows-gnu action requires a Windows runner" >&2
+          exit 1
+        fi
     - name: Install MinGW toolchains
       # Consumers can add extra cross linkers in their workflows if they
       # require GCC-based aarch64 binaries. llvm-mingw provides clang by default.
@@ -43,6 +51,7 @@ runs:
         install: |
           mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-gcc-libs
+          mingw-w64-x86_64-pkg-config
     - name: Install llvm-mingw
       shell: pwsh
       run: |

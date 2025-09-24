@@ -48,7 +48,73 @@ def _platform_default_host_target() -> str:
 
 
 DEFAULT_HOST_TARGET = _platform_default_host_target()
-PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
+_DEFAULT_PROBE_TIMEOUT = 10
+_MAX_PROBE_TIMEOUT = 300
+
+
+def _run_probe(
+    exec_path: str | Path,
+    name: str,
+    probe: str,
+    args: list[str],
+    *,
+    cwd: str | Path | None = None,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str] | None:
+    """Execute a runtime probe and handle common failure modes."""
+    try:
+        return run_validated(
+            exec_path,
+            args,
+            allowed_names=(name, f"{name}.exe"),
+            timeout=PROBE_TIMEOUT,
+            cwd=cwd,
+            **kwargs,
+        )
+    except subprocess.TimeoutExpired:
+        typer.echo(
+            "::warning:: "
+            f"{name} {probe} probe exceeded {PROBE_TIMEOUT}s timeout; "
+            "treating runtime as unavailable",
+            err=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return None
+
+
+def _get_probe_timeout() -> int:
+    """Return the sanitized probe timeout for runtime detection."""
+    raw = os.environ.get("RUNTIME_PROBE_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_PROBE_TIMEOUT
+    try:
+        value = int(raw)
+    except ValueError:
+        typer.echo(
+            "::warning:: Invalid RUNTIME_PROBE_TIMEOUT value"
+            f" {raw!r}; using {_DEFAULT_PROBE_TIMEOUT}s fallback",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value <= 0:
+        typer.echo(
+            "::warning:: "
+            f"RUNTIME_PROBE_TIMEOUT={value}s raised to {_DEFAULT_PROBE_TIMEOUT}s",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value > _MAX_PROBE_TIMEOUT:
+        typer.echo(
+            "::warning:: "
+            f"RUNTIME_PROBE_TIMEOUT={value}s capped to {_MAX_PROBE_TIMEOUT}s",
+            err=True,
+        )
+        return _MAX_PROBE_TIMEOUT
+    return value
+
+
+PROBE_TIMEOUT = _get_probe_timeout()
 
 
 def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
@@ -60,35 +126,33 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
         exec_path = ensure_allowed_executable(path, (name, f"{name}.exe"))
     except UnexpectedExecutableError:
         return False
-    try:
-        result = run_validated(
-            exec_path,
-            ["info"],
-            allowed_names=(name, f"{name}.exe"),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=PROBE_TIMEOUT,
-            cwd=cwd,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    result = _run_probe(
+        exec_path,
+        name,
+        "info",
+        ["info"],
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result is None:
         return False
 
     if result.returncode != 0:
         return False
 
     if name == "podman":
-        try:
-            security_info = run_validated(
-                exec_path,
-                ["info", "--format", "{{json .Host.Security}}"],
-                allowed_names=(name, f"{name}.exe"),
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=PROBE_TIMEOUT,
-                cwd=cwd,
-            )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        security_info = _run_probe(
+            exec_path,
+            name,
+            "security",
+            ["info", "--format", "{{json .Host.Security}}"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if security_info is None:
             return False
 
         try:

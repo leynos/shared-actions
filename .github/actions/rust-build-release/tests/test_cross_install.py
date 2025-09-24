@@ -56,6 +56,9 @@ def test_installs_cross_when_missing(
     assert "--locked" in install
     idx = install.index("--version")
     assert install[idx + 1] == "0.2.5"
+    # Prove we did not take the git fallback path
+    assert "--git" not in install
+    assert "--tag" not in install
 
 
 def test_cross_install_failure_non_windows(
@@ -111,6 +114,9 @@ def test_upgrades_outdated_cross(
     assert "--locked" in install
     idx = install.index("--version")
     assert install[idx + 1] == "0.2.5"
+    # Ensure upgrade used crates.io, not the git fallback
+    assert "--git" not in install
+    assert "--tag" not in install
 
 
 @CMD_MOX_UNSUPPORTED
@@ -156,10 +162,10 @@ def test_installs_prebuilt_cross_on_windows(
     harness.patch_shutil_which(fake_which)
     harness.patch_platform("win32")
 
-    release_called = {"value": False}
+    release_call_args: list[str] = []
 
     def fake_release(version: str) -> bool:
-        release_called["value"] = True
+        release_call_args.append(version)
         return True
 
     harness.patch_attr("install_cross_release", fake_release)
@@ -168,7 +174,7 @@ def test_installs_prebuilt_cross_on_windows(
     path, ver = cross_module.ensure_cross("0.2.5")
     cmd_mox.verify()
 
-    assert release_called["value"] is True
+    assert release_call_args == ["0.2.5"]
     assert path == cross_path
     assert ver == "0.2.5"
     assert all(cmd[:2] != ["cargo", "install"] for cmd in harness.calls)
@@ -177,6 +183,7 @@ def test_installs_prebuilt_cross_on_windows(
 def test_install_cross_release_validates_binary(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
     tmp_path: Path,
 ) -> None:
     """Cross release installer verifies the downloaded binary executes."""
@@ -255,10 +262,7 @@ def test_install_cross_release_validates_binary(
         run_calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
 
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
+    messages = echo_recorder(module)
 
     home_dir = tmp_path / "home"
 
@@ -267,7 +271,6 @@ def test_install_cross_release_validates_binary(
         module.tempfile, "TemporaryDirectory", lambda: FakeTempDir()
     )
     harness.monkeypatch.setattr(module, "run_validated", fake_run)
-    harness.monkeypatch.setattr(module.typer, "echo", fake_echo)
     harness.monkeypatch.setattr(module.Path, "home", lambda: home_dir)
 
     assert module.install_cross_release("0.2.5") is True
@@ -391,6 +394,9 @@ def test_installs_cross_without_container_runtime(
     build_cmd = app_env.calls[-1]
     assert build_cmd[0] == "cargo"
     assert build_cmd[1] == f"+{default_toolchain}-x86_64-unknown-linux-gnu"
+    # Ensure no container runtime calls were attempted
+    assert all(cmd[0] not in {"docker", "podman"} for cmd in app_env.calls)
+    assert all(cmd[0] not in {"docker", "podman"} for cmd in cross_env.calls)
 
 
 @CMD_MOX_UNSUPPORTED
@@ -527,5 +533,7 @@ def test_returns_none_when_install_fails_on_windows(
     assert len(harness.calls) == 2
     assert path is None
     assert ver is None
-    out = capsys.readouterr().out.lower()
-    assert "warning" in out
+    io = capsys.readouterr()
+    msg = io.err.lower()
+    assert "warning" in msg
+    assert "cross install failed; continuing without cross" in msg

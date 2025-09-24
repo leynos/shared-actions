@@ -148,6 +148,24 @@ HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 
 
 @pytest.fixture
+def echo_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> cabc.Callable[[ModuleType], list[tuple[str, bool]]]:
+    """Return a helper that patches ``typer.echo`` and records messages."""
+
+    def install(module: ModuleType) -> list[tuple[str, bool]]:
+        messages: list[tuple[str, bool]] = []
+
+        def fake_echo(message: str, *, err: bool = False) -> None:
+            messages.append((message, err))
+
+        monkeypatch.setattr(module.typer, "echo", fake_echo)
+        return messages
+
+    return install
+
+
+@pytest.fixture
 def module_harness(monkeypatch: pytest.MonkeyPatch) -> HarnessFactory:
     """Return a factory that wraps a module with a harness and recorder."""
 

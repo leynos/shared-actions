@@ -157,6 +157,109 @@ def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
         stream.close()
 
 
+def _pump_cargo_output_windows(
+    proc: subprocess.Popen[str],
+    stdout_stream: typ.IO[str],
+    stderr_stream: typ.IO[str],
+) -> list[str]:
+    """Pump cargo output on Windows using background threads."""
+    thread_exceptions: list[Exception] = []
+    stdout_lines: list[str] = []
+
+    def pump(src: typ.IO[str], *, to_stdout: bool) -> None:
+        dest = sys.stdout if to_stdout else sys.stderr
+        try:
+            for line in iter(src.readline, ""):
+                dest.write(line)
+                dest.flush()
+                if to_stdout:
+                    stdout_lines.append(line.rstrip("\r\n"))
+        except Exception as exc:  # noqa: BLE001
+            thread_exceptions.append(exc)
+            if os.environ.get("RUN_RUST_DEBUG") == "1" or os.environ.get("DEBUG_UTF8"):
+                sys.stderr.write(f"Exception in pump thread: {exc}\n")
+                sys.stderr.write(traceback.format_exc())
+
+    threads = [
+        threading.Thread(
+            name="cargo-stdout",
+            target=pump,
+            args=(stdout_stream,),
+            kwargs={"to_stdout": True},
+            daemon=True,
+        ),
+        threading.Thread(
+            name="cargo-stderr",
+            target=pump,
+            args=(stderr_stream,),
+            kwargs={"to_stdout": False},
+            daemon=True,
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    while True:
+        if thread_exceptions:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            break
+        if not any(t.is_alive() for t in threads):
+            break
+        for thread in threads:
+            thread.join(timeout=0.1)
+    for thread in threads:
+        thread.join()
+    if thread_exceptions:
+        proc.wait()
+        raise thread_exceptions[0]
+
+    return stdout_lines
+
+
+def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
+    """Pump ``proc`` output streams to console and collect stdout lines."""
+    if proc.stdout is None or proc.stderr is None:  # pragma: no cover - defensive
+        message = "cargo output streams must be captured"
+        raise RuntimeError(message)
+
+    stdout_stream = proc.stdout
+    stderr_stream = proc.stderr
+    stdout_lines: list[str] = []
+
+    if os.name == "nt":
+        return _pump_cargo_output_windows(
+            proc,
+            stdout_stream,
+            stderr_stream,
+        )
+
+    sel = selectors.DefaultSelector()
+    try:
+        sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
+        sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
+
+        while sel.get_map():
+            for key, _ in sel.select():
+                line = key.fileobj.readline()
+                if not line:
+                    sel.unregister(key.fileobj)
+                    continue
+                if key.data == "stdout":
+                    typer.echo(line, nl=False)
+                    stdout_lines.append(line.rstrip("\r\n"))
+                else:
+                    typer.echo(line, err=True, nl=False)
+    except Exception:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        proc.wait()
+        raise
+    finally:
+        sel.close()
+
+    return stdout_lines
+
+
 def _run_cargo(args: list[str]) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
     typer.echo(f"$ cargo {shlex.join(args)}")
@@ -185,87 +288,7 @@ def _run_cargo(args: list[str]) -> str:
             _safe_close_text_stream(proc.stderr)
             typer.echo(f"::error::{message}", err=True)
             raise typer.Exit(1)
-        stdout_lines: list[str] = []
-
-        if os.name == "nt":
-            thread_exceptions: list[Exception] = []
-
-            def pump(src: typ.TextIO, *, to_stdout: bool) -> None:
-                dest = sys.stdout if to_stdout else sys.stderr
-                try:
-                    for line in iter(src.readline, ""):
-                        dest.write(line)
-                        dest.flush()
-                        if to_stdout:
-                            stdout_lines.append(line.rstrip("\r\n"))
-                except Exception as exc:  # noqa: BLE001
-                    thread_exceptions.append(exc)
-                    if os.environ.get("RUN_RUST_DEBUG") == "1" or os.environ.get(
-                        "DEBUG_UTF8"
-                    ):
-                        sys.stderr.write(f"Exception in pump thread: {exc}\n")
-                        sys.stderr.write(traceback.format_exc())
-
-            threads = [
-                threading.Thread(
-                    name="cargo-stdout",
-                    target=pump,
-                    args=(proc.stdout,),
-                    kwargs={"to_stdout": True},
-                    daemon=True,
-                ),
-                threading.Thread(
-                    name="cargo-stderr",
-                    target=pump,
-                    args=(proc.stderr,),
-                    kwargs={"to_stdout": False},
-                    daemon=True,
-                ),
-            ]
-            for thread in threads:
-                thread.start()
-            # Kill cargo promptly if a pump fails to avoid deadlocks on the other pipe.
-            while True:
-                if thread_exceptions:
-                    with contextlib.suppress(Exception):
-                        proc.kill()
-                    break
-                if not any(t.is_alive() for t in threads):
-                    break
-                for t in threads:
-                    t.join(timeout=0.1)
-            # Ensure all threads have finished before handling results.
-            for thread in threads:
-                thread.join()
-            if thread_exceptions:
-                proc.wait()
-                raise thread_exceptions[0]
-        else:
-            sel = selectors.DefaultSelector()
-            try:
-                sel.register(proc.stdout, selectors.EVENT_READ, data="stdout")
-                sel.register(proc.stderr, selectors.EVENT_READ, data="stderr")
-
-                while sel.get_map():
-                    for key, _ in sel.select():
-                        line = key.fileobj.readline()
-                        if not line:
-                            sel.unregister(key.fileobj)
-                            continue
-                        if key.data == "stdout":
-                            typer.echo(line, nl=False)
-                            stdout_lines.append(line.rstrip("\r\n"))
-                        else:
-                            typer.echo(line, err=True, nl=False)
-            except Exception:
-                # Ensure cargo does not outlive the parent if the selector loop fails.
-                with contextlib.suppress(Exception):
-                    proc.kill()
-                proc.wait()
-                raise
-            finally:
-                sel.close()
-
+        stdout_lines = _pump_cargo_output(proc)
         retcode = proc.wait()
         if retcode != 0:
             typer.echo(

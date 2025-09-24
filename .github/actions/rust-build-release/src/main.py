@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import typing as typ
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[4]))
@@ -60,6 +61,20 @@ _TRIPLE_OS_COMPONENTS = {
 }
 
 app = typer.Typer(add_completion=False)
+
+
+class _CrossDecision(typ.NamedTuple):
+    """Capture how the build should invoke cargo or cross."""
+
+    cross_path: str | None
+    cross_version: str | None
+    use_cross: bool
+    cross_toolchain_spec: str
+    cargo_toolchain_spec: str
+    use_cross_local_backend: bool
+    docker_present: bool
+    podman_present: bool
+    has_container: bool
 
 
 def _target_is_windows(target: str) -> bool:
@@ -139,92 +154,109 @@ def _probe_runtime(name: str) -> bool:
         return False
 
 
-@app.command()
-def main(
-    target: str = typer.Argument("", help="Target triple to build"),
-    toolchain: str = typer.Option(
-        DEFAULT_TOOLCHAIN,
-        envvar="RBR_TOOLCHAIN",
-        help="Rust toolchain version",
-    ),
-) -> None:
-    """Build the project for *target* using *toolchain*."""
-    if not target:
-        target = os.environ.get("RBR_TARGET", "")
-    if not target:
-        env_rbr_target = os.environ.get("RBR_TARGET", "<unset>")
-        env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
-        env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
-        typer.echo(
-            "::error:: no build target specified; "
-            "set input 'target' or env RBR_TARGET\n"
-            f"RBR_TARGET={env_rbr_target} "
-            f"INPUT_TARGET={env_input_target} "
-            f"GITHUB_REF={env_github_ref}",
-            err=True,
-        )
-        raise typer.Exit(1)
+def _resolve_target_argument(target: str) -> str:
+    """Return the target to build, falling back to environment values."""
+    if target:
+        return target
+    env_target = os.environ.get("RBR_TARGET", "")
+    if env_target:
+        return env_target
+    env_rbr_target = os.environ.get("RBR_TARGET", "<unset>")
+    env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
+    env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
+    typer.echo(
+        "::error:: no build target specified; "
+        "set input 'target' or env RBR_TARGET\n"
+        f"RBR_TARGET={env_rbr_target} "
+        f"INPUT_TARGET={env_input_target} "
+        f"GITHUB_REF={env_github_ref}",
+        err=True,
+    )
+    raise typer.Exit(1)
 
+
+def _ensure_rustup_exec() -> str:
+    """Locate a trusted rustup executable or exit with an error."""
     rustup_path = shutil.which("rustup")
     if rustup_path is None:
         typer.echo("::error:: rustup not found", err=True)
         raise typer.Exit(1)
     try:
-        rustup_exec = ensure_allowed_executable(rustup_path, ("rustup", "rustup.exe"))
+        return ensure_allowed_executable(rustup_path, ("rustup", "rustup.exe"))
     except UnexpectedExecutableError:
         typer.echo("::error:: unexpected rustup executable", err=True)
         raise typer.Exit(1) from None
-    installed_names = _list_installed_toolchains(rustup_exec)
-    toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
-    if not toolchain_name:
-        try:
-            run_cmd(
-                [
-                    rustup_exec,
-                    "toolchain",
-                    "install",
-                    toolchain,
-                    "--profile",
-                    "minimal",
-                    "--no-self-update",
-                ]
-            )
-        except subprocess.CalledProcessError:
-            typer.echo(
-                f"::error:: failed to install toolchain '{toolchain}'",
-                err=True,
-            )
-            typer.echo(
-                f"::error:: requested toolchain '{toolchain}' not installed",
-                err=True,
-            )
-            raise typer.Exit(1) from None
-        installed_names = _list_installed_toolchains(rustup_exec)
-        toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
-    if not toolchain_name:
-        # Fallback: any installed variant that starts with the channel name.
-        channel_prefix = f"{toolchain}-"
-        toolchain_name = next(
-            (
-                name
-                for name in installed_names
-                if name == toolchain or name.startswith(channel_prefix)
-            ),
-            "",
+
+
+def _fallback_toolchain_name(toolchain: str, installed_names: list[str]) -> str:
+    """Return a toolchain matching *toolchain* or its channel prefix."""
+    channel_prefix = f"{toolchain}-"
+    return next(
+        (
+            name
+            for name in installed_names
+            if name == toolchain or name.startswith(channel_prefix)
+        ),
+        "",
+    )
+
+
+def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
+    """Install the requested *toolchain* channel via rustup."""
+    try:
+        run_cmd(
+            [
+                rustup_exec,
+                "toolchain",
+                "install",
+                toolchain,
+                "--profile",
+                "minimal",
+                "--no-self-update",
+            ]
         )
-    if not toolchain_name:
-        # Accept host-architecture-suffixed installations of the requested channel
-        channel_prefix = f"{toolchain}-"
-        toolchain_name = next(
-            (name for name in installed_names if name.startswith(channel_prefix)), ""
+    except subprocess.CalledProcessError:
+        typer.echo(
+            f"::error:: failed to install toolchain '{toolchain}'",
+            err=True,
         )
-    if not toolchain_name:
         typer.echo(
             f"::error:: requested toolchain '{toolchain}' not installed",
             err=True,
         )
-        raise typer.Exit(1)
-    target_installed = True
+        raise typer.Exit(1) from None
+
+
+def _resolve_toolchain(
+    rustup_exec: str, toolchain: str, target: str
+) -> tuple[str, list[str]]:
+    """Return the installed toolchain to use for the build."""
+    installed_names = _list_installed_toolchains(rustup_exec)
+    toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
+    if toolchain_name:
+        return toolchain_name, installed_names
+
+    _install_toolchain_channel(rustup_exec, toolchain)
+    installed_names = _list_installed_toolchains(rustup_exec)
+    toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
+    if toolchain_name:
+        return toolchain_name, installed_names
+
+    toolchain_name = _fallback_toolchain_name(toolchain, installed_names)
+    if toolchain_name:
+        return toolchain_name, installed_names
+
+    typer.echo(
+        f"::error:: requested toolchain '{toolchain}' not installed",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
+def _ensure_target_installed(
+    rustup_exec: str, toolchain_name: str, target: str
+) -> bool:
+    """Attempt to install *target* for *toolchain_name*, returning success."""
     try:
         run_cmd([rustup_exec, "target", "add", "--toolchain", toolchain_name, target])
     except subprocess.CalledProcessError:
@@ -233,10 +265,17 @@ def main(
             f"target '{target}'; continuing",
             err=True,
         )
-        target_installed = False
+        return False
+    return True
 
-    configure_windows_linkers(toolchain_name, target, rustup_exec)
 
+def _decide_cross_usage(
+    toolchain_name: str,
+    installed_names: list[str],
+    rustup_exec: str,
+    target: str,
+) -> _CrossDecision:
+    """Return how cross should be used for the build."""
     cross_path, cross_version = ensure_cross("0.2.5")
     docker_present = False
     podman_present = False
@@ -249,8 +288,10 @@ def main(
         os.environ.get("CROSS_NO_DOCKER") == "1" and sys.platform == "win32"
     )
     use_cross = cross_path is not None and (has_container or use_cross_local_backend)
+
     cargo_toolchain_spec = f"+{toolchain_name}"
     cross_toolchain_spec = cargo_toolchain_spec
+
     if use_cross:
         cross_toolchain_name = _toolchain_channel(toolchain_name)
         if (
@@ -280,54 +321,104 @@ def main(
         if use_cross:
             cross_toolchain_spec = f"+{cross_toolchain_name}"
 
-    if not use_cross and not target_installed:
+    return _CrossDecision(
+        cross_path=cross_path,
+        cross_version=cross_version,
+        use_cross=use_cross,
+        cross_toolchain_spec=cross_toolchain_spec,
+        cargo_toolchain_spec=cargo_toolchain_spec,
+        use_cross_local_backend=use_cross_local_backend,
+        docker_present=docker_present,
+        podman_present=podman_present,
+        has_container=has_container,
+    )
+
+
+def _announce_build_mode(decision: _CrossDecision) -> None:
+    """Print how the build will proceed."""
+    if decision.use_cross:
+        if decision.use_cross_local_backend:
+            typer.echo(
+                f"Building with cross ({decision.cross_version}) using local backend "
+                "(CROSS_NO_DOCKER=1)"
+            )
+        else:
+            typer.echo(f"Building with cross ({decision.cross_version})")
+        return
+
+    if decision.cross_path is None:
+        typer.echo("cross missing; using cargo")
+        return
+
+    if not decision.has_container and not decision.use_cross_local_backend:
+        typer.echo(
+            "cross ("
+            f"{decision.cross_version}"
+            ") requires a container runtime; using cargo "
+            f"(docker={decision.docker_present}, podman={decision.podman_present})"
+        )
+
+
+@app.command()
+def main(
+    target: str = typer.Argument("", help="Target triple to build"),
+    toolchain: str = typer.Option(
+        DEFAULT_TOOLCHAIN,
+        envvar="RBR_TOOLCHAIN",
+        help="Rust toolchain version",
+    ),
+) -> None:
+    """Build the project for *target* using *toolchain*."""
+    target_to_build = _resolve_target_argument(target)
+    rustup_exec = _ensure_rustup_exec()
+    toolchain_name, installed_names = _resolve_toolchain(
+        rustup_exec, toolchain, target_to_build
+    )
+    target_installed = _ensure_target_installed(
+        rustup_exec, toolchain_name, target_to_build
+    )
+
+    configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
+
+    decision = _decide_cross_usage(
+        toolchain_name, installed_names, rustup_exec, target_to_build
+    )
+
+    if not decision.use_cross and not target_installed:
         typer.echo(
             f"::error:: toolchain '{toolchain_name}' does not support "
-            f"target '{target}'",
+            f"target '{target_to_build}'",
             err=True,
         )
         raise typer.Exit(1)
 
-    if not use_cross:
-        if cross_path is None:
-            typer.echo("cross missing; using cargo")
-        elif not has_container and not use_cross_local_backend:
-            typer.echo(
-                f"cross ({cross_version}) requires a container runtime; using cargo "
-                f"(docker={docker_present}, podman={podman_present})"
-            )
-    else:
-        if use_cross_local_backend:
-            typer.echo(
-                f"Building with cross ({cross_version}) using local backend "
-                f"(CROSS_NO_DOCKER=1)"
-            )
-        else:
-            typer.echo(f"Building with cross ({cross_version})")
+    _announce_build_mode(decision)
 
     build_cmd = [
-        "cross" if use_cross else "cargo",
-        cross_toolchain_spec if use_cross else cargo_toolchain_spec,
+        "cross" if decision.use_cross else "cargo",
+        decision.cross_toolchain_spec
+        if decision.use_cross
+        else decision.cargo_toolchain_spec,
         "build",
         "--release",
         "--target",
-        target,
+        target_to_build,
     ]
     try:
         run_cmd(build_cmd)
     except subprocess.CalledProcessError as exc:
-        if use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+        if decision.use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
             typer.echo(
                 "::warning:: cross failed to start a container; retrying with cargo",
                 err=True,
             )
             fallback_cmd = [
                 "cargo",
-                cargo_toolchain_spec,
+                decision.cargo_toolchain_spec,
                 "build",
                 "--release",
                 "--target",
-                target,
+                target_to_build,
             ]
             run_cmd(fallback_cmd)
         else:

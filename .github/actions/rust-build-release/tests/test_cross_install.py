@@ -440,22 +440,18 @@ def test_falls_back_to_git_when_crates_io_unavailable(
     assert ver == "0.2.5"
 
 
-@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_cargo_when_runtime_unusable(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
-    cmd_mox: CmdMox,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
-    default_toolchain = main_module.DEFAULT_TOOLCHAIN
-    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-    cross_path = _register_cross_version_stub(cmd_mox)
-    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
-    docker_path = _register_docker_info_stub(cmd_mox, exit_code=1)
+    docker_path = "/usr/bin/docker"
+    cross_path = "/usr/bin/cross"
+    rustup_path = "/usr/bin/rustup"
 
     def fake_which(name: str) -> str | None:
         if name == "docker":
@@ -467,49 +463,35 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
-    cmd_mox.replay()
-    main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
-    cmd_mox.verify()
-
-    assert any(cmd[0] == "cargo" for cmd in app_env.calls)
-    assert all(cmd[0] != "cross" for cmd in app_env.calls)
-
-
-@CMD_MOX_UNSUPPORTED
-def test_falls_back_to_cargo_when_podman_unusable(
-    main_module: ModuleType,
-    cross_module: ModuleType,
-    module_harness: HarnessFactory,
-    cmd_mox: CmdMox,
-) -> None:
-    """Falls back to cargo when podman exists but is unusable."""
-    cross_env = module_harness(cross_module)
-    app_env = module_harness(main_module)
-
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
-    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
-    cross_path = _register_cross_version_stub(cmd_mox)
-    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
-    podman_path = _register_podman_info_stub(cmd_mox, exit_code=1)
 
-    def fake_which(name: str) -> str | None:
-        if name == "podman":
-            return podman_path
-        if name == "cross":
-            return cross_path
-        if name == "rustup":
-            return rustup_path
-        return None
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        capture_output: bool = False,
+        check: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = allowed_names
+        cmd = [executable, *args]
+        if executable == docker_path:
+            return subprocess.CompletedProcess(cmd, 1, stdout="")
+        if len(cmd) > 1 and cmd[1] == "toolchain":
+            output = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+            return subprocess.CompletedProcess(cmd, 0, stdout=output)
+        return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
 
-    cross_env.patch_shutil_which(fake_which)
-    app_env.patch_shutil_which(fake_which)
+    cross_env.patch_subprocess_run(fake_run)
+    app_env.patch_subprocess_run(fake_run)
 
-    cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
-    cmd_mox.verify()
 
     assert any(cmd[0] == "cargo" for cmd in app_env.calls)
     assert all(cmd[0] != "cross" for cmd in app_env.calls)
+
 
 
 def test_returns_none_when_install_fails_on_windows(

@@ -29,7 +29,7 @@ class CmdDouble(typ.Protocol):
 
     call_count: int
 
-    def with_args(self, *args: str) -> CmdDouble:
+    def with_args(self, *args: str) -> typ.Self:
         """Set the expected argv for the double."""
         ...
 
@@ -40,11 +40,11 @@ class CmdDouble(typ.Protocol):
         stderr: str = "",
         exit_code: int = 0,
         **_: object,
-    ) -> CmdDouble:
+    ) -> typ.Self:
         """Provide canned output for the command invocation."""
         ...
 
-    def runs(self, handler: cabc.Callable[[object], tuple[str, str, int]]) -> CmdDouble:
+    def runs(self, handler: cabc.Callable[[object], tuple[str, str, int]]) -> typ.Self:
         """Execute a handler when the double is invoked."""
         ...
 

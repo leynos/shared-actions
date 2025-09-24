@@ -1,6 +1,6 @@
 # Building for `x86_64-pc-windows-gnullvm`
 
-This document details how to adapt the `rust-build-release` action to build for the `x86_64-pc-windows-gnullvm` target. This advanced configuration allows for creating MinGW-style artefacts on a Windows runner using an MSVC host toolchain, but linking against LLVM's MinGW CRT provided by `llvm-mingw`. This avoids a dependency on `libgcc`.
+This document describes adapting the `rust-build-release` action to build for the `x86_64-pc-windows-gnullvm` target. The configuration produces MinGW-style artefacts on a Windows runner using an MSVC host toolchain while linking against LLVM's MinGW CRT provided by `llvm-mingw`, thereby removing any dependency on `libgcc`.
 
 The process is orchestrated through Python scripts within the action, which replace the PowerShell examples from the original recommendation.
 
@@ -58,10 +58,10 @@ This ensures that `cross` is invoked correctly when the setup script has prepare
 
 ## How to Use
 
-To build for `x86_64-pc-windows-gnullvm`, simply specify it as the `target` in your workflow when using the `rust-build-release` action on a `windows-latest` runner. The action handles the rest automatically.
+To build for `x86_64-pc-windows-gnullvm`, set the `target` input in a workflow that uses the `rust-build-release` action on a `windows-latest` runner. The action performs the setup automatically.
 
 ```yaml
-# .github/workflows/your-workflow.yml
+# .github/workflows/example-workflow.yml
 # ...
 jobs:
   build-windows-gnullvm:

@@ -11,8 +11,11 @@ import os
 import shutil
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from cyclopts import App
@@ -37,17 +40,44 @@ def add_to_path(path: str) -> None:
             fh.write(f"{path}\n")
 
 
-def download_and_unzip(url: str, dest: Path) -> Path:
+def download_and_unzip(url: str, dest: Path, *, retries: int = 3) -> Path:
     """Download a zip file into *dest* and return the extracted directory."""
     dest.mkdir(parents=True, exist_ok=True)
     zip_path = dest / Path(url).name
-    print(f"Downloading {url} to {zip_path}...")
-    with urllib.request.urlopen(url) as response, zip_path.open("wb") as out_file:  # noqa: S310
-        shutil.copyfileobj(response, out_file)
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"Downloading {url} to {zip_path}... (attempt {attempt})")
+            response = urllib.request.urlopen(url)  # noqa: S310
+            with closing(response) as resp, zip_path.open("wb") as out_file:
+                shutil.copyfileobj(resp, out_file)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt == retries:
+                error_msg = "Failed to download llvm-mingw archive"
+                raise RuntimeError(error_msg) from exc
+            sleep_seconds = 2**attempt
+            print(
+                f"Download failed with {exc!r}; retrying in {sleep_seconds} seconds...",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_seconds)
+            continue
+        break
+
+    if not zipfile.is_zipfile(zip_path):
+        msg = f"Downloaded file at {zip_path} is not a valid zip archive."
+        raise RuntimeError(msg)
 
     print(f"Extracting {zip_path} to {dest}...")
+    base = dest.resolve()
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(dest)
+        for member in zip_ref.infolist():
+            target_path = (base / member.filename).resolve()
+            try:
+                target_path.relative_to(base)
+            except ValueError as exc:
+                msg = f"Unsafe path in archive: {member.filename}"
+                raise RuntimeError(msg) from exc
+        zip_ref.extractall(base)
 
     extracted_dirs = [path for path in dest.iterdir() if path.is_dir()]
     if not extracted_dirs:
@@ -87,7 +117,9 @@ def main() -> None:
     add_to_path(str(llvm_bin_path))
     print(f"Added {llvm_bin_path} to PATH.")
 
-    cargo_dir = Path.cwd() / ".cargo"
+    project_root_env = os.environ.get("GITHUB_WORKSPACE")
+    project_root = Path(project_root_env) if project_root_env else Path.cwd()
+    cargo_dir = project_root / ".cargo"
     cargo_dir.mkdir(exist_ok=True)
     config_toml_path = cargo_dir / "config.toml"
     config_content = f"""
@@ -100,13 +132,14 @@ rustflags = ["-Clink-arg=-fuse-ld=lld"]
     print(f"Created {config_toml_path} with linker configuration.")
 
     set_env("CROSS_NO_DOCKER", "1")
+    env_target = TARGET.replace("-", "_")
     env_vars = {
-        f"CC_{TARGET}": "clang",
-        f"CXX_{TARGET}": "clang++",
-        f"AR_{TARGET}": "llvm-ar",
-        f"RANLIB_{TARGET}": "llvm-ranlib",
-        f"CFLAGS_{TARGET}": "--target=x86_64-w64-windows-gnu",
-        f"CXXFLAGS_{TARGET}": "--target=x86_64-w64-windows-gnu",
+        f"CC_{env_target}": "clang",
+        f"CXX_{env_target}": "clang++",
+        f"AR_{env_target}": "llvm-ar",
+        f"RANLIB_{env_target}": "llvm-ranlib",
+        f"CFLAGS_{env_target}": "--target=x86_64-w64-windows-gnu",
+        f"CXXFLAGS_{env_target}": "--target=x86_64-w64-windows-gnu",
     }
     for key, value in env_vars.items():
         set_env(key, value)

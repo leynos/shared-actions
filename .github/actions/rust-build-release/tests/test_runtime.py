@@ -360,6 +360,78 @@ def test_probe_timeout_env_override(
 
 
 @pytest.mark.parametrize(
+    ("machine", "expected"),
+    [
+        ("AMD64", "x86_64"),
+        ("x64", "x86_64"),
+        ("i386", "i686"),
+        ("I586", "i686"),
+        ("ARM64", "aarch64"),
+        ("armv8l", "aarch64"),
+        ("ARMV7L", "armv7"),
+        ("armv6l", "armv6"),
+        ("PPC64LE", "ppc64le"),
+        ("PowerPC64", "ppc64"),
+        ("sparc64", "sparc64"),
+    ],
+)
+def test_normalize_arch_unit_mappings(
+    runtime_module: ModuleType, machine: str, expected: str
+) -> None:
+    """Unit test: known architecture identifiers normalize correctly."""
+    assert runtime_module._normalize_arch(machine) == expected
+
+
+def test_normalize_arch_behavioral_fallbacks(runtime_module: ModuleType) -> None:
+    """Behavioural test: unknown and missing machine names are handled."""
+    assert runtime_module._normalize_arch("") == "x86_64"
+    # Unknown identifiers are normalized to lowercase for stability.
+    assert runtime_module._normalize_arch("Loongson") == "loongson"
+
+
+@pytest.mark.parametrize(
+    ("system_name", "machine", "sys_platform", "expected"),
+    [
+        ("Windows", "AMD64", "win32", "x86_64-pc-windows-msvc"),
+        ("CYGWIN_NT-10.0", "x86_64", "cygwin", "x86_64-pc-windows-gnu"),
+        ("MSYS_NT-10.0", "x86_64", "msys", "x86_64-pc-windows-gnu"),
+        ("Darwin", "arm64", "darwin", "aarch64-apple-darwin"),
+        ("Linux", "ppc64le", "linux", "ppc64le-unknown-linux-gnu"),
+        ("Linux-gnu", "armv7l", "linux-gnu", "armv7-unknown-linux-gnu"),
+        ("FreeBSD", "sparc64", "freebsd13", "sparc64-unknown-freebsd"),
+    ],
+)
+def test_default_host_target_for_current_platform_unit(
+    runtime_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    system_name: str,
+    machine: str,
+    sys_platform: str,
+    expected: str,
+) -> None:
+    """Unit test: platform/architecture combinations map to expected triples."""
+    monkeypatch.setattr(runtime_module.platform, "system", lambda: system_name)
+    monkeypatch.setattr(runtime_module.platform, "machine", lambda: machine)
+    monkeypatch.setattr(runtime_module.sys, "platform", sys_platform)
+
+    assert runtime_module._default_host_target_for_current_platform() == expected
+
+
+def test_default_host_target_for_current_platform_behavioral_fallback(
+    runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Behavioural test: fallbacks cover missing identifiers."""
+    monkeypatch.setattr(runtime_module.platform, "system", lambda: "")
+    monkeypatch.setattr(runtime_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(runtime_module.sys, "platform", "customos")
+
+    assert (
+        runtime_module._default_host_target_for_current_platform()
+        == "x86_64-unknown-customos"
+    )
+
+
+@pytest.mark.parametrize(
     ("env_value", "expected_kind", "message_fragment"),
     [
         pytest.param(
@@ -400,7 +472,6 @@ def test_probe_timeout_sanitization_warnings(
     assert any(
         message_fragment in msg and str(expected) in msg for msg, err in messages if err
     )
-
 
 @pytest.mark.parametrize(
     ("env_value", "expected_kind", "message_fragment"),

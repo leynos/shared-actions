@@ -52,6 +52,12 @@ runs:
         workspaces: ${{ inputs.project-dir }}
         shared-key: ${{ runner.os }}-toolchain-${{ env.RBR_TOOLCHAIN }}
         cache-on-failure: true
+    - name: Configure gnullvm target on Windows
+      if: runner.os == 'Windows' && inputs.target == 'x86_64-pc-windows-gnullvm'
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv run --script "$GITHUB_ACTION_PATH/src/setup_gnullvm.py"
     - name: Build release
       shell: bash
       env:

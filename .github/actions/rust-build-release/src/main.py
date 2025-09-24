@@ -245,7 +245,10 @@ def main(
         podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present
 
-    use_cross = cross_path is not None and has_container
+    use_cross_local_backend = (
+        os.environ.get("CROSS_NO_DOCKER") == "1" and sys.platform == "win32"
+    )
+    use_cross = cross_path is not None and (has_container or use_cross_local_backend)
     cargo_toolchain_spec = f"+{toolchain_name}"
     cross_toolchain_spec = cargo_toolchain_spec
     if use_cross:
@@ -288,13 +291,19 @@ def main(
     if not use_cross:
         if cross_path is None:
             typer.echo("cross missing; using cargo")
-        elif not has_container:
+        elif not has_container and not use_cross_local_backend:
             typer.echo(
                 f"cross ({cross_version}) requires a container runtime; using cargo "
                 f"(docker={docker_present}, podman={podman_present})"
             )
     else:
-        typer.echo(f"Building with cross ({cross_version})")
+        if use_cross_local_backend:
+            typer.echo(
+                f"Building with cross ({cross_version}) using local backend "
+                f"(CROSS_NO_DOCKER=1)"
+            )
+        else:
+            typer.echo(f"Building with cross ({cross_version})")
 
     build_cmd = [
         "cross" if use_cross else "cargo",

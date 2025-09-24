@@ -11,9 +11,7 @@ from pathlib import Path
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
 
-_ACTION_PATH = os.environ.get("GITHUB_ACTION_PATH")
-
-if _ACTION_PATH:
+if _ACTION_PATH := os.environ.get("GITHUB_ACTION_PATH"):
     _action_root = Path(_ACTION_PATH).resolve()
     SCRIPTS_DIR = _action_root / "scripts"
     REPO_ROOT = _action_root.parents[2]

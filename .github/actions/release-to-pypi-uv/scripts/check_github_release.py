@@ -53,13 +53,28 @@ class GithubReleaseError(RuntimeError):
     """Raised when the GitHub release is not ready for publishing."""
 
 
+_MAX_ATTEMPTS = 5
+_BACKOFF_FACTOR = 1.5
+_INITIAL_DELAY = 1.0
+
+
 def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
+    request = _build_release_request(repo, tag, token)
+    payload = _request_with_retry(request, tag)
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as exc:  # pragma: no cover - unexpected payload
+        message = "GitHub API returned invalid JSON"
+        raise GithubReleaseError(message) from exc
+
+
+def _build_release_request(repo: str, tag: str, token: str) -> urllib.request.Request:
     api = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
     parsed = urllib.parse.urlsplit(api)
     if parsed.scheme != "https":  # pragma: no cover - defensive guard
         message = f"Unsupported URL scheme '{parsed.scheme}' for GitHub API request."
         raise GithubReleaseError(message)
-    request = urllib.request.Request(  # noqa: S310 - https scheme enforced above
+    return urllib.request.Request(  # noqa: S310 - https scheme enforced above
         api,
         headers={
             "Authorization": f"Bearer {token}",
@@ -68,78 +83,79 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
             "User-Agent": "release-to-pypi-action",
         },
     )
-    max_attempts = 5
-    backoff_factor = 1.5
-    delay = 1.0
-    payload: str | None = None
 
-    for attempt in range(1, max_attempts + 1):
+
+def _request_with_retry(request: urllib.request.Request, tag: str) -> str:
+    delay = _INITIAL_DELAY
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-                payload = response.read().decode("utf-8")
-            break
+                return response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:  # pragma: no cover - network failure path
-            detail = (
-                exc.read().decode("utf-8", errors="ignore")
-                if hasattr(exc, "read")
-                else ""
-            )
-            match exc.code:
-                case 401:
-                    context = detail or exc.reason
-                    message = (
-                        "GitHub rejected the token (401 Unauthorized). "
-                        "Verify that GH_TOKEN is correct and has not expired."
-                    )
-                    if context:
-                        message = f"{message} ({context})"
-                    raise GithubReleaseError(message) from exc
-                case 403:
-                    permission_message = (
-                        "GitHub token lacks permission to read releases "
-                        "or has expired. "
-                        "Use a token with contents:read scope."
-                    )
-                    context = detail or exc.reason
-                    message = f"{permission_message} ({context})"
-                    raise GithubReleaseError(message) from exc
-                case 404:
-                    message = (
-                        "No GitHub release found for tag "
-                        f"{tag}. Create and publish the release first."
-                    )
-                    raise GithubReleaseError(message) from exc
-                case _ if attempt == max_attempts:
-                    failure_reason = detail or exc.reason
-                    message = (
-                        "GitHub API request failed with status "
-                        f"{exc.code}: {failure_reason}"
-                    )
-                    raise GithubReleaseError(message) from exc
-                case _:
-                    retry_after = None
-                    if hasattr(exc, "headers") and exc.headers is not None:
-                        retry_after = exc.headers.get("Retry-After")
-                    if retry_after:
-                        with contextlib.suppress(Exception):
-                            delay = float(retry_after)
-                    _sleep_with_jitter(delay)
-                    delay *= backoff_factor
+            delay = _handle_http_error(exc, attempt, delay, tag)
         except urllib.error.URLError as exc:  # pragma: no cover - network failure path
-            if attempt == max_attempts:
+            if attempt == _MAX_ATTEMPTS:
                 message = f"Failed to reach GitHub API: {exc.reason}"
                 raise GithubReleaseError(message) from exc
             _sleep_with_jitter(delay)
-            delay *= backoff_factor
-    else:  # pragma: no cover - loop exhausted without break
-        message = "GitHub API request failed after retries."
-        raise GithubReleaseError(message)
+            delay *= _BACKOFF_FACTOR
+    message = "GitHub API request failed after retries."
+    raise GithubReleaseError(message)
 
-    try:
-        return json.loads(payload or "")
-    except json.JSONDecodeError as exc:  # pragma: no cover - unexpected payload
-        message = "GitHub API returned invalid JSON"
+
+def _handle_http_error(
+    exc: urllib.error.HTTPError, attempt: int, delay: float, tag: str
+) -> float:
+    detail = _extract_error_detail(exc)
+    match exc.code:
+        case 401:
+            context = detail or exc.reason
+            message = (
+                "GitHub rejected the token (401 Unauthorized). "
+                "Verify that GH_TOKEN is correct and has not expired."
+            )
+            if context:
+                message = f"{message} ({context})"
+            raise GithubReleaseError(message) from exc
+        case 403:
+            permission_message = (
+                "GitHub token lacks permission to read releases "
+                "or has expired. "
+                "Use a token with contents:read scope."
+            )
+            context = detail or exc.reason
+            message = f"{permission_message} ({context})"
+            raise GithubReleaseError(message) from exc
+        case 404:
+            message = (
+                "No GitHub release found for tag "
+                f"{tag}. Create and publish the release first."
+            )
+            raise GithubReleaseError(message) from exc
+    if attempt == _MAX_ATTEMPTS:
+        failure_reason = detail or exc.reason
+        message = f"GitHub API request failed with status {exc.code}: {failure_reason}"
         raise GithubReleaseError(message) from exc
+
+    sleep_delay = _retry_delay(exc, delay)
+    _sleep_with_jitter(sleep_delay)
+    return sleep_delay * _BACKOFF_FACTOR
+
+
+def _retry_delay(exc: urllib.error.HTTPError, delay: float) -> float:
+    retry_after = None
+    if hasattr(exc, "headers") and exc.headers is not None:
+        retry_after = exc.headers.get("Retry-After")
+    if retry_after:
+        with contextlib.suppress(Exception):
+            return float(retry_after)
+    return delay
+
+
+def _extract_error_detail(exc: urllib.error.HTTPError) -> str:
+    if hasattr(exc, "read"):
+        return exc.read().decode("utf-8", errors="ignore")
+    return ""
 
 
 def _validate_release(tag: str, data: dict[str, object]) -> str:

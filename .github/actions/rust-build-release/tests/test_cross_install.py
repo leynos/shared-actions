@@ -183,6 +183,7 @@ def test_installs_prebuilt_cross_on_windows(
 def test_install_cross_release_validates_binary(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    echo_recorder: typ.Callable[[ModuleType], list[tuple[str, bool]]],
     tmp_path: Path,
 ) -> None:
     """Cross release installer verifies the downloaded binary executes."""
@@ -261,10 +262,7 @@ def test_install_cross_release_validates_binary(
         run_calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="cross 0.2.5\n")
 
-    messages: list[tuple[str, bool]] = []
-
-    def fake_echo(message: str, *, err: bool = False) -> None:
-        messages.append((message, err))
+    messages = echo_recorder(module)
 
     home_dir = tmp_path / "home"
 
@@ -273,7 +271,6 @@ def test_install_cross_release_validates_binary(
         module.tempfile, "TemporaryDirectory", lambda: FakeTempDir()
     )
     harness.monkeypatch.setattr(module, "run_validated", fake_run)
-    harness.monkeypatch.setattr(module.typer, "echo", fake_echo)
     harness.monkeypatch.setattr(module.Path, "home", lambda: home_dir)
 
     assert module.install_cross_release("0.2.5") is True

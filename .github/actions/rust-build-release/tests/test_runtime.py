@@ -15,24 +15,6 @@ if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness
 
 
-@pytest.fixture
-def echo_recorder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> typ.Callable[[ModuleType], list[tuple[str, bool]]]:
-    """Return a helper that patches ``typer.echo`` and records messages."""
-
-    def install(module: ModuleType) -> list[tuple[str, bool]]:
-        messages: list[tuple[str, bool]] = []
-
-        def fake_echo(message: str, *, err: bool = False) -> None:
-            messages.append((message, err))
-
-        monkeypatch.setattr(module.typer, "echo", fake_echo)
-        return messages
-
-    return install
-
-
 def _patch_run_validated_timeout(
     runtime_module: ModuleType,
     harness: ModuleHarness,

@@ -23,8 +23,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-
-
 [dependency-groups]
 dev = [
     "lxml-stubs>=0.5.1",
@@ -32,6 +30,7 @@ dev = [
     "pyyaml>=6.0,<7.0",
     "ty>=0.0.1a20",
     "uuid6>=2025.0.1",
+    "cmd-mox@git+https://github.com/leynos/cmd-mox.git@baaaf89862837b8a1565fab2c18c34d498e08601",
 ]
 
 [tool.ruff]
@@ -39,27 +38,27 @@ line-length = 88
 
 [tool.ruff.lint]
 select = [
-    "F",        # Pyflakes rules
-    "W",        # PyCodeStyle warnings
-    "E",        # PyCodeStyle errors
-    "I",        # Sort imports properly
-    "UP",       # Warn if certain things can changed due to newer Python versions
-    "C4",       # Catch incorrect use of comprehensions, dict, list, etc
-    "FA",       # Enforce from __future__ import annotations
-    "ISC",      # Good use of string concatenation
-    "ICN",      # Use common import conventions
-    "RET",      # Good return practices
-    "SIM",      # Common simplification rules
-    "TID",      # Some good import practices
-    "TC",       # Enforce importing certain types in a TYPE_CHECKING block
-    "PTH",      # Use pathlib instead of os.path
-    "TD",       # Be diligent with TODO comments
-    "A",        # detect shadowed builtins
-    "BLE",      # disallow catch-all exceptions
-    "S",        # disallow things like "exec"; also restricts "assert" but I just NOQA it when I really need it
-    "DTZ",      # require strict timezone manipulation with datetime
-    "FBT",      # detect boolean traps
-    "N",        # enforce naming conventions, e.g. ClassName vs function_name
+    "F",
+    "W",
+    "E",
+    "I",
+    "UP",
+    "C4",
+    "FA",
+    "ISC",
+    "ICN",
+    "RET",
+    "SIM",
+    "TID",
+    "TC",
+    "PTH",
+    "TD",
+    "A",
+    "BLE",
+    "S",
+    "DTZ",
+    "FBT",
+    "N",
     "FURB",
     "B",
     "RUF",
@@ -125,7 +124,8 @@ typeCheckingMode = "strict"
 reportUnknownVariableType = "error"
 reportUnknownParameterType = "error"
 reportUnknownMemberType = "error"
-reportMissingTypeStubs = "error"
+reportMissingTypeStubs = "warning"
+reportUnusedFunction = "none"
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"

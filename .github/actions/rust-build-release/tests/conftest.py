@@ -135,13 +135,6 @@ class ModuleHarness:
         """Patch ``shutil.which`` for the wrapped module."""
         self.monkeypatch.setattr(self.module.shutil, "which", func)
 
-    def patch_subprocess_run(self, func: cabc.Callable[..., object]) -> None:
-        """Patch ``subprocess.run`` for the wrapped module."""
-        if hasattr(self.module, "run_validated"):
-            self.monkeypatch.setattr(self.module, "run_validated", func)
-        if hasattr(self.module, "subprocess"):
-            self.monkeypatch.setattr(self.module.subprocess, "run", func)
-
     def patch_platform(self, platform: str) -> None:
         """Force ``sys.platform`` to ``platform`` within the module."""
         self.monkeypatch.setattr(self.module.sys, "platform", platform)
@@ -152,6 +145,24 @@ class ModuleHarness:
 
 
 HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
+
+
+@pytest.fixture
+def echo_recorder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> cabc.Callable[[ModuleType], list[tuple[str, bool]]]:
+    """Return a helper that patches ``typer.echo`` and records messages."""
+
+    def install(module: ModuleType) -> list[tuple[str, bool]]:
+        messages: list[tuple[str, bool]] = []
+
+        def fake_echo(message: str, *, err: bool = False) -> None:
+            messages.append((message, err))
+
+        monkeypatch.setattr(module.typer, "echo", fake_echo)
+        return messages
+
+    return install
 
 
 @pytest.fixture
@@ -333,22 +344,14 @@ def pytest_collection_modifyitems(
         nodeid = getattr(item, "nodeid", "")
         if WINDOWS_SMOKE_TEST not in nodeid or "-pc-windows-" not in nodeid:
             continue
-        xfail_marks = [
-            mark for mark in item.iter_markers(name="xfail") if mark in item.own_markers
-        ]
-        if not xfail_marks:
-            continue
-        drop_marks = [
+        original_count = len(item.own_markers)
+        filtered_markers = [
             mark
-            for mark in xfail_marks
-            if (
-                isinstance(reason := mark.kwargs.get("reason"), str)
-                and reason.strip() == WINDOWS_XFAIL_REASON
+            for mark in item.own_markers
+            if not (
+                mark.name == "xfail"
+                and mark.kwargs.get("reason") == WINDOWS_XFAIL_REASON
             )
         ]
-        if not drop_marks:
-            continue
-        keep_marks = [mark for mark in xfail_marks if mark not in drop_marks]
-        item.remove_marker("xfail")
-        for mark in keep_marks:
-            item.add_marker(pytest.mark.xfail(*mark.args, **mark.kwargs))
+        if len(filtered_markers) != original_count:
+            item.own_markers[:] = filtered_markers

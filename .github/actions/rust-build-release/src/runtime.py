@@ -18,60 +18,103 @@ if typ.TYPE_CHECKING:
 
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
 
+_ARCH_TO_WINDOWS_DEFAULT = {
+    "amd64": "x86_64-pc-windows-msvc",
+    "x86_64": "x86_64-pc-windows-msvc",
+    "arm64": "aarch64-pc-windows-msvc",
+    "aarch64": "aarch64-pc-windows-msvc",
+}
 
-def _normalize_arch(machine: str) -> str:
-    mapping = {
-        "amd64": "x86_64",
-        "x64": "x86_64",
-        "x86_64": "x86_64",
-        "i386": "i686",
-        "i486": "i686",
-        "i586": "i686",
-        "i686": "i686",
-        "x86": "i686",
-        "arm64": "aarch64",
-        "aarch64": "aarch64",
-        "armv8": "aarch64",
-        "armv8a": "aarch64",
-        "armv8l": "aarch64",
-        "armv7": "armv7",
-        "armv7a": "armv7",
-        "armv7hl": "armv7",
-        "armv7l": "armv7",
-        "armv6": "armv6",
-        "armv6l": "armv6",
-        "ppc64": "ppc64",
-        "ppc64le": "ppc64le",
-        "powerpc64": "ppc64",
-        "powerpc64le": "ppc64le",
-        "s390x": "s390x",
-        "riscv64": "riscv64",
-        "loongarch64": "loongarch64",
-    }
-    if not machine:
-        return "x86_64"
-    machine_lower = machine.lower()
-    return mapping.get(machine_lower, machine_lower)
+_ARCH_TO_DARWIN_DEFAULT = {
+    "x86_64": "x86_64-apple-darwin",
+    "amd64": "x86_64-apple-darwin",
+    "arm64": "aarch64-apple-darwin",
+    "aarch64": "aarch64-apple-darwin",
+}
 
 
-def _default_host_target_for_current_platform() -> str:
-    arch = _normalize_arch(platform.machine()) or "x86_64"
-    system_name = platform.system().lower()
-    platform_id = sys.platform.lower()
-    if system_name == "windows":
-        return f"{arch}-pc-windows-msvc"
-    if system_name.startswith(("cygwin", "msys")) or platform_id in {"cygwin", "msys"}:
-        return f"{arch}-pc-windows-gnu"
-    if system_name == "darwin":
-        return f"{arch}-apple-darwin"
-    if system_name.startswith("linux"):
-        return f"{arch}-unknown-linux-gnu"
-    identifier = system_name or platform_id or "linux"
-    return f"{arch}-unknown-{identifier}"
+def _platform_default_host_target() -> str:
+    """Return a platform-specific fallback host triple."""
+    machine = (
+        platform.machine().lower()
+        or os.environ.get("PROCESSOR_ARCHITECTURE", "").lower()
+    )
+    if sys_platform := sys.platform:
+        if sys_platform == "win32":
+            return _ARCH_TO_WINDOWS_DEFAULT.get(machine, "x86_64-pc-windows-msvc")
+        if sys_platform == "darwin":
+            return _ARCH_TO_DARWIN_DEFAULT.get(machine, "x86_64-apple-darwin")
+    return "x86_64-unknown-linux-gnu"
 
 
-DEFAULT_HOST_TARGET = _default_host_target_for_current_platform()
-PROBE_TIMEOUT = int(os.environ.get("RUNTIME_PROBE_TIMEOUT", "10"))
+DEFAULT_HOST_TARGET = _platform_default_host_target()
+_DEFAULT_PROBE_TIMEOUT = 10
+_MAX_PROBE_TIMEOUT = 300
+
+
+def _run_probe(
+    exec_path: str | Path,
+    name: str,
+    probe: str,
+    args: list[str],
+    *,
+    cwd: str | Path | None = None,
+    **kwargs: object,
+) -> subprocess.CompletedProcess[str] | None:
+    """Execute a runtime probe and handle common failure modes."""
+    try:
+        return run_validated(
+            exec_path,
+            args,
+            allowed_names=(name, f"{name}.exe"),
+            timeout=PROBE_TIMEOUT,
+            cwd=cwd,
+            **kwargs,
+        )
+    except subprocess.TimeoutExpired:
+        typer.echo(
+            "::warning:: "
+            f"{name} {probe} probe exceeded {PROBE_TIMEOUT}s timeout; "
+            "treating runtime as unavailable",
+            err=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return None
+
+
+def _get_probe_timeout() -> int:
+    """Return the sanitized probe timeout for runtime detection."""
+    raw = os.environ.get("RUNTIME_PROBE_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_PROBE_TIMEOUT
+    try:
+        value = int(raw)
+    except ValueError:
+        typer.echo(
+            "::warning:: Invalid RUNTIME_PROBE_TIMEOUT value"
+            f" {raw!r}; using {_DEFAULT_PROBE_TIMEOUT}s fallback",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value <= 0:
+        typer.echo(
+            "::warning:: "
+            f"RUNTIME_PROBE_TIMEOUT={value}s raised to {_DEFAULT_PROBE_TIMEOUT}s",
+            err=True,
+        )
+        return _DEFAULT_PROBE_TIMEOUT
+    if value > _MAX_PROBE_TIMEOUT:
+        typer.echo(
+            "::warning:: "
+            f"RUNTIME_PROBE_TIMEOUT={value}s capped to {_MAX_PROBE_TIMEOUT}s",
+            err=True,
+        )
+        return _MAX_PROBE_TIMEOUT
+    return value
+
+
+PROBE_TIMEOUT = _get_probe_timeout()
 
 
 def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
@@ -83,35 +126,33 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
         exec_path = ensure_allowed_executable(path, (name, f"{name}.exe"))
     except UnexpectedExecutableError:
         return False
-    try:
-        result = run_validated(
-            exec_path,
-            ["info"],
-            allowed_names=(name, f"{name}.exe"),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=PROBE_TIMEOUT,
-            cwd=cwd,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    result = _run_probe(
+        exec_path,
+        name,
+        "info",
+        ["info"],
+        cwd=cwd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if result is None:
         return False
 
     if result.returncode != 0:
         return False
 
     if name == "podman":
-        try:
-            security_info = run_validated(
-                exec_path,
-                ["info", "--format", "{{json .Host.Security}}"],
-                allowed_names=(name, f"{name}.exe"),
-                capture_output=True,
-                text=True,
-                check=True,
-                timeout=PROBE_TIMEOUT,
-                cwd=cwd,
-            )
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        security_info = _run_probe(
+            exec_path,
+            name,
+            "security",
+            ["info", "--format", "{{json .Host.Security}}"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if security_info is None:
             return False
 
         try:

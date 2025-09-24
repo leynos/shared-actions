@@ -8,6 +8,7 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
 NIXIE ?= nixie
+RUFF_FIX_RULES ?= D202,I001
 
 test: .venv ## Run tests
 	uv run --with typer --with packaging --with plumbum --with pyyaml pytest -v
@@ -19,7 +20,7 @@ test: .venv ## Run tests
 lint: ## Check test scripts and actions
 	uvx ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 ${HOME}/.bun/bin/action-validator
+	| xargs -r -0 -n1 bunx -y @action-validator/cli
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
@@ -41,11 +42,13 @@ typecheck: .venv ## Run static type checking with Ty
 	  --extra-search-path .github/actions/macos-package/scripts \
 	  .github/actions/macos-package/scripts
 	uvx pyright
-fmt: ## Apply formatting to Python files
+fmt: ## Format Python files and auto-fix selected lint rules
 	uvx ruff format
+	uvx ruff check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
 	uvx ruff format --check
+	uvx ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)

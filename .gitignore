@@ -153,5 +153,8 @@ venv/
 target/
 
 # uv cache and lockfile
-uv.lock
-.uv/
+/uv.lock
+/.uv/
+
+# Crush AI agent
+.crush/

@@ -1,0 +1,112 @@
+name: Release to PyPI (uv)
+description: Build and publish Python distributions to PyPI using uv.
+# Required job permissions for OIDC trusted publishing:
+#   contents: read
+#   id-token: write
+inputs:
+  tag:
+    description: Tag to release (e.g. v1.2.3). Required when the workflow is not running on a tag ref.
+    required: false
+  require-confirmation:
+    description: Require a manual confirmation string before publishing.
+    required: false
+    default: 'false'
+  confirm:
+    description: Confirmation string. Must equal `release <tag>` when `require-confirmation` is true.
+    required: false
+  environment-name:
+    description: GitHub environment to target (informational only, surfaced in the summary output).
+    required: false
+    default: pypi
+  uv-index:
+    description: Optional uv index name to publish to (e.g. testpypi). Must exist in pyproject tool.uv.index.
+    required: false
+    default: ''
+  toml-glob:
+    description: Glob used to discover pyproject.toml files for version validation.
+    required: false
+    default: "**/pyproject.toml"
+  skip-directories:
+    description: Comma- or newline-separated directory names to skip during TOML discovery.
+    required: false
+    default: ''
+  fail-on-dynamic-version:
+    description: Fail if any project declares a dynamic version instead of a literal string.
+    required: false
+    default: 'false'
+  fail-on-empty:
+    description: Fail when no pyproject.toml files match the configured glob.
+    required: false
+    default: 'false'
+  python-version:
+    description: Python version to install and use with uv commands.
+    required: false
+    default: '3.13'
+outputs:
+  tag:
+    description: Resolved release tag.
+    value: ${{ steps.resolve.outputs.tag }}
+  version:
+    description: Resolved release version (tag without the leading v).
+    value: ${{ steps.resolve.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      # v6.4.3
+      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+        cache-suffix: action-${{ github.action_ref || github.sha }}
+    - name: Install Python
+      run: uv python install "${{ inputs.python-version }}"
+      shell: bash
+    - name: Determine tag and version
+      id: resolve
+      run: uv run --script "${{ github.action_path }}/scripts/determine_release.py"
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+    - name: Optional manual confirmation
+      if: inputs.require-confirmation == 'true'
+      run: uv run --script "${{ github.action_path }}/scripts/confirm_release.py"
+      shell: bash
+      env:
+        EXPECTED: release ${{ steps.resolve.outputs.tag }}
+        INPUT_CONFIRM: ${{ inputs.confirm }}
+    - name: Ensure GitHub Release exists and is published
+      run: uv run --script "${{ github.action_path }}/scripts/check_github_release.py"
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+    - name: Validate TOML files
+      run: uv run --script "${{ github.action_path }}/scripts/validate_toml_versions.py"
+      shell: bash
+      env:
+        RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
+        INPUT_TOML_GLOB: ${{ inputs.toml-glob }}
+        INPUT_FAIL_ON_DYNAMIC_VERSION: ${{ inputs.fail-on-dynamic-version }}
+        INPUT_FAIL_ON_EMPTY: ${{ inputs.fail-on-empty }}
+        INPUT_SKIP_DIRECTORIES: ${{ inputs.skip-directories }}
+    - name: Build distributions
+      run: uv build
+      shell: bash
+    - name: Publish to PyPI (Trusted Publishing)
+      run: uv run --script "${{ github.action_path }}/scripts/publish_release.py"
+      shell: bash
+      env:
+        INPUT_UV_INDEX: ${{ inputs.uv-index }}
+    - name: Summary
+      if: always()
+      run: uv run --script "${{ github.action_path }}/scripts/write_summary.py"
+      shell: bash
+      env:
+        RESOLVED_TAG: ${{ steps.resolve.outputs.tag }}
+        INPUT_UV_INDEX: ${{ inputs.uv-index }}
+        INPUT_ENVIRONMENT_NAME: ${{ inputs.environment-name }}

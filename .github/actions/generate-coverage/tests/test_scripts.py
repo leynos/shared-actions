@@ -108,7 +108,7 @@ def _make_fake_cargo(
             if track_lifecycle:
                 self.killed = True
 
-        def wait(self) -> int:
+        def wait(self, timeout: float | None = None) -> int:
             if track_lifecycle:
                 self.waited = True
             return returncode
@@ -198,6 +198,37 @@ def test_run_cargo_windows(
     assert res == "out-line"
 
 
+def test_run_cargo_windows_closes_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` closes captured streams on success."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class TrackingStream(io.StringIO):
+        def __init__(self, value: str) -> None:
+            super().__init__(value)
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+            super().close()
+
+    stdout = TrackingStream("out-line\n")
+    stderr = TrackingStream("err-line\n")
+    fake_cargo = _make_fake_cargo(stdout, stderr)
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    result = mod._run_cargo(["llvm-cov"])
+
+    assert result == "out-line"
+    assert stdout.closed
+    assert stderr.closed
+    assert stdout.close_calls >= 1
+    assert stderr.close_calls >= 1
+
+
 def test_run_cargo_windows_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -228,8 +259,8 @@ def test_run_cargo_windows_pump_exception(
 
     class BoomIO(io.StringIO):
         def readline(self) -> str:
-            msg = "boom in pump"
-            raise RuntimeError(msg)
+            message = "boom in pump"
+            raise RuntimeError(message)
 
     fake_cargo = _make_fake_cargo(BoomIO(), io.StringIO(""), track_lifecycle=True)
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -249,9 +280,14 @@ def test_run_cargo_windows_none_stdout(
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
-    monkeypatch.setattr(mod, "cargo", _make_fake_cargo(None, "err-line\n"))
-    with pytest.raises(RuntimeError):
+    fake_cargo = _make_fake_cargo(None, "err-line\n")
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+    with pytest.raises(mod.typer.Exit):
         mod._run_cargo([])
+    proc = fake_cargo.last_proc
+    assert proc is not None
+    assert proc.stderr is not None
+    assert proc.stderr.closed
 
 
 def test_run_cargo_windows_none_stderr(
@@ -262,9 +298,46 @@ def test_run_cargo_windows_none_stderr(
     monkeypatch.setattr(mod.os, "name", "nt")
     monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
 
-    monkeypatch.setattr(mod, "cargo", _make_fake_cargo("out-line\n", None))
-    with pytest.raises(RuntimeError):
+    fake_cargo = _make_fake_cargo("out-line\n", None)
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+    with pytest.raises(mod.typer.Exit):
         mod._run_cargo([])
+    proc = fake_cargo.last_proc
+    assert proc is not None
+    assert proc.stdout is not None
+    assert proc.stdout.closed
+
+
+def test_run_cargo_stream_close_error_suppressed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Errors closing streams are suppressed during cleanup."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+
+    class ExplodingStream(io.StringIO):
+        def __init__(self, value: str) -> None:
+            super().__init__(value)
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+            super().close()
+            message = "close failure"
+            raise RuntimeError(message)
+
+    stdout = ExplodingStream("out-line\n")
+    stderr = io.StringIO("err-line\n")
+    fake_cargo = _make_fake_cargo(stdout, stderr)
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    result = mod._run_cargo(["llvm-cov"])
+
+    assert result == "out-line"
+    assert stdout.close_calls >= 1
+    assert stdout.closed
+    assert stderr.closed
 
 
 def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> None:
@@ -510,8 +583,8 @@ def test_lcov_permission_error(
     lcov.write_text("LF:1\nLH:1\n")
 
     def bad_read_text(*_: object, **__: object) -> str:
-        msg = "nope"
-        raise PermissionError(msg)
+        message = "nope"
+        raise PermissionError(message)
 
     monkeypatch.setattr(Path, "read_text", bad_read_text, raising=False)
     with pytest.raises(run_rust_module.typer.Exit) as excinfo:
@@ -679,8 +752,8 @@ def test_cobertura_permission_error(
     xml.write_text("<coverage/>")
 
     def raise_permission_error(*_: object, **__: object) -> object:
-        msg = "denied"
-        raise PermissionError(msg)
+        message = "denied"
+        raise PermissionError(message)
 
     import coverage_parsers
 

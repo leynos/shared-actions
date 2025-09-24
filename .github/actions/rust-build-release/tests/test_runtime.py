@@ -11,8 +11,6 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-import pytest
-
 if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness
 

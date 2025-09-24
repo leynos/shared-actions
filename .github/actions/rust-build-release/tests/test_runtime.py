@@ -473,6 +473,7 @@ def test_probe_timeout_sanitization_warnings(
         message_fragment in msg and str(expected) in msg for msg, err in messages if err
     )
 
+
 @pytest.mark.parametrize(
     ("env_value", "expected_kind", "message_fragment"),
     [
@@ -520,3 +521,4 @@ def test_get_probe_timeout_sanitizes_values(
             for msg, err in messages
             if err
         )
+

@@ -154,13 +154,8 @@ def _probe_runtime(name: str) -> bool:
         return False
 
 
-def _resolve_target_argument(target: str) -> str:
-    """Return the target to build, falling back to environment values."""
-    if target:
-        return target
-    env_target = os.environ.get("RBR_TARGET", "")
-    if env_target:
-        return env_target
+def _emit_missing_target_error() -> typ.NoReturn:
+    """Print an error describing the missing target configuration."""
     env_rbr_target = os.environ.get("RBR_TARGET", "<unset>")
     env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
     env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
@@ -173,6 +168,16 @@ def _resolve_target_argument(target: str) -> str:
         err=True,
     )
     raise typer.Exit(1)
+
+
+def _resolve_target_argument(target: str) -> str:
+    """Return the target to build, falling back to environment values."""
+    if target:
+        return target
+    env_target = os.environ.get("RBR_TARGET", "")
+    if env_target:
+        return env_target
+    _emit_missing_target_error()
 
 
 def _ensure_rustup_exec() -> str:

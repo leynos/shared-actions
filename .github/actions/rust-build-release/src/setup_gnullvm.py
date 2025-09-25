@@ -25,6 +25,7 @@ from cyclopts import App
 
 LLVM_MINGW_DEFAULT_VERSION = "20250924"
 LLVM_MINGW_VARIANT = "ucrt-x86_64"
+LLVM_MINGW_DIR_PREFIX = "llvm-mingw-"
 KNOWN_LLVM_MINGW_SHA256 = {
     "20250924": {
         LLVM_MINGW_VARIANT: (
@@ -137,9 +138,20 @@ def download_and_unzip(
                 raise RuntimeError(msg) from exc
         zip_ref.extractall(base)
 
-    extracted_dirs = [path for path in dest.iterdir() if path.is_dir()]
+    extracted_dirs = [
+        path
+        for path in dest.iterdir()
+        if path.is_dir() and path.name.startswith(LLVM_MINGW_DIR_PREFIX)
+    ]
     if not extracted_dirs:
         msg = f"Zip file from {url} did not contain a directory."
+        raise RuntimeError(msg)
+    if len(extracted_dirs) > 1:
+        dir_list = ", ".join(sorted(path.name for path in extracted_dirs))
+        msg = (
+            f"Zip file from {url} contained multiple directories with the expected"
+            f" prefix: {dir_list}"
+        )
         raise RuntimeError(msg)
 
     return extracted_dirs[0]

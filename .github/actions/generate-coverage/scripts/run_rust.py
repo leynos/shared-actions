@@ -186,14 +186,12 @@ def _pump_cargo_output_windows(
             target=pump,
             args=(stdout_stream,),
             kwargs={"to_stdout": True},
-            daemon=True,
         ),
         threading.Thread(
             name="cargo-stderr",
             target=pump,
             args=(stderr_stream,),
             kwargs={"to_stdout": False},
-            daemon=True,
         ),
     ]
     for thread in threads:
@@ -207,10 +205,20 @@ def _pump_cargo_output_windows(
             break
         for thread in threads:
             thread.join(timeout=0.1)
+    timed_out = False
     for thread in threads:
-        thread.join()
+        thread.join(timeout=5)
+        if thread.is_alive():
+            timed_out = True
+    if timed_out:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        thread_exceptions.append(
+            TimeoutError("cargo output pump threads did not terminate in time")
+        )
     if thread_exceptions:
-        proc.wait()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
         raise thread_exceptions[0]
 
     return stdout_lines
@@ -219,7 +227,12 @@ def _pump_cargo_output_windows(
 def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     """Pump ``proc`` output streams to console and collect stdout lines."""
     if proc.stdout is None or proc.stderr is None:  # pragma: no cover - defensive
-        message = "cargo output streams must be captured"
+        message = (
+            "cargo output streams must be captured.\n"
+            f"proc.stdout: {proc.stdout}\n"
+            f"proc.stderr: {proc.stderr}\n"
+            f"proc.args: {getattr(proc, 'args', None)}"
+        )
         raise RuntimeError(message)
 
     stdout_stream = proc.stdout
@@ -252,7 +265,8 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     except Exception:
         with contextlib.suppress(Exception):
             proc.kill()
-        proc.wait()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
         raise
     finally:
         sel.close()

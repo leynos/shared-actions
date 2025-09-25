@@ -77,7 +77,7 @@ def _parse_bool(value: str | None) -> bool:
     if value is None:
         return False
     normalized = value.strip().lower()
-    return False if not normalized else normalized in TRUTHY_STRINGS
+    return normalized in TRUTHY_STRINGS if normalized else False
 
 
 def _load_toml(path: Path) -> dict[str, object]:

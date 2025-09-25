@@ -8,7 +8,7 @@ The process is orchestrated through Python scripts within the action, which repl
 
 1. **Host vs. Target**: The build runs on a `windows-latest` GitHub Actions runner, which uses the `stable-x86_64-pc-windows-msvc` toolchain as the _host_. This ensures any build scripts (`build.rs`) compile with MSVC and do not introduce GCC runtime dependencies. The _target_ is `x86_64-pc-windows-gnullvm`, which instructs `rustc` to produce a MinGW-style binary.
 2. **`cross` Local Backend**: Instead of using Docker (which is unavailable on Windows runners for Linux containers), `cross` is instructed to use its "local backend" via the `CROSS_NO_DOCKER=1` environment variable. This uses the host's toolchains directly.
-3. **LLVM Linker**: The key is to tell `rustc` how to link the `gnullvm` target. We use `clang` and `lld` from the `llvm-mingw` project. This is configured via a dynamically generated `.cargo/config.toml` file.
+3. **LLVM Linker**: The key is to tell `rustc` how to link the `gnullvm` target. `clang` and `lld` from the `llvm-mingw` project are used, configured via a dynamically generated `.cargo/config.toml` file.
 4. **Python Orchestration**: All setup steps—downloading `llvm-mingw`, creating the Cargo config, and setting environment variables—are handled by a dedicated Python script within the action, ensuring cross-platform consistency and maintainability.
 
 ## Implementation within `rust-build-release`
@@ -39,6 +39,7 @@ This new Python script automates the entire setup process previously handled by 
 - **Downloads `llvm-mingw`**: Fetches the specified release archive from GitHub, extracts it to a temporary runner directory, and adds its `bin` directory to the `GITHUB_PATH`.
 - **Creates `.cargo/config.toml`**: Generates the necessary configuration to instruct Cargo how to link the `gnullvm` target.
 - **Sets Environment Variables**: Writes the `CROSS_NO_DOCKER=1` flag and the target-scoped `CC_*`, `CXX_*`, etc., variables to `GITHUB_ENV` for the subsequent build step to use.
+- **Supports Overrides**: Optional `RBR_LLVM_MINGW_VERSION` and `RBR_LLVM_MINGW_SHA256` environment variables allow selecting alternative releases while keeping checksum verification enabled.
 
 ### 3. Build Script (`main.py`)
 

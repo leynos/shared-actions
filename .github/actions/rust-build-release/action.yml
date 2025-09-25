@@ -55,6 +55,7 @@ runs:
     - name: Configure gnullvm target on Windows
       if: runner.os == 'Windows' && inputs.target == 'x86_64-pc-windows-gnullvm'
       shell: bash
+      working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
         uv run --script "$GITHUB_ACTION_PATH/src/setup_gnullvm.py"

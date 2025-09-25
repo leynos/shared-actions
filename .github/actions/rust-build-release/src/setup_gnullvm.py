@@ -97,7 +97,7 @@ def download_and_unzip(
                 shutil.copyfileobj(resp, out_file)
         except (urllib.error.URLError, socket.timeout) as exc:  # noqa: UP041
             if attempt == retries:
-                error_msg = "Failed to download llvm-mingw archive"
+                error_msg = f"Failed to download llvm-mingw archive from {url}"
                 raise RuntimeError(error_msg) from exc
             sleep_seconds = min(2**attempt, 15)
             print(
@@ -119,7 +119,7 @@ def download_and_unzip(
     if actual_sha256.lower() != expected_sha256.lower():
         msg = (
             "SHA-256 verification failed for llvm-mingw archive. "
-            f"Expected {expected_sha256}, got {actual_sha256}."
+            f"Expected {expected_sha256}, got {actual_sha256} from {url}."
         )
         raise RuntimeError(msg)
 

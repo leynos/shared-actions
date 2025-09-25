@@ -301,7 +301,7 @@ def _run_cargo(args: list[str]) -> str:
             _safe_close_text_stream(proc.stdout)
             _safe_close_text_stream(proc.stderr)
             typer.echo(f"::error::{message}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         stdout_lines = _pump_cargo_output(proc)
         wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
         try:
@@ -315,7 +315,7 @@ def _run_cargo(args: list[str]) -> str:
                 proc.kill()
             with contextlib.suppress(Exception):
                 proc.wait(timeout=5)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
         if retcode != 0:
             typer.echo(
                 f"cargo {shlex.join(args)} failed with code {retcode}",

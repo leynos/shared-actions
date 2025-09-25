@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, windows-latest]
+        os: [ubuntu-latest, macos-13]
     steps:
       - name: Checkout repository
         # v4
@@ -47,6 +47,32 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make lint
         shell: bash
+      - name: Run tests
+        run: |
+          uv sync --group dev
+          uv run pytest
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: bash
+
+  python-tests-windows:
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        # v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Setup uv
+        # v6.4.3
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4
+        with:
+          python-version: '3.12'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/scripts/*.py
       - name: Run tests
         run: |
           uv sync --group dev

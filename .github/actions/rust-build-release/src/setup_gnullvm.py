@@ -94,7 +94,7 @@ def download_and_unzip(
             if attempt == retries:
                 error_msg = "Failed to download llvm-mingw archive"
                 raise RuntimeError(error_msg) from exc
-            sleep_seconds = 2**attempt
+            sleep_seconds = min(2**attempt, 15)
             print(
                 f"Download failed with {exc!r}; retrying in {sleep_seconds} seconds...",
                 file=sys.stderr,
@@ -167,11 +167,17 @@ def main() -> None:
     print(f"Setting up for {TARGET} build on Windows...")
 
     llvm_mingw_version = _resolve_llvm_mingw_version()
+    zip_file = f"llvm-mingw-{llvm_mingw_version}-{LLVM_MINGW_VARIANT}.zip"
+    url = (
+        "https://github.com/mstorsjo/llvm-mingw/releases/download/"
+        f"{llvm_mingw_version}/{zip_file}"
+    )
     expected_sha256 = _expected_archive_sha256(llvm_mingw_version)
     if expected_sha256 is None:
         msg = (
             "No checksum is registered for llvm-mingw version "
-            f"{llvm_mingw_version}; set RBR_LLVM_MINGW_SHA256 to proceed."
+            f"{llvm_mingw_version}; set RBR_LLVM_MINGW_SHA256 to proceed. "
+            f"Expected download URL: {url}"
         )
         raise RuntimeError(msg)
 
@@ -180,11 +186,6 @@ def main() -> None:
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_path = Path(tmpdir)
-            zip_file = f"llvm-mingw-{llvm_mingw_version}-{LLVM_MINGW_VARIANT}.zip"
-            url = (
-                "https://github.com/mstorsjo/llvm-mingw/releases/download/"
-                f"{llvm_mingw_version}/{zip_file}"
-            )
             extracted_path = download_and_unzip(
                 url,
                 temp_path,
@@ -195,7 +196,8 @@ def main() -> None:
             shutil.move(str(extracted_path), str(final_llvm_path))
     except Exception as exc:
         print(
-            f"::error::Failed to download or extract llvm-mingw: {exc}", file=sys.stderr
+            f"::error:: Failed to download or extract llvm-mingw: {exc}",
+            file=sys.stderr,
         )
         raise SystemExit(1) from exc
 

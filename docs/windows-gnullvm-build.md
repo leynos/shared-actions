@@ -33,6 +33,9 @@ A conditional step is added to `rust-build-release/action.yml` to trigger the se
 # ...
 ```
 
+The composite action installs `uv` earlier via the "Setup uv" step, so the snippet
+does not need to install it explicitly.
+
 ### 2. Setup Script (`setup_gnullvm.py`)
 
 This new Python script automates the entire setup process previously handled by PowerShell. It performs the following actions:

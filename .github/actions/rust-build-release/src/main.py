@@ -159,14 +159,13 @@ def _emit_missing_target_error() -> typ.NoReturn:
     env_rbr_target = os.environ.get("RBR_TARGET", "<unset>")
     env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
     env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
-    typer.echo(
-        "::error:: no build target specified; "
-        "set input 'target' or env RBR_TARGET\n"
+    message = (
+        "::error:: no build target specified; set input 'target' or env RBR_TARGET\n"
         f"RBR_TARGET={env_rbr_target} "
         f"INPUT_TARGET={env_input_target} "
-        f"GITHUB_REF={env_github_ref}",
-        err=True,
+        f"GITHUB_REF={env_github_ref}"
     )
+    typer.echo(message, err=True)
     raise typer.Exit(1)
 
 

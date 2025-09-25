@@ -25,6 +25,7 @@ A conditional step is added to `rust-build-release/action.yml` to trigger the se
     - name: Configure gnullvm target on Windows
       if: runner.os == 'Windows' && inputs.target == 'x86_64-pc-windows-gnullvm'
       shell: bash
+      working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
         uv run --script "$GITHUB_ACTION_PATH/src/setup_gnullvm.py"

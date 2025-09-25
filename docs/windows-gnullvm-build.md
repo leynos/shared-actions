@@ -43,7 +43,9 @@ This new Python script automates the entire setup process previously handled by 
 - **Downloads `llvm-mingw`**: Fetches the specified release archive from GitHub, extracts it to a temporary runner directory, and adds its `bin` directory to the `GITHUB_PATH`.
 - **Creates `.cargo/config.toml`**: Generates the necessary configuration to instruct Cargo how to link the `gnullvm` target.
 - **Sets Environment Variables**: Writes the `CROSS_NO_DOCKER=1` flag and the target-scoped `CC_*`, `CXX_*`, etc., variables to `GITHUB_ENV` for the subsequent build step to use.
-- **Supports Overrides**: Optional `RBR_LLVM_MINGW_VERSION` and `RBR_LLVM_MINGW_SHA256` environment variables allow selecting alternative releases while keeping checksum verification enabled.
+- **Supports Overrides**: Optional `RBR_LLVM_MINGW_VERSION`, `RBR_LLVM_MINGW_VARIANT`, and `RBR_LLVM_MINGW_SHA256` environment variables allow selecting alternative releases while keeping checksum verification enabled.
+
+The default archive variant is `ucrt-x86_64`, which matches the upstream `llvm-mingw` build that links against the UCRT. The setup script also supports variants that share the same layout as the upstream release archives, including `ucrt-arm64`, `ucrt-i686`, `msvcrt-x86_64`, `msvcrt-arm64`, and `msvcrt-i686`. When you override `RBR_LLVM_MINGW_VARIANT`, be sure to set `RBR_LLVM_MINGW_SHA256` to the checksum that matches the chosen archive, because only the default `ucrt-x86_64` variant ships with a bundled checksum in this repository.
 
 ### 3. Build Script (`main.py`)
 

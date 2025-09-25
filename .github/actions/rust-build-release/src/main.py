@@ -388,7 +388,9 @@ def main(
         toolchain_name, installed_names, rustup_exec, target_to_build
     )
 
-    if not decision.use_cross and not target_installed:
+    if not target_installed and (
+        not decision.use_cross or decision.use_cross_local_backend
+    ):
         typer.echo(
             f"::error:: toolchain '{toolchain_name}' does not support "
             f"target '{target_to_build}'",

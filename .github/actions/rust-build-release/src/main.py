@@ -399,7 +399,7 @@ def main(
     _announce_build_mode(decision)
 
     build_cmd = [
-        "cross" if decision.use_cross else "cargo",
+        (decision.cross_path or "cross") if decision.use_cross else "cargo",
         decision.cross_toolchain_spec
         if decision.use_cross
         else decision.cargo_toolchain_spec,

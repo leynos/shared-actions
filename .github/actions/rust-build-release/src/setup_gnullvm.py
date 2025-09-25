@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run python
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.9"
 # dependencies = ["cyclopts>=2.9,<4"]
@@ -24,11 +24,11 @@ from pathlib import Path
 from cyclopts import App
 
 LLVM_MINGW_DEFAULT_VERSION = "20250924"
-LLVM_MINGW_VARIANT = "ucrt-x86_64"
+LLVM_MINGW_DEFAULT_VARIANT = "ucrt-x86_64"
 LLVM_MINGW_DIR_PREFIX = "llvm-mingw-"
 KNOWN_LLVM_MINGW_SHA256 = {
     "20250924": {
-        LLVM_MINGW_VARIANT: (
+        "ucrt-x86_64": (
             "d2719495e711f5d07cb0781be5eb987ba549b07075578e34387dd127eb1341e8"
         ),
     }
@@ -44,11 +44,16 @@ def _resolve_llvm_mingw_version() -> str:
     return os.environ.get("RBR_LLVM_MINGW_VERSION", LLVM_MINGW_DEFAULT_VERSION)
 
 
-def _expected_archive_sha256(version: str) -> str | None:
+def _resolve_llvm_mingw_variant() -> str:
+    """Return the llvm-mingw archive variant to install."""
+    return os.environ.get("RBR_LLVM_MINGW_VARIANT", LLVM_MINGW_DEFAULT_VARIANT)
+
+
+def _expected_archive_sha256(version: str, variant: str) -> str | None:
     """Return the expected SHA-256 for the archive of *version*."""
     if override := os.environ.get("RBR_LLVM_MINGW_SHA256"):
         return override
-    return KNOWN_LLVM_MINGW_SHA256.get(version, {}).get(LLVM_MINGW_VARIANT)
+    return KNOWN_LLVM_MINGW_SHA256.get(version, {}).get(variant)
 
 
 def _sha256_file(path: Path) -> str:
@@ -167,12 +172,13 @@ def main() -> None:
     print(f"Setting up for {TARGET} build on Windows...")
 
     llvm_mingw_version = _resolve_llvm_mingw_version()
-    zip_file = f"llvm-mingw-{llvm_mingw_version}-{LLVM_MINGW_VARIANT}.zip"
+    llvm_mingw_variant = _resolve_llvm_mingw_variant()
+    zip_file = f"llvm-mingw-{llvm_mingw_version}-{llvm_mingw_variant}.zip"
     url = (
         "https://github.com/mstorsjo/llvm-mingw/releases/download/"
         f"{llvm_mingw_version}/{zip_file}"
     )
-    expected_sha256 = _expected_archive_sha256(llvm_mingw_version)
+    expected_sha256 = _expected_archive_sha256(llvm_mingw_version, llvm_mingw_variant)
     if expected_sha256 is None:
         msg = (
             "No checksum is registered for llvm-mingw version "
@@ -182,7 +188,7 @@ def main() -> None:
         raise RuntimeError(msg)
 
     runner_temp = Path(os.environ["RUNNER_TEMP"])
-    final_llvm_path = runner_temp / "llvm-mingw-ucrt"
+    final_llvm_path = runner_temp / f"llvm-mingw-{llvm_mingw_variant}"
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_path = Path(tmpdir)
@@ -225,8 +231,6 @@ rustflags = ["-Clink-arg=-fuse-ld=lld"]
         f"CXX_{env_target}": "x86_64-w64-mingw32-clang++",
         f"AR_{env_target}": "llvm-ar",
         f"RANLIB_{env_target}": "llvm-ranlib",
-        f"CFLAGS_{env_target}": "--target=x86_64-w64-windows-gnu",
-        f"CXXFLAGS_{env_target}": "--target=x86_64-w64-windows-gnu",
     }
     for key, value in env_vars.items():
         set_env(key, value)

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.13"
 # dependencies = ["cyclopts>=2.9,<4"]
 # ///
 """Set up the environment for building with the x86_64-pc-windows-gnullvm target."""

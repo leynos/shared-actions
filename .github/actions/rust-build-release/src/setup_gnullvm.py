@@ -36,7 +36,7 @@ KNOWN_LLVM_MINGW_SHA256 = {
         "ucrt-x86_64": (
             "d2719495e711f5d07cb0781be5eb987ba549b07075578e34387dd127eb1341e8"
         ),
-        "ucrt-arm64": (
+        "ucrt-aarch64": (
             "0274ec5c504f440493ce85966dd3e48b857687b28d1ca64d7e0ec7fefe1bdeb3"
         ),
     }
@@ -83,7 +83,7 @@ def _detect_host_llvm_mingw_variant() -> str:
         if normalized in {"amd64", "x86_64"}:
             return "ucrt-x86_64"
         if normalized in {"arm64", "aarch64"}:
-            return "ucrt-arm64"
+            return "ucrt-aarch64"
 
     msg = (
         "Unable to determine host architecture for llvm-mingw; "
@@ -262,7 +262,11 @@ def _write_target_config(path: Path, target: str, config: TargetConfig) -> None:
 def main(
     *,
     target: typ.Annotated[
-        str | None, Parameter(help="gnullvm target triple to configure.")
+        str | None,
+        Parameter(
+            "--target",
+            help="gnullvm target triple to configure.",
+        ),
     ] = None,
 ) -> None:
     """Orchestrate the setup for a gnullvm build on a Windows runner."""
@@ -326,6 +330,7 @@ def main(
         "CROSS_NO_DOCKER": "1",
         f"CC_{env_target}": f"{config.clang_triplet}-clang",
         f"CXX_{env_target}": f"{config.clang_triplet}-clang++",
+        f"LD_{env_target}": "ld.lld",
         f"AR_{env_target}": "llvm-ar",
         f"RANLIB_{env_target}": "llvm-ranlib",
     }

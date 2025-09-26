@@ -42,10 +42,10 @@ The Python helper automates the setup process previously handled by PowerShell. 
 
 - **Downloads `llvm-mingw`**: Fetches the specified release archive from GitHub, extracts it to a temporary runner directory, and adds its `bin` directory to the `GITHUB_PATH`. On GitHub’s Windows runners (`x86_64` hosts), the setup defaults to the `ucrt-x86_64` archive, which bundles cross-compilers for both the `x86_64` and `aarch64` Windows targets. The `RBR_LLVM_MINGW_VARIANT` environment variable can override this default.
 - **Creates `.cargo/config.toml`**: Generates the necessary configuration to instruct Cargo how to link the requested `gnullvm` target using the matching `*-w64-mingw32-clang` frontend.
-- **Sets Environment Variables**: Writes the `CROSS_NO_DOCKER=1` flag and the target-scoped `CC_*`, `CXX_*`, `AR_*`, and `RANLIB_*` variables to `GITHUB_ENV` for the subsequent build step to use.
+- **Sets Environment Variables**: Writes the `CROSS_NO_DOCKER=1` flag and the target-scoped `CC_*`, `CXX_*`, `LD_*`, `AR_*`, and `RANLIB_*` variables to `GITHUB_ENV` for the subsequent build step to use.
 - **Supports Overrides**: Optional `RBR_LLVM_MINGW_VERSION`, `RBR_LLVM_MINGW_VARIANT`, and `RBR_LLVM_MINGW_SHA256` environment variables allow selecting alternative releases while keeping checksum verification enabled.
 
-The default archive variant is `ucrt-x86_64`, matching the upstream `llvm-mingw` distribution that links against the UCRT and provides cross-compilers for multiple targets. The setup script supports variants that share the upstream archive layout, including `ucrt-arm64`, `ucrt-i686`, `msvcrt-x86_64`, and `msvcrt-i686`. When overriding `RBR_LLVM_MINGW_VARIANT`, set `RBR_LLVM_MINGW_SHA256` to the checksum for the chosen archive to keep checksum validation enabled.
+The default archive variant is `ucrt-x86_64`, matching the upstream `llvm-mingw` distribution that links against the UCRT and provides cross-compilers for multiple targets. The setup script supports variants that share the upstream archive layout, including `ucrt-i686`, `msvcrt-x86_64`, and `msvcrt-i686`. When overriding `RBR_LLVM_MINGW_VARIANT`, set `RBR_LLVM_MINGW_SHA256` to the checksum for the chosen archive to keep checksum validation enabled.
 
 ### 3. Build Script (`main.py`)
 

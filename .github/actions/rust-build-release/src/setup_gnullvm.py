@@ -55,7 +55,7 @@ TARGET_CONFIGS: dict[str, TargetConfig] = {
     ),
     "aarch64-pc-windows-gnullvm": TargetConfig(
         clang_triplet="aarch64-w64-mingw32",
-        llvm_mingw_variant="ucrt-aarch64",
+        llvm_mingw_variant="ucrt-x86_64",
     ),
 }
 

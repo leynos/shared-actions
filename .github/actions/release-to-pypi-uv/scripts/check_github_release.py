@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#     "typer>=0.17,<0.18",
+#     "cyclopts>=2.9,<3.0",
 #     "httpx>=0.28,<0.29",
 #     "httpx-retries>=0.4,<0.5",
 # ]
@@ -13,16 +13,16 @@ from __future__ import annotations
 
 import contextlib
 import random
+import sys
 import time
 import typing as typ
 
+import cyclopts
 import httpx
-import typer
+from cyclopts import App, Parameter
 from httpx_retries import Retry, RetryTransport
 
-TAG_OPTION = typer.Option(..., envvar="RELEASE_TAG")
-TOKEN_OPTION = typer.Option(..., envvar="GH_TOKEN")
-REPO_OPTION = typer.Option(..., envvar="GITHUB_REPOSITORY")
+app = App(config=cyclopts.config.Env(prefix="", command=False))
 
 
 class _UniformGenerator(typ.Protocol):
@@ -196,36 +196,23 @@ def _validate_release(tag: str, data: dict[str, object]) -> str:
     return str(name)
 
 
+@app.default
 def main(
-    tag: str = TAG_OPTION,
-    token: str = TOKEN_OPTION,
-    repo: str = REPO_OPTION,
+    *,
+    tag: typ.Annotated[str, Parameter(env_var="RELEASE_TAG", required=True)],
+    token: typ.Annotated[str, Parameter(env_var="GH_TOKEN", required=True)],
+    repo: typ.Annotated[str, Parameter(env_var="GITHUB_REPOSITORY", required=True)],
 ) -> None:
-    """Check that the GitHub release for ``tag`` is published.
-
-    Parameters
-    ----------
-    tag : str
-        Release tag to validate.
-    token : str
-        Token used to authenticate the GitHub API request.
-    repo : str
-        Repository slug in ``owner/name`` form where the release should exist.
-
-    Raises
-    ------
-    typer.Exit
-        Raised when the release is missing or not ready for publication.
-    """
+    """Check that the GitHub release for ``tag`` is published."""
     try:
         data = _fetch_release(repo, tag, token)
         name = _validate_release(tag, data)
     except GithubReleaseError as exc:
-        typer.echo(f"::error::{exc}", err=True)
-        raise typer.Exit(1) from exc
+        print(f"::error::{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
-    typer.echo(f"GitHub Release '{name}' is published.")
+    print(f"GitHub Release '{name}' is published.")
 
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()

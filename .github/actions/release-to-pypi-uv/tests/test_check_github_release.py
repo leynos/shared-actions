@@ -91,7 +91,7 @@ def test_draft_release(
 
     _install_transport(monkeypatch, module, handler)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
@@ -112,7 +112,7 @@ def test_prerelease(
 
     _install_transport(monkeypatch, module, handler)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
@@ -132,7 +132,7 @@ def test_missing_release(
 
     _install_transport(monkeypatch, module, handler)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
@@ -153,7 +153,7 @@ def test_authentication_failure(
 
     _install_transport(monkeypatch, module, handler)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
@@ -175,7 +175,7 @@ def test_permission_denied(
 
     _install_transport(monkeypatch, module, handler)
 
-    with pytest.raises(module.typer.Exit):
+    with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
@@ -224,9 +224,9 @@ def test_retries_then_fail(
     _install_transport(monkeypatch, module, handler)
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
 
-    with pytest.raises(module.typer.Exit) as exc_info:
+    with pytest.raises(SystemExit) as exc_info:
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
-    assert exc_info.value.exit_code == 1
+    assert exc_info.value.code == 1
     assert "temporary" in captured.err or "fetch" in captured.err

@@ -182,6 +182,46 @@ def test_permission_denied(
     assert "GitHub token lacks permission" in captured.err
 
 
+def test_forbidden_with_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    fake_token: str,
+) -> None:
+    """Respect Retry-After guidance on 403 responses before failing."""
+    attempts: list[int] = []
+    sleep_calls: list[float] = []
+
+    def fake_sleep(
+        delay: float,
+        *,
+        jitter: module._UniformGenerator | None = None,
+        sleep: module.SleepFn | None = None,
+    ) -> None:
+        sleep_calls.append(delay)
+
+    def handler(request: module.httpx.Request) -> module.httpx.Response:
+        attempts.append(1)
+        if len(attempts) == 1:
+            headers = {"Retry-After": "1"}
+            return module.httpx.Response(
+                403, headers=headers, content=b"", request=request
+            )
+        payload = {"draft": False, "prerelease": False, "name": "ok"}
+        return module.httpx.Response(200, json=payload, request=request)
+
+    _install_transport(monkeypatch, module, handler)
+    monkeypatch.setattr(module, "_sleep_with_jitter", fake_sleep)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+
+    module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
+
+    assert len(attempts) == 2
+    assert sleep_calls == [1.0]
+    captured = capsys.readouterr()
+    assert "GitHub Release 'ok' is published." in captured.out
+
+
 def test_retries_then_success(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,

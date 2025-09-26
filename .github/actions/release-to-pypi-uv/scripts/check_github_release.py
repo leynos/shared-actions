@@ -108,6 +108,18 @@ def _build_retry_transport() -> RetryTransport:
     return RetryTransport(retry=_GithubRetry())
 
 
+def _parse_retry_after_header(value: str | None) -> float | None:
+    """Return a parsed ``Retry-After`` delay in seconds when available."""
+    if value is None:
+        return None
+    helper = _GithubRetry()
+    with contextlib.suppress(ValueError):
+        seconds = helper.parse_retry_after(value)
+        if seconds > 0:
+            return seconds
+    return None
+
+
 def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
     url = httpx.URL(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
     if url.scheme != "https":  # pragma: no cover - defensive guard
@@ -127,22 +139,48 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
             transport=_build_retry_transport(),
             headers=headers,
         ) as client:
-            response = client.get(url, follow_redirects=False)
+            delay = _INITIAL_DELAY
+            for attempt in range(1, _MAX_ATTEMPTS + 1):
+                try:
+                    response = client.get(url, follow_redirects=False)
+                except httpx.RequestError as exc:  # pragma: no cover
+                    # Network failure path.
+                    if attempt == _MAX_ATTEMPTS:
+                        message = f"Failed to reach GitHub API: {exc!s}"
+                        raise GithubReleaseError(message) from exc
+                    _sleep_with_jitter(delay)
+                    delay *= _BACKOFF_FACTOR
+                    continue
+
+                if response.status_code == httpx.codes.OK:
+                    try:
+                        return response.json()
+                    except ValueError as exc:  # pragma: no cover - unexpected payload
+                        message = "GitHub API returned invalid JSON"
+                        raise GithubReleaseError(message) from exc
+
+                should_retry = _handle_http_response_error(
+                    response,
+                    tag,
+                    attempt=attempt,
+                )
+                if should_retry:
+                    delay *= _BACKOFF_FACTOR
+                    continue
+
+            message = "GitHub API request failed after retries."
+            raise GithubReleaseError(message)
     except httpx.RequestError as exc:  # pragma: no cover - network failure path
         message = f"Failed to reach GitHub API: {exc!s}"
         raise GithubReleaseError(message) from exc
 
-    if response.status_code != httpx.codes.OK:
-        _handle_http_response_error(response, tag)
 
-    try:
-        return response.json()
-    except ValueError as exc:  # pragma: no cover - unexpected payload
-        message = "GitHub API returned invalid JSON"
-        raise GithubReleaseError(message) from exc
-
-
-def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
+def _handle_http_response_error(
+    response: httpx.Response,
+    tag: str,
+    *,
+    attempt: int,
+) -> bool:
     status = response.status_code
     detail = response.text.strip() or response.reason_phrase
     if status == httpx.codes.UNAUTHORIZED:
@@ -155,6 +193,10 @@ def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
             message = f"{message} ({context})"
         raise GithubReleaseError(message)
     if status == httpx.codes.FORBIDDEN:
+        retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
+        if retry_after is not None and attempt < _MAX_ATTEMPTS:
+            _sleep_with_jitter(retry_after)
+            return True
         permission_message = (
             "GitHub token lacks permission to read releases "
             "or has expired. "

@@ -36,9 +36,6 @@ KNOWN_LLVM_MINGW_SHA256 = {
         "ucrt-x86_64": (
             "d2719495e711f5d07cb0781be5eb987ba549b07075578e34387dd127eb1341e8"
         ),
-        "ucrt-aarch64": (
-            "0274ec5c504f440493ce85966dd3e48b857687b28d1ca64d7e0ec7fefe1bdeb3"
-        ),
     }
 }
 
@@ -92,11 +89,21 @@ def _detect_host_llvm_mingw_variant() -> str:
     raise RuntimeError(msg)
 
 
-def _resolve_llvm_mingw_variant() -> str:
+def _resolve_llvm_mingw_variant(version: str) -> str:
     """Return the llvm-mingw archive variant to install."""
     if override := os.environ.get("RBR_LLVM_MINGW_VARIANT"):
         return override
-    return _detect_host_llvm_mingw_variant()
+
+    candidate = _detect_host_llvm_mingw_variant()
+    if _expected_archive_sha256(version, candidate) is not None:
+        return candidate
+
+    if candidate != "ucrt-x86_64":
+        print(
+            "::warning:: Falling back to ucrt-x86_64 llvm-mingw archive because "
+            f"no checksum is registered for variant {candidate!r}.",
+        )
+    return "ucrt-x86_64"
 
 
 def _expected_archive_sha256(version: str, variant: str) -> str | None:
@@ -280,7 +287,7 @@ def main(
     print(f"Setting up for {requested_target} build on Windows...")
 
     llvm_mingw_version = _resolve_llvm_mingw_version()
-    llvm_mingw_variant = _resolve_llvm_mingw_variant()
+    llvm_mingw_variant = _resolve_llvm_mingw_variant(llvm_mingw_version)
     zip_file = f"llvm-mingw-{llvm_mingw_version}-{llvm_mingw_variant}.zip"
     url = (
         "https://github.com/mstorsjo/llvm-mingw/releases/download/"
@@ -333,6 +340,7 @@ def main(
         f"LD_{env_target}": "ld.lld",
         f"AR_{env_target}": "llvm-ar",
         f"RANLIB_{env_target}": "llvm-ranlib",
+        f"CARGO_TARGET_{env_target.upper()}_LINKER": f"{config.clang_triplet}-clang",
     }
     for key, value in env_vars.items():
         set_env(key, value)

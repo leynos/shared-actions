@@ -12,8 +12,6 @@ import pytest
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
-    _register_docker_info_stub,
-    _register_podman_info_stub,
     _register_rustup_toolchain_stub,
 )
 
@@ -491,7 +489,6 @@ def test_falls_back_to_cargo_when_runtime_unusable(
 
     assert any(cmd[0] == "cargo" for cmd in app_env.calls)
     assert all(cmd[0] != "cross" for cmd in app_env.calls)
-
 
 
 def test_returns_none_when_install_fails_on_windows(

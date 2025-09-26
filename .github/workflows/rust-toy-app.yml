@@ -30,11 +30,23 @@ jobs:
           - runner: windows-latest
             target: x86_64-pc-windows-gnullvm
           - runner: windows-latest
-            target: aarch64-pc-windows-gnullvm
+            target: aarch64-pc-windows-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Set llvm-mingw metadata
+        if: endsWith(matrix.target, '-pc-windows-gnu')
+        shell: pwsh
+        run: |
+          "LLVM_MINGW_VERSION=20250910" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LLVM_MINGW_SHA256=bd88084d7a3b95906fa295453399015a1fdd7b90a38baa8f78244bd234303737" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Configure Windows GNU toolchains
+        if: endsWith(matrix.target, '-pc-windows-gnu')
+        uses: ./.github/actions/setup-windows-gnu
+        with:
+          llvm-mingw-version: ${{ env.LLVM_MINGW_VERSION }}
+          llvm-mingw-sha256: ${{ env.LLVM_MINGW_SHA256 }}
       - name: Setup uv
         # v6.4.3
         uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4

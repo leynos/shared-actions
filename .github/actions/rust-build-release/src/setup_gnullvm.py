@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import os
+import platform
 import shutil
 import socket
 import stat
@@ -45,17 +46,14 @@ class TargetConfig:
     """Configuration metadata for a Windows gnullvm target."""
 
     clang_triplet: str
-    llvm_mingw_variant: str
 
 
 TARGET_CONFIGS: dict[str, TargetConfig] = {
     "x86_64-pc-windows-gnullvm": TargetConfig(
         clang_triplet="x86_64-w64-mingw32",
-        llvm_mingw_variant="ucrt-x86_64",
     ),
     "aarch64-pc-windows-gnullvm": TargetConfig(
         clang_triplet="aarch64-w64-mingw32",
-        llvm_mingw_variant="ucrt-x86_64",
     ),
 }
 
@@ -67,9 +65,36 @@ def _resolve_llvm_mingw_version() -> str:
     return os.environ.get("RBR_LLVM_MINGW_VERSION", LLVM_MINGW_DEFAULT_VERSION)
 
 
-def _resolve_llvm_mingw_variant(default_variant: str) -> str:
+def _detect_host_llvm_mingw_variant() -> str:
+    """Return the llvm-mingw archive variant that matches the host."""
+    arch_candidates = (
+        os.environ.get("RBR_HOST_ARCH"),
+        os.environ.get("RUNNER_ARCH"),
+        os.environ.get("PROCESSOR_ARCHITECTURE"),
+        platform.machine(),
+    )
+
+    for arch in arch_candidates:
+        if not arch:
+            continue
+        normalized = arch.lower()
+        if normalized in {"amd64", "x86_64"}:
+            return "ucrt-x86_64"
+        if normalized in {"arm64", "aarch64"}:
+            return "ucrt-arm64"
+
+    msg = (
+        "Unable to determine host architecture for llvm-mingw; "
+        "set RBR_LLVM_MINGW_VARIANT to override."
+    )
+    raise RuntimeError(msg)
+
+
+def _resolve_llvm_mingw_variant() -> str:
     """Return the llvm-mingw archive variant to install."""
-    return os.environ.get("RBR_LLVM_MINGW_VARIANT", default_variant)
+    if override := os.environ.get("RBR_LLVM_MINGW_VARIANT"):
+        return override
+    return _detect_host_llvm_mingw_variant()
 
 
 def _expected_archive_sha256(version: str, variant: str) -> str | None:
@@ -216,7 +241,7 @@ def main(target: str | None = None) -> None:
     print(f"Setting up for {requested_target} build on Windows...")
 
     llvm_mingw_version = _resolve_llvm_mingw_version()
-    llvm_mingw_variant = _resolve_llvm_mingw_variant(config.llvm_mingw_variant)
+    llvm_mingw_variant = _resolve_llvm_mingw_variant()
     zip_file = f"llvm-mingw-{llvm_mingw_version}-{llvm_mingw_variant}.zip"
     url = (
         "https://github.com/mstorsjo/llvm-mingw/releases/download/"

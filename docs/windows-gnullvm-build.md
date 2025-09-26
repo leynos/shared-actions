@@ -40,12 +40,12 @@ does not need to install it explicitly.
 
 The Python helper automates the setup process previously handled by PowerShell. It performs the following actions:
 
-- **Downloads `llvm-mingw`**: Fetches the specified release archive from GitHub, extracts it to a temporary runner directory, and adds its `bin` directory to the `GITHUB_PATH`. Because GitHub's Windows runners are `x86_64` hosts, the setup always downloads the `ucrt-x86_64` archive, which bundles cross-compilers for both the `x86_64` and `aarch64` Windows targets. The script still honours the `RBR_LLVM_MINGW_VARIANT` override when provided.
+- **Downloads `llvm-mingw`**: Fetches the specified release archive from GitHub, extracts it to a temporary runner directory, and adds its `bin` directory to the `GITHUB_PATH`. The setup inspects the host architecture (preferring `RUNNER_ARCH`, falling back to `PROCESSOR_ARCHITECTURE` or `platform.machine()`) and downloads the matching archive—`ucrt-x86_64` on today's GitHub runners, but `ucrt-arm64` automatically when run on an ARM64 host. The script still honours the `RBR_LLVM_MINGW_VARIANT` override when provided.
 - **Creates `.cargo/config.toml`**: Generates the necessary configuration to instruct Cargo how to link the requested `gnullvm` target using the matching `*-w64-mingw32-clang` frontend.
 - **Sets Environment Variables**: Writes the `CROSS_NO_DOCKER=1` flag and the target-scoped `CC_*`, `CXX_*`, `AR_*`, and `RANLIB_*` variables to `GITHUB_ENV` for the subsequent build step to use.
 - **Supports Overrides**: Optional `RBR_LLVM_MINGW_VERSION`, `RBR_LLVM_MINGW_VARIANT`, and `RBR_LLVM_MINGW_SHA256` environment variables allow selecting alternative releases while keeping checksum verification enabled.
 
-The default archive variant is `ucrt-x86_64`, matching the upstream `llvm-mingw` distribution that links against the UCRT and provides cross-compilers for multiple targets. The setup script also supports variants that share the same layout as the upstream release archives, including `ucrt-aarch64`, `ucrt-i686`, `msvcrt-x86_64`, `msvcrt-aarch64`, and `msvcrt-i686`. When you override `RBR_LLVM_MINGW_VARIANT`, be sure to set `RBR_LLVM_MINGW_SHA256` to the checksum that matches the chosen archive; otherwise the download will fail the checksum validation.
+The detected host architecture dictates the default archive variant—`ucrt-x86_64` today, but `ucrt-arm64` on a future ARM64 runner—matching the upstream `llvm-mingw` distribution that links against the UCRT and provides cross-compilers for multiple targets. The setup script also supports variants that share the same layout as the upstream release archives, including `ucrt-aarch64`, `ucrt-i686`, `msvcrt-x86_64`, `msvcrt-aarch64`, and `msvcrt-i686`. When you override `RBR_LLVM_MINGW_VARIANT`, be sure to set `RBR_LLVM_MINGW_SHA256` to the checksum that matches the chosen archive; otherwise the download will fail the checksum validation.
 
 ### 3. Build Script (`main.py`)
 

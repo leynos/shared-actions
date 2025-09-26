@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import os
 import shutil
@@ -20,7 +21,6 @@ import urllib.error
 import urllib.request
 import zipfile
 from contextlib import closing
-from dataclasses import dataclass
 from pathlib import Path
 
 from cyclopts import App
@@ -40,7 +40,7 @@ KNOWN_LLVM_MINGW_SHA256 = {
 }
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class TargetConfig:
     """Configuration metadata for a Windows gnullvm target."""
 

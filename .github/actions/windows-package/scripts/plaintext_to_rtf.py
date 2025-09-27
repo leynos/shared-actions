@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import struct
 import typing as typ
 from pathlib import Path
 
@@ -11,9 +12,17 @@ from pathlib import Path
 def _utf16_code_units(s: str) -> typ.Iterator[int]:
     """Yield UTF-16 code units for ``s`` as signed integers."""
     data = s.encode("utf-16le")
-    for i in range(0, len(data), 2):
-        u = data[i] | (data[i + 1] << 8)
-        yield u - 65536 if u >= 0x8000 else u
+    for (cu,) in struct.iter_unpack("<H", data):
+        yield cu - 0x10000 if cu >= 0x8000 else cu
+
+
+_ESCAPE_RTF = {
+    "\\": r"\\",
+    "{": r"\{",
+    "}": r"\}",
+    "\t": r"\tab ",
+    "\n": r"\par\n",
+}
 
 
 def _escape_plaintext_to_rtf(text: str) -> str:
@@ -21,28 +30,18 @@ def _escape_plaintext_to_rtf(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     out: list[str] = []
     for ch in text:
-        if ch == "\\":
-            out.append(r"\\")
-        elif ch == "{":
-            out.append(r"\{")
-        elif ch == "}":
-            out.append(r"\}")
-        elif ch == "\t":
-            out.append(r"\tab ")
-        elif ch == "\n":
-            out.append(r"\par\n")
+        if esc := _ESCAPE_RTF.get(ch):
+            out.append(esc)
+        elif " " <= ch <= "~":
+            out.append(ch)
         else:
-            code = ord(ch)
-            if 0x20 <= code <= 0x7E:
-                out.append(ch)
-            else:
-                out.extend(rf"\u{cu}?" for cu in _utf16_code_units(ch))
+            out.extend(rf"\u{cu}?" for cu in _utf16_code_units(ch))
     return "".join(out)
 
 
 def text_to_rtf(text: str, font: str = "Calibri", pt_size: int = 11) -> str:
     """Return an RTF document containing ``text`` rendered with ``font``."""
-    fs = max(1, int(pt_size) * 2)
+    fs = max(1, pt_size * 2)
     header = (
         r"{\rtf1\ansi\deff0\uc1"
         rf"{{\fonttbl{{\f0 {font};}}}}"

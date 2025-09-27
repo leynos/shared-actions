@@ -38,6 +38,12 @@ inputs:
     description: Directory where the MSI will be written.
     required: false
     default: out
+  license-plaintext-path:
+    description: Optional UTF-8 plain text licence file converted to RTF before building.
+    required: false
+  license-rtf-path:
+    description: Destination path for the generated licence RTF when converting from plain text.
+    required: false
   upload-artifact:
     description: Upload the generated MSI with `actions/upload-artifact`.
     required: false
@@ -59,10 +65,7 @@ runs:
     - name: Ensure Windows runner
       shell: pwsh
       run: |
-        if ($env:RUNNER_OS -ne 'Windows') {
-          Write-Error "windows-package action must run on a Windows runner. Current OS: $($env:RUNNER_OS)"
-          exit 1
-        }
+        & "${{ github.action_path }}\scripts\ensure_windows_runner.ps1"
     - name: Setup .NET SDK
       uses: actions/setup-dotnet@v4
       with:
@@ -74,29 +77,7 @@ runs:
         WIX_EXTENSION: ${{ inputs.wix-extension }}
         WIX_EXTENSION_VERSION: ${{ inputs.wix-extension-version }}
       run: |
-        $ErrorActionPreference = 'Stop'
-        $toolsDir = Join-Path $env:USERPROFILE '.dotnet\tools'
-        if (-not ($env:PATH -split ';' | Where-Object { $_ -eq $toolsDir })) {
-          $env:PATH = "$toolsDir;$env:PATH"
-        }
-        $toolVersion = $env:WIX_TOOL_VERSION
-        $installArgs = @('--global', 'wix')
-        if (-not [string]::IsNullOrWhiteSpace($toolVersion)) {
-          $installArgs += @('--version', $toolVersion)
-        }
-        try {
-          dotnet tool update @installArgs
-        }
-        catch {
-          dotnet tool install @installArgs
-        }
-        if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-          $extensionCoordinate = $env:WIX_EXTENSION
-          if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION_VERSION)) {
-            $extensionCoordinate = "$extensionCoordinate/$($env:WIX_EXTENSION_VERSION)"
-          }
-          wix extension add -g $extensionCoordinate
-        }
+        & "${{ github.action_path }}\scripts\install_wix_cli.ps1"
     - id: resolve-version
       name: Resolve package version
       shell: pwsh
@@ -105,71 +86,7 @@ runs:
         GITHUB_REF_NAME: ${{ github.ref_name }}
         GITHUB_REF_TYPE: ${{ github.ref_type }}
       run: |
-        $ErrorActionPreference = 'Stop'
-        function Get-MsiVersion([string] $candidate) {
-          if ([string]::IsNullOrWhiteSpace($candidate)) {
-            return $null
-          }
-          $trimmed = $candidate.Trim()
-          $pattern = '^[vV]?\d+(\.\d+){0,2}$'
-          if ($trimmed -notmatch $pattern) {
-            return $null
-          }
-          $numeric = $trimmed.TrimStart('v', 'V')
-          $parts = $numeric.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
-          while ($parts.Count -lt 3) {
-            $parts += '0'
-          }
-          if ($parts.Count -gt 3) {
-            $parts = $parts[0..2]
-          }
-          $validated = @()
-          for ($i = 0; $i -lt $parts.Count; $i++) {
-            $part = $parts[$i]
-            $value = 0
-            if (-not [int]::TryParse($part, [ref]$value)) { return $null }
-            $max = if ($i -eq 2) { 65535 } else { 255 }
-            if ($value -lt 0 -or $value -gt $max) { return $null }
-            $validated += $value
-          }
-          return ($validated -join '.')
-        }
-
-        $versionSource = 'default'
-        $explicitVersion = $env:INPUT_VERSION
-        $resolved = $null
-        if (-not [string]::IsNullOrWhiteSpace($explicitVersion)) {
-          $resolved = Get-MsiVersion $explicitVersion
-          if ($null -eq $resolved) {
-            Write-Error "Invalid MSI version '$explicitVersion'. Provide numeric major.minor.build where major/minor are 0–255 and build is 0–65535."
-            exit 1
-          }
-          $versionSource = 'input'
-        }
-
-        if ($null -eq $resolved) {
-          $refType = $env:GITHUB_REF_TYPE
-          $refName = $env:GITHUB_REF_NAME
-          if ($refType -eq 'tag' -and -not [string]::IsNullOrWhiteSpace($refName)) {
-            $resolved = Get-MsiVersion $refName
-            if ($null -eq $resolved) {
-              Write-Warning "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
-            }
-            else {
-              $versionSource = "tag '$refName'"
-            }
-          }
-          elseif (-not [string]::IsNullOrWhiteSpace($refName)) {
-            Write-Host "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
-          }
-        }
-
-        if ($null -eq $resolved) {
-          $resolved = '0.0.0'
-        }
-
-        Write-Host "Resolved version ($versionSource): $resolved"
-        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        & "${{ github.action_path }}\scripts\resolve_version.ps1"
     - id: build-msi
       name: Build MSI
       shell: pwsh
@@ -180,59 +97,10 @@ runs:
         OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
         VERSION: ${{ steps.resolve-version.outputs.version }}
         WIX_EXTENSION: ${{ inputs.wix-extension }}
+        LICENSE_TEXT_PATH: ${{ inputs.license-plaintext-path }}
+        LICENSE_RTF_PATH: ${{ inputs.license-rtf-path }}
       run: |
-        $ErrorActionPreference = 'Stop'
-        if (-not (Test-Path -LiteralPath $env:WXS_PATH)) {
-          Write-Error "WiX source file not found: $env:WXS_PATH"
-          exit 1
-        }
-        function Get-SafeName([string] $value, [string] $fallback) {
-          if ([string]::IsNullOrWhiteSpace($value)) {
-            return $fallback
-          }
-          $sanitised = $value -replace '[^A-Za-z0-9._-]', '-'
-          $sanitised = $sanitised.Trim('-_.')
-          if ([string]::IsNullOrWhiteSpace($sanitised)) {
-            return $fallback
-          }
-          return $sanitised
-        }
-
-        $outDir = $env:OUTPUT_DIRECTORY
-        if (Test-Path -LiteralPath $outDir) {
-          $outDirItem = Get-Item -LiteralPath $outDir
-        }
-        else {
-          $outDirItem = New-Item -ItemType Directory -Path $outDir
-        }
-        $safeBaseName = Get-SafeName -value $env:OUTPUT_BASENAME -fallback 'package'
-        $archInput = if ([string]::IsNullOrWhiteSpace($env:ARCHITECTURE)) { 'x64' } else { $env:ARCHITECTURE }
-        $archToken = $archInput.Trim()
-        switch -Regex ($archToken.ToLowerInvariant()) {
-          '^(x64|amd64)$' { $arch = 'x64'; break }
-          '^(x86|ia32|win32)$' { $arch = 'x86'; break }
-          '^(arm64|aarch64)$' { $arch = 'arm64'; break }
-          default { Write-Error "Unsupported architecture '$archInput'. Use x86, x64, or arm64."; exit 1 }
-        }
-        $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $arch)
-        $arguments = @('build', $env:WXS_PATH)
-        if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-          $extensions = $env:WIX_EXTENSION -split '[,\s]+'
-          foreach ($extension in $extensions) {
-            $trimmed = $extension.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-              $arguments += @('-ext', $trimmed)
-            }
-          }
-        }
-        $arguments += @('-arch', $arch, "-dVersion=$($env:VERSION)", '-o', $outputPath)
-        wix @arguments
-        if (-not (Test-Path -LiteralPath $outputPath)) {
-          Write-Error "MSI build failed: output file '$outputPath' was not created."
-          exit 1
-        }
-        $resolved = (Resolve-Path -LiteralPath $outputPath).Path
-        "msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        & "${{ github.action_path }}\scripts\build_msi.ps1"
     - name: Upload MSI artifact
       if: ${{ fromJSON(inputs.upload-artifact) }}
       uses: actions/upload-artifact@v4

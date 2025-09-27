@@ -63,10 +63,10 @@ runs:
       shell: bash
       env:
         INPUT_NAME: ${{ inputs.name }}
-        INPUT_INSTALL_PREFIX: ${{ inputs["install-prefix"] }}
+        INPUT_INSTALL_PREFIX: ${{ inputs['install-prefix'] }}
         INPUT_BINARY: ${{ inputs.binary }}
         INPUT_MANPAGE: ${{ inputs.manpage }}
-        INPUT_LICENSE_FILE: ${{ inputs["license-file"] }}
+        INPUT_LICENSE_FILE: ${{ inputs['license-file'] }}
       run: uv run "${{ github.action_path }}/scripts/prepare_payload.py"
     - name: Build component package
       shell: bash
@@ -76,28 +76,28 @@ runs:
         INPUT_NAME: ${{ inputs.name }}
       run: uv run "${{ github.action_path }}/scripts/build_component.py"
     - name: Prepare license resources
-      if: inputs.include-license-panel == 'true'
+      if: inputs['include-license-panel'] == 'true'
       shell: bash
       env:
         INPUT_NAME: ${{ inputs.name }}
         INPUT_IDENTIFIER: ${{ inputs.identifier }}
         INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
-        INPUT_LICENSE_FILE: ${{ inputs["license-file"] }}
+        INPUT_LICENSE_FILE: ${{ inputs['license-file'] }}
       run: uv run "${{ github.action_path }}/scripts/prepare_license_resources.py"
     - id: build-product
       shell: bash
       env:
         INPUT_NAME: ${{ inputs.name }}
         INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
-        INPUT_INCLUDE_LICENSE_PANEL: ${{ inputs["include-license-panel"] }}
+        INPUT_INCLUDE_LICENSE_PANEL: ${{ inputs['include-license-panel'] }}
       run: uv run "${{ github.action_path }}/scripts/build_product.py"
     - id: sign
-      if: inputs["developer-id-installer"] != ''
+      if: inputs['developer-id-installer'] != ''
       shell: bash
       env:
         INPUT_NAME: ${{ inputs.name }}
         INPUT_VERSION: ${{ steps.compute-version.outputs.version }}
-        INPUT_DEVELOPER_ID_INSTALLER: ${{ inputs["developer-id-installer"] }}
+        INPUT_DEVELOPER_ID_INSTALLER: ${{ inputs['developer-id-installer'] }}
       run: uv run "${{ github.action_path }}/scripts/sign_package.py"
 branding:
   icon: package

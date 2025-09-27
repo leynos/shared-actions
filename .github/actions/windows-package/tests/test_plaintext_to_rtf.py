@@ -98,13 +98,17 @@ def test_convert_file_respects_explicit_output_path(tmp_path: Path) -> None:
     source = tmp_path / "LICENSE.txt"
     destination = tmp_path / "out" / "LICENCE_COPY.rtf"
     destination.parent.mkdir()
-    source.write_text("Body", encoding="utf-8")
+    source.write_text("a\r\nb\nc\rd", encoding="utf-8")
 
     output = SCRIPT.convert_file(str(source), str(destination), font="Arial", pt_size=9)
 
     assert output == destination
     assert destination.exists()
     assert not (tmp_path / "LICENSE.rtf").exists()
+
+    rendered = destination.read_text(encoding="utf-8")
+    assert "\\par\\n" in rendered
+    assert "\r" not in rendered
 
 
 def test_convert_file_missing_input_raises() -> None:

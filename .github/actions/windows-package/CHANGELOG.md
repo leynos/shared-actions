@@ -9,7 +9,7 @@
 - Accept MSI build numbers up to `65535` and normalise architecture inputs to
   `x86`, `x64` or `arm64` before invoking WiX.
 - Clarify documentation to use the `$(var.Version)` preprocessor form.
-- Convert UTF-8 plain text licence files to RTF automatically when requested.
+- Convert UTF-8 plain text licence files to RTF automatically when requested via the `license-plaintext-path` and `license-rtf-path` inputs.
 
 ## windows-package-v0.1.0
 

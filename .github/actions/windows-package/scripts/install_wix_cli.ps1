@@ -14,11 +14,13 @@ if (-not [string]::IsNullOrWhiteSpace($toolVersion)) {
     $installArgs += @('--version', $toolVersion)
 }
 
-try {
-    dotnet tool update @installArgs
-}
-catch {
+dotnet tool update @installArgs
+if ($LASTEXITCODE -ne 0) {
     dotnet tool install @installArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to install WiX CLI via dotnet tool (exit code $LASTEXITCODE)."
+        exit $LASTEXITCODE
+    }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {

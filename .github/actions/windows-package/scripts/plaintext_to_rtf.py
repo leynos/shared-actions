@@ -28,6 +28,7 @@ _ESCAPE_RTF = {
 def _escape_plaintext_to_rtf(text: str) -> str:
     """Escape plain text for inclusion in an RTF body."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.removeprefix("\ufeff")
     out: list[str] = []
     for ch in text:
         if esc := _ESCAPE_RTF.get(ch):
@@ -39,12 +40,17 @@ def _escape_plaintext_to_rtf(text: str) -> str:
     return "".join(out)
 
 
+def _escape_font_name(font: str) -> str:
+    """Return ``font`` escaped for inclusion inside the font table."""
+    return font.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
+
+
 def text_to_rtf(text: str, font: str = "Calibri", pt_size: int = 11) -> str:
     """Return an RTF document containing ``text`` rendered with ``font``."""
     fs = max(1, pt_size * 2)
     header = (
         r"{\rtf1\ansi\deff0\uc1"
-        rf"{{\fonttbl{{\f0 {font};}}}}"
+        rf"{{\fonttbl{{\f0 {_escape_font_name(font)};}}}}"
         rf"\f0\fs{fs}\pard "
         "\n"
     )
@@ -61,9 +67,18 @@ def convert_file(
 ) -> Path:
     """Convert ``in_path`` to RTF, returning the written destination path."""
     src = Path(in_path)
-    dst = Path(out_path) if out_path else src.with_suffix(".rtf")
+    if out_path:
+        dst = Path(out_path)
+    elif src.suffix:
+        dst = src.with_suffix(".rtf")
+    else:
+        dst = src.with_name(f"{src.name}.rtf")
     dst.write_text(
-        text_to_rtf(src.read_text(encoding="utf-8"), font=font, pt_size=pt_size),
+        text_to_rtf(
+            src.read_text(encoding="utf-8-sig"),
+            font=font,
+            pt_size=pt_size,
+        ),
         encoding="utf-8",
         newline="\n",
     )

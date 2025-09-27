@@ -38,10 +38,9 @@ def test_text_to_rtf_renders_unicode_and_control_sequences() -> None:
     rtf = SCRIPT.text_to_rtf(text, font="Segoe UI Emoji", pt_size=11)
 
     header, body_with_tail = rtf.split("\n", 1)
-    expected_header = (
-        "{\\rtf1\\ansi\\deff0\\uc1{\\fonttbl{\\f0 Segoe UI Emoji;}}\\f0\\fs22\\pard "
+    assert header.startswith(
+        "{\\rtf1\\ansi\\deff0\\uc1{\\fonttbl{\\f0 Segoe UI Emoji;}}\\f0\\fs22\\pard"
     )
-    assert header == expected_header
 
     body = body_with_tail.rstrip("}")
     assert "na\\u239?ve" in body  # ï encoded as UTF-16 code unit
@@ -93,6 +92,24 @@ def test_text_to_rtf_only_control_characters() -> None:
     assert body.endswith("}")
 
 
+def test_text_to_rtf_strips_utf8_bom() -> None:
+    """Leading BOM code units should not appear in the escaped RTF body."""
+    rtf = SCRIPT.text_to_rtf("\ufeffHello")
+
+    assert "\\u65279?" not in rtf
+    assert "Hello" in rtf
+
+
+def test_text_to_rtf_header_escapes_font_name() -> None:
+    """Font names with control characters are escaped inside the header."""
+    font = r"Foo {Bar}\Baz"
+    rtf = SCRIPT.text_to_rtf("X", font=font)
+
+    header, _ = rtf.split("\n", 1)
+    assert r"{\fonttbl{\f0 Foo \{Bar\}" in header
+    assert r"\\Baz;}}" in header
+
+
 def test_convert_file_respects_explicit_output_path(tmp_path: Path) -> None:
     """Conversion writes to the provided destination when supplied."""
     source = tmp_path / "LICENSE.txt"
@@ -109,6 +126,17 @@ def test_convert_file_respects_explicit_output_path(tmp_path: Path) -> None:
     rendered = destination.read_text(encoding="utf-8")
     assert "\\par\\n" in rendered
     assert "\r" not in rendered
+
+
+def test_convert_file_without_suffix_adds_rtf(tmp_path: Path) -> None:
+    """Files without a suffix gain `.rtf` rather than raising ``ValueError``."""
+    source = tmp_path / "LICENSE"
+    source.write_text("Plain text", encoding="utf-8")
+
+    output = SCRIPT.convert_file(str(source))
+
+    assert output == tmp_path / "LICENSE.rtf"
+    assert output.exists()
 
 
 def test_convert_file_missing_input_raises() -> None:

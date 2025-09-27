@@ -100,8 +100,9 @@ def _resolve_llvm_mingw_variant(version: str) -> str:
 
     if candidate != "ucrt-x86_64":
         print(
-            "::warning:: Falling back to ucrt-x86_64 llvm-mingw archive because "
-            f"no checksum is registered for variant {candidate!r}.",
+            "::warning:: Unknown checksum for llvm-mingw "
+            f"{version} variant '{candidate}'; falling back to 'ucrt-x86_64'.",
+            file=sys.stderr,
         )
     return "ucrt-x86_64"
 

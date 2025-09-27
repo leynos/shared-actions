@@ -213,28 +213,54 @@ def test_forbidden_with_retry_after(
     fake_token: str,
 ) -> None:
     """Respect Retry-After guidance on 403 responses before failing."""
-    attempts: list[int] = []
     sleep_calls: list[float] = []
+    attempts: list[int] = []
 
     def record_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
-        attempts.append(1)
-        if len(attempts) == 1:
-            headers = {"Retry-After": "1"}
-            return module.httpx.Response(
-                403, headers=headers, content=b"", request=request
-            )
-        payload = {"draft": False, "prerelease": False, "name": "ok"}
-        return module.httpx.Response(200, json=payload, request=request)
+    class FakeClient:
+        """Stub ``httpx.Client`` that simulates a retry after throttling."""
 
-    _install_transport(monkeypatch, module, handler)
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            headers = kwargs.get("headers", {})
+            assert headers["Authorization"] == f"Bearer {fake_token}"
+            self._calls = 0
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: object,
+        ) -> bool:
+            return False
+
+        def get(
+            self, url: module.httpx.URL, *, follow_redirects: bool
+        ) -> module.httpx.Response:
+            assert follow_redirects is False
+            self._calls += 1
+            attempts.append(self._calls)
+            request = module.httpx.Request("GET", url)
+            if self._calls == 1:
+                return module.httpx.Response(
+                    403,
+                    headers={"Retry-After": "1"},
+                    request=request,
+                    content=b"",
+                )
+            payload = {"draft": False, "prerelease": False, "name": "ok"}
+            return module.httpx.Response(200, json=payload, request=request)
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
     monkeypatch.setattr(module.time, "sleep", record_sleep)
 
     module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
-    assert len(attempts) == 2
+    assert attempts == [1, 2]
     assert sleep_calls == [1.0]
     captured = capsys.readouterr()
     assert "GitHub Release 'ok' is published." in captured.out

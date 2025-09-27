@@ -44,6 +44,8 @@ inputs):
 | `wix-extension-version` | no | `4` | Version suffix appended to the extension coordinate (e.g. `WixToolset.UI.wixext/4`). |
 | `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
 | `output-directory` | no | `out` | Directory where the MSI artefact is created. |
+| `license-plaintext-path` | no | _unset_ | Optional path to a UTF-8 plain text licence that will be converted to RTF before building. |
+| `license-rtf-path` | no | _unset_ | Output path for the generated licence RTF when converting from plain text. Defaults to replacing the input suffix with `.rtf`. |
 | `upload-artifact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
 | `artifact-name` | no | `msi` | Name of the uploaded artifact. |
 
@@ -94,8 +96,12 @@ MSI ProductVersion components must be integers where the major and minor
 segments are `0–255` and the build segment is `0–65535`. Values outside those
 ranges cause the action to fail fast so that WiX receives a valid version.
 
-To display a licence in the installer UI, supply an RTF document and reference
-it from the WiX authoring, for example:
+To display a licence in the installer UI, either provide an RTF file directly
+or add a UTF-8 plain text document and set `license-plaintext-path` so the
+action converts it to RTF prior to invoking WiX. When no explicit
+`license-rtf-path` is set the generated file replaces the source suffix with
+`.rtf`, making it easy to refer to a stable path from WiX authoring. For
+example:
 
 ```xml
 <WixVariable Id="WixUILicenseRtf" Value="assets\LICENSE.rtf" />

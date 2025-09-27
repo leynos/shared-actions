@@ -182,6 +182,30 @@ def test_permission_denied(
     assert "GitHub token lacks permission" in captured.err
 
 
+def test_invalid_json_reports_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    fake_token: str,
+) -> None:
+    """Surface the problematic payload when JSON decoding fails."""
+    payload = "{" * (module._JSON_PAYLOAD_PREVIEW_LIMIT + 10)
+
+    def handler(request: module.httpx.Request) -> module.httpx.Response:
+        return module.httpx.Response(200, content=payload.encode(), request=request)
+
+    _install_transport(monkeypatch, module, handler)
+
+    with pytest.raises(SystemExit):
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
+
+    captured = capsys.readouterr()
+    assert "invalid JSON" in captured.err
+    preview = payload[: module._JSON_PAYLOAD_PREVIEW_LIMIT]
+    assert preview in captured.err
+    assert "..." in captured.err
+
+
 def test_forbidden_with_retry_after(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
@@ -247,6 +271,29 @@ def test_retries_then_success(
     assert len(attempts) == 3
     captured = capsys.readouterr()
     assert "GitHub Release 'ok' is published." in captured.out
+
+
+def test_error_detail_truncated(
+    monkeypatch: pytest.MonkeyPatch,
+    module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    fake_token: str,
+) -> None:
+    """Truncate oversized error responses before surfacing them."""
+    detail = "x" * (module._ERROR_DETAIL_LIMIT + 50)
+
+    def handler(request: module.httpx.Request) -> module.httpx.Response:
+        return module.httpx.Response(500, content=detail.encode(), request=request)
+
+    _install_transport(monkeypatch, module, handler)
+
+    with pytest.raises(SystemExit):
+        module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
+
+    captured = capsys.readouterr()
+    truncated = detail[: module._ERROR_DETAIL_LIMIT] + "…"
+    assert truncated in captured.err
+    assert detail not in captured.err
 
 
 def test_retries_then_fail(

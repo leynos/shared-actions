@@ -59,6 +59,8 @@ _MAX_ATTEMPTS = 5
 _BACKOFF_FACTOR = 1.5
 _INITIAL_DELAY = 1.0
 _RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504, 429})
+_ERROR_DETAIL_LIMIT = 1024
+_JSON_PAYLOAD_PREVIEW_LIMIT = 500
 
 
 class _GithubRetry(Retry):
@@ -120,6 +122,27 @@ def _parse_retry_after_header(value: str | None) -> float | None:
     return None
 
 
+def _truncate_text(value: str, limit: int, *, suffix: str = "…") -> str:
+    """Return ``value`` truncated to ``limit`` characters with ``suffix``."""
+    if limit <= 0:
+        return ""
+    if len(value) <= limit:
+        return value
+    return value[:limit] + suffix
+
+
+def _extract_error_detail(
+    response: httpx.Response, *, limit: int = _ERROR_DETAIL_LIMIT
+) -> str:
+    """Return a truncated error detail string for logging and exceptions."""
+    try:
+        text = response.text
+    except httpx.StreamError:  # pragma: no cover - unexpected streaming failure
+        text = ""
+    detail = text.strip() or response.reason_phrase or ""
+    return _truncate_text(detail, limit)
+
+
 def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
     url = httpx.URL(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
     if url.scheme != "https":  # pragma: no cover - defensive guard
@@ -156,7 +179,15 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
                     try:
                         return response.json()
                     except ValueError as exc:  # pragma: no cover - unexpected payload
-                        message = "GitHub API returned invalid JSON"
+                        truncated_payload = _truncate_text(
+                            response.text,
+                            _JSON_PAYLOAD_PREVIEW_LIMIT,
+                            suffix="...",
+                        )
+                        message = (
+                            "GitHub API returned invalid JSON. "
+                            f"Raw payload (truncated): {truncated_payload}"
+                        )
                         raise GithubReleaseError(message) from exc
 
                 should_retry = _handle_http_response_error(
@@ -182,7 +213,7 @@ def _handle_http_response_error(
     attempt: int,
 ) -> bool:
     status = response.status_code
-    detail = response.text.strip() or response.reason_phrase
+    detail = _extract_error_detail(response)
     if status == httpx.codes.UNAUTHORIZED:
         context = detail
         message = (

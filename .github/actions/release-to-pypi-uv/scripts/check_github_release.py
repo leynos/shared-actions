@@ -226,7 +226,7 @@ def _handle_http_response_error(
     if status == httpx.codes.FORBIDDEN:
         retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
         if retry_after is not None and attempt < _MAX_ATTEMPTS:
-            _sleep_with_jitter(retry_after)
+            time.sleep(retry_after)
             return True
         permission_message = (
             "GitHub token lacks permission to read releases "

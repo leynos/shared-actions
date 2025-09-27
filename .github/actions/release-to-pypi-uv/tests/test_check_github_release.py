@@ -216,12 +216,7 @@ def test_forbidden_with_retry_after(
     attempts: list[int] = []
     sleep_calls: list[float] = []
 
-    def fake_sleep(
-        delay: float,
-        *,
-        jitter: module._UniformGenerator | None = None,
-        sleep: module.SleepFn | None = None,
-    ) -> None:
+    def record_sleep(delay: float) -> None:
         sleep_calls.append(delay)
 
     def handler(request: module.httpx.Request) -> module.httpx.Response:
@@ -235,8 +230,7 @@ def test_forbidden_with_retry_after(
         return module.httpx.Response(200, json=payload, request=request)
 
     _install_transport(monkeypatch, module, handler)
-    monkeypatch.setattr(module, "_sleep_with_jitter", fake_sleep)
-    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module.time, "sleep", record_sleep)
 
     module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 

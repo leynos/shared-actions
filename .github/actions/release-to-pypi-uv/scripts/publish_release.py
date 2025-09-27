@@ -31,8 +31,7 @@ def _ensure_python_runtime() -> None:
 
 def _extend_sys_path() -> None:
     candidates: list[Path] = []
-    action_path_env = os.getenv("GITHUB_ACTION_PATH")
-    if action_path_env:
+    if action_path_env := os.getenv("GITHUB_ACTION_PATH"):
         action_path = Path(action_path_env).resolve()
         candidates.append(action_path / "scripts")
         with contextlib.suppress(IndexError):

@@ -1,6 +1,6 @@
 # Windows package action
 
-Build a WiX v4 MSI from a prebuilt Windows application, licence text (RTF) and
+Build a WiX v4 MSI from a prebuilt Windows application, license text (RTF) and
 supporting documentation. The action codifies the workflow documented in the
 repository guidance so that any job can produce a signed installer artefact with
 one composite call.
@@ -27,7 +27,7 @@ inputs):
 │  └─ Package.wxs              # WiX v4 authoring
 └─ assets/
    ├─ MyApp.exe                # application binary
-   ├─ LICENSE.rtf              # licence text shown in the installer UI
+   ├─ LICENSE.rtf              # license text shown in the installer UI
    └─ README.pdf               # documentation shipped with the installer
 ```
 
@@ -44,8 +44,8 @@ inputs):
 | `wix-extension-version` | no | `4` | Version suffix appended to the extension coordinate (e.g. `WixToolset.UI.wixext/4`). |
 | `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
 | `output-directory` | no | `out` | Directory where the MSI artefact is created. |
-| `license-plaintext-path` | no | _unset_ | Optional path to a UTF-8 (with or without BOM) plain text licence that will be converted to RTF using the default Calibri 11 pt template. |
-| `license-rtf-path` | no | _unset_ | Output path for the generated licence RTF when converting from plain text. Defaults to replacing the input suffix with `.rtf`. |
+| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license that will be converted to RTF using the default Calibri 11 pt template. |
+| `license-rtf-path` | no | `''` | Output path for the generated license RTF when converting from plain text. Defaults to replacing the input suffix with `.rtf`. |
 | `upload-artifact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
 | `artifact-name` | no | `msi` | Name of the uploaded artifact. |
 
@@ -96,7 +96,7 @@ MSI ProductVersion components must be integers where the major and minor
 segments are `0–255` and the build segment is `0–65535`. Values outside those
 ranges cause the action to fail fast so that WiX receives a valid version.
 
-To display a licence in the installer UI, either provide an RTF file directly
+To display a license in the installer UI, either provide an RTF file directly
 or add a UTF-8 plain text document and set `license-plaintext-path` so the
 action converts it to RTF prior to invoking WiX. UTF-8 input with or without a
 byte-order mark is accepted—the converter strips any BOM and renders the text

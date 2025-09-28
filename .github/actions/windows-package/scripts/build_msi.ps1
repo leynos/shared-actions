@@ -3,6 +3,8 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path -Path $PSScriptRoot -ChildPath 'common.ps1')
+
 if (-not (Test-Path -LiteralPath $env:WXS_PATH)) {
     Write-Error "WiX source file not found: $env:WXS_PATH"
     exit 1
@@ -18,13 +20,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
         }
     }
     if (-not $pythonCommand) {
-        Write-Error 'Python is required to convert the licence text file but neither python nor py -3 was found on PATH.'
+        Write-Error 'Python is required to convert the license text file but neither python nor py -3 was found on PATH.'
         exit 1
     }
 
     $sourcePath = Resolve-Path -LiteralPath $env:LICENSE_TEXT_PATH -ErrorAction SilentlyContinue
     if (-not $sourcePath) {
-        Write-Error "Licence text file not found: $env:LICENSE_TEXT_PATH"
+        Write-Error "License text file not found: $env:LICENSE_TEXT_PATH"
         exit 1
     }
 
@@ -57,25 +59,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
 
     $generatedPath = $process.Trim()
     if (-not (Test-Path -LiteralPath $generatedPath)) {
-        Write-Error "Expected licence RTF file was not created: $generatedPath"
+        Write-Error "Expected license RTF file was not created: $generatedPath"
         exit 1
     }
 
     $resolvedRtfPath = (Resolve-Path -LiteralPath $generatedPath).Path
     $env:LICENSE_RTF_PATH = $resolvedRtfPath
-    Write-Host "Converted licence text to RTF: $resolvedRtfPath"
-}
-
-function Get-SafeName([string] $value, [string] $fallback) {
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return $fallback
-    }
-    $sanitised = $value -replace '[^A-Za-z0-9._-]', '-'
-    $sanitised = $sanitised.Trim('-_.')
-    if ([string]::IsNullOrWhiteSpace($sanitised)) {
-        return $fallback
-    }
-    return $sanitised
+    Write-Host "Converted license text to RTF: $resolvedRtfPath"
 }
 
 $outDir = $env:OUTPUT_DIRECTORY
@@ -86,17 +76,14 @@ else {
     $outDirItem = New-Item -ItemType Directory -Path $outDir
 }
 
-$safeBaseName = Get-SafeName -value $env:OUTPUT_BASENAME -fallback 'package'
+$safeBaseName = Get-SafeName -Value $env:OUTPUT_BASENAME -Fallback 'package'
 $archInput = if ([string]::IsNullOrWhiteSpace($env:ARCHITECTURE)) { 'x64' } else { $env:ARCHITECTURE }
-$archToken = $archInput.Trim()
-switch -Regex ($archToken.ToLowerInvariant()) {
-    '^(x64|amd64)$' { $arch = 'x64'; break }
-    '^(x86|ia32|win32)$' { $arch = 'x86'; break }
-    '^(arm64|aarch64)$' { $arch = 'arm64'; break }
-    default {
-        Write-Error "Unsupported architecture '$archInput'. Use x86, x64, or arm64."
-        exit 1
-    }
+try {
+    $arch = Resolve-Architecture -Value $archInput
+}
+catch [System.ArgumentException] {
+    Write-Error $_.Exception.Message
+    exit 1
 }
 
 $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $arch)

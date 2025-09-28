@@ -39,11 +39,13 @@ inputs:
     required: false
     default: out
   license-plaintext-path:
-    description: Optional UTF-8 plain text licence file converted to RTF before building.
+    description: Optional UTF-8 plain text license file converted to RTF before building.
     required: false
+    default: ''
   license-rtf-path:
-    description: Destination path for the generated licence RTF when converting from plain text.
+    description: Destination path for the generated license RTF when converting from plain text.
     required: false
+    default: ''
   upload-artifact:
     description: Upload the generated MSI with `actions/upload-artifact`.
     required: false
@@ -74,7 +76,7 @@ runs:
       if: ${{ inputs.license-plaintext-path != '' }}
       uses: actions/setup-python@v5
       with:
-        python-version: '3.x'
+        python-version: '3.11'
     - name: Install WiX CLI and extensions
       shell: pwsh
       env:

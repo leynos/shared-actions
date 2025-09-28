@@ -93,6 +93,14 @@ def test_text_to_rtf_only_control_characters() -> None:
     assert body.endswith("}")
 
 
+def test_text_to_rtf_vertical_tab_and_form_feed() -> None:
+    """Vertical tab and form feed characters are emitted as Unicode escapes."""
+    rtf = SCRIPT.text_to_rtf("\x0b\x0c")
+
+    assert "\\u11?" in rtf
+    assert "\\u12?" in rtf
+
+
 def test_text_to_rtf_strips_utf8_bom() -> None:
     """Leading BOM code units should not appear in the escaped RTF body."""
     rtf = SCRIPT.text_to_rtf("\ufeffHello")
@@ -111,6 +119,24 @@ def test_text_to_rtf_header_escapes_font_name() -> None:
     assert r"\\Baz;}}" in header
 
 
+def test_text_to_rtf_header_unicode_font_name() -> None:
+    """Unicode characters in font names are represented safely."""
+    font = "标题字体 😀"
+    rtf = SCRIPT.text_to_rtf("X", font=font)
+
+    header, _ = rtf.split("\n", 1)
+    expected_units = [
+        "\\u26631?",
+        "\\u-26472?",
+        "\\u23383?",
+        "\\u20307?",
+        "\\u-10179?",
+        "\\u-8704?",
+    ]
+    for unit in expected_units:
+        assert unit in header
+
+
 def test_text_to_rtf_rejects_injection_prone_font_name() -> None:
     """Disallow font names that could inject additional RTF control words."""
     with pytest.raises(ValueError, match="must not contain '\\;' or newline"):
@@ -120,7 +146,7 @@ def test_text_to_rtf_rejects_injection_prone_font_name() -> None:
 def test_convert_file_respects_explicit_output_path(tmp_path: Path) -> None:
     """Conversion writes to the provided destination when supplied."""
     source = tmp_path / "LICENSE.txt"
-    destination = tmp_path / "out" / "LICENCE_COPY.rtf"
+    destination = tmp_path / "out" / "LICENSE_COPY.rtf"
     destination.parent.mkdir()
     source.write_text("a\r\nb\nc\rd", encoding="utf-8")
 
@@ -194,3 +220,47 @@ def test_main_converts_with_explicit_output(
     assert captured.out.strip() == str(destination)
     assert destination.exists()
     assert "cli text" in destination.read_text(encoding="utf-8")
+
+
+def test_main_invalid_font(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI should emit a clear error when the font name is invalid."""
+    source = tmp_path / "input.txt"
+    source.write_text("cli text", encoding="utf-8")
+
+    argv = [
+        "plaintext_to_rtf.py",
+        "--input",
+        str(source),
+        "--font",
+        "Bad;Font",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit):
+        SCRIPT.main()
+    captured = capsys.readouterr()
+    assert "Invalid font" in captured.err
+
+
+def test_main_invalid_point_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI should emit a clear error when the point size is invalid."""
+    source = tmp_path / "input.txt"
+    source.write_text("cli text", encoding="utf-8")
+
+    argv = [
+        "plaintext_to_rtf.py",
+        "--input",
+        str(source),
+        "--point-size",
+        "notanumber",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit):
+        SCRIPT.main()
+    captured = capsys.readouterr()
+    assert "Invalid point size" in captured.err

@@ -10,8 +10,15 @@ if (-not (Test-Path -LiteralPath $env:WXS_PATH)) {
 
 if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
     $pythonCommand = Get-Command -Name python -ErrorAction SilentlyContinue
+    $pythonArgs = @()
     if (-not $pythonCommand) {
-        Write-Error 'Python is required to convert the licence text file but was not found on PATH.'
+        $pythonCommand = Get-Command -Name py -ErrorAction SilentlyContinue
+        if ($pythonCommand) {
+            $pythonArgs = @('-3')
+        }
+    }
+    if (-not $pythonCommand) {
+        Write-Error 'Python is required to convert the licence text file but neither python nor py -3 was found on PATH.'
         exit 1
     }
 
@@ -37,7 +44,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
         $arguments += @('--output', $rtfTarget)
     }
 
-    $process = & $pythonCommand.Source @arguments
+    $allArguments = @()
+    if ($pythonArgs.Count -gt 0) {
+        $allArguments += $pythonArgs
+    }
+    $allArguments += $arguments
+
+    $process = & $pythonCommand.Source @allArguments
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

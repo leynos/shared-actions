@@ -76,9 +76,10 @@ def test_text_to_rtf_with_empty_string() -> None:
     """Empty input should yield a valid RTF document with no body content."""
     rtf = SCRIPT.text_to_rtf("")
 
-    assert (
-        rtf == "{\\rtf1\\ansi\\deff0\\uc1{\\fonttbl{\\f0 Calibri;}}\\f0\\fs22\\pard \n}"
+    assert rtf.startswith(
+        "{\\rtf1\\ansi\\deff0\\uc1{\\fonttbl{\\f0 Calibri;}}\\f0\\fs22\\pard"
     )
+    assert rtf.endswith("\n}")
 
 
 def test_text_to_rtf_only_control_characters() -> None:

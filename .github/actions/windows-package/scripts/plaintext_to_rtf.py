@@ -9,6 +9,15 @@ import typing as typ
 from pathlib import Path
 
 
+def _positive_int(value: str) -> int:
+    """Return ``value`` as an integer ensuring it is positive."""
+    point_size = int(value)
+    if point_size < 1:
+        message = "point size must be >= 1"
+        raise argparse.ArgumentTypeError(message)
+    return point_size
+
+
 def _utf16_code_units(s: str) -> typ.Iterator[int]:
     """Yield UTF-16 code units for ``s`` as signed integers."""
     data = s.encode("utf-16le")
@@ -100,7 +109,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--point-size",
-        type=int,
+        type=_positive_int,
         default=11,
         help="Font point size for the generated RTF (integer, default: 11).",
     )

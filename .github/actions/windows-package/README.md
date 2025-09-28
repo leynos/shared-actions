@@ -44,8 +44,11 @@ inputs):
 | `wix-extension-version` | no | `4` | Version suffix appended to the extension coordinate (e.g. `WixToolset.UI.wixext/4`). |
 | `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
 | `output-directory` | no | `out` | Directory where the MSI artefact is created. |
-| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license that will be converted to RTF using the default Calibri 11 pt template. |
-| `license-rtf-path` | no | `''` | Output path for the generated license RTF when converting from plain text. Defaults to replacing the input suffix with `.rtf`. |
+| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license |
+|                          |    |      | that will be converted to RTF using the default Calibri 11 pt |
+|                          |    |      | template. |
+| `license-rtf-path`       | no | `''` | Output path for the generated license RTF when converting from |
+|                          |    |      | plain text. Defaults to replacing the input suffix with `.rtf`. |
 | `upload-artifact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
 | `artifact-name` | no | `msi` | Name of the uploaded artifact. |
 

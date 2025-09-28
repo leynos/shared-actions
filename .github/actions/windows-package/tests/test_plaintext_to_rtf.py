@@ -178,6 +178,15 @@ def test_convert_file_missing_input_raises() -> None:
         SCRIPT.convert_file("/path/that/does/not/exist.txt")
 
 
+def test_convert_file_invalid_encoding(tmp_path: Path) -> None:
+    """Binary data that is not UTF-8 should propagate a ``UnicodeDecodeError``."""
+    source = tmp_path / "invalid.txt"
+    source.write_bytes(b"\xff\xfe\xfd")
+
+    with pytest.raises(UnicodeDecodeError):
+        SCRIPT.convert_file(str(source))
+
+
 def test_parse_args_with_explicit_output(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -190,6 +199,15 @@ def test_parse_args_with_explicit_output(
 
     assert args.input == str(fake_input)
     assert args.output == "custom.rtf"
+
+
+def test_parse_args_missing_required_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parser should exit when ``--input`` is omitted."""
+    argv = ["plaintext_to_rtf.py", "--output", "out.rtf"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit):
+        SCRIPT.parse_args()
 
 
 def test_main_converts_with_explicit_output(

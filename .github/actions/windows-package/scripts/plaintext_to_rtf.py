@@ -51,6 +51,12 @@ def _escape_plaintext_to_rtf(text: str) -> str:
 
 def _escape_font_name(font: str) -> str:
     """Return ``font`` escaped for inclusion inside the font table."""
+    if any(ch in font for ch in {";", "\r", "\n"}):
+        message = "font must not contain ';' or newline characters"
+        raise ValueError(message)
+    if any(ord(ch) < 0x20 for ch in font):
+        message = "font must not contain control characters"
+        raise ValueError(message)
     return font.replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
 
 

@@ -61,7 +61,9 @@ if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
         exit 1
     }
 
-    Write-Host "Converted licence text to RTF: $generatedPath"
+    $resolvedRtfPath = (Resolve-Path -LiteralPath $generatedPath).Path
+    $env:LICENSE_RTF_PATH = $resolvedRtfPath
+    Write-Host "Converted licence text to RTF: $resolvedRtfPath"
 }
 
 function Get-SafeName([string] $value, [string] $fallback) {

@@ -111,6 +111,12 @@ def test_text_to_rtf_header_escapes_font_name() -> None:
     assert r"\\Baz;}}" in header
 
 
+def test_text_to_rtf_rejects_injection_prone_font_name() -> None:
+    """Disallow font names that could inject additional RTF control words."""
+    with pytest.raises(ValueError, match="must not contain '\\;' or newline"):
+        SCRIPT.text_to_rtf("X", font="Bad;Name")
+
+
 def test_convert_file_respects_explicit_output_path(tmp_path: Path) -> None:
     """Conversion writes to the provided destination when supplied."""
     source = tmp_path / "LICENSE.txt"

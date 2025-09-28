@@ -15,6 +15,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
           # - runner: ubuntu-latest
           #   target: x86_64-unknown-freebsd # TODO: re-introduce when implemented
           # - runner: ubuntu-latest
@@ -23,10 +27,6 @@ jobs:
           #   target: x86_64-unknown-openbsd # TODO: re-introduce when implemented
           # - runner: ubuntu-latest
           #   target: aarch64-unknown-openbsd # TODO: re-introduce when implemented
-          # - runner: macos-latest
-          #   target: x86_64-apple-darwin # TODO: re-introduce when implemented
-          # - runner: macos-latest
-          #   target: aarch64-apple-darwin # TODO: re-introduce when implemented
           - runner: windows-latest
             target: x86_64-pc-windows-gnullvm
           - runner: windows-latest
@@ -57,17 +57,38 @@ jobs:
           project-dir: rust-toy-app
           version: ${{ steps.crate-version.outputs.version }}
       - name: Verify artifacts
+        id: verify-artifacts
         run: |
           set -euo pipefail
           bin=rust-toy-app
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             bin=rust-toy-app.exe
           fi
-          path="target/${{ matrix.target }}/release/$bin"
-          echo "Verifying binary at: $path"
-          test -f "$path"
+          binary_path="target/${{ matrix.target }}/release/$bin"
+          echo "Verifying binary at: $binary_path"
+          test -f "$binary_path"
           shopt -s nullglob
           manpages=(target/${{ matrix.target }}/release/build/rust-toy-app-*/out/rust-toy-app.1)
           (( "${#manpages[@]}" > 0 ))
+          echo "binary=rust-toy-app/$binary_path" >> "$GITHUB_OUTPUT"
+          echo "manpage=rust-toy-app/${manpages[0]}" >> "$GITHUB_OUTPUT"
         working-directory: rust-toy-app
         shell: bash
+      - name: Package macOS installer
+        if: contains(matrix.target, 'apple-darwin')
+        id: package-macos
+        uses: ./.github/actions/macos-package
+        with:
+          name: rust-toy-app
+          identifier: dev.sharedactions.rust-toy-app
+          binary: ${{ steps.verify-artifacts.outputs.binary }}
+          manpage: ${{ steps.verify-artifacts.outputs.manpage }}
+          license-file: rust-toy-app/LICENSE
+          version: ${{ steps.crate-version.outputs.version }}
+      - name: Upload macOS package
+        if: contains(matrix.target, 'apple-darwin')
+        # v4.3.4
+        uses: actions/upload-artifact@0b2256b8c012f0828dc542b3febcab082c67f72b
+        with:
+          name: rust-toy-app-${{ matrix.target }}-pkg-${{ steps.crate-version.outputs.version }}
+          path: ${{ steps.package-macos.outputs.pkg-path }}

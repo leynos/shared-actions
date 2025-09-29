@@ -6,6 +6,9 @@ inputs:
     description: >-
       Newline or whitespace separated list of Cargo.toml manifest paths to validate.
     default: Cargo.toml
+  tag-prefix:
+    description: Prefix to strip from the Git reference name before comparison.
+    default: v
 runs:
   using: composite
   steps:
@@ -22,6 +25,7 @@ runs:
       shell: bash
       env:
         INPUT_MANIFESTS: ${{ inputs.manifests }}
+        INPUT_TAG_PREFIX: ${{ inputs.tag-prefix }}
       run: |
         set -euo pipefail
         uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"

@@ -7,12 +7,13 @@ Validate that the Git tag triggering a release workflow matches the version in o
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
 | `manifests` | No | `Cargo.toml` | Newline or whitespace separated list of Cargo manifest paths to check. Paths are resolved relative to the GitHub workspace. |
+| `tag-prefix` | No | `v` | Prefix stripped from the Git reference name before comparing against manifest versions. Use an empty string to disable prefix removal. |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| `version` | Version extracted from the tag reference (leading `v` removed). |
+| `version` | Version extracted from the tag reference after removing the configured prefix. |
 
 ## Usage
 

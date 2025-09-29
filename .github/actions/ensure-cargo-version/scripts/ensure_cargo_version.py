@@ -79,18 +79,26 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
     return ManifestVersion(path=path, version=version.strip())
 
 
-def _emit_error(title: str, message: str) -> None:
+def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:
     """Print an error in the format expected by GitHub Actions."""
-    print(f"::error title={title}::{message}")
+    metadata_parts: list[str] = []
+    if path is not None:
+        metadata_parts.append(f"file={_display_path(path)}")
+        metadata_parts.append("line=1")
+    metadata_parts.append(f"title={title}")
+    metadata = ",".join(metadata_parts)
+    print(f"::error {metadata}::{message}")
 
 
-def _tag_from_ref() -> str:
+def _tag_from_ref(prefix: str) -> str:
     """Return the tag version from the GitHub reference name."""
     ref_name = os.environ.get("GITHUB_REF_NAME")
     if not ref_name:
         message = "GITHUB_REF_NAME is not set"
         raise RuntimeError(message)
-    return ref_name.removeprefix("v")
+    if prefix and ref_name.startswith(prefix):
+        return ref_name[len(prefix) :]
+    return ref_name
 
 
 def _write_output(name: str, value: str) -> None:
@@ -116,26 +124,31 @@ def _display_path(path: Path) -> str:
 def main(
     *,
     manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
+    tag_prefix: typ.Annotated[str, Parameter()] = "v",
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]
     resolved = _resolve_paths(manifest_args)
 
     try:
-        tag_version = _tag_from_ref()
+        tag_version = _tag_from_ref(tag_prefix)
     except RuntimeError as exc:
         _emit_error("Missing tag", str(exc))
         raise SystemExit(1) from exc
 
     manifest_versions: list[ManifestVersion] = []
-    errors: list[tuple[str, str]] = []
+    errors: list[tuple[str, str, Path | None]] = []
 
     for manifest_path in resolved:
         try:
             manifest_versions.append(_read_manifest_version(manifest_path))
         except ManifestError as exc:
             errors.append(
-                ("Cargo.toml parse failure", f"{exc} in {_display_path(exc.path)}")
+                (
+                    "Cargo.toml parse failure",
+                    f"{exc} in {_display_path(exc.path)}",
+                    exc.path,
+                )
             )
 
     mismatch_errors = [
@@ -146,6 +159,7 @@ def main(
                 f"{manifest_version.version}"
                 f" for {_display_path(manifest_version.path)}"
             ),
+            manifest_version.path,
         )
         for manifest_version in manifest_versions
         if manifest_version.version != tag_version
@@ -153,8 +167,8 @@ def main(
     errors.extend(mismatch_errors)
 
     if errors:
-        for title, message in errors:
-            _emit_error(title, message)
+        for title, message, path in errors:
+            _emit_error(title, message, path=path)
         raise SystemExit(1)
 
     manifest_list = ", ".join(_display_path(item.path) for item in manifest_versions)

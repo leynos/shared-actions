@@ -1,0 +1,21 @@
+name: ensure-cargo-version
+description: Validate that release tags match the version declared in one or more Cargo manifests.
+author: leynos
+inputs:
+  manifests:
+    description: >-
+      Newline or whitespace separated list of Cargo.toml manifest paths to validate.
+    default: Cargo.toml
+runs:
+  using: composite
+  steps:
+    - name: Verify Cargo manifest version matches tag
+      shell: bash
+      env:
+        INPUT_MANIFESTS: ${{ inputs.manifests }}
+      run: |
+        set -euo pipefail
+        uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"
+outputs:
+  version:
+    description: Version number derived from the tag reference.

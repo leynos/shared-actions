@@ -6,6 +6,7 @@ GitHub Actions
 
 | Name                      | Path                                        | Latest major |
 | ------------------------- | ------------------------------------------- | ------------ |
+| Ensure Cargo version      | `.github/actions/ensure-cargo-version`      | v1           |
 | Export Postgres URL       | `.github/actions/export-postgres-url`       | v1           |
 | Generate coverage         | `.github/actions/generate-coverage`         | v1           |
 | Setup Rust                | `.github/actions/setup-rust`                | v1           |

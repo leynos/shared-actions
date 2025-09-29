@@ -9,16 +9,9 @@ inputs:
     required: false
     default: .
   bin-name:
-    description: Name of the binary to stage and package
+    description: Name of the binary produced by the build
     required: false
     default: rust-toy-app
-  formats:
-    description: Comma-separated package formats to produce
-    required: false
-    default: deb
-  version:
-    description: Package version (e.g. 0.1.0)
-    required: true
 runs:
   using: composite
   steps:
@@ -135,14 +128,3 @@ runs:
         install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
         install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"
         echo "man-path=dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1" >> "${GITHUB_OUTPUT}"
-    - name: Package Linux artifacts
-      if: contains(inputs.target, 'unknown-linux-')
-      uses: ./.github/actions/linux-packages
-      with:
-        project-dir: ${{ inputs.project-dir }}
-        bin-name: ${{ inputs.bin-name }}
-        package-name: ${{ inputs.bin-name }}
-        target: ${{ inputs.target }}
-        version: ${{ inputs.version }}
-        formats: ${{ inputs.formats }}
-        man-paths: ${{ steps.stage-linux-artifacts.outputs.man-path }}

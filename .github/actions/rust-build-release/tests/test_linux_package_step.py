@@ -1,4 +1,4 @@
-"""Ensure the composite action delegates Linux packaging to linux-packages."""
+"""Ensure the composite action leaves Linux packaging to workflows."""
 
 from __future__ import annotations
 
@@ -7,33 +7,12 @@ from pathlib import Path
 import yaml
 
 
-def test_linux_packaging_step() -> None:
-    """Validate the linux-packages step configuration."""
+def test_linux_packaging_not_present() -> None:
+    """Validate that linux packaging is no longer invoked by the action."""
     action = Path(__file__).resolve().parents[1] / "action.yml"
     data = yaml.safe_load(action.read_text(encoding="utf-8"))
     steps = data["runs"]["steps"]
 
-    stage_step = next(
-        (step for step in steps if step.get("id") == "stage-linux-artifacts"),
-        None,
-    )
-    assert stage_step is not None, "stage-linux-artifacts step missing"
-    assert stage_step.get("if") == "contains(inputs.target, 'unknown-linux-')"
-
-    linux_step = next(
-        (step for step in steps if "linux-packages" in step.get("uses", "")),
-        None,
-    )
-    assert linux_step is not None, "linux-packages step missing"
-    assert linux_step.get("if") == "contains(inputs.target, 'unknown-linux-')"
-    with_block = linux_step.get("with") or {}
-    assert with_block.get("project-dir") == "${{ inputs.project-dir }}"
-    assert with_block.get("bin-name") == "${{ inputs.bin-name }}"
-    assert with_block.get("package-name") == "${{ inputs.bin-name }}"
-    assert with_block.get("target") == "${{ inputs.target }}"
-    assert with_block.get("version") == "${{ inputs.version }}"
-    assert with_block.get("formats") == "${{ inputs.formats }}"
-    assert (
-        with_block.get("man-paths")
-        == "${{ steps.stage-linux-artifacts.outputs.man-path }}"
+    assert all("linux-packages" not in (step.get("uses") or "") for step in steps), (
+        "linux-packages step should be removed from rust-build-release"
     )

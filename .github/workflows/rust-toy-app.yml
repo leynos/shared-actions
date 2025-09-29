@@ -55,7 +55,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
-          version: ${{ steps.crate-version.outputs.version }}
       - name: Verify artifacts
         id: verify-artifacts
         run: |
@@ -71,9 +70,21 @@ jobs:
           manpages=(target/${{ matrix.target }}/release/build/rust-toy-app-*/out/rust-toy-app.1)
           (( "${#manpages[@]}" > 0 ))
           echo "binary=rust-toy-app/$binary_path" >> "$GITHUB_OUTPUT"
+          echo "binary-relative=${binary_path}" >> "$GITHUB_OUTPUT"
           echo "manpage=rust-toy-app/${manpages[0]}" >> "$GITHUB_OUTPUT"
+          echo "manpage-relative=${manpages[0]}" >> "$GITHUB_OUTPUT"
         working-directory: rust-toy-app
         shell: bash
+      - name: Package Linux artifacts
+        if: contains(matrix.target, 'unknown-linux-')
+        uses: ./.github/actions/linux-packages
+        with:
+          project-dir: rust-toy-app
+          bin-name: rust-toy-app
+          package-name: rust-toy-app
+          target: ${{ matrix.target }}
+          version: ${{ steps.crate-version.outputs.version }}
+          man-paths: ${{ steps.verify-artifacts.outputs.manpage-relative }}
       - name: Package macOS installer
         if: contains(matrix.target, 'apple-darwin')
         id: package-macos

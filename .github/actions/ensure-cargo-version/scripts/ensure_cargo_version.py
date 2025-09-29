@@ -8,13 +8,15 @@
 # ///
 # fmt: on
 
+"""Ensure release tags match Cargo manifest versions."""
+
 from __future__ import annotations
 
+import dataclasses
 import os
 import tomllib
-from dataclasses import dataclass
+import typing as typ
 from pathlib import Path
-from typing import Annotated, Iterable
 
 import cyclopts
 from cyclopts import App, Parameter
@@ -22,8 +24,10 @@ from cyclopts import App, Parameter
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
 
-@dataclass(slots=True)
+@dataclasses.dataclass(slots=True)
 class ManifestVersion:
+    """Version metadata extracted from a manifest."""
+
     path: Path
     version: str
 
@@ -37,13 +41,15 @@ class ManifestError(Exception):
 
 
 def _workspace() -> Path:
+    """Return the workspace root supplied by GitHub Actions."""
     workspace = os.environ.get("GITHUB_WORKSPACE")
     if workspace:
         return Path(workspace)
     return Path.cwd()
 
 
-def _resolve_paths(manifests: Iterable[Path]) -> list[Path]:
+def _resolve_paths(manifests: list[Path]) -> list[Path]:
+    """Resolve manifest paths relative to the workspace."""
     workspace = _workspace()
     resolved: list[Path] = []
     for manifest in manifests:
@@ -53,6 +59,7 @@ def _resolve_paths(manifests: Iterable[Path]) -> list[Path]:
 
 
 def _read_manifest_version(path: Path) -> ManifestVersion:
+    """Parse a manifest and return the discovered package version."""
     try:
         with path.open("rb") as handle:
             data = tomllib.load(handle)
@@ -73,17 +80,21 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
 
 
 def _emit_error(title: str, message: str) -> None:
+    """Print an error in the format expected by GitHub Actions."""
     print(f"::error title={title}::{message}")
 
 
 def _tag_from_ref() -> str:
+    """Return the tag version from the GitHub reference name."""
     ref_name = os.environ.get("GITHUB_REF_NAME")
     if not ref_name:
-        raise RuntimeError("GITHUB_REF_NAME is not set")
-    return ref_name[1:] if ref_name.startswith("v") else ref_name
+        message = "GITHUB_REF_NAME is not set"
+        raise RuntimeError(message)
+    return ref_name.removeprefix("v")
 
 
 def _write_output(name: str, value: str) -> None:
+    """Append an output variable for downstream steps."""
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
         return
@@ -93,6 +104,7 @@ def _write_output(name: str, value: str) -> None:
 
 
 def _display_path(path: Path) -> str:
+    """Return a display-friendly version of a manifest path."""
     workspace = _workspace()
     try:
         return str(path.relative_to(workspace))
@@ -103,8 +115,9 @@ def _display_path(path: Path) -> str:
 @app.default
 def main(
     *,
-    manifests: Annotated[list[Path] | None, Parameter()] = None,
+    manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
 ) -> None:
+    """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]
     resolved = _resolve_paths(manifest_args)
 
@@ -125,18 +138,19 @@ def main(
                 ("Cargo.toml parse failure", f"{exc} in {_display_path(exc.path)}")
             )
 
-    for manifest_version in manifest_versions:
-        if manifest_version.version != tag_version:
-            errors.append(
-                (
-                    "Tag/Cargo.toml mismatch",
-                    "Tag version {} does not match Cargo.toml version {} for {}".format(
-                        tag_version,
-                        manifest_version.version,
-                        _display_path(manifest_version.path),
-                    ),
-                )
-            )
+    mismatch_errors = [
+        (
+            "Tag/Cargo.toml mismatch",
+            (
+                f"Tag version {tag_version} does not match Cargo.toml version "
+                f"{manifest_version.version}"
+                f" for {_display_path(manifest_version.path)}"
+            ),
+        )
+        for manifest_version in manifest_versions
+        if manifest_version.version != tag_version
+    ]
+    errors.extend(mismatch_errors)
 
     if errors:
         for title, message in errors:

@@ -17,7 +17,8 @@ runs:
           **/pyproject.toml
           **/uv.lock
           **/scripts/*.py
-    - name: Verify Cargo manifest version matches tag
+    - id: verify
+      name: Verify Cargo manifest version matches tag
       shell: bash
       env:
         INPUT_MANIFESTS: ${{ inputs.manifests }}
@@ -27,3 +28,4 @@ runs:
 outputs:
   version:
     description: Version number derived from the tag reference.
+    value: ${{ steps.verify.outputs.version }}

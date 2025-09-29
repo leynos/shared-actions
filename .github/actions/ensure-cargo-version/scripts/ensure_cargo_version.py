@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
 import tomllib
 import typing as typ
 from pathlib import Path
@@ -42,8 +43,7 @@ class ManifestError(Exception):
 
 def _workspace() -> Path:
     """Return the workspace root supplied by GitHub Actions."""
-    workspace = os.environ.get("GITHUB_WORKSPACE")
-    if workspace:
+    if workspace := os.environ.get("GITHUB_WORKSPACE"):
         return Path(workspace)
     return Path.cwd()
 
@@ -73,31 +73,84 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
         raise ManifestError(path, "Manifest missing [package] table")
 
     version = package.get("version")
+    if isinstance(version, dict) and version.get("workspace") is True:
+        workspace_manifest = _find_workspace_manifest(path) or path.resolve()
+        workspace_version = _read_workspace_version(workspace_manifest)
+        if workspace_version is None:
+            raise ManifestError(
+                workspace_manifest,
+                "Workspace manifest missing [workspace.package].version",
+            )
+        return ManifestVersion(path=path, version=workspace_version)
+
     if not isinstance(version, str) or not version.strip():
         raise ManifestError(path, "Could not read package.version")
 
     return ManifestVersion(path=path, version=version.strip())
 
 
+def _find_workspace_manifest(manifest_path: Path) -> Path | None:
+    """Locate the workspace root manifest for the provided manifest."""
+    manifest_path = manifest_path.resolve()
+    dir_ = manifest_path.parent
+    while True:
+        candidate = dir_ / "Cargo.toml"
+        if candidate == manifest_path:
+            pass
+        elif candidate.exists():
+            return candidate
+        if dir_.parent == dir_:
+            return None
+        dir_ = dir_.parent
+
+
+def _read_workspace_version(root_manifest: Path) -> str | None:
+    """Read [workspace.package].version from the workspace root manifest."""
+    with root_manifest.open("rb") as handle:
+        data = tomllib.load(handle)
+
+    workspace = data.get("workspace")
+    if not isinstance(workspace, dict):
+        return None
+    package = workspace.get("package")
+    if not isinstance(package, dict):
+        return None
+    version = package.get("version")
+    return version.strip() if isinstance(version, str) else None
+
+
 def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:
     """Print an error in the format expected by GitHub Actions."""
+
+    def _esc(value: str) -> str:
+        return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
     metadata_parts: list[str] = []
     if path is not None:
-        metadata_parts.append(f"file={_display_path(path)}")
+        metadata_parts.append(f"file={_esc(_display_path(path))}")
         metadata_parts.append("line=1")
-    metadata_parts.append(f"title={title}")
+    metadata_parts.append(f"title={_esc(title)}")
     metadata = ",".join(metadata_parts)
-    print(f"::error {metadata}::{message}")
+    print(f"::error {metadata}::{_esc(message)}")
 
 
 def _tag_from_ref(prefix: str) -> str:
-    """Return the tag version from the GitHub reference name."""
+    """Extract a SemVer version from the GitHub reference name."""
     ref_name = os.environ.get("GITHUB_REF_NAME")
     if not ref_name:
         message = "GITHUB_REF_NAME is not set"
         raise RuntimeError(message)
+
     if prefix and ref_name.startswith(prefix):
-        return ref_name[len(prefix) :]
+        ref_name = ref_name[len(prefix) :]
+
+    match = re.search(
+        r"(?:^|[-_/])v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$",
+        ref_name,
+    )
+    if match:
+        return match.group(1)
+
     return ref_name
 
 

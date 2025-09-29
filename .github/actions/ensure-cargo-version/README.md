@@ -29,4 +29,15 @@ jobs:
           manifests: |
             Cargo.toml
             crates/secondary/Cargo.toml
+          # If your tags are namespaced (e.g. "ensure-cargo-version-v1.2.3"),
+          # set the tag prefix so the extracted version is "1.2.3":
+          # tag-prefix: ensure-cargo-version-v
+
+## Notes
+
+- **Namespaced tags**: The action strips a leading `tag-prefix` (default `v`).
+  For tags like `my-action-v1.2.3`, set `tag-prefix: my-action-v`.
+- **Workspace-inherited versions**: When a crate sets `version.workspace = true`,
+  the action resolves the version from the workspace root manifest's
+  `[workspace.package].version` entry.
 ```

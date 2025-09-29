@@ -9,6 +9,14 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install uv
+      # v6.4.3
+      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+      with:
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+          **/scripts/*.py
     - name: Verify Cargo manifest version matches tag
       shell: bash
       env:

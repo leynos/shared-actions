@@ -12,9 +12,6 @@ inputs:
     description: Name of the binary produced by the build
     required: false
     default: rust-toy-app
-  version:
-    description: Package version (e.g. 0.1.0)
-    required: true
 runs:
   using: composite
   steps:

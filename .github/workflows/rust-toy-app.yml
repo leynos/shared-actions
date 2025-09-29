@@ -55,7 +55,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
-          version: ${{ steps.crate-version.outputs.version }}
       - name: Verify artifacts
         id: verify-artifacts
         run: |

@@ -18,6 +18,12 @@ Validate that the Git tag triggering a release workflow matches the version in o
 ## Usage
 
 ```yaml
+on:
+  push:
+    tags:
+      - "v*"
+      - "*-v*"
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -40,4 +46,5 @@ jobs:
 - **Workspace-inherited versions**: When a crate sets `version.workspace = true`,
   the action resolves the version from the workspace root manifest's
   `[workspace.package].version` entry.
-```
+- **Failure behaviour**: Any parse error or version mismatch emits GitHub
+  Actions `::error` annotations and exits with status `1`, failing the job.

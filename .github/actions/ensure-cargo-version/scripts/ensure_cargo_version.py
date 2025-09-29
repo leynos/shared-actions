@@ -74,7 +74,12 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
 
     version = package.get("version")
     if isinstance(version, dict) and version.get("workspace") is True:
-        workspace_manifest = _find_workspace_manifest(path) or path.resolve()
+        workspace_manifest = _find_workspace_root(path.parent)
+        if workspace_manifest is None:
+            raise ManifestError(
+                path,
+                "Could not resolve workspace root for inherited version",
+            )
         workspace_version = _read_workspace_version(workspace_manifest)
         if workspace_version is None:
             raise ManifestError(
@@ -89,19 +94,22 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
     return ManifestVersion(path=path, version=version.strip())
 
 
-def _find_workspace_manifest(manifest_path: Path) -> Path | None:
-    """Locate the workspace root manifest for the provided manifest."""
-    manifest_path = manifest_path.resolve()
-    dir_ = manifest_path.parent
+def _find_workspace_root(start_dir: Path) -> Path | None:
+    """Locate nearest ancestor manifest that declares a workspace."""
+    directory = start_dir.resolve()
     while True:
-        candidate = dir_ / "Cargo.toml"
-        if candidate == manifest_path:
-            pass
-        elif candidate.exists():
-            return candidate
-        if dir_.parent == dir_:
+        candidate = directory / "Cargo.toml"
+        if candidate.exists():
+            try:
+                with candidate.open("rb") as handle:
+                    data = tomllib.load(handle)
+            except (OSError, tomllib.TOMLDecodeError):  # pragma: no cover
+                data = None
+            if isinstance(data, dict) and isinstance(data.get("workspace"), dict):
+                return candidate
+        if directory.parent == directory:
             return None
-        dir_ = dir_.parent
+        directory = directory.parent
 
 
 def _read_workspace_version(root_manifest: Path) -> str | None:

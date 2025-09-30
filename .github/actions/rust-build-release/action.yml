@@ -63,7 +63,7 @@ runs:
         uv run --script "$GITHUB_ACTION_PATH/src/main.py"
     - id: stage-linux-artifacts
       name: Stage artifacts
-      if: contains(inputs.target, 'unknown-linux-')
+      if: contains(inputs.target, 'unknown-linux-') || contains(inputs.target, 'unknown-illumos')
       shell: bash
       working-directory: ${{ inputs.project-dir }}
       run: |
@@ -71,6 +71,10 @@ runs:
         case "${{ inputs.target }}" in
           x86_64-unknown-linux-*)
             os=linux
+            arch=amd64
+            ;;
+          x86_64-unknown-illumos)
+            os=illumos
             arch=amd64
             ;;
           aarch64-unknown-linux-*)

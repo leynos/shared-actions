@@ -102,6 +102,33 @@ def test_main_with_disabled_tag_check_does_not_require_ref(
     assert "Tag comparison disabled" in captured.out
 
 
+def test_main_rejects_invalid_check_tag_value(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "0.1.0")
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+
+    captured_errors: list[tuple[str, str]] = []
+
+    def record_error(title: str, message: str, *, path: Path | None = None) -> None:
+        captured_errors.append((title, message))
+
+    monkeypatch.setattr(ensure, "_emit_error", record_error)
+
+    with pytest.raises(SystemExit) as exit_info:
+        ensure.main(manifests=[Path("Cargo.toml")], check_tag="definitely-not-bool")
+
+    assert exit_info.value.code == 1
+    assert captured_errors and captured_errors[0][0] == "Invalid input"
+    assert "definitely-not-bool" in captured_errors[0][1]
+
+
 def test_main_records_first_manifest_version_in_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

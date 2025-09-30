@@ -85,6 +85,19 @@ jobs:
           target: ${{ matrix.target }}
           version: ${{ steps.crate-version.outputs.version }}
           man-paths: ${{ steps.verify-artifacts.outputs.manpage-relative }}
+      - name: Validate Linux packages
+        if: contains(matrix.target, 'unknown-linux-')
+        uses: ./.github/actions/validate-linux-packages
+        with:
+          project-dir: rust-toy-app
+          package-name: rust-toy-app
+          bin-name: rust-toy-app
+          target: ${{ matrix.target }}
+          version: ${{ steps.crate-version.outputs.version }}
+          formats: deb
+          expected-paths: |
+            /usr/bin/rust-toy-app
+            /usr/share/man/man1/rust-toy-app.1.gz
       - name: Package macOS installer
         if: contains(matrix.target, 'apple-darwin')
         id: package-macos

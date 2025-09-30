@@ -1,0 +1,97 @@
+name: Validate Linux Packages
+description: Validate Linux packages using sandboxed installation and metadata checks.
+inputs:
+  project-dir:
+    description: Directory containing the packaging artefacts.
+    required: false
+    default: .
+  package-name:
+    description: Package name recorded in the package metadata (defaults to bin-name).
+    required: false
+    default: ''
+  bin-name:
+    description: Installed binary name to validate.
+    required: true
+  target:
+    description: Target triple used for the build.
+    required: false
+    default: x86_64-unknown-linux-gnu
+  version:
+    description: Package version (for example 1.2.3).
+    required: true
+  release:
+    description: Optional package release or revision value.
+    required: false
+    default: ''
+  arch:
+    description: Override the expected nfpm architecture (auto-detected from the target by default).
+    required: false
+    default: ''
+  formats:
+    description: Comma-, space-, or newline-separated list of package formats to validate (deb,rpm,...).
+    required: false
+    default: deb
+  package-dir:
+    description: Directory containing generated packages (defaults to project-dir/dist).
+    required: false
+    default: ''
+  expected-paths:
+    description: Newline- or space-separated list of absolute paths expected in each package.
+    required: false
+    default: ''
+  executable-paths:
+    description: Optional subset of expected paths that must be executable.
+    required: false
+    default: ''
+  verify-command:
+    description: Optional command (space-separated) executed inside the sandbox after installation.
+    required: false
+    default: ''
+  deb-base-image:
+    description: Container image used for Debian package validation.
+    required: false
+    default: docker.io/library/debian:bookworm
+  rpm-base-image:
+    description: Container image used for RPM package validation.
+    required: false
+    default: docker.io/library/rockylinux:9
+  polythene-path:
+    description: Override the path to the polythene sandbox script.
+    required: false
+    default: ''
+  polythene-store:
+    description: Reuse an existing polythene store directory instead of a temporary one.
+    required: false
+    default: ''
+  sandbox-timeout:
+    description: Timeout (seconds) applied to sandbox operations.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
+    - name: Validate packages
+      shell: bash
+      working-directory: ${{ inputs.project-dir }}
+      env:
+        INPUT_PACKAGE_NAME: ${{ inputs.package-name }}
+        INPUT_BIN_NAME: ${{ inputs.bin-name }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_RELEASE: ${{ inputs.release }}
+        INPUT_ARCH: ${{ inputs.arch }}
+        INPUT_FORMATS: ${{ inputs.formats }}
+        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_EXPECTED_PATHS: ${{ inputs.expected-paths }}
+        INPUT_EXECUTABLE_PATHS: ${{ inputs.executable-paths }}
+        INPUT_VERIFY_COMMAND: ${{ inputs.verify-command }}
+        INPUT_DEB_BASE_IMAGE: ${{ inputs.deb-base-image }}
+        INPUT_RPM_BASE_IMAGE: ${{ inputs.rpm-base-image }}
+        INPUT_POLYTHENE_PATH: ${{ inputs.polythene-path }}
+        INPUT_POLYTHENE_STORE: ${{ inputs.polythene-store }}
+        INPUT_SANDBOX_TIMEOUT: ${{ inputs.sandbox-timeout }}
+      run: |
+        set -euo pipefail
+        uv run "${GITHUB_ACTION_PATH}/scripts/validate.py"

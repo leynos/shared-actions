@@ -119,8 +119,7 @@ def _parse_rpm_listing(output: str) -> set[str]:
 
     files: set[str] = set()
     for line in output.splitlines():
-        entry = line.strip()
-        if entry:
+        if entry := line.strip():
             files.add(entry)
     return files
 

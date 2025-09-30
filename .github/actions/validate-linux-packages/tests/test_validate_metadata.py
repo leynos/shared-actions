@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import runpy
 import sys
 import typing as typ
 from pathlib import Path
@@ -32,6 +33,40 @@ def validate_module() -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def test_validate_script_reexports_cli(validate_module: ModuleType) -> None:
+    """The toplevel script should re-export the Cyclopts CLI objects."""
+
+    cli_module = sys.modules.get("validate_cli")
+    assert cli_module is not None
+    assert validate_module.app is getattr(cli_module, "app")
+    assert validate_module.main is getattr(cli_module, "main")
+    assert validate_module.run is getattr(cli_module, "run")
+
+
+def test_validate_script_executes_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executing the script directly should invoke the CLI run helper."""
+
+    module = sys.modules.get("validate_cli")
+    if module is None:
+        spec = importlib.util.spec_from_file_location(
+            "validate_cli", MODULE_PATH.parent / "validate_cli.py"
+        )
+        if spec is None or spec.loader is None:  # pragma: no cover - defensive
+            raise RuntimeError("unable to load validate_cli module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+    called: list[object] = []
+
+    def _marker() -> None:
+        called.append(object())
+
+    monkeypatch.setattr(module, "run", _marker)
+    runpy.run_path(MODULE_PATH, run_name="__main__")
+    assert called, "validate.py should call validate_cli.run() when executed"
 
 
 @CMD_MOX_UNSUPPORTED

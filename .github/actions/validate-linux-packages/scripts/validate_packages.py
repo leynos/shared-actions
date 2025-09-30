@@ -68,8 +68,7 @@ def locate_rpm(package_dir: Path, package_name: str, version: str, release: str)
 def ensure_subset(expected: Collection[str], actual: Collection[str], label: str) -> None:
     """Raise :class:`ValidationError` when ``expected`` is not contained in ``actual``."""
 
-    missing = [path for path in expected if path not in actual]
-    if missing:
+    if missing := [path for path in expected if path not in actual]:
         raise ValidationError(f"missing {label}: {', '.join(missing)}")
 
 

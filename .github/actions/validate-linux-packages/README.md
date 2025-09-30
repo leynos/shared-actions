@@ -1,8 +1,8 @@
 # Validate Linux Packages GitHub Action
 
-Validate Debian and RPM packages produced by the `linux-packages` action (or any
-nfpm-based build) by inspecting metadata and installing them inside an isolated
-root filesystem using the bundled `polythene` sandbox.
+Validate Debian and RPM packages produced by the `linux-packages` action (or
+any nfpm-based build) by inspecting metadata and installing them inside an
+isolated root filesystem using the bundled `polythene` sandbox.
 
 ## Inputs
 
@@ -65,10 +65,10 @@ None.
 ```
 
 The action expects packages to be available in `<project-dir>/dist` unless
-`packages-dir` is provided. When validating Debian packages the sandbox installs
-them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows verify the
-package metadata, ensure the expected files exist and optionally run a supplied
-command inside the sandbox.
+`packages-dir` is provided. When Debian packages are validated the sandbox
+installs them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows
+verify the package metadata, ensure the expected files exist, and optionally run
+a supplied command inside the sandbox.
 
 ## Release History
 

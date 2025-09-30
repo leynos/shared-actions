@@ -11,7 +11,9 @@ inputs:
     default: v
   check-tag:
     description: >-
-      When set to "false", skip comparing the tag-derived version against the manifest version(s).
+      Whether to compare the tag-derived version against the manifest version(s).
+      Accepted truthy values: "true", "1", "yes", "on" (case-insensitive).
+      Accepted falsey values: "false", "0", "no", "off", "" (case-insensitive).
     default: "true"
 runs:
   using: composite

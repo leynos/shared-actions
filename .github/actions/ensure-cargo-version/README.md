@@ -8,14 +8,14 @@ Validate that the Git tag triggering a release workflow matches the version in o
 | ---- | -------- | ------- | ----------- |
 | `manifests` | No | `Cargo.toml` | Newline or whitespace separated list of Cargo manifest paths to check. Paths are resolved relative to the GitHub workspace. |
 | `tag-prefix` | No | `v` | Prefix stripped from the Git reference name before comparing against manifest versions. Use an empty string to disable prefix removal. |
-| `check-tag` | No | `true` | Set to `false` to skip comparing the tag-derived version with the manifest versions. |
+| `check-tag` | No | `true` | Set to `false` to skip comparing the tag-derived version with the manifest versions while still attempting to read the tag for output purposes. |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
 | `version` | Version extracted from the tag reference after removing the configured prefix. |
-| `crate-version` | Version read from the first manifest in the provided list after resolving workspace inheritance. |
+| `crate-version` | Version read from the first manifest path provided (after resolution) after resolving workspace inheritance. |
 
 ## Usage
 
@@ -62,4 +62,6 @@ jobs:
   Actions `::error` annotations and exits with status `1`, failing the job.
 - **Optional tag validation**: If `check-tag` is set to `false`, the action still
   reads and outputs the manifest version without enforcing a match against the
-  tag-derived version.
+  tag-derived version. The script keeps attempting to read the tag to emit the
+  `version` output; when no tag reference is available, the `version` output is
+  omitted while `crate-version` remains populated.

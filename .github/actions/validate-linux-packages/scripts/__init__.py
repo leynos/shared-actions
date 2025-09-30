@@ -1,1 +1,1 @@
-"""Helper package for validate-linux-packages action scripts."""
+"""Helper modules for validate-linux-packages action scripts."""

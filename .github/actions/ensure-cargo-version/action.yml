@@ -31,16 +31,33 @@ runs:
     - name: Provision Python 3.13
       shell: bash
       run: uv python install 3.13
-    - id: verify
-      name: Verify Cargo manifest version matches tag
-      shell: bash
-      env:
-        INPUT_MANIFESTS: ${{ inputs.manifests }}
-        INPUT_TAG_PREFIX: ${{ inputs.tag-prefix }}
-        INPUT_CHECK_TAG: ${{ inputs.check-tag }}
-      run: |
-        set -euo pipefail
-        uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"
+      - id: verify
+        name: Verify Cargo manifest version matches tag
+        shell: bash
+        env:
+          INPUT_MANIFESTS: ${{ inputs.manifests }}
+          INPUT_TAG_PREFIX: ${{ inputs.tag-prefix }}
+          INPUT_CHECK_TAG: ${{ inputs.check-tag }}
+        run: |
+          set -euo pipefail
+
+          lower_check_tag="$(printf '%s' "${INPUT_CHECK_TAG}" | tr '[:upper:]' '[:lower:]')"
+          case "${lower_check_tag}" in
+            ""|"true"|"1"|"yes"|"on")
+              INPUT_CHECK_TAG="true"
+              ;;
+            "false"|"0"|"no"|"off")
+              INPUT_CHECK_TAG="false"
+              ;;
+            *)
+              echo "::error title=Invalid input::Unsupported value for check-tag: ${INPUT_CHECK_TAG}" >&2
+              exit 1
+              ;;
+          esac
+
+          export INPUT_CHECK_TAG
+
+          uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"
 outputs:
   version:
     description: Version number derived from the tag reference.

@@ -172,6 +172,25 @@ def _write_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
+def _coerce_bool(value: bool | str, *, parameter: str) -> bool:
+    """Convert boolean-like values into ``bool`` instances."""
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalised = value.strip().lower()
+        if normalised in {"1", "true", "yes", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "off", ""}:
+            return False
+
+    message = (
+        f"Invalid value for {parameter!s}: {value!r}. Expected a boolean-like string."
+    )
+    raise ValueError(message)
+
+
 def _display_path(path: Path) -> str:
     """Return a display-friendly version of a manifest path."""
     workspace = _workspace()
@@ -186,11 +205,17 @@ def main(
     *,
     manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
     tag_prefix: typ.Annotated[str, Parameter()] = "v",
-    check_tag: typ.Annotated[bool, Parameter()] = True,
+    check_tag: typ.Annotated[bool | str, Parameter()] = True,
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]
     resolved = _resolve_paths(manifest_args)
+
+    try:
+        should_check_tag = _coerce_bool(check_tag, parameter="check-tag")
+    except ValueError as exc:
+        _emit_error("Invalid input", str(exc))
+        raise SystemExit(1) from exc
 
     try:
         tag_version = _tag_from_ref(tag_prefix)
@@ -215,7 +240,7 @@ def main(
 
     crate_version = manifest_versions[0].version if manifest_versions else ""
 
-    if check_tag:
+    if should_check_tag:
         mismatch_errors = [
             (
                 "Tag/Cargo.toml mismatch",
@@ -238,7 +263,7 @@ def main(
 
     _write_output("crate-version", crate_version)
     manifest_list = ", ".join(_display_path(item.path) for item in manifest_versions)
-    if check_tag:
+    if should_check_tag:
         print(
             f"Release tag {tag_version} matches Cargo.toml version(s) in: {manifest_list}."
         )

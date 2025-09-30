@@ -18,7 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
 from cross_manager import ensure_cross
-from runtime import DEFAULT_HOST_TARGET, CROSS_CONTAINER_ERROR_CODES, runtime_available
+from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
@@ -75,6 +75,7 @@ class _CrossDecision(typ.NamedTuple):
     docker_present: bool
     podman_present: bool
     has_container: bool
+    container_engine: str | None
 
 
 def _target_is_windows(target: str) -> bool:
@@ -141,7 +142,6 @@ def _toolchain_channel(toolchain_name: str) -> str:
 
 def _requires_cross_container(target: str, host_target: str) -> bool:
     """Return True when *target* needs cross with containers on this host."""
-
     normalized = target.strip().lower()
     host_normalized = host_target.strip().lower()
     if normalized.endswith("unknown-freebsd"):
@@ -297,6 +297,11 @@ def _decide_cross_usage(
         docker_present = _probe_runtime("docker")
         podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present
+    container_engine: str | None = None
+    if docker_present:
+        container_engine = "docker"
+    elif podman_present:
+        container_engine = "podman"
 
     use_cross_local_backend = (
         os.environ.get("CROSS_NO_DOCKER") == "1" and sys.platform == "win32"
@@ -345,6 +350,7 @@ def _decide_cross_usage(
         docker_present=docker_present,
         podman_present=podman_present,
         has_container=has_container,
+        container_engine=container_engine,
     )
 
 
@@ -398,7 +404,10 @@ def main(
         toolchain_name, installed_names, rustup_exec, target_to_build
     )
 
-    if _requires_cross_container(target_to_build, DEFAULT_HOST_TARGET) and not decision.use_cross:
+    if (
+        _requires_cross_container(target_to_build, DEFAULT_HOST_TARGET)
+        and not decision.use_cross
+    ):
         details: list[str] = []
         if decision.cross_path is None:
             details.append("cross is not installed")
@@ -424,6 +433,14 @@ def main(
         raise typer.Exit(1)
 
     _announce_build_mode(decision)
+
+    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+    cross_engine_restorer = False
+    if decision.use_cross and not decision.use_cross_local_backend:
+        engine = decision.container_engine
+        if engine and previous_engine is None:
+            os.environ["CROSS_CONTAINER_ENGINE"] = engine
+            cross_engine_restorer = True
 
     build_cmd = [
         (decision.cross_path or "cross") if decision.use_cross else "cargo",
@@ -454,6 +471,9 @@ def main(
             run_cmd(fallback_cmd)
         else:
             raise
+    finally:
+        if cross_engine_restorer:
+            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
 
 
 if __name__ == "__main__":

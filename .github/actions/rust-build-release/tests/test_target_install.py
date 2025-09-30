@@ -120,7 +120,6 @@ def test_errors_when_cross_required_but_unavailable(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Errors when a container-required target cannot use cross."""
-
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
@@ -144,6 +143,147 @@ def test_errors_when_cross_required_but_unavailable(
 
     err = capsys.readouterr().err
     assert "requires cross" in err
+
+
+@CMD_MOX_UNSUPPORTED
+def test_sets_cross_container_engine_when_docker_available(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+) -> None:
+    """Automatically export CROSS_CONTAINER_ENGINE when Docker is detected."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    docker_path = _register_docker_info_stub(cmd_mox)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+            "docker": docker_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
+    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
+
+    engines: list[str | None] = []
+
+    def record_engine(cmd: list[str]) -> None:
+        if cmd and cmd[0] == "cross":
+            engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
+
+    app_env.patch_run_cmd(record_engine)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    assert engines == ["docker"]
+    assert "CROSS_CONTAINER_ENGINE" not in os.environ
+
+
+@CMD_MOX_UNSUPPORTED
+def test_sets_cross_container_engine_when_only_podman_available(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+) -> None:
+    """Prefers Podman when Docker is unavailable."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    podman_path = _register_podman_info_stub(cmd_mox)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+            "podman": podman_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda runtime: runtime == "podman")
+    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
+
+    engines: list[str | None] = []
+
+    def record_engine(cmd: list[str]) -> None:
+        if cmd and cmd[0] == "cross":
+            engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
+
+    app_env.patch_run_cmd(record_engine)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    assert engines == ["podman"]
+    assert "CROSS_CONTAINER_ENGINE" not in os.environ
+
+
+@CMD_MOX_UNSUPPORTED
+def test_preserves_existing_cross_container_engine(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+) -> None:
+    """Does not override a pre-existing CROSS_CONTAINER_ENGINE value."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    docker_path = _register_docker_info_stub(cmd_mox)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+            "docker": docker_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
+    app_env.monkeypatch.setenv("CROSS_CONTAINER_ENGINE", "custom")
+
+    engines: list[str | None] = []
+
+    def record_engine(cmd: list[str]) -> None:
+        if cmd and cmd[0] == "cross":
+            engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
+
+    app_env.patch_run_cmd(record_engine)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    assert engines == ["custom"]
+    assert os.environ.get("CROSS_CONTAINER_ENGINE") == "custom"
 
 
 @CMD_MOX_UNSUPPORTED

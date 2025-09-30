@@ -112,6 +112,41 @@ def test_errors_when_target_unsupported_without_cross(
 
 
 @CMD_MOX_UNSUPPORTED
+def test_errors_when_cross_required_but_unavailable(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Errors when a container-required target cannot use cross."""
+
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+
+    def fake_which(name: str) -> str | None:
+        return rustup_path if name == "rustup" else None
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_platform("linux")
+    app_env.patch_attr("ensure_cross", lambda *_: (None, None))
+    app_env.patch_attr("runtime_available", lambda _: False)
+
+    cmd_mox.replay()
+    with pytest.raises(main_module.typer.Exit):
+        main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    err = capsys.readouterr().err
+    assert "requires cross" in err
+
+
+@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_cargo_when_cross_container_fails(
     main_module: ModuleType,
     cross_module: ModuleType,

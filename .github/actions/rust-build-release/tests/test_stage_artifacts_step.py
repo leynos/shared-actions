@@ -14,12 +14,12 @@ def _load_stage_step() -> dict[str, object]:
     for step in steps:
         if step.get("id") == "stage-linux-artifacts":
             return step
-    raise AssertionError("stage-linux-artifacts step missing from action")
+    message = "stage-linux-artifacts step missing from action"
+    raise AssertionError(message)
 
 
 def test_stage_step_condition_includes_illumos() -> None:
     """Validate illumos targets trigger the Stage artifacts step."""
-
     step = _load_stage_step()
     condition = step.get("if")
     assert isinstance(condition, str)
@@ -29,7 +29,6 @@ def test_stage_step_condition_includes_illumos() -> None:
 
 def test_stage_step_maps_illumos_to_expected_tuple() -> None:
     """Ensure the illumos target maps to illumos/amd64 output tuple."""
-
     step = _load_stage_step()
     run_script = step.get("run")
     assert isinstance(run_script, str)

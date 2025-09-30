@@ -9,6 +9,10 @@ inputs:
   tag-prefix:
     description: Prefix to strip from the Git reference name before comparison.
     default: v
+  check-tag:
+    description: >-
+      When set to "false", skip comparing the tag-derived version against the manifest version(s).
+    default: "true"
 runs:
   using: composite
   steps:
@@ -33,6 +37,7 @@ runs:
       env:
         INPUT_MANIFESTS: ${{ inputs.manifests }}
         INPUT_TAG_PREFIX: ${{ inputs.tag-prefix }}
+        INPUT_CHECK_TAG: ${{ inputs.check-tag }}
       run: |
         set -euo pipefail
         uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"
@@ -40,3 +45,6 @@ outputs:
   version:
     description: Version number derived from the tag reference.
     value: ${{ steps.verify.outputs.version }}
+  crate-version:
+    description: Version number declared in the first Cargo manifest.
+    value: ${{ steps.verify.outputs['crate-version'] }}

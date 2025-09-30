@@ -186,6 +186,7 @@ def main(
     *,
     manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
     tag_prefix: typ.Annotated[str, Parameter()] = "v",
+    check_tag: typ.Annotated[bool, Parameter()] = True,
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]
@@ -212,30 +213,39 @@ def main(
                 )
             )
 
-    mismatch_errors = [
-        (
-            "Tag/Cargo.toml mismatch",
+    crate_version = manifest_versions[0].version if manifest_versions else ""
+
+    if check_tag:
+        mismatch_errors = [
             (
-                f"Tag version {tag_version} does not match Cargo.toml version "
-                f"{manifest_version.version}"
-                f" for {_display_path(manifest_version.path)}"
-            ),
-            manifest_version.path,
-        )
-        for manifest_version in manifest_versions
-        if manifest_version.version != tag_version
-    ]
-    errors.extend(mismatch_errors)
+                "Tag/Cargo.toml mismatch",
+                (
+                    f"Tag version {tag_version} does not match Cargo.toml version "
+                    f"{manifest_version.version}"
+                    f" for {_display_path(manifest_version.path)}"
+                ),
+                manifest_version.path,
+            )
+            for manifest_version in manifest_versions
+            if manifest_version.version != tag_version
+        ]
+        errors.extend(mismatch_errors)
 
     if errors:
         for title, message, path in errors:
             _emit_error(title, message, path=path)
         raise SystemExit(1)
 
+    _write_output("crate-version", crate_version)
     manifest_list = ", ".join(_display_path(item.path) for item in manifest_versions)
-    print(
-        f"Release tag {tag_version} matches Cargo.toml version(s) in: {manifest_list}."
-    )
+    if check_tag:
+        print(
+            f"Release tag {tag_version} matches Cargo.toml version(s) in: {manifest_list}."
+        )
+    else:
+        print(
+            f"Cargo.toml version(s) located in: {manifest_list}. Tag comparison disabled by input."
+        )
     _write_output("version", tag_version)
 
 

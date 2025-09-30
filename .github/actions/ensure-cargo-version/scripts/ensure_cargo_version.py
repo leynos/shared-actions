@@ -217,11 +217,17 @@ def main(
         _emit_error("Invalid input", str(exc))
         raise SystemExit(1) from exc
 
-    try:
-        tag_version = _tag_from_ref(tag_prefix)
-    except RuntimeError as exc:
-        _emit_error("Missing tag", str(exc))
-        raise SystemExit(1) from exc
+    tag_version: str | None = None
+    if should_check_tag:
+        try:
+            tag_version = _tag_from_ref(tag_prefix)
+        except RuntimeError as exc:
+            _emit_error("Missing tag", str(exc))
+            raise SystemExit(1) from exc
+    else:
+        # Best-effort: expose version if a ref is present, but do not fail if absent.
+        if os.environ.get("GITHUB_REF_NAME"):
+            tag_version = _tag_from_ref(tag_prefix)
 
     manifest_versions: list[ManifestVersion] = []
     errors: list[tuple[str, str, Path | None]] = []
@@ -241,6 +247,7 @@ def main(
     crate_version = manifest_versions[0].version if manifest_versions else ""
 
     if should_check_tag:
+        assert tag_version is not None  # Narrow type for tooling; guarded above.
         mismatch_errors = [
             (
                 "Tag/Cargo.toml mismatch",
@@ -271,7 +278,8 @@ def main(
         print(
             f"Cargo.toml version(s) located in: {manifest_list}. Tag comparison disabled by input."
         )
-    _write_output("version", tag_version)
+    if tag_version is not None:
+        _write_output("version", tag_version)
 
 
 if __name__ == "__main__":

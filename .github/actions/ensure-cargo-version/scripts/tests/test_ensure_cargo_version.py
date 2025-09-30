@@ -78,6 +78,30 @@ def test_main_skips_tag_comparison_when_disabled(
     assert "Tag comparison disabled" in captured.out
 
 
+def test_main_with_disabled_tag_check_does_not_require_ref(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "7.8.9")
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    ensure.main(manifests=[Path("Cargo.toml")], check_tag="false")
+
+    contents = output_file.read_text(encoding="utf-8").splitlines()
+    assert "crate-version=7.8.9" in contents
+    assert not any(line.startswith("version=") for line in contents)
+
+    captured = capsys.readouterr()
+    assert "Tag comparison disabled" in captured.out
+
+
 def test_main_records_first_manifest_version_in_output(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

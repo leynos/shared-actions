@@ -31,7 +31,7 @@ inputs:
     description: Comma-, space-, or newline-separated list of package formats to validate (deb,rpm,...).
     required: false
     default: deb
-  package-dir:
+  packages-dir:
     description: Directory containing generated packages (defaults to project-dir/dist).
     required: false
     default: ''
@@ -83,7 +83,7 @@ runs:
         INPUT_RELEASE: ${{ inputs.release }}
         INPUT_ARCH: ${{ inputs.arch }}
         INPUT_FORMATS: ${{ inputs.formats }}
-        INPUT_PACKAGE_DIR: ${{ inputs.package-dir }}
+        INPUT_PACKAGE_DIR: ${{ inputs.packages-dir }}
         INPUT_EXPECTED_PATHS: ${{ inputs.expected-paths }}
         INPUT_EXECUTABLE_PATHS: ${{ inputs.executable-paths }}
         INPUT_VERIFY_COMMAND: ${{ inputs.verify-command }}

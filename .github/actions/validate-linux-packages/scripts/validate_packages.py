@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
-from typing import Callable, Collection, ContextManager, Iterable, Tuple
+from typing import Callable, Collection, ContextManager, Iterable, Protocol, Tuple, TypeVar
 
 from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
@@ -12,7 +11,7 @@ from plumbum.commands.processes import ProcessExecutionError
 from script_utils import ensure_directory, unique_match
 
 from validate_exceptions import ValidationError
-from validate_metadata import inspect_deb_package, inspect_rpm_package
+from validate_metadata import DebMetadata, RpmMetadata, inspect_deb_package, inspect_rpm_package
 from validate_polythene import PolytheneSession
 
 __all__ = [
@@ -25,6 +24,11 @@ __all__ = [
 ]
 
 SandboxFactory = Callable[[], ContextManager[PolytheneSession]]
+MetaT = TypeVar("MetaT", bound="_SupportsFiles")
+
+
+class _SupportsFiles(Protocol):
+    files: Collection[str]
 
 
 def acceptable_rpm_architectures(arch: str) -> set[str]:
@@ -95,8 +99,41 @@ def _install_and_verify(
         if verify_command:
             sandbox.exec(*verify_command)
         if remove_command is not None:
-            with contextlib.suppress(ProcessExecutionError):
+            try:
                 sandbox.exec(*remove_command)
+            except ProcessExecutionError as exc:
+                print(f"Suppressed exception during package removal: {exc}")
+
+
+def _validate_package(
+    inspect_fn: Callable[[Path], MetaT],
+    *,
+    package_path: Path,
+    validators: Iterable[Callable[[MetaT], None]],
+    expected_paths: Collection[str],
+    executable_paths: Collection[str],
+    verify_command: Tuple[str, ...],
+    sandbox_factory: SandboxFactory,
+    payload_label: str,
+    install_command: Tuple[str, ...],
+    remove_command: Tuple[str, ...] | None,
+    install_error: str,
+) -> None:
+    metadata = inspect_fn(package_path)
+    for validator in validators:
+        validator(metadata)
+    ensure_subset(expected_paths, metadata.files, payload_label)
+
+    _install_and_verify(
+        sandbox_factory,
+        package_path,
+        expected_paths,
+        executable_paths,
+        verify_command,
+        install_command=install_command,
+        remove_command=remove_command,
+        install_error=install_error,
+    )
 
 
 def validate_deb_package(
@@ -113,28 +150,35 @@ def validate_deb_package(
     sandbox_factory: SandboxFactory,
 ) -> None:
     """Validate Debian package metadata and sandbox installation."""
+    def _validate_name(meta: DebMetadata) -> None:
+        if meta.name != expected_name:
+            _raise_validation("unexpected package name", expected_name, meta.name)
 
-    metadata = inspect_deb_package(dpkg_deb, package_path)
-    if metadata.name != expected_name:
-        raise ValidationError(
-            f"unexpected package name: expected {expected_name!r}, found {metadata.name!r}"
-        )
-    if metadata.version not in {expected_deb_version, expected_version}:
-        raise ValidationError(
-            f"unexpected deb version: expected {expected_deb_version!r}, found {metadata.version!r}"
-        )
-    if metadata.architecture != expected_arch:
-        raise ValidationError(
-            f"unexpected deb architecture: expected {expected_arch!r}, found {metadata.architecture!r}"
-        )
-    ensure_subset(expected_paths, metadata.files, "Debian package payload")
+    def _validate_version(meta: DebMetadata) -> None:
+        if meta.version not in {expected_deb_version, expected_version}:
+            _raise_validation("unexpected deb version", expected_deb_version, meta.version)
 
-    _install_and_verify(
-        sandbox_factory,
-        package_path,
-        expected_paths,
-        executable_paths,
-        verify_command,
+    def _validate_arch(meta: DebMetadata) -> None:
+        if meta.architecture != expected_arch:
+            _raise_validation(
+                "unexpected deb architecture",
+                expected_arch,
+                meta.architecture,
+            )
+
+    _validate_package(
+        lambda pkg_path: inspect_deb_package(dpkg_deb, pkg_path),
+        package_path=package_path,
+        validators=(
+            _validate_name,
+            _validate_version,
+            _validate_arch,
+        ),
+        expected_paths=expected_paths,
+        executable_paths=executable_paths,
+        verify_command=verify_command,
+        sandbox_factory=sandbox_factory,
+        payload_label="Debian package payload",
         install_command=("dpkg", "-i", package_path.name),
         remove_command=("dpkg", "-r", expected_name),
         install_error="dpkg installation failed",
@@ -155,34 +199,46 @@ def validate_rpm_package(
     sandbox_factory: SandboxFactory,
 ) -> None:
     """Validate RPM package metadata and sandbox installation."""
-
-    metadata = inspect_rpm_package(rpm_cmd, package_path)
-    if metadata.name != expected_name:
-        raise ValidationError(
-            f"unexpected package name: expected {expected_name!r}, found {metadata.name!r}"
-        )
-    if metadata.version != expected_version:
-        raise ValidationError(
-            f"unexpected rpm version: expected {expected_version!r}, found {metadata.version!r}"
-        )
-    if metadata.release and not metadata.release.startswith(expected_release):
-        raise ValidationError(
-            f"unexpected rpm release: expected prefix {expected_release!r}, found {metadata.release!r}"
-        )
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
-    if metadata.architecture not in acceptable_arches:
-        raise ValidationError(
-            "unexpected rpm architecture: expected one of "
-            f"{sorted(acceptable_arches)!r}, found {metadata.architecture!r}"
-        )
-    ensure_subset(expected_paths, metadata.files, "RPM package payload")
 
-    _install_and_verify(
-        sandbox_factory,
-        package_path,
-        expected_paths,
-        executable_paths,
-        verify_command,
+    def _validate_release(meta: RpmMetadata) -> None:
+        release = getattr(meta, "release", "")
+        if release and not str(release).startswith(expected_release):
+            raise ValidationError(
+                "unexpected rpm release: expected prefix "
+                f"{expected_release!r}, found {release!r}"
+            )
+
+    def _validate_arch(meta: RpmMetadata) -> None:
+        architecture = getattr(meta, "architecture")
+        if architecture not in acceptable_arches:
+            raise ValidationError(
+                "unexpected rpm architecture: expected one of "
+                f"{sorted(acceptable_arches)!r}, found {architecture!r}"
+            )
+
+    def _validate_name(meta: RpmMetadata) -> None:
+        if meta.name != expected_name:
+            _raise_validation("unexpected package name", expected_name, meta.name)
+
+    def _validate_version(meta: RpmMetadata) -> None:
+        if meta.version != expected_version:
+            _raise_validation("unexpected rpm version", expected_version, meta.version)
+
+    _validate_package(
+        lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
+        package_path=package_path,
+        validators=(
+            _validate_name,
+            _validate_version,
+            _validate_release,
+            _validate_arch,
+        ),
+        expected_paths=expected_paths,
+        executable_paths=executable_paths,
+        verify_command=verify_command,
+        sandbox_factory=sandbox_factory,
+        payload_label="RPM package payload",
         install_command=(
             "rpm",
             "-i",
@@ -192,4 +248,10 @@ def validate_rpm_package(
         ),
         remove_command=("rpm", "-e", expected_name),
         install_error="rpm installation failed",
+    )
+
+
+def _raise_validation(label: str, expected: str, actual: str) -> None:
+    raise ValidationError(
+        f"{label}: expected {expected!r}, found {actual!r}"
     )

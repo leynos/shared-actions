@@ -16,7 +16,7 @@ root filesystem using the bundled `polythene` sandbox.
 | release | string | _empty_ | Package release or revision. Defaults to `1` when omitted. | no |
 | arch | string | _empty_ | Override the nfpm architecture (auto-detected from `target` when blank). | no |
 | formats | string | `deb` | Comma-, space-, or newline-separated list of package formats to validate (`deb`, `rpm`, …). | no |
-| package-dir | string | _empty_ | Directory containing the built packages. Defaults to `<project-dir>/dist`. | no |
+| packages-dir | string | _empty_ | Directory containing the built packages. Defaults to `<project-dir>/dist`. | no |
 | expected-paths | string | _empty_ | Additional absolute paths that must be present in the package payload (defaults to `/usr/bin/<bin-name>`). | no |
 | executable-paths | string | _empty_ | Subset of `expected-paths` that must be executable. Defaults to `/usr/bin/<bin-name>`. | no |
 | verify-command | string | _empty_ | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`). | no |
@@ -65,7 +65,7 @@ None.
 ```
 
 The action expects packages to be available in `<project-dir>/dist` unless
-`package-dir` is provided. When validating Debian packages the sandbox installs
+`packages-dir` is provided. When validating Debian packages the sandbox installs
 them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows verify the
 package metadata, ensure the expected files exist and optionally run a supplied
 command inside the sandbox.

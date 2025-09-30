@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Callable, Final, TypeVar
 
 from plumbum.commands.base import BaseCommand
 
@@ -40,6 +40,7 @@ class RpmMetadata:
 
 
 _KV_SEPARATOR: Final[str] = ":"
+MetaT = TypeVar("MetaT")
 
 
 def _parse_kv_output(text: str) -> dict[str, str]:
@@ -75,25 +76,41 @@ def _parse_dpkg_listing(output: str) -> set[str]:
     return files
 
 
+def _inspect_package(
+    info_cmd: BaseCommand,
+    list_cmd: BaseCommand,
+    *,
+    list_parser: Callable[[str], set[str]],
+    builder: Callable[[dict[str, str], set[str]], MetaT],
+) -> MetaT:
+    """Return package metadata using parameterised commands and parsers."""
+
+    info_output = run_text(info_cmd)
+    info = _parse_kv_output(info_output)
+    listing_output = run_text(list_cmd)
+    files = list_parser(listing_output)
+    return builder(info, files)
+
+
 def inspect_deb_package(dpkg_deb: BaseCommand, package_path: Path) -> DebMetadata:
     """Return metadata for ``package_path`` using ``dpkg-deb``."""
 
-    info_output = run_text(
+    return _inspect_package(
         dpkg_deb[
             "-f",
             package_path.as_posix(),
             "Package",
             "Version",
             "Architecture",
-        ]
-    )
-    info = _parse_kv_output(info_output)
-    listing_output = run_text(dpkg_deb["-c", package_path.as_posix()])
-    return DebMetadata(
-        name=info.get("Package", ""),
-        version=info.get("Version", ""),
-        architecture=info.get("Architecture", ""),
-        files=_parse_dpkg_listing(listing_output),
+        ],
+        dpkg_deb["-c", package_path.as_posix()],
+        list_parser=_parse_dpkg_listing,
+        builder=lambda info, files: DebMetadata(
+            name=info.get("Package", ""),
+            version=info.get("Version", ""),
+            architecture=info.get("Architecture", ""),
+            files=files,
+        ),
     )
 
 
@@ -111,13 +128,15 @@ def _parse_rpm_listing(output: str) -> set[str]:
 def inspect_rpm_package(rpm_cmd: BaseCommand, package_path: Path) -> RpmMetadata:
     """Return metadata for ``package_path`` using ``rpm``."""
 
-    info_output = run_text(rpm_cmd["-qip", package_path.as_posix()])
-    info = _parse_kv_output(info_output)
-    listing_output = run_text(rpm_cmd["-qlp", package_path.as_posix()])
-    return RpmMetadata(
-        name=info.get("Name", ""),
-        version=info.get("Version", ""),
-        release=info.get("Release", ""),
-        architecture=info.get("Architecture", ""),
-        files=_parse_rpm_listing(listing_output),
+    return _inspect_package(
+        rpm_cmd["-qip", package_path.as_posix()],
+        rpm_cmd["-qlp", package_path.as_posix()],
+        list_parser=_parse_rpm_listing,
+        builder=lambda info, files: RpmMetadata(
+            name=info.get("Name", ""),
+            version=info.get("Version", ""),
+            release=info.get("Release", ""),
+            architecture=info.get("Architecture", ""),
+            files=files,
+        ),
     )

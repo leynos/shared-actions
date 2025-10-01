@@ -42,6 +42,7 @@ normalise_paths = normalise_module.normalise_paths
 packages_module = importlib.import_module("validate_packages")
 locate_deb = packages_module.locate_deb
 locate_rpm = packages_module.locate_rpm
+rpm_expected_architecture = packages_module.rpm_expected_architecture
 validate_deb_package = packages_module.validate_deb_package
 validate_rpm_package = packages_module.validate_rpm_package
 
@@ -61,7 +62,7 @@ app.config = (*tuple(existing_config), _env_config)
 class ValidationConfig:
     """Container for derived settings used during validation."""
 
-    package_dir: Path
+    packages_dir: Path
     package_value: str
     version: str
     release: str
@@ -91,7 +92,7 @@ def main(
     release: str | None = None,
     arch: str | None = None,
     formats: list[str] | None = None,
-    package_dir: Path | None = None,
+    packages_dir: Path | None = None,
     expected_paths: list[str] | None = None,
     executable_paths: list[str] | None = None,
     verify_command: list[str] | None = None,
@@ -111,7 +112,7 @@ def main(
         release=release,
         arch=arch,
         formats=formats,
-        package_dir=package_dir,
+        packages_dir=packages_dir,
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,
@@ -142,7 +143,7 @@ def _build_config(
     release: str | None,
     arch: str | None,
     formats: list[str] | None,
-    package_dir: Path | None,
+    packages_dir: Path | None,
     expected_paths: list[str] | None,
     executable_paths: list[str] | None,
     verify_command: list[str] | None,
@@ -153,8 +154,8 @@ def _build_config(
 ) -> ValidationConfig:
     """Derive configuration from CLI parameters."""
     project_root = Path(project_dir) if project_dir is not None else Path.cwd()
-    package_dir_value = package_dir or (project_root / "dist")
-    ensure_exists(package_dir_value, "package directory not found")
+    packages_dir_value = packages_dir or (project_root / "dist")
+    ensure_exists(packages_dir_value, "package directory not found")
 
     bin_value = bin_name.strip()
     if not bin_value:
@@ -195,7 +196,7 @@ def _build_config(
         raise ValidationError(message)
 
     return ValidationConfig(
-        package_dir=package_dir_value,
+        packages_dir=packages_dir_value,
         package_value=package_value,
         version=version_value,
         release=release_value,
@@ -265,7 +266,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
     if fmt == "deb":
         command = get_command("dpkg-deb")
         package_path = locate_deb(
-            config.package_dir,
+            config.packages_dir,
             config.package_value,
             config.version,
             config.release,
@@ -288,7 +289,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
     if fmt == "rpm":
         command = get_command("rpm")
         package_path = locate_rpm(
-            config.package_dir,
+            config.packages_dir,
             config.package_value,
             config.version,
             config.release,
@@ -299,7 +300,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
             expected_name=config.package_value,
             expected_version=config.version,
             expected_release=config.release,
-            expected_arch=config.arch,
+            expected_arch=rpm_expected_architecture(config.arch),
             expected_paths=config.expected_paths,
             executable_paths=config.executable_paths,
             verify_command=config.verify_command,

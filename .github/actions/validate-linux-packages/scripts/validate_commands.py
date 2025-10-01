@@ -32,6 +32,4 @@ def run_text(command: BaseCommand, *, timeout: int | None = None) -> str:
     result = run_cmd(command, timeout=timeout)
     if isinstance(result, tuple):
         return "".join(str(part) for part in result if part is not None)
-    if isinstance(result, int):
-        return ""
-    return str(result)
+    return "" if isinstance(result, int) else str(result)

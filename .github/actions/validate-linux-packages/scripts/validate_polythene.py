@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
+import logging
 import typing as typ
 
 from plumbum import local
@@ -13,6 +13,7 @@ from validate_commands import SIBLING_SCRIPTS, run_text
 from validate_exceptions import ValidationError
 
 Iterator = typ.Iterator
+logger = logging.getLogger(__name__)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path
@@ -97,7 +98,7 @@ def polythene_rootfs(
     try:
         yield session
     finally:
-        with contextlib.suppress(ProcessExecutionError):
+        try:
             local[
                 "uv",
                 "run",
@@ -107,3 +108,5 @@ def polythene_rootfs(
                 "--store",
                 store.as_posix(),
             ]()
+        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
+            logger.debug("polythene cleanup failed: %s", exc)

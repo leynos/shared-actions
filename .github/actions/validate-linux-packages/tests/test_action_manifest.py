@@ -28,7 +28,7 @@ def test_manifest_configures_composite_action() -> None:
         "INPUT_RELEASE",
         "INPUT_ARCH",
         "INPUT_FORMATS",
-        "INPUT_PACKAGE_DIR",
+        "INPUT_PACKAGES_DIR",
         "INPUT_EXPECTED_PATHS",
         "INPUT_EXECUTABLE_PATHS",
         "INPUT_VERIFY_COMMAND",

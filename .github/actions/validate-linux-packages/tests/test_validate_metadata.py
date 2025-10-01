@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import runpy
 import sys
 import typing as typ
@@ -72,6 +71,7 @@ def test_inspect_deb_package_parses_metadata(
     validate_module: ModuleType,
     cmd_mox: CmdMox,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """dpkg-deb metadata inspection extracts fields and payload paths."""
     package_path = tmp_path / "rust-toy-app_0.1.0-1_amd64.deb"
@@ -105,8 +105,8 @@ def test_inspect_deb_package_parses_metadata(
     assert shim_dir is not None
     socket_path = cmd_mox.environment.socket_path
     assert socket_path is not None
-    os.environ["CMOX_IPC_SOCKET"] = str(socket_path)
-    local.env["CMOX_IPC_SOCKET"] = str(socket_path)
+    monkeypatch.setenv("CMOX_IPC_SOCKET", str(socket_path))
+    monkeypatch.setitem(local.env, "CMOX_IPC_SOCKET", str(socket_path))
 
     metadata = validate_module.inspect_deb_package(
         local[str(shim_dir / "dpkg-deb")], package_path
@@ -126,6 +126,7 @@ def test_inspect_rpm_package_parses_metadata(
     validate_module: ModuleType,
     cmd_mox: CmdMox,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """RPM metadata inspection extracts fields and payload paths."""
     package_path = tmp_path / "rust-toy-app-0.1.0-1.x86_64.rpm"
@@ -158,8 +159,8 @@ def test_inspect_rpm_package_parses_metadata(
     assert shim_dir is not None
     socket_path = cmd_mox.environment.socket_path
     assert socket_path is not None
-    os.environ["CMOX_IPC_SOCKET"] = str(socket_path)
-    local.env["CMOX_IPC_SOCKET"] = str(socket_path)
+    monkeypatch.setenv("CMOX_IPC_SOCKET", str(socket_path))
+    monkeypatch.setitem(local.env, "CMOX_IPC_SOCKET", str(socket_path))
 
     metadata = validate_module.inspect_rpm_package(
         local[str(shim_dir / "rpm")], package_path

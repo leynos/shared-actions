@@ -222,7 +222,7 @@ def test_main_invokes_rpm_validation(
     assert recorded["name"] == "rust-toy-app"
     assert recorded["version"] == "1.2.3"
     assert recorded["release"] == "2"
-    assert recorded["arch"] == "amd64"
+    assert recorded["arch"] == "x86_64"
     assert recorded["paths"][0] == "/usr/bin/rust-toy-app"
     assert recorded["executables"] == ("/usr/bin/rust-toy-app",)
     assert recorded["verify"] == ("/usr/bin/rust-toy-app", "--version")

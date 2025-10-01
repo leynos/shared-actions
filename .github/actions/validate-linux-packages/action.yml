@@ -71,7 +71,7 @@ runs:
   using: composite
   steps:
     - name: Setup uv
-      uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
+      uses: astral-sh/setup-uv@v6.8.0
     - name: Validate packages
       shell: bash
       working-directory: ${{ inputs.project-dir }}
@@ -83,7 +83,7 @@ runs:
         INPUT_RELEASE: ${{ inputs.release }}
         INPUT_ARCH: ${{ inputs.arch }}
         INPUT_FORMATS: ${{ inputs.formats }}
-        INPUT_PACKAGE_DIR: ${{ inputs.packages-dir }}
+        INPUT_PACKAGES_DIR: ${{ inputs.packages-dir }}
         INPUT_EXPECTED_PATHS: ${{ inputs.expected-paths }}
         INPUT_EXECUTABLE_PATHS: ${{ inputs.executable-paths }}
         INPUT_VERIFY_COMMAND: ${{ inputs.verify-command }}

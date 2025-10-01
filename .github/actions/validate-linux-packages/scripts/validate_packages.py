@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pathlib
 import typing as typ
 
@@ -16,6 +17,8 @@ from validate_metadata import (
 )
 from validate_polythene import PolytheneSession
 
+logger = logging.getLogger(__name__)
+
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path
 
@@ -29,6 +32,7 @@ __all__ = [
     "ensure_subset",
     "locate_deb",
     "locate_rpm",
+    "rpm_expected_architecture",
     "validate_deb_package",
     "validate_rpm_package",
 ]
@@ -54,6 +58,11 @@ def acceptable_rpm_architectures(arch: str) -> set[str]:
         "loong64": {"loong64", "loongarch64"},
     }
     return aliases.get(arch, {arch})
+
+
+def rpm_expected_architecture(arch: str) -> str:
+    """Return canonical RPM architecture for nfpm ``arch`` values."""
+    return "x86_64" if arch == "amd64" else arch
 
 
 def locate_deb(
@@ -115,7 +124,7 @@ def _install_and_verify(
             try:
                 sandbox.exec(*remove_command)
             except ProcessExecutionError as exc:
-                print(f"Suppressed exception during package removal: {exc}")
+                logger.debug("suppressed exception during package removal: %s", exc)
 
 
 def _validate_package(

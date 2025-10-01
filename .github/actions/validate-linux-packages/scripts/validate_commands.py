@@ -7,6 +7,8 @@ import sys
 import typing as typ
 from pathlib import Path
 
+# Depend on helpers exposed by the sibling linux-packages action so the
+# validation workflow can reuse shared utilities (for example ``script_utils``).
 SIBLING_SCRIPTS = Path(__file__).resolve().parents[2] / "linux-packages" / "scripts"
 if str(SIBLING_SCRIPTS) not in sys.path:
     sys.path.append(str(SIBLING_SCRIPTS))

@@ -82,6 +82,9 @@ class ValidationConfig:
         return f"{self.version}-{self.release}"
 
 
+# Cyclopts derives the CLI interface directly from the callable signature, so
+# ``main`` must expose the discrete keyword arguments rather than accepting a
+# pre-built configuration object.
 def main(
     *,
     project_dir: Path | None = None,
@@ -260,12 +263,13 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         message = f"unsupported package format: {fmt}"
         raise ValidationError(message)
 
-    sandbox_factory = lambda image=image, directory=store_dir: polythene_rootfs(  # noqa: E731
-        config.polythene_script,
-        image,
-        directory,
-        timeout=config.timeout,
-    )
+    def sandbox_factory() -> typ.ContextManager[object]:
+        return polythene_rootfs(
+            config.polythene_script,
+            image,
+            store_dir,
+            timeout=config.timeout,
+        )
 
     if fmt == "deb":
         command = get_command("dpkg-deb")

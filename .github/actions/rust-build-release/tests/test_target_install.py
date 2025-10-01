@@ -143,6 +143,8 @@ def test_errors_when_cross_required_but_unavailable(
 
     err = capsys.readouterr().err
     assert "requires cross" in err
+    assert "cross is not installed" in err
+    assert "no container runtime detected" in err
 
 
 @CMD_MOX_UNSUPPORTED

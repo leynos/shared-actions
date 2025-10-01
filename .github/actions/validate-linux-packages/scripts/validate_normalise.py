@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import re
 import typing as typ
 
@@ -64,4 +65,16 @@ def normalise_command(value: list[str] | None) -> list[str]:
     """Return a cleaned command vector."""
     if not value:
         return []
-    return [part for part in (item.strip() for item in value) if part]
+    tokens: list[str] = []
+    for entry in value:
+        for line in entry.splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            try:
+                parts = shlex.split(cleaned)
+            except ValueError as exc:  # pragma: no cover - validation surface
+                message = f"invalid command segment: {cleaned!r}"
+                raise ValidationError(message) from exc
+            tokens.extend(parts)
+    return tokens

@@ -213,6 +213,8 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     verify_tuple = tuple(normalise_command(inputs.verify_command))
 
     polythene_script = inputs.polythene_path or default_polythene_path()
+    # The helper is launched via ``uv run`` which reads the script directly,
+    # so the file only needs to exist and does not require the executable bit.
     if not polythene_script.exists():
         message = f"polythene script not found: {polythene_script}"
         raise ValidationError(message)
@@ -242,7 +244,13 @@ def _prepare_paths(
     expected_paths: list[str] | None,
     executable_paths: list[str] | None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return normalised expected and executable paths."""
+    """Return normalised expected and executable paths.
+
+    The default ``/usr/bin/{bin_value}`` entry is always injected into
+    ``expected_paths`` when missing. Entries provided via ``executable_paths``
+    are appended to ``expected_paths`` so every executable is verified during
+    sandbox checks.
+    """
     default_binary_path = f"/usr/bin/{bin_value}"
     expected_paths_list = normalise_paths(expected_paths)
     if not expected_paths_list:
@@ -335,5 +343,3 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         print(f"✓ validated RPM package: {package_path}")
         return
 
-    message = f"unsupported package format: {fmt}"
-    raise ValidationError(message)

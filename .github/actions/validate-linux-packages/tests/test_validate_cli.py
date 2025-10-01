@@ -86,6 +86,32 @@ def _prepare_polythene_stub(
     return calls, exec_calls
 
 
+def test_build_config_splits_verify_command(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Normalise verify command strings into tokenised argv entries."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    inputs = module.ValidationInputs(
+        project_dir=project_dir,
+        bin_name="tool",
+        version="1.0.0",
+        formats=["deb"],
+        verify_command=["/usr/bin/foo --version", "--flag"],
+        polythene_path=polythene_path,
+    )
+
+    config = module._build_config(inputs)
+
+    assert config.verify_command == ("/usr/bin/foo", "--version", "--flag")
+
+
 def test_main_invokes_deb_validation(
     validate_cli_module: object,
     monkeypatch: pytest.MonkeyPatch,

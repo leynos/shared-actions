@@ -9,6 +9,10 @@ Build Rust application release artefacts using the repository's `setup-rust` act
 > - Linux: [`linux-packages`](../linux-packages)
 > - macOS: [`macos-package`](../macos-package)
 > - Windows: [`windows-package`](../windows-package)
+>
+> When run on Linux runners the action also supports cross-compiling
+> `x86_64-unknown-illumos` targets. The staged artefacts are emitted beneath an
+> `illumos/amd64` directory alongside the Linux distributions.
 
 The `uv` Python package manager is installed automatically to execute the build
 script.
@@ -64,6 +68,26 @@ None.
     version: 1.2.3
     man-paths: ${{ steps.find-linux-manpage.outputs.path }}
 ```
+
+### Cross-compiling illumos artefacts
+
+The action can build illumos binaries from a Linux runner using `cross`:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-build-release
+        with:
+          target: x86_64-unknown-illumos
+          project-dir: rust-toy-app
+```
+
+The Stage artifacts step maps the resulting files into
+`dist/rust-toy-app_illumos_amd64/` so they can be uploaded or packaged by
+downstream workflows.
 
 ## Release History
 

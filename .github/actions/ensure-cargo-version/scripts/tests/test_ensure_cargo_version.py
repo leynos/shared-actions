@@ -35,11 +35,15 @@ ensure = module
         (False, False),
         ("true", True),
         ("TRUE", True),
+        ("On", True),
         ("1", True),
         ("yes", True),
         ("false", False),
+        ("FALSE", False),
+        ("No", False),
         ("0", False),
         ("off", False),
+        ("OFF", False),
         ("", False),
     ],
 )
@@ -175,3 +179,28 @@ def test_main_records_first_manifest_version_in_output(
 
     captured = capsys.readouterr()
     assert "Tag comparison disabled" in captured.out
+
+
+def test_main_emits_crate_version_when_checking_tag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Even when comparing tags the crate-version output remains available."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "4.5.6")
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_REF_NAME", "v4.5.6")
+
+    ensure.main(manifests=[Path("Cargo.toml")])
+
+    contents = output_file.read_text(encoding="utf-8").splitlines()
+    assert "crate-version=4.5.6" in contents
+    assert "version=4.5.6" in contents
+
+    captured = capsys.readouterr()
+    assert "Release tag 4.5.6 matches" in captured.out

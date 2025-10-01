@@ -249,20 +249,19 @@ def main(
         if tag_version is None:  # pragma: no cover - defensive guard
             message = "Tag comparison requested but no tag version was derived."
             raise RuntimeError(message)
-        tag_version_str = tag_version
-        tag_version = tag_version_str
+        expected_tag = tag_version
         mismatch_errors = [
             (
                 "Tag/Cargo.toml mismatch",
                 (
-                    f"Tag version {tag_version_str} does not match Cargo.toml version "
+                    f"Tag version {expected_tag} does not match Cargo.toml version "
                     f"{manifest_version.version}"
                     f" for {_display_path(manifest_version.path)}"
                 ),
                 manifest_version.path,
             )
             for manifest_version in manifest_versions
-            if manifest_version.version != tag_version_str
+            if manifest_version.version != expected_tag
         ]
         errors.extend(mismatch_errors)
 
@@ -276,7 +275,7 @@ def main(
     if should_check_tag:
         print(
             "Release tag "
-            f"{tag_version_str} matches Cargo.toml version(s) in: {manifest_list}."
+            f"{expected_tag} matches Cargo.toml version(s) in: {manifest_list}."
         )
     else:
         print(

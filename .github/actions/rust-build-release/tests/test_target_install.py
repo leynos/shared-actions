@@ -336,6 +336,48 @@ def test_preserves_existing_cross_container_engine(
 
 
 @CMD_MOX_UNSUPPORTED
+@pytest.mark.parametrize(
+    ("target", "host_target", "expected"),
+    [
+        ("x86_64-unknown-freebsd", "x86_64-unknown-linux-gnu", True),
+        ("x86_64-unknown-openbsd", "x86_64-unknown-linux-gnu", True),
+        ("x86_64-unknown-netbsd", "x86_64-unknown-linux-gnu", True),
+        ("x86_64-unknown-openbsd", "x86_64-unknown-openbsd", False),
+        ("x86_64-unknown-netbsd", "x86_64-unknown-netbsd", False),
+    ],
+)
+def test_decide_cross_usage_marks_bsd_targets_for_container(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    target: str,
+    host_target: str,
+    *,
+    expected: bool,
+) -> None:
+    """BSD targets require cross with containers unless host matches suffix."""
+    _cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    app_env.patch_attr("ensure_cross", lambda *_: ("/fake/cross", "0.2.5"))
+    app_env.patch_attr("_probe_runtime", lambda _name: False)
+
+    cmd_mox.replay()
+
+    decision = main_module._decide_cross_usage(
+        toolchain_name="stable-x86_64-unknown-linux-gnu",
+        installed_names=["stable-x86_64-unknown-linux-gnu"],
+        rustup_exec="rustup",
+        target=target,
+        host_target=host_target,
+    )
+
+    cmd_mox.verify()
+    assert decision.requires_cross_container is expected
+
+
+@CMD_MOX_UNSUPPORTED
 def test_falls_back_to_cargo_when_cross_container_fails(
     main_module: ModuleType,
     cross_module: ModuleType,

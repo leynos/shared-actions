@@ -35,6 +35,12 @@ WINDOWS_TARGET_SUFFIXES = (
     "-windows-gnullvm",
 )
 
+BSD_TARGET_SUFFIXES = (
+    "unknown-freebsd",
+    "unknown-openbsd",
+    "unknown-netbsd",
+)
+
 _TRIPLE_OS_COMPONENTS = {
     "linux",
     "windows",
@@ -287,8 +293,10 @@ def _decide_cross_usage(
     target_normalized = target.strip().lower()
     host_normalized = host_target.strip().lower()
     requires_cross_container = False
-    if target_normalized.endswith("unknown-freebsd"):
-        requires_cross_container = not host_normalized.endswith("unknown-freebsd")
+    for suffix in BSD_TARGET_SUFFIXES:
+        if target_normalized.endswith(suffix):
+            requires_cross_container = not host_normalized.endswith(suffix)
+            break
     docker_present = False
     podman_present = False
     if should_probe_container(sys.platform, target):

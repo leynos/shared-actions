@@ -172,6 +172,24 @@ def _write_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
+def _coerce_bool(*, value: bool | str, parameter: str) -> bool:
+    """Convert boolean-like values into ``bool`` instances."""
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalised = value.strip().lower()
+        if normalised in {"1", "true", "yes", "on"}:
+            return True
+        if normalised in {"0", "false", "no", "off", ""}:
+            return False
+
+    message = (
+        f"Invalid value for {parameter!s}: {value!r}. Expected a boolean-like string."
+    )
+    raise ValueError(message)
+
+
 def _display_path(path: Path) -> str:
     """Return a display-friendly version of a manifest path."""
     workspace = _workspace()
@@ -186,16 +204,29 @@ def main(
     *,
     manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
     tag_prefix: typ.Annotated[str, Parameter()] = "v",
+    check_tag: typ.Annotated[bool | str, Parameter()] = True,
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]
     resolved = _resolve_paths(manifest_args)
 
     try:
-        tag_version = _tag_from_ref(tag_prefix)
-    except RuntimeError as exc:
-        _emit_error("Missing tag", str(exc))
+        should_check_tag = _coerce_bool(value=check_tag, parameter="check-tag")
+    except ValueError as exc:
+        _emit_error("Invalid input", str(exc))
         raise SystemExit(1) from exc
+
+    tag_version: str | None = None
+    if should_check_tag:
+        try:
+            tag_version = _tag_from_ref(tag_prefix)
+        except RuntimeError as exc:
+            _emit_error("Missing tag", str(exc))
+            raise SystemExit(1) from exc
+    else:
+        # Best-effort: expose version if a ref is present, but do not fail if absent.
+        if os.environ.get("GITHUB_REF_NAME"):
+            tag_version = _tag_from_ref(tag_prefix)
 
     manifest_versions: list[ManifestVersion] = []
     errors: list[tuple[str, str, Path | None]] = []
@@ -212,31 +243,47 @@ def main(
                 )
             )
 
-    mismatch_errors = [
-        (
-            "Tag/Cargo.toml mismatch",
+    crate_version = manifest_versions[0].version if manifest_versions else ""
+
+    if should_check_tag:
+        if tag_version is None:  # pragma: no cover - defensive guard
+            message = "Tag comparison requested but no tag version was derived."
+            raise RuntimeError(message)
+        expected_tag = tag_version
+        mismatch_errors = [
             (
-                f"Tag version {tag_version} does not match Cargo.toml version "
-                f"{manifest_version.version}"
-                f" for {_display_path(manifest_version.path)}"
-            ),
-            manifest_version.path,
-        )
-        for manifest_version in manifest_versions
-        if manifest_version.version != tag_version
-    ]
-    errors.extend(mismatch_errors)
+                "Tag/Cargo.toml mismatch",
+                (
+                    f"Tag version {expected_tag} does not match Cargo.toml version "
+                    f"{manifest_version.version}"
+                    f" for {_display_path(manifest_version.path)}"
+                ),
+                manifest_version.path,
+            )
+            for manifest_version in manifest_versions
+            if manifest_version.version != expected_tag
+        ]
+        errors.extend(mismatch_errors)
 
     if errors:
         for title, message, path in errors:
             _emit_error(title, message, path=path)
         raise SystemExit(1)
 
+    _write_output("crate-version", crate_version)
     manifest_list = ", ".join(_display_path(item.path) for item in manifest_versions)
-    print(
-        f"Release tag {tag_version} matches Cargo.toml version(s) in: {manifest_list}."
-    )
-    _write_output("version", tag_version)
+    if should_check_tag:
+        print(
+            "Release tag "
+            f"{expected_tag} matches Cargo.toml version(s) in: {manifest_list}."
+        )
+    else:
+        print(
+            "Cargo.toml version(s) located in: "
+            f"{manifest_list}. Tag comparison disabled by input."
+        )
+    if tag_version is not None:
+        _write_output("version", tag_version)
 
 
 if __name__ == "__main__":

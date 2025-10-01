@@ -8,12 +8,14 @@ Validate that the Git tag triggering a release workflow matches the version in o
 | ---- | -------- | ------- | ----------- |
 | `manifests` | No | `Cargo.toml` | Newline or whitespace separated list of Cargo manifest paths to check. Paths are resolved relative to the GitHub workspace. |
 | `tag-prefix` | No | `v` | Prefix stripped from the Git reference name before comparing against manifest versions. Use an empty string to disable prefix removal. |
+| `check-tag` | No | `true` | Disable tag comparison by supplying a falsey value (case-insensitive `false`, `0`, `no`, `off`, or an empty string). Truthy values (`true`, `1`, `yes`, `on`) enable comparison while still attempting to read the tag for output purposes. |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
 | `version` | Version extracted from the tag reference after removing the configured prefix. |
+| `crate-version` | Version read from the first manifest path provided (after resolution) after resolving workspace inheritance. |
 
 ## Usage
 
@@ -39,6 +41,13 @@ jobs:
           # set the tag prefix so the extracted version is "1.2.3":
           # tag-prefix: ensure-cargo-version-v
 
+      - name: Read crate version without enforcing tag match
+        uses: ./.github/actions/ensure-cargo-version
+        with:
+          manifests: Cargo.toml
+          check-tag: "false"
+```
+
 ## Notes
 
 - **Namespaced tags**: The action strips a leading `tag-prefix` (default `v`).
@@ -52,3 +61,8 @@ jobs:
   request to clarify how `uv` becomes available.
 - **Failure behaviour**: Any parse error or version mismatch emits GitHub
   Actions `::error` annotations and exits with status `1`, failing the job.
+- **Optional tag validation**: If `check-tag` is set to `false`, the action still
+  reads and outputs the manifest version without enforcing a match against the
+  tag-derived version. The script keeps attempting to read the tag to emit the
+  `version` output; when no tag reference is available, the `version` output is
+  omitted while `crate-version` remains populated.

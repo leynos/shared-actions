@@ -18,6 +18,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.append(str(SCRIPT_DIR))
 
+SIBLING_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
+if str(SIBLING_SCRIPTS) not in sys.path:
+    sys.path.append(str(SIBLING_SCRIPTS))
+
 from validate_cli import app, main, run  # noqa: E402  (import after sys.path mutation)
 from validate_exceptions import ValidationError  # noqa: E402
 from validate_metadata import (  # noqa: E402
@@ -28,14 +32,14 @@ from validate_metadata import (  # noqa: E402
 )
 
 __all__ = [
-    "app",
-    "main",
-    "run",
-    "ValidationError",
     "DebMetadata",
     "RpmMetadata",
+    "ValidationError",
+    "app",
     "inspect_deb_package",
     "inspect_rpm_package",
+    "main",
+    "run",
 ]
 
 

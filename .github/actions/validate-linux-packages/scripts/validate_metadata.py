@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Final, TypeVar
-
-from plumbum.commands.base import BaseCommand
+import dataclasses
+import typing as typ
 
 from validate_commands import run_text
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from pathlib import Path
+
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - runtime fallback
+    BaseCommand = object
 
 __all__ = [
     "DebMetadata",
@@ -18,7 +22,7 @@ __all__ = [
 ]
 
 
-@dataclass(slots=True)
+@dataclasses.dataclass(slots=True)
 class DebMetadata:
     """Metadata extracted from a Debian package."""
 
@@ -28,7 +32,7 @@ class DebMetadata:
     files: set[str]
 
 
-@dataclass(slots=True)
+@dataclasses.dataclass(slots=True)
 class RpmMetadata:
     """Metadata extracted from an RPM package."""
 
@@ -39,13 +43,11 @@ class RpmMetadata:
     files: set[str]
 
 
-_KV_SEPARATOR: Final[str] = ":"
-MetaT = TypeVar("MetaT")
+_KV_SEPARATOR: typ.Final[str] = ":"
 
 
 def _parse_kv_output(text: str) -> dict[str, str]:
     """Return ``key: value`` lines from ``text`` as a dictionary."""
-
     entries: dict[str, str] = {}
     for line in text.splitlines():
         if _KV_SEPARATOR not in line:
@@ -57,7 +59,6 @@ def _parse_kv_output(text: str) -> dict[str, str]:
 
 def _parse_dpkg_listing(output: str) -> set[str]:
     """Return payload paths from ``dpkg-deb -c`` output."""
-
     files: set[str] = set()
     for raw_line in output.splitlines():
         line = raw_line.strip()
@@ -67,8 +68,7 @@ def _parse_dpkg_listing(output: str) -> set[str]:
         path = parts[-1] if parts else ""
         if not path:
             continue
-        if path.startswith("./"):
-            path = path[2:]
+        path = path.removeprefix("./")
         if path.startswith("/"):
             files.add(path)
         else:
@@ -80,11 +80,10 @@ def _inspect_package(
     info_cmd: BaseCommand,
     list_cmd: BaseCommand,
     *,
-    list_parser: Callable[[str], set[str]],
-    builder: Callable[[dict[str, str], set[str]], MetaT],
-) -> MetaT:
+    list_parser: typ.Callable[[str], set[str]],
+    builder: typ.Callable[[dict[str, str], set[str]], DebMetadata | RpmMetadata],
+) -> DebMetadata | RpmMetadata:
     """Return package metadata using parameterised commands and parsers."""
-
     info_output = run_text(info_cmd)
     info = _parse_kv_output(info_output)
     listing_output = run_text(list_cmd)
@@ -94,7 +93,6 @@ def _inspect_package(
 
 def inspect_deb_package(dpkg_deb: BaseCommand, package_path: Path) -> DebMetadata:
     """Return metadata for ``package_path`` using ``dpkg-deb``."""
-
     return _inspect_package(
         dpkg_deb[
             "-f",
@@ -116,7 +114,6 @@ def inspect_deb_package(dpkg_deb: BaseCommand, package_path: Path) -> DebMetadat
 
 def _parse_rpm_listing(output: str) -> set[str]:
     """Return payload paths from ``rpm -qlp`` output."""
-
     files: set[str] = set()
     for line in output.splitlines():
         if entry := line.strip():
@@ -126,7 +123,6 @@ def _parse_rpm_listing(output: str) -> set[str]:
 
 def inspect_rpm_package(rpm_cmd: BaseCommand, package_path: Path) -> RpmMetadata:
     """Return metadata for ``package_path`` using ``rpm``."""
-
     return _inspect_package(
         rpm_cmd["-qip", package_path.as_posix()],
         rpm_cmd["-qlp", package_path.as_posix()],

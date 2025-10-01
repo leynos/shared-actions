@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+import typing as typ
 
 from validate_exceptions import ValidationError
 
@@ -15,9 +15,8 @@ __all__ = [
 ]
 
 
-def dedupe(values: Iterable[str]) -> list[str]:
+def dedupe(values: typ.Iterable[str]) -> list[str]:
     """Return ``values`` without duplicates while preserving order."""
-
     seen: set[str] = set()
     result: list[str] = []
     for item in values:
@@ -29,7 +28,6 @@ def dedupe(values: Iterable[str]) -> list[str]:
 
 def normalise_formats(values: list[str] | None) -> list[str]:
     """Return ordered, deduplicated, lower-cased formats."""
-
     if not values:
         return ["deb"]
     ordered: list[str] = []
@@ -47,7 +45,6 @@ def normalise_formats(values: list[str] | None) -> list[str]:
 
 def normalise_paths(values: list[str] | None) -> list[str]:
     """Return absolute paths derived from ``values`` while preserving order."""
-
     if not values:
         return []
     paths: list[str] = []
@@ -57,16 +54,14 @@ def normalise_paths(values: list[str] | None) -> list[str]:
             if not cleaned:
                 continue
             if not cleaned.startswith("/"):
-                raise ValidationError(
-                    f"expected absolute path but received {cleaned!r}"
-                )
+                message = f"expected absolute path but received {cleaned!r}"
+                raise ValidationError(message)
             paths.append(cleaned)
     return dedupe(paths)
 
 
 def normalise_command(value: list[str] | None) -> list[str]:
     """Return a cleaned command vector."""
-
     if not value:
         return []
     return [part for part in (item.strip() for item in value) if part]

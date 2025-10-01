@@ -3,26 +3,51 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import importlib
+import sys
 import tempfile
 import typing as typ
-from dataclasses import dataclass
 from pathlib import Path
 
-import cyclopts
-from cyclopts import App, Parameter
+SCRIPT_DIR = Path(__file__).resolve().parent
+SIBLING_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
+for candidate in (SCRIPT_DIR, SIBLING_SCRIPTS):
+    location = str(candidate)
+    if location not in sys.path:
+        sys.path.append(location)
 
-from architectures import UnsupportedTargetError, deb_arch_for_target, nfpm_arch_for_target
-from script_utils import ensure_directory, ensure_exists, get_command
+cyclopts = importlib.import_module("cyclopts")
+App = cyclopts.App
+Parameter = cyclopts.Parameter
 
-from validate_exceptions import ValidationError
-from validate_normalise import normalise_command, normalise_formats, normalise_paths
-from validate_packages import (
-    locate_deb,
-    locate_rpm,
-    validate_deb_package,
-    validate_rpm_package,
-)
-from validate_polythene import default_polythene_path, polythene_rootfs
+architectures = importlib.import_module("architectures")
+UnsupportedTargetError = architectures.UnsupportedTargetError
+deb_arch_for_target = architectures.deb_arch_for_target
+nfpm_arch_for_target = architectures.nfpm_arch_for_target
+
+script_utils = importlib.import_module("script_utils")
+ensure_directory = script_utils.ensure_directory
+ensure_exists = script_utils.ensure_exists
+get_command = script_utils.get_command
+
+validate_exceptions = importlib.import_module("validate_exceptions")
+ValidationError = validate_exceptions.ValidationError
+
+normalise_module = importlib.import_module("validate_normalise")
+normalise_command = normalise_module.normalise_command
+normalise_formats = normalise_module.normalise_formats
+normalise_paths = normalise_module.normalise_paths
+
+packages_module = importlib.import_module("validate_packages")
+locate_deb = packages_module.locate_deb
+locate_rpm = packages_module.locate_rpm
+validate_deb_package = packages_module.validate_deb_package
+validate_rpm_package = packages_module.validate_rpm_package
+
+polythene_module = importlib.import_module("validate_polythene")
+default_polythene_path = polythene_module.default_polythene_path
+polythene_rootfs = polythene_module.polythene_rootfs
 
 __all__ = ["app", "main", "run"]
 
@@ -32,7 +57,7 @@ existing_config = getattr(app, "config", ()) or ()
 app.config = (*tuple(existing_config), _env_config)
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ValidationConfig:
     """Container for derived settings used during validation."""
 
@@ -53,13 +78,12 @@ class ValidationConfig:
     @property
     def deb_version(self) -> str:
         """Return the Debian version string including release."""
-
         return f"{self.version}-{self.release}"
 
 
 def main(
     *,
-    project_dir: Path = Path("."),
+    project_dir: Path | None = None,
     package_name: str | None = None,
     bin_name: typ.Annotated[str, Parameter(required=True)],
     target: str = "x86_64-unknown-linux-gnu",
@@ -78,7 +102,6 @@ def main(
     sandbox_timeout: str | None = None,
 ) -> None:
     """Validate the requested Linux packages."""
-
     config = _build_config(
         project_dir=project_dir,
         package_name=package_name,
@@ -106,13 +129,12 @@ def main(
 
 def run() -> None:
     """Entry point for script execution."""
-
     app()
 
 
 def _build_config(
     *,
-    project_dir: Path,
+    project_dir: Path | None,
     package_name: str | None,
     bin_name: str,
     target: str,
@@ -130,19 +152,20 @@ def _build_config(
     rpm_base_image: str,
 ) -> ValidationConfig:
     """Derive configuration from CLI parameters."""
-
-    project_dir = project_dir or Path(".")
-    package_dir_value = package_dir or (project_dir / "dist")
+    project_root = Path(project_dir) if project_dir is not None else Path.cwd()
+    package_dir_value = package_dir or (project_root / "dist")
     ensure_exists(package_dir_value, "package directory not found")
 
     bin_value = bin_name.strip()
     if not bin_value:
-        raise ValidationError("bin-name input is required")
+        message = "bin-name input is required"
+        raise ValidationError(message)
 
     package_value = (package_name or bin_value).strip() or bin_value
     version_value = version.strip().lstrip("v")
     if not version_value:
-        raise ValidationError("version input is required")
+        message = "version input is required"
+        raise ValidationError(message)
 
     release_value = (release or "1").strip() or "1"
     target_value = target.strip() or "x86_64-unknown-linux-gnu"
@@ -151,13 +174,15 @@ def _build_config(
     try:
         arch_value = (arch or nfpm_arch_for_target(target_value)).strip()
     except UnsupportedTargetError as exc:
-        raise ValidationError(f"unsupported target triple: {target_value}") from exc
+        message = f"unsupported target triple: {target_value}"
+        raise ValidationError(message) from exc
 
     deb_arch_value = deb_arch_for_target(target_value)
 
     formats_value = tuple(normalise_formats(formats))
     if not formats_value:
-        raise ValidationError("no package formats provided")
+        message = "no package formats provided"
+        raise ValidationError(message)
 
     expected_paths_value, executable_paths_value = _prepare_paths(
         bin_value, expected_paths, executable_paths
@@ -166,7 +191,8 @@ def _build_config(
 
     polythene_script = polythene_path or default_polythene_path()
     if not polythene_script.exists():
-        raise ValidationError(f"polythene script not found: {polythene_script}")
+        message = f"polythene script not found: {polythene_script}"
+        raise ValidationError(message)
 
     return ValidationConfig(
         package_dir=package_dir_value,
@@ -191,7 +217,6 @@ def _prepare_paths(
     executable_paths: list[str] | None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return normalised expected and executable paths."""
-
     default_binary_path = f"/usr/bin/{bin_value}"
     expected_paths_list = normalise_paths(expected_paths)
     if not expected_paths_list:
@@ -213,7 +238,6 @@ def _prepare_paths(
 @contextlib.contextmanager
 def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
-
     if polythene_store:
         store_base = polythene_store.resolve()
         ensure_directory(store_base)
@@ -226,10 +250,10 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:
     """Dispatch validation for ``fmt`` using ``config`` settings."""
-
     image = config.base_images.get(fmt)
     if image is None:
-        raise ValidationError(f"unsupported package format: {fmt}")
+        message = f"unsupported package format: {fmt}"
+        raise ValidationError(message)
 
     sandbox_factory = lambda image=image, directory=store_dir: polythene_rootfs(  # noqa: E731
         config.polythene_script,
@@ -284,4 +308,5 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         print(f"✓ validated RPM package: {package_path}")
         return
 
-    raise ValidationError(f"unsupported package format: {fmt}")
+    message = f"unsupported package format: {fmt}"
+    raise ValidationError(message)

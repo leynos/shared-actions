@@ -5,8 +5,8 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import sys
+import typing as typ
 from pathlib import Path
-from typing import Iterable
 
 import pytest
 
@@ -14,10 +14,9 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_cli.py"
 
 
-@pytest.fixture()
+@pytest.fixture
 def validate_cli_module() -> object:
     """Load the validate_cli module under test."""
-
     if str(SCRIPTS_DIR) not in sys.path:
         sys.path.append(str(SCRIPTS_DIR))
 
@@ -27,7 +26,8 @@ def validate_cli_module() -> object:
 
     spec = importlib.util.spec_from_file_location("validate_cli", MODULE_PATH)
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise RuntimeError("unable to load validate_cli module")
+        message = "unable to load validate_cli module"
+        raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -58,27 +58,27 @@ def _prepare_polythene_stub(
         store: Path,
         *,
         timeout: int | None = None,
-    ) -> Iterable[object]:
+    ) -> typ.Iterable[object]:
         calls.append((image, store.as_posix()))
         store.mkdir(parents=True, exist_ok=True)
         root = store / "rootfs"
         root.mkdir(parents=True, exist_ok=True)
 
         @contextlib.contextmanager
-        def _context() -> Iterable[object]:
+        def _context() -> typ.Iterable[object]:
             class _Session:
                 def __init__(self) -> None:
                     self.root = root
 
-                def exec(self, *args: str, timeout: int | None = None) -> None:  # noqa: ARG002
+                def exec(self, *args: str, _timeout: int | None = None) -> None:
                     exec_calls.append(tuple(args))
 
             yield _Session()
 
         return _context()
 
-    setattr(module, "default_polythene_path", _default_path)
-    setattr(module, "polythene_rootfs", _polythene_stub)
+    module.default_polythene_path = _default_path
+    module.polythene_rootfs = _polythene_stub
     return calls, exec_calls
 
 
@@ -88,6 +88,7 @@ def test_main_invokes_deb_validation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Invoke Debian validation when deb format requested."""
     module = validate_cli_module
     project_dir = tmp_path / "proj"
     package_dir = project_dir / "dist"
@@ -96,7 +97,7 @@ def test_main_invokes_deb_validation(
 
     calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
 
-    monkeypatch.setattr(module, "get_command", lambda name: object())  # noqa: ARG005
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
 
     recorded: dict[str, object] = {}
 
@@ -108,8 +109,8 @@ def test_main_invokes_deb_validation(
         expected_version: str,
         expected_deb_version: str,
         expected_arch: str,
-        expected_paths: Iterable[str],
-        executable_paths: Iterable[str],
+        expected_paths: typ.Iterable[str],
+        executable_paths: typ.Iterable[str],
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
@@ -152,8 +153,10 @@ def test_main_invokes_deb_validation(
     assert recorded["executables"] == ("/usr/bin/rust-toy-app",)
     assert recorded["verify"] == ()
 
-    assert calls and calls[0][0] == "docker.io/library/debian:bookworm"
-    assert exec_calls and exec_calls[0] == ("test", "-e", "/usr/bin/rust-toy-app")
+    assert calls
+    assert calls[0][0] == "docker.io/library/debian:bookworm"
+    assert exec_calls
+    assert exec_calls[0] == ("test", "-e", "/usr/bin/rust-toy-app")
 
 
 def test_main_invokes_rpm_validation(
@@ -161,6 +164,7 @@ def test_main_invokes_rpm_validation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Invoke RPM validation when the rpm format is requested."""
     module = validate_cli_module
     project_dir = tmp_path / "proj"
     package_dir = project_dir / "dist"
@@ -169,7 +173,7 @@ def test_main_invokes_rpm_validation(
 
     calls, exec_calls = _prepare_polythene_stub(module, tmp_path)
 
-    monkeypatch.setattr(module, "get_command", lambda name: object())  # noqa: ARG005
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
 
     recorded: dict[str, object] = {}
 
@@ -181,8 +185,8 @@ def test_main_invokes_rpm_validation(
         expected_version: str,
         expected_release: str,
         expected_arch: str,
-        expected_paths: Iterable[str],
-        executable_paths: Iterable[str],
+        expected_paths: typ.Iterable[str],
+        executable_paths: typ.Iterable[str],
         verify_command: tuple[str, ...],
         sandbox_factory: object,
     ) -> None:
@@ -223,5 +227,7 @@ def test_main_invokes_rpm_validation(
     assert recorded["executables"] == ("/usr/bin/rust-toy-app",)
     assert recorded["verify"] == ("/usr/bin/rust-toy-app", "--version")
 
-    assert calls and calls[0][0] == "docker.io/library/rockylinux:9"
-    assert exec_calls and exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")
+    assert calls
+    assert calls[0][0] == "docker.io/library/rockylinux:9"
+    assert exec_calls
+    assert exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")

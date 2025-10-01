@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Callable, Collection, ContextManager, Iterable, Protocol, Tuple, TypeVar
+import pathlib
+import typing as typ
 
-from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
-
 from script_utils import ensure_directory, unique_match
-
 from validate_exceptions import ValidationError
-from validate_metadata import DebMetadata, RpmMetadata, inspect_deb_package, inspect_rpm_package
+from validate_metadata import (
+    DebMetadata,
+    RpmMetadata,
+    inspect_deb_package,
+    inspect_rpm_package,
+)
 from validate_polythene import PolytheneSession
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from pathlib import Path
+
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - runtime fallbacks
+    Path = pathlib.Path
+    BaseCommand = object
 
 __all__ = [
     "acceptable_rpm_architectures",
@@ -23,17 +33,16 @@ __all__ = [
     "validate_rpm_package",
 ]
 
-SandboxFactory = Callable[[], ContextManager[PolytheneSession]]
-MetaT = TypeVar("MetaT", bound="_SupportsFiles")
+SandboxFactory = typ.Callable[[], typ.ContextManager[PolytheneSession]]
+MetaT = typ.TypeVar("MetaT", bound="_SupportsFiles")
 
 
-class _SupportsFiles(Protocol):
-    files: Collection[str]
+class _SupportsFiles(typ.Protocol):
+    files: typ.Collection[str]
 
 
 def acceptable_rpm_architectures(arch: str) -> set[str]:
     """Return accepted RPM architecture aliases for nfpm ``arch``."""
-
     aliases = {
         "amd64": {"amd64", "x86_64"},
         "386": {"386", "i386", "i486", "i586", "i686"},
@@ -47,39 +56,43 @@ def acceptable_rpm_architectures(arch: str) -> set[str]:
     return aliases.get(arch, {arch})
 
 
-def locate_deb(package_dir: Path, package_name: str, version: str, release: str) -> Path:
+def locate_deb(
+    package_dir: Path, package_name: str, version: str, release: str
+) -> Path:
     """Return the Debian package matching ``package_name`` and ``version``."""
-
     pattern = f"{package_name}_{version}-{release}_*.deb"
     return unique_match(
         package_dir.glob(pattern), description=f"{package_name} deb package"
     )
 
 
-def locate_rpm(package_dir: Path, package_name: str, version: str, release: str) -> Path:
+def locate_rpm(
+    package_dir: Path, package_name: str, version: str, release: str
+) -> Path:
     """Return the RPM package matching ``package_name`` and ``version``."""
-
     pattern = f"{package_name}-{version}-{release}*.rpm"
     return unique_match(
         package_dir.glob(pattern), description=f"{package_name} rpm package"
     )
 
 
-def ensure_subset(expected: Collection[str], actual: Collection[str], label: str) -> None:
-    """Raise :class:`ValidationError` when ``expected`` is not contained in ``actual``."""
-
+def ensure_subset(
+    expected: typ.Collection[str], actual: typ.Collection[str], label: str
+) -> None:
+    """Raise :class:`ValidationError` when expected items are missing."""
     if missing := [path for path in expected if path not in actual]:
-        raise ValidationError(f"missing {label}: {', '.join(missing)}")
+        message = f"missing {label}: {', '.join(missing)}"
+        raise ValidationError(message)
 
 
 def _install_and_verify(
     sandbox_factory: SandboxFactory,
     package_path: Path,
-    expected_paths: Iterable[str],
-    executable_paths: Iterable[str],
-    verify_command: Tuple[str, ...],
-    install_command: Tuple[str, ...],
-    remove_command: Tuple[str, ...] | None,
+    expected_paths: typ.Iterable[str],
+    executable_paths: typ.Iterable[str],
+    verify_command: tuple[str, ...],
+    install_command: tuple[str, ...],
+    remove_command: tuple[str, ...] | None,
     *,
     install_error: str,
 ) -> None:
@@ -90,7 +103,8 @@ def _install_and_verify(
         try:
             sandbox.exec(*install_command)
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-            raise ValidationError(f"{install_error}: {exc}") from exc
+            message = f"{install_error}: {exc}"
+            raise ValidationError(message) from exc
         for path in expected_paths:
             sandbox.exec("test", "-e", path)
         for path in executable_paths:
@@ -105,17 +119,17 @@ def _install_and_verify(
 
 
 def _validate_package(
-    inspect_fn: Callable[[Path], MetaT],
+    inspect_fn: typ.Callable[[Path], MetaT],
     *,
     package_path: Path,
-    validators: Iterable[Callable[[MetaT], None]],
-    expected_paths: Collection[str],
-    executable_paths: Collection[str],
-    verify_command: Tuple[str, ...],
+    validators: typ.Iterable[typ.Callable[[MetaT], None]],
+    expected_paths: typ.Collection[str],
+    executable_paths: typ.Collection[str],
+    verify_command: tuple[str, ...],
     sandbox_factory: SandboxFactory,
     payload_label: str,
-    install_command: Tuple[str, ...],
-    remove_command: Tuple[str, ...] | None,
+    install_command: tuple[str, ...],
+    remove_command: tuple[str, ...] | None,
     install_error: str,
 ) -> None:
     metadata = inspect_fn(package_path)
@@ -143,19 +157,22 @@ def validate_deb_package(
     expected_version: str,
     expected_deb_version: str,
     expected_arch: str,
-    expected_paths: Collection[str],
-    executable_paths: Collection[str],
-    verify_command: Tuple[str, ...],
+    expected_paths: typ.Collection[str],
+    executable_paths: typ.Collection[str],
+    verify_command: tuple[str, ...],
     sandbox_factory: SandboxFactory,
 ) -> None:
     """Validate Debian package metadata and sandbox installation."""
+
     def _validate_name(meta: DebMetadata) -> None:
         if meta.name != expected_name:
             _raise_validation("unexpected package name", expected_name, meta.name)
 
     def _validate_version(meta: DebMetadata) -> None:
         if meta.version not in {expected_deb_version, expected_version}:
-            _raise_validation("unexpected deb version", expected_deb_version, meta.version)
+            _raise_validation(
+                "unexpected deb version", expected_deb_version, meta.version
+            )
 
     def _validate_arch(meta: DebMetadata) -> None:
         if meta.architecture != expected_arch:
@@ -192,29 +209,31 @@ def validate_rpm_package(
     expected_version: str,
     expected_release: str,
     expected_arch: str,
-    expected_paths: Collection[str],
-    executable_paths: Collection[str],
-    verify_command: Tuple[str, ...],
+    expected_paths: typ.Collection[str],
+    executable_paths: typ.Collection[str],
+    verify_command: tuple[str, ...],
     sandbox_factory: SandboxFactory,
 ) -> None:
     """Validate RPM package metadata and sandbox installation."""
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
 
     def _validate_release(meta: RpmMetadata) -> None:
-        release = getattr(meta, "release", "")
+        release = meta.release
         if release and not str(release).startswith(expected_release):
-            raise ValidationError(
+            message = (
                 "unexpected rpm release: expected prefix "
                 f"{expected_release!r}, found {release!r}"
             )
+            raise ValidationError(message)
 
     def _validate_arch(meta: RpmMetadata) -> None:
-        architecture = getattr(meta, "architecture")
+        architecture = meta.architecture
         if architecture not in acceptable_arches:
-            raise ValidationError(
+            message = (
                 "unexpected rpm architecture: expected one of "
                 f"{sorted(acceptable_arches)!r}, found {architecture!r}"
             )
+            raise ValidationError(message)
 
     def _validate_name(meta: RpmMetadata) -> None:
         if meta.name != expected_name:
@@ -251,6 +270,5 @@ def validate_rpm_package(
 
 
 def _raise_validation(label: str, expected: str, actual: str) -> None:
-    raise ValidationError(
-        f"{label}: expected {expected!r}, found {actual!r}"
-    )
+    message = f"{label}: expected {expected!r}, found {actual!r}"
+    raise ValidationError(message)

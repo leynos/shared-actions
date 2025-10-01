@@ -2,24 +2,36 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
+import typing as typ
 from pathlib import Path
 
 SIBLING_SCRIPTS = Path(__file__).resolve().parents[2] / "linux-packages" / "scripts"
 if str(SIBLING_SCRIPTS) not in sys.path:
     sys.path.append(str(SIBLING_SCRIPTS))
 
-from plumbum.commands.base import BaseCommand
+plumbum_base = importlib.import_module("plumbum.commands.base")
+script_utils = importlib.import_module("script_utils")
 
-from script_utils import run_cmd
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - runtime fallback
+    BaseCommand = plumbum_base.BaseCommand  # type: ignore[assignment]
 
-__all__ = ["run_text", "SIBLING_SCRIPTS"]
+run_cmd = script_utils.run_cmd
+
+__all__ = [
+    "SIBLING_SCRIPTS",
+    "run_text",
+]
 
 
 def run_text(command: BaseCommand, *, timeout: int | None = None) -> str:
     """Execute ``command`` and return its stdout as ``str``."""
-
     result = run_cmd(command, timeout=timeout)
     if isinstance(result, tuple):
         return "".join(str(part) for part in result if part is not None)
-    return "" if isinstance(result, int) else str(result)
+    if isinstance(result, int):
+        return ""
+    return str(result)

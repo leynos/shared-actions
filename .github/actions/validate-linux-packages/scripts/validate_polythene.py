@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterator
+import dataclasses
+import typing as typ
 
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
-
 from script_utils import ensure_directory
-
 from validate_commands import SIBLING_SCRIPTS, run_text
 from validate_exceptions import ValidationError
+
+Iterator = typ.Iterator
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from pathlib import Path
 
 __all__ = [
     "PolytheneSession",
@@ -22,7 +24,7 @@ __all__ = [
 ]
 
 
-@dataclass(slots=True)
+@dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
 
@@ -34,16 +36,13 @@ class PolytheneSession:
     @property
     def root(self) -> Path:
         """Return the root filesystem path for this session."""
-
         return self.store / self.uid
 
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
-
         effective_timeout = timeout if timeout is not None else self.timeout
         cmd = local[
-            "uv"
-        ][
+            "uv",
             "run",
             self.script.as_posix(),
             "exec",
@@ -58,7 +57,6 @@ class PolytheneSession:
 
 def default_polythene_path() -> Path:
     """Return the default path to the polythene helper script."""
-
     return SIBLING_SCRIPTS / "polythene.py"
 
 
@@ -70,11 +68,9 @@ def polythene_rootfs(
     timeout: int | None = None,
 ) -> Iterator[PolytheneSession]:
     """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
-
     ensure_directory(store)
     pull_cmd = local[
-        "uv"
-    ][
+        "uv",
         "run",
         polythene.as_posix(),
         "pull",
@@ -85,23 +81,25 @@ def polythene_rootfs(
     try:
         pull_output = run_text(pull_cmd, timeout=timeout)
     except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-        raise ValidationError(f"polythene pull failed: {exc}") from exc
+        message = f"polythene pull failed: {exc}"
+        raise ValidationError(message) from exc
     uid = pull_output.splitlines()[-1].strip()
     if not uid:
-        raise ValidationError("polythene pull returned an empty identifier")
+        message = "polythene pull returned an empty identifier"
+        raise ValidationError(message)
     session = PolytheneSession(polythene, uid, store, timeout)
     ensure_directory(session.root, exist_ok=True)
     try:
         session.exec("true")
     except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-        raise ValidationError(f"polythene exec failed: {exc}") from exc
+        message = f"polythene exec failed: {exc}"
+        raise ValidationError(message) from exc
     try:
         yield session
     finally:
         with contextlib.suppress(ProcessExecutionError):
             local[
-                "uv"
-            ][
+                "uv",
                 "run",
                 polythene.as_posix(),
                 "rm",

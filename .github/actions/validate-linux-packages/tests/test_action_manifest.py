@@ -6,14 +6,11 @@ from pathlib import Path
 
 import yaml
 
-ACTION_PATH = (
-    Path(__file__).resolve().parents[1] / "action.yml"
-)
+ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 
 
 def test_manifest_configures_composite_action() -> None:
     """The action should delegate to the validate.py helper via uv."""
-
     manifest = yaml.safe_load(ACTION_PATH.read_text())
     assert manifest["runs"]["using"] == "composite"
     steps = manifest["runs"]["steps"]
@@ -21,7 +18,7 @@ def test_manifest_configures_composite_action() -> None:
 
     validate_step = steps[1]
     assert validate_step["shell"] == "bash"
-    assert "uv run \"${GITHUB_ACTION_PATH}/scripts/validate.py\"" in validate_step["run"]
+    assert 'uv run "${GITHUB_ACTION_PATH}/scripts/validate.py"' in validate_step["run"]
 
     expected_env = {
         "INPUT_PACKAGE_NAME",

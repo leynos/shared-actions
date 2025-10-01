@@ -60,15 +60,21 @@ def test_stage_step_preserves_existing_linux_mapping() -> None:
     assert "os=linux" in run_script
     lines = run_script.split("\n")
     in_x86_linux_case = False
+    found_os = False
+    found_arch = False
     for line in lines:
         if "x86_64-unknown-linux-" in line:
             in_x86_linux_case = True
             continue
+        if in_x86_linux_case and "os=linux" in line:
+            found_os = True
         if in_x86_linux_case and "arch=amd64" in line:
-            break
+            found_arch = True
         if in_x86_linux_case and line.strip() == ";;":
-            message = "amd64 arch not found in x86_64 Linux case"
-            raise AssertionError(message)
+            message = "expected linux/amd64 mapping in x86_64 case"
+            if not (found_os and found_arch):
+                raise AssertionError(message)
+            break
 
 
 def test_stage_step_errors_for_unsupported_target() -> None:

@@ -38,23 +38,6 @@ runs:
         INPUT_CHECK_TAG: ${{ inputs['check-tag'] }}
       run: |
         set -euo pipefail
-
-        lower_check_tag="$(printf '%s' "${INPUT_CHECK_TAG}" | tr '[:upper:]' '[:lower:]')"
-        case "${lower_check_tag}" in
-          ""|"false"|"0"|"no"|"off")
-            INPUT_CHECK_TAG="false"
-            ;;
-          "true"|"1"|"yes"|"on")
-            INPUT_CHECK_TAG="true"
-            ;;
-          *)
-            echo "::error title=Invalid input::Unsupported value for check-tag: ${INPUT_CHECK_TAG}" >&2
-            exit 1
-            ;;
-        esac
-
-        export INPUT_CHECK_TAG
-
         uv run "${GITHUB_ACTION_PATH}/scripts/ensure_cargo_version.py"
 outputs:
   version:

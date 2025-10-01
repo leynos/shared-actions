@@ -41,11 +41,12 @@ jobs:
           # set the tag prefix so the extracted version is "1.2.3":
           # tag-prefix: ensure-cargo-version-v
 
-- name: Read crate version without enforcing tag match
-  uses: ./.github/actions/ensure-cargo-version
-  with:
-    manifests: Cargo.toml
-    check-tag: "false"
+      - name: Read crate version without enforcing tag match
+        uses: ./.github/actions/ensure-cargo-version
+        with:
+          manifests: Cargo.toml
+          check-tag: "false"
+```
 
 ## Notes
 

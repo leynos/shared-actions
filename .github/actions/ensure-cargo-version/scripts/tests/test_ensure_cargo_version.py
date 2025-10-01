@@ -1,3 +1,5 @@
+"""Tests for the ``ensure_cargo_version`` helper script."""
+
 import importlib.util
 import sys
 from pathlib import Path
@@ -11,19 +13,23 @@ SCRIPT_DIR_STR = str(SCRIPT_DIR)
 if SCRIPT_DIR_STR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR_STR)
 
-spec = importlib.util.spec_from_file_location("ensure_cargo_version_module", MODULE_PATH)
+spec = importlib.util.spec_from_file_location(
+    "ensure_cargo_version_module", MODULE_PATH
+)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard
-    raise RuntimeError("Unable to load ensure_cargo_version module for testing")
+    message = "Unable to load ensure_cargo_version module for testing"
+    raise RuntimeError(message)
 module = importlib.util.module_from_spec(spec)
 if not isinstance(module, ModuleType):  # pragma: no cover - importlib contract
-    raise TypeError("module_from_spec did not return a ModuleType")
+    message = "module_from_spec did not return a ModuleType"
+    raise TypeError(message)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)  # type: ignore[misc]
 ensure = module
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"),
+    "case",
     [
         (True, True),
         (False, False),
@@ -37,19 +43,25 @@ ensure = module
         ("", False),
     ],
 )
-def test_coerce_bool_accepts_expected_inputs(value: bool | str, expected: bool) -> None:
-    assert ensure._coerce_bool(value, parameter="check-tag") is expected
+def test_coerce_bool_accepts_expected_inputs(
+    case: tuple[bool | str, bool],
+) -> None:
+    """Ensure ``_coerce_bool`` recognises accepted truthy and falsey values."""
+    value, expected = case
+    assert ensure._coerce_bool(value=value, parameter="check-tag") is expected
 
 
 def test_coerce_bool_rejects_invalid_values() -> None:
-    with pytest.raises(ValueError):
-        ensure._coerce_bool("not-a-boolean", parameter="check-tag")
+    """Invalid values should raise an informative ``ValueError``."""
+    with pytest.raises(ValueError, match="boolean-like"):
+        ensure._coerce_bool(value="not-a-boolean", parameter="check-tag")
 
 
 def _write_manifest(path: Path, version: str) -> None:
+    """Write a simple manifest declaring ``version`` to ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        """[package]\nname = \"demo\"\nversion = \"{version}\"\n""".format(version=version),
+        f"""[package]\nname = \"demo\"\nversion = \"{version}\"\n""",
         encoding="utf-8",
     )
 
@@ -59,6 +71,7 @@ def test_main_skips_tag_comparison_when_disabled(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Tag comparison is skipped but outputs remain populated."""
     workspace = tmp_path
     manifest_path = workspace / "Cargo.toml"
     _write_manifest(manifest_path, "1.2.4")
@@ -83,6 +96,7 @@ def test_main_with_disabled_tag_check_does_not_require_ref(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """When tags are optional the script tolerates missing refs."""
     workspace = tmp_path
     manifest_path = workspace / "Cargo.toml"
     _write_manifest(manifest_path, "7.8.9")
@@ -106,6 +120,7 @@ def test_main_rejects_invalid_check_tag_value(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """Invalid ``check_tag`` inputs abort the run with an error."""
     workspace = tmp_path
     manifest_path = workspace / "Cargo.toml"
     _write_manifest(manifest_path, "0.1.0")
@@ -125,8 +140,10 @@ def test_main_rejects_invalid_check_tag_value(
         ensure.main(manifests=[Path("Cargo.toml")], check_tag="definitely-not-bool")
 
     assert exit_info.value.code == 1
-    assert captured_errors and captured_errors[0][0] == "Invalid input"
-    assert "definitely-not-bool" in captured_errors[0][1]
+    assert captured_errors
+    first_title, first_message = captured_errors[0]
+    assert first_title == "Invalid input"
+    assert "definitely-not-bool" in first_message
 
 
 def test_main_records_first_manifest_version_in_output(
@@ -134,6 +151,7 @@ def test_main_records_first_manifest_version_in_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """The crate-version output reflects the first manifest."""
     workspace = tmp_path
     first_manifest = workspace / "Cargo.toml"
     second_manifest = workspace / "crates" / "other" / "Cargo.toml"

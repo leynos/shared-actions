@@ -4,7 +4,6 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
-#   "typer>=0.9,<1.0",
 # ]
 # ///
 
@@ -18,10 +17,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.append(str(SCRIPT_DIR))
-
-SIBLING_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
-if str(SIBLING_SCRIPTS) not in sys.path:
-    sys.path.append(str(SIBLING_SCRIPTS))
 
 from validate_cli import app, main, run  # noqa: E402  (import after sys.path mutation)
 from validate_exceptions import ValidationError  # noqa: E402

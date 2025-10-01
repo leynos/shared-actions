@@ -7,8 +7,8 @@ import pathlib
 import typing as typ
 
 from plumbum.commands.processes import ProcessExecutionError
-from script_utils import ensure_directory, unique_match
 from validate_exceptions import ValidationError
+from validate_helpers import ensure_directory, unique_match
 from validate_metadata import (
     DebMetadata,
     RpmMetadata,

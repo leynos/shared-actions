@@ -6,17 +6,18 @@ import contextlib
 import dataclasses
 import logging
 import typing as typ
+from pathlib import Path
 
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
-from script_utils import ensure_directory
-from validate_commands import SIBLING_SCRIPTS, run_text
+from validate_commands import run_text
 from validate_exceptions import ValidationError
+from validate_helpers import ensure_directory
 
 logger = logging.getLogger(__name__)
 
-if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
-    from pathlib import Path
+SCRIPT_DIR = Path(__file__).resolve().parent
+LINUX_PACKAGES_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
 
 __all__ = [
     "PolytheneSession",
@@ -58,7 +59,7 @@ class PolytheneSession:
 
 def default_polythene_path() -> Path:
     """Return the default path to the polythene helper script."""
-    return SIBLING_SCRIPTS / "polythene.py"
+    return LINUX_PACKAGES_SCRIPTS / "polythene.py"
 
 
 @contextlib.contextmanager

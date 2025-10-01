@@ -4,59 +4,36 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import importlib
-import sys
 import tempfile
 import typing as typ
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-SIBLING_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
-for candidate in (SCRIPT_DIR, SIBLING_SCRIPTS):
-    location = str(candidate)
-    if location not in sys.path:
-        sys.path.append(location)
+from cyclopts import App, Parameter
+from cyclopts import config as cyclopts_config
+from validate_architecture import (
+    UnsupportedTargetError,
+    deb_arch_for_target,
+    nfpm_arch_for_target,
+)
+from validate_exceptions import ValidationError
+from validate_helpers import ensure_directory, ensure_exists, get_command
+from validate_normalise import normalise_command, normalise_formats, normalise_paths
+from validate_packages import (
+    locate_deb,
+    locate_rpm,
+    rpm_expected_architecture,
+    validate_deb_package,
+    validate_rpm_package,
+)
+from validate_polythene import default_polythene_path, polythene_rootfs
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helper import
     from validate_polythene import PolytheneSession
 
-cyclopts = importlib.import_module("cyclopts")
-App = cyclopts.App
-Parameter = cyclopts.Parameter
-
-architectures = importlib.import_module("architectures")
-UnsupportedTargetError = architectures.UnsupportedTargetError
-deb_arch_for_target = architectures.deb_arch_for_target
-nfpm_arch_for_target = architectures.nfpm_arch_for_target
-
-script_utils = importlib.import_module("script_utils")
-ensure_directory = script_utils.ensure_directory
-ensure_exists = script_utils.ensure_exists
-get_command = script_utils.get_command
-
-validate_exceptions = importlib.import_module("validate_exceptions")
-ValidationError = validate_exceptions.ValidationError
-
-normalise_module = importlib.import_module("validate_normalise")
-normalise_command = normalise_module.normalise_command
-normalise_formats = normalise_module.normalise_formats
-normalise_paths = normalise_module.normalise_paths
-
-packages_module = importlib.import_module("validate_packages")
-locate_deb = packages_module.locate_deb
-locate_rpm = packages_module.locate_rpm
-rpm_expected_architecture = packages_module.rpm_expected_architecture
-validate_deb_package = packages_module.validate_deb_package
-validate_rpm_package = packages_module.validate_rpm_package
-
-polythene_module = importlib.import_module("validate_polythene")
-default_polythene_path = polythene_module.default_polythene_path
-polythene_rootfs = polythene_module.polythene_rootfs
-
 __all__ = ["app", "main", "run"]
 
 app = App()
-_env_config = cyclopts.config.Env("INPUT_", command=False)
+_env_config = cyclopts_config.Env("INPUT_", command=False)
 existing_config = getattr(app, "config", ()) or ()
 app.config = (*tuple(existing_config), _env_config)
 

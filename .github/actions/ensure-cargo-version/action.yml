@@ -41,11 +41,11 @@ runs:
 
         lower_check_tag="$(printf '%s' "${INPUT_CHECK_TAG}" | tr '[:upper:]' '[:lower:]')"
         case "${lower_check_tag}" in
-          ""|"true"|"1"|"yes"|"on")
-            INPUT_CHECK_TAG="true"
-            ;;
-          "false"|"0"|"no"|"off")
+          ""|"false"|"0"|"no"|"off")
             INPUT_CHECK_TAG="false"
+            ;;
+          "true"|"1"|"yes"|"on")
+            INPUT_CHECK_TAG="true"
             ;;
           *)
             echo "::error title=Invalid input::Unsupported value for check-tag: ${INPUT_CHECK_TAG}" >&2

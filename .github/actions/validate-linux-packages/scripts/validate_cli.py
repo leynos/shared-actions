@@ -58,6 +58,29 @@ existing_config = getattr(app, "config", ()) or ()
 app.config = (*tuple(existing_config), _env_config)
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ValidationInputs:
+    """Raw CLI parameters collected before normalisation."""
+
+    project_dir: Path | None = None
+    package_name: str | None = None
+    bin_name: str
+    target: str = "x86_64-unknown-linux-gnu"
+    version: str
+    release: str | None = None
+    arch: str | None = None
+    formats: list[str] | None = None
+    packages_dir: Path | None = None
+    expected_paths: list[str] | None = None
+    executable_paths: list[str] | None = None
+    verify_command: list[str] | None = None
+    deb_base_image: str = "docker.io/library/debian:bookworm"
+    rpm_base_image: str = "docker.io/library/rockylinux:9"
+    polythene_path: Path | None = None
+    polythene_store: Path | None = None
+    sandbox_timeout: str | None = None
+
+
 @dataclasses.dataclass(frozen=True)
 class ValidationConfig:
     """Container for derived settings used during validation."""
@@ -85,8 +108,9 @@ class ValidationConfig:
 # Cyclopts maps each keyword-only parameter onto a distinct CLI flag; swapping
 # the signature for a ``ValidationConfig`` argument would collapse the public
 # interface into a single ``--config`` parameter and break existing automation.
-# Keep the expanded signature and rely on :func:`_build_config` to translate the
-# raw inputs into a structured :class:`ValidationConfig` for downstream helpers.
+# Keep the expanded signature and wrap the values in :class:`ValidationInputs`
+# so :func:`_build_config` can translate them into a structured
+# :class:`ValidationConfig` for downstream helpers.
 def main(
     *,
     project_dir: Path | None = None,
@@ -108,7 +132,7 @@ def main(
     sandbox_timeout: str | None = None,
 ) -> None:
     """Validate the requested Linux packages."""
-    config = _build_config(
+    inputs = ValidationInputs(
         project_dir=project_dir,
         package_name=package_name,
         bin_name=bin_name,
@@ -121,13 +145,16 @@ def main(
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,
-        polythene_path=polythene_path,
-        sandbox_timeout=sandbox_timeout,
         deb_base_image=deb_base_image,
         rpm_base_image=rpm_base_image,
+        polythene_path=polythene_path,
+        polythene_store=polythene_store,
+        sandbox_timeout=sandbox_timeout,
     )
 
-    with _polythene_store(polythene_store) as store_base:
+    config = _build_config(inputs)
+
+    with _polythene_store(inputs.polythene_store) as store_base:
         for fmt in config.formats:
             store_dir = ensure_directory(store_base / fmt)
             _validate_format(fmt, config, store_dir)
@@ -138,68 +165,54 @@ def run() -> None:
     app()
 
 
-def _build_config(
-    *,
-    project_dir: Path | None,
-    package_name: str | None,
-    bin_name: str,
-    target: str,
-    version: str,
-    release: str | None,
-    arch: str | None,
-    formats: list[str] | None,
-    packages_dir: Path | None,
-    expected_paths: list[str] | None,
-    executable_paths: list[str] | None,
-    verify_command: list[str] | None,
-    polythene_path: Path | None,
-    sandbox_timeout: str | None,
-    deb_base_image: str,
-    rpm_base_image: str,
-) -> ValidationConfig:
+def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     """Derive configuration from CLI parameters."""
-    project_root = Path(project_dir) if project_dir is not None else Path.cwd()
-    packages_dir_value = packages_dir or (project_root / "dist")
+    project_root = (
+        Path(inputs.project_dir) if inputs.project_dir is not None else Path.cwd()
+    )
+    packages_dir_value = inputs.packages_dir or (project_root / "dist")
     ensure_exists(packages_dir_value, "package directory not found")
 
-    bin_value = bin_name.strip()
+    bin_value = inputs.bin_name.strip()
     if not bin_value:
         message = "bin-name input is required"
         raise ValidationError(message)
 
-    package_value = (package_name or bin_value).strip() or bin_value
-    version_value = version.strip().lstrip("v")
+    package_value = (inputs.package_name or bin_value).strip() or bin_value
+    version_value = inputs.version.strip().lstrip("v")
     if not version_value:
         message = "version input is required"
         raise ValidationError(message)
 
-    release_value = (release or "1").strip() or "1"
-    target_value = target.strip() or "x86_64-unknown-linux-gnu"
+    release_value = (inputs.release or "1").strip() or "1"
+    target_value = inputs.target.strip() or "x86_64-unknown-linux-gnu"
     try:
-        timeout_value = int(sandbox_timeout) if sandbox_timeout else None
+        timeout_value = int(inputs.sandbox_timeout) if inputs.sandbox_timeout else None
     except ValueError as exc:
-        message = f"sandbox_timeout must be an integer, received {sandbox_timeout!r}"
+        message = (
+            f"sandbox_timeout must be an integer, received {inputs.sandbox_timeout!r}"
+        )
         raise ValidationError(message) from exc
 
     try:
-        arch_value = (arch or nfpm_arch_for_target(target_value)).strip()
+        arch_value = (inputs.arch or nfpm_arch_for_target(target_value)).strip()
     except UnsupportedTargetError as exc:
         message = f"unsupported target triple: {target_value}"
         raise ValidationError(message) from exc
 
     deb_arch_value = deb_arch_for_target(target_value)
 
-    formats_value = tuple(normalise_formats(formats))
+    formats_value = tuple(normalise_formats(inputs.formats))
     if not formats_value:
         message = "no package formats provided"
         raise ValidationError(message)
 
     expected_paths_value, executable_paths_value = _prepare_paths(
-        bin_value, expected_paths, executable_paths
+        bin_value, inputs.expected_paths, inputs.executable_paths
     )
-    verify_tuple = tuple(normalise_command(verify_command))
+    verify_tuple = tuple(normalise_command(inputs.verify_command))
 
-    polythene_script = polythene_path or default_polythene_path()
+    polythene_script = inputs.polythene_path or default_polythene_path()
     if not polythene_script.exists():
         message = f"polythene script not found: {polythene_script}"
         raise ValidationError(message)
@@ -217,7 +230,10 @@ def _build_config(
         verify_command=verify_tuple,
         polythene_script=polythene_script,
         timeout=timeout_value,
-        base_images={"deb": deb_base_image, "rpm": rpm_base_image},
+        base_images={
+            "deb": inputs.deb_base_image,
+            "rpm": inputs.rpm_base_image,
+        },
     )
 
 

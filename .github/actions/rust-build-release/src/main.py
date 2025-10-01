@@ -76,6 +76,7 @@ class _CrossDecision(typ.NamedTuple):
     podman_present: bool
     has_container: bool
     container_engine: str | None
+    requires_cross_container: bool
 
 
 def _target_is_windows(target: str) -> bool:
@@ -138,15 +139,6 @@ def _toolchain_channel(toolchain_name: str) -> str:
         if _looks_like_triple(candidate):
             return parts[0]
     return toolchain_name
-
-
-def _requires_cross_container(target: str, host_target: str) -> bool:
-    """Return True when *target* needs cross with containers on this host."""
-    normalized = target.strip().lower()
-    host_normalized = host_target.strip().lower()
-    if normalized.endswith("unknown-freebsd"):
-        return not host_normalized.endswith("unknown-freebsd")
-    return False
 
 
 def _probe_runtime(name: str) -> bool:
@@ -288,9 +280,15 @@ def _decide_cross_usage(
     installed_names: list[str],
     rustup_exec: str,
     target: str,
+    host_target: str,
 ) -> _CrossDecision:
     """Return how cross should be used for the build."""
     cross_path, cross_version = ensure_cross("0.2.5")
+    target_normalized = target.strip().lower()
+    host_normalized = host_target.strip().lower()
+    requires_cross_container = False
+    if target_normalized.endswith("unknown-freebsd"):
+        requires_cross_container = not host_normalized.endswith("unknown-freebsd")
     docker_present = False
     podman_present = False
     if should_probe_container(sys.platform, target):
@@ -351,6 +349,7 @@ def _decide_cross_usage(
         podman_present=podman_present,
         has_container=has_container,
         container_engine=container_engine,
+        requires_cross_container=requires_cross_container,
     )
 
 
@@ -400,23 +399,22 @@ def main(
 
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
 
+    host_target = DEFAULT_HOST_TARGET
     decision = _decide_cross_usage(
-        toolchain_name, installed_names, rustup_exec, target_to_build
+        toolchain_name, installed_names, rustup_exec, target_to_build, host_target
     )
 
-    if (
-        _requires_cross_container(target_to_build, DEFAULT_HOST_TARGET)
-        and not decision.use_cross
-    ):
+    if decision.requires_cross_container and not decision.use_cross:
         details: list[str] = []
         if decision.cross_path is None:
-            details.append("cross is not installed")
+            details.append("cross")
         if not decision.use_cross_local_backend and not decision.has_container:
-            details.append("no container runtime detected")
-        detail_suffix = f" ({'; '.join(details)})" if details else ""
+            details.append("container runtime")
+        detail_suffix = f" (missing: {', '.join(details)})" if details else ""
         typer.echo(
             "::error:: target "
-            f"'{target_to_build}' requires cross with a container runtime on this host"
+            f"'{target_to_build}' requires cross with a container runtime "
+            f"on host '{host_target}'"
             f"{detail_suffix}",
             err=True,
         )

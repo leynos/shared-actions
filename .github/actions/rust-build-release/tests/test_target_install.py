@@ -146,6 +146,55 @@ def test_errors_when_cross_required_but_unavailable(
 
 
 @CMD_MOX_UNSUPPORTED
+def test_builds_freebsd_target_with_cross_and_container(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Succeeds when cross and a container runtime are available."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    docker_path = _register_docker_info_stub(cmd_mox)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+            "docker": docker_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
+
+    commands: list[list[str]] = []
+
+    def record_run(cmd: list[str]) -> None:
+        commands.append(cmd)
+
+    app_env.patch_run_cmd(record_run)
+
+    cmd_mox.replay()
+    main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    assert commands, "expected commands to be executed"
+    assert commands[-1][0] == "cross"
+    captured = capsys.readouterr()
+    _assert_no_timeout_trace(captured.err)
+    assert captured.err == ""
+
+
+@CMD_MOX_UNSUPPORTED
 def test_sets_cross_container_engine_when_docker_available(
     main_module: ModuleType,
     cross_module: ModuleType,

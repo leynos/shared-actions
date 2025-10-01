@@ -33,8 +33,22 @@ def test_stage_step_maps_illumos_to_expected_tuple() -> None:
     run_script = step.get("run")
     assert isinstance(run_script, str)
     assert "x86_64-unknown-illumos" in run_script
-    assert "os=illumos" in run_script
-    assert "arch=amd64" in run_script
+    lines = run_script.split("\n")
+    in_illumos_case = False
+    found_os = False
+    found_arch = False
+    for line in lines:
+        if "x86_64-unknown-illumos" in line:
+            in_illumos_case = True
+            continue
+        if in_illumos_case and "os=illumos" in line:
+            found_os = True
+        if in_illumos_case and "arch=amd64" in line:
+            found_arch = True
+        if in_illumos_case and line.strip() == ";;":
+            break
+    assert found_os, "os=illumos not found in illumos case block"
+    assert found_arch, "arch=amd64 not found in illumos case block"
 
 
 def test_stage_step_preserves_existing_linux_mapping() -> None:

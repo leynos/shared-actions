@@ -4,6 +4,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
+#   "typer>=0.9,<1.0",
 # ]
 # ///
 

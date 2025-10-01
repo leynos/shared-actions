@@ -17,6 +17,9 @@ for candidate in (SCRIPT_DIR, SIBLING_SCRIPTS):
     if location not in sys.path:
         sys.path.append(location)
 
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helper import
+    from validate_polythene import PolytheneSession
+
 cyclopts = importlib.import_module("cyclopts")
 App = cyclopts.App
 Parameter = cyclopts.Parameter
@@ -289,7 +292,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         message = f"unsupported package format: {fmt}"
         raise ValidationError(message)
 
-    def sandbox_factory() -> typ.ContextManager[object]:
+    def sandbox_factory() -> typ.ContextManager[PolytheneSession]:
         return polythene_rootfs(
             config.polythene_script,
             image,
@@ -342,4 +345,3 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         )
         print(f"✓ validated RPM package: {package_path}")
         return
-

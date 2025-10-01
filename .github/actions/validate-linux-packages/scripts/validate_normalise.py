@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import shlex
 import re
+import shlex
 import typing as typ
 
 from validate_exceptions import ValidationError

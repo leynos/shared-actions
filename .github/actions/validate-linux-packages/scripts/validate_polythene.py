@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import logging
 import typing as typ
@@ -12,7 +13,6 @@ from script_utils import ensure_directory
 from validate_commands import SIBLING_SCRIPTS, run_text
 from validate_exceptions import ValidationError
 
-Iterator = typ.Iterator
 logger = logging.getLogger(__name__)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
@@ -61,13 +61,14 @@ def default_polythene_path() -> Path:
     return SIBLING_SCRIPTS / "polythene.py"
 
 
+@contextlib.contextmanager
 def polythene_rootfs(
     polythene: Path,
     image: str,
     store: Path,
     *,
     timeout: int | None = None,
-) -> Iterator[PolytheneSession]:
+) -> typ.ContextManager[PolytheneSession]:
     """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
     ensure_directory(store)
     pull_cmd = local[

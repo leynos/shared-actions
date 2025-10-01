@@ -61,7 +61,7 @@ runs:
       run: |
         set -euo pipefail
         uv run --script "$GITHUB_ACTION_PATH/src/main.py"
-    - id: stage-linux-artifacts
+    - id: stage-artifacts
       name: Stage artifacts
       if: contains(inputs.target, 'unknown-linux-') || contains(inputs.target, 'unknown-illumos')
       shell: bash

@@ -29,7 +29,20 @@ __all__ = [
 
 def run_text(command: BaseCommand, *, timeout: int | None = None) -> str:
     """Execute ``command`` and return its stdout as ``str``."""
+
+    def _coerce(value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        stdout = getattr(value, "stdout", None)
+        if stdout is not None and not isinstance(value, (str, bytes)):
+            return _coerce(stdout)
+        if isinstance(value, int):
+            return ""
+        return str(value)
+
     result = run_cmd(command, timeout=timeout)
     if isinstance(result, tuple):
-        return "".join(str(part) for part in result if part is not None)
-    return "" if isinstance(result, int) else str(result)
+        return "".join(_coerce(part) for part in result)
+    return _coerce(result)

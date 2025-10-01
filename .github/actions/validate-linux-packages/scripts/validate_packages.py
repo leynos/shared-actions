@@ -124,7 +124,10 @@ def _install_and_verify(
             try:
                 sandbox.exec(*remove_command)
             except ProcessExecutionError as exc:
-                logger.debug("suppressed exception during package removal: %s", exc)
+                logger.warning(
+                    "suppressed exception during package removal: %s",
+                    exc,
+                )
 
 
 def _validate_package(
@@ -179,9 +182,12 @@ def validate_deb_package(
 
     def _validate_version(meta: DebMetadata) -> None:
         if meta.version not in {expected_deb_version, expected_version}:
-            _raise_validation(
-                "unexpected deb version", expected_deb_version, meta.version
+            message = (
+                "unexpected deb version: expected "
+                f"{expected_deb_version!r} or {expected_version!r}, "
+                f"found {meta.version!r}"
             )
+            raise ValidationError(message)
 
     def _validate_arch(meta: DebMetadata) -> None:
         if meta.architecture != expected_arch:

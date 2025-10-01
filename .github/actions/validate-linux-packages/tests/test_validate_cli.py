@@ -30,7 +30,11 @@ def validate_cli_module() -> object:
         raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:  # pragma: no cover - defensive
+        message = f"failed to execute validate_cli module: {exc}"
+        raise RuntimeError(message) from exc
     return module
 
 

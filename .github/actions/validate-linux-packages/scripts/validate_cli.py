@@ -170,7 +170,11 @@ def _build_config(
 
     release_value = (release or "1").strip() or "1"
     target_value = target.strip() or "x86_64-unknown-linux-gnu"
-    timeout_value = int(sandbox_timeout) if sandbox_timeout else None
+    try:
+        timeout_value = int(sandbox_timeout) if sandbox_timeout else None
+    except ValueError as exc:
+        message = f"sandbox_timeout must be an integer, received {sandbox_timeout!r}"
+        raise ValidationError(message) from exc
 
     try:
         arch_value = (arch or nfpm_arch_for_target(target_value)).strip()

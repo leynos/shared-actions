@@ -462,6 +462,18 @@ def main(
         run_cmd(build_cmd)
     except subprocess.CalledProcessError as exc:
         if decision.use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+            if (
+                decision.requires_cross_container
+                and not decision.use_cross_local_backend
+            ):
+                engine = decision.container_engine or "unknown"
+                typer.echo(
+                    "::error:: cross failed to start a container runtime for "
+                    f"target '{target_to_build}' (engine={engine})",
+                    err=True,
+                )
+                raise typer.Exit(exc.returncode) from exc
+
             typer.echo(
                 "::warning:: cross failed to start a container; retrying with cargo",
                 err=True,

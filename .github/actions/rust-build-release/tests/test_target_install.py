@@ -195,6 +195,54 @@ def test_builds_freebsd_target_with_cross_and_container(
 
 
 @CMD_MOX_UNSUPPORTED
+def test_errors_when_cross_container_start_fails(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Fails with an error when cross cannot launch the container runtime."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    docker_path = _register_docker_info_stub(cmd_mox)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+            "docker": docker_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
+
+    def run_cmd_side_effect(cmd: list[str]) -> None:
+        if cmd and cmd[0] == "cross":
+            raise subprocess.CalledProcessError(125, cmd)
+
+    app_env.patch_run_cmd(run_cmd_side_effect)
+
+    cmd_mox.replay()
+    with pytest.raises(main_module.typer.Exit) as exc_info:
+        main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    assert exc_info.value.exit_code == 125
+    err = capsys.readouterr().err
+    assert "failed to start a container runtime" in err
+    assert not any(call[0] == "cargo" for call in app_env.calls)
+
+
+@CMD_MOX_UNSUPPORTED
 def test_sets_cross_container_engine_when_docker_available(
     main_module: ModuleType,
     cross_module: ModuleType,

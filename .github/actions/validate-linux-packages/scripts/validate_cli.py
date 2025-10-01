@@ -82,9 +82,11 @@ class ValidationConfig:
         return f"{self.version}-{self.release}"
 
 
-# Cyclopts derives the CLI interface directly from the callable signature, so
-# ``main`` must expose the discrete keyword arguments rather than accepting a
-# pre-built configuration object.
+# Cyclopts maps each keyword-only parameter onto a distinct CLI flag; swapping
+# the signature for a ``ValidationConfig`` argument would collapse the public
+# interface into a single ``--config`` parameter and break existing automation.
+# Keep the expanded signature and rely on :func:`_build_config` to translate the
+# raw inputs into a structured :class:`ValidationConfig` for downstream helpers.
 def main(
     *,
     project_dir: Path | None = None,

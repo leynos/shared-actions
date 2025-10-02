@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -39,3 +41,27 @@ def test_manifest_configures_composite_action() -> None:
         "INPUT_SANDBOX_TIMEOUT",
     }
     assert expected_env.issubset(set(validate_step["env"].keys()))
+
+
+def test_action_run_step_invokes_validate_script(
+    cmd_mox: "CmdMox", tmp_path: Path
+) -> None:
+    """The composite action run script should invoke uv with validate.py."""
+    manifest = yaml.safe_load(ACTION_PATH.read_text())
+    run_script = manifest["runs"]["steps"][1]["run"]
+    action_dir = ACTION_PATH.parent
+    validate_script = action_dir / "scripts" / "validate.py"
+
+    shim_dir = cmd_mox.environment.shim_dir
+    assert shim_dir is not None
+
+    cmd_mox.stub("uv").with_args("run", validate_script.as_posix()).returns(exit_code=0)
+    cmd_mox.replay()
+
+    env = os.environ.copy()
+    env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
+    env["GITHUB_ACTION_PATH"] = str(action_dir)
+
+    subprocess.run(["bash", "-c", run_script], check=True, cwd=tmp_path, env=env)
+
+    cmd_mox.verify()

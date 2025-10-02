@@ -263,6 +263,77 @@ def test_main_invokes_rpm_validation(
     assert exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")
 
 
+def test_main_invokes_each_requested_format(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """All requested formats are dispatched during validation."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    recorded: list[tuple[str, Path]] = []
+
+    def _fake_validate(fmt: str, config: object, store_dir: Path) -> None:
+        recorded.append((fmt, store_dir))
+        assert getattr(config, "polythene_script") == polythene_path
+
+    monkeypatch.setattr(module, "_validate_format", _fake_validate)
+
+    module.main(
+        project_dir=project_dir,
+        bin_name="tool",
+        version="1.0.0",
+        formats=["deb", "rpm"],
+        polythene_path=polythene_path,
+    )
+
+    assert [fmt for fmt, _ in recorded] == ["deb", "rpm"]
+    for fmt, store_dir in recorded:
+        assert store_dir.name == fmt
+        assert store_dir.parent.name.startswith("polythene-validate-")
+
+
+def test_main_respects_explicit_polythene_store(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An explicit polythene store directory is reused across formats."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+    store_base = tmp_path / "store"
+
+    dispatched: list[Path] = []
+
+    def _capture(fmt: str, config: object, store_dir: Path) -> None:
+        dispatched.append(store_dir)
+        assert store_dir.is_dir()
+
+    monkeypatch.setattr(module, "_validate_format", _capture)
+
+    module.main(
+        project_dir=project_dir,
+        bin_name="tool",
+        version="1.2.3",
+        formats=["deb", "rpm"],
+        polythene_path=polythene_path,
+        polythene_store=store_base,
+    )
+
+    assert dispatched[0].parent == store_base
+    assert dispatched[1].parent == store_base
+    assert {path.name for path in dispatched} == {"deb", "rpm"}
+
+
 def test_main_raises_for_missing_package_dir(
     validate_cli_module: object,
     tmp_path: Path,
@@ -434,6 +505,41 @@ def test_main_raises_for_missing_polythene_script(
             version="1.0.0",
             formats=["deb"],
             polythene_path=tmp_path / "missing-polythene.py",
+        )
+
+
+def test_main_raises_when_polythene_unreadable(
+    validate_cli_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail when the polythene helper cannot be read."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    original_open = module.Path.open
+
+    def _deny(self: Path, *args: object, **kwargs: object) -> object:
+        if self == polythene_path:
+            raise PermissionError("denied")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(module.Path, "open", _deny)
+
+    with pytest.raises(
+        module.ValidationError,
+        match="polythene script is not readable",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=polythene_path,
         )
 
 

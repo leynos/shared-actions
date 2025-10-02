@@ -152,6 +152,35 @@ def test_ensure_subset_reports_missing_entries(
         )
 
 
+def test_locate_deb_returns_unique_package(
+    validate_packages_module: ModuleType, tmp_path: Path
+) -> None:
+    """locate_deb finds the matching artefact in the directory."""
+    package = tmp_path / "tool_1.2.3-1_amd64.deb"
+    package.write_bytes(b"")
+
+    result = validate_packages_module.locate_deb(
+        tmp_path, "tool", "1.2.3", "1"
+    )
+
+    assert result == package
+
+
+def test_locate_rpm_rejects_ambiguous_matches(
+    validate_packages_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """locate_rpm raises when multiple candidates are found."""
+    (tmp_path / "tool-1.2.3-1.aarch64.rpm").write_bytes(b"")
+    (tmp_path / "tool-1.2.3-1.x86_64.rpm").write_bytes(b"")
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="expected exactly one tool rpm package",
+    ):
+        validate_packages_module.locate_rpm(tmp_path, "tool", "1.2.3", "1")
+
+
 @pytest.mark.parametrize(
     ("arch", "expected"),
     [

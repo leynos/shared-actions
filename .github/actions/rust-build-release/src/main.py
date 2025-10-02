@@ -18,7 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
 from cross_manager import ensure_cross
-from runtime import CROSS_CONTAINER_ERROR_CODES, runtime_available
+from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
@@ -33,6 +33,12 @@ WINDOWS_TARGET_SUFFIXES = (
     "-windows-msvc",
     "-windows-gnu",
     "-windows-gnullvm",
+)
+
+BSD_TARGET_SUFFIXES = (
+    "unknown-freebsd",
+    "unknown-openbsd",
+    "unknown-netbsd",
 )
 
 _TRIPLE_OS_COMPONENTS = {
@@ -75,6 +81,8 @@ class _CrossDecision(typ.NamedTuple):
     docker_present: bool
     podman_present: bool
     has_container: bool
+    container_engine: str | None
+    requires_cross_container: bool
 
 
 def _target_is_windows(target: str) -> bool:
@@ -278,15 +286,28 @@ def _decide_cross_usage(
     installed_names: list[str],
     rustup_exec: str,
     target: str,
+    host_target: str,
 ) -> _CrossDecision:
     """Return how cross should be used for the build."""
     cross_path, cross_version = ensure_cross("0.2.5")
+    target_normalized = target.strip().lower()
+    host_normalized = host_target.strip().lower()
+    requires_cross_container = False
+    for suffix in BSD_TARGET_SUFFIXES:
+        if target_normalized.endswith(suffix):
+            requires_cross_container = not host_normalized.endswith(suffix)
+            break
     docker_present = False
     podman_present = False
     if should_probe_container(sys.platform, target):
         docker_present = _probe_runtime("docker")
         podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present
+    container_engine: str | None = None
+    if docker_present:
+        container_engine = "docker"
+    elif podman_present:
+        container_engine = "podman"
 
     use_cross_local_backend = (
         os.environ.get("CROSS_NO_DOCKER") == "1" and sys.platform == "win32"
@@ -335,6 +356,8 @@ def _decide_cross_usage(
         docker_present=docker_present,
         podman_present=podman_present,
         has_container=has_container,
+        container_engine=container_engine,
+        requires_cross_container=requires_cross_container,
     )
 
 
@@ -384,9 +407,37 @@ def main(
 
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
 
+    host_target = DEFAULT_HOST_TARGET
     decision = _decide_cross_usage(
-        toolchain_name, installed_names, rustup_exec, target_to_build
+        toolchain_name, installed_names, rustup_exec, target_to_build, host_target
     )
+
+    if decision.requires_cross_container:
+        if decision.use_cross_local_backend:
+            typer.echo(
+                "::error:: target "
+                f"'{target_to_build}' requires cross with a container runtime "
+                f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
+                "a container runtime is required",
+                err=True,
+            )
+            raise typer.Exit(1)
+
+        if not decision.use_cross:
+            details: list[str] = []
+            if decision.cross_path is None:
+                details.append("cross is not installed")
+            if not decision.has_container:
+                details.append("no container runtime detected")
+            detail_suffix = f", {', '.join(details)}" if details else ""
+            typer.echo(
+                "::error:: target "
+                f"'{target_to_build}' requires cross with a container runtime "
+                f"on host '{host_target}'"
+                f"{detail_suffix}",
+                err=True,
+            )
+            raise typer.Exit(1)
 
     if not target_installed and (
         not decision.use_cross or decision.use_cross_local_backend
@@ -399,6 +450,14 @@ def main(
         raise typer.Exit(1)
 
     _announce_build_mode(decision)
+
+    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+    cross_engine_restorer = False
+    if decision.use_cross and not decision.use_cross_local_backend:
+        engine = decision.container_engine
+        if engine and previous_engine is None:
+            os.environ["CROSS_CONTAINER_ENGINE"] = engine
+            cross_engine_restorer = True
 
     build_cmd = [
         (decision.cross_path or "cross") if decision.use_cross else "cargo",
@@ -414,6 +473,18 @@ def main(
         run_cmd(build_cmd)
     except subprocess.CalledProcessError as exc:
         if decision.use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+            if (
+                decision.requires_cross_container
+                and not decision.use_cross_local_backend
+            ):
+                engine = decision.container_engine or "unknown"
+                typer.echo(
+                    "::error:: cross failed to start a container runtime for "
+                    f"target '{target_to_build}' (engine={engine})",
+                    err=True,
+                )
+                raise typer.Exit(exc.returncode) from exc
+
             typer.echo(
                 "::warning:: cross failed to start a container; retrying with cargo",
                 err=True,
@@ -429,6 +500,9 @@ def main(
             run_cmd(fallback_cmd)
         else:
             raise
+    finally:
+        if cross_engine_restorer:
+            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,12 @@
 
 Build Rust application release artefacts using the repository's `setup-rust` action, `uv`, and `cross`.
 
+FreeBSD targets (for example `x86_64-unknown-freebsd`) require `cross` with a
+container runtime when built on non-FreeBSD hosts. The action enforces this so
+that builds fail fast if Docker or Podman are unavailable. When a container
+runtime is detected, the action exports `CROSS_CONTAINER_ENGINE` for the
+duration of the build so that `cross` automatically uses the available engine.
+
 > [!NOTE]
 > This action builds release binaries only. Package creation should be handled by
 > the platform-specific composite actions:

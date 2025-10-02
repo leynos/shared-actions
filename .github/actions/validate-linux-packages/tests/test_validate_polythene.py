@@ -105,9 +105,7 @@ def test_polythene_rootfs_yields_configured_session(
     def _run_text(command: object, *, timeout: int | None = None) -> str:
         argv = tuple(getattr(command, "argv", ()))
         run_calls.append((argv, timeout))
-        if "pull" in argv:
-            return "session-uid\n"
-        return ""
+        return "session-uid\n" if "pull" in argv else ""
 
     monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
     monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal(cleanup_calls))

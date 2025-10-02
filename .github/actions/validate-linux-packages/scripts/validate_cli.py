@@ -25,14 +25,12 @@ from validate_packages import (
     validate_deb_package,
     validate_rpm_package,
 )
-from validate_polythene import default_polythene_path, polythene_rootfs
+from validate_polythene import PolytheneSession, default_polythene_path, polythene_rootfs
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helper import
     from plumbum.commands.base import BaseCommand
-    from validate_polythene import PolytheneSession
 else:  # pragma: no cover - runtime helper fallbacks
     BaseCommand = typ.Any
-    from validate_polythene import PolytheneSession
 
 __all__ = ["app", "main", "run"]
 

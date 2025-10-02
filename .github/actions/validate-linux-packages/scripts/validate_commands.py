@@ -23,10 +23,13 @@ def _decode(value: object) -> str:
     return str(value)
 
 
-def _format_command(command: BaseCommand) -> str:
-    argv = getattr(command, "argv", None)
-    if argv:
+def _format_command(command: BaseCommand | typ.Sequence[object] | None) -> str:
+    if command is None:
+        return "<unknown command>"
+    if argv := getattr(command, "argv", None):
         return " ".join(str(part) for part in argv)
+    if isinstance(command, (tuple, list)):
+        return " ".join(str(part) for part in command)
     return repr(command)
 
 
@@ -35,8 +38,8 @@ def run_text(command: BaseCommand, *, timeout: int | None = None) -> str:
     try:
         _, stdout, _ = command.run(timeout=timeout)
     except ProcessExecutionError as exc:
-        argv = " ".join(str(part) for part in getattr(exc, "argv", ()))
-        message = f"command failed with exit code {exc.retcode}: {argv}".strip()
+        formatted = _format_command(getattr(exc, "argv", None) or command)
+        message = f"command failed with exit code {exc.retcode}: {formatted}".strip()
         raise ValidationError(message) from exc
     except Exception as exc:  # pragma: no cover - defensive
         message = f"command execution failed: {_format_command(command)} ({exc})"

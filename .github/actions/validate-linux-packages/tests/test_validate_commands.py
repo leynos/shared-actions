@@ -88,8 +88,7 @@ def test_run_text_raises_for_process_error(
     with pytest.raises(validation_error) as excinfo:
         validate_commands_module.run_text(_FailingCommand())
 
-    assert "command failed" in str(excinfo.value)
-    assert "--flag" in str(excinfo.value)
+    assert str(excinfo.value) == "command failed with exit code 2: tool --flag"
 
 
 def test_run_text_wraps_unexpected_errors(
@@ -108,3 +107,22 @@ def test_run_text_wraps_unexpected_errors(
         validate_commands_module.run_text(_BrokenCommand())
 
     assert "command execution failed" in str(excinfo.value)
+
+
+def test_run_text_formats_command_when_argv_missing(
+    validate_commands_module: object,
+    validation_error: type[Exception],
+) -> None:
+    """Process errors without argv fall back to the command representation."""
+
+    class _FailingCommand:
+        def __repr__(self) -> str:
+            return "<dummy-command>"
+
+        def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
+            raise ProcessExecutionError((), 1, "", "boom")
+
+    with pytest.raises(validation_error) as excinfo:
+        validate_commands_module.run_text(_FailingCommand())
+
+    assert str(excinfo.value) == "command failed with exit code 1: <dummy-command>"

@@ -263,6 +263,317 @@ def test_main_invokes_rpm_validation(
     assert exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")
 
 
+def test_handle_deb_invokes_validator(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_handle_deb forwards configuration to validate_deb_package."""
+    module = validate_cli_module
+    package = tmp_path / "pkg.deb"
+    cfg = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="tool",
+        version="1.0.0",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("deb",),
+        expected_paths=("/usr/bin/tool",),
+        executable_paths=("/usr/bin/tool",),
+        verify_command=(),
+        polythene_script=tmp_path / "polythene.py",
+        timeout=10,
+        base_images={"deb": "debian"},
+    )
+
+    recorded: dict[str, object] = {}
+
+    def _capture(
+        command: object,
+        candidate_path: Path,
+        *,
+        expected_name: str,
+        expected_version: str,
+        expected_deb_version: str,
+        expected_arch: str,
+        expected_paths: typ.Iterable[str],
+        executable_paths: typ.Iterable[str],
+        verify_command: tuple[str, ...],
+        sandbox_factory: object,
+    ) -> None:
+        recorded.update(
+            {
+                "command": command,
+                "path": candidate_path,
+                "name": expected_name,
+                "version": expected_version,
+                "deb_version": expected_deb_version,
+                "arch": expected_arch,
+                "paths": tuple(expected_paths),
+                "executables": tuple(executable_paths),
+                "verify": verify_command,
+                "sandbox": sandbox_factory,
+            }
+        )
+
+    monkeypatch.setattr(module, "validate_deb_package", _capture)
+
+    command_obj = object()
+
+    module._handle_deb(
+        command_obj,
+        package,
+        cfg,
+        lambda: contextlib.nullcontext(object()),
+    )
+
+    out = capsys.readouterr().out
+    assert "✓ validated Debian package" in out
+    assert recorded["command"] is command_obj
+    assert recorded["path"] == package
+    assert recorded["name"] == "tool"
+    assert recorded["version"] == "1.0.0"
+    assert recorded["deb_version"] == "1.0.0-1"
+    assert recorded["arch"] == "amd64"
+    assert recorded["paths"] == ("/usr/bin/tool",)
+    assert recorded["executables"] == ("/usr/bin/tool",)
+    assert recorded["verify"] == ()
+
+
+def test_handle_rpm_invokes_validator(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """_handle_rpm forwards configuration to validate_rpm_package."""
+    module = validate_cli_module
+    package = tmp_path / "pkg.rpm"
+    cfg = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="tool",
+        version="1.0.0",
+        release="2",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("rpm",),
+        expected_paths=("/usr/bin/tool",),
+        executable_paths=("/usr/bin/tool",),
+        verify_command=("tool", "--version"),
+        polythene_script=tmp_path / "polythene.py",
+        timeout=None,
+        base_images={"rpm": "rocky"},
+    )
+
+    recorded: dict[str, object] = {}
+
+    def _capture(
+        command: object,
+        candidate_path: Path,
+        *,
+        expected_name: str,
+        expected_version: str,
+        expected_release: str,
+        expected_arch: str,
+        expected_paths: typ.Iterable[str],
+        executable_paths: typ.Iterable[str],
+        verify_command: tuple[str, ...],
+        sandbox_factory: object,
+    ) -> None:
+        recorded.update(
+            {
+                "command": command,
+                "path": candidate_path,
+                "name": expected_name,
+                "version": expected_version,
+                "release": expected_release,
+                "arch": expected_arch,
+                "paths": tuple(expected_paths),
+                "executables": tuple(executable_paths),
+                "verify": verify_command,
+                "sandbox": sandbox_factory,
+            }
+        )
+
+    monkeypatch.setattr(module, "validate_rpm_package", _capture)
+
+    command_obj = object()
+
+    module._handle_rpm(
+        command_obj,
+        package,
+        cfg,
+        lambda: contextlib.nullcontext(object()),
+    )
+
+    out = capsys.readouterr().out
+    assert "✓ validated RPM package" in out
+    assert recorded["command"] is command_obj
+    assert recorded["path"] == package
+    assert recorded["name"] == "tool"
+    assert recorded["version"] == "1.0.0"
+    assert recorded["release"] == "2"
+    assert recorded["arch"] == "x86_64"
+    assert recorded["paths"] == ("/usr/bin/tool",)
+    assert recorded["executables"] == ("/usr/bin/tool",)
+    assert recorded["verify"] == ("tool", "--version")
+
+
+def test_format_handlers_register_expected_entries(
+    validate_cli_module: object,
+) -> None:
+    """_FORMAT_HANDLERS map formats onto their handlers and locators."""
+    module = validate_cli_module
+    deb_handler, deb_locate, deb_command = module._FORMAT_HANDLERS["deb"]
+    rpm_handler, rpm_locate, rpm_command = module._FORMAT_HANDLERS["rpm"]
+
+    assert deb_handler is module._handle_deb
+    assert deb_locate is module.locate_deb
+    assert deb_command == "dpkg-deb"
+    assert rpm_handler is module._handle_rpm
+    assert rpm_locate is module.locate_rpm
+    assert rpm_command == "rpm"
+
+
+def test_validate_format_dispatches_to_handler(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """_validate_format uses the handler table for dispatch."""
+    module = validate_cli_module
+    called: dict[str, object] = {}
+    package_path = tmp_path / "tool.deb"
+
+    def _fake_handler(
+        command: object,
+        path: Path,
+        cfg: object,
+        sandbox_factory: typ.Callable[[], typ.ContextManager[object]],
+    ) -> None:
+        called["command"] = command
+        called["path"] = path
+        called["cfg"] = cfg
+        with sandbox_factory():
+            called["sandbox"] = True
+
+    def _fake_locate(
+        package_dir: Path, name: str, version: str, release: str
+    ) -> Path:
+        called["locate_args"] = (package_dir, name, version, release)
+        return package_path
+
+    monkeypatch.setitem(
+        module._FORMAT_HANDLERS,
+        "deb",
+        (_fake_handler, _fake_locate, "custom-cmd"),
+    )
+
+    command_obj = object()
+    monkeypatch.setattr(module, "get_command", lambda name: command_obj)
+
+    @contextlib.contextmanager
+    def _fake_rootfs(
+        script: Path,
+        image: str,
+        store_dir: Path,
+        *,
+        timeout: int | None = None,
+    ) -> typ.Iterator[object]:
+        called["rootfs_args"] = (script, image, store_dir, timeout)
+        yield object()
+
+    monkeypatch.setattr(module, "polythene_rootfs", _fake_rootfs)
+
+    config = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="tool",
+        version="1.0.0",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("deb",),
+        expected_paths=("/usr/bin/tool",),
+        executable_paths=("/usr/bin/tool",),
+        verify_command=(),
+        polythene_script=tmp_path / "polythene.py",
+        timeout=42,
+        base_images={"deb": "docker.io/library/debian:bookworm"},
+    )
+
+    store_dir = tmp_path / "store"
+    module._validate_format("deb", config, store_dir)
+
+    assert called["command"] is command_obj
+    assert called["path"] == package_path
+    assert called["locate_args"] == (
+        config.packages_dir,
+        config.package_value,
+        config.version,
+        config.release,
+    )
+    assert called["rootfs_args"] == (
+        config.polythene_script,
+        config.base_images["deb"],
+        store_dir,
+        config.timeout,
+    )
+    assert called["cfg"] is config
+    assert called["sandbox"] is True
+
+
+def test_validate_format_rejects_unknown_format(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """_validate_format raises ValidationError for unsupported formats."""
+    module = validate_cli_module
+    config = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="tool",
+        version="1.0.0",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("apk",),
+        expected_paths=(),
+        executable_paths=(),
+        verify_command=(),
+        polythene_script=tmp_path / "polythene.py",
+        timeout=None,
+        base_images={},
+    )
+
+    with pytest.raises(module.ValidationError, match="unsupported package format"):
+        module._validate_format("apk", config, tmp_path / "store")
+
+
+def test_validate_format_requires_base_image(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """_validate_format raises when the base image is missing."""
+    module = validate_cli_module
+    config = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="tool",
+        version="1.0.0",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("deb",),
+        expected_paths=(),
+        executable_paths=(),
+        verify_command=(),
+        polythene_script=tmp_path / "polythene.py",
+        timeout=None,
+        base_images={},
+    )
+
+    with pytest.raises(module.ValidationError, match="unsupported package format"):
+        module._validate_format("deb", config, tmp_path / "store")
 def test_main_invokes_each_requested_format(
     validate_cli_module: object,
     monkeypatch: pytest.MonkeyPatch,
@@ -533,6 +844,37 @@ def test_main_raises_when_polythene_unreadable(
     with pytest.raises(
         module.ValidationError,
         match="polythene script is not readable",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_when_polythene_read_fails(
+    validate_cli_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Generic OSErrors when reading polythene produce ValidationError."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    def _broken_open(*_args: object, **_kwargs: object) -> object:
+        raise OSError("io error")
+
+    monkeypatch.setattr(module.Path, "open", _broken_open)
+
+    with pytest.raises(
+        module.ValidationError,
+        match="polythene script could not be read",
     ):
         module.main(
             project_dir=project_dir,

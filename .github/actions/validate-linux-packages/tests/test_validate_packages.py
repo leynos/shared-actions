@@ -166,6 +166,21 @@ def test_locate_deb_returns_unique_package(
     assert result == package
 
 
+def test_locate_deb_rejects_ambiguous_matches(
+    validate_packages_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """locate_deb raises when multiple candidates are found."""
+    (tmp_path / "tool_1.2.3-1_amd64.deb").write_bytes(b"")
+    (tmp_path / "tool_1.2.3-1_arm64.deb").write_bytes(b"")
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="expected exactly one tool deb package",
+    ):
+        validate_packages_module.locate_deb(tmp_path, "tool", "1.2.3", "1")
+
+
 def test_locate_rpm_rejects_ambiguous_matches(
     validate_packages_module: ModuleType,
     tmp_path: Path,
@@ -196,3 +211,106 @@ def test_acceptable_rpm_architectures_cover_aliases(
 ) -> None:
     """acceptable_rpm_architectures returns the canonical alias set."""
     assert validate_packages_module.acceptable_rpm_architectures(arch) == expected
+
+
+def test_metadata_validator_raise_error_message(
+    validate_packages_module: ModuleType,
+) -> None:
+    """raise_error reports the expected and actual values."""
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="unexpected field: expected 'foo'",
+    ):
+        validate_packages_module._MetadataValidators.raise_error(
+            "unexpected field", "foo", "bar"
+        )
+
+
+def test_metadata_validator_equal_accepts_match(
+    validate_packages_module: ModuleType,
+) -> None:
+    """equal validator returns successfully when the attribute matches."""
+
+    class Meta:
+        name = "package"
+
+    validator = validate_packages_module._MetadataValidators.equal(
+        "name", "package", "unexpected package name"
+    )
+
+    validator(Meta())
+
+
+def test_metadata_validator_equal_rejects_mismatch(
+    validate_packages_module: ModuleType,
+) -> None:
+    """equal validator raises when the attribute differs."""
+
+    class Meta:
+        name = "other"
+
+    validator = validate_packages_module._MetadataValidators.equal(
+        "name", "package", "unexpected package name"
+    )
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="unexpected package name",
+    ):
+        validator(Meta())
+
+
+def test_metadata_validator_in_set_uses_formatter(
+    validate_packages_module: ModuleType,
+) -> None:
+    """in_set validator applies the provided formatter in error messages."""
+
+    class Meta:
+        version = "2.0.0"
+
+    validator = validate_packages_module._MetadataValidators.in_set(
+        "version",
+        {"1.0.0", "1.1.0"},
+        "unexpected version",
+        fmt_expected=lambda values: " or ".join(sorted(values)),
+    )
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="1.0.0 or 1.1.0",
+    ):
+        validator(Meta())
+
+
+def test_metadata_validator_prefix_accepts_blank(
+    validate_packages_module: ModuleType,
+) -> None:
+    """prefix validator permits blank values."""
+
+    class Meta:
+        release = ""
+
+    validator = validate_packages_module._MetadataValidators.prefix(
+        "release", "1", "unexpected release"
+    )
+
+    validator(Meta())
+
+
+def test_metadata_validator_prefix_rejects_non_matching(
+    validate_packages_module: ModuleType,
+) -> None:
+    """prefix validator raises when the attribute lacks the prefix."""
+
+    class Meta:
+        release = "2.el9"
+
+    validator = validate_packages_module._MetadataValidators.prefix(
+        "release", "1", "unexpected release"
+    )
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="starting with '1'",
+    ):
+        validator(Meta())

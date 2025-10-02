@@ -130,53 +130,53 @@ def _install_and_verify(
                 )
 
 
-def _raise_validation(label: str, expected: str, actual: str) -> None:
-    message = f"{label}: expected {expected!r}, found {actual!r}"
-    raise ValidationError(message)
+class _MetadataValidators:
+    """Factory helpers for metadata validation callables."""
 
+    @staticmethod
+    def raise_error(label: str, expected: str, actual: str) -> None:
+        message = f"{label}: expected {expected!r}, found {actual!r}"
+        raise ValidationError(message)
 
-def _make_equal_validator(
-    attr: str, expected: str, label: str
-) -> typ.Callable[[MetaT], None]:
-    def _validator(meta: MetaT) -> None:
-        actual = getattr(meta, attr)
-        if actual != expected:
-            _raise_validation(label, expected, actual)
+    @staticmethod
+    def equal(attr: str, expected: str, label: str) -> typ.Callable[[MetaT], None]:
+        def _validator(meta: MetaT) -> None:
+            actual = getattr(meta, attr)
+            if actual != expected:
+                _MetadataValidators.raise_error(label, expected, actual)
 
-    return _validator
+        return _validator
 
+    @staticmethod
+    def in_set(
+        attr: str,
+        expected: typ.Collection[str],
+        label: str,
+        *,
+        fmt_expected: typ.Callable[[typ.Collection[str]], str] | None = None,
+    ) -> typ.Callable[[MetaT], None]:
+        formatter = fmt_expected or (
+            lambda values: f"one of [{', '.join(sorted(values))}]"
+        )
 
-def _make_in_set_validator(
-    attr: str,
-    expected: typ.Collection[str],
-    label: str,
-    *,
-    fmt_expected: typ.Callable[[typ.Collection[str]], str] | None = None,
-) -> typ.Callable[[MetaT], None]:
-    formatter = fmt_expected or (
-        lambda values: f"one of [{', '.join(sorted(values))}]"
-    )
+        def _validator(meta: MetaT) -> None:
+            actual = getattr(meta, attr)
+            if actual not in expected:
+                _MetadataValidators.raise_error(label, formatter(expected), actual)
 
-    def _validator(meta: MetaT) -> None:
-        actual = getattr(meta, attr)
-        if actual not in expected:
-            _raise_validation(label, formatter(expected), actual)
+        return _validator
 
-    return _validator
+    @staticmethod
+    def prefix(attr: str, prefix: str, label: str) -> typ.Callable[[MetaT], None]:
+        def _validator(meta: MetaT) -> None:
+            value = getattr(meta, attr)
+            text = "" if value is None else str(value)
+            if text and not text.startswith(prefix):
+                _MetadataValidators.raise_error(
+                    label, f"starting with {prefix!r}", text
+                )
 
-
-def _make_prefix_validator(
-    attr: str,
-    prefix: str,
-    label: str,
-) -> typ.Callable[[MetaT], None]:
-    def _validator(meta: MetaT) -> None:
-        value = getattr(meta, attr)
-        text = "" if value is None else str(value)
-        if text and not text.startswith(prefix):
-            _raise_validation(label, f"starting with {prefix!r}", text)
-
-    return _validator
+        return _validator
 
 
 def _validate_package(
@@ -228,10 +228,10 @@ def validate_deb_package(
         lambda pkg_path: inspect_deb_package(dpkg_deb, pkg_path),
         package_path=package_path,
         validators=(
-            _make_equal_validator(
+            _MetadataValidators.equal(
                 "name", expected_name, "unexpected package name"
             ),
-            _make_in_set_validator(
+            _MetadataValidators.in_set(
                 "version",
                 {expected_deb_version, expected_version},
                 "unexpected deb version",
@@ -239,7 +239,7 @@ def validate_deb_package(
                     f"{expected_deb_version!r} or {expected_version!r}"
                 ),
             ),
-            _make_equal_validator(
+            _MetadataValidators.equal(
                 "architecture", expected_arch, "unexpected deb architecture"
             ),
         ),
@@ -274,16 +274,16 @@ def validate_rpm_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
         validators=(
-            _make_equal_validator(
+            _MetadataValidators.equal(
                 "name", expected_name, "unexpected package name"
             ),
-            _make_equal_validator(
+            _MetadataValidators.equal(
                 "version", expected_version, "unexpected rpm version"
             ),
-            _make_prefix_validator(
+            _MetadataValidators.prefix(
                 "release", expected_release, "unexpected rpm release prefix"
             ),
-            _make_in_set_validator(
+            _MetadataValidators.in_set(
                 "architecture",
                 acceptable_arches,
                 "unexpected rpm architecture",

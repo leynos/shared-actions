@@ -112,29 +112,52 @@ def test_errors_when_target_unsupported_without_cross(
 
 
 @CMD_MOX_UNSUPPORTED
-def test_errors_when_cross_required_but_unavailable(
+@pytest.mark.parametrize(
+    ("cross_available", "container_available", "expected_phrases"),
+    [
+        (False, False, ("cross is not installed", "no container runtime detected")),
+        (False, True, ("cross is not installed",)),
+        (True, False, ("no container runtime detected",)),
+    ],
+)
+def test_container_required_target_reports_missing_prerequisites(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
     capsys: pytest.CaptureFixture[str],
+    *,
+    cross_available: bool,
+    container_available: bool,
+    expected_phrases: tuple[str, ...],
 ) -> None:
-    """Errors when a container-required target cannot use cross."""
+    """Errors when prerequisites for containerized builds are missing."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
     rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+    cross_path: str | None = None
+    if cross_available:
+        cross_path = _register_cross_version_stub(cmd_mox)
 
     def fake_which(name: str) -> str | None:
-        return rustup_path if name == "rustup" else None
+        mapping = {"rustup": rustup_path}
+        if cross_path is not None:
+            mapping["cross"] = cross_path
+        return mapping.get(name)
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
-    app_env.patch_platform("linux")
-    app_env.patch_attr("ensure_cross", lambda *_: (None, None))
-    app_env.patch_attr("runtime_available", lambda _: False)
+    app_env.patch_attr(
+        "ensure_cross",
+        lambda *_: (cross_path, "0.2.5") if cross_available else (None, None),
+    )
+    app_env.patch_attr(
+        "runtime_available",
+        lambda runtime: container_available if runtime == "docker" else False,
+    )
 
     cmd_mox.replay()
     with pytest.raises(main_module.typer.Exit):
@@ -143,8 +166,12 @@ def test_errors_when_cross_required_but_unavailable(
 
     err = capsys.readouterr().err
     assert "requires cross" in err
-    assert "cross is not installed" in err
-    assert "no container runtime detected" in err
+    for phrase in expected_phrases:
+        assert phrase in err
+    for phrase in {"cross is not installed", "no container runtime detected"} - set(
+        expected_phrases
+    ):
+        assert phrase not in err
 
 
 @CMD_MOX_UNSUPPORTED
@@ -194,6 +221,47 @@ def test_builds_freebsd_target_with_cross_and_container(
     captured = capsys.readouterr()
     _assert_no_timeout_trace(captured.err)
     assert captured.err == ""
+
+
+@CMD_MOX_UNSUPPORTED
+def test_cross_no_docker_disallowed_for_container_required_target(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Rejects CROSS_NO_DOCKER when a container runtime is required."""
+    cross_env = module_harness(cross_module)
+    app_env = module_harness(main_module)
+
+    default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
+    cross_path = _register_cross_version_stub(cmd_mox)
+    rustup_path = _register_rustup_toolchain_stub(cmd_mox, rustup_stdout)
+
+    def fake_which(name: str) -> str | None:
+        mapping = {
+            "rustup": rustup_path,
+            "cross": cross_path,
+        }
+        return mapping.get(name)
+
+    cross_env.patch_shutil_which(fake_which)
+    app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
+    app_env.patch_attr("runtime_available", lambda _: False)
+    app_env.patch_platform("win32")
+    app_env.monkeypatch.setenv("CROSS_NO_DOCKER", "1")
+
+    cmd_mox.replay()
+    with pytest.raises(main_module.typer.Exit):
+        main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    err = capsys.readouterr().err
+    assert "requires cross" in err
+    assert "CROSS_NO_DOCKER=1 is unsupported" in err
 
 
 @CMD_MOX_UNSUPPORTED

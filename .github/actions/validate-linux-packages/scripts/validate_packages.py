@@ -233,22 +233,23 @@ def validate_rpm_package(
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
 
     def _validate_release(meta: RpmMetadata) -> None:
-        release = meta.release
-        if release and not str(release).startswith(expected_release):
-            message = (
-                "unexpected rpm release: expected prefix "
-                f"{expected_release!r}, found {release!r}"
+        release = str(meta.release or "")
+        if release and not release.startswith(expected_release):
+            _raise_validation(
+                "unexpected rpm release prefix",
+                f"starting with {expected_release!r}",
+                release,
             )
-            raise ValidationError(message)
 
     def _validate_arch(meta: RpmMetadata) -> None:
         architecture = meta.architecture
         if architecture not in acceptable_arches:
-            message = (
-                "unexpected rpm architecture: expected one of "
-                f"{sorted(acceptable_arches)!r}, found {architecture!r}"
+            expected_arches = ", ".join(sorted(acceptable_arches))
+            _raise_validation(
+                "unexpected rpm architecture",
+                f"one of [{expected_arches}]",
+                architecture,
             )
-            raise ValidationError(message)
 
     def _validate_name(meta: RpmMetadata) -> None:
         if meta.name != expected_name:

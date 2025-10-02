@@ -261,3 +261,200 @@ def test_main_invokes_rpm_validation(
     assert calls[0][0] == "docker.io/library/rockylinux:9"
     assert exec_calls
     assert exec_calls[0] == ("/usr/bin/rust-toy-app", "--version")
+
+
+def test_main_raises_for_missing_package_dir(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Fail when the derived package directory does not exist."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(module.ValidationError, match="package directory not found"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_for_missing_bin_name(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Reject blank bin-name values."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(module.ValidationError, match="bin-name input is required"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="   ",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_for_missing_version(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Reject blank version inputs."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(module.ValidationError, match="version input is required"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="   ",
+            formats=["deb"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_for_invalid_sandbox_timeout(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Fail when sandbox-timeout cannot be coerced to an integer."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(
+        module.ValidationError,
+        match="sandbox_timeout must be an integer",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=polythene_path,
+            sandbox_timeout="abc",
+        )
+
+
+def test_main_raises_for_unsupported_target(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Fail when the target triple is not recognised."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(
+        module.ValidationError,
+        match="unsupported target triple",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            target="mips-unknown-linux-gnu",
+            formats=["deb"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_for_unsupported_format(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Reject package formats without configured sandbox images."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    package_path = packages_dir / "tool-1.0.0-1.x86_64.rpm"
+    _write_package(package_path)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(
+        module.ValidationError,
+        match="unsupported package format",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["apk"],
+            polythene_path=polythene_path,
+        )
+
+
+def test_main_raises_for_missing_polythene_script(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Fail when the polythene helper cannot be located."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(
+        module.ValidationError,
+        match="polythene script not found",
+    ):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["deb"],
+            polythene_path=tmp_path / "missing-polythene.py",
+        )
+
+
+def test_main_raises_for_empty_formats(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """Fail when no package formats remain after normalisation."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    polythene_path = tmp_path / "polythene.py"
+    polythene_path.write_text("#!/usr/bin/env python\n")
+
+    with pytest.raises(module.ValidationError, match="no package formats provided"):
+        module.main(
+            project_dir=project_dir,
+            bin_name="tool",
+            version="1.0.0",
+            formats=["  \n\t"],
+            polythene_path=polythene_path,
+        )

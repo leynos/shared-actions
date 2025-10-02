@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shlex
 import typing as typ
+from pathlib import PurePosixPath
 
 from validate_exceptions import ValidationError
 
@@ -45,7 +46,12 @@ def normalise_formats(values: list[str] | None) -> list[str]:
 
 
 def normalise_paths(values: list[str] | None) -> list[str]:
-    """Return absolute paths derived from ``values`` while preserving order."""
+    """Return canonical absolute paths derived from ``values``.
+
+    Paths must already be canonical absolute strings. Redundant separators and
+    ``.``/``..`` segments are rejected instead of silently corrected so callers
+    surface invalid configuration early.
+    """
     if not values:
         return []
     paths: list[str] = []
@@ -57,7 +63,23 @@ def normalise_paths(values: list[str] | None) -> list[str]:
             if not cleaned.startswith("/"):
                 message = f"expected absolute path but received {cleaned!r}"
                 raise ValidationError(message)
-            paths.append(cleaned)
+            if "//" in cleaned:
+                message = (
+                    f"path must be canonical, found redundant separator in {cleaned!r}"
+                )
+                raise ValidationError(message)
+            pure = PurePosixPath(cleaned)
+            if "." in pure.parts or ".." in pure.parts:
+                message = f"path must not contain '.' or '..' segments: {cleaned!r}"
+                raise ValidationError(message)
+            canonical = pure.as_posix()
+            if cleaned != canonical:
+                message = (
+                    "path is not canonical: expected "
+                    f"{canonical!r}, received {cleaned!r}"
+                )
+                raise ValidationError(message)
+            paths.append(canonical)
     return dedupe(paths)
 
 

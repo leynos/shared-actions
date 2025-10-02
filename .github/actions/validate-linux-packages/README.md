@@ -64,6 +64,10 @@ None.
       /usr/bin/rust-toy-app
 ```
 
+Paths supplied to `expected-paths` and `executable-paths` must already be
+canonical absolute strings; redundant separators or `.`/`..` segments are
+rejected to prevent ambiguous validation rules.
+
 The action expects packages to be available in `<project-dir>/dist` unless
 `packages-dir` is provided. When Debian packages are validated the sandbox
 installs them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows

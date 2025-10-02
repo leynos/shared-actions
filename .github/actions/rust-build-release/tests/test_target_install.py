@@ -170,6 +170,8 @@ def test_container_required_target_reports_missing_prerequisites(
     assert "missing:" in err
     for phrase in expected_phrases:
         assert phrase in err
+    if len(expected_phrases) > 1:
+        assert ", ".join(expected_phrases) in err
     for phrase in {"cross is not installed", "no container runtime detected"} - set(
         expected_phrases
     ):

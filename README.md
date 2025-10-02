@@ -15,6 +15,7 @@ GitHub Actions
 | Ratchet coverage          | `.github/actions/ratchet-coverage`          | v1           |
 | Rust build release        | `.github/actions/rust-build-release`        | v1           |
 | Linux packages            | `.github/actions/linux-packages`            | v1           |
+| Validate Linux packages   | `.github/actions/validate-linux-packages`   | v1           |
 | macOS package             | `.github/actions/macos-package`             | v1           |
 | Windows package           | [`./.github/actions/windows-package`](./.github/actions/windows-package/README.md) | v0           |
 

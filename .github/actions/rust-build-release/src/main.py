@@ -429,7 +429,7 @@ def main(
                 details.append("cross is not installed")
             if not decision.has_container:
                 details.append("no container runtime detected")
-            detail_suffix = f"; {'; '.join(details)}" if details else ""
+            detail_suffix = f"; {', '.join(details)}" if details else ""
             typer.echo(
                 "::error:: target "
                 f"'{target_to_build}' requires cross with a container runtime "

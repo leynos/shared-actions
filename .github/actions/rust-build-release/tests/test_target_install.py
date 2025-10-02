@@ -166,6 +166,8 @@ def test_container_required_target_reports_missing_prerequisites(
 
     err = capsys.readouterr().err
     assert "requires cross" in err
+    assert ("cross" in err) or ("container runtime" in err)
+    assert "missing:" in err
     for phrase in expected_phrases:
         assert phrase in err
     for phrase in {"cross is not installed", "no container runtime detected"} - set(

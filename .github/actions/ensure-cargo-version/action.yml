@@ -46,3 +46,6 @@ outputs:
   crate-version:
     description: Version number declared in the first Cargo manifest.
     value: ${{ steps.verify.outputs['crate-version'] }}
+  crate-name:
+    description: Package name declared in the first Cargo manifest.
+    value: ${{ steps.verify.outputs['crate-name'] }}

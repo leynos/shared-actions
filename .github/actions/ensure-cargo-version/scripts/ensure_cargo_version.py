@@ -27,9 +27,10 @@ app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
 @dataclasses.dataclass(slots=True)
 class ManifestVersion:
-    """Version metadata extracted from a manifest."""
+    """Metadata extracted from a manifest."""
 
     path: Path
+    name: str
     version: str
 
 
@@ -59,7 +60,7 @@ def _resolve_paths(manifests: list[Path]) -> list[Path]:
 
 
 def _read_manifest_version(path: Path) -> ManifestVersion:
-    """Parse a manifest and return the discovered package version."""
+    """Parse a manifest and return the discovered package metadata."""
     try:
         with path.open("rb") as handle:
             data = tomllib.load(handle)
@@ -71,6 +72,11 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
     package = data.get("package")
     if not isinstance(package, dict):
         raise ManifestError(path, "Manifest missing [package] table")
+
+    name = package.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ManifestError(path, "Could not read package.name")
+    crate_name = name.strip()
 
     version = package.get("version")
     if isinstance(version, dict) and version.get("workspace") is True:
@@ -86,12 +92,12 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
                 workspace_manifest,
                 "Workspace manifest missing [workspace.package].version",
             )
-        return ManifestVersion(path=path, version=workspace_version)
+        return ManifestVersion(path=path, name=crate_name, version=workspace_version)
 
     if not isinstance(version, str) or not version.strip():
         raise ManifestError(path, "Could not read package.version")
 
-    return ManifestVersion(path=path, version=version.strip())
+    return ManifestVersion(path=path, name=crate_name, version=version.strip())
 
 
 def _find_workspace_root(start_dir: Path) -> Path | None:
@@ -244,6 +250,7 @@ def main(
             )
 
     crate_version = manifest_versions[0].version if manifest_versions else ""
+    crate_name = manifest_versions[0].name if manifest_versions else ""
 
     if should_check_tag:
         if tag_version is None:  # pragma: no cover - defensive guard
@@ -271,6 +278,7 @@ def main(
         raise SystemExit(1)
 
     _write_output("crate-version", crate_version)
+    _write_output("crate-name", crate_name)
     manifest_list = ", ".join(_display_path(item.path) for item in manifest_versions)
     if should_check_tag:
         print(

@@ -16,6 +16,7 @@ Validate that the Git tag triggering a release workflow matches the version in o
 | ---- | ----------- |
 | `version` | Version extracted from the tag reference after removing the configured prefix. |
 | `crate-version` | Version read from the first manifest path provided (after resolution) after resolving workspace inheritance. |
+| `crate-name` | Package name read from the first manifest path provided (after resolution). |
 
 ## Usage
 

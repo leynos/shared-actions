@@ -269,7 +269,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
         message = f"unsupported package format: {fmt}"
         raise ValidationError(message)
 
-    def sandbox_factory() -> typ.ContextManager[PolytheneSession]:
+    def sandbox_factory() -> typ.ContextManager["PolytheneSession"]:  # noqa: UP037
         return polythene_rootfs(
             config.polythene_script,
             image,

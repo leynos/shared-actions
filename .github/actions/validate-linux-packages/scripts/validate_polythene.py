@@ -14,6 +14,11 @@ from validate_commands import run_text
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory
 
+if typ.TYPE_CHECKING:
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - typing fallback
+    BaseCommand = typ.Any
+
 logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -43,7 +48,7 @@ class PolytheneSession:
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        cmd = local["uv"][
+        cmd = _uv_command(
             "run",
             self.script.as_posix(),
             "exec",
@@ -52,7 +57,7 @@ class PolytheneSession:
             self.store.as_posix(),
             "--",
             *args,
-        ]
+        )
         return run_text(cmd, timeout=effective_timeout)
 
 
@@ -71,14 +76,14 @@ def polythene_rootfs(
 ) -> typ.ContextManager[PolytheneSession]:
     """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
     ensure_directory(store)
-    pull_cmd = local["uv"][
+    pull_cmd = _uv_command(
         "run",
         polythene.as_posix(),
         "pull",
         image,
         "--store",
         store.as_posix(),
-    ]
+    )
     try:
         pull_output = run_text(pull_cmd, timeout=timeout)
     except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
@@ -99,13 +104,21 @@ def polythene_rootfs(
         yield session
     finally:
         try:
-            local["uv"][
+            _uv_command(
                 "run",
                 polythene.as_posix(),
                 "rm",
                 uid,
                 "--store",
                 store.as_posix(),
-            ]()
+            )()
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
             logger.debug("polythene cleanup failed: %s", exc)
+
+
+def _uv_command(*args: str) -> BaseCommand:
+    """Construct a ``uv`` command with chained plumbum indexing."""
+    command: BaseCommand = local["uv"]
+    for arg in args:
+        command = command[arg]
+    return command

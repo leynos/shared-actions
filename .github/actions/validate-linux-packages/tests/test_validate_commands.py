@@ -41,7 +41,8 @@ def validation_error() -> type[Exception]:
         "validate_exceptions", SCRIPTS_DIR / "validate_exceptions.py"
     )
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise RuntimeError("unable to load validate_exceptions module")
+        message = "unable to load validate_exceptions module"
+        raise RuntimeError(message)
     module = sys.modules.get(spec.name)
     if module is None:
         module = importlib.util.module_from_spec(spec)
@@ -101,7 +102,8 @@ def test_run_text_wraps_unexpected_errors(
         argv = ("tool",)
 
         def run(self, *, timeout: int | None = None) -> tuple[int, object, object]:
-            raise RuntimeError("boom")
+            message = "boom"
+            raise RuntimeError(message)
 
     with pytest.raises(validation_error) as excinfo:
         validate_commands_module.run_text(_BrokenCommand())

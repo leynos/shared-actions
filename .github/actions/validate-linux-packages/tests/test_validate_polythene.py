@@ -150,10 +150,12 @@ def test_polythene_rootfs_rejects_empty_identifier(
     polythene = tmp_path / "polythene.py"
     polythene.write_text("#!/usr/bin/env python\n")
 
-    with pytest.raises(validate_polythene_module.ValidationError):
-        with validate_polythene_module.polythene_rootfs(
+    with (
+        pytest.raises(validate_polythene_module.ValidationError),
+        validate_polythene_module.polythene_rootfs(
             polythene,
             "docker.io/library/debian:bookworm",
             store,
-        ):
-            pass
+        ),
+    ):
+        pass

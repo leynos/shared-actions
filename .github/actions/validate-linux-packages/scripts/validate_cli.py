@@ -25,7 +25,11 @@ from validate_packages import (
     validate_deb_package,
     validate_rpm_package,
 )
-from validate_polythene import PolytheneSession, default_polythene_path, polythene_rootfs
+from validate_polythene import (
+    PolytheneSession,
+    default_polythene_path,
+    polythene_rootfs,
+)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helper import
     from plumbum.commands.base import BaseCommand
@@ -63,6 +67,15 @@ class ValidationInputs:
     sandbox_timeout: str | None = None
 
 
+def _optional_path(value: Path | None) -> Path | None:
+    """Return ``None`` when ``value`` represents an empty CLI path."""
+    if value is None:
+        return None
+    if value == Path():
+        return None
+    return value
+
+
 @dataclasses.dataclass(frozen=True)
 class ValidationConfig:
     """Container for derived settings used during validation."""
@@ -91,7 +104,7 @@ SandboxFactory = typ.Callable[[], typ.ContextManager["PolytheneSession"]]
 
 
 def _handle_deb(
-    command: "BaseCommand",
+    command: BaseCommand,
     pkg_path: Path,
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
@@ -112,7 +125,7 @@ def _handle_deb(
 
 
 def _handle_rpm(
-    command: "BaseCommand",
+    command: BaseCommand,
     pkg_path: Path,
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
@@ -135,7 +148,7 @@ def _handle_rpm(
 _FORMAT_HANDLERS: dict[
     str,
     tuple[
-        typ.Callable[["BaseCommand", Path, ValidationConfig, SandboxFactory], None],
+        typ.Callable[[BaseCommand, Path, ValidationConfig, SandboxFactory], None],
         typ.Callable[[Path, str, str, str], Path],
         str,
     ],
@@ -189,14 +202,14 @@ def main(
         release=release,
         arch=arch,
         formats=formats,
-        packages_dir=packages_dir,
+        packages_dir=_optional_path(packages_dir),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,
         deb_base_image=deb_base_image,
         rpm_base_image=rpm_base_image,
-        polythene_path=polythene_path,
-        polythene_store=polythene_store,
+        polythene_path=_optional_path(polythene_path),
+        polythene_store=_optional_path(polythene_store),
         sandbox_timeout=sandbox_timeout,
     )
 
@@ -280,9 +293,7 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
         )
         raise ValidationError(message) from exc
     except OSError as exc:
-        message = (
-            f"polythene script could not be read: {polythene_script} ({exc})"
-        )
+        message = f"polythene script could not be read: {polythene_script} ({exc})"
         raise ValidationError(message) from exc
 
     return ValidationConfig(

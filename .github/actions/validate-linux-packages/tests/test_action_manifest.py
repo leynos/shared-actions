@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+import typing as typ
 from pathlib import Path
 
 import yaml
+
+if typ.TYPE_CHECKING:
+    from cmd_mox import CmdMox
+else:  # pragma: no cover - typing helper fallback
+    CmdMox = typ.Any
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 
@@ -44,7 +50,7 @@ def test_manifest_configures_composite_action() -> None:
 
 
 def test_action_run_step_invokes_validate_script(
-    cmd_mox: "CmdMox", tmp_path: Path
+    cmd_mox: CmdMox, tmp_path: Path
 ) -> None:
     """The composite action run script should invoke uv with validate.py."""
     manifest = yaml.safe_load(ACTION_PATH.read_text())
@@ -62,6 +68,7 @@ def test_action_run_step_invokes_validate_script(
     env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
     env["GITHUB_ACTION_PATH"] = str(action_dir)
 
-    subprocess.run(["bash", "-c", run_script], check=True, cwd=tmp_path, env=env)
+    command = ["/usr/bin/env", "bash", "-c", run_script]
+    subprocess.run(command, check=True, cwd=tmp_path, env=env)  # noqa: S603
 
     cmd_mox.verify()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from scripts.validate_architecture import (
     UnsupportedTargetError,
     deb_arch_for_target,

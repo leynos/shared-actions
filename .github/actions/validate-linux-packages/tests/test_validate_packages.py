@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib.util
+import re
 import sys
 import typing as typ
 from pathlib import Path
@@ -159,9 +160,7 @@ def test_locate_deb_returns_unique_package(
     package = tmp_path / "tool_1.2.3-1_amd64.deb"
     package.write_bytes(b"")
 
-    result = validate_packages_module.locate_deb(
-        tmp_path, "tool", "1.2.3", "1"
-    )
+    result = validate_packages_module.locate_deb(tmp_path, "tool", "1.2.3", "1")
 
     assert result == package
 
@@ -229,7 +228,7 @@ def test_metadata_validator_raise_error_message(
 def test_metadata_validator_equal_accepts_match(
     validate_packages_module: ModuleType,
 ) -> None:
-    """equal validator returns successfully when the attribute matches."""
+    """Equal validator returns successfully when the attribute matches."""
 
     class Meta:
         name = "package"
@@ -244,7 +243,7 @@ def test_metadata_validator_equal_accepts_match(
 def test_metadata_validator_equal_rejects_mismatch(
     validate_packages_module: ModuleType,
 ) -> None:
-    """equal validator raises when the attribute differs."""
+    """Equal validator raises when the attribute differs."""
 
     class Meta:
         name = "other"
@@ -263,7 +262,7 @@ def test_metadata_validator_equal_rejects_mismatch(
 def test_metadata_validator_in_set_uses_formatter(
     validate_packages_module: ModuleType,
 ) -> None:
-    """in_set validator applies the provided formatter in error messages."""
+    """In_set validator applies the provided formatter in error messages."""
 
     class Meta:
         version = "2.0.0"
@@ -277,7 +276,7 @@ def test_metadata_validator_in_set_uses_formatter(
 
     with pytest.raises(
         validate_packages_module.ValidationError,
-        match="1.0.0 or 1.1.0",
+        match=re.escape("1.0.0 or 1.1.0"),
     ):
         validator(Meta())
 
@@ -285,7 +284,7 @@ def test_metadata_validator_in_set_uses_formatter(
 def test_metadata_validator_prefix_accepts_blank(
     validate_packages_module: ModuleType,
 ) -> None:
-    """prefix validator permits blank values."""
+    """Prefix validator permits blank values."""
 
     class Meta:
         release = ""
@@ -300,7 +299,7 @@ def test_metadata_validator_prefix_accepts_blank(
 def test_metadata_validator_prefix_rejects_non_matching(
     validate_packages_module: ModuleType,
 ) -> None:
-    """prefix validator raises when the attribute lacks the prefix."""
+    """Prefix validator raises when the attribute lacks the prefix."""
 
     class Meta:
         release = "2.el9"

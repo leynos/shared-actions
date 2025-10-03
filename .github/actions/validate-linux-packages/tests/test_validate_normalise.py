@@ -62,9 +62,7 @@ def test_normalise_paths_multiple_duplicate_groups(
     validate_normalise_module: object,
 ) -> None:
     """Deduplication preserves order when distinct paths repeat."""
-    result = validate_normalise_module.normalise_paths(
-        ["/a", "/b", "/a", "/b", "/c"]
-    )
+    result = validate_normalise_module.normalise_paths(["/a", "/b", "/a", "/b", "/c"])
 
     assert result == ["/a", "/b", "/c"]
 

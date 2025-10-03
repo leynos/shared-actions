@@ -40,7 +40,8 @@ def validation_error() -> type[Exception]:
         "validate_exceptions", SCRIPTS_DIR / "validate_exceptions.py"
     )
     if spec is None or spec.loader is None:  # pragma: no cover - defensive
-        raise RuntimeError("unable to load validate_exceptions module")
+        message = "unable to load validate_exceptions module"
+        raise RuntimeError(message)
     module = sys.modules.get(spec.name)
     if module is None:
         module = importlib.util.module_from_spec(spec)

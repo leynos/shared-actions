@@ -28,6 +28,8 @@ else:  # pragma: no cover - runtime fallbacks
     BaseCommand = object
 
 __all__ = [
+    "DebMetadata",
+    "RpmMetadata",
     "acceptable_rpm_architectures",
     "ensure_subset",
     "locate_deb",
@@ -228,9 +230,7 @@ def validate_deb_package(
         lambda pkg_path: inspect_deb_package(dpkg_deb, pkg_path),
         package_path=package_path,
         validators=(
-            _MetadataValidators.equal(
-                "name", expected_name, "unexpected package name"
-            ),
+            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
             _MetadataValidators.in_set(
                 "version",
                 {expected_deb_version, expected_version},
@@ -274,9 +274,7 @@ def validate_rpm_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
         validators=(
-            _MetadataValidators.equal(
-                "name", expected_name, "unexpected package name"
-            ),
+            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
             _MetadataValidators.equal(
                 "version", expected_version, "unexpected rpm version"
             ),

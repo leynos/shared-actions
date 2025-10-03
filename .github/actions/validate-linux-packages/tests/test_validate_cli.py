@@ -459,9 +459,7 @@ def test_validate_format_dispatches_to_handler(
         with sandbox_factory():
             called["sandbox"] = True
 
-    def _fake_locate(
-        package_dir: Path, name: str, version: str, release: str
-    ) -> Path:
+    def _fake_locate(package_dir: Path, name: str, version: str, release: str) -> Path:
         called["locate_args"] = (package_dir, name, version, release)
         return package_path
 
@@ -574,6 +572,8 @@ def test_validate_format_requires_base_image(
 
     with pytest.raises(module.ValidationError, match="unsupported package format"):
         module._validate_format("deb", config, tmp_path / "store")
+
+
 def test_main_invokes_each_requested_format(
     validate_cli_module: object,
     monkeypatch: pytest.MonkeyPatch,
@@ -591,7 +591,8 @@ def test_main_invokes_each_requested_format(
 
     def _fake_validate(fmt: str, config: object, store_dir: Path) -> None:
         recorded.append((fmt, store_dir))
-        assert getattr(config, "polythene_script") == polythene_path
+        assert isinstance(config, module.ValidationConfig)
+        assert config.polythene_script == polythene_path
 
     monkeypatch.setattr(module, "_validate_format", _fake_validate)
 
@@ -836,7 +837,8 @@ def test_main_raises_when_polythene_unreadable(
 
     def _deny(self: Path, *args: object, **kwargs: object) -> object:
         if self == polythene_path:
-            raise PermissionError("denied")
+            message = "denied"
+            raise PermissionError(message)
         return original_open(self, *args, **kwargs)
 
     monkeypatch.setattr(module.Path, "open", _deny)
@@ -868,7 +870,8 @@ def test_main_raises_when_polythene_read_fails(
     polythene_path.write_text("#!/usr/bin/env python\n")
 
     def _broken_open(*_args: object, **_kwargs: object) -> object:
-        raise OSError("io error")
+        message = "io error"
+        raise OSError(message)
 
     monkeypatch.setattr(module.Path, "open", _broken_open)
 
@@ -883,6 +886,41 @@ def test_main_raises_when_polythene_read_fails(
             formats=["deb"],
             polythene_path=polythene_path,
         )
+
+
+def test_main_uses_default_polythene_for_blank_input(
+    validate_cli_module: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty polythene-path input falls back to the default helper."""
+    module = validate_cli_module
+    project_dir = tmp_path / "proj"
+    packages_dir = project_dir / "dist"
+    packages_dir.mkdir(parents=True, exist_ok=True)
+
+    default_polythene = tmp_path / "default-polythene.py"
+    default_polythene.write_text("#!/usr/bin/env python\n")
+
+    monkeypatch.setattr(module, "default_polythene_path", lambda: default_polythene)
+
+    captured: list[Path] = []
+
+    def _capture(fmt: str, config: object, store_dir: Path) -> None:
+        assert isinstance(config, module.ValidationConfig)
+        captured.append(config.polythene_script)
+
+    monkeypatch.setattr(module, "_validate_format", _capture)
+
+    module.main(
+        project_dir=project_dir,
+        bin_name="tool",
+        version="1.0.0",
+        formats=["deb"],
+        polythene_path=Path(),
+    )
+
+    assert captured == [default_polythene]
 
 
 def test_main_raises_for_empty_formats(

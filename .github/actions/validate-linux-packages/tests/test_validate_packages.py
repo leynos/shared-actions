@@ -87,11 +87,11 @@ def test_validate_deb_package_runs_sandbox_checks(
         sandbox_factory=lambda: contextlib.nullcontext(sandbox),
     )
 
-    assert (tmp_path / "sandbox" / package.name).exists()
+    assert (tmp_path / "sandbox" / "tmp" / package.name).exists()
     assert (
         "dpkg",
         "-i",
-        package.name,
+        f"tmp/{package.name}",
     ) in calls
     assert ("test", "-e", "/usr/bin/rust-toy-app") in calls
     assert ("test", "-x", "/usr/bin/rust-toy-app") in calls

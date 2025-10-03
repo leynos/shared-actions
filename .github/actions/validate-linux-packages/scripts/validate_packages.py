@@ -108,11 +108,17 @@ def _install_and_verify(
     install_error: str,
 ) -> None:
     with sandbox_factory() as sandbox:
-        dest = sandbox.root / package_path.name
-        ensure_directory(dest.parent)
-        dest.write_bytes(package_path.read_bytes())
+        sandbox_package_rel = Path("tmp") / package_path.name
+        sandbox_package = sandbox.root / sandbox_package_rel
+        ensure_directory(sandbox_package.parent)
+        sandbox_package.write_bytes(package_path.read_bytes())
+        sandbox_package_arg = sandbox_package_rel.as_posix()
+        install_args = tuple(
+            sandbox_package_arg if arg == package_path.name else arg
+            for arg in install_command
+        )
         try:
-            sandbox.exec(*install_command)
+            sandbox.exec(*install_args)
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
             message = f"{install_error}: {exc}"
             raise ValidationError(message) from exc

@@ -38,6 +38,11 @@ class _FakeCommand:
         self.argv = argv
         self._calls = calls
 
+    def __getitem__(self, value: str | tuple[str, ...]) -> "_FakeCommand":
+        if not isinstance(value, tuple):
+            value = (value,)
+        return _FakeCommand(self.argv + value, self._calls)
+
     def __call__(self) -> str:
         self._calls.append(self.argv)
         return ""

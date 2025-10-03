@@ -43,8 +43,7 @@ class PolytheneSession:
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        cmd = local[
-            "uv",
+        cmd = local["uv"][
             "run",
             self.script.as_posix(),
             "exec",
@@ -72,8 +71,7 @@ def polythene_rootfs(
 ) -> typ.ContextManager[PolytheneSession]:
     """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
     ensure_directory(store)
-    pull_cmd = local[
-        "uv",
+    pull_cmd = local["uv"][
         "run",
         polythene.as_posix(),
         "pull",
@@ -101,8 +99,7 @@ def polythene_rootfs(
         yield session
     finally:
         try:
-            local[
-                "uv",
+            local["uv"][
                 "run",
                 polythene.as_posix(),
                 "rm",

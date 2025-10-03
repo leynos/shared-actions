@@ -79,9 +79,9 @@ def _write_raw_manifest(path: Path, contents: str) -> None:
 @pytest.mark.parametrize(
     "manifest_contents",
     [
-        "[package]\nversion = \"1.2.3\"\n",
-        "[package]\nname = \"\"\nversion = \"1.2.3\"\n",
-        "[package]\nname = \"   \"\nversion = \"1.2.3\"\n",
+        '[package]\nversion = "1.2.3"\n',
+        '[package]\nname = ""\nversion = "1.2.3"\n',
+        '[package]\nname = "   "\nversion = "1.2.3"\n',
     ],
 )
 def test_read_manifest_version_rejects_invalid_names(
@@ -91,7 +91,7 @@ def test_read_manifest_version_rejects_invalid_names(
     manifest_path = tmp_path / "Cargo.toml"
     _write_raw_manifest(manifest_path, manifest_contents)
 
-    with pytest.raises(ensure.ManifestError, match="package.name"):
+    with pytest.raises(ensure.ManifestError, match=r"package\.name"):
         ensure._read_manifest_version(manifest_path)
 
 
@@ -100,7 +100,7 @@ def test_read_manifest_version_trims_whitespace_from_name(tmp_path: Path) -> Non
     manifest_path = tmp_path / "Cargo.toml"
     _write_raw_manifest(
         manifest_path,
-        "[package]\nname = \" demo-crate \"\nversion = \"1.2.3\"\n",
+        '[package]\nname = " demo-crate "\nversion = "1.2.3"\n',
     )
 
     manifest_version = ensure._read_manifest_version(manifest_path)
@@ -251,9 +251,9 @@ def test_main_emits_crate_version_when_checking_tag(
 @pytest.mark.parametrize(
     "manifest_contents",
     [
-        "[package]\nversion = \"1.2.3\"\n",
-        "[package]\nname = \"\"\nversion = \"1.2.3\"\n",
-        "[package]\nname = \"   \"\nversion = \"1.2.3\"\n",
+        '[package]\nversion = "1.2.3"\n',
+        '[package]\nname = ""\nversion = "1.2.3"\n',
+        '[package]\nname = "   "\nversion = "1.2.3"\n',
     ],
 )
 def test_main_aborts_when_crate_name_missing_or_blank(

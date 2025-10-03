@@ -61,13 +61,51 @@ def test_coerce_bool_rejects_invalid_values() -> None:
         ensure._coerce_bool(value="not-a-boolean", parameter="check-tag")
 
 
-def _write_manifest(path: Path, version: str) -> None:
-    """Write a simple manifest declaring ``version`` to ``path``."""
+def _write_manifest(path: Path, version: str, *, name: str = "demo") -> None:
+    """Write a simple manifest declaring ``name`` and ``version`` to ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f"""[package]\nname = \"demo\"\nversion = \"{version}\"\n""",
+        f"""[package]\nname = \"{name}\"\nversion = \"{version}\"\n""",
         encoding="utf-8",
     )
+
+
+def _write_raw_manifest(path: Path, contents: str) -> None:
+    """Write a manifest with ``contents`` directly to ``path``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "manifest_contents",
+    [
+        '[package]\nversion = "1.2.3"\n',
+        '[package]\nname = ""\nversion = "1.2.3"\n',
+        '[package]\nname = "   "\nversion = "1.2.3"\n',
+    ],
+)
+def test_read_manifest_version_rejects_invalid_names(
+    tmp_path: Path, manifest_contents: str
+) -> None:
+    """A manifest must declare a non-empty ``package.name``."""
+    manifest_path = tmp_path / "Cargo.toml"
+    _write_raw_manifest(manifest_path, manifest_contents)
+
+    with pytest.raises(ensure.ManifestError, match=r"package\.name"):
+        ensure._read_manifest_version(manifest_path)
+
+
+def test_read_manifest_version_trims_whitespace_from_name(tmp_path: Path) -> None:
+    """Whitespace around the crate name should be ignored."""
+    manifest_path = tmp_path / "Cargo.toml"
+    _write_raw_manifest(
+        manifest_path,
+        '[package]\nname = " demo-crate "\nversion = "1.2.3"\n',
+    )
+
+    manifest_version = ensure._read_manifest_version(manifest_path)
+
+    assert manifest_version.name == "demo-crate"
 
 
 def test_main_skips_tag_comparison_when_disabled(
@@ -89,6 +127,7 @@ def test_main_skips_tag_comparison_when_disabled(
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=1.2.4" in contents
+    assert "crate-name=demo" in contents
     assert "version=9.9.9" in contents
 
     captured = capsys.readouterr()
@@ -114,6 +153,7 @@ def test_main_with_disabled_tag_check_does_not_require_ref(
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=7.8.9" in contents
+    assert "crate-name=demo" in contents
     assert not any(line.startswith("version=") for line in contents)
 
     captured = capsys.readouterr()
@@ -160,8 +200,8 @@ def test_main_records_first_manifest_version_in_output(
     first_manifest = workspace / "Cargo.toml"
     second_manifest = workspace / "crates" / "other" / "Cargo.toml"
 
-    _write_manifest(first_manifest, "3.4.5")
-    _write_manifest(second_manifest, "9.9.9")
+    _write_manifest(first_manifest, "3.4.5", name="primary")
+    _write_manifest(second_manifest, "9.9.9", name="secondary")
 
     output_file = workspace / "outputs"
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
@@ -175,6 +215,7 @@ def test_main_records_first_manifest_version_in_output(
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=3.4.5" in contents
+    assert "crate-name=primary" in contents
     assert "version=3.4.5" in contents
 
     captured = capsys.readouterr()
@@ -200,7 +241,47 @@ def test_main_emits_crate_version_when_checking_tag(
 
     contents = output_file.read_text(encoding="utf-8").splitlines()
     assert "crate-version=4.5.6" in contents
+    assert "crate-name=demo" in contents
     assert "version=4.5.6" in contents
 
     captured = capsys.readouterr()
     assert "Release tag 4.5.6 matches" in captured.out
+
+
+@pytest.mark.parametrize(
+    "manifest_contents",
+    [
+        '[package]\nversion = "1.2.3"\n',
+        '[package]\nname = ""\nversion = "1.2.3"\n',
+        '[package]\nname = "   "\nversion = "1.2.3"\n',
+    ],
+)
+def test_main_aborts_when_crate_name_missing_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    manifest_contents: str,
+) -> None:
+    """Invalid crate names should terminate the run with an error."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_raw_manifest(manifest_path, manifest_contents)
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+
+    recorded_errors: list[tuple[str, str, Path | None]] = []
+
+    def record_error(title: str, message: str, *, path: Path | None = None) -> None:
+        recorded_errors.append((title, message, path))
+
+    monkeypatch.setattr(ensure, "_emit_error", record_error)
+
+    with pytest.raises(SystemExit) as excinfo:
+        ensure.main(manifests=[Path("Cargo.toml")], check_tag="false")
+
+    assert excinfo.value.code == 1
+    assert recorded_errors
+    error_titles = {title for title, _, _ in recorded_errors}
+    assert "Cargo.toml parse failure" in error_titles
+    assert any("package.name" in message for _, message, _ in recorded_errors)

@@ -65,8 +65,9 @@ None.
 ```
 
 Paths supplied to `expected-paths` and `executable-paths` must already be
-canonical absolute strings; redundant separators or `.`/`..` segments are
-rejected to prevent ambiguous validation rules.
+canonical absolute strings.
+Redundant separators or `.`/`..` segments are rejected to prevent ambiguous
+validation rules.
 
 The action expects packages to be available in `<project-dir>/dist` unless
 `packages-dir` is provided. When Debian packages are validated the sandbox

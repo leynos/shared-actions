@@ -28,6 +28,8 @@ else:  # pragma: no cover - runtime fallbacks
     BaseCommand = object
 
 __all__ = [
+    "DebMetadata",
+    "RpmMetadata",
     "acceptable_rpm_architectures",
     "ensure_subset",
     "locate_deb",
@@ -130,6 +132,55 @@ def _install_and_verify(
                 )
 
 
+class _MetadataValidators:
+    """Factory helpers for metadata validation callables."""
+
+    @staticmethod
+    def raise_error(label: str, expected: str, actual: str) -> None:
+        message = f"{label}: expected {expected!r}, found {actual!r}"
+        raise ValidationError(message)
+
+    @staticmethod
+    def equal(attr: str, expected: str, label: str) -> typ.Callable[[MetaT], None]:
+        def _validator(meta: MetaT) -> None:
+            actual = getattr(meta, attr)
+            if actual != expected:
+                _MetadataValidators.raise_error(label, expected, actual)
+
+        return _validator
+
+    @staticmethod
+    def in_set(
+        attr: str,
+        expected: typ.Collection[str],
+        label: str,
+        *,
+        fmt_expected: typ.Callable[[typ.Collection[str]], str] | None = None,
+    ) -> typ.Callable[[MetaT], None]:
+        formatter = fmt_expected or (
+            lambda values: f"one of [{', '.join(sorted(values))}]"
+        )
+
+        def _validator(meta: MetaT) -> None:
+            actual = getattr(meta, attr)
+            if actual not in expected:
+                _MetadataValidators.raise_error(label, formatter(expected), actual)
+
+        return _validator
+
+    @staticmethod
+    def prefix(attr: str, prefix: str, label: str) -> typ.Callable[[MetaT], None]:
+        def _validator(meta: MetaT) -> None:
+            value = getattr(meta, attr)
+            text = "" if value is None else str(value)
+            if text and not text.startswith(prefix):
+                _MetadataValidators.raise_error(
+                    label, f"starting with {prefix!r}", text
+                )
+
+        return _validator
+
+
 def _validate_package(
     inspect_fn: typ.Callable[[Path], MetaT],
     *,
@@ -175,35 +226,22 @@ def validate_deb_package(
     sandbox_factory: SandboxFactory,
 ) -> None:
     """Validate Debian package metadata and sandbox installation."""
-
-    def _validate_name(meta: DebMetadata) -> None:
-        if meta.name != expected_name:
-            _raise_validation("unexpected package name", expected_name, meta.name)
-
-    def _validate_version(meta: DebMetadata) -> None:
-        if meta.version not in {expected_deb_version, expected_version}:
-            message = (
-                "unexpected deb version: expected "
-                f"{expected_deb_version!r} or {expected_version!r}, "
-                f"found {meta.version!r}"
-            )
-            raise ValidationError(message)
-
-    def _validate_arch(meta: DebMetadata) -> None:
-        if meta.architecture != expected_arch:
-            _raise_validation(
-                "unexpected deb architecture",
-                expected_arch,
-                meta.architecture,
-            )
-
     _validate_package(
         lambda pkg_path: inspect_deb_package(dpkg_deb, pkg_path),
         package_path=package_path,
         validators=(
-            _validate_name,
-            _validate_version,
-            _validate_arch,
+            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
+            _MetadataValidators.in_set(
+                "version",
+                {expected_deb_version, expected_version},
+                "unexpected deb version",
+                fmt_expected=lambda values: (
+                    f"{expected_deb_version!r} or {expected_version!r}"
+                ),
+            ),
+            _MetadataValidators.equal(
+                "architecture", expected_arch, "unexpected deb architecture"
+            ),
         ),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
@@ -232,41 +270,22 @@ def validate_rpm_package(
     """Validate RPM package metadata and sandbox installation."""
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
 
-    def _validate_release(meta: RpmMetadata) -> None:
-        release = str(meta.release or "")
-        if release and not release.startswith(expected_release):
-            _raise_validation(
-                "unexpected rpm release prefix",
-                f"starting with {expected_release!r}",
-                release,
-            )
-
-    def _validate_arch(meta: RpmMetadata) -> None:
-        architecture = meta.architecture
-        if architecture not in acceptable_arches:
-            expected_arches = ", ".join(sorted(acceptable_arches))
-            _raise_validation(
-                "unexpected rpm architecture",
-                f"one of [{expected_arches}]",
-                architecture,
-            )
-
-    def _validate_name(meta: RpmMetadata) -> None:
-        if meta.name != expected_name:
-            _raise_validation("unexpected package name", expected_name, meta.name)
-
-    def _validate_version(meta: RpmMetadata) -> None:
-        if meta.version != expected_version:
-            _raise_validation("unexpected rpm version", expected_version, meta.version)
-
     _validate_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
         validators=(
-            _validate_name,
-            _validate_version,
-            _validate_release,
-            _validate_arch,
+            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
+            _MetadataValidators.equal(
+                "version", expected_version, "unexpected rpm version"
+            ),
+            _MetadataValidators.prefix(
+                "release", expected_release, "unexpected rpm release prefix"
+            ),
+            _MetadataValidators.in_set(
+                "architecture",
+                acceptable_arches,
+                "unexpected rpm architecture",
+            ),
         ),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
@@ -283,8 +302,3 @@ def validate_rpm_package(
         remove_command=("rpm", "-e", expected_name),
         install_error="rpm installation failed",
     )
-
-
-def _raise_validation(label: str, expected: str, actual: str) -> None:
-    message = f"{label}: expected {expected!r}, found {actual!r}"
-    raise ValidationError(message)

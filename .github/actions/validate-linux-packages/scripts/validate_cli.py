@@ -25,10 +25,16 @@ from validate_packages import (
     validate_deb_package,
     validate_rpm_package,
 )
-from validate_polythene import default_polythene_path, polythene_rootfs
+from validate_polythene import (
+    PolytheneSession,
+    default_polythene_path,
+    polythene_rootfs,
+)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helper import
-    from validate_polythene import PolytheneSession
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - runtime helper fallbacks
+    BaseCommand = typ.Any
 
 __all__ = ["app", "main", "run"]
 
@@ -61,6 +67,15 @@ class ValidationInputs:
     sandbox_timeout: str | None = None
 
 
+def _optional_path(value: Path | None) -> Path | None:
+    """Return ``None`` when ``value`` represents an empty CLI path."""
+    if value is None:
+        return None
+    if value == Path():
+        return None
+    return value
+
+
 @dataclasses.dataclass(frozen=True)
 class ValidationConfig:
     """Container for derived settings used during validation."""
@@ -83,6 +98,72 @@ class ValidationConfig:
     def deb_version(self) -> str:
         """Return the Debian version string including release."""
         return f"{self.version}-{self.release}"
+
+
+SandboxFactory = typ.Callable[[], typ.ContextManager["PolytheneSession"]]
+
+
+def _handle_deb(
+    command: BaseCommand,
+    pkg_path: Path,
+    cfg: ValidationConfig,
+    sandbox_factory: SandboxFactory,
+) -> None:
+    validate_deb_package(
+        command,
+        pkg_path,
+        expected_name=cfg.package_value,
+        expected_version=cfg.version,
+        expected_deb_version=cfg.deb_version,
+        expected_arch=cfg.deb_arch,
+        expected_paths=cfg.expected_paths,
+        executable_paths=cfg.executable_paths,
+        verify_command=cfg.verify_command,
+        sandbox_factory=sandbox_factory,
+    )
+    print(f"✓ validated Debian package: {pkg_path}")
+
+
+def _handle_rpm(
+    command: BaseCommand,
+    pkg_path: Path,
+    cfg: ValidationConfig,
+    sandbox_factory: SandboxFactory,
+) -> None:
+    validate_rpm_package(
+        command,
+        pkg_path,
+        expected_name=cfg.package_value,
+        expected_version=cfg.version,
+        expected_release=cfg.release,
+        expected_arch=rpm_expected_architecture(cfg.arch),
+        expected_paths=cfg.expected_paths,
+        executable_paths=cfg.executable_paths,
+        verify_command=cfg.verify_command,
+        sandbox_factory=sandbox_factory,
+    )
+    print(f"✓ validated RPM package: {pkg_path}")
+
+
+_FORMAT_HANDLERS: dict[
+    str,
+    tuple[
+        typ.Callable[[BaseCommand, Path, ValidationConfig, SandboxFactory], None],
+        typ.Callable[[Path, str, str, str], Path],
+        str,
+    ],
+] = {
+    "deb": (
+        _handle_deb,
+        locate_deb,
+        "dpkg-deb",
+    ),
+    "rpm": (
+        _handle_rpm,
+        locate_rpm,
+        "rpm",
+    ),
+}
 
 
 # Cyclopts maps each keyword-only parameter onto a distinct CLI flag; swapping
@@ -121,14 +202,14 @@ def main(
         release=release,
         arch=arch,
         formats=formats,
-        packages_dir=packages_dir,
+        packages_dir=_optional_path(packages_dir),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,
         deb_base_image=deb_base_image,
         rpm_base_image=rpm_base_image,
-        polythene_path=polythene_path,
-        polythene_store=polythene_store,
+        polythene_path=_optional_path(polythene_path),
+        polythene_store=_optional_path(polythene_store),
         sandbox_timeout=sandbox_timeout,
     )
 
@@ -138,6 +219,10 @@ def main(
         for fmt in config.formats:
             store_dir = ensure_directory(store_base / fmt)
             _validate_format(fmt, config, store_dir)
+
+
+app.command()(main)
+app.default(main)
 
 
 def run() -> None:
@@ -198,6 +283,18 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     if not polythene_script.exists():
         message = f"polythene script not found: {polythene_script}"
         raise ValidationError(message)
+    try:
+        with polythene_script.open("r"):
+            pass
+    except PermissionError as exc:
+        message = (
+            "polythene script is not readable due to permission error: "
+            f"{polythene_script}"
+        )
+        raise ValidationError(message) from exc
+    except OSError as exc:
+        message = f"polythene script could not be read: {polythene_script} ({exc})"
+        raise ValidationError(message) from exc
 
     return ValidationConfig(
         packages_dir=packages_dir_value,
@@ -264,10 +361,24 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:
     """Dispatch validation for ``fmt`` using ``config`` settings."""
+    try:
+        validate_fn, locate_fn, cmd_name = _FORMAT_HANDLERS[fmt]
+    except KeyError as exc:
+        message = f"unsupported package format: {fmt}"
+        raise ValidationError(message) from exc
+
     image = config.base_images.get(fmt)
     if image is None:
         message = f"unsupported package format: {fmt}"
         raise ValidationError(message)
+
+    command = get_command(cmd_name)
+    package_path = locate_fn(
+        config.packages_dir,
+        config.package_value,
+        config.version,
+        config.release,
+    )
 
     def sandbox_factory() -> typ.ContextManager["PolytheneSession"]:  # noqa: UP037
         return polythene_rootfs(
@@ -277,48 +388,4 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
             timeout=config.timeout,
         )
 
-    if fmt == "deb":
-        command = get_command("dpkg-deb")
-        package_path = locate_deb(
-            config.packages_dir,
-            config.package_value,
-            config.version,
-            config.release,
-        )
-        validate_deb_package(
-            command,
-            package_path,
-            expected_name=config.package_value,
-            expected_version=config.version,
-            expected_deb_version=config.deb_version,
-            expected_arch=config.deb_arch,
-            expected_paths=config.expected_paths,
-            executable_paths=config.executable_paths,
-            verify_command=config.verify_command,
-            sandbox_factory=sandbox_factory,
-        )
-        print(f"✓ validated Debian package: {package_path}")
-        return
-
-    if fmt == "rpm":
-        command = get_command("rpm")
-        package_path = locate_rpm(
-            config.packages_dir,
-            config.package_value,
-            config.version,
-            config.release,
-        )
-        validate_rpm_package(
-            command,
-            package_path,
-            expected_name=config.package_value,
-            expected_version=config.version,
-            expected_release=config.release,
-            expected_arch=rpm_expected_architecture(config.arch),
-            expected_paths=config.expected_paths,
-            executable_paths=config.executable_paths,
-            verify_command=config.verify_command,
-            sandbox_factory=sandbox_factory,
-        )
-        print(f"✓ validated RPM package: {package_path}")
-        return
+    validate_fn(command, package_path, config, sandbox_factory)

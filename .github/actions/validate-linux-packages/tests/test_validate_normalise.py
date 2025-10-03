@@ -40,6 +40,40 @@ def test_normalise_paths_accepts_canonical(validate_normalise_module: object) ->
     assert result == ["/usr/bin/tool"]
 
 
+def test_normalise_paths_deduplicates(validate_normalise_module: object) -> None:
+    """Duplicate paths are removed while preserving the original order."""
+    result = validate_normalise_module.normalise_paths(
+        ["/usr/bin/tool", "/usr/bin/tool", "/usr/bin/other"]
+    )
+
+    assert result == ["/usr/bin/tool", "/usr/bin/other"]
+
+
+def test_normalise_paths_all_identical(validate_normalise_module: object) -> None:
+    """Identical entries collapse to a single canonical path."""
+    result = validate_normalise_module.normalise_paths(
+        ["/opt/app/tool", "/opt/app/tool", "/opt/app/tool"]
+    )
+
+    assert result == ["/opt/app/tool"]
+
+
+def test_normalise_paths_multiple_duplicate_groups(
+    validate_normalise_module: object,
+) -> None:
+    """Deduplication preserves order when distinct paths repeat."""
+    result = validate_normalise_module.normalise_paths(["/a", "/b", "/a", "/b", "/c"])
+
+    assert result == ["/a", "/b", "/c"]
+
+
+def test_normalise_paths_accepts_empty_list(validate_normalise_module: object) -> None:
+    """An empty path list normalises to an empty result."""
+    result = validate_normalise_module.normalise_paths([])
+
+    assert result == []
+
+
 @pytest.mark.parametrize(
     "path",
     ["//foo", "/usr/../bin"],

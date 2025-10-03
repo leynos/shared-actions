@@ -72,6 +72,23 @@ runs:
   steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+    - name: Install sandbox dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        missing=()
+        if ! command -v bwrap >/dev/null 2>&1; then
+          missing+=("bubblewrap")
+        fi
+        if ! command -v proot >/dev/null 2>&1; then
+          missing+=("proot")
+        fi
+
+        if [ "${#missing[@]}" -gt 0 ]; then
+          sudo apt-get update
+          sudo apt-get install -y "${missing[@]}"
+        fi
     - name: Validate packages
       shell: bash
       working-directory: ${{ inputs.project-dir }}

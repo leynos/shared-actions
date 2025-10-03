@@ -2,7 +2,9 @@
 
 Validate Debian and RPM packages produced by the `linux-packages` action (or
 any nfpm-based build) by inspecting metadata and installing them inside an
-isolated root filesystem using the bundled `polythene` sandbox.
+isolated root filesystem using the bundled `polythene` sandbox. The composite
+action ensures the required sandbox tooling (`bubblewrap` and `proot`) is
+present before validation begins.
 
 ## Inputs
 

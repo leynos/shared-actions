@@ -24,7 +24,13 @@ def test_manifest_configures_composite_action() -> None:
     steps = manifest["runs"]["steps"]
     assert steps[0]["uses"].startswith("astral-sh/setup-uv@")
 
-    validate_step = steps[1]
+    install_step = steps[1]
+    assert install_step["shell"] == "bash"
+    install_run = install_step["run"]
+    assert "sudo apt update -y" in install_run
+    assert "sudo apt install -y nfpm podman bubblewrap proot mmdebstrap" in install_run
+
+    validate_step = steps[2]
     assert validate_step["shell"] == "bash"
     assert 'uv run "${GITHUB_ACTION_PATH}/scripts/validate.py"' in validate_step["run"]
 
@@ -54,7 +60,7 @@ def test_action_run_step_invokes_validate_script(
 ) -> None:
     """The composite action run script should invoke uv with validate.py."""
     manifest = yaml.safe_load(ACTION_PATH.read_text())
-    run_script = manifest["runs"]["steps"][1]["run"]
+    run_script = manifest["runs"]["steps"][2]["run"]
     action_dir = ACTION_PATH.parent
     validate_script = action_dir / "scripts" / "validate.py"
 

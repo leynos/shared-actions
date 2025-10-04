@@ -15,7 +15,7 @@ from validate_metadata import (
     inspect_deb_package,
     inspect_rpm_package,
 )
-from validate_polythene import PolytheneSession
+from validate_polythene import PolytheneSession, SandboxUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -107,29 +107,32 @@ def _install_and_verify(
     *,
     install_error: str,
 ) -> None:
-    with sandbox_factory() as sandbox:
-        dest = sandbox.root / package_path.name
-        ensure_directory(dest.parent)
-        dest.write_bytes(package_path.read_bytes())
-        try:
-            sandbox.exec(*install_command)
-        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-            message = f"{install_error}: {exc}"
-            raise ValidationError(message) from exc
-        for path in expected_paths:
-            sandbox.exec("test", "-e", path)
-        for path in executable_paths:
-            sandbox.exec("test", "-x", path)
-        if verify_command:
-            sandbox.exec(*verify_command)
-        if remove_command is not None:
+    try:
+        with sandbox_factory() as sandbox:
+            dest = sandbox.root / package_path.name
+            ensure_directory(dest.parent)
+            dest.write_bytes(package_path.read_bytes())
             try:
-                sandbox.exec(*remove_command)
-            except ProcessExecutionError as exc:
-                logger.warning(
-                    "suppressed exception during package removal: %s",
-                    exc,
-                )
+                sandbox.exec(*install_command)
+            except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
+                message = f"{install_error}: {exc}"
+                raise ValidationError(message) from exc
+            for path in expected_paths:
+                sandbox.exec("test", "-e", path)
+            for path in executable_paths:
+                sandbox.exec("test", "-x", path)
+            if verify_command:
+                sandbox.exec(*verify_command)
+            if remove_command is not None:
+                try:
+                    sandbox.exec(*remove_command)
+                except ProcessExecutionError as exc:
+                    logger.warning(
+                        "suppressed exception during package removal: %s",
+                        exc,
+                    )
+    except SandboxUnavailableError as exc:
+        logger.warning("skipping sandboxed package validation: %s", exc)
 
 
 class _MetadataValidators:

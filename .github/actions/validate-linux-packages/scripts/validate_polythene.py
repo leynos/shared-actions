@@ -21,9 +21,21 @@ LINUX_PACKAGES_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
 
 __all__ = [
     "PolytheneSession",
+    "SandboxUnavailableError",
     "default_polythene_path",
     "polythene_rootfs",
 ]
+
+
+class SandboxUnavailableError(ValidationError):
+    """Raised when the polythene sandbox cannot provide any isolation."""
+
+
+def _is_sandbox_unavailable(error: ValidationError) -> bool:
+    """Return ``True`` when ``error`` indicates the sandbox lacks backends."""
+
+    cause = error.__cause__
+    return isinstance(cause, ProcessExecutionError) and cause.retcode == 126
 
 
 @dataclasses.dataclass(slots=True)
@@ -54,7 +66,16 @@ class PolytheneSession:
             "--",
             *args,
         ]
-        return run_text(cmd, timeout=effective_timeout)
+        try:
+            return run_text(cmd, timeout=effective_timeout)
+        except ValidationError as exc:
+            if _is_sandbox_unavailable(exc):
+                message = (
+                    "polythene sandbox unavailable; install bubblewrap or proot to "
+                    "enable package validation"
+                )
+                raise SandboxUnavailableError(message) from exc
+            raise
 
 
 def default_polythene_path() -> Path:
@@ -83,7 +104,7 @@ def polythene_rootfs(
     ]
     try:
         pull_output = run_text(pull_cmd, timeout=timeout)
-    except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
+    except ValidationError as exc:  # pragma: no cover - exercised in CI
         message = f"polythene pull failed: {exc}"
         raise ValidationError(message) from exc
     uid = pull_output.splitlines()[-1].strip()
@@ -94,7 +115,9 @@ def polythene_rootfs(
     ensure_directory(session.root, exist_ok=True)
     try:
         session.exec("true")
-    except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
+    except SandboxUnavailableError:
+        raise
+    except ValidationError as exc:  # pragma: no cover - exercised in CI
         message = f"polythene exec failed: {exc}"
         raise ValidationError(message) from exc
     try:

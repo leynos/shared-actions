@@ -36,7 +36,7 @@ def test_deb_package_installs(
     packaged_artifacts: typ.Mapping[str, Path],
 ) -> None:
     """Build the .deb, install in an isolated rootfs, and verify binary and man page."""
-    polythene = packaging_project_paths.polythene_script
+    polythene = packaging_project_paths.polythene_command
     deb = packaged_artifacts.get("deb")
     assert deb is not None, "expected Debian package to be built"
     deb_arch = deb_arch_for_target(build_artifacts.target)

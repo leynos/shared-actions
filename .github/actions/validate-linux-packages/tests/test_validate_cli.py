@@ -81,7 +81,7 @@ def _prepare_polythene_stub(
 
         return _context()
 
-    module.default_polythene_path = _default_path
+    module.default_polythene_command = lambda: ("polythene",)
     module.polythene_rootfs = _polythene_stub
     return calls, exec_calls
 
@@ -283,7 +283,7 @@ def test_handle_deb_invokes_validator(
         expected_paths=("/usr/bin/tool",),
         executable_paths=("/usr/bin/tool",),
         verify_command=(),
-        polythene_script=tmp_path / "polythene.py",
+        polythene_command=((tmp_path / "polythene.py").as_posix(),),
         timeout=10,
         base_images={"deb": "debian"},
     )
@@ -362,7 +362,7 @@ def test_handle_rpm_invokes_validator(
         expected_paths=("/usr/bin/tool",),
         executable_paths=("/usr/bin/tool",),
         verify_command=("tool", "--version"),
-        polythene_script=tmp_path / "polythene.py",
+        polythene_command=((tmp_path / "polythene.py").as_posix(),),
         timeout=None,
         base_images={"rpm": "rocky"},
     )
@@ -496,7 +496,7 @@ def test_validate_format_dispatches_to_handler(
         expected_paths=("/usr/bin/tool",),
         executable_paths=("/usr/bin/tool",),
         verify_command=(),
-        polythene_script=tmp_path / "polythene.py",
+        polythene_command=((tmp_path / "polythene.py").as_posix(),),
         timeout=42,
         base_images={"deb": "docker.io/library/debian:bookworm"},
     )
@@ -513,7 +513,7 @@ def test_validate_format_dispatches_to_handler(
         config.release,
     )
     assert called["rootfs_args"] == (
-        config.polythene_script,
+        config.polythene_command,
         config.base_images["deb"],
         store_dir,
         config.timeout,
@@ -539,7 +539,7 @@ def test_validate_format_rejects_unknown_format(
         expected_paths=(),
         executable_paths=(),
         verify_command=(),
-        polythene_script=tmp_path / "polythene.py",
+        polythene_command=((tmp_path / "polythene.py").as_posix(),),
         timeout=None,
         base_images={},
     )
@@ -565,7 +565,7 @@ def test_validate_format_requires_base_image(
         expected_paths=(),
         executable_paths=(),
         verify_command=(),
-        polythene_script=tmp_path / "polythene.py",
+        polythene_command=((tmp_path / "polythene.py").as_posix(),),
         timeout=None,
         base_images={},
     )
@@ -592,7 +592,7 @@ def test_main_invokes_each_requested_format(
     def _fake_validate(fmt: str, config: object, store_dir: Path) -> None:
         recorded.append((fmt, store_dir))
         assert isinstance(config, module.ValidationConfig)
-        assert config.polythene_script == polythene_path
+        assert config.polythene_command == (polythene_path.as_posix(),)
 
     monkeypatch.setattr(module, "_validate_format", _fake_validate)
 
@@ -901,14 +901,15 @@ def test_main_uses_default_polythene_for_blank_input(
 
     default_polythene = tmp_path / "default-polythene.py"
     default_polythene.write_text("#!/usr/bin/env python\n")
+    default_command = (default_polythene.as_posix(),)
 
-    monkeypatch.setattr(module, "default_polythene_path", lambda: default_polythene)
+    monkeypatch.setattr(module, "default_polythene_command", lambda: default_command)
 
-    captured: list[Path] = []
+    captured: list[tuple[str, ...]] = []
 
     def _capture(fmt: str, config: object, store_dir: Path) -> None:
         assert isinstance(config, module.ValidationConfig)
-        captured.append(config.polythene_script)
+        captured.append(config.polythene_command)
 
     monkeypatch.setattr(module, "_validate_format", _capture)
 
@@ -920,7 +921,7 @@ def test_main_uses_default_polythene_for_blank_input(
         polythene_path=Path(),
     )
 
-    assert captured == [default_polythene]
+    assert captured == [default_command]
 
 
 def test_main_raises_for_empty_formats(

@@ -2,7 +2,7 @@
 
 Validate Debian and RPM packages produced by the `linux-packages` action (or
 any nfpm-based build) by inspecting metadata and installing them inside an
-isolated root filesystem using the bundled `polythene` sandbox.
+isolated root filesystem using the `polythene` sandbox.
 
 ## Inputs
 
@@ -22,7 +22,7 @@ isolated root filesystem using the bundled `polythene` sandbox.
 | verify-command | string | _empty_ | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`). | no |
 | deb-base-image | string | `docker.io/library/debian:bookworm` | Container image used to verify Debian packages. | no |
 | rpm-base-image | string | `docker.io/library/rockylinux:9` | Container image used to verify RPM packages. | no |
-| polythene-path | string | _empty_ | Override path to the `polythene.py` helper. Falls back to the copy shipped with the linux-packages action. | no |
+| polythene-path | string | _empty_ | Override path to the polythene CLI. Falls back to the `polythene` entry point provided by the action runtime. | no |
 | polythene-store | string | _empty_ | Reuse an existing polythene store directory. A temporary directory is used when blank. | no |
 | sandbox-timeout | string | _empty_ | Timeout (seconds) applied to sandbox pull and exec operations. | no |
 

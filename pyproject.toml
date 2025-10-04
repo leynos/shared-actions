@@ -15,7 +15,8 @@ dependencies = [
     "plumbum>=1.8,<2.0",
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",
-    "cyclopts>=2.9,<3.0",
+    "cyclopts>=3.24,<4.0",
+    "polythene@git+https://github.com/leynos/polythene.git@4bc190c08851a1fb9151550e59f00e0d61d82980",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

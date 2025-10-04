@@ -395,16 +395,6 @@ def test_package_import_fallback() -> None:
     assert module_obj.run_cmd is helper_module.run_cmd
 
 
-def test_polythene_import_fallback() -> None:
-    """When executed as a script, polythene.py uses the helper fallback."""
-    module_obj, helper_module = _run_script_with_fallback(
-        "polythene.py", "polythene_fallback_test"
-    )
-    assert helper_module is not None
-    assert module_obj.ensure_directory is helper_module.ensure_directory
-    assert module_obj.run_cmd is helper_module.run_cmd
-
-
 def test_script_utils_imports_cmd_utils(tmp_path: Path) -> None:
     """The script_utils fallback loads the repository-level cmd_utils module."""
     scripts_dir = Path(__file__).resolve().parents[1] / "scripts"

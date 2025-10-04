@@ -1,4 +1,4 @@
-"""Polythene sandbox helpers for package validation."""
+"""Helpers for interacting with the polythene sandbox CLI."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import contextlib
 import dataclasses
 import logging
 import typing as typ
-from pathlib import Path
 
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
@@ -14,23 +13,32 @@ from validate_commands import run_text
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory
 
+if typ.TYPE_CHECKING:  # pragma: no cover - import used for typing only
+    from pathlib import Path
+else:  # pragma: no cover - runtime fallback for type checking
+    Path = typ.Any
+
 logger = logging.getLogger(__name__)
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-LINUX_PACKAGES_SCRIPTS = SCRIPT_DIR.parent.parent / "linux-packages" / "scripts"
+Command = tuple[str, ...]
+DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
 
-__all__ = [
-    "PolytheneSession",
-    "default_polythene_path",
-    "polythene_rootfs",
-]
+__all__ = sorted(
+    (
+        "Command",
+        "DEFAULT_POLYTHENE_COMMAND",
+        "PolytheneSession",
+        "default_polythene_command",
+        "polythene_rootfs",
+    )
+)
 
 
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
 
-    script: Path
+    command: Command
     uid: str
     store: Path
     timeout: int | None = None
@@ -43,10 +51,9 @@ class PolytheneSession:
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        cmd = local[
-            "uv",
+        cmd = local["uv"][
             "run",
-            self.script.as_posix(),
+            *self.command,
             "exec",
             self.uid,
             "--store",
@@ -57,25 +64,24 @@ class PolytheneSession:
         return run_text(cmd, timeout=effective_timeout)
 
 
-def default_polythene_path() -> Path:
-    """Return the default path to the polythene helper script."""
-    return LINUX_PACKAGES_SCRIPTS / "polythene.py"
+def default_polythene_command() -> Command:
+    """Return the default command tuple for invoking polythene."""
+    return DEFAULT_POLYTHENE_COMMAND
 
 
 @contextlib.contextmanager
 def polythene_rootfs(
-    polythene: Path,
+    polythene_command: Command,
     image: str,
     store: Path,
     *,
     timeout: int | None = None,
-) -> typ.ContextManager[PolytheneSession]:
+) -> typ.Iterator[PolytheneSession]:
     """Yield a :class:`PolytheneSession` for ``image`` using ``store``."""
     ensure_directory(store)
-    pull_cmd = local[
-        "uv",
+    pull_cmd = local["uv"][
         "run",
-        polythene.as_posix(),
+        *polythene_command,
         "pull",
         image,
         "--store",
@@ -90,7 +96,7 @@ def polythene_rootfs(
     if not uid:
         message = "polythene pull returned an empty identifier"
         raise ValidationError(message)
-    session = PolytheneSession(polythene, uid, store, timeout)
+    session = PolytheneSession(polythene_command, uid, store, timeout)
     ensure_directory(session.root, exist_ok=True)
     try:
         session.exec("true")
@@ -101,10 +107,9 @@ def polythene_rootfs(
         yield session
     finally:
         try:
-            local[
-                "uv",
+            local["uv"][
                 "run",
-                polythene.as_posix(),
+                *polythene_command,
                 "rm",
                 uid,
                 "--store",

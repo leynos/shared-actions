@@ -6,7 +6,6 @@ import logging
 import pathlib
 import typing as typ
 
-from plumbum.commands.processes import ProcessExecutionError
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, unique_match
 from validate_metadata import (
@@ -111,21 +110,47 @@ def _install_and_verify(
         dest = sandbox.root / package_path.name
         ensure_directory(dest.parent)
         dest.write_bytes(package_path.read_bytes())
-        try:
-            sandbox.exec(*install_command)
-        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-            message = f"{install_error}: {exc}"
-            raise ValidationError(message) from exc
+
+        sandbox_path = f"/{package_path.name}"
+
+        def _exec_with_context(
+            *args: str, context: str, timeout: int | None = None
+        ) -> str:
+            try:
+                return sandbox.exec(*args, timeout=timeout)
+            except ValidationError as exc:
+                message = f"{context}: {exc}"
+                raise ValidationError(message) from exc
+
+        install_args = tuple(
+            sandbox_path if arg == package_path.name else arg for arg in install_command
+        )
+
+        _exec_with_context(*install_args, context=install_error)
+
         for path in expected_paths:
-            sandbox.exec("test", "-e", path)
+            _exec_with_context(
+                "test",
+                "-e",
+                path,
+                context=f"expected path missing from sandbox payload: {path}",
+            )
         for path in executable_paths:
-            sandbox.exec("test", "-x", path)
+            _exec_with_context(
+                "test",
+                "-x",
+                path,
+                context=f"expected path is not executable: {path}",
+            )
         if verify_command:
-            sandbox.exec(*verify_command)
+            _exec_with_context(
+                *verify_command,
+                context="sandbox verify command failed",
+            )
         if remove_command is not None:
             try:
                 sandbox.exec(*remove_command)
-            except ProcessExecutionError as exc:
+            except ValidationError as exc:
                 logger.warning(
                     "suppressed exception during package removal: %s",
                     exc,

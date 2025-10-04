@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import typing as typ
 
@@ -74,6 +75,23 @@ def test_run_cmd_supports_explicit_environment_overrides() -> None:
     result = run_cmd(command, env={"CMD_UTILS_TOKEN": "override"})
 
     assert result == "override"
+
+
+def test_run_cmd_env_allows_variable_removal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Providing env should replace the inherited environment entirely."""
+    monkeypatch.setenv("CMD_UTILS_TOKEN", "runtime")
+    script = (
+        "import os; import sys; sys.stdout.write(str('CMD_UTILS_TOKEN' in os.environ))"
+    )
+    command = _python_command("-c", script)
+
+    sanitized_env = {
+        key: value for key, value in os.environ.items() if key != "CMD_UTILS_TOKEN"
+    }
+
+    result = run_cmd(command, env=sanitized_env)
+
+    assert result == "False"
 
 
 def test_run_cmd_run_fg_streams_output(capsys: pytest.CaptureFixture[str]) -> None:

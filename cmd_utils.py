@@ -73,10 +73,12 @@ def _collect_runtime_env(
     """Return an environment mapping reflecting local and process mutations."""
     plumbum_env = typ.cast("cabc.Mapping[str, str]", local.env)
     base_env = {key: str(value) for key, value in plumbum_env.items()}
+
+    if env is not None:
+        return {key: str(value) for key, value in env.items()}
+
     runtime_env = base_env.copy()
     runtime_env.update({key: str(value) for key, value in os.environ.items()})
-    if env is not None:
-        runtime_env.update({key: str(value) for key, value in env.items()})
     if runtime_env == base_env:
         return None
     return runtime_env

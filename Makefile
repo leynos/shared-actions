@@ -3,7 +3,7 @@
 all: fmt lint typecheck test ## Run format, lint, typecheck, then tests
 
 clean: ## Remove transient artefacts
-	rm -rf .venv .pytest_cache .ruff_cache .pyright workspace/.ruff_cache
+	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache
 
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
@@ -39,9 +39,8 @@ typecheck: .venv ## Run static type checking with Ty
 	    .github/actions/setup-rust/scripts \
 	    shellstub.py
 	./.venv/bin/ty check \
-	  --extra-search-path .github/actions/macos-package/scripts \
-	  .github/actions/macos-package/scripts
-	uvx pyright
+	          --extra-search-path .github/actions/macos-package/scripts \
+	          .github/actions/macos-package/scripts
 fmt: ## Format Python files and auto-fix selected lint rules
 	uvx ruff format
 	uvx ruff check --select $(RUFF_FIX_RULES) --fix

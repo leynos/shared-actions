@@ -127,13 +127,3 @@ package = true
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.pyright]
-typeCheckingMode = "strict"
-reportUnknownVariableType = "error"
-reportUnknownParameterType = "error"
-reportUnknownMemberType = "error"
-reportMissingTypeStubs = "warning"
-reportUnusedFunction = "none"
-pythonVersion = "3.12"
-venvPath = "."
-venv = ".venv"

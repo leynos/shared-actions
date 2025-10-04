@@ -168,10 +168,85 @@ def test_polythene_rootfs_rejects_empty_identifier(
         pass
 
 
+def test_decode_stream_normalises_values(
+    validate_polythene_module: object,
+) -> None:
+    """_decode_stream converts bytes, None and other values to text."""
+    decode_stream = validate_polythene_module._decode_stream
+
+    assert decode_stream(None) == ""
+    assert decode_stream("hello") == "hello"
+    assert decode_stream(42) == "42"
+    assert decode_stream(b"caf\xc3\xa9") == "café"
+    assert "�" in decode_stream(b"\xff\xfe")
+
+
+def test_format_isolation_error_returns_none_without_process_error(
+    validate_polythene_module: object,
+) -> None:
+    """_format_isolation_error returns None when there is no ProcessExecutionError."""
+    error = validate_polythene_module.ValidationError("boom")
+
+    assert validate_polythene_module._format_isolation_error(error) is None
+
+
+def test_format_isolation_error_includes_truncated_stderr(
+    validate_polythene_module: object,
+) -> None:
+    """_format_isolation_error adds truncated stderr when patterns match."""
+    stderr = "Required command not found: bwrap\n" * 50  # Ensure truncation occurs
+    process_error = ProcessExecutionError(
+        ("uv", "run", "polythene", "exec"),
+        126,
+        "",
+        stderr.encode("utf-8"),
+    )
+    error = validate_polythene_module.ValidationError("boom")
+    error.__cause__ = process_error
+
+    message = validate_polythene_module._format_isolation_error(error)
+
+    assert message is not None
+    assert "bubblewrap" in message
+    assert "Original stderr" in message
+    limit = validate_polythene_module._STDERR_SNIPPET_LIMIT
+    assert f"truncated to {limit}" in message
+    # The message should end with an ellipsis due to truncation
+    assert message.strip().endswith("…")
+
+
+def test_format_isolation_error_ignores_non_matching_messages(
+    validate_polythene_module: object,
+) -> None:
+    """_format_isolation_error returns None when patterns do not match."""
+    process_error = ProcessExecutionError(
+        ("uv", "run", "polythene", "exec"),
+        2,
+        "",
+        b"some unrelated failure",
+    )
+    error = validate_polythene_module.ValidationError("boom")
+    error.__cause__ = process_error
+
+    assert validate_polythene_module._format_isolation_error(error) is None
+
+
+@pytest.mark.parametrize(
+    "stderr_text",
+    [
+        pytest.param("Required command not found: bwrap", id="missing-bwrap"),
+        pytest.param("Required command not found: proot", id="missing-proot"),
+        pytest.param(
+            "All isolation modes unavailable (bwrap/proot/chroot)",
+            id="no-isolation-modes",
+        ),
+    ],
+)
 def test_polythene_rootfs_surfaces_missing_dependencies(
     validate_polythene_module: object,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    stderr_text: str,
 ) -> None:
     """Missing sandbox dependencies produce a descriptive ValidationError."""
     monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
@@ -180,10 +255,7 @@ def test_polythene_rootfs_surfaces_missing_dependencies(
         ("uv", "run", "polythene", "exec"),
         126,
         "",
-        (
-            b"Required command not found: bwrap\n"
-            b"All isolation modes unavailable (bwrap/proot/chroot).\n"
-        ),
+        stderr_text.encode("utf-8"),
     )
 
     def _run_text(command: object, *, timeout: int | None = None) -> str:
@@ -215,3 +287,49 @@ def test_polythene_rootfs_surfaces_missing_dependencies(
     message = str(excinfo.value)
     assert "bubblewrap" in message
     assert "proot" in message
+    assert "Original stderr" in message
+    assert stderr_text in message
+
+
+def test_polythene_rootfs_wraps_process_execution_error(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Unexpected ProcessExecutionError values are wrapped with stderr details."""
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    process_error = ProcessExecutionError(
+        ("uv", "run", "polythene", "exec"),
+        1,
+        "",
+        b"unexpected failure details",
+    )
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        argv = tuple(getattr(command, "argv", ()))
+        if "pull" in argv:
+            return "session-uid\n"
+        raise process_error
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+
+    store = tmp_path / "store"
+    polythene = tmp_path / "polythene.py"
+    polythene.write_text("#!/usr/bin/env python\n")
+    command = (polythene.as_posix(),)
+
+    with (
+        pytest.raises(validate_polythene_module.ValidationError) as excinfo,
+        validate_polythene_module.polythene_rootfs(
+            command,
+            "docker.io/library/debian:bookworm",
+            store,
+        ),
+    ):
+        pass
+
+    message = str(excinfo.value)
+    assert "polythene exec failed" in message
+    assert "stderr" in message
+    assert "unexpected failure details" in message

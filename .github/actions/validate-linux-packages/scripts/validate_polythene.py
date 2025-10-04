@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging
+import re
 import typing as typ
 
 from plumbum import local
@@ -34,6 +35,13 @@ __all__ = sorted(
 )
 
 
+_ISOLATION_ERROR_PATTERNS = (
+    r"All isolation modes unavailable",
+    r"Required command not found",
+)
+_STDERR_SNIPPET_LIMIT = 400
+
+
 def _decode_stream(value: object) -> str:
     """Return ``value`` normalised as a UTF-8 ``str``."""
     if value is None:
@@ -41,6 +49,19 @@ def _decode_stream(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _stderr_snippet(
+    stderr_text: str, *, limit: int = _STDERR_SNIPPET_LIMIT
+) -> str | None:
+    """Return a trimmed ``stderr_text`` snippet up to ``limit`` characters."""
+    snippet = stderr_text.strip()
+    if not snippet:
+        return None
+    snippet = snippet.replace("\r\n", "\n").strip()
+    if len(snippet) <= limit:
+        return snippet
+    return snippet[: limit - 1].rstrip() + "…"
 
 
 def _format_isolation_error(exc: ValidationError) -> str | None:
@@ -53,15 +74,23 @@ def _format_isolation_error(exc: ValidationError) -> str | None:
     if not stderr_text:
         return None
 
-    if (
-        "All isolation modes unavailable" in stderr_text
-        or "Required command not found" in stderr_text
+    if any(
+        re.search(pattern, stderr_text, re.IGNORECASE)
+        for pattern in _ISOLATION_ERROR_PATTERNS
     ):
-        return (
+        message = (
             "polythene could not start because sandbox dependencies are missing. "
             "Install either bubblewrap (`bwrap`) or proot on the runner to enable "
             "package validation."
         )
+        snippet = _stderr_snippet(stderr_text)
+        if snippet is not None:
+            message = (
+                f"{message}\n"
+                f"Original stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                f"{snippet}"
+            )
+        return message
 
     return None
 
@@ -137,6 +166,16 @@ def polythene_rootfs(
         if formatted is not None:
             raise ValidationError(formatted) from exc
         raise
+    except ProcessExecutionError as exc:
+        stderr = _stderr_snippet(_decode_stream(getattr(exc, "stderr", "")))
+        message = f"polythene exec failed: {exc}"
+        if stderr is not None:
+            message = (
+                f"{message}\n"
+                f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                f"{stderr}"
+            )
+        raise ValidationError(message) from exc
     try:
         yield session
     finally:

@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 from plumbum import local
 
-from cmd_utils import run_completed_process
+from cmd_utils import run_cmd
 
 if typ.TYPE_CHECKING:
     from cmd_mox import CmdMox
@@ -71,6 +71,6 @@ def test_action_run_step_invokes_validate_script(
     env["GITHUB_ACTION_PATH"] = str(action_dir)
 
     command = local["/usr/bin/env"]["bash", "-c", run_script]
-    run_completed_process(command, check=True, cwd=tmp_path, env=env)
+    run_cmd(command, method="run", cwd=tmp_path, env=env)
 
     cmd_mox.verify()

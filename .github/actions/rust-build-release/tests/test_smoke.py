@@ -11,10 +11,16 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
-from cmd_utils import run_completed_process
+from cmd_utils import run_cmd
 
-if typ.TYPE_CHECKING:  # pragma: no cover - typing only
-    import subprocess
+
+class RunResult(typ.NamedTuple):
+    """Container for execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
@@ -77,9 +83,7 @@ def _param_for_target(target: str) -> object:
 TARGET_PARAMS = [_param_for_target(target) for target in _targets]
 
 
-def run_script(
-    script: Path, *args: str, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
+def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
     """Execute *script* in *cwd* and return the completed process."""
     python_exe = sys.executable or shutil.which("python") or "python"
     uv_path = shutil.which("uv")
@@ -89,12 +93,18 @@ def run_script(
         command = local[python_exe][str(script)]
     if args:
         command = command[list(args)]
-    return run_completed_process(
-        command,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        cwd=cwd,
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(
+            command,
+            method="run",
+            cwd=cwd,
+        ),
+    )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 

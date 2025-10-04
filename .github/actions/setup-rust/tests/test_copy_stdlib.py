@@ -8,13 +8,18 @@ from pathlib import Path
 
 from plumbum import local
 
-from cmd_utils import run_completed_process
-
-if typ.TYPE_CHECKING:  # pragma: no cover - typing only
-    import subprocess
+from cmd_utils import run_cmd
 
 
-def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+class RunResult(typ.NamedTuple):
+    """Container for script execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def run_script(script: Path, *args: str) -> RunResult:
     """Execute *script* using ``uv run --script`` and return the process."""
     command = local["uv"]["run", "--script", str(script)]
     if args:
@@ -24,12 +29,18 @@ def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
-    return run_completed_process(
-        command,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=merged,
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(
+            command,
+            method="run",
+            env=merged,
+        ),
+    )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
-from cmd_utils import run_cmd, run_completed_process
+from cmd_utils import run_cmd
 
 if typ.TYPE_CHECKING:
     from cmd_utils import SupportsFormulate
@@ -201,14 +201,15 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         rustup_path = shutil.which("rustup")
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
-        result = run_completed_process(
-            local[rustup_path]["toolchain", "list"],
-            capture_output=True,
-            text=True,
-            check=True,
+        _, stdout, _ = typ.cast(
+            "tuple[int, str, str]",
+            run_cmd(
+                local[rustup_path]["toolchain", "list"],
+                method="run",
+            ),
         )
         installed_names = [
-            line.split()[0] for line in result.stdout.splitlines() if line.strip()
+            line.split()[0] for line in stdout.splitlines() if line.strip()
         ]
         expected = {
             toolchain_version,

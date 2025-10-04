@@ -2,41 +2,33 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003
 import os  # noqa: TC003
 import typing as typ
 from pathlib import Path
 
 from plumbum import local
 
+RunMethod = typ.Literal["call", "run", "run_fg"]
+
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
-    import collections.abc as cabc
-    import subprocess
 
     class _SupportsFormulate(typ.Protocol):
         def formulate(self) -> cabc.Sequence[str]: ...
 
-    class _RunCompletedProcess(typ.Protocol):
+    class _RunCmd(typ.Protocol):
         def __call__(
             self,
             cmd: _SupportsFormulate,
             *,
-            capture_output: bool = False,
-            check: bool = False,
-            text: bool | None = None,
-            encoding: str | None = None,
-            errors: str | None = None,
-            timeout: float | None = None,
+            method: RunMethod = "call",
             env: cabc.Mapping[str, str] | None = None,
-            cwd: str | os.PathLike[str] | None = None,
-            stdin: object | None = None,
-            stdout: object | None = None,
-            stderr: object | None = None,
-            universal_newlines: bool | None = None,
-        ) -> subprocess.CompletedProcess[str | bytes | None]: ...
+            **run_kwargs: object,
+        ) -> object: ...
 
-    run_completed_process: _RunCompletedProcess
+    run_cmd: _RunCmd
 else:
-    from cmd_utils import run_completed_process
+    from cmd_utils import run_cmd
 
 
 class UnexpectedExecutableError(ValueError):
@@ -63,17 +55,11 @@ def run_validated(
     args: list[str] | tuple[str, ...],
     *,
     allowed_names: tuple[str, ...],
-    **kwargs: object,
-) -> subprocess.CompletedProcess[str]:
+    method: RunMethod = "run",
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> object:
     """Execute *executable* with *args* after validating its basename."""
     exec_path = ensure_allowed_executable(executable, allowed_names)
-    subprocess_kwargs: dict[str, object] = dict(kwargs)
-    if (
-        "text" not in subprocess_kwargs
-        and "encoding" not in subprocess_kwargs
-        and "universal_newlines" not in subprocess_kwargs
-    ):
-        subprocess_kwargs["text"] = True
     command = local[exec_path][list(args)] if args else local[exec_path]
-    result = run_completed_process(command, **subprocess_kwargs)
-    return typ.cast("subprocess.CompletedProcess[str]", result)
+    return run_cmd(command, method=method, env=env, **run_kwargs)

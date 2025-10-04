@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import shutil
-import subprocess
 import sys
 import tempfile
+import typing as typ
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +16,7 @@ from pathlib import Path
 import typer
 from packaging import version as pkg_version
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 from utils import (
     UnexpectedExecutableError,
     ensure_allowed_executable,
@@ -130,21 +131,21 @@ def install_cross_release(required_version: str) -> bool:
                 cross_exec = ensure_allowed_executable(
                     destination, ("cross", "cross.exe")
                 )
-                check_result = run_validated(
-                    cross_exec,
-                    ["--version"],
-                    allowed_names=("cross", "cross.exe"),
-                    capture_output=True,
-                    text=True,
-                    check=True,
+                _, stdout, _ = typ.cast(
+                    "tuple[int, str, str]",
+                    run_validated(
+                        cross_exec,
+                        ["--version"],
+                        allowed_names=("cross", "cross.exe"),
+                    ),
                 )
-            except (OSError, subprocess.CalledProcessError) as exc:
+            except (OSError, ProcessExecutionError) as exc:
                 typer.echo(
                     f"::warning:: installed cross failed to execute: {exc}",
                     err=True,
                 )
                 return False
-            if version_output := check_result.stdout.strip():
+            if version_output := stdout.strip():
                 typer.echo(f"Installed cross binary reports: {version_output}")
     except urllib.error.URLError as exc:  # pragma: no cover - network failure
         typer.echo(
@@ -168,20 +169,20 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
     def get_cross_version(path: str) -> str | None:
         try:
             cross_exec = ensure_allowed_executable(path, ("cross", "cross.exe"))
-            result = run_validated(
-                cross_exec,
-                ["--version"],
-                allowed_names=("cross", "cross.exe"),
-                capture_output=True,
-                check=True,
-                text=True,
+            _, stdout, _ = typ.cast(
+                "tuple[int, str, str]",
+                run_validated(
+                    cross_exec,
+                    ["--version"],
+                    allowed_names=("cross", "cross.exe"),
+                ),
             )
-            version_line = result.stdout.strip().split("\n")[0]
+            version_line = stdout.strip().split("\n")[0]
             if version_line.startswith("cross "):
                 return version_line.split(" ")[1]
         except (
             OSError,
-            subprocess.SubprocessError,
+            ProcessExecutionError,
             UnexpectedExecutableError,
         ):
             return None
@@ -218,7 +219,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                         required_cross_version,
                     ]
                 )
-            except subprocess.CalledProcessError:
+            except ProcessExecutionError:
                 try:
                     run_cmd(
                         local["cargo"][
@@ -231,7 +232,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                             f"v{required_cross_version}",
                         ]
                     )
-                except subprocess.CalledProcessError:
+                except ProcessExecutionError:
                     if sys.platform == "win32":
                         typer.echo(
                             "::warning:: cross install failed; continuing without "

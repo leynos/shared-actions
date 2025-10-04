@@ -1,118 +1,95 @@
-"""Tests for :mod:`cmd_utils` helpers."""
+"""Tests for :mod:`cmd_utils`."""
 
 from __future__ import annotations
 
-import subprocess
 import sys
+import typing as typ
 
 import pytest
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_completed_process
+from cmd_utils import RunMethod, run_cmd
 
 
 def _python_command(*args: str) -> object:
-    return local[sys.executable][list(args)] if args else local[sys.executable]
+    command = local[sys.executable]
+    return command[list(args)] if args else command
 
 
-def test_run_completed_process_returns_bytes_by_default() -> None:
-    """run_completed_process should return bytes when text mode is disabled."""
-    script = "import sys; sys.stdout.buffer.write(b'hello')"
-    result = run_completed_process(
-        _python_command("-c", script),
-        capture_output=True,
-    )
+def test_run_cmd_returns_stdout_by_default(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_cmd should return decoded stdout when using the default method."""
+    script = "import sys; sys.stdout.write('hello')"
+    result = run_cmd(_python_command("-c", script))
 
-    assert result.returncode == 0
-    assert result.stdout == b"hello"
-    assert result.stderr == b""
+    assert result == "hello"
+    echoed = capsys.readouterr()
+    assert "$ " in echoed.out
 
 
-def test_run_completed_process_rejects_non_plumbum_commands() -> None:
-    """Non-plumbum inputs should be rejected."""
+@pytest.mark.parametrize("method", ["call", "run", "run_fg"], ids=lambda value: value)
+def test_run_cmd_rejects_non_plumbum_inputs(method: RunMethod) -> None:
+    """Passing non-plumbum objects should raise :class:`TypeError`."""
     with pytest.raises(TypeError, match="plumbum command"):
-        run_completed_process([sys.executable])
+        run_cmd(object(), method=method)
 
 
-def test_run_completed_process_supports_text_mode() -> None:
-    """Enabling text mode should decode stdout and stderr as strings."""
-    script = "import sys; sys.stdout.write('hello'); sys.stderr.write('oops')"
-    result = run_completed_process(
+def test_run_cmd_run_method_returns_process_tuple() -> None:
+    """The run method should surface plumbum's return tuple."""
+    script = "import sys; sys.stdout.write('world'); sys.stderr.write('!')"
+    returncode, stdout, stderr = run_cmd(  # type: ignore[misc]
         _python_command("-c", script),
-        capture_output=True,
-        text=True,
+        method="run",
     )
 
-    assert result.stdout == "hello"
-    assert result.stderr == "oops"
+    assert returncode == 0
+    assert stdout == "world"
+    assert stderr == "!"
 
 
-def test_run_completed_process_text_mode_with_encoding() -> None:
-    """Explicit encodings should be honoured when decoding text output."""
-    script = (
-        "import sys; "
-        "sys.stdout.buffer.write(b'caf\\xe9'); "
-        "sys.stderr.buffer.write(b'err\\xe9')"
-    )
-    result = run_completed_process(
-        _python_command("-c", script),
-        capture_output=True,
-        text=True,
-        encoding="latin-1",
-    )
+def test_run_cmd_propagates_process_execution_error() -> None:
+    """run_cmd should propagate plumbum's ProcessExecutionError."""
+    with pytest.raises(ProcessExecutionError) as excinfo:
+        run_cmd(_python_command("-c", "import sys; sys.exit(3)"))
 
-    assert result.stdout == "café"
-    assert result.stderr == "erré"
+    exc: ProcessExecutionError = excinfo.value
+    assert exc.retcode == 3
 
 
-def test_run_completed_process_text_mode_with_errors() -> None:
-    """The errors parameter should control decoder error handling."""
-    script = (
-        "import sys; "
-        "sys.stdout.buffer.write(b'bad\\xff'); "
-        "sys.stderr.buffer.write(b'fail\\xff')"
-    )
-    result = run_completed_process(
-        _python_command("-c", script),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+def test_run_cmd_merges_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dynamic environment changes should be visible to executed commands."""
+    monkeypatch.setenv("CMD_UTILS_TOKEN", "runtime")
+    script = "import os; import sys; sys.stdout.write(os.environ['CMD_UTILS_TOKEN'])"
 
-    assert result.stdout == "bad�"
-    assert result.stderr == "fail�"
+    result = run_cmd(_python_command("-c", script))
+
+    assert result == "runtime"
 
 
-def test_run_completed_process_raises_on_non_zero_return() -> None:
-    """check=True should raise :class:`subprocess.CalledProcessError`."""
-    with pytest.raises(subprocess.CalledProcessError) as excinfo:
-        run_completed_process(
-            _python_command("-c", "import sys; sys.exit(7)"),
-            capture_output=True,
-            check=True,
-        )
+def test_run_cmd_supports_explicit_environment_overrides() -> None:
+    """The env parameter should override values when provided."""
+    script = "import os; import sys; sys.stdout.write(os.environ['CMD_UTILS_TOKEN'])"
+    command = _python_command("-c", script)
 
-    assert excinfo.value.returncode == 7
-    assert excinfo.value.output in {b"", ""}
-    assert excinfo.value.stderr in {b"", ""}
+    result = run_cmd(command, env={"CMD_UTILS_TOKEN": "override"})
+
+    assert result == "override"
 
 
-def test_run_completed_process_enforces_timeouts() -> None:
-    """Commands exceeding the timeout should raise :class:`TimeoutExpired`."""
-    script = "import time; time.sleep(10)"
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_completed_process(
-            _python_command("-c", script),
-            timeout=0.1,
-        )
+def test_run_cmd_run_fg_streams_output(capsys: pytest.CaptureFixture[str]) -> None:
+    """Foreground execution should stream to the real stdout."""
+    script = "import sys; sys.stdout.write('fg-test')"
+
+    result = run_cmd(_python_command("-c", script), method="run_fg")
+
+    assert result is None
+    captured = capsys.readouterr()
+    assert "fg-test" in captured.out
 
 
-def test_run_completed_process_capture_output_conflict() -> None:
-    """capture_output may not be combined with explicit stdout/stderr streams."""
-    with pytest.raises(ValueError, match="stdout and stderr arguments may not be used"):
-        run_completed_process(
-            _python_command("-c", "print('hi')"),
-            capture_output=True,
-            stdout=subprocess.PIPE,
-        )
+def test_run_cmd_rejects_unknown_method() -> None:
+    """Unknown execution strategies should raise :class:`ValueError`."""
+    command = _python_command("-c", "print('noop')")
+
+    with pytest.raises(ValueError, match="Unknown run method"):
+        run_cmd(command, method=typ.cast("RunMethod", "unknown"))

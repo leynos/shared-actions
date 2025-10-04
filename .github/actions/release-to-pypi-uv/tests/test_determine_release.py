@@ -7,29 +7,48 @@ import typing as typ
 from pathlib import Path
 
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 from shared_actions_conftest import REQUIRES_UV
 
-from cmd_utils import run_completed_process
+from cmd_utils import run_cmd
 
-if typ.TYPE_CHECKING:  # pragma: no cover - typing only
-    import subprocess
+
+class RunResult(typ.NamedTuple):
+    """Container for script execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
 
 pytestmark = REQUIRES_UV
 
 
-def run_script(
-    script: Path, *, env: dict[str, str]
-) -> subprocess.CompletedProcess[str]:
+def run_script(script: Path, *, env: dict[str, str]) -> RunResult:
     """Execute ``determine_release`` with a controlled environment."""
     command = local["uv"]["run", "--script", str(script)]
-    return run_completed_process(
-        command,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        check=False,
-        cwd=env.get("PWD"),
+    try:
+        code, stdout, stderr = typ.cast(
+            "tuple[int, str | bytes, str | bytes]",
+            run_cmd(
+                command,
+                method="run",
+                env=env,
+                cwd=env.get("PWD"),
+            ),
+        )
+    except ProcessExecutionError as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        return RunResult(
+            int(exc.retcode),
+            stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace"),
+            stderr if isinstance(stderr, str) else stderr.decode("utf-8", "replace"),
+        )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -19,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 import typer
 from cross_manager import ensure_cross
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
@@ -101,15 +101,16 @@ def should_probe_container(host_platform: str, target: str) -> bool:
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
     """Return installed rustup toolchain names."""
-    result = run_validated(
-        rustup_exec,
-        ["toolchain", "list"],
-        allowed_names=("rustup", "rustup.exe"),
-        capture_output=True,
-        text=True,
-        check=True,
+    _, stdout, _ = typ.cast(
+        "tuple[int, str, str]",
+        run_validated(
+            rustup_exec,
+            ["toolchain", "list"],
+            allowed_names=("rustup", "rustup.exe"),
+            method="run",
+        ),
     )
-    installed = result.stdout.splitlines()
+    installed = stdout.splitlines()
     return [line.split()[0] for line in installed if line.strip()]
 
 
@@ -152,7 +153,7 @@ def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
         return runtime_available(name)
-    except subprocess.TimeoutExpired as exc:
+    except ProcessTimedOut as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
         message = (
@@ -227,7 +228,7 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
                 "--no-self-update",
             ]
         )
-    except subprocess.CalledProcessError:
+    except ProcessExecutionError:
         typer.echo(
             f"::error:: failed to install toolchain '{toolchain}'",
             err=True,
@@ -279,7 +280,7 @@ def _ensure_target_installed(
                 target,
             ]
         )
-    except subprocess.CalledProcessError:
+    except ProcessExecutionError:
         typer.echo(
             f"::warning:: toolchain '{toolchain_name}' does not support "
             f"target '{target}'; continuing",
@@ -342,7 +343,7 @@ def _decide_cross_usage(
                         "--no-self-update",
                     ]
                 )
-            except subprocess.CalledProcessError:
+            except ProcessExecutionError:
                 typer.echo(
                     "::warning:: failed to install sanitized toolchain; using cargo",
                     err=True,
@@ -486,8 +487,8 @@ def main(
         ]
     try:
         run_cmd(build_cmd)
-    except subprocess.CalledProcessError as exc:
-        if decision.use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+    except ProcessExecutionError as exc:
+        if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
             if (
                 decision.requires_cross_container
                 and not decision.use_cross_local_backend
@@ -498,7 +499,7 @@ def main(
                     f"target '{target_to_build}' (engine={engine})",
                     err=True,
                 )
-                raise typer.Exit(exc.returncode) from exc
+                raise typer.Exit(exc.retcode) from exc
 
             typer.echo(
                 "::warning:: cross failed to start a container; retrying with cargo",

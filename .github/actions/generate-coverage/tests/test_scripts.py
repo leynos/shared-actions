@@ -12,14 +12,22 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_completed_process
+from cmd_utils import run_cmd
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
-    import subprocess
     from types import ModuleType
 
     from shellstub import StubManager
+
+
+class RunResult(typ.NamedTuple):
+    """Container for command execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def _exit_code(exc: BaseException) -> int | None:
@@ -30,10 +38,8 @@ def _exit_code(exc: BaseException) -> int | None:
     return exit_code
 
 
-def run_script(
-    script: Path, env: dict[str, str], *args: str
-) -> subprocess.CompletedProcess[str]:
-    """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
+def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
+    """Run ``script`` via ``uv`` with ``env`` and return the run tuple."""
     command = local["uv"]["run", "--script", str(script)]
     if args:
         command = command[list(args)]
@@ -44,12 +50,27 @@ def run_script(
         f"{root}{os.pathsep}{current_pp}" if current_pp else str(root)
     )
     merged["PYTHONIOENCODING"] = "utf-8"
-    return run_completed_process(
-        command,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=merged,
+    try:
+        code, stdout, stderr = typ.cast(
+            "tuple[int, str | bytes, str | bytes]",
+            run_cmd(
+                command,
+                method="run",
+                env=merged,
+            ),
+        )
+    except ProcessExecutionError as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        return RunResult(
+            int(exc.retcode),
+            stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace"),
+            stderr if isinstance(stderr, str) else stderr.decode("utf-8", "replace"),
+        )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 
@@ -158,9 +179,9 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     }
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    res = run_script(script, env)
-    assert res.returncode == 0
-    assert "Coverage" in res.stdout
+    returncode, stdout, _ = run_script(script, env)
+    assert returncode == 0
+    assert "Coverage" in stdout
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1
@@ -370,8 +391,8 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
     }
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    res = run_script(script, env)
-    assert res.returncode == 0
+    returncode, _, _ = run_script(script, env)
+    assert returncode == 0
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 2
@@ -434,8 +455,8 @@ def test_run_rust_with_cucumber_cobertura(
     }
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    res = run_script(script, env)
-    assert res.returncode == 0
+    returncode, _, _ = run_script(script, env)
+    assert returncode == 0
 
     uvx_calls = shell_stubs.calls_of("uvx")
     assert uvx_calls
@@ -481,9 +502,9 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
     }
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    res = run_script(script, env)
-    assert res.returncode == 3
-    assert "merge-cobertura failed" in res.stderr
+    returncode, _, stderr = run_script(script, env)
+    assert returncode == 3
+    assert "merge-cobertura failed" in stderr
     assert cuc_file.exists()
 
 
@@ -502,10 +523,10 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
         "GITHUB_OUTPUT": str(tmp_path / "gh.txt"),
     }
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    res = run_script(script, env)
-    assert res.returncode == 2
-    assert "cargo llvm-cov" in res.stderr
-    assert "failed with code 2" in res.stderr
+    returncode, _, stderr = run_script(script, env)
+    assert returncode == 2
+    assert "cargo llvm-cov" in stderr
+    assert "failed with code 2" in stderr
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
@@ -533,8 +554,8 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
         "OUTPUT_PATH": str(out),
     }
     script = Path(__file__).resolve().parents[1] / "scripts" / "merge_cobertura.py"
-    res = run_script(script, env)
-    assert res.returncode == 0
+    returncode, _, _ = run_script(script, env)
+    assert returncode == 0
     assert out.read_text() == "<merged/>"
     assert not rust.exists()
     assert not py.exists()

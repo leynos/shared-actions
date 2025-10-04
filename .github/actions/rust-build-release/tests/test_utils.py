@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import typing as typ
 from pathlib import Path
 
@@ -38,48 +37,53 @@ def test_ensure_allowed_executable_rejects_unknown(
         utils_module.ensure_allowed_executable(exe_path, ("rustup", "rustup.exe"))
 
 
-def test_run_validated_invokes_run_completed_process(
+def test_run_validated_invokes_run_cmd(
     utils_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """run_validated delegates execution to cmd_utils.run_completed_process."""
+    """run_validated should delegate to cmd_utils.run_cmd."""
     exe_path = tmp_path / "docker.exe"
     exe_path.write_text("", encoding="utf-8")
 
     captured_calls: list[tuple[list[str], dict[str, object]]] = []
 
-    def fake_run_completed_process(
+    def fake_run_cmd(
         cmd: SupportsFormulate,
+        *,
+        method: str = "call",
+        env: dict[str, str] | None = None,
         **kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
-        captured_calls.append((list(cmd.formulate()), dict(kwargs)))
-        return subprocess.CompletedProcess(tuple(cmd.formulate()), 0, "ok", "")
+    ) -> object:
+        captured_calls.append(
+            (
+                list(cmd.formulate()),
+                {"method": method, "env": env, "kwargs": dict(kwargs)},
+            )
+        )
+        return (0, "ok", "")
 
-    monkeypatch.setattr(
-        utils_module, "run_completed_process", fake_run_completed_process
-    )
+    monkeypatch.setattr(utils_module, "run_cmd", fake_run_cmd)
 
     result = utils_module.run_validated(
         exe_path,
         ("info",),
         allowed_names=("docker", "docker.exe"),
-        capture_output=True,
-        check=True,
+        timeout=1.5,
+        retcode=0,
     )
 
-    assert isinstance(result, subprocess.CompletedProcess)
-    assert result.stdout == "ok"
+    assert result == (0, "ok", "")
     assert captured_calls == [
         (
             [str(exe_path), "info"],
             {
-                "capture_output": True,
-                "check": True,
-                "text": True,
+                "method": "run",
+                "env": None,
+                "kwargs": {"timeout": 1.5, "retcode": 0},
             },
         )
-    ], "run_completed_process should be called with validated path and defaults"
+    ], "run_cmd should be called with validated path and forwarded arguments"
 
 
 def test_run_validated_raises_for_unexpected_executable(
@@ -94,6 +98,5 @@ def test_run_validated_raises_for_unexpected_executable(
             exe_path,
             ["info"],
             allowed_names=("docker", "docker.exe"),
-            capture_output=True,
-            text=True,
+            method="run",
         )

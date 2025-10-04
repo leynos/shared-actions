@@ -4,15 +4,23 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
 import sys
 import typing as typ
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from plumbum.commands.processes import ProcessTimedOut
 
 if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness
+
+
+RunOutput = tuple[int, str, str]
+
+
+def _run_result(returncode: int = 0, stdout: str = "", stderr: str = "") -> RunOutput:
+    """Return a tuple matching the run_cmd ``method='run'`` contract."""
+    return (returncode, stdout, stderr)
 
 
 def _patch_run_validated_timeout(
@@ -20,10 +28,9 @@ def _patch_run_validated_timeout(
     harness: ModuleHarness,
     *,
     predicate: typ.Callable[[list[str]], bool] | None = None,
-    success_factory: typ.Callable[[list[str]], subprocess.CompletedProcess[str]]
-    | None = None,
+    success_factory: typ.Callable[[list[str]], RunOutput] | None = None,
 ) -> None:
-    """Patch ``run_validated`` to raise ``TimeoutExpired`` when *predicate* matches."""
+    """Patch ``run_validated`` to raise ``ProcessTimedOut`` when *predicate* matches."""
 
     def fake_run(
         executable: str,
@@ -31,15 +38,16 @@ def _patch_run_validated_timeout(
         *,
         allowed_names: tuple[str, ...],
         **kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         _ = (allowed_names, kwargs)
         cmd = [executable, *args]
         should_timeout = predicate(args) if predicate is not None else True
         if should_timeout:
-            raise subprocess.TimeoutExpired(cmd, runtime_module.PROBE_TIMEOUT)
+            message = "probe timed out"
+            raise ProcessTimedOut(message, cmd)
         if success_factory is not None:
             return success_factory(cmd)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
+        return _run_result()
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
@@ -116,7 +124,7 @@ def test_runtime_available_oserror_does_not_warn(
     harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
     messages = echo_recorder(runtime_module)
 
-    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[str]:
+    def fake_run(*_: object, **__: object) -> RunOutput:
         message = "simulated OSError"
         raise OSError(message)
 
@@ -145,13 +153,12 @@ def test_podman_without_cap_sys_admin_is_unavailable(
         check: bool = False,
         text: bool = False,
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         _ = allowed_names
-        cmd = [executable, *args]
         if "--format" in args:
             data = json.dumps({"capabilities": "CAP_NET_ADMIN"})
-            return subprocess.CompletedProcess(cmd, 0, stdout=data)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
+            return _run_result(stdout=data)
+        return _run_result()
 
     messages = echo_recorder(runtime_module)
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
@@ -177,13 +184,12 @@ def test_podman_with_cap_sys_admin_is_available(
         check: bool = False,
         text: bool = False,
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         _ = allowed_names
-        cmd = [executable, *args]
         if "--format" in args:
             data = json.dumps({"capabilities": ["CAP_SYS_ADMIN"]})
-            return subprocess.CompletedProcess(cmd, 0, stdout=data)
-        return subprocess.CompletedProcess(cmd, 0, stdout="")
+            return _run_result(stdout=data)
+        return _run_result()
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
     assert runtime_module.runtime_available("podman") is True
@@ -243,10 +249,9 @@ def test_detect_host_target_parses_rustc_output(
         check: bool = False,
         text: bool = False,
         **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         _ = (allowed_names, capture_output, check, text)
-        cmd = [executable, *args]
-        return subprocess.CompletedProcess(cmd, 0, stdout="host: custom-triple\n")
+        return _run_result(stdout="host: custom-triple\n")
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
     assert runtime_module.detect_host_target() == "custom-triple"
@@ -309,21 +314,16 @@ def test_detect_host_target_passes_timeout_to_run_validated(
         *,
         allowed_names: tuple[str, ...],
         **kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         _ = (executable, args)
         call_kwargs.update(kwargs)
         call_kwargs["allowed_names"] = allowed_names
-        return subprocess.CompletedProcess(
-            [executable, *args], 0, stdout="host: bounded\n"
-        )
+        return _run_result(stdout="host: bounded\n")
 
     harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
 
     assert runtime_module.detect_host_target() == "bounded"
     assert call_kwargs.get("timeout") == runtime_module.PROBE_TIMEOUT
-    assert call_kwargs.get("capture_output") is True
-    assert call_kwargs.get("text") is True
-    assert call_kwargs.get("check") is True
     assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")
 
 
@@ -348,11 +348,9 @@ def test_probe_timeout_env_override(
         *,
         allowed_names: tuple[str, ...],
         **kwargs: object,
-    ) -> subprocess.CompletedProcess[str]:
+    ) -> RunOutput:
         captured.update(kwargs)
-        return subprocess.CompletedProcess(
-            [executable, *args], 0, stdout="host: x86_64-unknown-linux-gnu\n"
-        )
+        return _run_result(stdout="host: x86_64-unknown-linux-gnu\n")
 
     harness.monkeypatch.setattr(module, "run_validated", fake_run)
     module.detect_host_target()

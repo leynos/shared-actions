@@ -6,11 +6,11 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import sys
 import typing as typ
 
 import typer
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
 if typ.TYPE_CHECKING:
@@ -145,25 +145,29 @@ def _run_probe(
     *,
     cwd: str | Path | None = None,
     **kwargs: object,
-) -> subprocess.CompletedProcess[str] | None:
+) -> tuple[int, str, str] | None:
     """Execute a runtime probe and handle common failure modes."""
     try:
-        return run_validated(
-            exec_path,
-            args,
-            allowed_names=(name, f"{name}.exe"),
-            timeout=PROBE_TIMEOUT,
-            cwd=cwd,
-            **kwargs,
+        return typ.cast(
+            "tuple[int, str, str]",
+            run_validated(
+                exec_path,
+                args,
+                allowed_names=(name, f"{name}.exe"),
+                timeout=PROBE_TIMEOUT,
+                cwd=cwd,
+                method="run",
+                **kwargs,
+            ),
         )
-    except subprocess.TimeoutExpired:
+    except ProcessTimedOut:
         typer.echo(
             "::warning:: "
             f"{name} {probe} probe exceeded {PROBE_TIMEOUT}s timeout; "
             "treating runtime as unavailable",
             err=True,
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, ProcessExecutionError):
         pass
     return None
 
@@ -217,13 +221,11 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
         "info",
         ["info"],
         cwd=cwd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
     )
     if result is None:
         return False
 
-    if result.returncode != 0:
+    if result[0] != 0:
         return False
 
     if name == "podman":
@@ -233,15 +235,12 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             "security",
             ["info", "--format", "{{json .Host.Security}}"],
             cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
         )
         if security_info is None:
             return False
 
         try:
-            security = json.loads(security_info.stdout or "{}")
+            security = json.loads(security_info[1] or "{}")
         except json.JSONDecodeError:
             return False
 
@@ -278,26 +277,23 @@ def detect_host_target(
     except UnexpectedExecutableError:
         return default
     try:
-        result = run_validated(
-            exec_path,
-            ["-vV"],
-            allowed_names=("rustc", "rustc.exe"),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=PROBE_TIMEOUT,
+        _, stdout, _ = typ.cast(
+            "tuple[int, str, str]",
+            run_validated(
+                exec_path,
+                ["-vV"],
+                allowed_names=("rustc", "rustc.exe"),
+                timeout=PROBE_TIMEOUT,
+                method="run",
+            ),
         )
-    except (
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ):
+    except (ProcessExecutionError, ProcessTimedOut, OSError):
         return default
 
     triple = next(
         (
             line.partition(":")[2].strip()
-            for line in (result.stdout or "").splitlines()
+            for line in (stdout or "").splitlines()
             if line.startswith("host:")
         ),
         "",

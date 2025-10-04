@@ -1,35 +1,18 @@
-"""Utilities for echoing and running external commands.
-
-Provides a single entrypoint, ``run_cmd``, that uniformly echoes and
-executes either raw argv sequences or adapter objects exposing
-``formulate()``.
-
-Examples
---------
->>> from plumbum import local
->>> run_cmd(["echo", "hello"])
->>> run_cmd(local["echo"]["hello"])
-"""
+"""Utilities for running plumbum command invocations."""
 
 from __future__ import annotations
 
-import collections.abc as cabc
-import shlex
-import subprocess
+import collections.abc as cabc  # noqa: TC003
+import os
 import typing as typ
 
 import typer
+from plumbum import local
 
-__all__ = [
-    "run_cmd",
-]
+__all__ = ["RunMethod", "run_cmd"]
 
 
-class TimeoutConflictError(TypeError):
-    """Raised when mutually exclusive timeout options are provided."""
-
-    def __init__(self) -> None:
-        super().__init__("timeout specified via parameter and run_kwargs")
+RunMethod = typ.Literal["call", "run", "run_fg"]
 
 
 @typ.runtime_checkable
@@ -39,15 +22,20 @@ class SupportsFormulate(typ.Protocol):
     def formulate(self) -> cabc.Sequence[str]:  # pragma: no cover - protocol
         ...
 
+
+@typ.runtime_checkable
+class SupportsCall(SupportsFormulate, typ.Protocol):
+    """Commands that can be invoked like ``cmd()``."""
+
     def __call__(
-        self, *args: object, **run_kwargs: object
+        self, *args: object, **kwargs: object
     ) -> object:  # pragma: no cover - protocol
         ...
 
 
 @typ.runtime_checkable
-class SupportsRun(typ.Protocol):
-    """Commands that support ``run`` with keyword arguments."""
+class SupportsRun(SupportsFormulate, typ.Protocol):
+    """Commands that implement :meth:`run`."""
 
     def run(
         self, *args: object, **run_kwargs: object
@@ -56,131 +44,100 @@ class SupportsRun(typ.Protocol):
 
 
 @typ.runtime_checkable
-class SupportsRunFg(typ.Protocol):
-    """Commands that expose ``run_fg`` for foreground execution."""
+class SupportsRunFg(SupportsFormulate, typ.Protocol):
+    """Commands that expose :meth:`run_fg` for foreground execution."""
 
     def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
         ...
 
 
 @typ.runtime_checkable
-class SupportsAnd(typ.Protocol):
-    """Commands that implement ``cmd & FG`` semantics."""
+class SupportsAnd(SupportsFormulate, typ.Protocol):
+    """Commands that can be combined with ``FG`` using ``&``."""
 
     def __and__(self, other: object) -> object:  # pragma: no cover - protocol
         ...
 
 
-Command = cabc.Sequence[str] | SupportsFormulate
+@typ.runtime_checkable
+class SupportsWithEnv(SupportsFormulate, typ.Protocol):
+    """Commands that support environment overrides via :meth:`with_env`."""
 
-KwargDict = dict[str, object]
+    def with_env(self, **env: str) -> SupportsWithEnv:  # pragma: no cover - protocol
+        ...
 
 
-def _merge_timeout(timeout: float | None, run_kwargs: KwargDict) -> float | None:
-    """Return a merged timeout value.
+def _collect_runtime_env(
+    env: cabc.Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    """Return an environment mapping reflecting local and process mutations."""
+    plumbum_env = typ.cast("cabc.Mapping[str, str]", local.env)
+    base_env = {key: str(value) for key, value in plumbum_env.items()}
+    runtime_env = base_env.copy()
+    runtime_env.update({key: str(value) for key, value in os.environ.items()})
+    if env is not None:
+        runtime_env.update({key: str(value) for key, value in env.items()})
+    if runtime_env == base_env:
+        return None
+    return runtime_env
 
-    Parameters
-    ----------
-    timeout : float or None
-        Timeout supplied via the dedicated parameter.
-    run_kwargs : dict of str to Any
-        Keyword arguments passed to ``run_cmd``.
 
-    Returns
-    -------
-    float or None
-        The timeout to enforce, favouring ``run_kwargs`` when provided.
-    """
-    if "timeout" in run_kwargs:
-        if timeout is not None:
-            raise TimeoutConflictError
-        value = run_kwargs.pop("timeout")
-        return typ.cast("float | None", value)
-    return timeout
+def _apply_environment(
+    cmd: SupportsFormulate,
+    runtime_env: dict[str, str] | None,
+) -> SupportsFormulate:
+    """Return *cmd* with *runtime_env* applied when provided."""
+    if runtime_env is None:
+        return cmd
+    if not isinstance(cmd, SupportsWithEnv):  # pragma: no cover - defensive
+        msg = "Command does not support environment overrides"
+        raise TypeError(msg)
+    return typ.cast("SupportsFormulate", cmd.with_env(**runtime_env))
 
 
 def run_cmd(
-    cmd: Command,
+    cmd: object,
     *,
-    fg: bool = False,
-    timeout: float | None = None,
+    method: RunMethod = "call",
+    env: cabc.Mapping[str, str] | None = None,
     **run_kwargs: object,
 ) -> object:
-    """Execute ``cmd`` while echoing it to stderr.
+    """Execute ``cmd`` using plumbum semantics after echoing it."""
+    if not isinstance(cmd, SupportsFormulate):
+        msg = "run_cmd requires a plumbum command invocation"
+        raise TypeError(msg)
 
-    Parameters
-    ----------
-    cmd : Sequence of str or SupportsFormulate
-        Shell command to execute.
-    fg : bool, optional
-        When ``True``, stream subprocess output to the console.
-    timeout : float or None, optional
-        Kill the process after this many seconds when supported.
-    **run_kwargs : Any
-        Adapter-specific keyword arguments passed through to ``run``/``run_fg``.
+    typer.echo(f"$ {cmd}")
 
-    Returns
-    -------
-    Any
-        Result returned by the underlying command adapter.
-    """
-    timeout = _merge_timeout(timeout, run_kwargs)
-    if isinstance(cmd, cabc.Sequence):
-        typer.echo(f"$ {shlex.join(cmd)}")
-        if run_kwargs:
-            msg = (
-                "Sequence commands do not accept keyword arguments: "
-                f"{sorted(run_kwargs.keys())}"
-            )
+    prepared = _apply_environment(cmd, _collect_runtime_env(env))
+
+    if method == "call":
+        if not isinstance(prepared, SupportsCall):
+            msg = "Command does not support call semantics"
             raise TypeError(msg)
-        if fg:
-            subprocess.run(list(cmd), check=True, timeout=timeout)  # noqa: S603
-            return 0
-        return subprocess.check_call(list(cmd), timeout=timeout)  # noqa: S603
+        return prepared(**run_kwargs)
 
-    args = list(cmd.formulate())
-    typer.echo(f"$ {shlex.join(args)}")
-    if fg:
-        if timeout is not None:
-            if isinstance(cmd, SupportsRun):
-                run_kwargs.setdefault("stdout", None)
-                run_kwargs.setdefault("stderr", None)
-                from plumbum.commands.processes import (  # pyright: ignore[reportMissingTypeStubs]
-                    ProcessTimedOut,
-                )
+    if method == "run":
+        if not isinstance(prepared, SupportsRun):
+            msg = "Command does not support run()"
+            raise TypeError(msg)
+        run_options = dict(run_kwargs)
+        run_options.setdefault("retcode", None)
+        return prepared.run(**run_options)
 
-                try:
-                    cmd.run(timeout=timeout, **run_kwargs)
-                except ProcessTimedOut as exc:
-                    raise subprocess.TimeoutExpired(args, timeout) from exc
-                return 0
-            subprocess.run(args, check=True, timeout=timeout)  # noqa: S603
-            return 0
-        if isinstance(cmd, SupportsRunFg):
-            if run_kwargs:
-                cmd.run_fg(**run_kwargs)
-            else:
-                cmd.run_fg()
-            return 0
-        if isinstance(cmd, SupportsAnd) and not run_kwargs:
+    if method == "run_fg":
+        if isinstance(prepared, SupportsRunFg):
+            return prepared.run_fg(**run_kwargs)
+        if run_kwargs:
+            invalid = ", ".join(sorted(run_kwargs.keys()))
+            msg = f"Foreground execution does not accept keyword arguments: {invalid}"
+            raise TypeError(msg)
+        if isinstance(prepared, SupportsAnd):
             from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
 
-            return cmd & FG
-        if run_kwargs:
-            msg = (
-                "Command does not support foreground execution with keyword arguments: "
-                f"{sorted(run_kwargs.keys())}"
-            )
-            raise TypeError(msg)
-        result = cmd()
-        return result if isinstance(result, int) else 0
-
-    if not fg and timeout is not None and isinstance(cmd, SupportsRun):
-        run_kwargs.setdefault("timeout", timeout)
-
-    if run_kwargs:
-        if isinstance(cmd, SupportsRun):
-            return cmd.run(**run_kwargs)
-        msg = f"Command does not accept keyword arguments: {sorted(run_kwargs.keys())}"
+            return prepared & FG
+        msg = "Command does not support foreground execution"
         raise TypeError(msg)
-    return cmd()
+
+    msg = f"Unknown run method: {method}"
+    raise ValueError(msg)

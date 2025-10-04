@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 from typer.testing import CliRunner
+
+from cmd_utils import run_cmd
+
+
+class RunResult(typ.NamedTuple):
+    """Container for script execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
@@ -103,15 +114,15 @@ def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:
 
 def test_script_validate_step_reports_error() -> None:
     """Running the script like the composite action reports invalid targets."""
-    result = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            "validate",
-            "short",
-        ],
-        capture_output=True,
-        text=True,
+    command = local[sys.executable][str(SCRIPT_PATH), "validate", "short"]
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(command, method="run"),
+    )
+    result = RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
     assert result.returncode != 0
     combined = f"{result.stdout}\n{result.stderr}"
@@ -121,21 +132,24 @@ def test_script_validate_step_reports_error() -> None:
 def test_script_toolchain_step_resolves_windows(toolchain_module: ModuleType) -> None:
     """Script execution mirrors the composite action's toolchain resolution."""
     default = toolchain_module.read_default_toolchain()
-    result = subprocess.run(  # noqa: S603
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            "toolchain",
-            "--target",
-            "aarch64-pc-windows-gnu",
-            "--runner-os",
-            "Windows",
-            "--runner-arch",
-            "ARM64",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
+    command = local[sys.executable][
+        str(SCRIPT_PATH),
+        "toolchain",
+        "--target",
+        "aarch64-pc-windows-gnu",
+        "--runner-os",
+        "Windows",
+        "--runner-arch",
+        "ARM64",
+    ]
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(command, method="run"),
+    )
+    result = RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
     assert result.returncode == 0
     assert result.stdout.strip() == f"{default}-aarch64-pc-windows-gnu"

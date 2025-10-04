@@ -3,24 +3,44 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import typing as typ
 from pathlib import Path
 
+from plumbum import local
 
-def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+from cmd_utils import run_cmd
+
+
+class RunResult(typ.NamedTuple):
+    """Container for script execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def run_script(script: Path, *args: str) -> RunResult:
     """Execute *script* using ``uv run --script`` and return the process."""
-    cmd = ["uv", "run", "--script", str(script), *args]
+    command = local["uv"]["run", "--script", str(script)]
+    if args:
+        command = command[list(args)]
     merged = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=merged,
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(
+            command,
+            method="run",
+            env=merged,
+        ),
+    )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 

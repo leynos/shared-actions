@@ -4,16 +4,28 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
+
+from cmd_utils import run_cmd
+
+
+class RunResult(typ.NamedTuple):
+    """Container for validator execution results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_workspaces.py"
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
 
-def run_validator(workspaces: str) -> subprocess.CompletedProcess[str]:
+def run_validator(workspaces: str) -> RunResult:
     """Execute the validator with *workspaces* and return the completed process."""
     env = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
@@ -24,13 +36,19 @@ def run_validator(workspaces: str) -> subprocess.CompletedProcess[str]:
     uv_path = shutil.which("uv")
     if uv_path is None:
         pytest.skip(UV_NOT_FOUND_MESSAGE)
-    return subprocess.run(  # noqa: S603
-        [uv_path, "run", "--script", str(SCRIPT_PATH)],
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        check=False,
+    command = local[uv_path]["run", "--script", str(SCRIPT_PATH)]
+    code, stdout, stderr = typ.cast(
+        "tuple[int, str | bytes, str | bytes]",
+        run_cmd(
+            command,
+            method="run",
+            env=env,
+        ),
+    )
+    return RunResult(
+        code,
+        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
+        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
     )
 
 

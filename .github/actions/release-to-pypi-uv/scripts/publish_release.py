@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer>=0.17,<0.18"]
+# dependencies = ["plumbum", "typer>=0.17,<0.18"]
 # ///
 """Publish the built distributions using uv."""
 
@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import typer
+from plumbum import local
 
 
 def _ensure_python_runtime() -> None:
@@ -73,10 +74,10 @@ def main(index: str = "") -> None:
     """
     if index := index.strip():
         typer.echo(f"Publishing with uv to index '{index}'")
-        run_cmd(["uv", "publish", "--index", index])
+        run_cmd(local["uv"]["publish"]["--index", index])
     else:
         typer.echo("Publishing with uv to default index (PyPI)")
-        run_cmd(["uv", "publish"])
+        run_cmd(local["uv"]["publish"])
 
 
 def cli(index: str = INDEX_OPTION) -> None:

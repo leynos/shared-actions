@@ -7,6 +7,7 @@ import dataclasses as dc
 import hashlib
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import typing as typ
@@ -247,7 +248,12 @@ class ChecksumManifestEntryMissingError(RuntimeError):
 
 def polythene_cmd(polythene: Command, *args: str) -> str:
     """Execute ``polythene`` with ``uv run`` and return its output."""
-    return run_cmd(local["uv"]["run", *polythene, *args])
+    try:
+        return run_cmd(local["uv"]["run", *polythene, *args])
+    except subprocess.CalledProcessError as exc:
+        raise ProcessExecutionError(
+            exc.cmd, exc.returncode, exc.output, exc.stderr
+        ) from exc
 
 
 def polythene_exec(polythene: Command, uid: str, store: str, *cmd: str) -> str:
@@ -261,14 +267,20 @@ def polythene_rootfs(polythene: Command, image: str) -> typ.Iterator[PolytheneRo
     with tempfile.TemporaryDirectory() as store:
         try:
             pull_output = polythene_cmd(polythene, "pull", image, "--store", store)
-        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
+        except (
+            ProcessExecutionError,
+            subprocess.CalledProcessError,
+        ) as exc:  # pragma: no cover - exercised in CI only
             raise IsolationUnavailableError(str(exc)) from exc
         uid = pull_output.splitlines()[-1].strip()
         if not uid:
             raise IsolationUnavailableError(IsolationUnavailableError.EMPTY_UID_MESSAGE)
         try:
             polythene_exec(polythene, uid, store, "true")
-        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
+        except (
+            ProcessExecutionError,
+            subprocess.CalledProcessError,
+        ) as exc:  # pragma: no cover - exercised in CI only
             raise IsolationUnavailableError(str(exc)) from exc
         yield PolytheneRootfs(command=polythene, uid=uid, store=Path(store))
 
@@ -328,7 +340,7 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                         sums_path,
                     ]
                 )
-            except ProcessExecutionError as exc:
+            except (ProcessExecutionError, subprocess.CalledProcessError) as exc:
                 raise ChecksumDownloadError(checks_url) from exc
             try:
                 sums_text = sums_path.read_text(encoding="utf-8")

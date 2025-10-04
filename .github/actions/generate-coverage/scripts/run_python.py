@@ -79,7 +79,7 @@ def main(
 
     cmd = coverage_cmd_for_fmt(fmt, out)
     try:
-        run_cmd(cmd, fg=True)
+        run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
 

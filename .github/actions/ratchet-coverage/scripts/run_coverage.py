@@ -41,7 +41,7 @@ def main(
     if args:
         cmd = cmd[shlex.split(args)]
     try:
-        retcode, output, err = run_cmd(cmd, retcode=None)
+        retcode, output, err = run_cmd(cmd, method="run")
     except ProcessExecutionError as exc:  # Should not happen but guard anyway
         retcode, output, err = exc.retcode, exc.stdout, exc.stderr
     if retcode != 0:

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from plumbum.commands.processes import ProcessExecutionError
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_polythene.py"
@@ -165,3 +166,52 @@ def test_polythene_rootfs_rejects_empty_identifier(
         ),
     ):
         pass
+
+
+def test_polythene_rootfs_surfaces_missing_dependencies(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Missing sandbox dependencies produce a descriptive ValidationError."""
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    process_error = ProcessExecutionError(
+        ("uv", "run", "polythene", "exec"),
+        126,
+        "",
+        (
+            b"Required command not found: bwrap\n"
+            b"All isolation modes unavailable (bwrap/proot/chroot).\n"
+        ),
+    )
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        argv = tuple(getattr(command, "argv", ()))
+        if "pull" in argv:
+            return "session-uid\n"
+        error_message = "command failed"
+        raise validate_polythene_module.ValidationError(
+            error_message
+        ) from process_error
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+
+    store = tmp_path / "store"
+    polythene = tmp_path / "polythene.py"
+    polythene.write_text("#!/usr/bin/env python\n")
+    command = (polythene.as_posix(),)
+
+    with (
+        pytest.raises(validate_polythene_module.ValidationError) as excinfo,
+        validate_polythene_module.polythene_rootfs(
+            command,
+            "docker.io/library/debian:bookworm",
+            store,
+        ),
+    ):
+        pass
+
+    message = str(excinfo.value)
+    assert "bubblewrap" in message
+    assert "proot" in message

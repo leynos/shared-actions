@@ -34,6 +34,38 @@ __all__ = sorted(
 )
 
 
+def _decode_stream(value: object) -> str:
+    """Return ``value`` normalised as a UTF-8 ``str``."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _format_isolation_error(exc: ValidationError) -> str | None:
+    """Return a helpful message when sandbox dependencies are missing."""
+    cause = exc.__cause__
+    if not isinstance(cause, ProcessExecutionError):
+        return None
+
+    stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+    if not stderr_text:
+        return None
+
+    if (
+        "All isolation modes unavailable" in stderr_text
+        or "Required command not found" in stderr_text
+    ):
+        return (
+            "polythene could not start because sandbox dependencies are missing. "
+            "Install either bubblewrap (`bwrap`) or proot on the runner to enable "
+            "package validation."
+        )
+
+    return None
+
+
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
@@ -100,9 +132,11 @@ def polythene_rootfs(
     ensure_directory(session.root, exist_ok=True)
     try:
         session.exec("true")
-    except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-        message = f"polythene exec failed: {exc}"
-        raise ValidationError(message) from exc
+    except ValidationError as exc:
+        formatted = _format_isolation_error(exc)
+        if formatted is not None:
+            raise ValidationError(formatted) from exc
+        raise
     try:
         yield session
     finally:

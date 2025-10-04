@@ -7,12 +7,9 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-from shared_actions_conftest import CMD_MOX_UNSUPPORTED
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
-
-    from shared_actions_conftest import CmdMox
 
 
 def test_ensure_allowed_executable_accepts_valid_name(
@@ -37,36 +34,48 @@ def test_ensure_allowed_executable_rejects_unknown(
         utils_module.ensure_allowed_executable(exe_path, ("rustup", "rustup.exe"))
 
 
-@CMD_MOX_UNSUPPORTED
-def test_run_validated_invokes_subprocess_with_validated_path(
+def test_run_validated_invokes_run_completed_process(
     utils_module: ModuleType,
-    cmd_mox: CmdMox,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    """run_validated executes subprocess.run with the validated executable."""
-    shim_dir = cmd_mox.environment.shim_dir
-    assert shim_dir is not None
-    exe_path = shim_dir / "docker.exe"
-    spy = cmd_mox.spy("docker.exe").with_args("info").returns(stdout="ok")
+    """run_validated delegates execution to cmd_utils.run_completed_process."""
+    exe_path = tmp_path / "docker.exe"
+    exe_path.write_text("", encoding="utf-8")
 
-    cmd_mox.replay()
+    captured_calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run_completed_process(
+        args: typ.Sequence[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        captured_calls.append((list(args), dict(kwargs)))
+        return subprocess.CompletedProcess(tuple(args), 0, "ok", "")
+
+    monkeypatch.setattr(
+        utils_module, "run_completed_process", fake_run_completed_process
+    )
+
     result = utils_module.run_validated(
         exe_path,
-        ["info"],
+        ("info",),
         allowed_names=("docker", "docker.exe"),
-        check=True,
         capture_output=True,
-        text=True,
+        check=True,
     )
-    cmd_mox.verify()
 
-    assert isinstance(result, subprocess.CompletedProcess), (
-        "run_validated should return subprocess.CompletedProcess"
-    )
-    assert result.args[0] == str(exe_path), (
-        "subprocess should be invoked with the validated executable path"
-    )
-    assert result.stdout == "ok", "stdout should propagate from the command double"
-    assert spy.call_count == 1, "command double should be invoked exactly once"
+    assert isinstance(result, subprocess.CompletedProcess)
+    assert result.stdout == "ok"
+    assert captured_calls == [
+        (
+            [str(exe_path), "info"],
+            {
+                "capture_output": True,
+                "check": True,
+                "text": True,
+            },
+        )
+    ], "run_completed_process should be called with validated path and defaults"
 
 
 def test_run_validated_raises_for_unexpected_executable(

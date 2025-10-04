@@ -94,6 +94,104 @@ Command = cabc.Sequence[str] | SupportsFormulate
 KwargDict = dict[str, object]
 
 
+def _prepare_stdio_kwargs(
+    *,
+    capture_output: bool,
+    stdout: object | None,
+    stderr: object | None,
+) -> dict[str, object]:
+    """Return keyword arguments that configure stdio handling."""
+    if capture_output and (stdout is not None or stderr is not None):
+        msg = "stdout and stderr arguments may not be used with capture_output"
+        raise ValueError(msg)
+
+    stdio_kwargs: dict[str, object] = {}
+    if capture_output:
+        stdio_kwargs["stdout"] = subprocess.PIPE
+        stdio_kwargs["stderr"] = subprocess.PIPE
+        return stdio_kwargs
+
+    if stdout is not None:
+        stdio_kwargs["stdout"] = stdout
+    if stderr is not None:
+        stdio_kwargs["stderr"] = stderr
+    return stdio_kwargs
+
+
+def _normalize_text_mode(
+    *,
+    text: bool | None,
+    encoding: str | None,
+    errors: str | None,
+    universal_newlines: bool | None,
+) -> bool | None:
+    """Return the text mode flag derived from subprocess compatibility args."""
+    text_mode = text if text is not None else universal_newlines
+    if encoding is not None or errors is not None:
+        return True
+    return text_mode
+
+
+def _collect_runtime_env(
+    env: cabc.Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    """Return an environment mapping reflecting local and process mutations."""
+    plumbum_env = typ.cast("cabc.Mapping[str, str]", local.env)
+    base_env: dict[str, str] = {
+        key: str(value) for key, value in plumbum_env.items()
+    }
+    runtime_env = base_env.copy()
+    runtime_env.update({key: str(value) for key, value in os.environ.items()})
+    if env is not None:
+        runtime_env.update({key: str(value) for key, value in env.items()})
+    if runtime_env == base_env:
+        return None
+    return runtime_env
+
+
+def _resolve_command(
+    command_args: cabc.Sequence[str],
+    runtime_env: cabc.Mapping[str, str] | None,
+) -> _SupportsPlumbumRun:
+    """Return a plumbum command with the desired environment applied."""
+    command_obj = typ.cast(
+        "_SupportsPlumbumRun", local[command_args[0]][command_args[1:]]
+    )
+    if runtime_env:
+        command_obj = command_obj.with_env(**runtime_env)
+    return command_obj
+
+
+def _build_popen_kwargs(
+    *,
+    capture_output: bool,
+    stdout: object | None,
+    stderr: object | None,
+    text_mode: bool | None,
+    encoding: str | None,
+    errors: str | None,
+    cwd: str | os.PathLike[str] | None,
+    stdin: object | None,
+) -> dict[str, object]:
+    """Return the keyword arguments passed to ``popen``."""
+    popen_kwargs = _prepare_stdio_kwargs(
+        capture_output=capture_output,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    if text_mode is not None:
+        popen_kwargs["text"] = text_mode
+    if encoding is not None:
+        popen_kwargs["encoding"] = encoding
+    if errors is not None:
+        popen_kwargs["errors"] = errors
+    if cwd is not None:
+        popen_kwargs["cwd"] = os.fspath(cwd)
+    if stdin is not None:
+        popen_kwargs["stdin"] = stdin
+    return popen_kwargs
+
+
 def run_completed_process(
     args: cabc.Sequence[str],
     *,
@@ -116,49 +214,27 @@ def run_completed_process(
         msg = "run_completed_process requires at least one argument"
         raise ValueError(msg)
 
-    # Sync plumbum's environment with any runtime mutations (e.g. cmd-mox shims).
-    env_mapping = typ.cast(
-        "cabc.MutableMapping[str, str]",
-        local.env,
+    runtime_env = _collect_runtime_env(env)
+    command_obj = _resolve_command(command_args, runtime_env)
+
+    text_mode = _normalize_text_mode(
+        text=text,
+        encoding=encoding,
+        errors=errors,
+        universal_newlines=universal_newlines,
     )
-    env_mapping.update(dict(os.environ))
-
-    if capture_output and (stdout is not None or stderr is not None):
-        msg = "stdout and stderr arguments may not be used with capture_output"
-        raise ValueError(msg)
-
-    command_obj = typ.cast(
-        "_SupportsPlumbumRun", local[command_args[0]][command_args[1:]]
+    popen_kwargs = _build_popen_kwargs(
+        capture_output=capture_output,
+        stdout=stdout,
+        stderr=stderr,
+        text_mode=text_mode,
+        encoding=encoding,
+        errors=errors,
+        cwd=cwd,
+        stdin=stdin,
     )
-    if env is not None:
-        command_obj = command_obj.with_env(
-            **{key: str(value) for key, value in env.items()}
-        )
 
-    text_mode: bool | None = text if text is not None else universal_newlines
-    if encoding is not None or errors is not None:
-        text_mode = True
-
-    popen_kwargs: dict[str, object] = {}
-    if capture_output:
-        popen_kwargs["stdout"] = subprocess.PIPE
-        popen_kwargs["stderr"] = subprocess.PIPE
-    else:
-        if stdout is not None:
-            popen_kwargs["stdout"] = stdout
-        if stderr is not None:
-            popen_kwargs["stderr"] = stderr
-
-    if text_mode is not None:
-        popen_kwargs["text"] = text_mode
-    if encoding is not None:
-        popen_kwargs["encoding"] = encoding
-    if errors is not None:
-        popen_kwargs["errors"] = errors
-    if cwd is not None:
-        popen_kwargs["cwd"] = os.fspath(cwd)
-    if stdin is not None:
-        popen_kwargs["stdin"] = stdin
+    escaped_args = tuple(shlex.quote(part) for part in command_args)
     process = command_obj.popen(**popen_kwargs)
 
     try:
@@ -169,10 +245,8 @@ def run_completed_process(
             process.communicate()
         timeout_value = timeout if timeout is not None else exc.timeout
         raise subprocess.TimeoutExpired(
-            command_args, timeout_value, output=exc.output, stderr=exc.stderr
+            escaped_args, timeout_value, output=exc.output, stderr=exc.stderr
         ) from exc
-
-    returncode = process.returncode
 
     captured_stdout: str | bytes | None = None
     captured_stderr: str | bytes | None = None
@@ -183,16 +257,16 @@ def run_completed_process(
 
     completed: subprocess.CompletedProcess[str | bytes | None]
     completed = subprocess.CompletedProcess(
-        command_args,
-        returncode,
+        escaped_args,
+        process.returncode,
         stdout=captured_stdout,
         stderr=captured_stderr,
     )
 
-    if check and returncode != 0:
+    if check and process.returncode != 0:
         raise subprocess.CalledProcessError(
-            returncode,
-            command_args,
+            process.returncode,
+            escaped_args,
             output=captured_stdout,
             stderr=captured_stderr,
         )
@@ -267,6 +341,16 @@ def run_cmd(
     if fg:
         if timeout is not None:
             if isinstance(cmd, SupportsRun):
+                capture_output = bool(run_kwargs.pop("capture_output", False))
+                stdio_kwargs = _prepare_stdio_kwargs(
+                    capture_output=capture_output,
+                    stdout=run_kwargs.get("stdout"),
+                    stderr=run_kwargs.get("stderr"),
+                )
+                run_kwargs.update(stdio_kwargs)
+                if capture_output:
+                    msg = "capture_output may not be used with fg=True"
+                    raise TypeError(msg)
                 run_kwargs.setdefault("stdout", None)
                 run_kwargs.setdefault("stderr", None)
                 try:

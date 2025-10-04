@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import typing as typ
 from pathlib import Path
 
 from shared_actions_conftest import REQUIRES_UV
+
+from cmd_utils import run_completed_process
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import subprocess
 
 pytestmark = REQUIRES_UV
 
@@ -16,7 +21,7 @@ def run_script(
 ) -> subprocess.CompletedProcess[str]:
     """Execute ``determine_release`` with a controlled environment."""
     cmd = ["uv", "run", "--script", str(script)]
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         cmd,
         capture_output=True,
         encoding="utf-8",

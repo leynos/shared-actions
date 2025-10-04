@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer", "packaging"]
+# dependencies = ["packaging", "plumbum", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 

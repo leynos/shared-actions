@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import typing as typ
 from pathlib import Path
 
 import yaml
+
+from cmd_utils import run_completed_process
 
 if typ.TYPE_CHECKING:
     from cmd_mox import CmdMox
@@ -69,6 +70,6 @@ def test_action_run_step_invokes_validate_script(
     env["GITHUB_ACTION_PATH"] = str(action_dir)
 
     command = ["/usr/bin/env", "bash", "-c", run_script]
-    subprocess.run(command, check=True, cwd=tmp_path, env=env)  # noqa: S603
+    run_completed_process(command, check=True, cwd=tmp_path, env=env)
 
     cmd_mox.verify()

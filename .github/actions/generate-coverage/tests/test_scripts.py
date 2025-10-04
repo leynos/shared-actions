@@ -6,14 +6,16 @@ import contextlib
 import importlib.util
 import io
 import os
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
 
+from cmd_utils import run_completed_process
+
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
+    import subprocess
     from types import ModuleType
 
     from shellstub import StubManager
@@ -39,7 +41,7 @@ def run_script(
         f"{root}{os.pathsep}{current_pp}" if current_pp else str(root)
     )
     merged["PYTHONIOENCODING"] = "utf-8"
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         cmd,
         capture_output=True,
         encoding="utf-8",

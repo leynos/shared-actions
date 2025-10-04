@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import importlib
 import shutil
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+
+from cmd_utils import run_completed_process
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import subprocess
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
@@ -82,7 +86,7 @@ def run_script(
         cmd = [uv_path, "run", python_exe, str(script), *args]
     else:
         cmd = [python_exe, str(script), *args]
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         cmd,
         capture_output=True,
         encoding="utf-8",

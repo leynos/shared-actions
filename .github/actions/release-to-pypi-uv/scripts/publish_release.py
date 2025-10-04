@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["typer>=0.17,<0.18"]
+# dependencies = ["plumbum", "typer>=0.17,<0.18"]
 # ///
 """Publish the built distributions using uv."""
 

@@ -1,8 +1,7 @@
 """Utilities for echoing and running external commands.
 
-Provides a single entrypoint, ``run_cmd``, that uniformly echoes and
-executes either raw argv sequences or adapter objects exposing
-``formulate()``.
+Provides helpers that uniformly echo commands or execute them via
+``plumbum`` while returning :class:`subprocess.CompletedProcess` objects.
 
 Examples
 --------
@@ -14,14 +13,33 @@ Examples
 from __future__ import annotations
 
 import collections.abc as cabc
+import contextlib
+import os
 import shlex
 import subprocess
 import typing as typ
 
 import typer
+from plumbum import local
+from plumbum.commands.processes import (  # pyright: ignore[reportMissingTypeStubs]
+    ProcessTimedOut,
+)
 
-__all__ = [
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+
+    class _SupportsPlumbumRun(typ.Protocol):
+        def with_env(self, **env: str) -> _SupportsPlumbumRun: ...
+
+        def run(
+            self, /, *args: object, **kwargs: object
+        ) -> tuple[int, str | None, str | None]: ...
+
+        def popen(self, /, **kwargs: object) -> subprocess.Popen[typ.Any]: ...
+
+
+__all__: list[str] = [
     "run_cmd",
+    "run_completed_process",
 ]
 
 
@@ -74,6 +92,112 @@ class SupportsAnd(typ.Protocol):
 Command = cabc.Sequence[str] | SupportsFormulate
 
 KwargDict = dict[str, object]
+
+
+def run_completed_process(
+    args: cabc.Sequence[str],
+    *,
+    capture_output: bool = False,
+    check: bool = False,
+    text: bool | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
+    timeout: float | None = None,
+    env: cabc.Mapping[str, str] | None = None,
+    cwd: str | os.PathLike[str] | None = None,
+    stdin: object | None = None,
+    stdout: object | None = None,
+    stderr: object | None = None,
+    universal_newlines: bool | None = None,
+) -> subprocess.CompletedProcess[str | bytes | None]:
+    """Execute *args* using :mod:`plumbum` and return a completed process."""
+    command_args = [str(part) for part in args]
+    if not command_args:
+        msg = "run_completed_process requires at least one argument"
+        raise ValueError(msg)
+
+    # Sync plumbum's environment with any runtime mutations (e.g. cmd-mox shims).
+    env_mapping = typ.cast(
+        "cabc.MutableMapping[str, str]",
+        local.env,
+    )
+    env_mapping.update(dict(os.environ))
+
+    if capture_output and (stdout is not None or stderr is not None):
+        msg = "stdout and stderr arguments may not be used with capture_output"
+        raise ValueError(msg)
+
+    command_obj = typ.cast(
+        "_SupportsPlumbumRun", local[command_args[0]][command_args[1:]]
+    )
+    if env is not None:
+        command_obj = command_obj.with_env(
+            **{key: str(value) for key, value in env.items()}
+        )
+
+    text_mode: bool | None = text if text is not None else universal_newlines
+    if encoding is not None or errors is not None:
+        text_mode = True
+
+    popen_kwargs: dict[str, object] = {}
+    if capture_output:
+        popen_kwargs["stdout"] = subprocess.PIPE
+        popen_kwargs["stderr"] = subprocess.PIPE
+    else:
+        if stdout is not None:
+            popen_kwargs["stdout"] = stdout
+        if stderr is not None:
+            popen_kwargs["stderr"] = stderr
+
+    if text_mode is not None:
+        popen_kwargs["text"] = text_mode
+    if encoding is not None:
+        popen_kwargs["encoding"] = encoding
+    if errors is not None:
+        popen_kwargs["errors"] = errors
+    if cwd is not None:
+        popen_kwargs["cwd"] = os.fspath(cwd)
+    if stdin is not None:
+        popen_kwargs["stdin"] = stdin
+    process = command_obj.popen(**popen_kwargs)
+
+    try:
+        stdout_data, stderr_data = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        process.kill()
+        with contextlib.suppress(Exception):
+            process.communicate()
+        timeout_value = timeout if timeout is not None else exc.timeout
+        raise subprocess.TimeoutExpired(
+            command_args, timeout_value, output=exc.output, stderr=exc.stderr
+        ) from exc
+
+    returncode = process.returncode
+
+    captured_stdout: str | bytes | None = None
+    captured_stderr: str | bytes | None = None
+    if popen_kwargs.get("stdout") == subprocess.PIPE:
+        captured_stdout = stdout_data
+    if popen_kwargs.get("stderr") == subprocess.PIPE:
+        captured_stderr = stderr_data
+
+    completed: subprocess.CompletedProcess[str | bytes | None]
+    completed = subprocess.CompletedProcess(
+        command_args,
+        returncode,
+        stdout=captured_stdout,
+        stderr=captured_stderr,
+    )
+
+    if check and returncode != 0:
+        raise subprocess.CalledProcessError(
+            returncode,
+            command_args,
+            output=captured_stdout,
+            stderr=captured_stderr,
+        )
+
+    return completed
 
 
 def _merge_timeout(timeout: float | None, run_kwargs: KwargDict) -> float | None:
@@ -134,9 +258,9 @@ def run_cmd(
             )
             raise TypeError(msg)
         if fg:
-            subprocess.run(list(cmd), check=True, timeout=timeout)  # noqa: S603
+            subprocess.run(list(cmd), check=True, timeout=timeout)  # noqa: S603, TID251
             return 0
-        return subprocess.check_call(list(cmd), timeout=timeout)  # noqa: S603
+        return subprocess.check_call(list(cmd), timeout=timeout)  # noqa: S603, TID251
 
     args = list(cmd.formulate())
     typer.echo(f"$ {shlex.join(args)}")
@@ -145,16 +269,12 @@ def run_cmd(
             if isinstance(cmd, SupportsRun):
                 run_kwargs.setdefault("stdout", None)
                 run_kwargs.setdefault("stderr", None)
-                from plumbum.commands.processes import (  # pyright: ignore[reportMissingTypeStubs]
-                    ProcessTimedOut,
-                )
-
                 try:
                     cmd.run(timeout=timeout, **run_kwargs)
                 except ProcessTimedOut as exc:
                     raise subprocess.TimeoutExpired(args, timeout) from exc
                 return 0
-            subprocess.run(args, check=True, timeout=timeout)  # noqa: S603
+            subprocess.run(args, check=True, timeout=timeout)  # noqa: S603, TID251
             return 0
         if isinstance(cmd, SupportsRunFg):
             if run_kwargs:

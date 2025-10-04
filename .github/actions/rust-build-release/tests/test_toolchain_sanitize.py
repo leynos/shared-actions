@@ -14,7 +14,7 @@ import pytest
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-from cmd_utils import run_cmd
+from cmd_utils import run_cmd, run_completed_process
 
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
@@ -45,7 +45,7 @@ def run_script(
     """Execute *script* in *cwd* and return the completed process."""
     cmd = [str(script), *args]
     try:
-        return subprocess.run(  # noqa: S603
+        return run_completed_process(
             cmd,
             capture_output=True,
             encoding="utf-8",

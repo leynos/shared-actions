@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import typing as typ
 from pathlib import Path
+
+from cmd_utils import run_completed_process
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import subprocess
 
 
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -15,7 +20,7 @@ def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         cmd,
         capture_output=True,
         encoding="utf-8",

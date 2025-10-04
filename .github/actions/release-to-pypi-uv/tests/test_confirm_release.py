@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-import subprocess
+import typing as typ
 from pathlib import Path
 
 from shared_actions_conftest import REQUIRES_UV
 
+from cmd_utils import run_completed_process
+
 from .test_determine_release import base_env
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import subprocess
 
 pytestmark = REQUIRES_UV
 
@@ -21,7 +26,7 @@ def run_confirm(
     env["INPUT_CONFIRM"] = confirm
     script = Path(__file__).resolve().parents[1] / "scripts" / "confirm_release.py"
     cmd = ["uv", "run", "--script", str(script)]
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         cmd,
         capture_output=True,
         encoding="utf-8",

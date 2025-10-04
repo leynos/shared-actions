@@ -6,14 +6,13 @@ import collections.abc as cabc
 import importlib
 import importlib.util
 import shutil
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
 
-from cmd_utils import run_cmd
+from cmd_utils import run_cmd, run_completed_process
 
 try:
     from ._packaging_utils import (
@@ -68,6 +67,7 @@ except Exception:  # noqa: BLE001
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 if typ.TYPE_CHECKING:
+    import subprocess
     import types as types_module
 
     ModuleType = types_module.ModuleType
@@ -143,6 +143,13 @@ class ModuleHarness:
         """Patch an arbitrary attribute on the wrapped module."""
         self.monkeypatch.setattr(self.module, name, value)
 
+    def patch_subprocess_run(
+        self,
+        func: cabc.Callable[..., subprocess.CompletedProcess[str]],
+    ) -> None:
+        """Patch ``run_validated`` to use *func* within the wrapped module."""
+        self.monkeypatch.setattr(self.module, "run_validated", func)
+
 
 HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 
@@ -186,7 +193,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         rustup_path = shutil.which("rustup")
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
-        result = subprocess.run(  # noqa: S603
+        result = run_completed_process(
             [rustup_path, "toolchain", "list"],
             capture_output=True,
             text=True,

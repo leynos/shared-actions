@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import typing as typ
 from pathlib import Path
 
 import pytest
+
+from cmd_utils import run_completed_process
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import subprocess
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_workspaces.py"
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
@@ -24,7 +29,7 @@ def run_validator(workspaces: str) -> subprocess.CompletedProcess[str]:
     uv_path = shutil.which("uv")
     if uv_path is None:
         pytest.skip(UV_NOT_FOUND_MESSAGE)
-    return subprocess.run(  # noqa: S603
+    return run_completed_process(
         [uv_path, "run", "--script", str(SCRIPT_PATH)],
         capture_output=True,
         encoding="utf-8",

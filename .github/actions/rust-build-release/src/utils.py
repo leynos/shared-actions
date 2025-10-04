@@ -3,9 +3,35 @@
 from __future__ import annotations
 
 import os  # noqa: TC003
-import subprocess
 import typing as typ
 from pathlib import Path
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import collections.abc as cabc
+    import subprocess
+
+    class _RunCompletedProcess(typ.Protocol):
+        def __call__(
+            self,
+            args: cabc.Sequence[str],
+            *,
+            capture_output: bool = False,
+            check: bool = False,
+            text: bool | None = None,
+            encoding: str | None = None,
+            errors: str | None = None,
+            timeout: float | None = None,
+            env: cabc.Mapping[str, str] | None = None,
+            cwd: str | os.PathLike[str] | None = None,
+            stdin: object | None = None,
+            stdout: object | None = None,
+            stderr: object | None = None,
+            universal_newlines: bool | None = None,
+        ) -> subprocess.CompletedProcess[str | bytes | None]: ...
+
+    run_completed_process: _RunCompletedProcess
+else:
+    from cmd_utils import run_completed_process
 
 
 class UnexpectedExecutableError(ValueError):
@@ -43,5 +69,5 @@ def run_validated(
         and "universal_newlines" not in subprocess_kwargs
     ):
         subprocess_kwargs["text"] = True
-    result = subprocess.run([exec_path, *args], **subprocess_kwargs)  # noqa: S603
+    result = run_completed_process([exec_path, *args], **subprocess_kwargs)
     return typ.cast("subprocess.CompletedProcess[str]", result)

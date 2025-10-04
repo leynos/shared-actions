@@ -40,6 +40,10 @@ class PackagingConfig:
     release: str
 
 
+Command = tuple[str, ...]
+DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
+
+
 @dc.dataclass(frozen=True, slots=True)
 class PackagingProject:
     """Resolved filesystem paths required for packaging tests."""
@@ -47,7 +51,7 @@ class PackagingProject:
     project_dir: Path
     build_script: Path
     package_script: Path
-    polythene_script: Path
+    polythene_command: Command
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -77,7 +81,7 @@ def packaging_project() -> PackagingProject:
         project_dir=project_dir,
         build_script=actions_root / "rust-build-release" / "src" / "main.py",
         package_script=tests_root / "scripts" / "package.py",
-        polythene_script=tests_root / "scripts" / "polythene.py",
+        polythene_command=DEFAULT_POLYTHENE_COMMAND,
     )
 
 
@@ -187,13 +191,13 @@ def test_coerce_optional_path_uses_default_for_blank_env(
 class PolytheneRootfs:
     """Descriptor for an exported polythene root filesystem."""
 
-    polythene: Path
+    command: Command
     uid: str
     store: Path
 
     def exec(self, *cmd: str) -> str:
         """Execute ``cmd`` inside the rootfs via polythene."""
-        return polythene_exec(self.polythene, self.uid, self.store.as_posix(), *cmd)
+        return polythene_exec(self.command, self.uid, self.store.as_posix(), *cmd)
 
     @property
     def root(self) -> Path:
@@ -241,18 +245,18 @@ class ChecksumManifestEntryMissingError(RuntimeError):
         super().__init__(f"nfpm checksum manifest missing entry for {asset} from {url}")
 
 
-def polythene_cmd(polythene: Path, *args: str) -> str:
+def polythene_cmd(polythene: Command, *args: str) -> str:
     """Execute ``polythene`` with ``uv run`` and return its output."""
-    return run_cmd(local["uv"]["run", polythene.as_posix(), *args])
+    return run_cmd(local["uv"]["run", *polythene, *args])
 
 
-def polythene_exec(polythene: Path, uid: str, store: str, *cmd: str) -> str:
+def polythene_exec(polythene: Command, uid: str, store: str, *cmd: str) -> str:
     """Run a command inside the exported rootfs identified by ``uid``."""
     return polythene_cmd(polythene, "exec", uid, "--store", store, "--", *cmd)
 
 
 @contextlib.contextmanager
-def polythene_rootfs(polythene: Path, image: str) -> typ.Iterator[PolytheneRootfs]:
+def polythene_rootfs(polythene: Command, image: str) -> typ.Iterator[PolytheneRootfs]:
     """Yield an exported rootfs for ``image`` or raise ``IsolationUnavailableError``."""
     with tempfile.TemporaryDirectory() as store:
         try:
@@ -266,7 +270,7 @@ def polythene_rootfs(polythene: Path, image: str) -> typ.Iterator[PolytheneRootf
             polythene_exec(polythene, uid, store, "true")
         except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI only
             raise IsolationUnavailableError(str(exc)) from exc
-        yield PolytheneRootfs(polythene=polythene, uid=uid, store=Path(store))
+        yield PolytheneRootfs(command=polythene, uid=uid, store=Path(store))
 
 
 @contextlib.contextmanager

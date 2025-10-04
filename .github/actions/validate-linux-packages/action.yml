@@ -56,7 +56,7 @@ inputs:
     required: false
     default: docker.io/library/rockylinux:9
   polythene-path:
-    description: Override the path to the polythene sandbox script.
+    description: Override the path to the polythene CLI entry point.
     required: false
     default: ''
   polythene-store:

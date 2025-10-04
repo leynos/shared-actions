@@ -27,7 +27,7 @@ from validate_packages import (
 )
 from validate_polythene import (
     PolytheneSession,
-    default_polythene_path,
+    default_polythene_command,
     polythene_rootfs,
 )
 
@@ -90,7 +90,7 @@ class ValidationConfig:
     expected_paths: tuple[str, ...]
     executable_paths: tuple[str, ...]
     verify_command: tuple[str, ...]
-    polythene_script: Path
+    polythene_command: tuple[str, ...]
     timeout: int | None
     base_images: dict[str, str]
 
@@ -277,24 +277,28 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     )
     verify_tuple = tuple(normalise_command(inputs.verify_command))
 
-    polythene_script = inputs.polythene_path or default_polythene_path()
-    # The helper is launched via ``uv run`` which reads the script directly,
-    # so the file only needs to exist and does not require the executable bit.
-    if not polythene_script.exists():
-        message = f"polythene script not found: {polythene_script}"
-        raise ValidationError(message)
-    try:
-        with polythene_script.open("r"):
-            pass
-    except PermissionError as exc:
-        message = (
-            "polythene script is not readable due to permission error: "
-            f"{polythene_script}"
-        )
-        raise ValidationError(message) from exc
-    except OSError as exc:
-        message = f"polythene script could not be read: {polythene_script} ({exc})"
-        raise ValidationError(message) from exc
+    polythene_path = inputs.polythene_path
+    if polythene_path is None:
+        polythene_command = default_polythene_command()
+    else:
+        # The helper is launched via ``uv run`` which reads the script directly,
+        # so the file only needs to exist and does not require the executable bit.
+        if not polythene_path.exists():
+            message = f"polythene script not found: {polythene_path}"
+            raise ValidationError(message)
+        try:
+            with polythene_path.open("r"):
+                pass
+        except PermissionError as exc:
+            message = (
+                "polythene script is not readable due to permission error: "
+                f"{polythene_path}"
+            )
+            raise ValidationError(message) from exc
+        except OSError as exc:
+            message = f"polythene script could not be read: {polythene_path} ({exc})"
+            raise ValidationError(message) from exc
+        polythene_command = (polythene_path.as_posix(),)
 
     return ValidationConfig(
         packages_dir=packages_dir_value,
@@ -307,7 +311,7 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
         expected_paths=expected_paths_value,
         executable_paths=executable_paths_value,
         verify_command=verify_tuple,
-        polythene_script=polythene_script,
+        polythene_command=polythene_command,
         timeout=timeout_value,
         base_images={
             "deb": inputs.deb_base_image,
@@ -382,7 +386,7 @@ def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> Non
 
     def sandbox_factory() -> typ.ContextManager["PolytheneSession"]:  # noqa: UP037
         return polythene_rootfs(
-            config.polythene_script,
+            config.polythene_command,
             image,
             store_dir,
             timeout=config.timeout,

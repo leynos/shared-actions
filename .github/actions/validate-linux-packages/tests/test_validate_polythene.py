@@ -42,6 +42,11 @@ class _FakeCommand:
         self._calls.append(self.argv)
         return ""
 
+    def __getitem__(self, value: str | tuple[str, ...]) -> _FakeCommand:
+        if not isinstance(value, tuple):
+            value = (value,)
+        return _FakeCommand(self.argv + value, self._calls)
+
 
 class _FakeLocal:
     def __init__(self, calls: list[tuple[str, ...]]) -> None:
@@ -53,14 +58,13 @@ class _FakeLocal:
         return _FakeCommand(value, self._calls)
 
 
-def test_default_polythene_path_points_to_scripts(
+def test_default_polythene_command_uses_module(
     validate_polythene_module: object,
 ) -> None:
-    """default_polythene_path resolves to the linux-packages script."""
-    path = validate_polythene_module.default_polythene_path()
+    """default_polythene_command invokes the installed package."""
+    command = validate_polythene_module.default_polythene_command()
 
-    assert path.name == "polythene.py"
-    assert path.exists()
+    assert command == ("polythene",)
 
 
 def test_polythene_session_exec_respects_timeouts(
@@ -80,7 +84,7 @@ def test_polythene_session_exec_respects_timeouts(
     monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
 
     session = validate_polythene_module.PolytheneSession(
-        tmp_path / "polythene.py",
+        ("polythene",),
         "sandbox-uid",
         tmp_path,
         timeout=30,
@@ -113,14 +117,15 @@ def test_polythene_rootfs_yields_configured_session(
     store = tmp_path / "store"
     polythene = tmp_path / "polythene.py"
     polythene.write_text("#!/usr/bin/env python\n")
+    command = (polythene.as_posix(),)
 
     with validate_polythene_module.polythene_rootfs(
-        polythene,
+        command,
         "docker.io/library/debian:bookworm",
         store,
         timeout=12,
     ) as session:
-        assert session.script == polythene
+        assert session.command == command
         assert session.uid == "session-uid"
         assert session.store == store
         assert session.root.exists()
@@ -149,11 +154,12 @@ def test_polythene_rootfs_rejects_empty_identifier(
     store = tmp_path / "store"
     polythene = tmp_path / "polythene.py"
     polythene.write_text("#!/usr/bin/env python\n")
+    command = (polythene.as_posix(),)
 
     with (
         pytest.raises(validate_polythene_module.ValidationError),
         validate_polythene_module.polythene_rootfs(
-            polythene,
+            command,
             "docker.io/library/debian:bookworm",
             store,
         ),

@@ -6,6 +6,8 @@ import os
 import typing as typ
 from pathlib import Path
 
+from plumbum import local
+
 from cmd_utils import run_completed_process
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
@@ -14,14 +16,16 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing only
 
 def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Execute *script* using ``uv run --script`` and return the process."""
-    cmd = ["uv", "run", "--script", str(script), *args]
+    command = local["uv"]["run", "--script", str(script)]
+    if args:
+        command = command[list(args)]
     merged = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
     return run_completed_process(
-        cmd,
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",

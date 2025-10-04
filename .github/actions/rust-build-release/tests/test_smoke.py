@@ -9,6 +9,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from cmd_utils import run_completed_process
 
@@ -83,11 +84,13 @@ def run_script(
     python_exe = sys.executable or shutil.which("python") or "python"
     uv_path = shutil.which("uv")
     if uv_path is not None:
-        cmd = [uv_path, "run", python_exe, str(script), *args]
+        command = local[uv_path]["run", python_exe, str(script)]
     else:
-        cmd = [python_exe, str(script), *args]
+        command = local[python_exe][str(script)]
+    if args:
+        command = command[list(args)]
     return run_completed_process(
-        cmd,
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",

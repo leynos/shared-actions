@@ -15,6 +15,7 @@ from pathlib import Path
 
 import typer
 from packaging import version as pkg_version
+from plumbum import local
 from utils import (
     UnexpectedExecutableError,
     ensure_allowed_executable,
@@ -209,8 +210,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
         if not installed:
             try:
                 run_cmd(
-                    [
-                        "cargo",
+                    local["cargo"][
                         "install",
                         "--locked",
                         "cross",
@@ -221,8 +221,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
             except subprocess.CalledProcessError:
                 try:
                     run_cmd(
-                        [
-                            "cargo",
+                        local["cargo"][
                             "install",
                             "--locked",
                             "cross",

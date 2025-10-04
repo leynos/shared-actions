@@ -11,6 +11,10 @@ import pytest
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
+    from cmd_utils import SupportsFormulate
+else:  # pragma: no cover - typing helper fallback
+    SupportsFormulate = typ.Any
+
 
 def test_ensure_allowed_executable_accepts_valid_name(
     utils_module: ModuleType, tmp_path: Path
@@ -46,11 +50,11 @@ def test_run_validated_invokes_run_completed_process(
     captured_calls: list[tuple[list[str], dict[str, object]]] = []
 
     def fake_run_completed_process(
-        args: typ.Sequence[str],
+        cmd: SupportsFormulate,
         **kwargs: object,
     ) -> subprocess.CompletedProcess[str]:
-        captured_calls.append((list(args), dict(kwargs)))
-        return subprocess.CompletedProcess(tuple(args), 0, "ok", "")
+        captured_calls.append((list(cmd.formulate()), dict(kwargs)))
+        return subprocess.CompletedProcess(tuple(cmd.formulate()), 0, "ok", "")
 
     monkeypatch.setattr(
         utils_module, "run_completed_process", fake_run_completed_process

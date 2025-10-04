@@ -11,8 +11,14 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from cmd_utils import run_cmd, run_completed_process
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import SupportsFormulate
+else:  # pragma: no cover - typing helper fallback
+    SupportsFormulate = typ.Any
 
 try:
     from ._packaging_utils import (
@@ -121,13 +127,15 @@ class ModuleHarness:
         self.calls: list[list[str]] = []
 
     def patch_run_cmd(
-        self, side_effect: cabc.Callable[[list[str]], object | None] | None = None
+        self,
+        side_effect: cabc.Callable[[list[str]], object | None] | None = None,
     ) -> None:
         """Patch ``run_cmd`` to record calls and execute an optional side effect."""
 
-        def fake(cmd: list[str]) -> object | None:
-            self.calls.append(cmd)
-            return side_effect(cmd) if side_effect is not None else None
+        def fake(cmd: SupportsFormulate) -> object | None:
+            formulated = list(cmd.formulate())
+            self.calls.append(formulated)
+            return side_effect(formulated) if side_effect is not None else None
 
         self.monkeypatch.setattr(self.module, "run_cmd", fake)
 
@@ -194,7 +202,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
         result = run_completed_process(
-            [rustup_path, "toolchain", "list"],
+            local[rustup_path]["toolchain", "list"],
             capture_output=True,
             text=True,
             check=True,
@@ -213,8 +221,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                 else toolchain_version
             )
             run_cmd(
-                [
-                    "rustup",
+                local["rustup"][
                     "toolchain",
                     "install",
                     install_spec,

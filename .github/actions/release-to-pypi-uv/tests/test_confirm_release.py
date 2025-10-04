@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing as typ
 from pathlib import Path
 
+from plumbum import local
 from shared_actions_conftest import REQUIRES_UV
 
 from cmd_utils import run_completed_process
@@ -25,9 +26,9 @@ def run_confirm(
     env["EXPECTED"] = expected
     env["INPUT_CONFIRM"] = confirm
     script = Path(__file__).resolve().parents[1] / "scripts" / "confirm_release.py"
-    cmd = ["uv", "run", "--script", str(script)]
+    command = local["uv"]["run", "--script", str(script)]
     return run_completed_process(
-        cmd,
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",

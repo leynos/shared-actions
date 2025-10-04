@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from cmd_utils import run_completed_process
 
@@ -29,8 +30,9 @@ def run_validator(workspaces: str) -> subprocess.CompletedProcess[str]:
     uv_path = shutil.which("uv")
     if uv_path is None:
         pytest.skip(UV_NOT_FOUND_MESSAGE)
+    command = local[uv_path]["run", "--script", str(SCRIPT_PATH)]
     return run_completed_process(
-        [uv_path, "run", "--script", str(SCRIPT_PATH)],
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",

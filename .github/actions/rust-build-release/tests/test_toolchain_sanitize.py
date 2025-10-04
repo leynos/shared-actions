@@ -10,6 +10,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
@@ -43,10 +44,12 @@ def run_script(
     script: Path, *args: str, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Execute *script* in *cwd* and return the completed process."""
-    cmd = [str(script), *args]
+    command = local[str(script)]
+    if args:
+        command = command[list(args)]
     try:
         return run_completed_process(
-            cmd,
+            command,
             capture_output=True,
             encoding="utf-8",
             errors="replace",
@@ -58,7 +61,8 @@ def run_script(
         subprocess.SubprocessError,
         ValueError,
     ) as exc:
-        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
+        fallback_cmd = (str(script), *args)
+        return subprocess.CompletedProcess(fallback_cmd, 1, "", str(exc))
 
 
 def _host_linux_triple() -> str:
@@ -105,8 +109,7 @@ def test_accepts_toolchain_with_triple() -> None:
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     run_cmd(
-        [
-            "rustup",
+        local["rustup"][
             "toolchain",
             "install",
             RUST_TOOLCHAIN,
@@ -118,8 +121,7 @@ def test_accepts_toolchain_with_triple() -> None:
     # Ensure the host-qualified toolchain name exists as well
     # (no-op if already present).
     run_cmd(
-        [
-            "rustup",
+        local["rustup"][
             "toolchain",
             "install",
             toolchain_spec,

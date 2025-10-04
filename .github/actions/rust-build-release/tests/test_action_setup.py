@@ -7,6 +7,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 from typer.testing import CliRunner
 
 from cmd_utils import run_completed_process
@@ -104,13 +105,9 @@ def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:
 
 def test_script_validate_step_reports_error() -> None:
     """Running the script like the composite action reports invalid targets."""
+    command = local[sys.executable][str(SCRIPT_PATH), "validate", "short"]
     result = run_completed_process(
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            "validate",
-            "short",
-        ],
+        command,
         capture_output=True,
         text=True,
     )
@@ -122,18 +119,18 @@ def test_script_validate_step_reports_error() -> None:
 def test_script_toolchain_step_resolves_windows(toolchain_module: ModuleType) -> None:
     """Script execution mirrors the composite action's toolchain resolution."""
     default = toolchain_module.read_default_toolchain()
+    command = local[sys.executable][
+        str(SCRIPT_PATH),
+        "toolchain",
+        "--target",
+        "aarch64-pc-windows-gnu",
+        "--runner-os",
+        "Windows",
+        "--runner-arch",
+        "ARM64",
+    ]
     result = run_completed_process(
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            "toolchain",
-            "--target",
-            "aarch64-pc-windows-gnu",
-            "--runner-os",
-            "Windows",
-            "--runner-arch",
-            "ARM64",
-        ],
+        command,
         capture_output=True,
         text=True,
         check=False,

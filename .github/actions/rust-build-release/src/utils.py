@@ -6,14 +6,19 @@ import os  # noqa: TC003
 import typing as typ
 from pathlib import Path
 
+from plumbum import local
+
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import collections.abc as cabc
     import subprocess
 
+    class _SupportsFormulate(typ.Protocol):
+        def formulate(self) -> cabc.Sequence[str]: ...
+
     class _RunCompletedProcess(typ.Protocol):
         def __call__(
             self,
-            args: cabc.Sequence[str],
+            cmd: _SupportsFormulate,
             *,
             capture_output: bool = False,
             check: bool = False,
@@ -69,5 +74,6 @@ def run_validated(
         and "universal_newlines" not in subprocess_kwargs
     ):
         subprocess_kwargs["text"] = True
-    result = run_completed_process([exec_path, *args], **subprocess_kwargs)
+    command = local[exec_path][list(args)] if args else local[exec_path]
+    result = run_completed_process(command, **subprocess_kwargs)
     return typ.cast("subprocess.CompletedProcess[str]", result)

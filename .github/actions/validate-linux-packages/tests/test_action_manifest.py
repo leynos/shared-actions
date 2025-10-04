@@ -7,6 +7,7 @@ import typing as typ
 from pathlib import Path
 
 import yaml
+from plumbum import local
 
 from cmd_utils import run_completed_process
 
@@ -69,7 +70,7 @@ def test_action_run_step_invokes_validate_script(
     env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
     env["GITHUB_ACTION_PATH"] = str(action_dir)
 
-    command = ["/usr/bin/env", "bash", "-c", run_script]
+    command = local["/usr/bin/env"]["bash", "-c", run_script]
     run_completed_process(command, check=True, cwd=tmp_path, env=env)
 
     cmd_mox.verify()

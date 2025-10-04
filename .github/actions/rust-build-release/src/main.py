@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
 from cross_manager import ensure_cross
+from plumbum import local
 from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
@@ -217,8 +218,7 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
     """Install the requested *toolchain* channel via rustup."""
     try:
         run_cmd(
-            [
-                rustup_exec,
+            local[rustup_exec][
                 "toolchain",
                 "install",
                 toolchain,
@@ -270,7 +270,15 @@ def _ensure_target_installed(
 ) -> bool:
     """Attempt to install *target* for *toolchain_name*, returning success."""
     try:
-        run_cmd([rustup_exec, "target", "add", "--toolchain", toolchain_name, target])
+        run_cmd(
+            local[rustup_exec][
+                "target",
+                "add",
+                "--toolchain",
+                toolchain_name,
+                target,
+            ]
+        )
     except subprocess.CalledProcessError:
         typer.echo(
             f"::warning:: toolchain '{toolchain_name}' does not support "
@@ -325,8 +333,7 @@ def _decide_cross_usage(
         ):
             try:
                 run_cmd(
-                    [
-                        rustup_exec,
+                    local[rustup_exec][
                         "toolchain",
                         "install",
                         cross_toolchain_name,
@@ -459,16 +466,24 @@ def main(
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
             cross_engine_restorer = True
 
-    build_cmd = [
-        (decision.cross_path or "cross") if decision.use_cross else "cargo",
-        decision.cross_toolchain_spec
-        if decision.use_cross
-        else decision.cargo_toolchain_spec,
-        "build",
-        "--release",
-        "--target",
-        target_to_build,
-    ]
+    if decision.use_cross:
+        executor = local[decision.cross_path or "cross"]
+        build_cmd = executor[
+            decision.cross_toolchain_spec,
+            "build",
+            "--release",
+            "--target",
+            target_to_build,
+        ]
+    else:
+        executor = local["cargo"]
+        build_cmd = executor[
+            decision.cargo_toolchain_spec,
+            "build",
+            "--release",
+            "--target",
+            target_to_build,
+        ]
     try:
         run_cmd(build_cmd)
     except subprocess.CalledProcessError as exc:
@@ -489,8 +504,7 @@ def main(
                 "::warning:: cross failed to start a container; retrying with cargo",
                 err=True,
             )
-            fallback_cmd = [
-                "cargo",
+            fallback_cmd = local["cargo"][
                 decision.cargo_toolchain_spec,
                 "build",
                 "--release",

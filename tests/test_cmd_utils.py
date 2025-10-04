@@ -6,15 +6,20 @@ import subprocess
 import sys
 
 import pytest
+from plumbum import local
 
 from cmd_utils import run_completed_process
+
+
+def _python_command(*args: str) -> object:
+    return local[sys.executable][list(args)] if args else local[sys.executable]
 
 
 def test_run_completed_process_returns_bytes_by_default() -> None:
     """run_completed_process should return bytes when text mode is disabled."""
     script = "import sys; sys.stdout.buffer.write(b'hello')"
     result = run_completed_process(
-        [sys.executable, "-c", script],
+        _python_command("-c", script),
         capture_output=True,
     )
 
@@ -23,17 +28,17 @@ def test_run_completed_process_returns_bytes_by_default() -> None:
     assert result.stderr == b""
 
 
-def test_run_completed_process_empty_args_raises_value_error() -> None:
-    """run_completed_process should reject empty argument sequences."""
-    with pytest.raises(ValueError, match="requires at least one argument"):
-        run_completed_process([])
+def test_run_completed_process_rejects_non_plumbum_commands() -> None:
+    """Non-plumbum inputs should be rejected."""
+    with pytest.raises(TypeError, match="plumbum command"):
+        run_completed_process([sys.executable])
 
 
 def test_run_completed_process_supports_text_mode() -> None:
     """Enabling text mode should decode stdout and stderr as strings."""
     script = "import sys; sys.stdout.write('hello'); sys.stderr.write('oops')"
     result = run_completed_process(
-        [sys.executable, "-c", script],
+        _python_command("-c", script),
         capture_output=True,
         text=True,
     )
@@ -50,7 +55,7 @@ def test_run_completed_process_text_mode_with_encoding() -> None:
         "sys.stderr.buffer.write(b'err\\xe9')"
     )
     result = run_completed_process(
-        [sys.executable, "-c", script],
+        _python_command("-c", script),
         capture_output=True,
         text=True,
         encoding="latin-1",
@@ -68,7 +73,7 @@ def test_run_completed_process_text_mode_with_errors() -> None:
         "sys.stderr.buffer.write(b'fail\\xff')"
     )
     result = run_completed_process(
-        [sys.executable, "-c", script],
+        _python_command("-c", script),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -83,7 +88,7 @@ def test_run_completed_process_raises_on_non_zero_return() -> None:
     """check=True should raise :class:`subprocess.CalledProcessError`."""
     with pytest.raises(subprocess.CalledProcessError) as excinfo:
         run_completed_process(
-            [sys.executable, "-c", "import sys; sys.exit(7)"],
+            _python_command("-c", "import sys; sys.exit(7)"),
             capture_output=True,
             check=True,
         )
@@ -98,18 +103,16 @@ def test_run_completed_process_enforces_timeouts() -> None:
     script = "import time; time.sleep(10)"
     with pytest.raises(subprocess.TimeoutExpired):
         run_completed_process(
-            [sys.executable, "-c", script],
+            _python_command("-c", script),
             timeout=0.1,
         )
 
 
 def test_run_completed_process_capture_output_conflict() -> None:
     """capture_output may not be combined with explicit stdout/stderr streams."""
-    with pytest.raises(
-        ValueError, match="stdout and stderr arguments may not be used"
-    ):
+    with pytest.raises(ValueError, match="stdout and stderr arguments may not be used"):
         run_completed_process(
-            [sys.executable, "-c", "print('hi')"],
+            _python_command("-c", "print('hi')"),
             capture_output=True,
             stdout=subprocess.PIPE,
         )

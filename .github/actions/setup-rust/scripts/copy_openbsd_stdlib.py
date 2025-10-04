@@ -16,6 +16,7 @@ import shutil
 from pathlib import Path  # noqa: TC003
 
 import typer
+from plumbum import local
 
 from cmd_utils import run_cmd
 
@@ -41,9 +42,8 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
         shutil.copytree(artifact_dir, tmp)
     else:
         tmp.mkdir(parents=True, exist_ok=True)
-        cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
         try:
-            run_cmd(cmd)
+            run_cmd(local["rsync"]["-a", "--delete", f"{artifact_dir}/", str(tmp)])
         except FileNotFoundError:
             # Fallback when rsync is not available.
             shutil.copytree(artifact_dir, tmp, dirs_exist_ok=True)

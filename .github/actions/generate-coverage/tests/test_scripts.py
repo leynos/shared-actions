@@ -11,6 +11,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from cmd_utils import run_completed_process
 
@@ -33,7 +34,9 @@ def run_script(
     script: Path, env: dict[str, str], *args: str
 ) -> subprocess.CompletedProcess[str]:
     """Run ``script`` via ``uv`` with ``env`` and return the completed process."""
-    cmd = ["uv", "run", "--script", str(script), *args]
+    command = local["uv"]["run", "--script", str(script)]
+    if args:
+        command = command[list(args)]
     root = Path(__file__).resolve().parents[4]
     merged = {**os.environ, **env}
     current_pp = merged.get("PYTHONPATH", "")
@@ -42,7 +45,7 @@ def run_script(
     )
     merged["PYTHONIOENCODING"] = "utf-8"
     return run_completed_process(
-        cmd,
+        command,
         capture_output=True,
         encoding="utf-8",
         errors="replace",

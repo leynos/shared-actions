@@ -310,7 +310,10 @@ def test_polythene_rootfs_wraps_process_execution_error(
         argv = tuple(getattr(command, "argv", ()))
         if "pull" in argv:
             return "session-uid\n"
-        raise process_error
+        error_message = "command failed"
+        raise validate_polythene_module.ValidationError(
+            error_message
+        ) from process_error
 
     monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
 

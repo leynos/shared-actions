@@ -150,7 +150,7 @@ def polythene_rootfs(
     ]
     try:
         pull_output = run_text(pull_cmd, timeout=timeout)
-    except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
+    except ValidationError as exc:  # pragma: no cover - exercised in CI
         message = f"polythene pull failed: {exc}"
         raise ValidationError(message) from exc
     uid = pull_output.splitlines()[-1].strip()
@@ -165,17 +165,20 @@ def polythene_rootfs(
         formatted = _format_isolation_error(exc)
         if formatted is not None:
             raise ValidationError(formatted) from exc
+
+        cause = exc.__cause__
+        if isinstance(cause, ProcessExecutionError):
+            stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
+            message = f"polythene exec failed: {cause}"
+            if stderr is not None:
+                message = (
+                    f"{message}\n"
+                    f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                    f"{stderr}"
+                )
+            raise ValidationError(message) from exc
+
         raise
-    except ProcessExecutionError as exc:
-        stderr = _stderr_snippet(_decode_stream(getattr(exc, "stderr", "")))
-        message = f"polythene exec failed: {exc}"
-        if stderr is not None:
-            message = (
-                f"{message}\n"
-                f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
-                f"{stderr}"
-            )
-        raise ValidationError(message) from exc
     try:
         yield session
     finally:

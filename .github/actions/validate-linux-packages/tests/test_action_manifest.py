@@ -28,7 +28,7 @@ def test_manifest_configures_composite_action() -> None:
     assert install_step["shell"] == "bash"
     install_run = install_step["run"]
     assert "sudo apt update -y" in install_run
-    assert "sudo apt install -y nfpm podman bubblewrap proot mmdebstrap" in install_run
+    assert "sudo apt install -y podman bubblewrap proot mmdebstrap" in install_run
 
     validate_step = steps[2]
     assert validate_step["shell"] == "bash"

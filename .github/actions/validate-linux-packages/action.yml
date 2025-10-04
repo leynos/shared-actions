@@ -76,7 +76,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        sudo apt update -y && sudo apt install -y nfpm podman bubblewrap proot mmdebstrap
+        sudo apt update -y && sudo apt install -y podman bubblewrap proot mmdebstrap
     - name: Validate packages
       shell: bash
       working-directory: ${{ inputs.project-dir }}

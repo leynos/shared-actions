@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import platform
 import typing as typ
 
 from validate_exceptions import ValidationError
@@ -40,6 +41,44 @@ __all__ = [
 
 SandboxFactory = typ.Callable[[], typ.ContextManager[PolytheneSession]]
 MetaT = typ.TypeVar("MetaT", bound="_SupportsFiles")
+
+
+_HOST_ARCH_ALIAS_MAP: dict[str, set[str]] = {
+    "x86_64": {"x86_64", "amd64"},
+    "amd64": {"x86_64", "amd64"},
+    "aarch64": {"aarch64", "arm64"},
+    "arm64": {"aarch64", "arm64"},
+    "armv7l": {"armv7l", "armhf"},
+    "armv6l": {"armv6l", "armhf"},
+    "ppc64le": {"ppc64le"},
+    "s390x": {"s390x"},
+    "riscv64": {"riscv64"},
+    "loongarch64": {"loongarch64", "loong64"},
+    "loong64": {"loongarch64", "loong64"},
+}
+
+
+def _host_architectures() -> set[str]:
+    """Return aliases for the host processor architecture."""
+    machine = (platform.machine() or "").lower()
+    if not machine:
+        return set()
+    aliases = _HOST_ARCH_ALIAS_MAP.get(machine, {machine})
+    return {alias.lower() for alias in aliases}
+
+
+def _should_skip_sandbox(package_architecture: str | None) -> bool:
+    """Return ``True`` when sandbox checks should be skipped for the architecture."""
+    if not package_architecture:
+        return False
+    normalized = package_architecture.lower()
+    if normalized in {"all", "any", "noarch"}:
+        return False
+
+    host_arches = _host_architectures()
+    if not host_arches:
+        return False
+    return normalized not in host_arches
 
 
 class _SupportsFiles(typ.Protocol):
@@ -219,11 +258,25 @@ def _validate_package(
     install_command: tuple[str, ...],
     remove_command: tuple[str, ...] | None,
     install_error: str,
+    package_architecture: str | None = None,
+    package_format: str | None = None,
 ) -> None:
     metadata = inspect_fn(package_path)
     for validator in validators:
         validator(metadata)
     ensure_subset(expected_paths, metadata.files, payload_label)
+
+    if _should_skip_sandbox(package_architecture):
+        host_machine = platform.machine() or "unknown"
+        format_label = f"{package_format} package" if package_format else "package"
+        logger.info(
+            "skipping %s sandbox validation: package architecture %s "
+            "is not supported on host %s",
+            format_label,
+            package_architecture,
+            host_machine,
+        )
+        return
 
     _install_and_verify(
         sandbox_factory,
@@ -276,6 +329,8 @@ def validate_deb_package(
         install_command=("dpkg", "-i", package_path.name),
         remove_command=("dpkg", "-r", expected_name),
         install_error="dpkg installation failed",
+        package_architecture=expected_arch,
+        package_format="deb",
     )
 
 
@@ -326,4 +381,6 @@ def validate_rpm_package(
         ),
         remove_command=("rpm", "-e", expected_name),
         install_error="rpm installation failed",
+        package_architecture=expected_arch,
+        package_format="rpm",
     )

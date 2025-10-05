@@ -2,22 +2,70 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import importlib.machinery
 import importlib.util
+import os
+import sys
 import typing as typ
 from pathlib import Path
 
 import typer
 from plumbum import local
 
-from cmd_utils_importer import import_cmd_utils
+PKG_DIR = Path(__file__).resolve().parent
+
+
+class _CmdUtilsModule(typ.Protocol):
+    """Typed view of the :mod:`cmd_utils` module."""
+
+    run_cmd: typ.Callable[..., typ.Any]
+
+
+CmdUtilsImporter = typ.Callable[[], _CmdUtilsModule]
+
+
+def _ensure_repo_root_on_sys_path() -> Path | None:
+    """Ensure the repository root containing ``cmd_utils_importer`` is importable."""
+    action_path = os.environ.get("GITHUB_ACTION_PATH")
+    roots: list[Path] = []
+    if action_path:
+        roots.append(Path(action_path).resolve())
+    roots.extend([PKG_DIR, *PKG_DIR.parents])
+
+    repo_root = next(
+        (
+            candidate
+            for candidate in roots
+            if (candidate / "cmd_utils_importer.py").is_file()
+        ),
+        None,
+    )
+    if repo_root is None:
+        return None
+
+    root_str = str(repo_root)
+    with contextlib.suppress(ValueError):
+        sys.path.remove(root_str)
+    sys.path.insert(0, root_str)
+    return repo_root
+
+
+def _resolve_import_cmd_utils() -> CmdUtilsImporter:
+    """Return the ``import_cmd_utils`` callable with ``sys.path`` primed."""
+    if not __package__:
+        _ensure_repo_root_on_sys_path()
+    from cmd_utils_importer import import_cmd_utils as importer
+
+    return typ.cast("CmdUtilsImporter", importer)
+
+
+import_cmd_utils = _resolve_import_cmd_utils()
 
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
 
-
-PKG_DIR = Path(__file__).resolve().parent
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
 except ImportError:  # pragma: no cover - fallback when run as a script

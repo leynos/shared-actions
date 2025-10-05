@@ -73,6 +73,7 @@ class RaisingSandbox(DummySandbox):
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Raise the configured error when ``failure_command`` is executed."""
         if tuple(args) == self._failure_command:
+            self._calls.append((tuple(args), timeout))
             raise self._error
         return super().exec(*args, timeout=timeout)
 

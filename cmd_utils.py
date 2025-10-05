@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
-import collections.abc as cabc  # noqa: TC003
+import collections.abc as cabc
 import os
+import subprocess
 import typing as typ
 
 import typer
 from plumbum import local
-
-__all__ = ["RunMethod", "run_cmd"]
-
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 
 RunMethod = typ.Literal["call", "run", "run_fg"]
+
+
+class RunResult(typ.NamedTuple):
+    """Structured representation of plumbum ``run`` results."""
+
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 @typ.runtime_checkable
@@ -67,6 +74,73 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
         ...
 
 
+def _ensure_text(value: str | bytes | None) -> str:
+    """Return ``value`` as a decoded ``str`` replacing undecodable bytes."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    return value.decode("utf-8", errors="replace")
+
+
+def coerce_run_result(
+    result: RunResult | cabc.Sequence[object],
+) -> RunResult:
+    """Normalise *result* into a :class:`RunResult`."""
+    if isinstance(result, RunResult):
+        return result
+    try:
+        returncode_obj, stdout_obj, stderr_obj = result  # type: ignore[misc]
+    except ValueError as exc:  # pragma: no cover - defensive programming
+        msg = "plumbum run() results must unpack into (returncode, stdout, stderr)"
+        raise TypeError(msg) from exc
+    return RunResult(
+        int(typ.cast("int", returncode_obj)),
+        _ensure_text(typ.cast("str | bytes | None", stdout_obj)),
+        _ensure_text(typ.cast("str | bytes | None", stderr_obj)),
+    )
+
+
+def process_error_to_run_result(exc: ProcessExecutionError) -> RunResult:
+    """Convert ``exc`` into a :class:`RunResult` for consistent handling."""
+    return RunResult(
+        int(exc.retcode),
+        _ensure_text(getattr(exc, "stdout", "")),
+        _ensure_text(getattr(exc, "stderr", "")),
+    )
+
+
+def process_error_to_subprocess(
+    exc: ProcessExecutionError | ProcessTimedOut,
+    command: SupportsFormulate,
+    *,
+    timeout: float | None = None,
+) -> subprocess.CalledProcessError | subprocess.TimeoutExpired:
+    """Map plumbum exceptions to their :mod:`subprocess` counterparts."""
+    formatted = [str(part) for part in command.formulate()]
+    if isinstance(exc, ProcessExecutionError):
+        return subprocess.CalledProcessError(
+            int(exc.retcode),
+            formatted,
+            output=_ensure_text(getattr(exc, "stdout", "")),
+            stderr=_ensure_text(getattr(exc, "stderr", "")),
+        )
+    raw_timeout = getattr(exc, "timeout", None)
+    fallback_timeout = timeout if isinstance(timeout, (int, float)) else None
+    if isinstance(raw_timeout, (int, float)):
+        timeout_value = float(raw_timeout)
+    elif fallback_timeout is not None:
+        timeout_value = float(fallback_timeout)
+    else:
+        timeout_value = 0.0
+    return subprocess.TimeoutExpired(
+        cmd=formatted,
+        timeout=timeout_value,
+        output=_ensure_text(getattr(exc, "stdout", "")),
+        stderr=_ensure_text(getattr(exc, "stderr", "")),
+    )
+
+
 def _collect_runtime_env(
     env: cabc.Mapping[str, str] | None,
 ) -> dict[str, str] | None:
@@ -77,11 +151,8 @@ def _collect_runtime_env(
     if env is not None:
         return {key: str(value) for key, value in env.items()}
 
-    runtime_env = base_env.copy()
-    runtime_env.update({key: str(value) for key, value in os.environ.items()})
-    if runtime_env == base_env:
-        return None
-    return runtime_env
+    runtime_env = base_env | {key: str(value) for key, value in os.environ.items()}
+    return None if runtime_env == base_env else runtime_env
 
 
 def _apply_environment(
@@ -112,34 +183,63 @@ def run_cmd(
     typer.echo(f"$ {cmd}")
 
     prepared = _apply_environment(cmd, _collect_runtime_env(env))
+    handler = _RUN_HANDLERS.get(method)
+    if handler is None:
+        msg = f"Unknown run method: {method}"
+        raise ValueError(msg)
+    return handler(prepared, run_kwargs)
 
-    if method == "call":
-        if not isinstance(prepared, SupportsCall):
-            msg = "Command does not support call semantics"
-            raise TypeError(msg)
-        return prepared(**run_kwargs)
 
-    if method == "run":
-        if not isinstance(prepared, SupportsRun):
-            msg = "Command does not support run()"
-            raise TypeError(msg)
-        run_options = dict(run_kwargs)
-        run_options.setdefault("retcode", None)
-        return prepared.run(**run_options)
-
-    if method == "run_fg":
-        if isinstance(prepared, SupportsRunFg):
-            return prepared.run_fg(**run_kwargs)
-        if run_kwargs:
-            invalid = ", ".join(sorted(run_kwargs.keys()))
-            msg = f"Foreground execution does not accept keyword arguments: {invalid}"
-            raise TypeError(msg)
-        if isinstance(prepared, SupportsAnd):
-            from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
-
-            return prepared & FG
-        msg = "Command does not support foreground execution"
+def _call_handler(command: SupportsFormulate, run_kwargs: dict[str, object]) -> object:
+    if not isinstance(command, SupportsCall):
+        msg = "Command does not support call semantics"
         raise TypeError(msg)
+    return command(**run_kwargs)
 
-    msg = f"Unknown run method: {method}"
-    raise ValueError(msg)
+
+def _run_handler(
+    command: SupportsFormulate, run_kwargs: dict[str, object]
+) -> RunResult:
+    if not isinstance(command, SupportsRun):
+        msg = "Command does not support run()"
+        raise TypeError(msg)
+    run_options = dict(run_kwargs)
+    run_options.setdefault("retcode", None)
+    raw_result = command.run(**run_options)
+    return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))
+
+
+def _run_fg_handler(
+    command: SupportsFormulate, run_kwargs: dict[str, object]
+) -> object:
+    if isinstance(command, SupportsRunFg):
+        return command.run_fg(**run_kwargs)
+    if run_kwargs:
+        invalid = ", ".join(sorted(run_kwargs.keys()))
+        msg = f"Foreground execution does not accept keyword arguments: {invalid}"
+        raise TypeError(msg)
+    if isinstance(command, SupportsAnd):
+        from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
+
+        return command & FG
+    msg = "Command does not support foreground execution"
+    raise TypeError(msg)
+
+
+_MethodHandler = cabc.Callable[[SupportsFormulate, dict[str, object]], object]
+
+_RUN_HANDLERS: dict[RunMethod, _MethodHandler] = {
+    "call": _call_handler,
+    "run": typ.cast("_MethodHandler", _run_handler),
+    "run_fg": _run_fg_handler,
+}
+
+
+__all__ = [
+    "RunMethod",
+    "RunResult",
+    "coerce_run_result",
+    "process_error_to_run_result",
+    "process_error_to_subprocess",
+    "run_cmd",
+]

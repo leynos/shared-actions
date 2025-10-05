@@ -8,15 +8,10 @@ from pathlib import Path
 
 from plumbum import local
 
-from cmd_utils import run_cmd
+from test_support.plumbum_helpers import run_plumbum_command
 
-
-class RunResult(typ.NamedTuple):
-    """Container for script execution results."""
-
-    returncode: int
-    stdout: str
-    stderr: str
+if typ.TYPE_CHECKING:
+    from cmd_utils import RunResult
 
 
 def run_script(script: Path, *args: str) -> RunResult:
@@ -29,19 +24,7 @@ def run_script(script: Path, *args: str) -> RunResult:
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
-    code, stdout, stderr = typ.cast(
-        "tuple[int, str | bytes, str | bytes]",
-        run_cmd(
-            command,
-            method="run",
-            env=merged,
-        ),
-    )
-    return RunResult(
-        code,
-        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
-        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
-    )
+    return run_plumbum_command(command, method="run", env=merged)
 
 
 def test_copy_success(tmp_path: Path) -> None:

@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import re
 import shlex
+import typing as typ
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_cmd
+import cmd_utils
 
 
 def extract_percent(output: str) -> str:
@@ -41,14 +42,19 @@ def main(
     if args:
         cmd = cmd[shlex.split(args)]
     try:
-        retcode, output, err = run_cmd(cmd, method="run")
+        outcome = cmd_utils.run_cmd(cmd, method="run")
     except ProcessExecutionError as exc:  # Should not happen but guard anyway
-        retcode, output, err = exc.retcode, exc.stdout, exc.stderr
-    if retcode != 0:
-        typer.echo(f"cargo llvm-cov failed with code {retcode}: {err}", err=True)
-        raise typer.Exit(code=retcode)
-    typer.echo(output)
-    percent = extract_percent(output)
+        result = cmd_utils.process_error_to_run_result(exc)
+    else:
+        result = typ.cast("cmd_utils.RunResult", outcome)
+    if result.returncode != 0:
+        typer.echo(
+            f"cargo llvm-cov failed with code {result.returncode}: {result.stderr}",
+            err=True,
+        )
+        raise typer.Exit(code=result.returncode)
+    typer.echo(result.stdout)
+    percent = extract_percent(result.stdout)
     with github_output.open("a") as fh:
         fh.write(f"percent={percent}\n")
 

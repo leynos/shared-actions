@@ -148,17 +148,14 @@ def _run_probe(
 ) -> tuple[int, str, str] | None:
     """Execute a runtime probe and handle common failure modes."""
     try:
-        return typ.cast(
-            "tuple[int, str, str]",
-            run_validated(
-                exec_path,
-                args,
-                allowed_names=(name, f"{name}.exe"),
-                timeout=PROBE_TIMEOUT,
-                cwd=cwd,
-                method="run",
-                **kwargs,
-            ),
+        return run_validated(
+            exec_path,
+            args,
+            allowed_names=(name, f"{name}.exe"),
+            timeout=PROBE_TIMEOUT,
+            cwd=cwd,
+            method="run",
+            **kwargs,
         )
     except ProcessTimedOut:
         typer.echo(
@@ -225,7 +222,9 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
     if result is None:
         return False
 
-    if result[0] != 0:
+    returncode, _stdout, _stderr = result
+
+    if returncode != 0:
         return False
 
     if name == "podman":
@@ -240,7 +239,8 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             return False
 
         try:
-            security = json.loads(security_info[1] or "{}")
+            _security_code, security_stdout, _security_stderr = security_info
+            security = json.loads(security_stdout or "{}")
         except json.JSONDecodeError:
             return False
 

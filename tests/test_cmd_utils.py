@@ -10,7 +10,13 @@ import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import RunMethod, run_cmd
+from cmd_utils import (
+    RunMethod,
+    RunResult,
+    coerce_run_result,
+    process_error_to_run_result,
+    run_cmd,
+)
 
 
 def _python_command(*args: str) -> object:
@@ -35,17 +41,14 @@ def test_run_cmd_rejects_non_plumbum_inputs(method: RunMethod) -> None:
         run_cmd(object(), method=method)
 
 
-def test_run_cmd_run_method_returns_process_tuple() -> None:
-    """The run method should surface plumbum's return tuple."""
+def test_run_cmd_run_method_returns_run_result() -> None:
+    """The run method should surface plumbum's output via :class:`RunResult`."""
     script = "import sys; sys.stdout.write('world'); sys.stderr.write('!')"
-    returncode, stdout, stderr = run_cmd(  # type: ignore[misc]
-        _python_command("-c", script),
-        method="run",
-    )
-
-    assert returncode == 0
-    assert stdout == "world"
-    assert stderr == "!"
+    result = run_cmd(_python_command("-c", script), method="run")
+    assert isinstance(result, RunResult)
+    assert result.returncode == 0
+    assert result.stdout == "world"
+    assert result.stderr == "!"
 
 
 def test_run_cmd_propagates_process_execution_error() -> None:
@@ -55,6 +58,17 @@ def test_run_cmd_propagates_process_execution_error() -> None:
 
     exc: ProcessExecutionError = excinfo.value
     assert exc.retcode == 3
+
+
+def test_process_error_helpers_decode_output() -> None:
+    """process_error_to_run_result converts binary payloads to text."""
+    error = ProcessExecutionError(("cmd",), 5, b"hello", b"err")
+    run_result = process_error_to_run_result(error)
+    assert isinstance(run_result, RunResult)
+    assert run_result == RunResult(5, "hello", "err")
+
+    coerced = coerce_run_result((0, b"out", b"err"))
+    assert coerced == RunResult(0, "out", "err")
 
 
 def test_run_cmd_merges_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:

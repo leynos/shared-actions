@@ -11,16 +11,7 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
-from cmd_utils import run_cmd
-
-
-class RunResult(typ.NamedTuple):
-    """Container for execution results."""
-
-    returncode: int
-    stdout: str
-    stderr: str
-
+from test_support.plumbum_helpers import run_plumbum_command
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
@@ -83,6 +74,10 @@ def _param_for_target(target: str) -> object:
 TARGET_PARAMS = [_param_for_target(target) for target in _targets]
 
 
+if typ.TYPE_CHECKING:
+    from cmd_utils import RunResult
+
+
 def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
     """Execute *script* in *cwd* and return the completed process."""
     python_exe = sys.executable or shutil.which("python") or "python"
@@ -93,19 +88,7 @@ def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
         command = local[python_exe][str(script)]
     if args:
         command = command[list(args)]
-    code, stdout, stderr = typ.cast(
-        "tuple[int, str | bytes, str | bytes]",
-        run_cmd(
-            command,
-            method="run",
-            cwd=cwd,
-        ),
-    )
-    return RunResult(
-        code,
-        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
-        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
-    )
+    return run_plumbum_command(command, method="run", cwd=cwd)
 
 
 @pytest.mark.parametrize("target", TARGET_PARAMS)

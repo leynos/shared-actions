@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from cmd_utils import RunResult
+
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
@@ -61,7 +63,7 @@ def test_run_validated_invokes_run_cmd(
                 {"method": method, "env": env, "kwargs": dict(kwargs)},
             )
         )
-        return (0, "ok", "")
+        return RunResult(0, "ok", "")
 
     monkeypatch.setattr(utils_module, "run_cmd", fake_run_cmd)
 
@@ -73,7 +75,7 @@ def test_run_validated_invokes_run_cmd(
         retcode=0,
     )
 
-    assert result == (0, "ok", "")
+    assert result == RunResult(0, "ok", "")
     assert captured_calls == [
         (
             [str(exe_path), "info"],

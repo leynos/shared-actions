@@ -15,15 +15,8 @@ from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-from cmd_utils import run_cmd
-
-
-class RunResult(typ.NamedTuple):
-    """Container for script execution results."""
-
-    returncode: int
-    stdout: str
-    stderr: str
+from cmd_utils import RunResult, run_cmd
+from test_support.plumbum_helpers import run_plumbum_command
 
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
@@ -54,19 +47,7 @@ def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
     if args:
         command = command[list(args)]
     try:
-        code, stdout, stderr = typ.cast(
-            "tuple[int, str | bytes, str | bytes]",
-            run_cmd(
-                command,
-                method="run",
-                cwd=cwd,
-            ),
-        )
-        return RunResult(
-            code,
-            stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
-            stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
-        )
+        return run_plumbum_command(command, method="run", cwd=cwd)
     except (  # pragma: no cover - defensive path
         OSError,
         ProcessExecutionError,

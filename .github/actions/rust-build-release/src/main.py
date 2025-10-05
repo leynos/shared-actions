@@ -101,16 +101,13 @@ def should_probe_container(host_platform: str, target: str) -> bool:
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
     """Return installed rustup toolchain names."""
-    _, stdout, _ = typ.cast(
-        "tuple[int, str, str]",
-        run_validated(
-            rustup_exec,
-            ["toolchain", "list"],
-            allowed_names=("rustup", "rustup.exe"),
-            method="run",
-        ),
+    result = run_validated(
+        rustup_exec,
+        ["toolchain", "list"],
+        allowed_names=("rustup", "rustup.exe"),
+        method="run",
     )
-    installed = stdout.splitlines()
+    installed = result.stdout.splitlines()
     return [line.split()[0] for line in installed if line.strip()]
 
 

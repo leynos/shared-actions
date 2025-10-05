@@ -6,7 +6,6 @@ import hashlib
 import shutil
 import sys
 import tempfile
-import typing as typ
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -131,13 +130,10 @@ def install_cross_release(required_version: str) -> bool:
                 cross_exec = ensure_allowed_executable(
                     destination, ("cross", "cross.exe")
                 )
-                _, stdout, _ = typ.cast(
-                    "tuple[int, str, str]",
-                    run_validated(
-                        cross_exec,
-                        ["--version"],
-                        allowed_names=("cross", "cross.exe"),
-                    ),
+                result = run_validated(
+                    cross_exec,
+                    ["--version"],
+                    allowed_names=("cross", "cross.exe"),
                 )
             except (OSError, ProcessExecutionError) as exc:
                 typer.echo(
@@ -145,7 +141,7 @@ def install_cross_release(required_version: str) -> bool:
                     err=True,
                 )
                 return False
-            if version_output := stdout.strip():
+            if version_output := result.stdout.strip():
                 typer.echo(f"Installed cross binary reports: {version_output}")
     except urllib.error.URLError as exc:  # pragma: no cover - network failure
         typer.echo(
@@ -169,15 +165,12 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
     def get_cross_version(path: str) -> str | None:
         try:
             cross_exec = ensure_allowed_executable(path, ("cross", "cross.exe"))
-            _, stdout, _ = typ.cast(
-                "tuple[int, str, str]",
-                run_validated(
-                    cross_exec,
-                    ["--version"],
-                    allowed_names=("cross", "cross.exe"),
-                ),
+            result = run_validated(
+                cross_exec,
+                ["--version"],
+                allowed_names=("cross", "cross.exe"),
             )
-            version_line = stdout.strip().split("\n")[0]
+            version_line = result.stdout.strip().split("\n")[0]
             if version_line.startswith("cross "):
                 return version_line.split(" ")[1]
         except (

@@ -11,16 +11,18 @@ from types import ModuleType, SimpleNamespace
 import pytest
 from plumbum.commands.processes import ProcessTimedOut
 
+from cmd_utils import RunResult
+
 if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness
 
 
-RunOutput = tuple[int, str, str]
+RunOutput = RunResult
 
 
-def _run_result(returncode: int = 0, stdout: str = "", stderr: str = "") -> RunOutput:
-    """Return a tuple matching the run_cmd ``method='run'`` contract."""
-    return (returncode, stdout, stderr)
+def _run_result(returncode: int = 0, stdout: str = "", stderr: str = "") -> RunResult:
+    """Return a :class:`RunResult` mirroring plumbum ``run`` semantics."""
+    return RunResult(returncode, stdout, stderr)
 
 
 def _patch_run_validated_timeout(

@@ -12,6 +12,7 @@ from plumbum import local
 RunMethod = typ.Literal["call", "run", "run_fg"]
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import cmd_utils
 
     class _SupportsFormulate(typ.Protocol):
         def formulate(self) -> cabc.Sequence[str]: ...
@@ -28,7 +29,7 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing only
 
     run_cmd: _RunCmd
 else:
-    from cmd_utils import run_cmd
+    from cmd_utils import coerce_run_result, run_cmd
 
 
 class UnexpectedExecutableError(ValueError):
@@ -50,6 +51,30 @@ def ensure_allowed_executable(
     return str(exec_path)
 
 
+@typ.overload
+def run_validated(
+    executable: str | os.PathLike[str],
+    args: list[str] | tuple[str, ...],
+    *,
+    allowed_names: tuple[str, ...],
+    method: typ.Literal["run"] = "run",
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> cmd_utils.RunResult: ...
+
+
+@typ.overload
+def run_validated(
+    executable: str | os.PathLike[str],
+    args: list[str] | tuple[str, ...],
+    *,
+    allowed_names: tuple[str, ...],
+    method: typ.Literal["call", "run_fg"],
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> object: ...
+
+
 def run_validated(
     executable: str | os.PathLike[str],
     args: list[str] | tuple[str, ...],
@@ -62,4 +87,7 @@ def run_validated(
     """Execute *executable* with *args* after validating its basename."""
     exec_path = ensure_allowed_executable(executable, allowed_names)
     command = local[exec_path][list(args)] if args else local[exec_path]
-    return run_cmd(command, method=method, env=env, **run_kwargs)
+    result = run_cmd(command, method=method, env=env, **run_kwargs)
+    if method == "run":
+        return coerce_run_result(typ.cast("cabc.Sequence[object]", result))
+    return result

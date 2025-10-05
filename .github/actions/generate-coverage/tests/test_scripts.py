@@ -12,22 +12,14 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_cmd
+from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
+    from cmd_utils import RunResult
     from shellstub import StubManager
-
-
-class RunResult(typ.NamedTuple):
-    """Container for command execution results."""
-
-    returncode: int
-    stdout: str
-    stderr: str
 
 
 def _exit_code(exc: BaseException) -> int | None:
@@ -50,28 +42,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
         f"{root}{os.pathsep}{current_pp}" if current_pp else str(root)
     )
     merged["PYTHONIOENCODING"] = "utf-8"
-    try:
-        code, stdout, stderr = typ.cast(
-            "tuple[int, str | bytes, str | bytes]",
-            run_cmd(
-                command,
-                method="run",
-                env=merged,
-            ),
-        )
-    except ProcessExecutionError as exc:
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-        return RunResult(
-            int(exc.retcode),
-            stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace"),
-            stderr if isinstance(stderr, str) else stderr.decode("utf-8", "replace"),
-        )
-    return RunResult(
-        code,
-        stdout.decode("utf-8", "replace") if isinstance(stdout, bytes) else stdout,
-        stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else stderr,
-    )
+    return run_plumbum_command(command, method="run", env=merged)
 
 
 def _load_module(

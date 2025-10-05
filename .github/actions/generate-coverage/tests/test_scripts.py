@@ -20,7 +20,7 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
     from cmd_utils import RunResult
-    from shellstub import StubManager
+    from test_support.cmd_mox_stub_adapter import StubManager
 else:
     RunResult = import_cmd_utils().RunResult
 

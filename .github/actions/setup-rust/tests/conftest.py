@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from shellstub import StubManager
+from test_support.cmd_mox_stub_adapter import StubManager
 
 
 def _find_root(start: Path) -> Path:
@@ -24,13 +24,13 @@ sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture
-def shell_stubs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StubManager:
+def shell_stubs(monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""
-    dir_ = tmp_path / "stubs"
-    mgr = StubManager(dir_)
-    import shellstub as mod
-
-    mod._GLOBAL_MANAGER = mgr
-    monkeypatch.setenv("PATH", f"{dir_}{os.pathsep}{os.getenv('PATH')}")
-    monkeypatch.setenv("PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH', '')}")
-    return mgr
+    mgr = StubManager()
+    monkeypatch.setenv(
+        "PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH', '')}"
+    )
+    try:
+        yield mgr
+    finally:
+        mgr.close()

@@ -15,6 +15,13 @@ from typer.testing import CliRunner
 from ._helpers import SCRIPTS_DIR, load_script_module
 
 
+def _normalize_invocation(formulated: list[str]) -> list[str]:
+    """Return *formulated* with a platform-neutral executable name."""
+    normalized = list(formulated)
+    normalized[0] = Path(normalized[0]).stem
+    return normalized
+
+
 @pytest.fixture(name="publish_module")
 def fixture_publish_module() -> ModuleType:
     """Load the ``publish_release`` script module with repository paths set."""
@@ -49,8 +56,7 @@ def test_publish_index_behaviour(
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
         formulated = list(cmd.formulate())
-        formulated[0] = Path(formulated[0]).name
-        calls.append(formulated)
+        calls.append(_normalize_invocation(formulated))
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
@@ -120,8 +126,7 @@ def test_cli_runner_default_index(
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
         formulated = list(cmd.formulate())
-        formulated[0] = Path(formulated[0]).name
-        calls.append(formulated)
+        calls.append(_normalize_invocation(formulated))
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
@@ -143,8 +148,7 @@ def test_cli_runner_respects_env_index(
 
     def fake_run_cmd(cmd: object, **_: object) -> None:
         formulated = list(cmd.formulate())
-        formulated[0] = Path(formulated[0]).name
-        calls.append(formulated)
+        calls.append(_normalize_invocation(formulated))
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 

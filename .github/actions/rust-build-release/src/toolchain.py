@@ -32,18 +32,25 @@ def configure_windows_linkers(toolchain_name: str, target: str, rustup: str) -> 
     rustup_exec = ensure_allowed_executable(rustup, ("rustup", "rustup.exe"))
     triple = toolchain_triple(toolchain_name)
     if triple:
+        rustup_args = ["which", "rustc", "--toolchain", toolchain_name]
+        rustup_cmd = [rustup_exec, *rustup_args]
         try:
             rustc_path_result = run_validated(
                 rustup_exec,
-                ["which", "rustc", "--toolchain", toolchain_name],
+                rustup_args,
                 allowed_names=("rustup", "rustup.exe"),
-                capture_output=True,
-                text=True,
-                check=True,
+                method="run",
             )
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except FileNotFoundError:
             pass
         else:
+            if rustc_path_result.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    rustc_path_result.returncode,
+                    rustup_cmd,
+                    output=rustc_path_result.stdout,
+                    stderr=rustc_path_result.stderr,
+                )
             if rustc_stdout := rustc_path_result.stdout.strip():
                 toolchain_root = Path(rustc_stdout).resolve().parent.parent
                 linker_path = (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import typing as typ
+from pathlib import Path
 
 import pytest
 from shared_actions_conftest import (
@@ -15,8 +16,9 @@ from shared_actions_conftest import (
     _register_rustup_toolchain_stub,
 )
 
+from cmd_utils import RunResult
+
 if typ.TYPE_CHECKING:
-    from pathlib import Path
     from types import ModuleType
 
     from shared_actions_conftest import CmdMox
@@ -871,12 +873,12 @@ def test_runtime_available_handles_timeout(
 
 
 def test_configure_windows_linkers_prefers_toolchain_gcc(
-    main_module: ModuleType,
+    toolchain_module: ModuleType,
     module_harness: HarnessFactory,
     tmp_path: Path,
 ) -> None:
     """Toolchain-provided GCC is preferred for Windows host builds."""
-    harness = module_harness(main_module)
+    harness = module_harness(toolchain_module)
     harness.patch_platform("win32")
     toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
     host_triple = "x86_64-pc-windows-gnu"
@@ -895,23 +897,24 @@ def test_configure_windows_linkers_prefers_toolchain_gcc(
         args: list[str],
         *,
         allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
-        assert cmd[:2] == [rustup_path, "which"]
-        return subprocess.CompletedProcess(cmd, 0, stdout=str(rustc_path))
+        assert Path(cmd[0]) == Path(rustup_path)
+        assert cmd[1] == "which"
+        assert method == "run"
+        assert not run_kwargs
+        return RunResult(0, str(rustc_path), "")
 
-    harness.monkeypatch.setattr(main_module, "run_validated", fake_run)
-    harness.monkeypatch.setattr(main_module.shutil, "which", lambda name: None)
+    harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
+    harness.monkeypatch.setattr(toolchain_module.shutil, "which", lambda name: None)
     harness.monkeypatch.delenv(
         "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
     )
 
-    main_module.configure_windows_linkers(toolchain_name, host_triple, rustup_path)
+    toolchain_module.configure_windows_linkers(toolchain_name, host_triple, rustup_path)
 
     expected = str(host_linker)
     assert os.environ["CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"] == expected
@@ -925,17 +928,18 @@ def test_configure_windows_linkers_prefers_toolchain_gcc(
     ],
 )
 def test_configure_windows_linkers_sets_cross_linker(
-    main_module: ModuleType,
+    toolchain_module: ModuleType,
     module_harness: HarnessFactory,
     tmp_path: Path,
     linker_name: str,
 ) -> None:
     """Cross linkers discovered on PATH are exported for non-host targets."""
-    harness = module_harness(main_module)
+    harness = module_harness(toolchain_module)
     harness.patch_platform("win32")
     toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
     rustup_path = "/usr/bin/rustup"
     host_triple = "x86_64-pc-windows-gnu"
+    target_triple = "aarch64-pc-windows-gnu"
 
     toolchain_root = tmp_path / "toolchain"
     rustc_path = toolchain_root / "bin" / "rustc.exe"
@@ -952,22 +956,23 @@ def test_configure_windows_linkers_sets_cross_linker(
         args: list[str],
         *,
         allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
-        assert cmd[:2] == [rustup_path, "which"]
-        return subprocess.CompletedProcess(cmd, 0, stdout=str(rustc_path))
+        assert Path(cmd[0]) == Path(rustup_path)
+        assert cmd[1] == "which"
+        assert method == "run"
+        assert not run_kwargs
+        return RunResult(0, str(rustc_path), "")
 
-    harness.monkeypatch.setattr(main_module, "run_validated", fake_run)
+    harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
 
     def fake_which(name: str) -> str | None:
         return str(cross_linker) if name == linker_name else None
 
-    harness.monkeypatch.setattr(main_module.shutil, "which", fake_which)
+    harness.monkeypatch.setattr(toolchain_module.shutil, "which", fake_which)
     harness.monkeypatch.delenv(
         "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
     )
@@ -975,9 +980,171 @@ def test_configure_windows_linkers_sets_cross_linker(
         "CARGO_TARGET_AARCH64_PC_WINDOWS_GNU_LINKER", raising=False
     )
 
-    main_module.configure_windows_linkers(toolchain_name, host_triple, rustup_path)
+    toolchain_module.configure_windows_linkers(
+        toolchain_name, target_triple, rustup_path
+    )
 
     host_env = os.environ["CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER"]
     cross_env = os.environ["CARGO_TARGET_AARCH64_PC_WINDOWS_GNU_LINKER"]
     assert host_env == str(host_linker)
     assert cross_env == str(cross_linker)
+
+
+def test_configure_windows_linkers_raises_on_rustup_failure(
+    toolchain_module: ModuleType,
+    module_harness: HarnessFactory,
+) -> None:
+    """Rustup discovery failures propagate as CalledProcessError."""
+    harness = module_harness(toolchain_module)
+    harness.patch_platform("win32")
+    toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
+    host_triple = "x86_64-pc-windows-gnu"
+    rustup_path = "/usr/bin/rustup"
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
+        _ = allowed_names
+        assert method == "run"
+        assert not run_kwargs
+        assert Path(executable) == Path(rustup_path)
+        assert args
+        assert args[0] == "which"
+        return RunResult(9, "", "rustup error")
+
+    harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
+    harness.monkeypatch.setattr(toolchain_module.shutil, "which", lambda name: None)
+    harness.monkeypatch.delenv(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
+    )
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        toolchain_module.configure_windows_linkers(
+            toolchain_name, host_triple, rustup_path
+        )
+
+    exc = excinfo.value
+    assert exc.returncode == 9
+    assert Path(exc.cmd[0]) == Path(rustup_path)
+    assert exc.cmd[1] == "which"
+    assert exc.stderr == "rustup error"
+    assert "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" not in os.environ
+
+
+def test_configure_windows_linkers_ignores_missing_rustup(
+    toolchain_module: ModuleType,
+    module_harness: HarnessFactory,
+) -> None:
+    """Missing rustup executables do not raise during linker configuration."""
+    harness = module_harness(toolchain_module)
+    harness.patch_platform("win32")
+    toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
+    host_triple = "x86_64-pc-windows-gnu"
+    rustup_path = "/usr/bin/rustup"
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
+        _ = allowed_names
+        assert method == "run"
+        assert not run_kwargs
+        assert Path(executable) == Path(rustup_path)
+        assert args[0] == "which"
+        message = "rustup not found"
+        raise FileNotFoundError(message)
+
+    harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
+    harness.monkeypatch.setattr(toolchain_module.shutil, "which", lambda _: None)
+    harness.monkeypatch.delenv(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
+    )
+
+    toolchain_module.configure_windows_linkers(toolchain_name, host_triple, rustup_path)
+
+    assert "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" not in os.environ
+
+
+@pytest.fixture
+def ensure_packaging_version() -> None:
+    """Ensure packaging.version is importable for dependency guards."""
+    import packaging.version  # noqa: F401
+
+
+def test_main_propagates_windows_linker_rustup_failure(
+    ensure_packaging_version: None,
+    main_module: ModuleType,
+    toolchain_module: ModuleType,
+    module_harness: HarnessFactory,
+) -> None:
+    """Behavioural coverage for rustup discovery failures in the action entrypoint."""
+    harness = module_harness(main_module)
+    harness.patch_platform("win32")
+    toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
+    rustup_path = "/usr/bin/rustup"
+    target = "x86_64-pc-windows-gnu"
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
+        _ = allowed_names
+        assert method == "run"
+        assert not run_kwargs
+        assert Path(executable) == Path(rustup_path)
+        assert args[0] == "which"
+        return RunResult(9, "", "rustup error")
+
+    harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
+    harness.patch_attr(
+        "configure_windows_linkers", toolchain_module.configure_windows_linkers
+    )
+    harness.patch_attr("_resolve_target_argument", lambda value: value)
+    harness.patch_attr("_ensure_rustup_exec", lambda: rustup_path)
+    harness.patch_attr(
+        "_resolve_toolchain",
+        lambda *_: (toolchain_name, [toolchain_name]),
+    )
+    harness.patch_attr("_ensure_target_installed", lambda *_: True)
+    harness.patch_attr(
+        "_decide_cross_usage",
+        lambda *_args, **_kwargs: main_module._CrossDecision(
+            cross_path=None,
+            cross_version=None,
+            use_cross=False,
+            cross_toolchain_spec=None,
+            cargo_toolchain_spec=None,
+            use_cross_local_backend=False,
+            docker_present=False,
+            podman_present=False,
+            has_container=False,
+            container_engine=None,
+            requires_cross_container=False,
+        ),
+    )
+    harness.monkeypatch.delenv(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
+    )
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        main_module.main(target, toolchain_name)
+
+    exc = excinfo.value
+    assert exc.returncode == 9
+    assert Path(exc.cmd[0]) == Path(rustup_path)
+    assert exc.cmd[1] == "which"
+    assert exc.stderr == "rustup error"
+    assert "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" not in os.environ

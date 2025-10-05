@@ -1,4 +1,4 @@
-"""Utilities for running plumbum command invocations.
+r"""Utilities for running plumbum command invocations.
 
 This module provides :func:`run_cmd`, a unified interface for executing
 plumbum commands with optional environment overrides and multiple execution

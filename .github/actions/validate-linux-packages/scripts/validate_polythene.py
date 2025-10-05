@@ -110,8 +110,13 @@ def _is_unknown_isolation_option_error(exc: ValidationError) -> bool:
     combined = "\n".join(part for part in (stderr_text, stdout_text) if part)
     if not combined:
         return False
-    normalised = combined.lower()
-    return "--isolation" in normalised and "unknown option" in normalised
+    return bool(
+        re.search(
+            r"(unknown\s+option[^\n]*--isolation|--isolation[^\n]*unknown\s+option)",
+            combined,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 @dataclasses.dataclass(slots=True)
@@ -124,6 +129,8 @@ class PolytheneSession:
     timeout: int | None = None
     isolation: str | None = None
     _supports_isolation_option: bool | None = dataclasses.field(
+        # Cache for ``--isolation`` support: ``None`` unknown, ``True`` supported,
+        # ``False`` unsupported.
         default=None,
         init=False,
         repr=False,
@@ -147,7 +154,6 @@ class PolytheneSession:
         ]
         supports_isolation = self._supports_isolation_option is not False
         include_isolation = bool(self.isolation) and supports_isolation
-        no_isolation_args = [*base_args, "--", *args]
         if include_isolation:
             cmd_args = [
                 *base_args,
@@ -157,14 +163,19 @@ class PolytheneSession:
                 *args,
             ]
         else:
-            cmd_args = no_isolation_args
+            cmd_args = [*base_args, "--", *args]
 
         cmd = local["uv"][tuple(cmd_args)]
         try:
             return run_text(cmd, timeout=effective_timeout)
         except ValidationError as exc:
             if include_isolation and _is_unknown_isolation_option_error(exc):
+                logger.info(
+                    "Isolation flag unsupported; retrying without --isolation for %s",
+                    self.uid,
+                )
                 self._supports_isolation_option = False
+                no_isolation_args = [*base_args, "--", *args]
                 fallback_cmd = local["uv"][tuple(no_isolation_args)]
                 return run_text(fallback_cmd, timeout=effective_timeout)
             raise

@@ -12,10 +12,21 @@ import re
 import sys
 from pathlib import Path
 
+# Import-time environment bootstrap.
+# This script must configure sys.path and GITHUB_ACTION_PATH before importing
+# cmd_utils_importer and toolchain modules to ensure they can be resolved when
+# running outside GitHub Actions (e.g., via ``uv run --script``).
 action_path = Path(__file__).resolve().parents[1]
+if not action_path.exists():
+    message = f"Action path does not exist: {action_path}"
+    raise FileNotFoundError(message)
 os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+repo_root = Path(__file__).resolve().parents[4]
+if not repo_root.exists():
+    message = f"Repository root does not exist: {repo_root}"
+    raise FileNotFoundError(message)
+sys.path.insert(0, str(repo_root))
 
 from cmd_utils_importer import ensure_cmd_utils_imported  # noqa: E402
 

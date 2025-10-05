@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import types
 import typing as typ
+from pathlib import Path
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
@@ -46,8 +47,10 @@ def test_publish_index_behaviour(
     """Exercise publishing for both default and custom index inputs."""
     calls: list[list[str]] = []
 
-    def fake_run_cmd(args: list[str], **_: object) -> None:
-        calls.append(args)
+    def fake_run_cmd(cmd: object, **_: object) -> None:
+        formulated = list(cmd.formulate())
+        formulated[0] = Path(formulated[0]).name
+        calls.append(formulated)
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
@@ -83,7 +86,7 @@ def test_publish_run_cmd_error(
     class DummyError(Exception):
         pass
 
-    def fake_run_cmd(_: list[str], **__: object) -> None:
+    def fake_run_cmd(cmd: object, **__: object) -> None:
         message = "uv publish failed"
         raise DummyError(message)
 
@@ -115,8 +118,10 @@ def test_cli_runner_default_index(
     """Exercise the CLI behaviour when no index is provided."""
     calls: list[list[str]] = []
 
-    def fake_run_cmd(args: list[str], **_: object) -> None:
-        calls.append(args)
+    def fake_run_cmd(cmd: object, **_: object) -> None:
+        formulated = list(cmd.formulate())
+        formulated[0] = Path(formulated[0]).name
+        calls.append(formulated)
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 
@@ -136,8 +141,10 @@ def test_cli_runner_respects_env_index(
     """Accept the index from the GitHub Action input environment variable."""
     calls: list[list[str]] = []
 
-    def fake_run_cmd(args: list[str], **_: object) -> None:
-        calls.append(args)
+    def fake_run_cmd(cmd: object, **_: object) -> None:
+        formulated = list(cmd.formulate())
+        formulated[0] = Path(formulated[0]).name
+        calls.append(formulated)
 
     monkeypatch.setattr(publish_module, "run_cmd", fake_run_cmd)
 

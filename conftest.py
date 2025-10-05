@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import collections
 import collections.abc as cabc
+import os
 import shutil
 import sys
 import typing as typ
+from pathlib import Path
 
 import pytest
+
+
+def _default_action_path() -> str:
+    """Return the repository action directory used for cmd_utils discovery."""
+    return str(Path(__file__).resolve().parent / ".github" / "actions")
+
+
+os.environ.setdefault("GITHUB_ACTION_PATH", _default_action_path())
 
 CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
     sys.platform == "win32", reason="cmd-mox does not support Windows"
@@ -18,10 +28,6 @@ HAS_UV = shutil.which("uv") is not None
 REQUIRES_UV = pytest.mark.usefixtures("require_uv")
 
 sys.modules.setdefault("shared_actions_conftest", sys.modules[__name__])
-
-
-if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
-    from pathlib import Path
 
 
 class CmdDouble(typ.Protocol):

@@ -389,12 +389,14 @@ def run_cucumber_rs_coverage(
         try:
             cmd = uvx["merge-cobertura", str(out), str(cucumber_file)]
             merged = run_cmd(cmd)
-        except ProcessExecutionError as exc:
+        except (ProcessExecutionError, subprocess.CalledProcessError) as exc:
+            retcode = getattr(exc, "retcode", getattr(exc, "returncode", None))
+            stderr = getattr(exc, "stderr", "")
             typer.echo(
-                f"merge-cobertura failed with code {exc.retcode}: {exc.stderr}",
+                f"merge-cobertura failed with code {retcode}: {stderr}",
                 err=True,
             )
-            raise typer.Exit(code=exc.retcode or 1) from exc
+            raise typer.Exit(code=retcode or 1) from exc
         out.write_text(merged)
     else:
         _merge_lcov(out, cucumber_file)

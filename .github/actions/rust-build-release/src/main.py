@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer", "packaging"]
+# dependencies = ["packaging", "plumbum", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -18,11 +17,15 @@ sys.path.append(str(Path(__file__).resolve().parents[4]))
 
 import typer
 from cross_manager import ensure_cross
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 DEFAULT_TOOLCHAIN = read_default_toolchain()
 
@@ -104,9 +107,7 @@ def _list_installed_toolchains(rustup_exec: str) -> list[str]:
         rustup_exec,
         ["toolchain", "list"],
         allowed_names=("rustup", "rustup.exe"),
-        capture_output=True,
-        text=True,
-        check=True,
+        method="run",
     )
     installed = result.stdout.splitlines()
     return [line.split()[0] for line in installed if line.strip()]
@@ -151,7 +152,7 @@ def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
         return runtime_available(name)
-    except subprocess.TimeoutExpired as exc:
+    except ProcessTimedOut as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
         message = (
@@ -217,8 +218,7 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
     """Install the requested *toolchain* channel via rustup."""
     try:
         run_cmd(
-            [
-                rustup_exec,
+            local[rustup_exec][
                 "toolchain",
                 "install",
                 toolchain,
@@ -227,7 +227,7 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
                 "--no-self-update",
             ]
         )
-    except subprocess.CalledProcessError:
+    except ProcessExecutionError:
         typer.echo(
             f"::error:: failed to install toolchain '{toolchain}'",
             err=True,
@@ -270,8 +270,16 @@ def _ensure_target_installed(
 ) -> bool:
     """Attempt to install *target* for *toolchain_name*, returning success."""
     try:
-        run_cmd([rustup_exec, "target", "add", "--toolchain", toolchain_name, target])
-    except subprocess.CalledProcessError:
+        run_cmd(
+            local[rustup_exec][
+                "target",
+                "add",
+                "--toolchain",
+                toolchain_name,
+                target,
+            ]
+        )
+    except ProcessExecutionError:
         typer.echo(
             f"::warning:: toolchain '{toolchain_name}' does not support "
             f"target '{target}'; continuing",
@@ -325,8 +333,7 @@ def _decide_cross_usage(
         ):
             try:
                 run_cmd(
-                    [
-                        rustup_exec,
+                    local[rustup_exec][
                         "toolchain",
                         "install",
                         cross_toolchain_name,
@@ -335,7 +342,7 @@ def _decide_cross_usage(
                         "--no-self-update",
                     ]
                 )
-            except subprocess.CalledProcessError:
+            except ProcessExecutionError:
                 typer.echo(
                     "::warning:: failed to install sanitized toolchain; using cargo",
                     err=True,
@@ -459,20 +466,28 @@ def main(
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
             cross_engine_restorer = True
 
-    build_cmd = [
-        (decision.cross_path or "cross") if decision.use_cross else "cargo",
-        decision.cross_toolchain_spec
-        if decision.use_cross
-        else decision.cargo_toolchain_spec,
-        "build",
-        "--release",
-        "--target",
-        target_to_build,
-    ]
+    if decision.use_cross:
+        executor = local[decision.cross_path or "cross"]
+        build_cmd = executor[
+            decision.cross_toolchain_spec,
+            "build",
+            "--release",
+            "--target",
+            target_to_build,
+        ]
+    else:
+        executor = local["cargo"]
+        build_cmd = executor[
+            decision.cargo_toolchain_spec,
+            "build",
+            "--release",
+            "--target",
+            target_to_build,
+        ]
     try:
         run_cmd(build_cmd)
-    except subprocess.CalledProcessError as exc:
-        if decision.use_cross and exc.returncode in CROSS_CONTAINER_ERROR_CODES:
+    except ProcessExecutionError as exc:
+        if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
             if (
                 decision.requires_cross_container
                 and not decision.use_cross_local_backend
@@ -483,14 +498,13 @@ def main(
                     f"target '{target_to_build}' (engine={engine})",
                     err=True,
                 )
-                raise typer.Exit(exc.returncode) from exc
+                raise typer.Exit(exc.retcode) from exc
 
             typer.echo(
                 "::warning:: cross failed to start a container; retrying with cargo",
                 err=True,
             )
-            fallback_cmd = [
-                "cargo",
+            fallback_cmd = local["cargo"][
                 decision.cargo_toolchain_spec,
                 "build",
                 "--release",

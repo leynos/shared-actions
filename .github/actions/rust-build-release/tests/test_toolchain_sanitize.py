@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import os
 import platform
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
+
+from cmd_utils_importer import import_cmd_utils
+from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-from cmd_utils import run_cmd
+_cmd_utils = import_cmd_utils()
+RunResult = _cmd_utils.RunResult
+run_cmd = _cmd_utils.run_cmd
 
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
@@ -39,26 +45,21 @@ if sys.platform == "win32":
     pytest.skip("cross build not supported on Windows runners", allow_module_level=True)
 
 
-def run_script(
-    script: Path, *args: str, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Execute *script* in *cwd* and return the completed process."""
-    cmd = [str(script), *args]
+def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
+    """Execute *script* in *cwd* and return the run result."""
+    command = local[str(script)]
+    if args:
+        command = command[list(args)]
     try:
-        return subprocess.run(  # noqa: S603
-            cmd,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=cwd,
-            check=False,
-        )
+        return run_plumbum_command(command, method="run", cwd=cwd)
     except (  # pragma: no cover - defensive path
         OSError,
-        subprocess.SubprocessError,
+        ProcessExecutionError,
+        ProcessTimedOut,
         ValueError,
     ) as exc:
-        return subprocess.CompletedProcess(cmd, 1, "", str(exc))
+        fallback_cmd = (str(script), *args)
+        return RunResult(1, "", f"{fallback_cmd}: {exc}")
 
 
 def _host_linux_triple() -> str:
@@ -105,8 +106,7 @@ def test_accepts_toolchain_with_triple() -> None:
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
     project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
     run_cmd(
-        [
-            "rustup",
+        local["rustup"][
             "toolchain",
             "install",
             RUST_TOOLCHAIN,
@@ -118,8 +118,7 @@ def test_accepts_toolchain_with_triple() -> None:
     # Ensure the host-qualified toolchain name exists as well
     # (no-op if already present).
     run_cmd(
-        [
-            "rustup",
+        local["rustup"][
             "toolchain",
             "install",
             toolchain_spec,

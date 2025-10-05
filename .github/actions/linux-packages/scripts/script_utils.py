@@ -5,31 +5,23 @@ from __future__ import annotations
 import importlib
 import importlib.machinery
 import importlib.util
-import sys
 import typing as typ
 from pathlib import Path
 
 import typer
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
+
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand
 
 
 PKG_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = PKG_DIR.parent.parent.parent.parent
-
 try:  # pragma: no cover - exercised during script execution
     from .cmd_utils import run_cmd
 except ImportError:  # pragma: no cover - fallback when run as a script
-    module_path = _REPO_ROOT / "cmd_utils.py"
-    spec = importlib.util.spec_from_file_location("cmd_utils", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(name="cmd_utils") from None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    run_cmd = module.run_cmd  # type: ignore[assignment]
+    run_cmd = import_cmd_utils().run_cmd
 
 __all__ = [
     "PKG_DIR",

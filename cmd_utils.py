@@ -1,35 +1,25 @@
-"""Utilities for echoing and running external commands.
-
-Provides a single entrypoint, ``run_cmd``, that uniformly echoes and
-executes either raw argv sequences or adapter objects exposing
-``formulate()``.
-
-Examples
---------
->>> from plumbum import local
->>> run_cmd(["echo", "hello"])
->>> run_cmd(local["echo"]["hello"])
-"""
+"""Utilities for running plumbum command invocations."""
 
 from __future__ import annotations
 
 import collections.abc as cabc
-import shlex
+import os
 import subprocess
 import typing as typ
 
 import typer
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 
-__all__ = [
-    "run_cmd",
-]
+RunMethod = typ.Literal["call", "run", "run_fg"]
 
 
-class TimeoutConflictError(TypeError):
-    """Raised when mutually exclusive timeout options are provided."""
+class RunResult(typ.NamedTuple):
+    """Structured representation of plumbum ``run`` results."""
 
-    def __init__(self) -> None:
-        super().__init__("timeout specified via parameter and run_kwargs")
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 @typ.runtime_checkable
@@ -39,15 +29,20 @@ class SupportsFormulate(typ.Protocol):
     def formulate(self) -> cabc.Sequence[str]:  # pragma: no cover - protocol
         ...
 
+
+@typ.runtime_checkable
+class SupportsCall(SupportsFormulate, typ.Protocol):
+    """Commands that can be invoked like ``cmd()``."""
+
     def __call__(
-        self, *args: object, **run_kwargs: object
+        self, *args: object, **kwargs: object
     ) -> object:  # pragma: no cover - protocol
         ...
 
 
 @typ.runtime_checkable
-class SupportsRun(typ.Protocol):
-    """Commands that support ``run`` with keyword arguments."""
+class SupportsRun(SupportsFormulate, typ.Protocol):
+    """Commands that implement :meth:`run`."""
 
     def run(
         self, *args: object, **run_kwargs: object
@@ -56,131 +51,195 @@ class SupportsRun(typ.Protocol):
 
 
 @typ.runtime_checkable
-class SupportsRunFg(typ.Protocol):
-    """Commands that expose ``run_fg`` for foreground execution."""
+class SupportsRunFg(SupportsFormulate, typ.Protocol):
+    """Commands that expose :meth:`run_fg` for foreground execution."""
 
     def run_fg(self, **run_kwargs: object) -> object:  # pragma: no cover - protocol
         ...
 
 
 @typ.runtime_checkable
-class SupportsAnd(typ.Protocol):
-    """Commands that implement ``cmd & FG`` semantics."""
+class SupportsAnd(SupportsFormulate, typ.Protocol):
+    """Commands that can be combined with ``FG`` using ``&``."""
 
     def __and__(self, other: object) -> object:  # pragma: no cover - protocol
         ...
 
 
-Command = cabc.Sequence[str] | SupportsFormulate
+@typ.runtime_checkable
+class SupportsWithEnv(SupportsFormulate, typ.Protocol):
+    """Commands that support environment overrides via :meth:`with_env`."""
 
-KwargDict = dict[str, object]
+    def with_env(self, **env: str) -> SupportsWithEnv:  # pragma: no cover - protocol
+        ...
 
 
-def _merge_timeout(timeout: float | None, run_kwargs: KwargDict) -> float | None:
-    """Return a merged timeout value.
+def _ensure_text(value: str | bytes | None) -> str:
+    """Return ``value`` as a decoded ``str`` replacing undecodable bytes."""
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    return value.decode("utf-8", errors="replace")
 
-    Parameters
-    ----------
-    timeout : float or None
-        Timeout supplied via the dedicated parameter.
-    run_kwargs : dict of str to Any
-        Keyword arguments passed to ``run_cmd``.
 
-    Returns
-    -------
-    float or None
-        The timeout to enforce, favouring ``run_kwargs`` when provided.
-    """
-    if "timeout" in run_kwargs:
-        if timeout is not None:
-            raise TimeoutConflictError
-        value = run_kwargs.pop("timeout")
-        return typ.cast("float | None", value)
-    return timeout
+def coerce_run_result(
+    result: RunResult | cabc.Sequence[object],
+) -> RunResult:
+    """Normalise *result* into a :class:`RunResult`."""
+    if isinstance(result, RunResult):
+        return result
+    try:
+        returncode_obj, stdout_obj, stderr_obj = result  # type: ignore[misc]
+    except ValueError as exc:  # pragma: no cover - defensive programming
+        msg = "plumbum run() results must unpack into (returncode, stdout, stderr)"
+        raise TypeError(msg) from exc
+    return RunResult(
+        int(typ.cast("int", returncode_obj)),
+        _ensure_text(typ.cast("str | bytes | None", stdout_obj)),
+        _ensure_text(typ.cast("str | bytes | None", stderr_obj)),
+    )
+
+
+def process_error_to_run_result(exc: ProcessExecutionError) -> RunResult:
+    """Convert ``exc`` into a :class:`RunResult` for consistent handling."""
+    return RunResult(
+        int(exc.retcode),
+        _ensure_text(getattr(exc, "stdout", "")),
+        _ensure_text(getattr(exc, "stderr", "")),
+    )
+
+
+def process_error_to_subprocess(
+    exc: ProcessExecutionError | ProcessTimedOut,
+    command: SupportsFormulate,
+    *,
+    timeout: float | None = None,
+) -> subprocess.CalledProcessError | subprocess.TimeoutExpired:
+    """Map plumbum exceptions to their :mod:`subprocess` counterparts."""
+    formatted = [str(part) for part in command.formulate()]
+    if isinstance(exc, ProcessExecutionError):
+        return subprocess.CalledProcessError(
+            int(exc.retcode),
+            formatted,
+            output=_ensure_text(getattr(exc, "stdout", "")),
+            stderr=_ensure_text(getattr(exc, "stderr", "")),
+        )
+    raw_timeout = getattr(exc, "timeout", None)
+    fallback_timeout = timeout if isinstance(timeout, (int, float)) else None
+    if isinstance(raw_timeout, (int, float)):
+        timeout_value = float(raw_timeout)
+    elif fallback_timeout is not None:
+        timeout_value = float(fallback_timeout)
+    else:
+        timeout_value = 0.0
+    return subprocess.TimeoutExpired(
+        cmd=formatted,
+        timeout=timeout_value,
+        output=_ensure_text(getattr(exc, "stdout", "")),
+        stderr=_ensure_text(getattr(exc, "stderr", "")),
+    )
+
+
+def _collect_runtime_env(
+    env: cabc.Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    """Return an environment mapping reflecting local and process mutations."""
+    plumbum_env = typ.cast("cabc.Mapping[str, str]", local.env)
+    base_env = {key: str(value) for key, value in plumbum_env.items()}
+
+    if env is not None:
+        return {key: str(value) for key, value in env.items()}
+
+    runtime_env = base_env | {key: str(value) for key, value in os.environ.items()}
+    return None if runtime_env == base_env else runtime_env
+
+
+def _apply_environment(
+    cmd: SupportsFormulate,
+    runtime_env: dict[str, str] | None,
+) -> SupportsFormulate:
+    """Return *cmd* with *runtime_env* applied when provided."""
+    if runtime_env is None:
+        return cmd
+    if not isinstance(cmd, SupportsWithEnv):  # pragma: no cover - defensive
+        msg = "Command does not support environment overrides"
+        raise TypeError(msg)
+    return typ.cast("SupportsFormulate", cmd.with_env(**runtime_env))
 
 
 def run_cmd(
-    cmd: Command,
+    cmd: object,
     *,
-    fg: bool = False,
-    timeout: float | None = None,
+    method: RunMethod = "call",
+    env: cabc.Mapping[str, str] | None = None,
     **run_kwargs: object,
 ) -> object:
-    """Execute ``cmd`` while echoing it to stderr.
-
-    Parameters
-    ----------
-    cmd : Sequence of str or SupportsFormulate
-        Shell command to execute.
-    fg : bool, optional
-        When ``True``, stream subprocess output to the console.
-    timeout : float or None, optional
-        Kill the process after this many seconds when supported.
-    **run_kwargs : Any
-        Adapter-specific keyword arguments passed through to ``run``/``run_fg``.
-
-    Returns
-    -------
-    Any
-        Result returned by the underlying command adapter.
-    """
-    timeout = _merge_timeout(timeout, run_kwargs)
-    if isinstance(cmd, cabc.Sequence):
-        typer.echo(f"$ {shlex.join(cmd)}")
-        if run_kwargs:
-            msg = (
-                "Sequence commands do not accept keyword arguments: "
-                f"{sorted(run_kwargs.keys())}"
-            )
-            raise TypeError(msg)
-        if fg:
-            subprocess.run(list(cmd), check=True, timeout=timeout)  # noqa: S603
-            return 0
-        return subprocess.check_call(list(cmd), timeout=timeout)  # noqa: S603
-
-    args = list(cmd.formulate())
-    typer.echo(f"$ {shlex.join(args)}")
-    if fg:
-        if timeout is not None:
-            if isinstance(cmd, SupportsRun):
-                run_kwargs.setdefault("stdout", None)
-                run_kwargs.setdefault("stderr", None)
-                from plumbum.commands.processes import (  # pyright: ignore[reportMissingTypeStubs]
-                    ProcessTimedOut,
-                )
-
-                try:
-                    cmd.run(timeout=timeout, **run_kwargs)
-                except ProcessTimedOut as exc:
-                    raise subprocess.TimeoutExpired(args, timeout) from exc
-                return 0
-            subprocess.run(args, check=True, timeout=timeout)  # noqa: S603
-            return 0
-        if isinstance(cmd, SupportsRunFg):
-            if run_kwargs:
-                cmd.run_fg(**run_kwargs)
-            else:
-                cmd.run_fg()
-            return 0
-        if isinstance(cmd, SupportsAnd) and not run_kwargs:
-            from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
-
-            return cmd & FG
-        if run_kwargs:
-            msg = (
-                "Command does not support foreground execution with keyword arguments: "
-                f"{sorted(run_kwargs.keys())}"
-            )
-            raise TypeError(msg)
-        result = cmd()
-        return result if isinstance(result, int) else 0
-
-    if not fg and timeout is not None and isinstance(cmd, SupportsRun):
-        run_kwargs.setdefault("timeout", timeout)
-
-    if run_kwargs:
-        if isinstance(cmd, SupportsRun):
-            return cmd.run(**run_kwargs)
-        msg = f"Command does not accept keyword arguments: {sorted(run_kwargs.keys())}"
+    """Execute ``cmd`` using plumbum semantics after echoing it."""
+    if not isinstance(cmd, SupportsFormulate):
+        msg = "run_cmd requires a plumbum command invocation"
         raise TypeError(msg)
-    return cmd()
+
+    typer.echo(f"$ {cmd}")
+
+    prepared = _apply_environment(cmd, _collect_runtime_env(env))
+    handler = _RUN_HANDLERS.get(method)
+    if handler is None:
+        msg = f"Unknown run method: {method}"
+        raise ValueError(msg)
+    return handler(prepared, run_kwargs)
+
+
+def _call_handler(command: SupportsFormulate, run_kwargs: dict[str, object]) -> object:
+    if not isinstance(command, SupportsCall):
+        msg = "Command does not support call semantics"
+        raise TypeError(msg)
+    return command(**run_kwargs)
+
+
+def _run_handler(
+    command: SupportsFormulate, run_kwargs: dict[str, object]
+) -> RunResult:
+    if not isinstance(command, SupportsRun):
+        msg = "Command does not support run()"
+        raise TypeError(msg)
+    run_options = dict(run_kwargs)
+    run_options.setdefault("retcode", None)
+    raw_result = command.run(**run_options)
+    return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))
+
+
+def _run_fg_handler(
+    command: SupportsFormulate, run_kwargs: dict[str, object]
+) -> object:
+    if isinstance(command, SupportsRunFg):
+        return command.run_fg(**run_kwargs)
+    if run_kwargs:
+        invalid = ", ".join(sorted(run_kwargs.keys()))
+        msg = f"Foreground execution does not accept keyword arguments: {invalid}"
+        raise TypeError(msg)
+    if isinstance(command, SupportsAnd):
+        from plumbum import FG  # pyright: ignore[reportMissingTypeStubs]
+
+        return command & FG
+    msg = "Command does not support foreground execution"
+    raise TypeError(msg)
+
+
+_MethodHandler = cabc.Callable[[SupportsFormulate, dict[str, object]], object]
+
+_RUN_HANDLERS: dict[RunMethod, _MethodHandler] = {
+    "call": _call_handler,
+    "run": typ.cast("_MethodHandler", _run_handler),
+    "run_fg": _run_fg_handler,
+}
+
+
+__all__ = [
+    "RunMethod",
+    "RunResult",
+    "coerce_run_result",
+    "process_error_to_run_result",
+    "process_error_to_subprocess",
+    "run_cmd",
+]

@@ -6,14 +6,21 @@ import collections.abc as cabc
 import importlib
 import importlib.util
 import shutil
-import subprocess
 import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import SupportsFormulate
+else:  # pragma: no cover - typing helper fallback
+    SupportsFormulate = typ.Any
 
 try:
     from ._packaging_utils import (
@@ -68,6 +75,7 @@ except Exception:  # noqa: BLE001
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 
 if typ.TYPE_CHECKING:
+    import subprocess
     import types as types_module
 
     ModuleType = types_module.ModuleType
@@ -121,13 +129,15 @@ class ModuleHarness:
         self.calls: list[list[str]] = []
 
     def patch_run_cmd(
-        self, side_effect: cabc.Callable[[list[str]], object | None] | None = None
+        self,
+        side_effect: cabc.Callable[[list[str]], object | None] | None = None,
     ) -> None:
         """Patch ``run_cmd`` to record calls and execute an optional side effect."""
 
-        def fake(cmd: list[str]) -> object | None:
-            self.calls.append(cmd)
-            return side_effect(cmd) if side_effect is not None else None
+        def fake(cmd: SupportsFormulate) -> object | None:
+            formulated = list(cmd.formulate())
+            self.calls.append(formulated)
+            return side_effect(formulated) if side_effect is not None else None
 
         self.monkeypatch.setattr(self.module, "run_cmd", fake)
 
@@ -142,6 +152,13 @@ class ModuleHarness:
     def patch_attr(self, name: str, value: object) -> None:
         """Patch an arbitrary attribute on the wrapped module."""
         self.monkeypatch.setattr(self.module, name, value)
+
+    def patch_subprocess_run(
+        self,
+        func: cabc.Callable[..., subprocess.CompletedProcess[str]],
+    ) -> None:
+        """Patch ``run_validated`` to use *func* within the wrapped module."""
+        self.monkeypatch.setattr(self.module, "run_validated", func)
 
 
 HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
@@ -186,14 +203,15 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         rustup_path = shutil.which("rustup")
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
-        result = subprocess.run(  # noqa: S603
-            [rustup_path, "toolchain", "list"],
-            capture_output=True,
-            text=True,
-            check=True,
+        _, stdout, _ = typ.cast(
+            "tuple[int, str, str]",
+            run_cmd(
+                local[rustup_path]["toolchain", "list"],
+                method="run",
+            ),
         )
         installed_names = [
-            line.split()[0] for line in result.stdout.splitlines() if line.strip()
+            line.split()[0] for line in stdout.splitlines() if line.strip()
         ]
         expected = {
             toolchain_version,
@@ -206,8 +224,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                 else toolchain_version
             )
             run_cmd(
-                [
-                    "rustup",
+                local["rustup"][
                     "toolchain",
                     "install",
                     install_spec,

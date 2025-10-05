@@ -9,7 +9,9 @@ import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 
 def main() -> None:

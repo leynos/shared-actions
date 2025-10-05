@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer"]
+# dependencies = ["plumbum", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 

@@ -13,8 +13,16 @@ if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
 
 if _ACTION_PATH := os.environ.get("GITHUB_ACTION_PATH"):
     _action_root = Path(_ACTION_PATH).resolve()
-    SCRIPTS_DIR = _action_root / "scripts"
-    REPO_ROOT = _action_root.parents[2]
+    scripts_candidate = _action_root / "scripts"
+    if scripts_candidate.is_dir():
+        SCRIPTS_DIR = scripts_candidate
+        try:
+            REPO_ROOT = _action_root.parents[2]
+        except IndexError:
+            REPO_ROOT = scripts_candidate.parents[3]
+    else:
+        SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+        REPO_ROOT = SCRIPTS_DIR.parents[3]
 else:
     SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
     REPO_ROOT = SCRIPTS_DIR.parents[3]

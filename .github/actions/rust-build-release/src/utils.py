@@ -2,10 +2,40 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003
 import os  # noqa: TC003
-import subprocess
 import typing as typ
 from pathlib import Path
+
+from plumbum import local
+
+from cmd_utils_importer import import_cmd_utils
+
+RunMethod = typ.Literal["call", "run", "run_fg"]
+
+_cmd_utils = import_cmd_utils()
+
+if typ.TYPE_CHECKING:  # pragma: no cover - typing only
+    import cmd_utils
+
+    class _SupportsFormulate(typ.Protocol):
+        def formulate(self) -> cabc.Sequence[str]: ...
+
+    class _RunCmd(typ.Protocol):
+        def __call__(
+            self,
+            cmd: _SupportsFormulate,
+            *,
+            method: RunMethod = "call",
+            env: cabc.Mapping[str, str] | None = None,
+            **run_kwargs: object,
+        ) -> object: ...
+
+    run_cmd = typ.cast("_RunCmd", cmd_utils.run_cmd)
+    coerce_run_result = cmd_utils.coerce_run_result
+else:
+    coerce_run_result = _cmd_utils.coerce_run_result
+    run_cmd = _cmd_utils.run_cmd
 
 
 class UnexpectedExecutableError(ValueError):
@@ -27,21 +57,43 @@ def ensure_allowed_executable(
     return str(exec_path)
 
 
+@typ.overload
 def run_validated(
     executable: str | os.PathLike[str],
     args: list[str] | tuple[str, ...],
     *,
     allowed_names: tuple[str, ...],
-    **kwargs: object,
-) -> subprocess.CompletedProcess[str]:
+    method: typ.Literal["run"] = "run",
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> cmd_utils.RunResult: ...
+
+
+@typ.overload
+def run_validated(
+    executable: str | os.PathLike[str],
+    args: list[str] | tuple[str, ...],
+    *,
+    allowed_names: tuple[str, ...],
+    method: typ.Literal["call", "run_fg"],
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> object: ...
+
+
+def run_validated(
+    executable: str | os.PathLike[str],
+    args: list[str] | tuple[str, ...],
+    *,
+    allowed_names: tuple[str, ...],
+    method: RunMethod = "run",
+    env: cabc.Mapping[str, str] | None = None,
+    **run_kwargs: object,
+) -> object:
     """Execute *executable* with *args* after validating its basename."""
     exec_path = ensure_allowed_executable(executable, allowed_names)
-    subprocess_kwargs: dict[str, object] = dict(kwargs)
-    if (
-        "text" not in subprocess_kwargs
-        and "encoding" not in subprocess_kwargs
-        and "universal_newlines" not in subprocess_kwargs
-    ):
-        subprocess_kwargs["text"] = True
-    result = subprocess.run([exec_path, *args], **subprocess_kwargs)  # noqa: S603
-    return typ.cast("subprocess.CompletedProcess[str]", result)
+    command = local[exec_path][list(args)] if args else local[exec_path]
+    result = run_cmd(command, method=method, env=env, **run_kwargs)
+    if method == "run":
+        return coerce_run_result(typ.cast("cabc.Sequence[object]", result))
+    return result

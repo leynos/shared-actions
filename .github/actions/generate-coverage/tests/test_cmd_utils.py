@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-import subprocess
 import sys
 
 import pytest
 from plumbum import local
+from plumbum.commands.processes import ProcessTimedOut
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 
 def test_run_cmd_foreground_timeout() -> None:
     """Foreground commands honour the configured timeout."""
     sleeper = local[sys.executable]["-c", "import time; time.sleep(5)"]
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_cmd(sleeper, fg=True, timeout=0.2)
+    with pytest.raises(ProcessTimedOut):
+        run_cmd(sleeper, method="run_fg", timeout=0.2)
 
 
 def test_run_cmd_foreground_success() -> None:
     """Foreground commands still succeed without a timeout."""
     cmd = local[sys.executable]["-c", "print('ok')"]
-    run_cmd(cmd, fg=True)
+    run_cmd(cmd, method="run_fg")

@@ -3,27 +3,31 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import typing as typ
 from pathlib import Path
 
+from plumbum import local
 from shared_actions_conftest import REQUIRES_UV
+
+from cmd_utils_importer import import_cmd_utils
+from test_support.plumbum_helpers import run_plumbum_command
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
 
 pytestmark = REQUIRES_UV
 
 
-def run_script(
-    script: Path, *, env: dict[str, str]
-) -> subprocess.CompletedProcess[str]:
+def run_script(script: Path, *, env: dict[str, str]) -> RunResult:
     """Execute ``determine_release`` with a controlled environment."""
-    cmd = ["uv", "run", "--script", str(script)]
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        check=False,
-        cwd=env.get("PWD"),
+    command = local["uv"]["run", "--script", str(script)]
+    scrubbed_env = env.copy()
+    for unset_key in ("GITHUB_REF_NAME", "GITHUB_REF_TYPE", "INPUT_TAG"):
+        scrubbed_env.setdefault(unset_key, "")
+    return run_plumbum_command(
+        command, method="run", env=scrubbed_env, cwd=scrubbed_env.get("PWD")
     )
 
 

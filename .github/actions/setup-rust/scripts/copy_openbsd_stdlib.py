@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["typer"]
+# dependencies = ["plumbum", "typer"]
 # ///
 """Copy OpenBSD standard library build artifacts into the nightly sysroot.
 
@@ -16,8 +16,11 @@ import shutil
 from pathlib import Path  # noqa: TC003
 
 import typer
+from plumbum import local
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 app = typer.Typer(add_completion=False)
 
@@ -41,9 +44,8 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
         shutil.copytree(artifact_dir, tmp)
     else:
         tmp.mkdir(parents=True, exist_ok=True)
-        cmd = ["rsync", "-a", "--delete", f"{artifact_dir}/", str(tmp)]
         try:
-            run_cmd(cmd)
+            run_cmd(local["rsync"]["-a", "--delete", f"{artifact_dir}/", str(tmp)])
         except FileNotFoundError:
             # Fallback when rsync is not available.
             shutil.copytree(artifact_dir, tmp, dirs_exist_ok=True)

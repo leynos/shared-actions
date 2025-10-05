@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import typing as typ
 from pathlib import Path
 
 import yaml
+from plumbum import local
+
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 if typ.TYPE_CHECKING:
     from cmd_mox import CmdMox
@@ -68,7 +72,7 @@ def test_action_run_step_invokes_validate_script(
     env["PATH"] = f"{shim_dir}{os.pathsep}{env.get('PATH', '')}"
     env["GITHUB_ACTION_PATH"] = str(action_dir)
 
-    command = ["/usr/bin/env", "bash", "-c", run_script]
-    subprocess.run(command, check=True, cwd=tmp_path, env=env)  # noqa: S603
+    command = local["/usr/bin/env"]["bash", "-c", run_script]
+    run_cmd(command, method="run", cwd=tmp_path, env=env)
 
     cmd_mox.verify()

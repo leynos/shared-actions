@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import typing as typ
 from functools import cache
 from pathlib import Path
@@ -47,7 +48,14 @@ class CmdUtilsImportError(RuntimeError):
 def find_repo_root() -> Path:
     """Locate the repository root containing ``CMD_UTILS_FILENAME``."""
     candidates: list[Path] = []
-    for parent in Path(__file__).resolve().parents:
+    env_path = os.environ.get("GITHUB_ACTION_PATH")
+    search_roots: list[Path]
+    if env_path:
+        action_path = Path(env_path).expanduser().resolve()
+        search_roots = [action_path, *action_path.parents]
+    else:  # pragma: no cover - fallback for local tooling
+        search_roots = list(Path(__file__).resolve().parents)
+    for parent in search_roots:
         candidate = parent / CMD_UTILS_FILENAME
         candidates.append(candidate)
         if candidate.is_file() and not candidate.is_symlink():

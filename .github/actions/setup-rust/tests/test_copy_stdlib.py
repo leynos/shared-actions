@@ -3,25 +3,31 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import typing as typ
 from pathlib import Path
 
+from plumbum import local
 
-def run_script(script: Path, *args: str) -> subprocess.CompletedProcess[str]:
+from cmd_utils_importer import import_cmd_utils
+from test_support.plumbum_helpers import run_plumbum_command
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
+
+
+def run_script(script: Path, *args: str) -> RunResult:
     """Execute *script* using ``uv run --script`` and return the process."""
-    cmd = ["uv", "run", "--script", str(script), *args]
+    command = local["uv"]["run", "--script", str(script)]
+    if args:
+        command = command[list(args)]
     merged = {**os.environ}
     root = str(Path(__file__).resolve().parents[4])
     current_pp = merged.get("PYTHONPATH", "")
     merged["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     merged["PYTHONIOENCODING"] = "utf-8"
-    return subprocess.run(  # noqa: S603
-        cmd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        env=merged,
-    )
+    return run_plumbum_command(command, method="run", env=merged)
 
 
 def test_copy_success(tmp_path: Path) -> None:

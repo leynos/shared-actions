@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-import subprocess
 import typing as typ
 from pathlib import Path
 
 import pytest
-from shared_actions_conftest import CMD_MOX_UNSUPPORTED
+
+from cmd_utils_importer import import_cmd_utils
+
+RunResult = import_cmd_utils().RunResult
 
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-    from shared_actions_conftest import CmdMox
+    from cmd_utils import SupportsFormulate
+else:  # pragma: no cover - typing helper fallback
+    SupportsFormulate = typ.Any
 
 
 def test_ensure_allowed_executable_accepts_valid_name(
@@ -37,36 +41,53 @@ def test_ensure_allowed_executable_rejects_unknown(
         utils_module.ensure_allowed_executable(exe_path, ("rustup", "rustup.exe"))
 
 
-@CMD_MOX_UNSUPPORTED
-def test_run_validated_invokes_subprocess_with_validated_path(
+def test_run_validated_invokes_run_cmd(
     utils_module: ModuleType,
-    cmd_mox: CmdMox,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    """run_validated executes subprocess.run with the validated executable."""
-    shim_dir = cmd_mox.environment.shim_dir
-    assert shim_dir is not None
-    exe_path = shim_dir / "docker.exe"
-    spy = cmd_mox.spy("docker.exe").with_args("info").returns(stdout="ok")
+    """run_validated should delegate to cmd_utils.run_cmd."""
+    exe_path = tmp_path / "docker.exe"
+    exe_path.write_text("", encoding="utf-8")
 
-    cmd_mox.replay()
+    captured_calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def fake_run_cmd(
+        cmd: SupportsFormulate,
+        *,
+        method: str = "call",
+        env: dict[str, str] | None = None,
+        **kwargs: object,
+    ) -> object:
+        captured_calls.append(
+            (
+                list(cmd.formulate()),
+                {"method": method, "env": env, "kwargs": dict(kwargs)},
+            )
+        )
+        return RunResult(0, "ok", "")
+
+    monkeypatch.setattr(utils_module, "run_cmd", fake_run_cmd)
+
     result = utils_module.run_validated(
         exe_path,
-        ["info"],
+        ("info",),
         allowed_names=("docker", "docker.exe"),
-        check=True,
-        capture_output=True,
-        text=True,
+        timeout=1.5,
+        retcode=0,
     )
-    cmd_mox.verify()
 
-    assert isinstance(result, subprocess.CompletedProcess), (
-        "run_validated should return subprocess.CompletedProcess"
-    )
-    assert result.args[0] == str(exe_path), (
-        "subprocess should be invoked with the validated executable path"
-    )
-    assert result.stdout == "ok", "stdout should propagate from the command double"
-    assert spy.call_count == 1, "command double should be invoked exactly once"
+    assert result == RunResult(0, "ok", "")
+    assert captured_calls == [
+        (
+            [str(exe_path), "info"],
+            {
+                "method": "run",
+                "env": None,
+                "kwargs": {"timeout": 1.5, "retcode": 0},
+            },
+        )
+    ], "run_cmd should be called with validated path and forwarded arguments"
 
 
 def test_run_validated_raises_for_unexpected_executable(
@@ -81,6 +102,5 @@ def test_run_validated_raises_for_unexpected_executable(
             exe_path,
             ["info"],
             allowed_names=("docker", "docker.exe"),
-            capture_output=True,
-            text=True,
+            method="run",
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import importlib.machinery
 import importlib.util
@@ -27,23 +28,28 @@ CmdUtilsImporter = typ.Callable[[], _CmdUtilsModule]
 
 def _ensure_repo_root_on_sys_path() -> Path | None:
     """Ensure the repository root containing ``cmd_utils_importer`` is importable."""
+    action_path = os.environ.get("GITHUB_ACTION_PATH")
+    roots: list[Path] = []
+    if action_path:
+        roots.append(Path(action_path).resolve())
+    roots.extend([PKG_DIR, *PKG_DIR.parents])
 
-    def _candidate_roots() -> typ.Iterable[Path]:
-        action_path = os.environ.get("GITHUB_ACTION_PATH")
-        if action_path:
-            yield Path(action_path).resolve()
-        yield PKG_DIR
+    repo_root = next(
+        (
+            candidate
+            for candidate in roots
+            if (candidate / "cmd_utils_importer.py").is_file()
+        ),
+        None,
+    )
+    if repo_root is None:
+        return None
 
-    for base in _candidate_roots():
-        for candidate in (base, *base.parents):
-            target = candidate / "cmd_utils_importer.py"
-            if target.exists():
-                root_path = candidate
-                root_str = str(root_path)
-                if root_str not in sys.path:
-                    sys.path.insert(0, root_str)
-                return root_path
-    return None
+    root_str = str(repo_root)
+    with contextlib.suppress(ValueError):
+        sys.path.remove(root_str)
+    sys.path.insert(0, root_str)
+    return repo_root
 
 
 def _resolve_import_cmd_utils() -> CmdUtilsImporter:

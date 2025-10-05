@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import importlib
 import json
 import os
@@ -14,6 +15,16 @@ import pytest
 import script_utils
 import typer
 from plumbum import local
+
+
+def _script_dir_and_repo_root() -> tuple[Path, Path]:
+    script_dir = script_utils.PKG_DIR
+    repo_root = next(
+        parent
+        for parent in (script_dir, *script_dir.parents)
+        if (parent / "cmd_utils_importer.py").exists()
+    )
+    return script_dir, repo_root
 
 
 def test_script_helper_exports_preserves_wrapped_callables(tmp_path: Path) -> None:
@@ -91,13 +102,7 @@ def test_load_script_helpers_uses_loader_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An ImportError triggers the SourceFileLoader fallback path."""
-    baseline = importlib.import_module("script_utils")
-    script_dir = baseline.PKG_DIR
-    repo_root = next(
-        parent
-        for parent in (script_dir, *script_dir.parents)
-        if (parent / "cmd_utils_importer.py").exists()
-    )
+    script_dir, repo_root = _script_dir_and_repo_root()
 
     sys.modules.pop("script_utils", None)
     sys.modules.pop("cmd_utils_importer", None)
@@ -146,15 +151,100 @@ def test_load_script_helpers_uses_loader_fallback(
         helpers.ensure_exists(tmp_path / "missing", "missing path")
 
 
+@pytest.mark.parametrize(
+    "initial_paths",
+    [
+        [],
+        ["/unrelated/path1", "/unrelated/path2"],
+        ["<script_dir>"],
+        ["/unrelated/path", "<script_dir>"],
+        ["<script_dir>", "/unrelated/path"],
+        ["/unrelated/path", "<repo_root>", "/another/unrelated"],
+    ],
+    ids=[
+        "empty",
+        "unrelated_only",
+        "script_dir_only",
+        "script_dir_at_end",
+        "script_dir_at_start",
+        "repo_root_present_not_first",
+    ],
+)
+def test_ensure_repo_root_on_sys_path_variants(
+    monkeypatch: pytest.MonkeyPatch, initial_paths: list[str]
+) -> None:
+    """Standalone bootstrap inserts the repo root at the front of ``sys.path``."""
+    script_dir, repo_root = _script_dir_and_repo_root()
+
+    resolved = []
+    for entry in initial_paths:
+        if entry == "<script_dir>":
+            resolved.append(str(script_dir))
+        elif entry == "<repo_root>":
+            resolved.append(str(repo_root))
+        else:
+            resolved.append(entry)
+
+    monkeypatch.setattr(sys, "path", list(resolved))
+
+    result = script_utils._ensure_repo_root_on_sys_path()
+
+    assert result == repo_root
+    assert sys.path[0] == str(repo_root)
+    assert sys.path.count(str(repo_root)) == 1
+
+
+def test_ensure_repo_root_on_sys_path_missing_importer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing ``cmd_utils_importer`` returns ``None`` from the helper.
+
+    The subsequent import attempt should fail.
+    """
+    script_dir, _ = _script_dir_and_repo_root()
+    original_cmd_utils_importer = importlib.import_module("cmd_utils_importer")
+
+    original_is_file = Path.is_file
+    original_import = builtins.__import__
+
+    def _always_false(path: Path) -> bool:
+        if path.name == "cmd_utils_importer.py":
+            return False
+        return original_is_file(path)
+
+    def _blocked_import(
+        name: str,
+        globals_dict: object | None = None,
+        locals_dict: object | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if level == 0 and name == "cmd_utils_importer":
+            raise ModuleNotFoundError(name)
+        return original_import(name, globals_dict, locals_dict, fromlist, level)
+
+    monkeypatch.setattr(Path, "is_file", _always_false)
+    monkeypatch.setattr(sys, "path", [str(script_dir)])
+    monkeypatch.setenv("GITHUB_ACTION_PATH", str(script_dir.parent))
+    monkeypatch.setattr(builtins, "__import__", _blocked_import)
+
+    assert script_utils._ensure_repo_root_on_sys_path() is None
+    assert sys.path == [str(script_dir)]
+
+    sys.modules.pop("script_utils", None)
+    sys.modules.pop("cmd_utils_importer", None)
+
+    try:
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("script_utils")
+    finally:
+        sys.modules["script_utils"] = script_utils
+        sys.modules["cmd_utils_importer"] = original_cmd_utils_importer
+
+
 def test_script_utils_bootstraps_repo_root_in_subprocess(tmp_path: Path) -> None:
     """Standalone imports add the repository root ahead of the script directory."""
-    baseline = importlib.import_module("script_utils")
-    script_dir = baseline.PKG_DIR
-    repo_root = next(
-        parent
-        for parent in (script_dir, *script_dir.parents)
-        if (parent / "cmd_utils_importer.py").exists()
-    )
+    script_dir, repo_root = _script_dir_and_repo_root()
 
     action_path = script_dir.parent
 

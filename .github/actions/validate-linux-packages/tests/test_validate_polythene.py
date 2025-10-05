@@ -89,6 +89,7 @@ def test_polythene_session_exec_respects_timeouts(
         "sandbox-uid",
         tmp_path,
         timeout=30,
+        isolation="proot",
     )
 
     session.exec("echo", "hello")
@@ -96,6 +97,37 @@ def test_polythene_session_exec_respects_timeouts(
 
     assert calls[0][1] == 30
     assert calls[1][1] == 5
+    argv = calls[0][0]
+    assert "--isolation" in argv
+    assert argv[argv.index("--isolation") + 1] == "proot"
+
+
+def test_polythene_session_exec_omits_isolation_when_unset(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """PolytheneSession.exec does not inject --isolation when unset."""
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    def _capture(command: object, *, timeout: int | None = None) -> str:
+        argv = tuple(getattr(command, "argv", ()))
+        calls.append((argv, timeout))
+        return "ok"
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _capture)
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+
+    session = validate_polythene_module.PolytheneSession(
+        ("polythene",),
+        "sandbox-uid",
+        tmp_path,
+    )
+
+    session.exec("echo", "hello")
+
+    argv = calls[0][0]
+    assert "--isolation" not in argv
 
 
 def test_polythene_rootfs_yields_configured_session(
@@ -120,6 +152,8 @@ def test_polythene_rootfs_yields_configured_session(
     polythene.write_text("#!/usr/bin/env python\n")
     command = (polythene.as_posix(),)
 
+    monkeypatch.delenv("POLYTHENE_ISOLATION", raising=False)
+
     with validate_polythene_module.polythene_rootfs(
         command,
         "docker.io/library/debian:bookworm",
@@ -131,12 +165,50 @@ def test_polythene_rootfs_yields_configured_session(
         assert session.store == store
         assert session.root.exists()
         assert session.timeout == 12
+        assert session.isolation == validate_polythene_module.DEFAULT_ISOLATION
 
     assert cleanup_calls
     cleanup_argv = cleanup_calls[0]
     assert cleanup_argv[:4] == ("uv", "run", polythene.as_posix(), "rm")
     assert run_calls[0][1] == 12  # pull timeout
     assert run_calls[1][1] == 12  # initial exec timeout
+    exec_argv = run_calls[1][0]
+    assert "--isolation" in exec_argv
+    assert exec_argv[exec_argv.index("--isolation") + 1] == "proot"
+
+
+def test_polythene_rootfs_honours_environment_isolation_override(
+    validate_polythene_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Environment-provided POLYTHENE_ISOLATION overrides the default value."""
+    run_calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    def _run_text(command: object, *, timeout: int | None = None) -> str:
+        argv = tuple(getattr(command, "argv", ()))
+        run_calls.append((argv, timeout))
+        return "session-uid\n" if "pull" in argv else ""
+
+    monkeypatch.setattr(validate_polythene_module, "run_text", _run_text)
+    monkeypatch.setattr(validate_polythene_module, "local", _FakeLocal([]))
+    monkeypatch.setenv("POLYTHENE_ISOLATION", "chroot")
+
+    store = tmp_path / "store"
+    polythene = tmp_path / "polythene.py"
+    polythene.write_text("#!/usr/bin/env python\n")
+    command = (polythene.as_posix(),)
+
+    with validate_polythene_module.polythene_rootfs(
+        command,
+        "docker.io/library/debian:bookworm",
+        store,
+    ) as session:
+        assert session.isolation == "chroot"
+
+    exec_argv = run_calls[1][0]
+    assert "--isolation" in exec_argv
+    assert exec_argv[exec_argv.index("--isolation") + 1] == "chroot"
 
 
 def test_polythene_rootfs_rejects_empty_identifier(

@@ -15,14 +15,14 @@ from pathlib import Path
 action_path = Path(__file__).resolve().parents[1]
 os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
 
-sys.path.append(str(Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
-from cmd_utils_importer import ensure_cmd_utils_imported
+from cmd_utils_importer import ensure_cmd_utils_imported  # noqa: E402
 
 ensure_cmd_utils_imported()
 
-import typer
-from toolchain import read_default_toolchain
+import typer  # noqa: E402
+from toolchain import read_default_toolchain  # noqa: E402
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 

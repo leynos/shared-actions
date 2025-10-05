@@ -37,11 +37,29 @@ process_error_to_run_result = typ.cast(
 )
 RunResult = typ.cast("type[_RunResult]", _cmd_utils.RunResult)
 RunMethod = typ.cast("_RunMethod", _cmd_utils.RunMethod)
+_ensure_text = typ.cast(
+    "typ.Callable[[str | bytes | None], str]", _cmd_utils._ensure_text
+)
 
 
 def _python_command(*args: str) -> object:
     command = local[sys.executable]
     return command[list(args)] if args else command
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("b'plain'", "plain"),
+        ("b'emoji: \\xf0\\x9f\\x98\\x8a'", "emoji: 😊"),
+        ("bytearray(b'chunk')", "chunk"),
+    ],
+)
+def test_ensure_text_decodes_stringified_binary_payloads(
+    value: str, expected: str
+) -> None:
+    """String representations of byte sequences should round-trip to text."""
+    assert _ensure_text(value) == expected
 
 
 def test_run_cmd_returns_stdout_by_default(capsys: pytest.CaptureFixture[str]) -> None:
@@ -86,7 +104,7 @@ def test_run_cmd_run_method_honours_timeout() -> None:
     """run_cmd should honour timeout settings for the run strategy."""
     script = "import time; time.sleep(10)"
 
-    with pytest.raises((ProcessTimedOut, TimeoutError)):
+    with pytest.raises(ProcessTimedOut):
         run_cmd(
             _python_command("-c", script),
             method="run",
@@ -119,6 +137,20 @@ def test_run_cmd_call_includes_stderr_in_exception() -> None:
     exc: ProcessExecutionError = excinfo.value
     assert exc.retcode == 9
     assert "diagnostic" in (exc.stderr or "")
+
+
+def test_run_cmd_stderr_with_non_utf8_bytes() -> None:
+    """ProcessExecutionError should decode non-UTF-8 stderr safely."""
+    script = "import sys; sys.stderr.buffer.write(b'bad byte: \\xe9\\xff'); sys.exit(7)"
+
+    with pytest.raises(ProcessExecutionError) as excinfo:
+        run_cmd(_python_command("-c", script))
+
+    exc: ProcessExecutionError = excinfo.value
+    assert exc.retcode == 7
+    decoded = exc.stderr or ""
+    assert "bad byte:" in decoded
+    assert any(marker in decoded for marker in ("\ufffd", "�", "\\xe9", "\\xff"))
 
 
 def test_process_error_helpers_decode_output() -> None:

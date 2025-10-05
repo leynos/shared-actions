@@ -26,6 +26,28 @@ Streaming output in the foreground via ``run_fg``::
     >>> run_cmd(local["make"]["test"], method="run_fg")
     $ make test
     # Output streams directly to stdout/stderr
+
+Inspecting exit status and stderr with the ``run`` method::
+
+    >>> failure = run_cmd(
+    ...     local["python"]["-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
+    ...     method="run",
+    ... )
+    $ python -c "import sys; sys.stderr.write('oops'); sys.exit(1)"
+    >>> failure.returncode
+    1
+    >>> failure.stderr
+    'oops'
+
+Enforcing a timeout for long-running processes::
+
+    >>> run_cmd(
+    ...     local["python"]["-c", "import time; time.sleep(5)"],
+    ...     method="run",
+    ...     timeout=0.01,
+    ... )
+    Traceback (most recent call last):
+    ProcessTimedOut: ...
 """
 
 from __future__ import annotations
@@ -106,7 +128,7 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
 def _ensure_text(value: str | bytes | None) -> str:
     """Return ``value`` as a decoded ``str`` replacing undecodable bytes."""
     if isinstance(value, str):
-        if value.startswith(("b'", 'b"')):
+        if value.startswith(("b'", 'b"', "bytearray(", "bytes(")):
             try:
                 literal = ast.literal_eval(value)
             except (SyntaxError, ValueError):
@@ -241,7 +263,26 @@ def _run_handler(
         raise TypeError(msg)
     run_options = dict(run_kwargs)
     run_options.setdefault("retcode", None)
-    raw_result = command.run(**run_options)
+    try:
+        raw_result = command.run(**run_options)
+    except ProcessTimedOut:
+        raise
+    except TimeoutError as exc:
+        timeout_value = run_options.get("timeout", getattr(exc, "timeout", None))
+        if isinstance(timeout_value, (int, float)):
+            normalized_timeout: float | None = float(timeout_value)
+        else:
+            normalized_timeout = None
+        stdout = _ensure_text(getattr(exc, "stdout", ""))
+        stderr = _ensure_text(getattr(exc, "stderr", ""))
+        formatted = [str(part) for part in command.formulate()]
+        timeout_message = str(exc) or "Command timed out"
+        timed_out = ProcessTimedOut(timeout_message, formatted)
+        if normalized_timeout is not None:
+            timed_out.timeout = normalized_timeout  # type: ignore[attr-defined]
+        timed_out.stdout = stdout  # type: ignore[attr-defined]
+        timed_out.stderr = stderr  # type: ignore[attr-defined]
+        raise timed_out from exc
     return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))
 
 

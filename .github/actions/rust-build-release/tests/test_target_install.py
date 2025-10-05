@@ -7,6 +7,8 @@ import subprocess
 import typing as typ
 
 import pytest
+from cmd_utils import RunResult
+
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
@@ -895,15 +897,15 @@ def test_configure_windows_linkers_prefers_toolchain_gcc(
         args: list[str],
         *,
         allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
         assert cmd[:2] == [rustup_path, "which"]
-        return subprocess.CompletedProcess(cmd, 0, stdout=str(rustc_path))
+        assert method == "run"
+        assert not run_kwargs
+        return RunResult(0, str(rustc_path), "")
 
     harness.monkeypatch.setattr(main_module, "run_validated", fake_run)
     harness.monkeypatch.setattr(main_module.shutil, "which", lambda name: None)
@@ -952,15 +954,15 @@ def test_configure_windows_linkers_sets_cross_linker(
         args: list[str],
         *,
         allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-        **_: object,
-    ) -> subprocess.CompletedProcess[str]:
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
         assert cmd[:2] == [rustup_path, "which"]
-        return subprocess.CompletedProcess(cmd, 0, stdout=str(rustc_path))
+        assert method == "run"
+        assert not run_kwargs
+        return RunResult(0, str(rustc_path), "")
 
     harness.monkeypatch.setattr(main_module, "run_validated", fake_run)
 
@@ -981,3 +983,43 @@ def test_configure_windows_linkers_sets_cross_linker(
     cross_env = os.environ["CARGO_TARGET_AARCH64_PC_WINDOWS_GNU_LINKER"]
     assert host_env == str(host_linker)
     assert cross_env == str(cross_linker)
+
+
+def test_configure_windows_linkers_raises_on_rustup_failure(
+    main_module: ModuleType,
+    module_harness: HarnessFactory,
+) -> None:
+    """Rustup discovery failures propagate as CalledProcessError."""
+
+    harness = module_harness(main_module)
+    harness.patch_platform("win32")
+    toolchain_name = "1.89.0-x86_64-pc-windows-gnu"
+    host_triple = "x86_64-pc-windows-gnu"
+    rustup_path = "/usr/bin/rustup"
+
+    def fake_run(
+        executable: str,
+        args: list[str],
+        *,
+        allowed_names: tuple[str, ...],
+        method: str = "run",
+        **run_kwargs: object,
+    ) -> RunResult:
+        _ = allowed_names
+        assert method == "run"
+        assert not run_kwargs
+        assert [executable, *args][:2] == [rustup_path, "which"]
+        return RunResult(9, "", "rustup error")
+
+    harness.monkeypatch.setattr(main_module, "run_validated", fake_run)
+    harness.monkeypatch.delenv(
+        "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER", raising=False
+    )
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        main_module.configure_windows_linkers(toolchain_name, host_triple, rustup_path)
+
+    exc = excinfo.value
+    assert exc.returncode == 9
+    assert exc.cmd[:2] == [rustup_path, "which"]
+    assert "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" not in os.environ

@@ -37,13 +37,24 @@ def configure_windows_linkers(toolchain_name: str, target: str, rustup: str) -> 
                 rustup_exec,
                 ["which", "rustc", "--toolchain", toolchain_name],
                 allowed_names=("rustup", "rustup.exe"),
-                capture_output=True,
-                text=True,
-                check=True,
+                method="run",
             )
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except FileNotFoundError:
             pass
         else:
+            if rustc_path_result.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    rustc_path_result.returncode,
+                    [
+                        rustup_exec,
+                        "which",
+                        "rustc",
+                        "--toolchain",
+                        toolchain_name,
+                    ],
+                    output=rustc_path_result.stdout,
+                    stderr=rustc_path_result.stderr,
+                )
             if rustc_stdout := rustc_path_result.stdout.strip():
                 toolchain_root = Path(rustc_stdout).resolve().parent.parent
                 linker_path = (

@@ -45,8 +45,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/ratchet-coverage/scripts \
 		.github/actions/linux-packages/scripts \
 		.github/actions/rust-build-release/src \
-		.github/actions/setup-rust/scripts \
-		shellstub.py
+		.github/actions/setup-rust/scripts
 	./.venv/bin/ty check \
 		--extra-search-path . \
 		--extra-search-path .github/actions/macos-package/scripts \

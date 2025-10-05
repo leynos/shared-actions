@@ -118,7 +118,6 @@ timeout = 30
 py-modules = [
     "cmd_utils",
     "cmd_utils_importer",
-    "shellstub",
 ]
 
 [tool.uv]

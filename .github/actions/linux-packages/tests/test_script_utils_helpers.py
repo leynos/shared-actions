@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import sys
+import textwrap
 import typing as typ
 from pathlib import Path
 
 import pytest
 import script_utils
 import typer
+from plumbum import local
 
 
 def test_script_helper_exports_preserves_wrapped_callables(tmp_path: Path) -> None:
@@ -87,11 +91,12 @@ def test_load_script_helpers_uses_loader_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An ImportError triggers the SourceFileLoader fallback path."""
-
     baseline = importlib.import_module("script_utils")
     script_dir = baseline.PKG_DIR
     repo_root = next(
-        parent for parent in (script_dir, *script_dir.parents) if (parent / "cmd_utils_importer.py").exists()
+        parent
+        for parent in (script_dir, *script_dir.parents)
+        if (parent / "cmd_utils_importer.py").exists()
     )
 
     sys.modules.pop("script_utils", None)
@@ -139,3 +144,57 @@ def test_load_script_helpers_uses_loader_fallback(
 
     with pytest.raises(typer.Exit):
         helpers.ensure_exists(tmp_path / "missing", "missing path")
+
+
+def test_script_utils_bootstraps_repo_root_in_subprocess(tmp_path: Path) -> None:
+    """Standalone imports add the repository root ahead of the script directory."""
+    baseline = importlib.import_module("script_utils")
+    script_dir = baseline.PKG_DIR
+    repo_root = next(
+        parent
+        for parent in (script_dir, *script_dir.parents)
+        if (parent / "cmd_utils_importer.py").exists()
+    )
+
+    action_path = script_dir.parent
+
+    script = textwrap.dedent(
+        """
+        import importlib
+        import json
+        import os
+        import sys
+
+        module = importlib.import_module("script_utils")
+        helpers = module.load_script_helpers()
+
+        payload = {
+            "first_sys_path": sys.path[0],
+            "expected_present": os.environ["EXPECTED_REPO_ROOT"] in sys.path,
+            "import_cmd_utils_module": module.import_cmd_utils.__module__,
+            "helpers_run_cmd_module": helpers.run_cmd.__module__,
+        }
+
+        print(json.dumps(payload))
+        """
+    ).strip()
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHONPATH": str(script_dir),
+            "GITHUB_ACTION_PATH": str(action_path),
+            "EXPECTED_REPO_ROOT": str(repo_root),
+        }
+    )
+
+    command = local[sys.executable]["-c", script]
+    completed = command.run(env=env, cwd=str(tmp_path))
+    stdout = completed[1]
+
+    payload = json.loads(stdout.strip())
+
+    assert payload["expected_present"] is True
+    assert payload["first_sys_path"] == str(repo_root)
+    assert payload["import_cmd_utils_module"] == "cmd_utils_importer"
+    assert payload["helpers_run_cmd_module"] == "cmd_utils"

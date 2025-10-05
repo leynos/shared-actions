@@ -16,6 +16,15 @@ from plumbum import local
 PKG_DIR = Path(__file__).resolve().parent
 
 
+class _CmdUtilsModule(typ.Protocol):
+    """Typed view of the :mod:`cmd_utils` module."""
+
+    run_cmd: typ.Callable[..., typ.Any]
+
+
+CmdUtilsImporter = typ.Callable[[], _CmdUtilsModule]
+
+
 def _ensure_repo_root_on_sys_path() -> Path | None:
     """Ensure the repository root containing ``cmd_utils_importer`` is importable."""
 
@@ -37,9 +46,16 @@ def _ensure_repo_root_on_sys_path() -> Path | None:
     return None
 
 
-_ensure_repo_root_on_sys_path()
+def _resolve_import_cmd_utils() -> CmdUtilsImporter:
+    """Return the ``import_cmd_utils`` callable with ``sys.path`` primed."""
+    if not __package__:
+        _ensure_repo_root_on_sys_path()
+    from cmd_utils_importer import import_cmd_utils as importer
 
-from cmd_utils_importer import import_cmd_utils
+    return typ.cast("CmdUtilsImporter", importer)
+
+
+import_cmd_utils = _resolve_import_cmd_utils()
 
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BaseCommand

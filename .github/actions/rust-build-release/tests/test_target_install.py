@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import typing as typ
+from pathlib import Path
 
 import pytest
 from shared_actions_conftest import (
@@ -18,7 +19,6 @@ from shared_actions_conftest import (
 from cmd_utils import RunResult
 
 if typ.TYPE_CHECKING:
-    from pathlib import Path
     from types import ModuleType
 
     from shared_actions_conftest import CmdMox
@@ -902,7 +902,8 @@ def test_configure_windows_linkers_prefers_toolchain_gcc(
     ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
-        assert cmd[:2] == [rustup_path, "which"]
+        assert Path(cmd[0]) == Path(rustup_path)
+        assert cmd[1] == "which"
         assert method == "run"
         assert not run_kwargs
         return RunResult(0, str(rustc_path), "")
@@ -960,7 +961,8 @@ def test_configure_windows_linkers_sets_cross_linker(
     ) -> RunResult:
         _ = allowed_names
         cmd = [executable, *args]
-        assert cmd[:2] == [rustup_path, "which"]
+        assert Path(cmd[0]) == Path(rustup_path)
+        assert cmd[1] == "which"
         assert method == "run"
         assert not run_kwargs
         return RunResult(0, str(rustc_path), "")
@@ -1010,7 +1012,9 @@ def test_configure_windows_linkers_raises_on_rustup_failure(
         _ = allowed_names
         assert method == "run"
         assert not run_kwargs
-        assert [executable, *args][:2] == [rustup_path, "which"]
+        assert Path(executable) == Path(rustup_path)
+        assert args
+        assert args[0] == "which"
         return RunResult(9, "", "rustup error")
 
     harness.monkeypatch.setattr(toolchain_module, "run_validated", fake_run)
@@ -1025,5 +1029,6 @@ def test_configure_windows_linkers_raises_on_rustup_failure(
 
     exc = excinfo.value
     assert exc.returncode == 9
-    assert exc.cmd[:2] == [rustup_path, "which"]
+    assert Path(exc.cmd[0]) == Path(rustup_path)
+    assert exc.cmd[1] == "which"
     assert "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER" not in os.environ

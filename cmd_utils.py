@@ -1,7 +1,58 @@
-"""Utilities for running plumbum command invocations."""
+r"""Utilities for running plumbum command invocations.
+
+This module provides :func:`run_cmd`, a unified interface for executing
+plumbum commands with optional environment overrides and multiple execution
+strategies (``call`` by default, plus ``run`` and ``run_fg``). Each invocation
+is echoed before execution to aid debugging in CI logs or local terminals.
+
+Examples
+--------
+Basic usage with the default ``call`` strategy::
+
+    >>> from plumbum import local
+    >>> result = run_cmd(local["echo"]["hello"])
+    $ echo hello
+    'hello\n'
+
+Overriding the environment for a single command::
+
+    >>> cmd = local["env"]["MY_VAR"]
+    >>> run_cmd(cmd, env={"MY_VAR": "custom_value"})
+    $ env MY_VAR
+    'custom_value\n'
+
+Streaming output in the foreground via ``run_fg``::
+
+    >>> run_cmd(local["make"]["test"], method="run_fg")
+    $ make test
+    # Output streams directly to stdout/stderr
+
+Inspecting exit status and stderr with the ``run`` method::
+
+    >>> failure = run_cmd(
+    ...     local["python"]["-c", "import sys; sys.stderr.write('oops'); sys.exit(1)"],
+    ...     method="run",
+    ... )
+    $ python -c "import sys; sys.stderr.write('oops'); sys.exit(1)"
+    >>> failure.returncode
+    1
+    >>> failure.stderr
+    'oops'
+
+Enforcing a timeout for long-running processes::
+
+    >>> run_cmd(
+    ...     local["python"]["-c", "import time; time.sleep(5)"],
+    ...     method="run",
+    ...     timeout=0.01,
+    ... )
+    Traceback (most recent call last):
+    ProcessTimedOut: ...
+"""
 
 from __future__ import annotations
 
+import ast
 import collections.abc as cabc
 import os
 import subprocess
@@ -77,6 +128,13 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
 def _ensure_text(value: str | bytes | None) -> str:
     """Return ``value`` as a decoded ``str`` replacing undecodable bytes."""
     if isinstance(value, str):
+        if value.startswith(("b'", 'b"', "bytearray(", "bytes(")):
+            try:
+                literal = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return value
+            if isinstance(literal, (bytes, bytearray)):
+                return bytes(literal).decode("utf-8", errors="replace")
         return value
     if value is None:
         return ""
@@ -205,7 +263,39 @@ def _run_handler(
         raise TypeError(msg)
     run_options = dict(run_kwargs)
     run_options.setdefault("retcode", None)
-    raw_result = command.run(**run_options)
+    try:
+        raw_result = command.run(**run_options)
+    except ProcessTimedOut:
+        raise
+    except TimeoutError as exc:
+        timeout_value = run_options.get("timeout", getattr(exc, "timeout", None))
+        if isinstance(timeout_value, (int, float)):
+            normalized_timeout: float | None = float(timeout_value)
+        else:
+            normalized_timeout = None
+        stdout = _ensure_text(getattr(exc, "stdout", ""))
+        stderr = _ensure_text(getattr(exc, "stderr", ""))
+        formatted = [str(part) for part in command.formulate()]
+        timeout_message = str(exc) or "Command timed out"
+        timeout_value = normalized_timeout if normalized_timeout is not None else 0.0
+        process_timed_out_ctor = typ.cast(
+            "typ.Callable[..., ProcessTimedOut]",
+            ProcessTimedOut,
+        )
+        timed_out = process_timed_out_ctor(
+            formatted,
+            timeout_value,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        resolved_timeout = (
+            normalized_timeout if normalized_timeout is not None else timeout_value
+        )
+        timed_out.timeout = resolved_timeout  # type: ignore[attr-defined]
+        timed_out.stdout = stdout  # type: ignore[attr-defined]
+        timed_out.stderr = stderr  # type: ignore[attr-defined]
+        timed_out.args = (timeout_message, *timed_out.args[1:])
+        raise timed_out from exc
     return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))
 
 

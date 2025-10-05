@@ -87,7 +87,22 @@ def test_load_script_helpers_uses_loader_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An ImportError triggers the SourceFileLoader fallback path."""
+
+    baseline = importlib.import_module("script_utils")
+    script_dir = baseline.PKG_DIR
+    repo_root = next(
+        parent for parent in (script_dir, *script_dir.parents) if (parent / "cmd_utils_importer.py").exists()
+    )
+
+    sys.modules.pop("script_utils", None)
+    sys.modules.pop("cmd_utils_importer", None)
+
+    monkeypatch.setenv("GITHUB_ACTION_PATH", str(script_dir.parent))
+    monkeypatch.setattr(sys, "path", [str(script_dir)])
+
     module = importlib.import_module("script_utils")
+    assert sys.path[0] == str(repo_root)
+    assert module.import_cmd_utils.__module__ == "cmd_utils_importer"
 
     attempted: list[str] = []
 

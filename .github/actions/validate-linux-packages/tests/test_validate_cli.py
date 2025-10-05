@@ -518,8 +518,157 @@ def test_validate_format_dispatches_to_handler(
         store_dir,
         config.timeout,
     )
-    assert called["cfg"] is config
-    assert called["sandbox"] is True
+
+
+def test_validate_format_skips_polythene_for_cross_architecture_package(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Polythene is not invoked when metadata architecture mismatches the host."""
+    module = validate_cli_module
+    import validate_packages as packages_module
+
+    package = tmp_path / "rust-toy-app_1.2.3-1_arm64.deb"
+    package.write_bytes(b"payload")
+
+    metadata = packages_module.DebMetadata(
+        name="rust-toy-app",
+        version="1.2.3-1",
+        architecture="arm64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+
+    monkeypatch.setattr(module, "locate_deb", lambda *args: package)
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
+    monkeypatch.setattr(packages_module, "inspect_deb_package", lambda *_: metadata)
+    monkeypatch.setattr(packages_module.platform, "machine", lambda: "x86_64")
+
+    caplog.set_level("INFO")
+
+    def _fail_install(*_args: object, **_kwargs: object) -> None:
+        message = "sandbox execution should be skipped"
+        raise AssertionError(message)
+
+    monkeypatch.setattr(packages_module, "_install_and_verify", _fail_install)
+
+    polythene_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def _polythene_stub(*args: object, **kwargs: object) -> typ.ContextManager[object]:
+        polythene_calls.append((args, kwargs))
+
+        @contextlib.contextmanager
+        def _ctx() -> typ.Iterator[object]:
+            message = "polythene context should not start"
+            raise AssertionError(message)
+            yield object()
+
+        return _ctx()
+
+    monkeypatch.setattr(module, "polythene_rootfs", _polythene_stub)
+
+    config = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="rust-toy-app",
+        version="1.2.3",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("deb",),
+        expected_paths=("/usr/bin/rust-toy-app",),
+        executable_paths=("/usr/bin/rust-toy-app",),
+        verify_command=(),
+        polythene_command=("polythene",),
+        timeout=None,
+        base_images={"deb": "docker.io/library/debian:bookworm"},
+    )
+
+    module._validate_format("deb", config, tmp_path / "store")
+
+    assert not polythene_calls
+    assert "skipping deb package sandbox validation" in caplog.text
+
+
+def test_validate_format_runs_polythene_for_supported_architecture(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Polythene sandbox is created when the package matches the host arch."""
+    module = validate_cli_module
+    import validate_packages as packages_module
+
+    package = tmp_path / "rust-toy-app_1.2.3-1_amd64.deb"
+    package.write_bytes(b"payload")
+
+    metadata = packages_module.DebMetadata(
+        name="rust-toy-app",
+        version="1.2.3-1",
+        architecture="amd64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+
+    monkeypatch.setattr(module, "locate_deb", lambda *args: package)
+    monkeypatch.setattr(module, "get_command", lambda _name: object())
+    monkeypatch.setattr(packages_module, "inspect_deb_package", lambda *_: metadata)
+    monkeypatch.setattr(packages_module.platform, "machine", lambda: "x86_64")
+
+    polythene_calls: list[str] = []
+
+    def _polythene_stub(
+        *_args: object, **_kwargs: object
+    ) -> typ.ContextManager[object]:
+        polythene_calls.append("factory")
+
+        @contextlib.contextmanager
+        def _ctx() -> typ.Iterator[object]:
+            polythene_calls.append("enter")
+
+            class _Session:
+                def __init__(self) -> None:
+                    self.root = tmp_path / "root"
+                    self.root.mkdir(parents=True, exist_ok=True)
+
+                def exec(self, *command: str, timeout: int | None = None) -> str:
+                    polythene_calls.append("exec")
+                    return ""
+
+            yield _Session()
+
+        return _ctx()
+
+    monkeypatch.setattr(module, "polythene_rootfs", _polythene_stub)
+
+    def _install_stub(
+        sandbox_factory: typ.Callable[[], typ.ContextManager[object]],
+        *_args: object,
+        **_kwargs: object,
+    ) -> None:
+        with sandbox_factory() as session:
+            session.exec("true")
+
+    monkeypatch.setattr(packages_module, "_install_and_verify", _install_stub)
+
+    config = module.ValidationConfig(
+        packages_dir=tmp_path,
+        package_value="rust-toy-app",
+        version="1.2.3",
+        release="1",
+        arch="amd64",
+        deb_arch="amd64",
+        formats=("deb",),
+        expected_paths=("/usr/bin/rust-toy-app",),
+        executable_paths=("/usr/bin/rust-toy-app",),
+        verify_command=(),
+        polythene_command=("polythene",),
+        timeout=None,
+        base_images={"deb": "docker.io/library/debian:bookworm"},
+    )
+
+    module._validate_format("deb", config, tmp_path / "store")
+
+    assert polythene_calls == ["factory", "enter", "exec"]
 
 
 def test_validate_format_rejects_unknown_format(

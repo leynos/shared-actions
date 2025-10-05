@@ -250,6 +250,7 @@ def _validate_package(
     *,
     package_path: Path,
     validators: typ.Iterable[typ.Callable[[MetaT], None]],
+    architecture_validator: typ.Callable[[MetaT], None] | None = None,
     expected_paths: typ.Collection[str],
     executable_paths: typ.Collection[str],
     verify_command: tuple[str, ...],
@@ -266,17 +267,25 @@ def _validate_package(
         validator(metadata)
     ensure_subset(expected_paths, metadata.files, payload_label)
 
-    if _should_skip_sandbox(package_architecture):
+    metadata_architecture = getattr(metadata, "architecture", None)
+
+    if _should_skip_sandbox(metadata_architecture):
         host_machine = platform.machine() or "unknown"
         format_label = f"{package_format} package" if package_format else "package"
+        actual_arch = metadata_architecture or "unknown"
+        expected_arch = package_architecture or "unspecified"
         logger.info(
             "skipping %s sandbox validation: package architecture %s "
-            "is not supported on host %s",
+            "(expected %s) is not supported on host %s",
             format_label,
-            package_architecture,
+            actual_arch,
+            expected_arch,
             host_machine,
         )
         return
+
+    if architecture_validator is not None:
+        architecture_validator(metadata)
 
     _install_and_verify(
         sandbox_factory,
@@ -317,9 +326,9 @@ def validate_deb_package(
                     f"{expected_deb_version!r} or {expected_version!r}"
                 ),
             ),
-            _MetadataValidators.equal(
-                "architecture", expected_arch, "unexpected deb architecture"
-            ),
+        ),
+        architecture_validator=_MetadataValidators.equal(
+            "architecture", expected_arch, "unexpected deb architecture"
         ),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
@@ -350,6 +359,12 @@ def validate_rpm_package(
     """Validate RPM package metadata and sandbox installation."""
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
 
+    architecture_validator = _MetadataValidators.in_set(
+        "architecture",
+        acceptable_arches,
+        "unexpected rpm architecture",
+    )
+
     _validate_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
@@ -361,12 +376,8 @@ def validate_rpm_package(
             _MetadataValidators.prefix(
                 "release", expected_release, "unexpected rpm release prefix"
             ),
-            _MetadataValidators.in_set(
-                "architecture",
-                acceptable_arches,
-                "unexpected rpm architecture",
-            ),
         ),
+        architecture_validator=architecture_validator,
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,

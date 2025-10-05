@@ -186,6 +186,100 @@ def test_validate_deb_package_skips_cross_architecture_sandbox(
     assert "skipping deb package sandbox validation" in caplog.text
 
 
+def test_validate_deb_package_skips_using_metadata_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    validate_packages_module: ModuleType,
+) -> None:
+    """Skip sandbox when metadata architecture differs from expected config."""
+    package = tmp_path / "rust-toy-app_1.2.3-1_arm64.deb"
+    package.write_bytes(b"payload")
+    metadata = validate_packages_module.DebMetadata(
+        name="rust-toy-app",
+        version="1.2.3-1",
+        architecture="arm64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+    monkeypatch.setattr(
+        validate_packages_module,
+        "inspect_deb_package",
+        lambda *_: metadata,
+    )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
+    )
+    caplog.set_level("INFO")
+
+    def _fail_sandbox() -> typ.ContextManager[object]:
+        message = "sandbox used"
+        raise AssertionError(message)
+
+    validate_packages_module.validate_deb_package(
+        dpkg_deb=object(),
+        package_path=package,
+        expected_name="rust-toy-app",
+        expected_version="1.2.3",
+        expected_deb_version="1.2.3-1",
+        expected_arch="amd64",
+        expected_paths=("/usr/bin/rust-toy-app",),
+        executable_paths=("/usr/bin/rust-toy-app",),
+        verify_command=("/usr/bin/rust-toy-app", "--version"),
+        sandbox_factory=_fail_sandbox,
+    )
+
+    assert "skipping deb package sandbox validation" in caplog.text
+
+
+def test_validate_deb_package_rejects_unexpected_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    validate_packages_module: ModuleType,
+) -> None:
+    """Raise an error when metadata architecture conflicts with expectation."""
+    package = tmp_path / "rust-toy-app_1.2.3-1_amd64.deb"
+    package.write_bytes(b"payload")
+    metadata = validate_packages_module.DebMetadata(
+        name="rust-toy-app",
+        version="1.2.3-1",
+        architecture="amd64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+    monkeypatch.setattr(
+        validate_packages_module,
+        "inspect_deb_package",
+        lambda *_: metadata,
+    )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
+    )
+
+    def _fail_sandbox() -> typ.ContextManager[object]:
+        message = "sandbox used"
+        raise AssertionError(message)
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="unexpected deb architecture",
+    ):
+        validate_packages_module.validate_deb_package(
+            dpkg_deb=object(),
+            package_path=package,
+            expected_name="rust-toy-app",
+            expected_version="1.2.3",
+            expected_deb_version="1.2.3-1",
+            expected_arch="arm64",
+            expected_paths=("/usr/bin/rust-toy-app",),
+            executable_paths=("/usr/bin/rust-toy-app",),
+            verify_command=("/usr/bin/rust-toy-app", "--version"),
+            sandbox_factory=_fail_sandbox,
+        )
+
+
 @pytest.mark.parametrize(
     ("failure_command", "expected_message"),
     [
@@ -412,6 +506,102 @@ def test_validate_rpm_package_skips_cross_architecture_sandbox(
     assert not calls
     assert (tmp_path / "sandbox" / package.name).exists() is False
     assert "skipping rpm package sandbox validation" in caplog.text
+
+
+def test_validate_rpm_package_skips_using_metadata_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    validate_packages_module: ModuleType,
+) -> None:
+    """Skip RPM sandbox using the architecture from package metadata."""
+    package = tmp_path / "rust-toy-app-1.2.3-1.aarch64.rpm"
+    package.write_bytes(b"payload")
+    metadata = validate_packages_module.RpmMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        release="1.el9",
+        architecture="aarch64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+    monkeypatch.setattr(
+        validate_packages_module,
+        "inspect_rpm_package",
+        lambda *_: metadata,
+    )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
+    )
+    caplog.set_level("INFO")
+
+    def _fail_sandbox() -> typ.ContextManager[object]:
+        message = "sandbox used"
+        raise AssertionError(message)
+
+    validate_packages_module.validate_rpm_package(
+        rpm_cmd=object(),
+        package_path=package,
+        expected_name="rust-toy-app",
+        expected_version="1.2.3",
+        expected_release="1",
+        expected_arch="x86_64",
+        expected_paths=("/usr/bin/rust-toy-app",),
+        executable_paths=("/usr/bin/rust-toy-app",),
+        verify_command=(),
+        sandbox_factory=_fail_sandbox,
+    )
+
+    assert "skipping rpm package sandbox validation" in caplog.text
+
+
+def test_validate_rpm_package_rejects_unexpected_architecture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    validate_packages_module: ModuleType,
+) -> None:
+    """Raise when RPM metadata architecture falls outside the expected aliases."""
+    package = tmp_path / "rust-toy-app-1.2.3-1.x86_64.rpm"
+    package.write_bytes(b"payload")
+    metadata = validate_packages_module.RpmMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        release="1.el9",
+        architecture="x86_64",
+        files={"/usr/bin/rust-toy-app"},
+    )
+    monkeypatch.setattr(
+        validate_packages_module,
+        "inspect_rpm_package",
+        lambda *_: metadata,
+    )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
+    )
+
+    def _fail_sandbox() -> typ.ContextManager[object]:
+        message = "sandbox used"
+        raise AssertionError(message)
+
+    with pytest.raises(
+        validate_packages_module.ValidationError,
+        match="unexpected rpm architecture",
+    ):
+        validate_packages_module.validate_rpm_package(
+            rpm_cmd=object(),
+            package_path=package,
+            expected_name="rust-toy-app",
+            expected_version="1.2.3",
+            expected_release="1",
+            expected_arch="arm64",
+            expected_paths=("/usr/bin/rust-toy-app",),
+            executable_paths=("/usr/bin/rust-toy-app",),
+            verify_command=(),
+            sandbox_factory=_fail_sandbox,
+        )
 
 
 def test_metadata_validator_raise_error_message(

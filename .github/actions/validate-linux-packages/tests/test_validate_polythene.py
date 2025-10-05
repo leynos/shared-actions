@@ -231,6 +231,27 @@ def test_format_isolation_error_ignores_non_matching_messages(
     assert validate_polythene_module._format_isolation_error(error) is None
 
 
+def test_format_isolation_error_handles_uid_map_permission_denied(
+    validate_polythene_module: object,
+) -> None:
+    """_format_isolation_error recognises bubblewrap permission failures."""
+    stderr = "bwrap: setting up uid map: Permission denied"
+    process_error = ProcessExecutionError(
+        ("uv", "run", "polythene", "exec"),
+        1,
+        "",
+        stderr.encode("utf-8"),
+    )
+    error = validate_polythene_module.ValidationError("boom")
+    error.__cause__ = process_error
+
+    message = validate_polythene_module._format_isolation_error(error)
+
+    assert message is not None
+    assert "sandbox dependencies" in message
+    assert stderr in message
+
+
 @pytest.mark.parametrize(
     "stderr_text",
     [
@@ -239,6 +260,10 @@ def test_format_isolation_error_ignores_non_matching_messages(
         pytest.param(
             "All isolation modes unavailable (bwrap/proot/chroot)",
             id="no-isolation-modes",
+        ),
+        pytest.param(
+            "bwrap: setting up uid map: Permission denied",
+            id="bwrap-permission-denied",
         ),
     ],
 )

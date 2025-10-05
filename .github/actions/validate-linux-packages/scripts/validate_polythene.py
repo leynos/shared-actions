@@ -38,6 +38,7 @@ __all__ = sorted(
 _ISOLATION_ERROR_PATTERNS = (
     r"All isolation modes unavailable",
     r"Required command not found",
+    r"setting up uid map.*permission denied",
 )
 _STDERR_SNIPPET_LIMIT = 400
 

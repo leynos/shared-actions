@@ -7,7 +7,19 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+from pathlib import Path
+
+action_path = Path(__file__).resolve().parents[1]
+os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
+
+sys.path.append(str(Path(__file__).resolve().parents[4]))
+
+from cmd_utils_importer import ensure_cmd_utils_imported
+
+ensure_cmd_utils_imported()
 
 import typer
 from toolchain import read_default_toolchain

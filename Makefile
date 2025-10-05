@@ -1,5 +1,13 @@
 .PHONY: all clean help test lint markdownlint nixie fmt check-fmt typecheck
 
+export GITHUB_ACTION_PATH ?= $(CURDIR)
+
+ifndef PYTHONPATH
+export PYTHONPATH := $(CURDIR)
+else
+export PYTHONPATH := $(PYTHONPATH):$(CURDIR)
+endif
+
 all: fmt lint typecheck test ## Run format, lint, typecheck, then tests
 
 clean: ## Remove transient artefacts

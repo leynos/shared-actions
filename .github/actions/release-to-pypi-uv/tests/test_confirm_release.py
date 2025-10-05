@@ -8,15 +8,17 @@ from pathlib import Path
 from plumbum import local
 from shared_actions_conftest import REQUIRES_UV
 
+from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
 
 from .test_determine_release import base_env
 
 pytestmark = REQUIRES_UV
-
-
-if typ.TYPE_CHECKING:
-    from cmd_utils import RunResult
 
 
 def run_confirm(tmp_path: Path, expected: str, confirm: str) -> RunResult:

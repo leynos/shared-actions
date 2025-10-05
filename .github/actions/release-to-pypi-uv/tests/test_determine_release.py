@@ -9,13 +9,15 @@ from pathlib import Path
 from plumbum import local
 from shared_actions_conftest import REQUIRES_UV
 
+from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
-
-pytestmark = REQUIRES_UV
-
 
 if typ.TYPE_CHECKING:
     from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
+
+pytestmark = REQUIRES_UV
 
 
 def run_script(script: Path, *, env: dict[str, str]) -> RunResult:

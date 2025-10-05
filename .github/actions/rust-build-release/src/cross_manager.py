@@ -22,7 +22,9 @@ from utils import (
     run_validated,
 )
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 _NON_HTTPS_ERROR = "non-HTTPS URL"
 _EMPTY_HASH_ERROR = "empty hash file"

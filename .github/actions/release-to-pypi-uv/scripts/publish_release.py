@@ -16,6 +16,8 @@ from pathlib import Path
 import typer
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
+
 
 def _ensure_python_runtime() -> None:
     """Fail fast when Python 3.13+ or uv provisioning is unavailable."""
@@ -55,7 +57,7 @@ def _extend_sys_path() -> None:
 _ensure_python_runtime()
 _extend_sys_path()
 
-from cmd_utils import run_cmd  # noqa: E402
+run_cmd = import_cmd_utils().run_cmd
 
 INDEX_OPTION = typer.Option(
     "",

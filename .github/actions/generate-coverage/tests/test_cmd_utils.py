@@ -8,7 +8,9 @@ import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessTimedOut
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 
 def test_run_cmd_foreground_timeout() -> None:

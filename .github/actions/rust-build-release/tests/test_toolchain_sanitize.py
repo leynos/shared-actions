@@ -12,11 +12,15 @@ import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 
+from cmd_utils_importer import import_cmd_utils
+from test_support.plumbum_helpers import run_plumbum_command
+
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
-from cmd_utils import RunResult, run_cmd
-from test_support.plumbum_helpers import run_plumbum_command
+_cmd_utils = import_cmd_utils()
+RunResult = _cmd_utils.RunResult
+run_cmd = _cmd_utils.run_cmd
 
 
 def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:

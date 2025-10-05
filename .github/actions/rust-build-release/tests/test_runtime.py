@@ -11,7 +11,9 @@ from types import ModuleType, SimpleNamespace
 import pytest
 from plumbum.commands.processes import ProcessTimedOut
 
-from cmd_utils import RunResult
+from cmd_utils_importer import import_cmd_utils
+
+RunResult = import_cmd_utils().RunResult
 
 if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory, ModuleHarness

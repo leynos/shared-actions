@@ -17,7 +17,9 @@ import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(TESTS_ROOT / "scripts"))

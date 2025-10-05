@@ -16,6 +16,10 @@ import pytest
 import yaml
 from plumbum.commands.processes import ProcessExecutionError
 
+from cmd_utils_importer import import_cmd_utils
+
+import_cmd_utils()
+
 
 @pytest.fixture
 def packaging_module() -> types.ModuleType:

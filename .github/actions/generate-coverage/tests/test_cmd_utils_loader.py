@@ -29,11 +29,14 @@ def _load_loader(
         (tmp_path / "cmd_utils.py").write_text(cmd_utils_content)
     monkeypatch.syspath_prepend(tmp_path)
     monkeypatch.delitem(sys.modules, "cmd_utils_loader", raising=False)
+    monkeypatch.delitem(sys.modules, "cmd_utils", raising=False)
     spec = importlib.util.spec_from_file_location("cmd_utils_loader", loader_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    if hasattr(module, "_get_cmd_utils"):
+        module._get_cmd_utils.cache_clear()  # type: ignore[attr-defined]
     return module
 
 
@@ -41,6 +44,7 @@ def test_find_repo_root_reports_candidates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``find_repo_root`` lists all candidate paths in its error."""
+    monkeypatch.delenv("GITHUB_ACTION_PATH", raising=False)
     mod = _load_loader(tmp_path, monkeypatch)
     with pytest.raises(mod.RepoRootNotFoundError) as excinfo:
         mod.find_repo_root()
@@ -57,6 +61,7 @@ def test_find_repo_root_ignores_symlink_in_parent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Symlinked ``cmd_utils.py`` files in parent dirs are ignored."""
+    monkeypatch.delenv("GITHUB_ACTION_PATH", raising=False)
     parent = tmp_path
     child = tmp_path / "child"
     child.mkdir()
@@ -72,6 +77,7 @@ def test_run_cmd_missing_symbol(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``run_cmd`` raises a clear error when ``cmd_utils.run_cmd`` is missing."""
+    monkeypatch.delenv("GITHUB_ACTION_PATH", raising=False)
     mod = _load_loader(tmp_path, monkeypatch, cmd_utils_content="")
     with pytest.raises(mod.CmdUtilsImportError) as excinfo:
         mod.run_cmd("echo")

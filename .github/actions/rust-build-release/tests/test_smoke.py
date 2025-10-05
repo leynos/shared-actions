@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -76,6 +77,8 @@ TARGET_PARAMS = [_param_for_target(target) for target in _targets]
 
 if typ.TYPE_CHECKING:
     from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
 
 
 def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:

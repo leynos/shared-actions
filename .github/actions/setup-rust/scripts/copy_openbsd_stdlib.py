@@ -18,7 +18,9 @@ from pathlib import Path  # noqa: TC003
 import typer
 from plumbum import local
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 app = typer.Typer(add_completion=False)
 

@@ -8,10 +8,13 @@ from pathlib import Path
 
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
     from cmd_utils import RunResult
+else:
+    RunResult = import_cmd_utils().RunResult
 
 
 def run_script(script: Path, *args: str) -> RunResult:

@@ -10,13 +10,33 @@ import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
-from cmd_utils import (
-    RunMethod,
-    RunResult,
-    coerce_run_result,
-    process_error_to_run_result,
-    run_cmd,
+from cmd_utils_importer import import_cmd_utils
+
+if typ.TYPE_CHECKING:
+    from cmd_utils import (
+        RunMethod as _RunMethod,
+    )
+    from cmd_utils import (
+        RunResult as _RunResult,
+    )
+    from cmd_utils import (
+        coerce_run_result as _coerce_run_result,
+    )
+    from cmd_utils import (
+        process_error_to_run_result as _process_error_to_run_result,
+    )
+    from cmd_utils import (
+        run_cmd as _run_cmd,
+    )
+
+_cmd_utils = import_cmd_utils()
+run_cmd = typ.cast("_run_cmd", _cmd_utils.run_cmd)
+coerce_run_result = typ.cast("_coerce_run_result", _cmd_utils.coerce_run_result)
+process_error_to_run_result = typ.cast(
+    "_process_error_to_run_result", _cmd_utils.process_error_to_run_result
 )
+RunResult = typ.cast("type[_RunResult]", _cmd_utils.RunResult)
+RunMethod = typ.cast("_RunMethod", _cmd_utils.RunMethod)
 
 
 def _python_command(*args: str) -> object:

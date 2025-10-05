@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from cmd_utils import RunResult
+from cmd_utils_importer import import_cmd_utils
+
+RunResult = import_cmd_utils().RunResult
 
 if typ.TYPE_CHECKING:
     from types import ModuleType

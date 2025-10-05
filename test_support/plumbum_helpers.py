@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from plumbum.commands.processes import ProcessExecutionError
 
-import cmd_utils
+from cmd_utils_importer import import_cmd_utils
+
+cmd_utils = import_cmd_utils()
 
 
 def run_plumbum_command(

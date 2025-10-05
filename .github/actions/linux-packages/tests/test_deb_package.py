@@ -19,7 +19,9 @@ from _packaging_utils import (
 )
 from plumbum import local
 
-from cmd_utils import run_cmd
+from cmd_utils_importer import import_cmd_utils
+
+run_cmd = import_cmd_utils().run_cmd
 
 
 @pytest.mark.usefixtures("uncapture_if_verbose")

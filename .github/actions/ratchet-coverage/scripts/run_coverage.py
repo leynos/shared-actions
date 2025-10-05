@@ -16,7 +16,9 @@ import typer
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
-import cmd_utils
+from cmd_utils_importer import import_cmd_utils
+
+cmd_utils = import_cmd_utils()
 
 
 def extract_percent(output: str) -> str:

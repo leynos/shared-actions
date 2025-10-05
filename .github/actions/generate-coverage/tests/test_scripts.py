@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -20,6 +21,8 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
 
     from cmd_utils import RunResult
     from shellstub import StubManager
+else:
+    RunResult = import_cmd_utils().RunResult
 
 
 def _exit_code(exc: BaseException) -> int | None:

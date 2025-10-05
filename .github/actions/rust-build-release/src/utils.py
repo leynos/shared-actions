@@ -9,7 +9,11 @@ from pathlib import Path
 
 from plumbum import local
 
+from cmd_utils_importer import import_cmd_utils
+
 RunMethod = typ.Literal["call", "run", "run_fg"]
+
+_cmd_utils = import_cmd_utils()
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing only
     import cmd_utils
@@ -27,9 +31,11 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing only
             **run_kwargs: object,
         ) -> object: ...
 
-    run_cmd: _RunCmd
+    run_cmd = typ.cast("_RunCmd", cmd_utils.run_cmd)
+    coerce_run_result = cmd_utils.coerce_run_result
 else:
-    from cmd_utils import coerce_run_result, run_cmd
+    coerce_run_result = _cmd_utils.coerce_run_result
+    run_cmd = _cmd_utils.run_cmd
 
 
 class UnexpectedExecutableError(ValueError):

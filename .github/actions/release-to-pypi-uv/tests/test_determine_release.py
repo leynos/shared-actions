@@ -23,7 +23,12 @@ pytestmark = REQUIRES_UV
 def run_script(script: Path, *, env: dict[str, str]) -> RunResult:
     """Execute ``determine_release`` with a controlled environment."""
     command = local["uv"]["run", "--script", str(script)]
-    return run_plumbum_command(command, method="run", env=env, cwd=env.get("PWD"))
+    scrubbed_env = env.copy()
+    for unset_key in ("GITHUB_REF_NAME", "GITHUB_REF_TYPE", "INPUT_TAG"):
+        scrubbed_env.setdefault(unset_key, "")
+    return run_plumbum_command(
+        command, method="run", env=scrubbed_env, cwd=scrubbed_env.get("PWD")
+    )
 
 
 def base_env(tmp_path: Path) -> dict[str, str]:

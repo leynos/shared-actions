@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import dataclasses as dc
 import os
-import sys
-import types
 import typing as typ
 from pathlib import Path
 
-from cmd_mox import CmdMox, Response
-from cmd_mox.ipc import Invocation
+from cmd_mox.ipc import Invocation, Response
+
+if typ.TYPE_CHECKING:
+    from cmd_mox import CmdMox
 
 
 @dc.dataclass(slots=True)
@@ -28,12 +28,10 @@ class Call:
 class StubManager:
     """Adapter exposing a shellstub-like API backed by :mod:`cmd_mox`."""
 
-    def __init__(self) -> None:
-        self._controller = CmdMox()
-        self._controller.__enter__()
-        self._replayed = False
-        self._closed = False
+    def __init__(self, controller: CmdMox) -> None:
+        self._controller = controller
         self._env_cache: dict[str, str] | None = None
+        self._replayed = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -48,7 +46,6 @@ class StubManager:
         exit_code: int = 0,
     ) -> None:
         """Register a stub for *name* using cmd_mox doubles."""
-
         stub = self._controller.stub(name)
         if variants:
             handler = self._build_variant_handler(
@@ -63,46 +60,24 @@ class StubManager:
 
     def calls_of(self, name: str) -> list[Call]:
         """Return all recorded invocations for *name* in replay order."""
-
-        invocations = [
-            inv for inv in list(self._controller.journal) if inv.command == name
+        self._ensure_replay()
+        return [
+            self._to_call(invocation)
+            for invocation in self._controller.journal
+            if invocation.command == name
         ]
-        return [self._to_call(inv) for inv in invocations]
 
     @property
     def env(self) -> dict[str, str]:
         """Return environment variables exposing the shim directory."""
-
         self._ensure_replay()
         assert self._env_cache is not None
         return dict(self._env_cache)
 
     def close(self) -> None:
-        """Verify outstanding interactions and restore the environment."""
-
-        if self._closed:
-            return
-        try:
-            if self._replayed:
-                self._controller.verify()
-        finally:
-            exc_type, exc, tb = sys.exc_info()
-            self._controller.__exit__(exc_type, exc, tb)
-            self._closed = True
-
-    # ------------------------------------------------------------------
-    # Context manager protocol
-    # ------------------------------------------------------------------
-    def __enter__(self) -> StubManager:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: types.TracebackType | None,
-    ) -> None:
-        self.close()
+        """Reset cached environment for idempotent fixture teardown."""
+        self._env_cache = None
+        self._replayed = False
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -111,20 +86,20 @@ class StubManager:
         if self._replayed:
             return
         self._controller.replay()
-        self._replayed = True
         env = dict(os.environ)
         try:
             import cmd_mox
-        except ModuleNotFoundError:  # pragma: no cover - cmd_mox not installed
+        except ModuleNotFoundError:  # pragma: no cover - defensive guard
             self._env_cache = env
-            return
-        package_path = Path(cmd_mox.__file__).resolve().parent.parent
-        existing = env.get("PYTHONPATH", "")
-        if str(package_path) not in existing.split(os.pathsep):
-            env["PYTHONPATH"] = (
-                f"{package_path}{os.pathsep}{existing}" if existing else str(package_path)
-            )
-        self._env_cache = env
+        else:
+            package_path = Path(cmd_mox.__file__).resolve().parent.parent
+            existing = env.get("PYTHONPATH", "")
+            entries = [part for part in existing.split(os.pathsep) if part]
+            if str(package_path) not in entries:
+                updated = [str(package_path), *entries]
+                env["PYTHONPATH"] = os.pathsep.join(updated)
+            self._env_cache = env
+        self._replayed = True
 
     def _to_call(self, invocation: Invocation) -> Call:
         return Call(
@@ -148,11 +123,7 @@ class StubManager:
         default_spec: dict[str, typ.Any] | None = None
         for spec in variants:
             match = spec.get("match")
-            match_list: list[str] | None
-            if match is None:
-                match_list = None
-            else:
-                match_list = list(match)
+            match_list: list[str] | None = None if match is None else list(match)
             response_spec = {
                 "stdout": spec.get("stdout", ""),
                 "stderr": spec.get("stderr", ""),

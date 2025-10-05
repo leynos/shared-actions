@@ -1,31 +1,31 @@
 """Utilities for running plumbum command invocations.
 
-This module exposes :func:`run_cmd`, a convenience wrapper that echoes each
-command before delegating to plumbum's execution helpers. It provides a single
-interface for the three common strategies—``call`` (default), ``run`` and
-``run_fg``—while also supporting temporary environment overrides for the
-invoked command.
+This module provides :func:`run_cmd`, a unified interface for executing
+plumbum commands with optional environment overrides and multiple execution
+strategies (``call`` by default, plus ``run`` and ``run_fg``). Each invocation
+is echoed before execution to aid debugging in CI logs or local terminals.
 
 Examples
 --------
-Basic invocation using the default ``call`` strategy::
+Basic usage with the default ``call`` strategy::
 
     >>> from plumbum import local
-    >>> run_cmd(local["echo"]["hello"])
+    >>> result = run_cmd(local["echo"]["hello"])
     $ echo hello
-    'hello'
+    'hello\n'
 
-Passing an explicit environment when executing the command::
+Overriding the environment for a single command::
 
-    >>> run_cmd(local["env"]["MY_VAR"], env={"MY_VAR": "custom"})
+    >>> cmd = local["env"]["MY_VAR"]
+    >>> run_cmd(cmd, env={"MY_VAR": "custom_value"})
     $ env MY_VAR
-    'custom\n'
+    'custom_value\n'
 
 Streaming output in the foreground via ``run_fg``::
 
     >>> run_cmd(local["make"]["test"], method="run_fg")
     $ make test
-    # Output is streamed directly to stdout/stderr
+    # Output streams directly to stdout/stderr
 """
 
 from __future__ import annotations

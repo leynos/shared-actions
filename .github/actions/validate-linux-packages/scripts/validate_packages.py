@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import platform
 import typing as typ
 
-from plumbum.commands.processes import ProcessExecutionError
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, unique_match
 from validate_metadata import (
@@ -41,6 +41,44 @@ __all__ = [
 
 SandboxFactory = typ.Callable[[], typ.ContextManager[PolytheneSession]]
 MetaT = typ.TypeVar("MetaT", bound="_SupportsFiles")
+
+
+_HOST_ARCH_ALIAS_MAP: dict[str, set[str]] = {
+    "x86_64": {"x86_64", "amd64"},
+    "amd64": {"x86_64", "amd64"},
+    "aarch64": {"aarch64", "arm64"},
+    "arm64": {"aarch64", "arm64"},
+    "armv7l": {"armv7l", "armhf"},
+    "armv6l": {"armv6l", "armhf"},
+    "ppc64le": {"ppc64le"},
+    "s390x": {"s390x"},
+    "riscv64": {"riscv64"},
+    "loongarch64": {"loongarch64", "loong64"},
+    "loong64": {"loongarch64", "loong64"},
+}
+
+
+def _host_architectures() -> set[str]:
+    """Return aliases for the host processor architecture."""
+    machine = (platform.machine() or "").lower()
+    if not machine:
+        return set()
+    aliases = _HOST_ARCH_ALIAS_MAP.get(machine, {machine})
+    return {alias.lower() for alias in aliases}
+
+
+def _should_skip_sandbox(package_architecture: str | None) -> bool:
+    """Return ``True`` when sandbox checks should be skipped for the architecture."""
+    if not package_architecture:
+        return False
+    normalized = package_architecture.lower()
+    if normalized in {"all", "any", "noarch"}:
+        return False
+
+    host_arches = _host_architectures()
+    if not host_arches:
+        return False
+    return normalized not in host_arches
 
 
 class _SupportsFiles(typ.Protocol):
@@ -111,21 +149,47 @@ def _install_and_verify(
         dest = sandbox.root / package_path.name
         ensure_directory(dest.parent)
         dest.write_bytes(package_path.read_bytes())
-        try:
-            sandbox.exec(*install_command)
-        except ProcessExecutionError as exc:  # pragma: no cover - exercised in CI
-            message = f"{install_error}: {exc}"
-            raise ValidationError(message) from exc
+
+        sandbox_path = f"/{package_path.name}"
+
+        def _exec_with_context(
+            *args: str, context: str, timeout: int | None = None
+        ) -> str:
+            try:
+                return sandbox.exec(*args, timeout=timeout)
+            except ValidationError as exc:
+                message = f"{context}: {exc}"
+                raise ValidationError(message) from exc
+
+        install_args = tuple(
+            sandbox_path if arg == package_path.name else arg for arg in install_command
+        )
+
+        _exec_with_context(*install_args, context=install_error)
+
         for path in expected_paths:
-            sandbox.exec("test", "-e", path)
+            _exec_with_context(
+                "test",
+                "-e",
+                path,
+                context=f"expected path missing from sandbox payload: {path}",
+            )
         for path in executable_paths:
-            sandbox.exec("test", "-x", path)
+            _exec_with_context(
+                "test",
+                "-x",
+                path,
+                context=f"expected path is not executable: {path}",
+            )
         if verify_command:
-            sandbox.exec(*verify_command)
+            _exec_with_context(
+                *verify_command,
+                context="sandbox verify command failed",
+            )
         if remove_command is not None:
             try:
                 sandbox.exec(*remove_command)
-            except ProcessExecutionError as exc:
+            except ValidationError as exc:
                 logger.warning(
                     "suppressed exception during package removal: %s",
                     exc,
@@ -186,6 +250,7 @@ def _validate_package(
     *,
     package_path: Path,
     validators: typ.Iterable[typ.Callable[[MetaT], None]],
+    architecture_validator: typ.Callable[[MetaT], None] | None = None,
     expected_paths: typ.Collection[str],
     executable_paths: typ.Collection[str],
     verify_command: tuple[str, ...],
@@ -194,11 +259,33 @@ def _validate_package(
     install_command: tuple[str, ...],
     remove_command: tuple[str, ...] | None,
     install_error: str,
+    package_architecture: str | None = None,
+    package_format: str | None = None,
 ) -> None:
     metadata = inspect_fn(package_path)
     for validator in validators:
         validator(metadata)
     ensure_subset(expected_paths, metadata.files, payload_label)
+
+    metadata_architecture = getattr(metadata, "architecture", None)
+
+    if _should_skip_sandbox(metadata_architecture):
+        host_machine = platform.machine() or "unknown"
+        format_label = f"{package_format} package" if package_format else "package"
+        actual_arch = metadata_architecture or "unknown"
+        expected_arch = package_architecture or "unspecified"
+        logger.info(
+            "skipping %s sandbox validation: package architecture %s "
+            "(expected %s) is not supported on host %s",
+            format_label,
+            actual_arch,
+            expected_arch,
+            host_machine,
+        )
+        return
+
+    if architecture_validator is not None:
+        architecture_validator(metadata)
 
     _install_and_verify(
         sandbox_factory,
@@ -239,9 +326,9 @@ def validate_deb_package(
                     f"{expected_deb_version!r} or {expected_version!r}"
                 ),
             ),
-            _MetadataValidators.equal(
-                "architecture", expected_arch, "unexpected deb architecture"
-            ),
+        ),
+        architecture_validator=_MetadataValidators.equal(
+            "architecture", expected_arch, "unexpected deb architecture"
         ),
         expected_paths=expected_paths,
         executable_paths=executable_paths,
@@ -251,6 +338,8 @@ def validate_deb_package(
         install_command=("dpkg", "-i", package_path.name),
         remove_command=("dpkg", "-r", expected_name),
         install_error="dpkg installation failed",
+        package_architecture=expected_arch,
+        package_format="deb",
     )
 
 
@@ -270,6 +359,12 @@ def validate_rpm_package(
     """Validate RPM package metadata and sandbox installation."""
     acceptable_arches = acceptable_rpm_architectures(expected_arch)
 
+    architecture_validator = _MetadataValidators.in_set(
+        "architecture",
+        acceptable_arches,
+        "unexpected rpm architecture",
+    )
+
     _validate_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
@@ -281,12 +376,8 @@ def validate_rpm_package(
             _MetadataValidators.prefix(
                 "release", expected_release, "unexpected rpm release prefix"
             ),
-            _MetadataValidators.in_set(
-                "architecture",
-                acceptable_arches,
-                "unexpected rpm architecture",
-            ),
         ),
+        architecture_validator=architecture_validator,
         expected_paths=expected_paths,
         executable_paths=executable_paths,
         verify_command=verify_command,
@@ -301,4 +392,6 @@ def validate_rpm_package(
         ),
         remove_command=("rpm", "-e", expected_name),
         install_error="rpm installation failed",
+        package_architecture=expected_arch,
+        package_format="rpm",
     )

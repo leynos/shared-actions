@@ -72,6 +72,11 @@ runs:
   steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+    - name: Install sandbox dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt update -y && sudo apt install -y podman bubblewrap proot mmdebstrap
     - name: Validate packages
       shell: bash
       working-directory: ${{ inputs.project-dir }}

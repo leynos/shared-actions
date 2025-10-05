@@ -1,7 +1,36 @@
-"""Utilities for running plumbum command invocations."""
+"""Utilities for running plumbum command invocations.
+
+This module exposes :func:`run_cmd`, a convenience wrapper that echoes each
+command before delegating to plumbum's execution helpers. It provides a single
+interface for the three common strategies—``call`` (default), ``run`` and
+``run_fg``—while also supporting temporary environment overrides for the
+invoked command.
+
+Examples
+--------
+Basic invocation using the default ``call`` strategy::
+
+    >>> from plumbum import local
+    >>> run_cmd(local["echo"]["hello"])
+    $ echo hello
+    'hello'
+
+Passing an explicit environment when executing the command::
+
+    >>> run_cmd(local["env"]["MY_VAR"], env={"MY_VAR": "custom"})
+    $ env MY_VAR
+    'custom\n'
+
+Streaming output in the foreground via ``run_fg``::
+
+    >>> run_cmd(local["make"]["test"], method="run_fg")
+    $ make test
+    # Output is streamed directly to stdout/stderr
+"""
 
 from __future__ import annotations
 
+import ast
 import collections.abc as cabc
 import os
 import subprocess
@@ -77,6 +106,13 @@ class SupportsWithEnv(SupportsFormulate, typ.Protocol):
 def _ensure_text(value: str | bytes | None) -> str:
     """Return ``value`` as a decoded ``str`` replacing undecodable bytes."""
     if isinstance(value, str):
+        if value.startswith(("b'", 'b"')):
+            try:
+                literal = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                return value
+            if isinstance(literal, (bytes, bytearray)):
+                return bytes(literal).decode("utf-8", errors="replace")
         return value
     if value is None:
         return ""

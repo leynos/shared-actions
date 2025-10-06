@@ -176,6 +176,9 @@ def test_normalise_list_preserves_case_variants(
     assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
 def test_ensure_executable_permissions_sets_exec_bits(
     packaging_module: types.ModuleType, tmp_path: Path
 ) -> None:
@@ -249,6 +252,9 @@ def test_main_errors_for_unknown_target(packaging_module: types.ModuleType) -> N
     assert "unsupported target triple" in str(exc.value)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
 def test_main_reinstates_binary_execute_permissions(
     packaging_module: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,

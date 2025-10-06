@@ -42,55 +42,6 @@ def _discover_repo_root(script_path: Path) -> Path:
     raise FileNotFoundError(message)
 
 
-def _calculate_insertion_index(script_dir: Path) -> int:
-    """Return the insertion index for adding the repository to ``sys.path``."""
-    if not sys.path:
-        return 0
-
-    script_dir_str = str(script_dir)
-    first_entry_raw = sys.path[0]
-    if first_entry_raw == script_dir_str:
-        return 1
-
-    try:
-        resolved_entry = Path(first_entry_raw).resolve()
-    except (TypeError, OSError, RuntimeError, ValueError):
-        return 0
-
-    return 1 if resolved_entry == script_dir else 0
-
-
-def _insert_repo_root_in_path(repo_root: Path, script_dir: Path) -> None:
-    """Ensure *repo_root* is present on ``sys.path`` for imports."""
-    repo_root_str = str(repo_root)
-    if repo_root_str in sys.path:
-        return
-
-    insert_index = _calculate_insertion_index(script_dir)
-    sys.path.insert(insert_index, repo_root_str)
-
-
-def _initialise_cmd_utils() -> None:
-    """Import and initialise ``cmd_utils`` with consistent error handling."""
-    try:
-        from cmd_utils_importer import ensure_cmd_utils_imported
-    except ImportError as exc:  # pragma: no cover - defensive guard
-        message = (
-            "Failed to import cmd_utils_importer. Ensure the repository "
-            "structure is intact and sys.path is configured correctly."
-        )
-        raise ImportError(message) from exc
-
-    try:
-        ensure_cmd_utils_imported()
-    except Exception as exc:  # pragma: no cover - defensive guard
-        message = (
-            "Failed to initialise cmd_utils. Check that the environment is "
-            "configured correctly for this script to run."
-        )
-        raise RuntimeError(message) from exc
-
-
 def bootstrap_environment() -> tuple[Path, Path]:
     """Ensure imports succeed when the script runs outside GitHub Actions."""
     global _BOOTSTRAP_CACHE
@@ -108,9 +59,28 @@ def bootstrap_environment() -> tuple[Path, Path]:
     if not repo_root.exists():
         message = f"Repository root does not exist: {repo_root}"
         raise FileNotFoundError(message)
-    script_dir = script_path.parent
-    _insert_repo_root_in_path(repo_root, script_dir)
-    _initialise_cmd_utils()
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        script_dir_str = str(script_path.parent)
+        insert_index = 1 if sys.path and sys.path[0] == script_dir_str else 0
+        sys.path.insert(insert_index, repo_root_str)
+
+    try:
+        from cmd_utils_importer import ensure_cmd_utils_imported
+
+        ensure_cmd_utils_imported()
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to import cmd_utils_importer. Ensure the repository "
+            "structure is intact and sys.path is configured correctly."
+        )
+        raise ImportError(message) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to initialise cmd_utils. Check that the environment is "
+            "configured correctly for this script to run."
+        )
+        raise RuntimeError(message) from exc
 
     _BOOTSTRAP_CACHE = (action_path, repo_root)
     return _BOOTSTRAP_CACHE

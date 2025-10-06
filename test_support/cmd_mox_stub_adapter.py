@@ -1,4 +1,28 @@
-"""Compatibility layer providing shellstub-like helpers via cmd_mox."""
+r"""Compatibility layer providing shellstub-like helpers via cmd_mox.
+
+This module exposes :class:`StubManager`, a thin adapter over
+``cmd_mox.CmdMox`` that preserves the historical ``shellstub`` API. It allows
+tests that previously depended on ``shellstub`` to migrate to ``cmd_mox`` while
+leaving their assertions and fixtures untouched.
+
+Usage
+-----
+Create a :class:`~cmd_mox.CmdMox` controller, pass it to
+:class:`StubManager`, register expected command invocations, then replay and
+inspect the captured calls:
+
+    >>> from cmd_mox import CmdMox
+    >>> with CmdMox() as controller:
+    ...     manager = StubManager(controller)
+    ...     manager.register("git", stdout="v2.40.0\n")
+    ...     env = manager.env
+    ...     # Execute code under test using ``env``
+    ...     calls = manager.calls_of("git")
+    ...     manager.close()
+
+The manager can be reused across tests by injecting a shared controller (for
+example through a pytest fixture) and calling :meth:`close` between test cases.
+"""
 
 from __future__ import annotations
 

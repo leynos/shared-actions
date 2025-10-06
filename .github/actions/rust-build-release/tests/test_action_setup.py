@@ -22,6 +22,36 @@ runner = CliRunner()
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "src" / "action_setup.py"
 
 
+def test_calculate_insertion_index_empty_path(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When ``sys.path`` is empty the repo root is inserted at index ``0``."""
+    monkeypatch.setattr(action_setup_module.sys, "path", [])
+    assert action_setup_module._calculate_insertion_index(tmp_path) == 0
+
+
+def test_calculate_insertion_index_preserves_script_dir_prefix(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Leading script directories move the repo root insertion point to ``1``."""
+    script_dir = tmp_path / "script"
+    script_dir.mkdir()
+    monkeypatch.setattr(
+        action_setup_module.sys, "path", [script_dir.as_posix(), "other"]
+    )
+    assert action_setup_module._calculate_insertion_index(script_dir) == 1
+
+
+def test_calculate_insertion_index_handles_blank_entries(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Blank leading entries do not offset the insertion index."""
+    script_dir = tmp_path / "script"
+    script_dir.mkdir()
+    monkeypatch.setattr(action_setup_module.sys, "path", ["", "other"])
+    assert action_setup_module._calculate_insertion_index(script_dir) == 0
+
+
 def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:
     """Valid targets pass validation."""
     action_setup_module.validate_target("x86_64-unknown-linux-gnu")

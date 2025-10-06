@@ -28,6 +28,7 @@ import gzip
 import os
 import re
 import shlex
+import stat
 import sys
 import typing as typ
 from pathlib import Path
@@ -117,6 +118,24 @@ class OctalInt(int):
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
+
+
+def _ensure_executable_permissions(path: Path) -> None:
+    """Ensure ``path`` is executable on POSIX systems without clobbering other bits."""
+    if os.name == "nt":  # pragma: no cover - exercised on Windows runners only
+        return
+
+    try:
+        current_mode = path.stat().st_mode
+    except OSError:  # pragma: no cover - defensive guard for transient IO errors
+        return
+
+    exec_bits = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    desired_mode = current_mode | exec_bits
+    if desired_mode == current_mode:
+        return
+
+    path.chmod(desired_mode)
 
 
 def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode:
@@ -319,7 +338,7 @@ def main(
 
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
-    bin_path.chmod(0o755)
+    _ensure_executable_permissions(bin_path)
     ensure_directory(outdir_path)
     ensure_directory(config_out_path.parent)
 

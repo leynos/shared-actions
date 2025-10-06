@@ -53,25 +53,11 @@ def _calculate_insertion_index(script_dir: Path) -> int:
         return 1
 
     try:
-        first_entry_path = Path(first_entry_raw)
-    except TypeError:  # pragma: no cover - defensive guard
+        resolved_entry = Path(first_entry_raw).resolve()
+    except (TypeError, OSError, RuntimeError, ValueError):
         return 0
 
-    if first_entry_path == script_dir:
-        return 1
-
-    try:
-        resolved_entry = first_entry_path.resolve()
-    except (
-        OSError,
-        RuntimeError,
-        ValueError,
-    ):  # pragma: no cover - defensive guard
-        return 0
-
-    if resolved_entry == script_dir:
-        return 1
-    return 0
+    return 1 if resolved_entry == script_dir else 0
 
 
 def _insert_repo_root_in_path(repo_root: Path, script_dir: Path) -> None:

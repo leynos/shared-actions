@@ -6,6 +6,7 @@ import importlib
 import os
 import runpy
 import shutil
+import stat
 import sys
 import tempfile
 import types
@@ -175,6 +176,42 @@ def test_normalise_list_preserves_case_variants(
     assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
+def test_ensure_executable_permissions_sets_exec_bits(
+    packaging_module: types.ModuleType, tmp_path: Path
+) -> None:
+    """Helper restores execute permissions without clobbering other bits."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    packaging_module._ensure_executable_permissions(binary)
+
+    mode = binary.stat().st_mode & 0o777
+    assert mode & stat.S_IXUSR
+    assert mode & stat.S_IXGRP
+    assert mode & stat.S_IXOTH
+    assert mode & stat.S_IRUSR
+    assert mode & stat.S_IWUSR
+
+
+def test_ensure_executable_permissions_skips_on_windows(
+    packaging_module: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows platforms skip chmod adjustments to avoid unsupported operations."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"echo")
+    binary.chmod(0o640)
+    original_mode = binary.stat().st_mode
+
+    monkeypatch.setattr(packaging_module, "os", types.SimpleNamespace(name="nt"))
+
+    packaging_module._ensure_executable_permissions(binary)
+
+    assert binary.stat().st_mode == original_mode
+
+
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
@@ -210,6 +247,43 @@ def test_main_errors_for_unknown_target(packaging_module: types.ModuleType) -> N
         )
 
     assert "unsupported target triple" in str(exc.value)
+
+
+def test_main_reinstates_binary_execute_permissions(
+    packaging_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI normalises binary modes before invoking nfpm."""
+    target = "x86_64-unknown-linux-gnu"
+    release_dir = tmp_path / "target" / target / "release"
+    release_dir.mkdir(parents=True)
+    binary = release_dir / "toy"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    outdir = tmp_path / "dist"
+    config_out = tmp_path / "nfpm.yaml"
+
+    monkeypatch.setattr(
+        packaging_module, "get_command", lambda _: _FakeBoundCommand("nfpm")
+    )
+    monkeypatch.setattr(packaging_module, "run_cmd", lambda *_, **__: None)
+
+    packaging_module.main(
+        bin_name="toy",
+        version="1.2.3",
+        formats=["deb"],
+        target=target,
+        binary_dir=tmp_path / "target",
+        outdir=outdir,
+        config_out=config_out,
+    )
+
+    mode = binary.stat().st_mode & 0o777
+    assert mode & stat.S_IXUSR
+    assert mode & stat.S_IXGRP
+    assert mode & stat.S_IXOTH
 
 
 def test_coerce_optional_path_handles_none_and_blank(

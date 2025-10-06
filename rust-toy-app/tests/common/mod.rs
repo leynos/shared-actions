@@ -1,3 +1,5 @@
+//! Shared helpers, fixtures, and utilities for rust-toy-app integration tests.
+
 use glob::glob;
 use std::path::Path;
 
@@ -7,7 +9,8 @@ pub fn assert_manpage_exists() {
     assert_manpage_exists_in(Path::new(&target));
 }
 
-pub fn assert_manpage_exists_in(root: &Path) {
+pub fn assert_manpage_exists_in(root: impl AsRef<Path>) {
+    let root = root.as_ref();
     let patterns = [
         root.join("debug/build/rust-toy-app-*/out/rust-toy-app.1"),
         root.join("release/build/rust-toy-app-*/out/rust-toy-app.1"),
@@ -20,6 +23,6 @@ pub fn assert_manpage_exists_in(root: &Path) {
             .expect("valid glob")
             .any(|entry| entry.map(|p| p.exists()).unwrap_or(false))
     });
-    assert!(found, "man page not found; searched: {display_patterns:?}");
+    assert!(found, "man page not found; searched: {:?}", display_patterns);
 }
 

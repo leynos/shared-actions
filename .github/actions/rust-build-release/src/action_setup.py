@@ -13,8 +13,10 @@ import sys
 import typing as typ
 from pathlib import Path
 
-# The action directory is expected to contain an ``action.yml`` file. Accept
-# ``action.yaml`` as a fallback for historical repositories.
+# The bootstrap walks upward from this module to locate key directories instead of
+# relying on hard-coded parent counts. ``_ACTION_MARKERS`` are used to identify the
+# composite action directory, while ``_REPO_MARKERS`` detect the repository root so the
+# script keeps working even if the file is relocated or the layout changes.
 _ACTION_MARKERS: typ.Final[tuple[str, ...]] = ("action.yml", "action.yaml")
 _REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock")
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
@@ -34,8 +36,8 @@ def _discover_repo_root(script_path: Path) -> Path:
         if any((parent / marker).exists() for marker in _REPO_MARKERS):
             return parent
     message = (
-        "Unable to determine repository root for rust-build-release action "
-        f"starting from {script_path}"
+        "Unable to determine repository root for rust-build-release action. "
+        f"Searched for markers {_REPO_MARKERS} starting from {script_path}."
     )
     raise FileNotFoundError(message)
 

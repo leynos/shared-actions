@@ -27,10 +27,6 @@ fn builds_release_binary_and_manpage() {
         action_dir.to_str().expect("valid UTF-8 path"),
     );
 
-    // Reference the default-target helper so it remains reachable even in binaries
-    // that only validate cross-compiled artifacts.
-    let _ = assert_manpage_exists as fn();
-
     for target in TARGETS {
         if *target != "x86_64-unknown-linux-gnu" {
             let docker_available = runtime_available("docker");

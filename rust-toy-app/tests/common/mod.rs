@@ -3,6 +3,10 @@
 use glob::glob;
 use std::path::Path;
 
+#[expect(
+    dead_code,
+    reason = "helper is only needed when tests execute the default-target path"
+)]
 pub fn assert_manpage_exists() {
     let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into());
     assert_manpage_exists_in(Path::new(&target));
@@ -24,4 +28,3 @@ pub fn assert_manpage_exists_in(root: impl AsRef<Path>) {
     });
     assert!(found, "man page not found; searched: {:?}", display_patterns);
 }
-

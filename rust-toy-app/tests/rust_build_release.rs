@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use std::process::Command;
 
 mod runtime;
+mod test_helpers;
 use runtime::runtime_available;
+use test_helpers::EnvGuard;
 
 const TARGETS: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
 
@@ -18,6 +20,10 @@ fn builds_release_binary_and_manpage() {
         .unwrap()
         .join(".github/actions/rust-build-release/src/main.py");
     let action_dir = script.parent().expect("action directory");
+    let _env_guard = EnvGuard::set(
+        "GITHUB_ACTION_PATH",
+        action_dir.to_str().expect("valid UTF-8 path"),
+    );
 
     for target in TARGETS {
         if *target != "x86_64-unknown-linux-gnu" {

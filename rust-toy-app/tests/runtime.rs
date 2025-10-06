@@ -1,3 +1,8 @@
+//! Test utilities that detect container runtime availability using the action's
+//! Python helpers. The probe first attempts to invoke `uv run` with the action
+//! sources, falling back to the system Python interpreter when `uv` is
+//! unavailable, mirroring the runtime detection logic used in production.
+
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

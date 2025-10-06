@@ -3,7 +3,6 @@
 use glob::glob;
 use std::path::Path;
 
-#[allow(dead_code)]
 pub fn assert_manpage_exists() {
     let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into());
     assert_manpage_exists_in(Path::new(&target));

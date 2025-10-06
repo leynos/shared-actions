@@ -3,7 +3,7 @@
 mod common;
 
 use assert_cmd::prelude::*;
-use common::assert_manpage_exists_in;
+use common::{assert_manpage_exists, assert_manpage_exists_in};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -26,6 +26,10 @@ fn builds_release_binary_and_manpage() {
         "GITHUB_ACTION_PATH",
         action_dir.to_str().expect("valid UTF-8 path"),
     );
+
+    // Reference the default-target helper so it remains reachable even in binaries
+    // that only validate cross-compiled artifacts.
+    let _ = assert_manpage_exists as fn();
 
     for target in TARGETS {
         if *target != "x86_64-unknown-linux-gnu" {

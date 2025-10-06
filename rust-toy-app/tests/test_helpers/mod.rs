@@ -1,3 +1,9 @@
+//! Test utilities for thread-safe environment variable mutations.
+//!
+//! This module provides `EnvGuard`, an RAII helper that serialises environment
+//! variable changes during tests using a global mutex and restores previous
+//! values when the guard is dropped.
+
 use std::env;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 

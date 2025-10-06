@@ -148,6 +148,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::mem;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
@@ -246,6 +247,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn run_with_uv_permission_denied_returns_none() {
         let _lock = override_lock().lock().unwrap();

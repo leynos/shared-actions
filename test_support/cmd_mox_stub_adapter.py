@@ -160,13 +160,16 @@ class StubManager:
         default_spec: dict[str, typ.Any] | None = None
         # Collect (match pattern, response spec) pairs so replay can scan quickly.
         for spec in variants:
+            # Normalize the declared match pattern and response payload.
             match = spec.get("match")
             match_list: list[str] | None = None if match is None else list(match)
+            # Store stdout/stderr/exit_code defaults for the variant.
             response_spec = {
                 "stdout": spec.get("stdout", ""),
                 "stderr": spec.get("stderr", ""),
                 "exit_code": spec.get("exit_code", 0),
             }
+            # Treat the first variant without an explicit match as the default response.
             if match_list is None and default_spec is None:
                 default_spec = response_spec
             else:

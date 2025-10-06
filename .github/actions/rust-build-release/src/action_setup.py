@@ -7,10 +7,89 @@
 
 from __future__ import annotations
 
+import os
 import re
+import sys
+import typing as typ
+from pathlib import Path
 
-import typer
-from toolchain import read_default_toolchain
+# The bootstrap walks upward from this module to locate key directories instead of
+# relying on hard-coded parent counts. ``_ACTION_MARKERS`` are used to identify the
+# composite action directory, while ``_REPO_MARKERS`` detect the repository root so the
+# script keeps working even if the file is relocated or the layout changes.
+_ACTION_MARKERS: typ.Final[tuple[str, ...]] = ("action.yml", "action.yaml")
+_REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock")
+_BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
+
+
+def _discover_action_path(script_path: Path) -> Path:
+    """Return the directory containing the composite action metadata."""
+    for parent in script_path.parents:
+        if any((parent / marker).exists() for marker in _ACTION_MARKERS):
+            return parent
+    return script_path.parents[1]
+
+
+def _discover_repo_root(script_path: Path) -> Path:
+    """Return the repository root that contains this script."""
+    for parent in script_path.parents:
+        if any((parent / marker).exists() for marker in _REPO_MARKERS):
+            return parent
+    message = (
+        "Unable to determine repository root for rust-build-release action. "
+        f"Searched for markers {_REPO_MARKERS} starting from {script_path}."
+    )
+    raise FileNotFoundError(message)
+
+
+def bootstrap_environment() -> tuple[Path, Path]:
+    """Ensure imports succeed when the script runs outside GitHub Actions."""
+    global _BOOTSTRAP_CACHE
+    if _BOOTSTRAP_CACHE is not None:
+        return _BOOTSTRAP_CACHE
+
+    script_path = Path(__file__).resolve()
+    action_path = _discover_action_path(script_path)
+    if not action_path.exists():
+        message = f"Action path does not exist: {action_path}"
+        raise FileNotFoundError(message)
+    os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
+
+    repo_root = _discover_repo_root(script_path)
+    if not repo_root.exists():
+        message = f"Repository root does not exist: {repo_root}"
+        raise FileNotFoundError(message)
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        script_dir_str = str(script_path.parent)
+        insert_index = 1 if sys.path and sys.path[0] == script_dir_str else 0
+        sys.path.insert(insert_index, repo_root_str)
+
+    try:
+        from cmd_utils_importer import ensure_cmd_utils_imported
+
+        ensure_cmd_utils_imported()
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to import cmd_utils_importer. Ensure the repository "
+            "structure is intact and sys.path is configured correctly."
+        )
+        raise ImportError(message) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to initialise cmd_utils. Check that the environment is "
+            "configured correctly for this script to run."
+        )
+        raise RuntimeError(message) from exc
+
+    _BOOTSTRAP_CACHE = (action_path, repo_root)
+    return _BOOTSTRAP_CACHE
+
+
+_ACTION_PATH, _REPO_ROOT = bootstrap_environment()
+
+import typer  # noqa: E402
+from toolchain import read_default_toolchain  # noqa: E402
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 

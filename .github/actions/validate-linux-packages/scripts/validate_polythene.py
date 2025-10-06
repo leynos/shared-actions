@@ -26,6 +26,15 @@ Command = tuple[str, ...]
 DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
 DEFAULT_ISOLATION = "proot"
 
+
+@dataclasses.dataclass(slots=True)
+class _CommandArgsResult:
+    """Return type for :func:`_build_command_args`."""
+
+    args: list[str]
+    used_isolation: bool
+
+
 __all__ = sorted(
     (
         "Command",
@@ -99,6 +108,49 @@ def _format_isolation_error(exc: ValidationError) -> str | None:
     return None
 
 
+def _is_unknown_isolation_option_error(exc: ValidationError) -> bool:
+    """Return ``True`` if ``exc`` was raised due to an unsupported flag."""
+    cause = exc.__cause__
+    if not isinstance(cause, ProcessExecutionError):
+        return False
+
+    stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+    stdout_text = _decode_stream(getattr(cause, "stdout", ""))
+    combined = "\n".join(part for part in (stderr_text, stdout_text) if part)
+    if not combined:
+        return False
+    return bool(
+        re.search(
+            r"(unknown\s+option[^\n]*--isolation|--isolation[^\n]*unknown\s+option)",
+            combined,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _build_command_args(
+    base_args: list[str],
+    args: tuple[str, ...],
+    isolation: str | None,
+    *,
+    supports_isolation: bool,
+) -> _CommandArgsResult:
+    """Return ``cmd`` arguments and whether ``--isolation`` should be included."""
+    include_isolation = bool(isolation) and supports_isolation
+    if include_isolation:
+        return _CommandArgsResult(
+            args=[
+                *base_args,
+                "--isolation",
+                isolation,
+                "--",
+                *args,
+            ],
+            used_isolation=True,
+        )
+    return _CommandArgsResult(args=[*base_args, "--", *args], used_isolation=False)
+
+
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
@@ -108,6 +160,13 @@ class PolytheneSession:
     store: Path
     timeout: int | None = None
     isolation: str | None = None
+    _supports_isolation_option: bool | None = dataclasses.field(
+        # Cache for ``--isolation`` support: ``None`` unknown, ``True`` supported,
+        # ``False`` unsupported.
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     @property
     def root(self) -> Path:
@@ -117,7 +176,7 @@ class PolytheneSession:
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
-        cmd_args: list[str] = [
+        base_args: list[str] = [
             "run",
             *self.command,
             "exec",
@@ -125,13 +184,39 @@ class PolytheneSession:
             "--store",
             self.store.as_posix(),
         ]
-        if self.isolation:
-            cmd_args.extend(["--isolation", self.isolation])
-        cmd_args.append("--")
-        cmd_args.extend(args)
+        supports_isolation = self._supports_isolation_option is not False
+        command_args = _build_command_args(
+            base_args,
+            args,
+            self.isolation,
+            supports_isolation=supports_isolation,
+        )
+        cmd_args = command_args.args
+        include_isolation = command_args.used_isolation
 
         cmd = local["uv"][tuple(cmd_args)]
-        return run_text(cmd, timeout=effective_timeout)
+        try:
+            result = run_text(cmd, timeout=effective_timeout)
+        except ValidationError as exc:
+            if include_isolation and _is_unknown_isolation_option_error(exc):
+                logger.info(
+                    "Isolation flag unsupported; retrying without --isolation for %s",
+                    self.uid,
+                )
+                self._supports_isolation_option = False
+                fallback_args = _build_command_args(
+                    base_args,
+                    args,
+                    isolation=None,
+                    supports_isolation=False,
+                )
+                fallback_cmd = local["uv"][tuple(fallback_args.args)]
+                return run_text(fallback_cmd, timeout=effective_timeout)
+            raise
+        else:
+            if include_isolation and self._supports_isolation_option is not True:
+                self._supports_isolation_option = True
+            return result
 
 
 def default_polythene_command() -> Command:

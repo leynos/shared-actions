@@ -28,6 +28,7 @@ import gzip
 import os
 import re
 import shlex
+import stat
 import sys
 import typing as typ
 from pathlib import Path
@@ -117,6 +118,24 @@ class OctalInt(int):
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
+
+
+def _ensure_executable_permissions(path: Path) -> None:
+    """Ensure ``path`` is executable on POSIX systems without clobbering other bits."""
+    if os.name == "nt":  # pragma: no cover - exercised on Windows runners only
+        return
+
+    try:
+        current_mode = path.stat().st_mode
+    except OSError:  # pragma: no cover - defensive guard for transient IO errors
+        return
+
+    exec_bits = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    desired_mode = current_mode | exec_bits
+    if desired_mode == current_mode:
+        return
+
+    path.chmod(desired_mode)
 
 
 def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode:
@@ -319,6 +338,14 @@ def main(
 
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
+    _ensure_executable_permissions(bin_path)
+    import stat as stat_module
+
+    source_mode = stat_module.S_IMODE(bin_path.stat().st_mode)
+    print(
+        f"DEBUG: Source binary permissions: {oct(source_mode)}",
+        file=sys.stderr,
+    )
     ensure_directory(outdir_path)
     ensure_directory(config_out_path.parent)
 
@@ -415,6 +442,27 @@ def main(
                 file=sys.stderr,
             )
         raise SystemExit(failures[0][1])
+
+    # Verify packaged binary permissions
+    if "deb" in resolved_formats:
+        deb_files = list(outdir_path.glob("*.deb"))
+        if deb_files:
+            try:
+                dpkg_deb = get_command("dpkg-deb")
+                for deb_path in deb_files:
+                    print(
+                        f"DEBUG: Inspecting {deb_path.name}",
+                        file=sys.stderr,
+                    )
+                    _, stdout, _ = dpkg_deb["--contents", str(deb_path)].run()
+                    for line in stdout.splitlines():
+                        if bin_value in line:
+                            print(f"DEBUG: {line}", file=sys.stderr)
+            except Exception as e:  # noqa: BLE001  # pragma: no cover - debug output only
+                print(
+                    f"DEBUG: Package inspection failed: {e}",
+                    file=sys.stderr,
+                )
 
 
 def run() -> None:

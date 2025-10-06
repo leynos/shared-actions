@@ -22,6 +22,51 @@ runner = CliRunner()
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "src" / "action_setup.py"
 
 
+def _reset_bootstrap_cache(module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear cached bootstrap data for ``module`` within a test."""
+    monkeypatch.setattr(module, "_BOOTSTRAP_CACHE", None, raising=False)
+
+
+def test_bootstrap_inserts_repo_root_first_when_path_empty(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty ``sys.path`` receives the repo root at index ``0``."""
+    path_entries: list[str] = []
+    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+
+    _, repo_root = action_setup_module.bootstrap_environment()
+
+    assert path_entries[0] == str(repo_root)
+
+
+def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repo root insertion honours a leading script directory entry."""
+    script_dir = Path(action_setup_module.__file__).resolve().parent
+    path_entries = [script_dir.as_posix(), "other"]
+    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+
+    _, repo_root = action_setup_module.bootstrap_environment()
+
+    assert path_entries[1] == str(repo_root)
+
+
+def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
+    action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Blank ``sys.path`` entries do not offset repo root insertion."""
+    path_entries = ["", "other"]
+    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+
+    _, repo_root = action_setup_module.bootstrap_environment()
+
+    assert path_entries[0] == str(repo_root)
+
+
 def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:
     """Valid targets pass validation."""
     action_setup_module.validate_target("x86_64-unknown-linux-gnu")

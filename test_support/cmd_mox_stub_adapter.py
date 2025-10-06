@@ -103,6 +103,19 @@ class StubManager:
         self._env_cache = None
         self._replayed = False
 
+    def __enter__(self) -> StubManager:
+        """Enable ``with StubManager(...)`` usage."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: typ.TracebackType | None,
+    ) -> None:
+        """Ensure cached state is cleared when leaving a context."""
+        self.close()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -145,6 +158,7 @@ class StubManager:
     ) -> typ.Callable[[Invocation], Response]:
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]] = []
         default_spec: dict[str, typ.Any] | None = None
+        # Collect (match pattern, response spec) pairs so replay can scan quickly.
         for spec in variants:
             match = spec.get("match")
             match_list: list[str] | None = None if match is None else list(match)
@@ -158,6 +172,7 @@ class StubManager:
             else:
                 prepared.append((match_list, response_spec))
         if default_spec is None:
+            # Use register() defaults when variants omit a baseline response.
             default_spec = {
                 "stdout": default_stdout,
                 "stderr": default_stderr,
@@ -165,9 +180,11 @@ class StubManager:
             }
 
         def handler(invocation: Invocation) -> Response:
+            # Return the first prepared response whose argv matches the invocation.
             for match_list, response_spec in prepared:
                 if match_list is not None and list(invocation.args) == match_list:
                     return Response(**response_spec)
+            # Otherwise fall back to the default response determined above.
             return Response(**default_spec)
 
         return handler

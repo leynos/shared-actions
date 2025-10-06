@@ -30,9 +30,8 @@ sys.path.insert(0, str(ROOT))
 @pytest.fixture
 def shell_stubs(cmd_mox: CmdMox, monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""
-    mgr = StubManager(cmd_mox)
-    monkeypatch.setenv("PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH', '')}")
-    try:
+    with StubManager(cmd_mox) as mgr:
+        monkeypatch.setenv(
+            "PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH', '')}"
+        )
         yield mgr
-    finally:
-        mgr.close()

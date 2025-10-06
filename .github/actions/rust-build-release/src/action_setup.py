@@ -22,6 +22,52 @@ _REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock"
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
 
 
+def _compute_sys_path_insert_index(
+    script_dir: Path, path_entries: typ.Sequence[str]
+) -> int:
+    """Return the insertion index for ``script_dir`` aware path updates."""
+
+    if not path_entries:
+        return 0
+
+    head = path_entries[0]
+    if not head:
+        return 0
+
+    try:
+        head_path = Path(head).resolve()
+    except (OSError, RuntimeError, ValueError):  # pragma: no cover - defensive guard
+        return 0
+
+    try:
+        script_dir_resolved = script_dir.resolve()
+    except (OSError, RuntimeError):  # pragma: no cover - defensive guard
+        script_dir_resolved = script_dir
+
+    return 1 if head_path == script_dir_resolved else 0
+
+
+def _initialise_cmd_utils() -> None:
+    """Load ``cmd_utils`` helpers for downstream imports."""
+
+    try:
+        from cmd_utils_importer import ensure_cmd_utils_imported
+
+        ensure_cmd_utils_imported()
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to import cmd_utils_importer. Ensure the repository "
+            "structure is intact and sys.path is configured correctly."
+        )
+        raise ImportError(message) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to initialise cmd_utils. Check that the environment is "
+            "configured correctly for this script to run."
+        )
+        raise RuntimeError(message) from exc
+
+
 def _discover_action_path(script_path: Path) -> Path:
     """Return the directory containing the composite action metadata."""
     for parent in script_path.parents:
@@ -61,26 +107,10 @@ def bootstrap_environment() -> tuple[Path, Path]:
         raise FileNotFoundError(message)
     repo_root_str = str(repo_root)
     if repo_root_str not in sys.path:
-        script_dir_str = str(script_path.parent)
-        insert_index = 1 if sys.path and sys.path[0] == script_dir_str else 0
+        insert_index = _compute_sys_path_insert_index(script_path.parent, sys.path)
         sys.path.insert(insert_index, repo_root_str)
 
-    try:
-        from cmd_utils_importer import ensure_cmd_utils_imported
-
-        ensure_cmd_utils_imported()
-    except ImportError as exc:  # pragma: no cover - defensive guard
-        message = (
-            "Failed to import cmd_utils_importer. Ensure the repository "
-            "structure is intact and sys.path is configured correctly."
-        )
-        raise ImportError(message) from exc
-    except Exception as exc:  # pragma: no cover - defensive guard
-        message = (
-            "Failed to initialise cmd_utils. Check that the environment is "
-            "configured correctly for this script to run."
-        )
-        raise RuntimeError(message) from exc
+    _initialise_cmd_utils()
 
     _BOOTSTRAP_CACHE = (action_path, repo_root)
     return _BOOTSTRAP_CACHE

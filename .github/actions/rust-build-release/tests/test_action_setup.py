@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import typing as typ
 from pathlib import Path
@@ -39,6 +40,12 @@ def test_bootstrap_inserts_repo_root_first_when_path_empty(
 
     assert path_entries[0] == str(repo_root)
 
+    repo_root_str = str(repo_root)
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+    action_setup_module.bootstrap_environment()
+
+    assert len([entry for entry in path_entries if entry == repo_root_str]) == 1
+
 
 def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
     action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
@@ -60,11 +67,14 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
     """Blank ``sys.path`` entries do not offset repo root insertion."""
     path_entries = ["", "other"]
     monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    sentinel = "sentinel-action-path"
+    monkeypatch.setenv("GITHUB_ACTION_PATH", sentinel)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
     assert path_entries[0] == str(repo_root)
+    assert os.environ["GITHUB_ACTION_PATH"] == sentinel
 
 
 def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:

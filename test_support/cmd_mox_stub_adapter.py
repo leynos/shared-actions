@@ -172,8 +172,8 @@ class StubManager:
             # Treat the first variant without an explicit match as the default response.
             if match_list is None and default_spec is None:
                 default_spec = response_spec
-            else:
-                prepared.append((match_list, response_spec))
+                continue
+            prepared.append((match_list, response_spec))
         if default_spec is None:
             # Use register() defaults when variants omit a baseline response.
             default_spec = {
@@ -185,7 +185,9 @@ class StubManager:
         def handler(invocation: Invocation) -> Response:
             # Return the first prepared response whose argv matches the invocation.
             for match_list, response_spec in prepared:
-                if match_list is not None and list(invocation.args) == match_list:
+                if match_list is None:
+                    continue
+                if list(invocation.args) == match_list:
                     return Response(**response_spec)
             # Otherwise fall back to the default response determined above.
             return Response(**default_spec)

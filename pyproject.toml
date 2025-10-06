@@ -16,7 +16,7 @@ dependencies = [
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",
     "cyclopts>=3.24,<4.0",
-    "polythene@git+https://github.com/leynos/polythene.git@4bc190c08851a1fb9151550e59f00e0d61d82980",
+    "polythene@git+https://github.com/leynos/polythene.git@8eec18952abf7b665eb4b05e87af91652f358739",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

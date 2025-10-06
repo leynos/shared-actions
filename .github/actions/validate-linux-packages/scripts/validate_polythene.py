@@ -167,7 +167,7 @@ class PolytheneSession:
 
         cmd = local["uv"][tuple(cmd_args)]
         try:
-            return run_text(cmd, timeout=effective_timeout)
+            result = run_text(cmd, timeout=effective_timeout)
         except ValidationError as exc:
             if include_isolation and _is_unknown_isolation_option_error(exc):
                 logger.info(
@@ -179,6 +179,10 @@ class PolytheneSession:
                 fallback_cmd = local["uv"][tuple(no_isolation_args)]
                 return run_text(fallback_cmd, timeout=effective_timeout)
             raise
+        else:
+            if include_isolation:
+                self._supports_isolation_option = True
+            return result
 
 
 def default_polythene_command() -> Command:

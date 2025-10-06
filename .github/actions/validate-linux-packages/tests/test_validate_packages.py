@@ -97,6 +97,11 @@ def test_validate_deb_package_runs_sandbox_checks(
         "inspect_deb_package",
         lambda *_: metadata,
     )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
+    )
     calls: list[tuple[tuple[str, ...], int | None]] = []
     sandbox = DummySandbox(tmp_path / "sandbox", calls)
 
@@ -317,6 +322,11 @@ def test_install_and_verify_wraps_validation_errors(
         validate_packages_module,
         "inspect_deb_package",
         lambda *_: metadata,
+    )
+    monkeypatch.setattr(
+        validate_packages_module.platform,
+        "machine",
+        lambda: "x86_64",
     )
 
     error = validate_packages_module.ValidationError("command failed")

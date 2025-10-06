@@ -10,27 +10,79 @@ from __future__ import annotations
 import os
 import re
 import sys
+import typing as typ
 from pathlib import Path
 
-# Import-time environment bootstrap.
-# This script must configure sys.path and GITHUB_ACTION_PATH before importing
-# cmd_utils_importer and toolchain modules to ensure they can be resolved when
-# running outside GitHub Actions (e.g., via ``uv run --script``).
-action_path = Path(__file__).resolve().parents[1]
-if not action_path.exists():
-    message = f"Action path does not exist: {action_path}"
+# The action directory is expected to contain an ``action.yml`` file. Accept
+# ``action.yaml`` as a fallback for historical repositories.
+_ACTION_MARKERS: typ.Final[tuple[str, ...]] = ("action.yml", "action.yaml")
+_REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock")
+_BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
+
+
+def _discover_action_path(script_path: Path) -> Path:
+    """Return the directory containing the composite action metadata."""
+    for parent in script_path.parents:
+        if any((parent / marker).exists() for marker in _ACTION_MARKERS):
+            return parent
+    return script_path.parents[1]
+
+
+def _discover_repo_root(script_path: Path) -> Path:
+    """Return the repository root that contains this script."""
+    for parent in script_path.parents:
+        if any((parent / marker).exists() for marker in _REPO_MARKERS):
+            return parent
+    message = (
+        "Unable to determine repository root for rust-build-release action "
+        f"starting from {script_path}"
+    )
     raise FileNotFoundError(message)
-os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
 
-repo_root = Path(__file__).resolve().parents[4]
-if not repo_root.exists():
-    message = f"Repository root does not exist: {repo_root}"
-    raise FileNotFoundError(message)
-sys.path.insert(0, str(repo_root))
 
-from cmd_utils_importer import ensure_cmd_utils_imported  # noqa: E402
+def bootstrap_environment() -> tuple[Path, Path]:
+    """Ensure imports succeed when the script runs outside GitHub Actions."""
+    global _BOOTSTRAP_CACHE
+    if _BOOTSTRAP_CACHE is not None:
+        return _BOOTSTRAP_CACHE
 
-ensure_cmd_utils_imported()
+    script_path = Path(__file__).resolve()
+    action_path = _discover_action_path(script_path)
+    if not action_path.exists():
+        message = f"Action path does not exist: {action_path}"
+        raise FileNotFoundError(message)
+    os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
+
+    repo_root = _discover_repo_root(script_path)
+    if not repo_root.exists():
+        message = f"Repository root does not exist: {repo_root}"
+        raise FileNotFoundError(message)
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    try:
+        from cmd_utils_importer import ensure_cmd_utils_imported
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to import cmd_utils_importer. Ensure the repository "
+            "structure is intact and sys.path is configured correctly."
+        )
+        raise ImportError(message) from exc
+
+    try:
+        ensure_cmd_utils_imported()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        message = (
+            "Failed to initialise cmd_utils. Check that the environment is "
+            "configured correctly for this script to run."
+        )
+        raise RuntimeError(message) from exc
+
+    _BOOTSTRAP_CACHE = (action_path, repo_root)
+    return _BOOTSTRAP_CACHE
+
+
+_ACTION_PATH, _REPO_ROOT = bootstrap_environment()
 
 import typer  # noqa: E402
 from toolchain import read_default_toolchain  # noqa: E402

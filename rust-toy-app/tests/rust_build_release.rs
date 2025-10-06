@@ -1,7 +1,9 @@
 //! Integration test: ensure the composite action's Python entrypoint builds a release binary and man page.
 
+mod common;
+
 use assert_cmd::prelude::*;
-use glob::glob;
+use common::{assert_manpage_exists, assert_manpage_exists_in};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -42,14 +44,10 @@ fn builds_release_binary_and_manpage() {
             .assert()
             .success();
 
-        assert!(
-            project_dir
-                .join(format!("target/{target}/release/rust-toy-app"))
-                .exists()
-        );
-        let pattern = project_dir.join(format!(
-            "target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
-        ));
-        assert!(glob(pattern.to_str().unwrap()).unwrap().next().is_some());
+        assert!(project_dir
+            .join(format!("target/{target}/release/rust-toy-app"))
+            .exists());
+        let target_root = project_dir.join(format!("target/{target}"));
+        assert_manpage_exists_in(&target_root);
     }
 }

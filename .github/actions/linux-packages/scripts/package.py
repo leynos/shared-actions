@@ -339,9 +339,7 @@ def main(
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
     _ensure_executable_permissions(bin_path)
-    import stat as stat_module
-
-    source_mode = stat_module.S_IMODE(bin_path.stat().st_mode)
+    source_mode = stat.S_IMODE(bin_path.stat().st_mode)
     print(
         f"DEBUG: Source binary permissions: {oct(source_mode)}",
         file=sys.stderr,

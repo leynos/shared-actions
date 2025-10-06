@@ -42,45 +42,50 @@ def _discover_repo_root(script_path: Path) -> Path:
     raise FileNotFoundError(message)
 
 
-def bootstrap_environment() -> tuple[Path, Path]:
-    """Ensure imports succeed when the script runs outside GitHub Actions."""
-    global _BOOTSTRAP_CACHE
-    if _BOOTSTRAP_CACHE is not None:
-        return _BOOTSTRAP_CACHE
+def _calculate_insertion_index(script_dir: Path) -> int:
+    """Return the insertion index for adding the repository to ``sys.path``."""
+    if not sys.path:
+        return 0
 
-    script_path = Path(__file__).resolve()
-    action_path = _discover_action_path(script_path)
-    if not action_path.exists():
-        message = f"Action path does not exist: {action_path}"
-        raise FileNotFoundError(message)
-    os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
-
-    repo_root = _discover_repo_root(script_path)
-    if not repo_root.exists():
-        message = f"Repository root does not exist: {repo_root}"
-        raise FileNotFoundError(message)
-    repo_root_str = str(repo_root)
-    script_dir = script_path.parent
     script_dir_str = str(script_dir)
-    if repo_root_str not in sys.path:
-        insert_index = 0
-        if sys.path:
-            first_entry_raw = sys.path[0]
-            if first_entry_raw == script_dir_str:
-                insert_index = 1
-            else:
-                try:
-                    first_entry_path = Path(first_entry_raw).resolve()
-                except (
-                    OSError,
-                    RuntimeError,
-                    ValueError,
-                ):  # pragma: no cover - defensive guard
-                    first_entry_path = None
-                if first_entry_path == script_dir:
-                    insert_index = 1
-        sys.path.insert(insert_index, repo_root_str)
+    first_entry_raw = sys.path[0]
+    if first_entry_raw == script_dir_str:
+        return 1
 
+    try:
+        first_entry_path = Path(first_entry_raw)
+    except TypeError:  # pragma: no cover - defensive guard
+        return 0
+
+    if first_entry_path == script_dir:
+        return 1
+
+    try:
+        resolved_entry = first_entry_path.resolve()
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+    ):  # pragma: no cover - defensive guard
+        return 0
+
+    if resolved_entry == script_dir:
+        return 1
+    return 0
+
+
+def _insert_repo_root_in_path(repo_root: Path, script_dir: Path) -> None:
+    """Ensure *repo_root* is present on ``sys.path`` for imports."""
+    repo_root_str = str(repo_root)
+    if repo_root_str in sys.path:
+        return
+
+    insert_index = _calculate_insertion_index(script_dir)
+    sys.path.insert(insert_index, repo_root_str)
+
+
+def _initialise_cmd_utils() -> None:
+    """Import and initialise ``cmd_utils`` with consistent error handling."""
     try:
         from cmd_utils_importer import ensure_cmd_utils_imported
     except ImportError as exc:  # pragma: no cover - defensive guard
@@ -98,6 +103,28 @@ def bootstrap_environment() -> tuple[Path, Path]:
             "configured correctly for this script to run."
         )
         raise RuntimeError(message) from exc
+
+
+def bootstrap_environment() -> tuple[Path, Path]:
+    """Ensure imports succeed when the script runs outside GitHub Actions."""
+    global _BOOTSTRAP_CACHE
+    if _BOOTSTRAP_CACHE is not None:
+        return _BOOTSTRAP_CACHE
+
+    script_path = Path(__file__).resolve()
+    action_path = _discover_action_path(script_path)
+    if not action_path.exists():
+        message = f"Action path does not exist: {action_path}"
+        raise FileNotFoundError(message)
+    os.environ.setdefault("GITHUB_ACTION_PATH", str(action_path))
+
+    repo_root = _discover_repo_root(script_path)
+    if not repo_root.exists():
+        message = f"Repository root does not exist: {repo_root}"
+        raise FileNotFoundError(message)
+    script_dir = script_path.parent
+    _insert_repo_root_in_path(repo_root, script_dir)
+    _initialise_cmd_utils()
 
     _BOOTSTRAP_CACHE = (action_path, repo_root)
     return _BOOTSTRAP_CACHE

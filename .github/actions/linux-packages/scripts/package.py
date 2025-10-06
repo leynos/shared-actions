@@ -319,6 +319,7 @@ def main(
 
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
+    bin_path.chmod(0o755)
     ensure_directory(outdir_path)
     ensure_directory(config_out_path.parent)
 

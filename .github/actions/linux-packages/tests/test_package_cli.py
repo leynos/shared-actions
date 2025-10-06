@@ -5,7 +5,9 @@ from __future__ import annotations
 import importlib
 import os
 import runpy
+import shutil
 import sys
+import tempfile
 import types
 import typing as typ
 from pathlib import Path
@@ -14,11 +16,12 @@ import _packaging_utils as pkg_utils
 import cyclopts
 import pytest
 import yaml
+from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils_importer import import_cmd_utils
 
-import_cmd_utils()
+run_cmd = import_cmd_utils().run_cmd
 
 
 @pytest.fixture
@@ -358,6 +361,47 @@ def test_ensure_nfpm_errors_when_checksum_entry_missing(
     message = str(excinfo.value)
     assert "missing entry" in message
     assert "nfpm_2.39.0_Linux_x86_64.tar.gz" in message
+
+
+@pytest.mark.usefixtures("uncapture_if_verbose")
+@pytest.mark.skipif(
+    sys.platform == "win32"
+    or shutil.which("dpkg-deb") is None
+    or shutil.which("podman") is None
+    or shutil.which("uv") is None,
+    reason="dpkg-deb, podman or uv not available",
+)
+def test_package_cli_stages_binary_with_executable_permissions(
+    packaging_project_paths: pkg_utils.PackagingProject,
+    build_artifacts: pkg_utils.BuildArtifacts,
+    packaging_config: pkg_utils.PackagingConfig,
+) -> None:
+    """The CLI normalises the staged binary to be executable before packaging."""
+    bin_path = (
+        packaging_project_paths.project_dir
+        / "target"
+        / build_artifacts.target
+        / "release"
+        / packaging_config.bin_name
+    )
+    bin_path.chmod(0o644)
+    assert bin_path.stat().st_mode & 0o777 == 0o644
+
+    packages = pkg_utils.package_project(
+        packaging_project_paths,
+        build_artifacts,
+        config=packaging_config,
+        formats=("deb",),
+    )
+    deb_path = packages.get("deb")
+    assert deb_path is not None, "expected deb package to be produced"
+
+    with tempfile.TemporaryDirectory() as td:
+        run_cmd(local["dpkg-deb"]["-x", str(deb_path), td])
+        extracted = Path(td, "usr/bin", packaging_config.bin_name)
+        assert extracted.is_file()
+        mode = extracted.stat().st_mode & 0o777
+        assert mode == 0o755, f"expected 0o755 permissions but found {oct(mode)}"
 
 
 def _run_script_with_fallback(

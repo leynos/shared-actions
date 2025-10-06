@@ -45,7 +45,7 @@ def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
 ) -> None:
     """Repo root insertion honours a leading script directory entry."""
     script_dir = Path(action_setup_module.__file__).resolve().parent
-    path_entries = [script_dir.as_posix(), "other"]
+    path_entries = [str(script_dir), "other"]
     monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
 

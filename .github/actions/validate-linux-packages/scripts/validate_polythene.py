@@ -26,6 +26,15 @@ Command = tuple[str, ...]
 DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
 DEFAULT_ISOLATION = "proot"
 
+
+@dataclasses.dataclass(slots=True)
+class _CommandArgsResult:
+    """Return type for :func:`_build_command_args`."""
+
+    args: list[str]
+    used_isolation: bool
+
+
 __all__ = sorted(
     (
         "Command",
@@ -119,6 +128,29 @@ def _is_unknown_isolation_option_error(exc: ValidationError) -> bool:
     )
 
 
+def _build_command_args(
+    base_args: list[str],
+    args: tuple[str, ...],
+    isolation: str | None,
+    *,
+    supports_isolation: bool,
+) -> _CommandArgsResult:
+    """Return ``cmd`` arguments and whether ``--isolation`` should be included."""
+    include_isolation = bool(isolation) and supports_isolation
+    if include_isolation:
+        return _CommandArgsResult(
+            args=[
+                *base_args,
+                "--isolation",
+                isolation,
+                "--",
+                *args,
+            ],
+            used_isolation=True,
+        )
+    return _CommandArgsResult(args=[*base_args, "--", *args], used_isolation=False)
+
+
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
@@ -153,17 +185,14 @@ class PolytheneSession:
             self.store.as_posix(),
         ]
         supports_isolation = self._supports_isolation_option is not False
-        include_isolation = bool(self.isolation) and supports_isolation
-        if include_isolation:
-            cmd_args = [
-                *base_args,
-                "--isolation",
-                self.isolation,
-                "--",
-                *args,
-            ]
-        else:
-            cmd_args = [*base_args, "--", *args]
+        command_args = _build_command_args(
+            base_args,
+            args,
+            self.isolation,
+            supports_isolation=supports_isolation,
+        )
+        cmd_args = command_args.args
+        include_isolation = command_args.used_isolation
 
         cmd = local["uv"][tuple(cmd_args)]
         try:
@@ -175,12 +204,17 @@ class PolytheneSession:
                     self.uid,
                 )
                 self._supports_isolation_option = False
-                no_isolation_args = [*base_args, "--", *args]
-                fallback_cmd = local["uv"][tuple(no_isolation_args)]
+                fallback_args = _build_command_args(
+                    base_args,
+                    args,
+                    isolation=None,
+                    supports_isolation=False,
+                )
+                fallback_cmd = local["uv"][tuple(fallback_args.args)]
                 return run_text(fallback_cmd, timeout=effective_timeout)
             raise
         else:
-            if include_isolation:
+            if include_isolation and self._supports_isolation_option is not True:
                 self._supports_isolation_option = True
             return result
 

@@ -5,7 +5,10 @@ from __future__ import annotations
 import importlib
 import os
 import runpy
+import shutil
+import stat
 import sys
+import tempfile
 import types
 import typing as typ
 from pathlib import Path
@@ -14,11 +17,12 @@ import _packaging_utils as pkg_utils
 import cyclopts
 import pytest
 import yaml
+from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 
 from cmd_utils_importer import import_cmd_utils
 
-import_cmd_utils()
+run_cmd = import_cmd_utils().run_cmd
 
 
 @pytest.fixture
@@ -172,6 +176,45 @@ def test_normalise_list_preserves_case_variants(
     assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
+def test_ensure_executable_permissions_sets_exec_bits(
+    packaging_module: types.ModuleType, tmp_path: Path
+) -> None:
+    """Helper restores execute permissions without clobbering other bits."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    packaging_module._ensure_executable_permissions(binary)
+
+    mode = binary.stat().st_mode & 0o777
+    assert mode & stat.S_IXUSR
+    assert mode & stat.S_IXGRP
+    assert mode & stat.S_IXOTH
+    assert mode & stat.S_IRUSR
+    assert mode & stat.S_IWUSR
+
+
+def test_ensure_executable_permissions_skips_on_windows(
+    packaging_module: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows platforms skip chmod adjustments to avoid unsupported operations."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"echo")
+    binary.chmod(0o640)
+    original_mode = binary.stat().st_mode
+
+    monkeypatch.setattr(packaging_module, "os", types.SimpleNamespace(name="nt"))
+
+    packaging_module._ensure_executable_permissions(binary)
+
+    assert binary.stat().st_mode == original_mode
+
+
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
@@ -207,6 +250,46 @@ def test_main_errors_for_unknown_target(packaging_module: types.ModuleType) -> N
         )
 
     assert "unsupported target triple" in str(exc.value)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
+def test_main_reinstates_binary_execute_permissions(
+    packaging_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The CLI normalises binary modes before invoking nfpm."""
+    target = "x86_64-unknown-linux-gnu"
+    release_dir = tmp_path / "target" / target / "release"
+    release_dir.mkdir(parents=True)
+    binary = release_dir / "toy"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    outdir = tmp_path / "dist"
+    config_out = tmp_path / "nfpm.yaml"
+
+    monkeypatch.setattr(
+        packaging_module, "get_command", lambda _: _FakeBoundCommand("nfpm")
+    )
+    monkeypatch.setattr(packaging_module, "run_cmd", lambda *_, **__: None)
+
+    packaging_module.main(
+        bin_name="toy",
+        version="1.2.3",
+        formats=["deb"],
+        target=target,
+        binary_dir=tmp_path / "target",
+        outdir=outdir,
+        config_out=config_out,
+    )
+
+    mode = binary.stat().st_mode & 0o777
+    assert mode & stat.S_IXUSR
+    assert mode & stat.S_IXGRP
+    assert mode & stat.S_IXOTH
 
 
 def test_coerce_optional_path_handles_none_and_blank(
@@ -358,6 +441,47 @@ def test_ensure_nfpm_errors_when_checksum_entry_missing(
     message = str(excinfo.value)
     assert "missing entry" in message
     assert "nfpm_2.39.0_Linux_x86_64.tar.gz" in message
+
+
+@pytest.mark.usefixtures("uncapture_if_verbose")
+@pytest.mark.skipif(
+    sys.platform == "win32"
+    or shutil.which("dpkg-deb") is None
+    or shutil.which("podman") is None
+    or shutil.which("uv") is None,
+    reason="dpkg-deb, podman or uv not available",
+)
+def test_package_cli_stages_binary_with_executable_permissions(
+    packaging_project_paths: pkg_utils.PackagingProject,
+    build_artifacts: pkg_utils.BuildArtifacts,
+    packaging_config: pkg_utils.PackagingConfig,
+) -> None:
+    """The CLI normalises the staged binary to be executable before packaging."""
+    bin_path = (
+        packaging_project_paths.project_dir
+        / "target"
+        / build_artifacts.target
+        / "release"
+        / packaging_config.bin_name
+    )
+    bin_path.chmod(0o644)
+    assert bin_path.stat().st_mode & 0o777 == 0o644
+
+    packages = pkg_utils.package_project(
+        packaging_project_paths,
+        build_artifacts,
+        config=packaging_config,
+        formats=("deb",),
+    )
+    deb_path = packages.get("deb")
+    assert deb_path is not None, "expected deb package to be produced"
+
+    with tempfile.TemporaryDirectory() as td:
+        run_cmd(local["dpkg-deb"]["-x", str(deb_path), td])
+        extracted = Path(td, "usr/bin", packaging_config.bin_name)
+        assert extracted.is_file()
+        mode = extracted.stat().st_mode & 0o777
+        assert mode == 0o755, f"expected 0o755 permissions but found {oct(mode)}"
 
 
 def _run_script_with_fallback(

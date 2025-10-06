@@ -60,38 +60,21 @@ def bootstrap_environment() -> tuple[Path, Path]:
         message = f"Repository root does not exist: {repo_root}"
         raise FileNotFoundError(message)
     repo_root_str = str(repo_root)
-    script_dir = script_path.parent
-    script_dir_str = str(script_dir)
     if repo_root_str not in sys.path:
-        insert_index = 0
-        if sys.path:
-            first_entry_raw = sys.path[0]
-            if first_entry_raw == script_dir_str:
-                insert_index = 1
-            else:
-                try:
-                    first_entry_path = Path(first_entry_raw).resolve()
-                except (
-                    OSError,
-                    RuntimeError,
-                    ValueError,
-                ):  # pragma: no cover - defensive guard
-                    first_entry_path = None
-                if first_entry_path == script_dir:
-                    insert_index = 1
+        script_dir_str = str(script_path.parent)
+        insert_index = 1 if sys.path and sys.path[0] == script_dir_str else 0
         sys.path.insert(insert_index, repo_root_str)
 
     try:
         from cmd_utils_importer import ensure_cmd_utils_imported
+
+        ensure_cmd_utils_imported()
     except ImportError as exc:  # pragma: no cover - defensive guard
         message = (
             "Failed to import cmd_utils_importer. Ensure the repository "
             "structure is intact and sys.path is configured correctly."
         )
         raise ImportError(message) from exc
-
-    try:
-        ensure_cmd_utils_imported()
     except Exception as exc:  # pragma: no cover - defensive guard
         message = (
             "Failed to initialise cmd_utils. Check that the environment is "

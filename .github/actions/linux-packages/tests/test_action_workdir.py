@@ -54,7 +54,7 @@ def test_action_uses_self_checkout_paths() -> None:
 
 
 def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> None:
-    """Simulate a remote workflow workspace and ensure the install action is accessible."""
+    """Simulate remote workspace and confirm the install action is reachable."""
     data = _load_action()
     steps = data["runs"]["steps"]
     install_step = next(
@@ -73,4 +73,6 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
         ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "target"),
     )
     install_path = workspace / install_step["uses"]
-    assert install_path.is_dir(), "Install nfpm action should exist under _self checkout"
+    assert install_path.is_dir(), (
+        "Install nfpm action should exist under _self checkout"
+    )

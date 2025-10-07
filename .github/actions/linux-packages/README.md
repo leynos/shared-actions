@@ -34,11 +34,13 @@ nFPM.
 | deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
 | rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
 
-When running inside a private repository, provide `action-token` so the action
-can authenticate the self-checkout step. When omitted, the composite falls back
-to the default workflow `github.token`. For local workflows that reference the
-action via a relative path, the checkout step automatically falls back to the
-current repository so nested actions remain available.
+Before cloning itself the action records its own repository and ref, ensuring
+the self-checkout pulls the same commit that dispatched the composite. When
+running inside a private repository, provide `action-token` so this step can
+authenticate; when omitted it falls back to the workflow `github.token`. Local
+workflows that reference the action via a relative path automatically reuse the
+current repository and ref so nested actions remain available without an extra
+clone.
 
 ## Outputs
 

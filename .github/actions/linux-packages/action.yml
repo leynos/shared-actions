@@ -90,11 +90,25 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Capture action metadata
+      env:
+        SELF_REPO: ${{ github.action_repository }}
+        SELF_REF: ${{ github.action_ref }}
+        CALLER_REPO: ${{ github.repository }}
+        CALLER_REF: ${{ github.ref_name || github.sha }}
+      run: |
+        {
+          echo "SELF_REPO=${SELF_REPO}";
+          echo "SELF_REF=${SELF_REF}";
+          echo "CALLER_REPO=${CALLER_REPO}";
+          echo "CALLER_REF=${CALLER_REF}";
+        } >> "${GITHUB_ENV}"
+      shell: bash
     - name: Check out action sources
       uses: actions/checkout@v4
       with:
-        repository: ${{ github.action_repository && contains(github.action_path, github.action_repository) && github.action_repository || github.repository }}
-        ref: ${{ github.action_ref || github.sha }}
+        repository: ${{ env.SELF_REPO != '' && env.SELF_REPO || env.CALLER_REPO }}
+        ref: ${{ env.SELF_REF != '' && env.SELF_REF || env.CALLER_REF }}
         path: _self
         token: ${{ inputs.action-token || github.token }}
     - name: Setup uv

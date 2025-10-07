@@ -39,10 +39,10 @@ try:
         PackagingProject as _PackagingProject,
     )
     from ._packaging_utils import (
-        clone_packaging_project as _clone_packaging_project,
+        build_release_artifacts as _build_release_artifacts,
     )
     from ._packaging_utils import (
-        build_release_artifacts as _build_release_artifacts,
+        clone_packaging_project as _clone_packaging_project,
     )
     from ._packaging_utils import (
         package_project as _package_project,

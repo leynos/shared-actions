@@ -16,12 +16,15 @@ from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
+    from types import ModuleType
+
     from ._packaging_utils import PackagingProject as _PackagingProject
 else:  # pragma: no cover - type checking helper
+    ModuleType = typ.Any
     _PackagingProject = typ.Any
 
 
-def _import_packaging_utils():
+def _import_packaging_utils() -> ModuleType:
     try:
         from . import _packaging_utils as pkg_utils
     except ImportError:  # pragma: no cover - fallback for direct invocation
@@ -35,12 +38,14 @@ def _import_packaging_utils():
             "linux_packages_packaging_utils", pkg_utils_path
         )
         if spec is None or spec.loader is None:
-            raise ImportError("failed to import packaging utils") from None
+            msg = "failed to import packaging utils"
+            raise ImportError(msg) from None
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         pkg_utils = module
     return pkg_utils
+
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:

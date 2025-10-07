@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Sequence
+import typing as typ
+from os import environ
 from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+else:  # pragma: no cover - runtime fallback for annotations
+    cabc = typ.cast("object", None)
 
 __all__ = [
     "ActionError",
@@ -39,10 +45,10 @@ def _emit_error(message: str) -> None:
     sys.stderr.write(f"{message}\n")
 
 
-def run_app(app: App, *, argv: Sequence[str] | None = None) -> None:
+def run_app(app: App, *, argv: cabc.Sequence[str] | None = None) -> None:
     """Execute ``app`` and present user-facing errors consistently."""
     if argv is None:
-        if "pytest" in sys.modules:
+        if "PYTEST_CURRENT_TEST" in environ:
             tokens: list[str] = []
         else:
             tokens = list(sys.argv[1:])

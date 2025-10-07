@@ -91,6 +91,24 @@ def test_run_app_reports_action_error(
     assert "boom" in capsys.readouterr().err
 
 
+def test_run_app_honours_explicit_arguments(
+    load_module: cabc.Callable[[str], object],
+) -> None:
+    """Explicit ``argv`` entries are forwarded to the Cyclopts app."""
+    utils = load_module("_utils")
+    captured: list[str] = []
+
+    app = utils.configure_app()
+
+    @app.default
+    def _main(*, value: str) -> None:
+        captured.append(value)
+
+    utils.run_app(app, argv=["--value", "from-argv"])
+
+    assert captured == ["from-argv"]
+
+
 def test_ensure_regular_file_accepts_file(
     tmp_path: Path,
     load_module: cabc.Callable[[str], object],

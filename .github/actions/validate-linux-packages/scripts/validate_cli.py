@@ -386,6 +386,20 @@ def _supports_executable_stores(base: Path) -> Path | None:
     return candidate
 
 
+def _find_executable_candidate() -> Path | None:
+    """Find an executable filesystem candidate from environment variables."""
+    for env_var in ("RUNNER_TEMP", "GITHUB_WORKSPACE"):
+        location = os.environ.get(env_var)
+        if not location:
+            continue
+
+        candidate = _supports_executable_stores(Path(location))
+        if candidate is not None:
+            return candidate
+
+    return None
+
+
 @contextlib.contextmanager
 def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
@@ -394,17 +408,8 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
         yield store_base
         return
 
-    candidates: list[Path] = []
-    for env_var in ("RUNNER_TEMP", "GITHUB_WORKSPACE"):
-        location = os.environ.get(env_var)
-        if location:
-            candidates.append(Path(location))
-
-    for base in candidates:
-        candidate = _supports_executable_stores(base)
-        if candidate is None:
-            continue
-
+    candidate = _find_executable_candidate()
+    if candidate is not None:
         try:
             with tempfile.TemporaryDirectory(
                 prefix="polythene-validate-",
@@ -413,7 +418,7 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
                 yield ensure_directory(Path(tmp))
                 return
         except OSError:
-            continue
+            pass
 
     with tempfile.TemporaryDirectory(prefix="polythene-validate-") as tmp:
         yield ensure_directory(Path(tmp))

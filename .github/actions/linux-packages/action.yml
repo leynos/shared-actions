@@ -43,6 +43,10 @@ inputs:
     description: Software license recorded in package metadata.
     required: false
     default: ''
+  action-token:
+    description: Personal access token used to clone this action for private repositories.
+    required: false
+    default: ''
   section:
     description: Package section/category used for Debian metadata.
     required: false
@@ -86,10 +90,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check out action sources
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.action_repository }}
+        ref: ${{ github.action_ref }}
+        path: _self
+        token: ${{ inputs.action-token || github.token }}
     - name: Setup uv
       uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
     - name: Install nfpm
-      uses: ./.github/actions/install-nfpm
+      uses: ./_self/.github/actions/install-nfpm
     - name: Build Linux packages
       shell: bash
       working-directory: ${{ inputs.project-dir }}

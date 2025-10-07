@@ -22,6 +22,7 @@ nFPM.
 | maintainer | string | _empty_ | Maintainer entry for the generated package metadata. | no |
 | homepage | string | _empty_ | Homepage URL recorded in package metadata. | no |
 | license | string | _empty_ | Software license declared in the package metadata. | no |
+| action-token | string | _empty_ | Personal access token used to clone this action when consumed from a private repository. Defaults to the workflow `github.token`. | no |
 | section | string | _empty_ | Package section/category used by Debian-based distributions. | no |
 | description | string | _empty_ | Long description stored in the package metadata. | no |
 | man-paths | string | _empty_ | Comma-, space-, or newline-separated list of man page paths relative to `project-dir`. | no |
@@ -32,6 +33,10 @@ nFPM.
 | config-path | string | _empty_ | Location to write the generated `nfpm.yaml` configuration. | no |
 | deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
 | rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
+
+When running inside a private repository, provide `action-token` so the action
+can authenticate the self-checkout step. When omitted, the composite falls back
+to the default workflow `github.token`.
 
 ## Outputs
 

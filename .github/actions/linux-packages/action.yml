@@ -93,8 +93,8 @@ runs:
     - name: Check out action sources
       uses: actions/checkout@v4
       with:
-        repository: ${{ github.action_repository }}
-        ref: ${{ github.action_ref }}
+        repository: ${{ github.action_repository && contains(github.action_path, github.action_repository) && github.action_repository || github.repository }}
+        ref: ${{ github.action_ref || github.sha }}
         path: _self
         token: ${{ inputs.action-token || github.token }}
     - name: Setup uv

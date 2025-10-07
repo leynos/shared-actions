@@ -36,7 +36,9 @@ nFPM.
 
 When running inside a private repository, provide `action-token` so the action
 can authenticate the self-checkout step. When omitted, the composite falls back
-to the default workflow `github.token`.
+to the default workflow `github.token`. For local workflows that reference the
+action via a relative path, the checkout step automatically falls back to the
+current repository so nested actions remain available.
 
 ## Outputs
 

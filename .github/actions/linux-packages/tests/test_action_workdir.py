@@ -34,8 +34,12 @@ def test_action_performs_self_checkout() -> None:
     assert checkout_step["uses"] == "actions/checkout@v4"
     checkout_with = checkout_step.get("with", {})
     assert checkout_with == {
-        "repository": "${{ github.action_repository }}",
-        "ref": "${{ github.action_ref }}",
+        "repository": (
+            "${{ github.action_repository && "
+            "contains(github.action_path, github.action_repository) && "
+            "github.action_repository || github.repository }}"
+        ),
+        "ref": "${{ github.action_ref || github.sha }}",
         "path": "_self",
         "token": "${{ inputs.action-token || github.token }}",
     }

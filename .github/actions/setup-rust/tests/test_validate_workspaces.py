@@ -22,6 +22,17 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_worksp
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
 
+def _clean_stderr(stderr: str) -> str:
+    """Strip uv virtual environment warnings from *stderr*."""
+
+    lines = [
+        line
+        for line in stderr.splitlines()
+        if not line.startswith("warning: `VIRTUAL_ENV=")
+    ]
+    return "\n".join(lines)
+
+
 def run_validator(workspaces: str) -> RunResult:
     """Execute the validator with *workspaces* and return the completed process."""
     env = {**os.environ}
@@ -30,6 +41,7 @@ def run_validator(workspaces: str) -> RunResult:
     env["PYTHONPATH"] = f"{root}{os.pathsep}{current_pp}" if current_pp else root
     env["PYTHONIOENCODING"] = "utf-8"
     env["INPUT_WORKSPACES"] = workspaces
+    env.pop("VIRTUAL_ENV", None)
     uv_path = shutil.which("uv")
     if uv_path is None:
         pytest.skip(UV_NOT_FOUND_MESSAGE)
@@ -41,7 +53,7 @@ def test_accepts_empty_input() -> None:
     """Blank input is allowed and uses the default mapping."""
     result = run_validator("")
     assert result.returncode == 0
-    assert result.stderr.strip() == ""
+    assert _clean_stderr(result.stderr).strip() == ""
 
 
 def test_accepts_valid_mappings() -> None:
@@ -56,7 +68,7 @@ def test_accepts_valid_mappings() -> None:
     )
     result = run_validator(mappings)
     assert result.returncode == 0
-    assert result.stderr.strip() == ""
+    assert _clean_stderr(result.stderr).strip() == ""
 
 
 def test_requires_arrow_separator() -> None:

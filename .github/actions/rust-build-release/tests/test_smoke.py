@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import shutil
 import sys
 import typing as typ
@@ -14,6 +15,33 @@ from plumbum import local
 from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
+if typ.TYPE_CHECKING:
+    from ._packaging_utils import PackagingProject as _PackagingProject
+else:  # pragma: no cover - type checking helper
+    _PackagingProject = typ.Any
+
+
+def _import_packaging_utils():
+    try:
+        from . import _packaging_utils as pkg_utils
+    except ImportError:  # pragma: no cover - fallback for direct invocation
+        pkg_utils_path = (
+            Path(__file__).resolve().parents[2]
+            / "linux-packages"
+            / "tests"
+            / "_packaging_utils.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "linux_packages_packaging_utils", pkg_utils_path
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("failed to import packaging utils") from None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        pkg_utils = module
+    return pkg_utils
+
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -22,7 +50,8 @@ runtime_module = importlib.import_module("runtime")
 detect_host_target = runtime_module.detect_host_target
 runtime_available = runtime_module.runtime_available
 
-PROJECT_DIR = Path(__file__).resolve().parents[4] / "rust-toy-app"
+_packaging_utils = _import_packaging_utils()
+BASE_PROJECT = _packaging_utils.packaging_project()
 
 TOOLCHAIN_VERSION = (
     (Path(__file__).resolve().parents[1] / "TOOLCHAIN_VERSION")
@@ -47,8 +76,8 @@ HOST_TARGET = detect_host_target()
 _targets: list[str] = [HOST_TARGET]
 
 if HOST_TARGET.endswith("-unknown-linux-gnu") and (
-    runtime_available("docker", cwd=PROJECT_DIR)
-    or runtime_available("podman", cwd=PROJECT_DIR)
+    runtime_available("docker", cwd=BASE_PROJECT.project_dir)
+    or runtime_available("podman", cwd=BASE_PROJECT.project_dir)
 ):
     _targets.append("aarch64-unknown-linux-gnu")
 
@@ -96,11 +125,13 @@ def run_script(script: Path, *args: str, cwd: Path | None = None) -> RunResult:
 
 @pytest.mark.parametrize("target", TARGET_PARAMS)
 def test_action_builds_release_binary_and_manpage(
-    target: str, ensure_toolchain_ready: typ.Callable[[str, str], None]
+    target: str,
+    ensure_toolchain_ready: typ.Callable[[str, str], None],
+    packaging_project_paths: _PackagingProject,
 ) -> None:
     """The build script produces a release binary and man page."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = PROJECT_DIR
+    project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
     # On Windows, ensure a linker exists for GNU aarch64 targets.
@@ -137,10 +168,10 @@ def test_action_builds_release_binary_and_manpage(
     assert any(manpage_glob)
 
 
-def test_fails_without_target() -> None:
+def test_fails_without_target(packaging_project_paths: _PackagingProject) -> None:
     """Script exits with an error when no target is provided."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = PROJECT_DIR
+    project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
     res = run_script(script, cwd=project_dir)
@@ -148,10 +179,12 @@ def test_fails_without_target() -> None:
     assert "RBR_TARGET=<unset>" in res.stderr
 
 
-def test_fails_for_invalid_toolchain() -> None:
+def test_fails_for_invalid_toolchain(
+    packaging_project_paths: _PackagingProject,
+) -> None:
     """Script surfaces rustup errors for invalid toolchains."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = PROJECT_DIR
+    project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
     res = run_script(
@@ -167,10 +200,11 @@ def test_fails_for_invalid_toolchain() -> None:
 
 def test_fails_for_unsupported_target(
     ensure_toolchain_ready: typ.Callable[[str, str], None],
+    packaging_project_paths: _PackagingProject,
 ) -> None:
     """Script errors when a valid toolchain lacks the requested target."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = PROJECT_DIR
+    project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
     ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)
@@ -188,10 +222,11 @@ def test_fails_for_unsupported_target(
 
 def test_accepts_full_toolchain_spec(
     ensure_toolchain_ready: typ.Callable[[str, str], None],
+    packaging_project_paths: _PackagingProject,
 ) -> None:
     """Script accepts fully qualified toolchain triples."""
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = PROJECT_DIR
+    project_dir = packaging_project_paths.project_dir
     if shutil.which("rustup") is None:
         pytest.skip("rustup not installed")
     ensure_toolchain_ready(TOOLCHAIN_VERSION, HOST_TARGET)

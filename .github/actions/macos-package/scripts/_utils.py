@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import cyclopts
@@ -38,10 +39,20 @@ def _emit_error(message: str) -> None:
     sys.stderr.write(f"{message}\n")
 
 
-def run_app(app: App) -> None:
+def run_app(app: App, *, argv: Sequence[str] | None = None) -> None:
     """Execute ``app`` and present user-facing errors consistently."""
+    if argv is None:
+        if "pytest" in sys.modules:
+            tokens: list[str] = []
+        else:
+            tokens = list(sys.argv[1:])
+    else:
+        tokens = list(argv)
+
+    invocation = tokens if tokens else []
+
     try:
-        app()
+        app(invocation)
     except (ActionError, FileNotFoundError, ValueError) as exc:
         _emit_error(str(exc))
         raise SystemExit(1) from exc

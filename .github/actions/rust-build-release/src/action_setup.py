@@ -26,7 +26,6 @@ def _compute_sys_path_insert_index(
     script_dir: Path, path_entries: typ.Sequence[str]
 ) -> int:
     """Return the insertion index for ``script_dir`` aware path updates."""
-
     if not path_entries:
         return 0
 
@@ -49,7 +48,6 @@ def _compute_sys_path_insert_index(
 
 def _initialise_cmd_utils() -> None:
     """Load ``cmd_utils`` helpers for downstream imports."""
-
     try:
         from cmd_utils_importer import ensure_cmd_utils_imported
 

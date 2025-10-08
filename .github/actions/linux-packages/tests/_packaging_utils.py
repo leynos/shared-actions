@@ -399,6 +399,7 @@ __all__ = sorted(
     [
         "build_release_artifacts",
         "BuildArtifacts",
+        "clone_packaging_project",
         "ChecksumMismatchError",
         "ChecksumDownloadError",
         "ChecksumManifestEntryMissingError",

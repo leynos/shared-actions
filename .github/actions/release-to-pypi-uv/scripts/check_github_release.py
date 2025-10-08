@@ -156,7 +156,7 @@ def _parse_retry_after_header(value: str | None) -> float | None:
     return None
 
 
-def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
+def _handle_http_response_error(response: httpx.Response, tag: str) -> typ.NoReturn:
     status = response.status_code
     detail = _extract_error_detail(response)
 
@@ -235,8 +235,6 @@ def _request_release(repo: str, tag: str, token: str) -> dict[str, object]:
             raise GithubReleaseError(message) from exc
 
     _handle_http_response_error(response, tag)
-    message = "GitHub API request requires retry"
-    raise GithubReleaseRetryError(message)
 
 
 @retry(

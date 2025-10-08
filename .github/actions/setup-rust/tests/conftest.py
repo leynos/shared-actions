@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pytest
 
+if sys.platform.startswith("win"):
+    pytest.skip("cmd-mox IPC is unavailable on Windows", allow_module_level=True)
+
 from test_support.cmd_mox_stub_adapter import StubManager
 
 if typ.TYPE_CHECKING:

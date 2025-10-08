@@ -217,6 +217,9 @@ def parse_file_specification(spec: str) -> FileSpecification:
         message = "Source path cannot be empty"
         raise TemplateError(message)
     source = Path(source_str)
+    if destination and destination.strip().endswith(("\\", "/")):
+        message = "Destination must include a filename, not just a directory"
+        raise TemplateError(message)
     destination_parts = _split_destination(destination, source.name)
     return FileSpecification(source=source, destination=destination_parts)
 

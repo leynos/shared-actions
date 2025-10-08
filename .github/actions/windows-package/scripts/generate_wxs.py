@@ -74,7 +74,8 @@ def main(
         raise SystemExit(1) from exc
 
     authoring = render_default_wxs(options)
-    output_path.write_text(authoring, encoding="utf-8", newline="\n")
+    with output_path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(authoring)
     print(str(output_path))
 
 

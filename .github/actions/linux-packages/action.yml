@@ -43,10 +43,6 @@ inputs:
     description: Software license recorded in package metadata.
     required: false
     default: ''
-  action-token:
-    description: Personal access token used to clone this action for private repositories.
-    required: false
-    default: ''
   section:
     description: Package section/category used for Debian metadata.
     required: false
@@ -101,9 +97,14 @@ runs:
           exit 1
         fi
 
-        repo_root="$(dirname "$(dirname "$(dirname "${action_dir}")")")"
-        if [[ ! -d "${repo_root}" ]]; then
+        repo_root="${action_dir%/.github/actions/*}"
+        if [[ -z "${repo_root}" || "${repo_root}" == "${action_dir}" ]]; then
           echo "Unable to determine action repository root from ${action_dir}" >&2
+          exit 1
+        fi
+
+        if [[ ! -d "${repo_root}" ]]; then
+          echo "Resolved repository root ${repo_root} does not exist" >&2
           exit 1
         fi
 
@@ -111,9 +112,22 @@ runs:
         mkdir -p _self
 
         if command -v rsync >/dev/null 2>&1; then
-          rsync -a --delete --exclude='.git/' --exclude='__pycache__/' --exclude='*.pyc' --exclude='_self/' "${repo_root}/" "_self/"
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            --exclude='target/' \
+            --exclude='_self/' \
+            "${repo_root}/" "_self/"
         else
-          tar cf - -C "${repo_root}" . | tar xf - -C _self
+          tar cf - \
+            --exclude='./.git' \
+            --exclude='./__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='./target' \
+            --exclude='./_self' \
+            -C "${repo_root}" . \
+            | tar xf - -C _self
         fi
     - name: Setup uv
       uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6

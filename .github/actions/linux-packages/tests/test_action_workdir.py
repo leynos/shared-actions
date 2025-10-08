@@ -14,6 +14,14 @@ def _load_action() -> dict[str, object]:
     return yaml.safe_load(text)
 
 
+def _find_repo_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").is_dir():
+            return candidate
+    message = "Could not locate repository root from test file"
+    raise AssertionError(message)
+
+
 def test_action_uses_workdir() -> None:
     """Ensure packaging runs from project dir."""
     data = _load_action()
@@ -37,7 +45,11 @@ def test_action_mirrors_repository_into_workspace() -> None:
     assert "github.action_path" in script
     assert "rsync" in script
     assert "--exclude='_self/'" in script
+    assert "--exclude='target/'" in script
+    assert "--exclude='.git/'" in script
     assert "tar cf -" in script
+    assert "--exclude='./target'" in script
+    assert "--exclude='./.git'" in script
     assert "_self" in script
     assert all(step.get("uses") != "actions/checkout@v4" for step in steps)
 
@@ -63,11 +75,13 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
         None,
     )
     assert install_step is not None, "Install nfpm step not found"
-    repo_root = Path(__file__).resolve().parents[4]
+    repo_root = _find_repo_root(Path(__file__).resolve())
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     # Simulate the mirroring step copying the repository into "_self".
     checkout_path = workspace / "_self"
+    # Exclude version control, Python cache, build artefacts, and previous
+    # mirror directories to match the action's copy behaviour.
     shutil.copytree(
         repo_root,
         checkout_path,

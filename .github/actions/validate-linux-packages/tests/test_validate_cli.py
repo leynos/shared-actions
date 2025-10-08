@@ -745,6 +745,7 @@ def test_main_invokes_each_requested_format(
 
     monkeypatch.setattr(module, "_validate_format", _fake_validate)
     monkeypatch.setenv("RUNNER_TEMP", tmp_path.as_posix())
+    monkeypatch.setenv("GITHUB_WORKSPACE", tmp_path.as_posix())
 
     module.main(
         project_dir=project_dir,

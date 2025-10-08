@@ -77,6 +77,18 @@ jobs:
           echo "manpage-relative=${manpages[0]}" >> "$GITHUB_OUTPUT"
         working-directory: rust-toy-app
         shell: bash
+      - name: Build Windows installer package
+        if: contains(matrix.target, 'pc-windows-')
+        uses: ./.github/actions/windows-package
+        with:
+          wxs-path: rust-toy-app/installer/Package.wxs
+          architecture: ${{ contains(matrix.target, 'aarch64') && 'arm64' || 'x64' }}
+          version: ${{ steps.crate-version.outputs.version }}
+          output-basename: rust-toy-app
+          output-directory: rust-toy-app/target/${{ matrix.target }}/msi
+          license-plaintext-path: rust-toy-app/LICENSE
+          wix-extension-version: '6'
+          artifact-name: rust-toy-app-${{ matrix.target }}-msi-${{ steps.crate-version.outputs.version }}
       - name: Package Linux artifacts
         if: contains(matrix.target, 'unknown-linux-')
         uses: ./.github/actions/linux-packages

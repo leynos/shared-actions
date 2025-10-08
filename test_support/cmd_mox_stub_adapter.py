@@ -14,7 +14,7 @@ inspect the captured calls:
     >>> from cmd_mox import CmdMox
     >>> with CmdMox() as controller:
     ...     manager = StubManager(controller)
-    ...     manager.register("git", stdout="v2.40.0\n")
+    ...     manager.register("git", default=DefaultResponse(stdout="v2.40.0\n"))
     ...     env = manager.env
     ...     # Execute code under test using ``env``
     ...     calls = manager.calls_of("git")
@@ -49,6 +49,15 @@ class Call:
     env: dict[str, str]
 
 
+@dc.dataclass(slots=True)
+class DefaultResponse:
+    """Default response values for a stub command."""
+
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int = 0
+
+
 class StubManager:
     """Adapter exposing a shellstub-like API backed by :mod:`cmd_mox`."""
 
@@ -65,22 +74,23 @@ class StubManager:
         name: str,
         *,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]] | None = None,
-        stdout: str = "",
-        stderr: str = "",
-        exit_code: int = 0,
+        default: DefaultResponse | None = None,
     ) -> None:
         """Register a stub for *name* using cmd_mox doubles."""
+        default = default or DefaultResponse()
         stub = self._controller.stub(name)
         if variants:
             handler = self._build_variant_handler(
                 variants,
-                default_stdout=stdout,
-                default_stderr=stderr,
-                default_exit_code=exit_code,
+                default=default,
             )
             stub.runs(handler)
         else:
-            stub.returns(stdout=stdout, stderr=stderr, exit_code=exit_code)
+            stub.returns(
+                stdout=default.stdout,
+                stderr=default.stderr,
+                exit_code=default.exit_code,
+            )
 
     def calls_of(self, name: str) -> list[Call]:
         """Return all recorded invocations for *name* in replay order."""
@@ -148,17 +158,20 @@ class StubManager:
             env=dict(invocation.env),
         )
 
-    def _build_variant_handler(
+    def _prepare_variants(
         self,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]],
-        *,
-        default_stdout: str,
-        default_stderr: str,
-        default_exit_code: int,
-    ) -> typ.Callable[[Invocation], Response]:
+        default: DefaultResponse,
+    ) -> tuple[list[tuple[list[str] | None, dict[str, typ.Any]]], dict[str, typ.Any]]:
+        """Prepare variant specifications, returning (prepared_list, default_spec)."""
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]] = []
-        default_spec: dict[str, typ.Any] | None = None
-        # Collect (match pattern, response spec) pairs so replay can scan quickly.
+        fallback_spec = {
+            "stdout": default.stdout,
+            "stderr": default.stderr,
+            "exit_code": default.exit_code,
+        }
+        default_spec = fallback_spec
+        default_spec_assigned = False
         for spec in variants:
             # Normalize the declared match pattern and response payload.
             match = spec.get("match")
@@ -170,29 +183,47 @@ class StubManager:
                 "exit_code": spec.get("exit_code", 0),
             }
             # Treat the first variant without an explicit match as the default response.
-            if match_list is None and default_spec is None:
+            if match_list is None and not default_spec_assigned:
                 default_spec = response_spec
+                default_spec_assigned = True
                 continue
             prepared.append((match_list, response_spec))
-        if default_spec is None:
-            # Use register() defaults when variants omit a baseline response.
-            default_spec = {
-                "stdout": default_stdout,
-                "stderr": default_stderr,
-                "exit_code": default_exit_code,
-            }
+        return prepared, default_spec
+
+    def _match_invocation(
+        self,
+        invocation: Invocation,
+        prepared: list[tuple[list[str] | None, dict[str, typ.Any]]],
+    ) -> dict[str, typ.Any] | None:
+        """Find the first prepared response matching the invocation's args."""
+        args = list(invocation.args)
+        return next(
+            (
+                response_spec
+                for match_list, response_spec in prepared
+                if match_list is not None and match_list == args
+            ),
+            None,
+        )
+
+    def _build_variant_handler(
+        self,
+        variants: typ.Sequence[typ.Mapping[str, typ.Any]],
+        *,
+        default: DefaultResponse,
+    ) -> typ.Callable[[Invocation], Response]:
+        # Collect (match pattern, response spec) pairs so replay can scan quickly.
+        prepared, default_spec = self._prepare_variants(variants, default)
 
         def handler(invocation: Invocation) -> Response:
             # Return the first prepared response whose argv matches the invocation.
-            for match_list, response_spec in prepared:
-                if match_list is None:
-                    continue
-                if list(invocation.args) == match_list:
-                    return Response(**response_spec)
+            matched = self._match_invocation(invocation, prepared)
             # Otherwise fall back to the default response determined above.
-            return Response(**default_spec)
+            return (
+                Response(**matched) if matched is not None else Response(**default_spec)
+            )
 
         return handler
 
 
-__all__ = ["Call", "StubManager"]
+__all__ = ["Call", "DefaultResponse", "StubManager"]

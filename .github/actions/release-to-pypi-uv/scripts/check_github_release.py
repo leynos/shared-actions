@@ -16,6 +16,7 @@ import random
 import sys
 import time
 import typing as typ
+from dataclasses import dataclass  # noqa: ICN003
 
 import cyclopts
 import httpx
@@ -63,18 +64,107 @@ _ERROR_DETAIL_LIMIT = 1024
 _JSON_PAYLOAD_PREVIEW_LIMIT = 500
 
 
+@dataclass(frozen=True, kw_only=True)
+class RetryConfig:
+    """Configuration for retry behaviour."""
+
+    total: int | None = None
+    allowed_methods: typ.Iterable[str] | None = None
+    status_forcelist: typ.Iterable[int] | None = None
+    retry_on_exceptions: typ.Iterable[type[Exception]] | None = None
+    backoff_factor: float = 0.0
+    respect_retry_after_header: bool = True
+    max_backoff_wait: float = 120.0
+    backoff_jitter: float = 0.0
+
+
+_T = typ.TypeVar("_T")
+_U = typ.TypeVar("_U")
+
+
+def _resolve_optional(
+    value: _T | None,
+    default: _T,
+    *,
+    transform: typ.Callable[[_T], _U] | None = None,
+) -> _T | _U:
+    if value is None:
+        return default
+    if transform is None:
+        return value
+    return transform(value)
+
+
+def _normalize_allowed_methods(
+    allowed_methods: typ.Iterable[str] | None,
+) -> frozenset[str]:
+    return _resolve_optional(
+        allowed_methods,
+        frozenset({"GET"}),
+        transform=lambda methods: frozenset(str(method).upper() for method in methods),
+    )
+
+
+def _validate_status_forcelist(
+    status_forcelist: typ.Iterable[int] | None,
+) -> frozenset[int]:
+    def _validator(values: typ.Iterable[int]) -> frozenset[int]:
+        validated: set[int] = set()
+        for code in values:
+            try:
+                validated.add(int(code))
+            except (TypeError, ValueError) as exc:
+                message = (
+                    "Invalid status code in status_forcelist: "
+                    f"{code!r} is not an integer"
+                )
+                raise ValueError(message) from exc
+        return frozenset(validated)
+
+    return _resolve_optional(
+        status_forcelist,
+        _RETRYABLE_STATUS_CODES,
+        transform=_validator,
+    )
+
+
+def _normalize_retry_exceptions(
+    retry_on_exceptions: typ.Iterable[type[Exception]] | None,
+) -> tuple[type[Exception], ...]:
+    return _resolve_optional(
+        retry_on_exceptions,
+        Retry.RETRYABLE_EXCEPTIONS,
+        transform=lambda values: tuple(values),
+    )
+
+
 class _GithubRetry(Retry):
     """Retry configuration that mirrors the action's backoff strategy."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config: RetryConfig | None = None,
+        *,
+        attempts_made: int = 0,
+    ) -> None:
+        cfg = RetryConfig() if config is None else config
+        self._config: RetryConfig = cfg
         super().__init__(
-            total=_MAX_ATTEMPTS - 1,
-            backoff_factor=0.0,
-            backoff_jitter=0.0,
-            status_forcelist=_RETRYABLE_STATUS_CODES,
-            allowed_methods=frozenset({"GET"}),
-            retry_on_exceptions=self.RETRYABLE_EXCEPTIONS,
-            respect_retry_after_header=True,
+            total=_resolve_optional(cfg.total, _MAX_ATTEMPTS - 1),
+            allowed_methods=_normalize_allowed_methods(cfg.allowed_methods),
+            status_forcelist=_validate_status_forcelist(cfg.status_forcelist),
+            retry_on_exceptions=_normalize_retry_exceptions(cfg.retry_on_exceptions),
+            backoff_factor=cfg.backoff_factor,
+            respect_retry_after_header=cfg.respect_retry_after_header,
+            max_backoff_wait=cfg.max_backoff_wait,
+            backoff_jitter=cfg.backoff_jitter,
+            attempts_made=attempts_made,
+        )
+
+    def increment(self) -> _GithubRetry:
+        return self.__class__(
+            config=self._config,
+            attempts_made=self.attempts_made + 1,
         )
 
     def backoff_strategy(self) -> float:  # pragma: no cover - exercised via sleep()

@@ -18,19 +18,19 @@ dotnet tool update @installArgs 2>&1 | Tee-Object -Variable updateOutput | Out-N
 $updateExitCode = $LASTEXITCODE
 if ($updateExitCode -ne 0) {
     if ($updateOutput) {
-        Write-Warning "dotnet tool update failed with exit code $updateExitCode:`n$updateOutput"
+        Write-Warning "dotnet tool update failed with exit code $($updateExitCode):`n$($updateOutput)"
     }
     else {
-        Write-Warning "dotnet tool update failed with exit code $updateExitCode."
+        Write-Warning "dotnet tool update failed with exit code $($updateExitCode)."
     }
 
     dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null
     if ($LASTEXITCODE -ne 0) {
         if ($installOutput) {
-            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $LASTEXITCODE):`n$installOutput"
+            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE)):`n$($installOutput)"
         }
         else {
-            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $LASTEXITCODE)."
+            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE))."
         }
         exit $LASTEXITCODE
     }

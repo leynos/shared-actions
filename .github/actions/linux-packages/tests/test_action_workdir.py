@@ -36,6 +36,7 @@ def test_action_mirrors_repository_into_workspace() -> None:
     script = mirror_step.get("run", "")
     assert "github.action_path" in script
     assert "rsync" in script
+    assert "--exclude='_self/'" in script
     assert "tar cf -" in script
     assert "_self" in script
     assert all(step.get("uses") != "actions/checkout@v4" for step in steps)
@@ -70,7 +71,9 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
     shutil.copytree(
         repo_root,
         checkout_path,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "target"),
+        ignore=shutil.ignore_patterns(
+            ".git", "__pycache__", "*.pyc", "target", "_self"
+        ),
     )
     install_path = workspace / install_step["uses"]
     assert install_path.is_dir(), (

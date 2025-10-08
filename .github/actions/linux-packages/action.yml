@@ -111,7 +111,7 @@ runs:
         mkdir -p _self
 
         if command -v rsync >/dev/null 2>&1; then
-          rsync -a --delete --exclude='.git/' --exclude='__pycache__/' --exclude='*.pyc' "${repo_root}/" "_self/"
+          rsync -a --delete --exclude='.git/' --exclude='__pycache__/' --exclude='*.pyc' --exclude='_self/' "${repo_root}/" "_self/"
         else
           tar cf - -C "${repo_root}" . | tar xf - -C _self
         fi

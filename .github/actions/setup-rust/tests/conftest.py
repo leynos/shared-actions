@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import os
 import sys
+import typing as typ
 from pathlib import Path
 
 import pytest
 
-from shellstub import StubManager
+if sys.platform.startswith("win"):
+    pytest.skip("cmd-mox IPC is unavailable on Windows", allow_module_level=True)
+
+from test_support.cmd_mox_stub_adapter import StubManager
+
+if typ.TYPE_CHECKING:
+    from cmd_mox import CmdMox
 
 
 def _find_root(start: Path) -> Path:
@@ -24,13 +31,8 @@ sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture
-def shell_stubs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StubManager:
+def shell_stubs(cmd_mox: CmdMox, monkeypatch: pytest.MonkeyPatch) -> StubManager:
     """Return a ``StubManager`` configured for the current test."""
-    dir_ = tmp_path / "stubs"
-    mgr = StubManager(dir_)
-    import shellstub as mod
-
-    mod._GLOBAL_MANAGER = mgr
-    monkeypatch.setenv("PATH", f"{dir_}{os.pathsep}{os.getenv('PATH')}")
     monkeypatch.setenv("PYTHONPATH", f"{ROOT}{os.pathsep}{os.getenv('PYTHONPATH', '')}")
-    return mgr
+    with StubManager(cmd_mox) as mgr:
+        yield mgr

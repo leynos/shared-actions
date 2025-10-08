@@ -39,6 +39,61 @@ def _install_transport(
     monkeypatch.setattr(module, "_build_retry_transport", factory)
 
 
+def test_github_retry_defaults(module: ModuleType) -> None:
+    """Instantiate the retry helper with default configuration."""
+    retry = module._GithubRetry()
+
+    assert retry.total == module._MAX_ATTEMPTS - 1
+    assert retry.allowed_methods == frozenset({"GET"})
+    assert retry.status_forcelist == module._RETRYABLE_STATUS_CODES
+    assert retry.retryable_exceptions == module.Retry.RETRYABLE_EXCEPTIONS
+    assert retry.backoff_factor == 0.0
+    assert retry.max_backoff_wait == 120.0
+    assert retry.backoff_jitter == 0.0
+    assert retry.respect_retry_after_header is True
+    assert retry.attempts_made == 0
+
+
+def test_github_retry_custom_config_and_increment(module: ModuleType) -> None:
+    """Respect overrides and carry them forward across increments."""
+    config = module.RetryConfig(
+        total=8,
+        allowed_methods=("get", "post"),
+        status_forcelist=(418,),
+        retry_on_exceptions=(RuntimeError,),
+        backoff_factor=2.5,
+        respect_retry_after_header=False,
+        max_backoff_wait=15.0,
+        backoff_jitter=0.3,
+    )
+
+    retry = module._GithubRetry(config=config)
+
+    assert retry.total == 8
+    assert retry.allowed_methods == frozenset({"GET", "POST"})
+    assert retry.status_forcelist == frozenset({418})
+    assert retry.retryable_exceptions == (RuntimeError,)
+    assert retry.backoff_factor == 2.5
+    assert retry.max_backoff_wait == 15.0
+    assert retry.backoff_jitter == 0.3
+    assert retry.respect_retry_after_header is False
+
+    incremented = retry.increment()
+    assert isinstance(incremented, module._GithubRetry)
+    assert incremented.attempts_made == retry.attempts_made + 1
+    assert incremented.allowed_methods == retry.allowed_methods
+    assert incremented.status_forcelist == retry.status_forcelist
+    assert incremented.retryable_exceptions == retry.retryable_exceptions
+
+
+def test_github_retry_invalid_status_list_raises(module: ModuleType) -> None:
+    """Reject status_forcelist entries that cannot be coerced to integers."""
+    config = module.RetryConfig(status_forcelist=("not-a-code",))
+
+    with pytest.raises(ValueError, match="Invalid status code"):
+        module._GithubRetry(config=config)
+
+
 def test_sleep_with_jitter_allows_custom_rng(module: ModuleType) -> None:
     """Allow tests to provide deterministic jitter and sleep functions."""
     calls: list[float] = []

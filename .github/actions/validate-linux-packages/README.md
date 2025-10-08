@@ -52,6 +52,7 @@ None.
     expected-paths: |
       /usr/bin/rust-toy-app
       /usr/share/man/man1/rust-toy-app.1.gz
+    polythene-store: ${{ runner.temp }}/polythene-store
 
 # Remote usage (after tagging this repo with v1)
 - uses: leynos/shared-actions/.github/actions/validate-linux-packages@v1
@@ -69,6 +70,11 @@ inside `$GITHUB_WORKSPACE` when available, falling back to `$RUNNER_TEMP` (or
 `/tmp` when neither is available). Each candidate directory is validated to
 ensure it resides on an executable filesystem so sandboxed binaries can be
 executed during verification.
+
+Providing an explicit `polythene-store` (for example `${{ runner.temp }}/polythene-store`)
+allows repeated validations within the same job to reuse the same writable and
+executable filesystem mount while avoiding non-executable directories such as
+`/tmp` on hardened runners.
 
 Paths supplied to `expected-paths` and `executable-paths` must already be
 canonical absolute strings.

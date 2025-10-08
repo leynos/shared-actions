@@ -277,23 +277,13 @@ def _run_handler(
         stderr = _ensure_text(getattr(exc, "stderr", ""))
         formatted = [str(part) for part in command.formulate()]
         timeout_message = str(exc) or "Command timed out"
-        timeout_value = normalized_timeout if normalized_timeout is not None else 0.0
-        process_timed_out_ctor = typ.cast(
-            "typ.Callable[..., ProcessTimedOut]",
-            ProcessTimedOut,
-        )
-        timed_out = process_timed_out_ctor(
+        resolved_timeout = normalized_timeout if normalized_timeout is not None else 0.0
+        timed_out = ProcessTimedOut(  # type: ignore[unknown-argument]
             formatted,
-            timeout_value,
-            stdout=stdout,
-            stderr=stderr,
+            resolved_timeout,
+            stdout=stdout,  # type: ignore[unknown-argument]
+            stderr=stderr,  # type: ignore[unknown-argument]
         )
-        resolved_timeout = (
-            normalized_timeout if normalized_timeout is not None else timeout_value
-        )
-        timed_out.timeout = resolved_timeout  # type: ignore[attr-defined]
-        timed_out.stdout = stdout  # type: ignore[attr-defined]
-        timed_out.stderr = stderr  # type: ignore[attr-defined]
         timed_out.args = (timeout_message, *timed_out.args[1:])
         raise timed_out from exc
     return coerce_run_result(typ.cast("cabc.Sequence[object]", raw_result))

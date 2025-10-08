@@ -165,12 +165,13 @@ class StubManager:
     ) -> tuple[list[tuple[list[str] | None, dict[str, typ.Any]]], dict[str, typ.Any]]:
         """Prepare variant specifications, returning (prepared_list, default_spec)."""
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]] = []
-        default_spec: dict[str, typ.Any] | None = None
         fallback_spec = {
             "stdout": default.stdout,
             "stderr": default.stderr,
             "exit_code": default.exit_code,
         }
+        default_spec = fallback_spec
+        default_spec_assigned = False
         for spec in variants:
             # Normalize the declared match pattern and response payload.
             match = spec.get("match")
@@ -182,14 +183,11 @@ class StubManager:
                 "exit_code": spec.get("exit_code", 0),
             }
             # Treat the first variant without an explicit match as the default response.
-            if match_list is None and default_spec is None:
+            if match_list is None and not default_spec_assigned:
                 default_spec = response_spec
+                default_spec_assigned = True
                 continue
             prepared.append((match_list, response_spec))
-        default_spec = default_spec or fallback_spec
-        if default_spec is None:
-            message = "Variant configuration must define a default response."
-            raise ValueError(message)
         return prepared, default_spec
 
     def _match_invocation(

@@ -98,7 +98,7 @@ class _GithubRetryWait(wait_base):
         if self._jitter_factor <= 0:
             return delay
         jitter = delay * self._rng.uniform(0.0, self._jitter_factor)
-        return delay + jitter
+        return min(delay + jitter, self._max_delay)
 
 
 def _retry_wait_strategy() -> wait_base:

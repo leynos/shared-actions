@@ -14,7 +14,7 @@ inspect the captured calls:
     >>> from cmd_mox import CmdMox
     >>> with CmdMox() as controller:
     ...     manager = StubManager(controller)
-    ...     manager.register("git", stdout="v2.40.0\n")
+    ...     manager.register("git", default=DefaultResponse(stdout="v2.40.0\n"))
     ...     env = manager.env
     ...     # Execute code under test using ``env``
     ...     calls = manager.calls_of("git")
@@ -49,6 +49,15 @@ class Call:
     env: dict[str, str]
 
 
+@dc.dataclass(slots=True)
+class DefaultResponse:
+    """Default response values for a stub command."""
+
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int = 0
+
+
 class StubManager:
     """Adapter exposing a shellstub-like API backed by :mod:`cmd_mox`."""
 
@@ -65,22 +74,26 @@ class StubManager:
         name: str,
         *,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]] | None = None,
-        stdout: str = "",
-        stderr: str = "",
-        exit_code: int = 0,
+        default: DefaultResponse | None = None,
     ) -> None:
         """Register a stub for *name* using cmd_mox doubles."""
+        if default is None:
+            default = DefaultResponse()
         stub = self._controller.stub(name)
         if variants:
             handler = self._build_variant_handler(
                 variants,
-                default_stdout=stdout,
-                default_stderr=stderr,
-                default_exit_code=exit_code,
+                default_stdout=default.stdout,
+                default_stderr=default.stderr,
+                default_exit_code=default.exit_code,
             )
             stub.runs(handler)
         else:
-            stub.returns(stdout=stdout, stderr=stderr, exit_code=exit_code)
+            stub.returns(
+                stdout=default.stdout,
+                stderr=default.stderr,
+                exit_code=default.exit_code,
+            )
 
     def calls_of(self, name: str) -> list[Call]:
         """Return all recorded invocations for *name* in replay order."""
@@ -148,17 +161,16 @@ class StubManager:
             env=dict(invocation.env),
         )
 
-    def _build_variant_handler(
+    def _prepare_variants(
         self,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]],
-        *,
         default_stdout: str,
         default_stderr: str,
         default_exit_code: int,
-    ) -> typ.Callable[[Invocation], Response]:
+    ) -> tuple[list[tuple[list[str] | None, dict[str, typ.Any]]], dict[str, typ.Any]]:
+        """Prepare variant specifications, returning (prepared_list, default_spec)."""
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]] = []
         default_spec: dict[str, typ.Any] | None = None
-        # Collect (match pattern, response spec) pairs so replay can scan quickly.
         for spec in variants:
             # Normalize the declared match pattern and response payload.
             match = spec.get("match")
@@ -181,18 +193,46 @@ class StubManager:
                 "stderr": default_stderr,
                 "exit_code": default_exit_code,
             }
+        return prepared, default_spec
+
+    def _match_invocation(
+        self,
+        invocation: Invocation,
+        prepared: list[tuple[list[str] | None, dict[str, typ.Any]]],
+    ) -> dict[str, typ.Any] | None:
+        """Find the first prepared response matching the invocation's args."""
+        for match_list, response_spec in prepared:
+            if match_list is None:
+                continue
+            if list(invocation.args) == match_list:
+                return response_spec
+        return None
+
+    def _build_variant_handler(
+        self,
+        variants: typ.Sequence[typ.Mapping[str, typ.Any]],
+        *,
+        default_stdout: str,
+        default_stderr: str,
+        default_exit_code: int,
+    ) -> typ.Callable[[Invocation], Response]:
+        # Collect (match pattern, response spec) pairs so replay can scan quickly.
+        prepared, default_spec = self._prepare_variants(
+            variants,
+            default_stdout,
+            default_stderr,
+            default_exit_code,
+        )
 
         def handler(invocation: Invocation) -> Response:
             # Return the first prepared response whose argv matches the invocation.
-            for match_list, response_spec in prepared:
-                if match_list is None:
-                    continue
-                if list(invocation.args) == match_list:
-                    return Response(**response_spec)
+            matched = self._match_invocation(invocation, prepared)
+            if matched is not None:
+                return Response(**matched)
             # Otherwise fall back to the default response determined above.
             return Response(**default_spec)
 
         return handler
 
 
-__all__ = ["Call", "StubManager"]
+__all__ = ["Call", "DefaultResponse", "StubManager"]

@@ -14,6 +14,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
+from test_support.cmd_mox_stub_adapter import DefaultResponse
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -139,7 +140,7 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     out.write_text("LF:200\nLH:163\n")
     shell_stubs.register(
         "cargo",
-        stdout="Coverage: 81.5%\n",
+        default=DefaultResponse(stdout="Coverage: 81.5%\n"),
     )
 
     env = {
@@ -349,7 +350,10 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
     out.write_text("TN:test\nend_of_record\n")
     cuc_file.write_text("TN:cuke\nend_of_record\n")
 
-    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+    shell_stubs.register(
+        "cargo",
+        default=DefaultResponse(stdout="Coverage: 100%\n"),
+    )
 
     env = {
         **shell_stubs.env,
@@ -404,7 +408,10 @@ def test_run_rust_with_cucumber_cobertura(
     out.write_text("<cov/>")
     cuc_file.write_text("<cuke/>")
 
-    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+    shell_stubs.register(
+        "cargo",
+        default=DefaultResponse(stdout="Coverage: 100%\n"),
+    )
     shell_stubs.register(
         "uvx",
         variants=[
@@ -450,7 +457,10 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
     out.write_text("<cov/>")
     cuc_file.write_text("<cuke/>")
 
-    shell_stubs.register("cargo", stdout="Coverage: 100%\n")
+    shell_stubs.register(
+        "cargo",
+        default=DefaultResponse(stdout="Coverage: 100%\n"),
+    )
     shell_stubs.register(
         "uvx",
         variants=[
@@ -486,8 +496,7 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``run_rust.py`` propagates cargo failures."""
     shell_stubs.register(
         "cargo",
-        stderr="boom",
-        exit_code=2,
+        default=DefaultResponse(stderr="boom", exit_code=2),
     )
     env = {
         **shell_stubs.env,

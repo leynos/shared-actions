@@ -55,10 +55,8 @@ def run_app(app: App, *, argv: cabc.Sequence[str] | None = None) -> None:
     else:
         tokens = list(argv)
 
-    invocation = tokens if tokens else []
-
     try:
-        app(invocation)
+        app(tokens)
     except (ActionError, FileNotFoundError, ValueError) as exc:
         _emit_error(str(exc))
         raise SystemExit(1) from exc
@@ -114,15 +112,11 @@ def remove_file(path: Path, *, warn: bool = True, context: str | None = None) ->
 
 def write_output(key: str, value: str) -> None:
     """Write an output variable for the current GitHub step."""
-    from os import environ
-
     if output_path := environ.get("GITHUB_OUTPUT"):
         append_key_value(Path(output_path), key, value)
 
 
 def write_env(key: str, value: str) -> None:
     """Write an environment variable for subsequent GitHub steps."""
-    from os import environ
-
     if env_path := environ.get("GITHUB_ENV"):
         append_key_value(Path(env_path), key, value)

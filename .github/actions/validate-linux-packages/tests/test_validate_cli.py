@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import sys
-import tempfile
 import typing as typ
 from pathlib import Path
 
@@ -860,14 +859,13 @@ def test_polythene_store_defaults_to_system_temp(
     tmp_path: Path,
 ) -> None:
     """When no environment hints exist the system temp directory is used."""
-
     module = validate_cli_module
     fallback_temp = tmp_path / "system-tmp"
     fallback_temp.mkdir()
 
     monkeypatch.delenv("RUNNER_TEMP", raising=False)
     monkeypatch.delenv("GITHUB_WORKSPACE", raising=False)
-    monkeypatch.setattr(module.tempfile, "tempdir", fallback_temp.as_posix(), raising=False)
+    monkeypatch.setattr(module.tempfile, "tempdir", None, raising=False)
     monkeypatch.setattr(
         module.tempfile,
         "gettempdir",

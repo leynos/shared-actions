@@ -88,6 +88,23 @@ def packaging_project() -> PackagingProject:
     )
 
 
+def clone_packaging_project(
+    tmp_path: Path, project: PackagingProject
+) -> PackagingProject:
+    """Copy *project* into *tmp_path* and return an updated descriptor."""
+    destination = tmp_path / project.project_dir.name
+    shutil.copytree(project.project_dir, destination, dirs_exist_ok=True)
+    for leftover in ("target", "dist"):
+        stale_path = destination / leftover
+        if not stale_path.exists():
+            continue
+        if stale_path.is_dir():
+            shutil.rmtree(stale_path)
+        else:
+            stale_path.unlink()
+    return dc.replace(project, project_dir=destination)
+
+
 def build_release_artifacts(
     project: PackagingProject,
     target: str,

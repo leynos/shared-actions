@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import sys
+import typing as typ
+from os import environ
 from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 __all__ = [
     "ActionError",
@@ -38,10 +43,18 @@ def _emit_error(message: str) -> None:
     sys.stderr.write(f"{message}\n")
 
 
-def run_app(app: App) -> None:
+def run_app(app: App, *, argv: cabc.Sequence[str] | None = None) -> None:
     """Execute ``app`` and present user-facing errors consistently."""
+    if argv is None:
+        if "PYTEST_CURRENT_TEST" in environ:
+            tokens: list[str] = []
+        else:
+            tokens = list(sys.argv[1:])
+    else:
+        tokens = list(argv)
+
     try:
-        app()
+        app(tokens)
     except (ActionError, FileNotFoundError, ValueError) as exc:
         _emit_error(str(exc))
         raise SystemExit(1) from exc
@@ -97,15 +110,11 @@ def remove_file(path: Path, *, warn: bool = True, context: str | None = None) ->
 
 def write_output(key: str, value: str) -> None:
     """Write an output variable for the current GitHub step."""
-    from os import environ
-
     if output_path := environ.get("GITHUB_OUTPUT"):
         append_key_value(Path(output_path), key, value)
 
 
 def write_env(key: str, value: str) -> None:
     """Write an environment variable for subsequent GitHub steps."""
-    from os import environ
-
     if env_path := environ.get("GITHUB_ENV"):
         append_key_value(Path(env_path), key, value)

@@ -18,6 +18,8 @@ from test_support.plumbum_helpers import run_plumbum_command
 if typ.TYPE_CHECKING:
     from types import ModuleType
 
+    from ._packaging_utils import PackagingProject as _PackagingProject
+
 _cmd_utils = import_cmd_utils()
 RunResult = _cmd_utils.RunResult
 run_cmd = _cmd_utils.run_cmd
@@ -99,12 +101,14 @@ def _host_linux_triple() -> str:
 
 
 @pytest.mark.usefixtures("uncapture_if_verbose")
-def test_accepts_toolchain_with_triple() -> None:
+def test_accepts_toolchain_with_triple(
+    packaging_project_paths: _PackagingProject,
+) -> None:
     """Running with a full toolchain triple succeeds."""
     target_triple = _host_linux_triple()
     toolchain_spec = f"{RUST_TOOLCHAIN}-{target_triple}"
     script = Path(__file__).resolve().parents[1] / "src" / "main.py"
-    project_dir = Path(__file__).resolve().parents[4] / "rust-toy-app"
+    project_dir = packaging_project_paths.project_dir
     run_cmd(
         local["rustup"][
             "toolchain",

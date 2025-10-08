@@ -42,6 +42,9 @@ try:
         build_release_artifacts as _build_release_artifacts,
     )
     from ._packaging_utils import (
+        clone_packaging_project as _clone_packaging_project,
+    )
+    from ._packaging_utils import (
         package_project as _package_project,
     )
     from ._packaging_utils import (
@@ -68,6 +71,7 @@ except Exception:  # noqa: BLE001
     _BuildArtifacts = mod.BuildArtifacts
     _PackagingConfig = mod.PackagingConfig
     _PackagingProject = mod.PackagingProject
+    _clone_packaging_project = mod.clone_packaging_project
     _build_release_artifacts = mod.build_release_artifacts
     _package_project = mod.package_project
     _packaging_project = mod.packaging_project
@@ -319,9 +323,13 @@ def packaging_target() -> str:
 
 
 @pytest.fixture(scope="module")
-def packaging_project_paths() -> _PackagingProject:
+def packaging_project_paths(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> _PackagingProject:
     """Resolve the filesystem layout for packaging integration tests."""
-    return _packaging_project()
+    base_project = _packaging_project()
+    clone_root = Path(tmp_path_factory.mktemp("packaging-project"))
+    return _clone_packaging_project(clone_root, base_project)
 
 
 @pytest.fixture(scope="module")

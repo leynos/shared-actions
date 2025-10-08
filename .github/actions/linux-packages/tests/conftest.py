@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing as typ
+from pathlib import Path
 
 import pytest
 from _packaging_utils import (
@@ -12,12 +13,10 @@ from _packaging_utils import (
     PackagingConfig,
     PackagingProject,
     build_release_artifacts,
+    clone_packaging_project,
     package_project,
     packaging_project,
 )
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 IteratorNone = typ.Iterator[None]
 
@@ -47,9 +46,13 @@ def packaging_target() -> str:
 
 
 @pytest.fixture(scope="module")
-def packaging_project_paths() -> PackagingProject:
+def packaging_project_paths(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> PackagingProject:
     """Resolve filesystem paths required by packaging fixtures."""
-    return packaging_project()
+    base = packaging_project()
+    clone_root = Path(tmp_path_factory.mktemp("packaging-project"))
+    return clone_packaging_project(clone_root, base)
 
 
 @pytest.fixture(scope="module")

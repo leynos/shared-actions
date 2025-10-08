@@ -347,10 +347,6 @@ def prepare_template_options(
     if additional_files:
         files.extend(_resolve_file(spec) for spec in additional_files)
 
-    if not files:
-        message = "At least one file must be provided"
-        raise TemplateError(message)
-
     app_filename = resolved_application.destination[-1]
     (
         chosen_product,

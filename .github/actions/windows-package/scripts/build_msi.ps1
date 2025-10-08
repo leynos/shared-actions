@@ -46,91 +46,82 @@ function Invoke-PythonScript {
     return $output
 }
 
-if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
-    $sourcePath = Resolve-Path -LiteralPath $env:LICENSE_TEXT_PATH -ErrorAction SilentlyContinue
-    if (-not $sourcePath) {
-        Write-Error "License text file not found: $env:LICENSE_TEXT_PATH"
-        exit 1
-    }
-
-    $converter = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\plaintext_to_rtf.py'
-    if (-not (Test-Path -LiteralPath $converter)) {
-        Write-Error "Converter script not found: $converter"
-        exit 1
-    }
-
-    $arguments = @($converter, '--input', $sourcePath.Path)
-    if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
-        $rtfTarget = [System.IO.Path]::GetFullPath($env:LICENSE_RTF_PATH)
-        $rtfDirectory = Split-Path -Path $rtfTarget -Parent
-        if (-not [string]::IsNullOrWhiteSpace($rtfDirectory) -and -not (Test-Path -LiteralPath $rtfDirectory)) {
-            New-Item -ItemType Directory -Path $rtfDirectory -Force | Out-Null
+function Process-LicenseFile {
+    if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
+        $sourcePath = Resolve-Path -LiteralPath $env:LICENSE_TEXT_PATH -ErrorAction SilentlyContinue
+        if (-not $sourcePath) {
+            Write-Error "License text file not found: $env:LICENSE_TEXT_PATH"
+            exit 1
         }
-        $arguments += @('--output', $rtfTarget)
+
+        $converter = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\plaintext_to_rtf.py'
+        if (-not (Test-Path -LiteralPath $converter)) {
+            Write-Error "Converter script not found: $converter"
+            exit 1
+        }
+
+        $arguments = @($converter, '--input', $sourcePath.Path)
+        if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
+            $rtfTarget = [System.IO.Path]::GetFullPath($env:LICENSE_RTF_PATH)
+            $rtfDirectory = Split-Path -Path $rtfTarget -Parent
+            if (-not [string]::IsNullOrWhiteSpace($rtfDirectory) -and -not (Test-Path -LiteralPath $rtfDirectory)) {
+                New-Item -ItemType Directory -Path $rtfDirectory -Force | Out-Null
+            }
+            $arguments += @('--output', $rtfTarget)
+        }
+
+        $generatedOutput = Invoke-PythonScript -Arguments $arguments
+        $generatedPath = $generatedOutput.Trim()
+        if (-not (Test-Path -LiteralPath $generatedPath)) {
+            Write-Error "Expected license RTF file was not created: $generatedPath"
+            exit 1
+        }
+
+        $resolvedRtfPath = (Resolve-Path -LiteralPath $generatedPath).Path
+        $env:LICENSE_RTF_PATH = $resolvedRtfPath
+        Write-Host "Converted license text to RTF: $resolvedRtfPath"
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
+        $resolvedLicense = Resolve-Path -LiteralPath $env:LICENSE_RTF_PATH -ErrorAction SilentlyContinue
+        if (-not $resolvedLicense) {
+            Write-Error "License RTF file not found: $env:LICENSE_RTF_PATH"
+            exit 1
+        }
+        $env:LICENSE_RTF_PATH = $resolvedLicense.Path
     }
 
-    $generatedOutput = Invoke-PythonScript -Arguments $arguments
-    $generatedPath = $generatedOutput.Trim()
-    if (-not (Test-Path -LiteralPath $generatedPath)) {
-        Write-Error "Expected license RTF file was not created: $generatedPath"
-        exit 1
-    }
-
-    $resolvedRtfPath = (Resolve-Path -LiteralPath $generatedPath).Path
-    $env:LICENSE_RTF_PATH = $resolvedRtfPath
-    Write-Host "Converted license text to RTF: $resolvedRtfPath"
-}
-elseif (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
-    $resolvedLicense = Resolve-Path -LiteralPath $env:LICENSE_RTF_PATH -ErrorAction SilentlyContinue
-    if (-not $resolvedLicense) {
-        Write-Error "License RTF file not found: $env:LICENSE_RTF_PATH"
-        exit 1
-    }
-    $env:LICENSE_RTF_PATH = $resolvedLicense.Path
+    return $env:LICENSE_RTF_PATH
 }
 
-$outDir = $env:OUTPUT_DIRECTORY
-if (Test-Path -LiteralPath $outDir) {
-    $outDirItem = Get-Item -LiteralPath $outDir
-}
-else {
-    $outDirItem = New-Item -ItemType Directory -Path $outDir
-}
+function Build-WxsGenerationArguments {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Generator,
 
-$safeBaseName = Get-SafeName -Value $env:OUTPUT_BASENAME -Fallback 'package'
-$archInput = if ([string]::IsNullOrWhiteSpace($env:ARCHITECTURE)) { 'x64' } else { $env:ARCHITECTURE }
-try {
-    $arch = Resolve-Architecture -Value $archInput
-}
-catch [System.ArgumentException] {
-    Write-Error $_.Exception.Message
-    exit 1
-}
+        [Parameter(Mandatory = $true)]
+        [string]
+        $TargetWxs,
 
-if ([string]::IsNullOrWhiteSpace($env:WXS_PATH)) {
-    $applicationSpec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
-    if ([string]::IsNullOrWhiteSpace($applicationSpec)) {
-        Write-Error 'application-path input is required when wxs-path is not provided.'
-        exit 1
-    }
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Architecture,
 
-    $generator = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\generate_wxs.py'
-    if (-not (Test-Path -LiteralPath $generator)) {
-        Write-Error "WiX generator script not found: $generator"
-        exit 1
-    }
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ApplicationSpec
+    )
 
-    $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
     $arguments = @(
-        $generator,
+        $Generator,
         '--output',
-        $targetWxs,
+        $TargetWxs,
         '--version',
         $env:VERSION,
         '--architecture',
-        $arch,
+        $Architecture,
         '--application',
-        $applicationSpec
+        $ApplicationSpec
     )
 
     if (-not [string]::IsNullOrWhiteSpace($env:PRODUCT_NAME)) {
@@ -162,39 +153,109 @@ if ([string]::IsNullOrWhiteSpace($env:WXS_PATH)) {
         }
     }
 
-    $generationResult = Invoke-PythonScript -Arguments $arguments
-    $generatedWxs = $generationResult.Trim()
-    if (-not (Test-Path -LiteralPath $generatedWxs)) {
-        Write-Error "Expected WiX authoring was not created: $generatedWxs"
+    return ,$arguments
+}
+
+function Ensure-WxsFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Architecture
+    )
+
+    if ([string]::IsNullOrWhiteSpace($env:WXS_PATH)) {
+        $applicationSpec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
+        if ([string]::IsNullOrWhiteSpace($applicationSpec)) {
+            Write-Error 'application-path input is required when wxs-path is not provided.'
+            exit 1
+        }
+
+        $generator = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\generate_wxs.py'
+        if (-not (Test-Path -LiteralPath $generator)) {
+            Write-Error "WiX generator script not found: $generator"
+            exit 1
+        }
+
+        $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
+        $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
+
+        $generationResult = Invoke-PythonScript -Arguments $arguments
+        $generatedWxs = $generationResult.Trim()
+        if (-not (Test-Path -LiteralPath $generatedWxs)) {
+            Write-Error "Expected WiX authoring was not created: $generatedWxs"
+            exit 1
+        }
+        $env:WXS_PATH = (Resolve-Path -LiteralPath $generatedWxs).Path
+        Write-Host "Generated default WiX authoring: $($env:WXS_PATH)"
+    }
+    elseif (-not (Test-Path -LiteralPath $env:WXS_PATH)) {
+        Write-Error "WiX source file not found: $env:WXS_PATH"
         exit 1
     }
-    $env:WXS_PATH = (Resolve-Path -LiteralPath $generatedWxs).Path
-    Write-Host "Generated default WiX authoring: $($env:WXS_PATH)"
-}
-elseif (-not (Test-Path -LiteralPath $env:WXS_PATH)) {
-    Write-Error "WiX source file not found: $env:WXS_PATH"
-    exit 1
+
+    return $env:WXS_PATH
 }
 
-$outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $arch)
-$arguments = @('build', $env:WXS_PATH)
-if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-    $extensions = $env:WIX_EXTENSION -split '[,\s]+'
-    foreach ($extension in $extensions) {
-        $trimmed = $extension.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-            $arguments += @('-ext', $trimmed)
+function Build-MsiPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $OutputPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Architecture
+    )
+
+    $arguments = @('build', $env:WXS_PATH)
+    if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
+        $extensions = $env:WIX_EXTENSION -split '[,\s]+'
+        foreach ($extension in $extensions) {
+            $trimmed = $extension.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $arguments += @('-ext', $trimmed)
+            }
         }
     }
+
+    $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)
+    wix @arguments
+
+    if (-not (Test-Path -LiteralPath $OutputPath)) {
+        Write-Error "MSI build failed: output file '$OutputPath' was not created."
+        exit 1
+    }
+
+    return (Resolve-Path -LiteralPath $OutputPath).Path
 }
 
-$arguments += @('-arch', $arch, '-d', "Version=$($env:VERSION)", '-o', $outputPath)
-wix @arguments
+function Invoke-Main {
+    Process-LicenseFile | Out-Null
 
-if (-not (Test-Path -LiteralPath $outputPath)) {
-    Write-Error "MSI build failed: output file '$outputPath' was not created."
-    exit 1
+    $outDir = $env:OUTPUT_DIRECTORY
+    if (Test-Path -LiteralPath $outDir) {
+        $outDirItem = Get-Item -LiteralPath $outDir
+    }
+    else {
+        $outDirItem = New-Item -ItemType Directory -Path $outDir
+    }
+
+    $safeBaseName = Get-SafeName -Value $env:OUTPUT_BASENAME -Fallback 'package'
+    $archInput = if ([string]::IsNullOrWhiteSpace($env:ARCHITECTURE)) { 'x64' } else { $env:ARCHITECTURE }
+    try {
+        $arch = Resolve-Architecture -Value $archInput
+    }
+    catch [System.ArgumentException] {
+        Write-Error $_.Exception.Message
+        exit 1
+    }
+
+    Ensure-WxsFile -Architecture $arch | Out-Null
+
+    $outputPath = Join-Path -Path $outDirItem.FullName -ChildPath ("{0}-{1}-{2}.msi" -f $safeBaseName, $env:VERSION, $arch)
+    $resolved = Build-MsiPackage -OutputPath $outputPath -Architecture $arch
+
+    "msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
-$resolved = (Resolve-Path -LiteralPath $outputPath).Path
-"msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+Invoke-Main

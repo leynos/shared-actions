@@ -120,6 +120,7 @@ def _setup_container_test_environment(
     main_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    *,
     cross_available: bool,
     container_available: bool,
 ) -> tuple[str, str | None]:
@@ -201,8 +202,8 @@ def test_container_required_target_reports_missing_prerequisites(
         main_module,
         module_harness,
         cmd_mox,
-        cross_available,
-        container_available,
+        cross_available=cross_available,
+        container_available=container_available,
     )
     cmd_mox.replay()
     with pytest.raises(main_module.typer.Exit):

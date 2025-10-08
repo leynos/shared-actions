@@ -23,6 +23,9 @@ import httpx
 from cyclopts import App, Parameter
 from httpx_retries import Retry, RetryTransport
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 app = App(config=cyclopts.config.Env(prefix="", command=False))
 
 
@@ -145,19 +148,69 @@ class _GithubRetry(Retry):
         self,
         config: RetryConfig | None = None,
         *,
+        total: int | None = None,
+        allowed_methods: cabc.Iterable[str] | None = None,
+        status_forcelist: cabc.Iterable[int] | None = None,
+        retry_on_exceptions: cabc.Iterable[type[Exception]] | None = None,
+        backoff_factor: float | None = None,
+        respect_retry_after_header: bool | None = None,
+        max_backoff_wait: float | None = None,
+        backoff_jitter: float | None = None,
         attempts_made: int = 0,
     ) -> None:
-        cfg = RetryConfig() if config is None else config
-        self._config: RetryConfig = cfg
+        base_config = RetryConfig() if config is None else config
+        effective_config = RetryConfig(
+            total=total if total is not None else base_config.total,
+            allowed_methods=(
+                allowed_methods
+                if allowed_methods is not None
+                else base_config.allowed_methods
+            ),
+            status_forcelist=(
+                status_forcelist
+                if status_forcelist is not None
+                else base_config.status_forcelist
+            ),
+            retry_on_exceptions=(
+                retry_on_exceptions
+                if retry_on_exceptions is not None
+                else base_config.retry_on_exceptions
+            ),
+            backoff_factor=(
+                backoff_factor
+                if backoff_factor is not None
+                else base_config.backoff_factor
+            ),
+            respect_retry_after_header=(
+                respect_retry_after_header
+                if respect_retry_after_header is not None
+                else base_config.respect_retry_after_header
+            ),
+            max_backoff_wait=(
+                max_backoff_wait
+                if max_backoff_wait is not None
+                else base_config.max_backoff_wait
+            ),
+            backoff_jitter=(
+                backoff_jitter
+                if backoff_jitter is not None
+                else base_config.backoff_jitter
+            ),
+        )
+        self._config = effective_config
         super().__init__(
-            total=_resolve_optional(cfg.total, _MAX_ATTEMPTS - 1),
-            allowed_methods=_normalize_allowed_methods(cfg.allowed_methods),
-            status_forcelist=_validate_status_forcelist(cfg.status_forcelist),
-            retry_on_exceptions=_normalize_retry_exceptions(cfg.retry_on_exceptions),
-            backoff_factor=cfg.backoff_factor,
-            respect_retry_after_header=cfg.respect_retry_after_header,
-            max_backoff_wait=cfg.max_backoff_wait,
-            backoff_jitter=cfg.backoff_jitter,
+            total=_resolve_optional(effective_config.total, _MAX_ATTEMPTS - 1),
+            allowed_methods=_normalize_allowed_methods(effective_config.allowed_methods),
+            status_forcelist=_validate_status_forcelist(
+                effective_config.status_forcelist
+            ),
+            retry_on_exceptions=_normalize_retry_exceptions(
+                effective_config.retry_on_exceptions
+            ),
+            backoff_factor=effective_config.backoff_factor,
+            respect_retry_after_header=effective_config.respect_retry_after_header,
+            max_backoff_wait=effective_config.max_backoff_wait,
+            backoff_jitter=effective_config.backoff_jitter,
             attempts_made=attempts_made,
         )
 

@@ -853,6 +853,31 @@ def test_polythene_store_falls_back_to_runner_temp(
         assert store_base.parent == runner_temp
 
 
+def test_polythene_store_defaults_to_system_temp(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When no environment hints exist the system temp directory is used."""
+    module = validate_cli_module
+    fallback_temp = tmp_path / "system-tmp"
+    fallback_temp.mkdir()
+
+    monkeypatch.delenv("RUNNER_TEMP", raising=False)
+    monkeypatch.delenv("GITHUB_WORKSPACE", raising=False)
+    monkeypatch.setattr(module.tempfile, "tempdir", None, raising=False)
+    monkeypatch.setattr(
+        module.tempfile,
+        "gettempdir",
+        lambda: fallback_temp.as_posix(),
+        raising=False,
+    )
+
+    with module._polythene_store(None) as store_base:
+        assert store_base.parent == fallback_temp
+        assert store_base.name.startswith("polythene-validate-")
+
+
 def test_main_raises_for_missing_package_dir(
     validate_cli_module: object,
     tmp_path: Path,

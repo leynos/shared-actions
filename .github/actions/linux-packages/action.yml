@@ -90,27 +90,31 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Capture action metadata
-      env:
-        SELF_REPO: ${{ github.action_repository }}
-        SELF_REF: ${{ github.action_ref }}
-        CALLER_REPO: ${{ github.repository }}
-        CALLER_REF: ${{ github.ref_name || github.sha }}
-      run: |
-        {
-          echo "SELF_REPO=${SELF_REPO}";
-          echo "SELF_REF=${SELF_REF}";
-          echo "CALLER_REPO=${CALLER_REPO}";
-          echo "CALLER_REF=${CALLER_REF}";
-        } >> "${GITHUB_ENV}"
+    - name: Mirror action repository into workspace
       shell: bash
-    - name: Check out action sources
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ env.SELF_REPO != '' && env.SELF_REPO || env.CALLER_REPO }}
-        ref: ${{ env.SELF_REF != '' && env.SELF_REF || env.CALLER_REF }}
-        path: _self
-        token: ${{ inputs.action-token || github.token }}
+      run: |
+        set -euo pipefail
+
+        action_dir="${{ github.action_path }}"
+        if [[ -z "${action_dir}" ]]; then
+          echo "github.action_path is empty" >&2
+          exit 1
+        fi
+
+        repo_root="$(dirname "$(dirname "$(dirname "${action_dir}")")")"
+        if [[ ! -d "${repo_root}" ]]; then
+          echo "Unable to determine action repository root from ${action_dir}" >&2
+          exit 1
+        fi
+
+        rm -rf _self
+        mkdir -p _self
+
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --delete --exclude='.git/' --exclude='__pycache__/' --exclude='*.pyc' "${repo_root}/" "_self/"
+        else
+          tar cf - -C "${repo_root}" . | tar xf - -C _self
+        fi
     - name: Setup uv
       uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
     - name: Install nfpm

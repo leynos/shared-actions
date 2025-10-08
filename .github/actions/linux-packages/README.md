@@ -22,7 +22,7 @@ nFPM.
 | maintainer | string | _empty_ | Maintainer entry for the generated package metadata. | no |
 | homepage | string | _empty_ | Homepage URL recorded in package metadata. | no |
 | license | string | _empty_ | Software license declared in the package metadata. | no |
-| action-token | string | _empty_ | Personal access token used to clone this action when consumed from a private repository. Defaults to the workflow `github.token`. | no |
+| action-token | string | _empty_ | Personal access token retained for compatibility with earlier versions of the action. The current implementation mirrors the already-downloaded repository into the workspace and typically does not require this token. | no |
 | section | string | _empty_ | Package section/category used by Debian-based distributions. | no |
 | description | string | _empty_ | Long description stored in the package metadata. | no |
 | man-paths | string | _empty_ | Comma-, space-, or newline-separated list of man page paths relative to `project-dir`. | no |
@@ -34,13 +34,14 @@ nFPM.
 | deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
 | rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
 
-Before cloning itself the action records its own repository and ref, ensuring
-the self-checkout pulls the same commit that dispatched the composite. When
-running inside a private repository, provide `action-token` so this step can
-authenticate; when omitted it falls back to the workflow `github.token`. Local
-workflows that reference the action via a relative path automatically reuse the
-current repository and ref so nested actions remain available without an extra
-clone.
+Before invoking sibling actions the composite mirrors the repository snapshot
+that GitHub already downloaded for the action into a local `_self/` directory.
+This guarantees that nested `./_self/.github/actions/*` references resolve to the
+same commit without performing an additional network checkout. The optional
+`action-token` input remains for backward compatibility but is typically
+unnecessary because the mirror uses the runner’s cached copy. Local workflows
+that reference the action via a relative path reuse the same mirroring logic,
+copying the repository contents from the workspace instead of the runner cache.
 
 ## Outputs
 

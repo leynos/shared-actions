@@ -26,24 +26,19 @@ def test_action_uses_workdir() -> None:
     assert package_step.get("working-directory") == "${{ inputs.project-dir }}"
 
 
-def test_action_performs_self_checkout() -> None:
-    """Ensure the composite checks out its own repository copy."""
+def test_action_mirrors_repository_into_workspace() -> None:
+    """Ensure the composite copies its repository snapshot locally."""
     data = _load_action()
     steps = data["runs"]["steps"]
-    checkout_step = next(
-        (step for step in steps if step.get("uses") == "actions/checkout@v4"),
-        None,
-    )
-    assert checkout_step is not None, "Checkout step not found"
-    checkout_with = checkout_step.get("with", {})
-    assert checkout_with == {
-        "repository": (
-            "${{ env.SELF_REPO != '' && env.SELF_REPO || env.CALLER_REPO }}"
-        ),
-        "ref": "${{ env.SELF_REF != '' && env.SELF_REF || env.CALLER_REF }}",
-        "path": "_self",
-        "token": "${{ inputs.action-token || github.token }}",
-    }
+    mirror_step = steps[0]
+    assert mirror_step["name"] == "Mirror action repository into workspace"
+    assert mirror_step["shell"] == "bash"
+    script = mirror_step.get("run", "")
+    assert "github.action_path" in script
+    assert "rsync" in script
+    assert "tar cf -" in script
+    assert "_self" in script
+    assert all(step.get("uses") != "actions/checkout@v4" for step in steps)
 
 
 def test_action_uses_self_checkout_paths() -> None:
@@ -70,7 +65,7 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
     repo_root = Path(__file__).resolve().parents[4]
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    # Simulate the checkout step cloning the repository into "_self".
+    # Simulate the mirroring step copying the repository into "_self".
     checkout_path = workspace / "_self"
     shutil.copytree(
         repo_root,
@@ -81,24 +76,3 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
     assert install_path.is_dir(), (
         "Install nfpm action should exist under _self checkout"
     )
-
-
-def test_action_records_self_metadata_before_checkout() -> None:
-    """Verify the metadata capture step exports repository and ref details."""
-    data = _load_action()
-    steps = data["runs"]["steps"]
-    capture_step = steps[0]
-    assert capture_step["name"] == "Capture action metadata"
-    assert capture_step["shell"] == "bash"
-    assert capture_step["env"] == {
-        "SELF_REPO": "${{ github.action_repository }}",
-        "SELF_REF": "${{ github.action_ref }}",
-        "CALLER_REPO": "${{ github.repository }}",
-        "CALLER_REF": "${{ github.ref_name || github.sha }}",
-    }
-    run_script = capture_step.get("run", "")
-    assert "SELF_REPO=${SELF_REPO}" in run_script
-    assert "SELF_REF=${SELF_REF}" in run_script
-    assert "CALLER_REPO=${CALLER_REPO}" in run_script
-    assert "CALLER_REF=${CALLER_REF}" in run_script
-    assert "${GITHUB_ENV}" in run_script

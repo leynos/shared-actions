@@ -259,6 +259,71 @@ def _build_directory_tree(
     return root
 
 
+def _resolve_product_metadata(
+    *,
+    app_filename: str,
+    product_name: str | None,
+    manufacturer: str | None,
+    description: str | None,
+    install_dir_name: str | None,
+) -> tuple[str, str, str, str]:
+    chosen_product = (
+        product_name or app_filename.removesuffix(".exe") or app_filename
+    ).strip()
+    if not chosen_product:
+        chosen_product = app_filename
+    chosen_manufacturer = (
+        manufacturer or "Unknown Publisher"
+    ).strip() or "Unknown Publisher"
+    chosen_description = (
+        description or f"{chosen_product} installer"
+    ).strip() or chosen_product
+    chosen_install_dir = _normalise_directory_name(install_dir_name or chosen_product)
+    return (
+        chosen_product,
+        chosen_manufacturer,
+        chosen_description,
+        chosen_install_dir,
+    )
+
+
+def _parse_upgrade_code(
+    upgrade_code: str | UUID | None,
+    *,
+    chosen_product: str,
+    chosen_manufacturer: str,
+) -> UUID:
+    if isinstance(upgrade_code, UUID):
+        return upgrade_code
+    if upgrade_code:
+        try:
+            return UUID(str(upgrade_code))
+        except ValueError as exc:
+            message = f"Invalid upgrade code: {upgrade_code}"
+            raise TemplateError(message) from exc
+    seed = f"{chosen_product}|{chosen_manufacturer}"
+    return uuid5(_WINDOWS_INSTALLER_NAMESPACE, f"upgrade:{seed}")
+
+
+def _adjust_file_destinations(
+    files: typ.Iterable[FileSpecification],
+    *,
+    chosen_install_dir: str,
+) -> list[FileSpecification]:
+    adjusted_files: list[FileSpecification] = []
+    for spec in files:
+        destination = spec.destination
+        if not destination:
+            message = "Destination paths must include a filename"
+            raise TemplateError(message)
+        if destination[0] != chosen_install_dir:
+            destination = (chosen_install_dir, *destination)
+        adjusted_files.append(
+            FileSpecification(source=spec.source, destination=destination)
+        )
+    return adjusted_files
+
+
 def prepare_template_options(
     *,
     version: str,
@@ -287,48 +352,35 @@ def prepare_template_options(
         raise TemplateError(message)
 
     app_filename = resolved_application.destination[-1]
-    chosen_product = (
-        product_name or app_filename.removesuffix(".exe") or app_filename
-    ).strip()
-    if not chosen_product:
-        chosen_product = app_filename
-    chosen_manufacturer = (
-        manufacturer or "Unknown Publisher"
-    ).strip() or "Unknown Publisher"
-    chosen_description = (
-        description or f"{chosen_product} installer"
-    ).strip() or chosen_product
-    chosen_install_dir = _normalise_directory_name(install_dir_name or chosen_product)
+    (
+        chosen_product,
+        chosen_manufacturer,
+        chosen_description,
+        chosen_install_dir,
+    ) = _resolve_product_metadata(
+        app_filename=app_filename,
+        product_name=product_name,
+        manufacturer=manufacturer,
+        description=description,
+        install_dir_name=install_dir_name,
+    )
 
     program_files_directory = _program_files_directory(architecture)
 
-    if isinstance(upgrade_code, UUID):
-        upgrade_uuid = upgrade_code
-    elif upgrade_code:
-        try:
-            upgrade_uuid = UUID(str(upgrade_code))
-        except ValueError as exc:
-            message = f"Invalid upgrade code: {upgrade_code}"
-            raise TemplateError(message) from exc
-    else:
-        seed = f"{chosen_product}|{chosen_manufacturer}"
-        upgrade_uuid = uuid5(_WINDOWS_INSTALLER_NAMESPACE, f"upgrade:{seed}")
+    upgrade_uuid = _parse_upgrade_code(
+        upgrade_code,
+        chosen_product=chosen_product,
+        chosen_manufacturer=chosen_manufacturer,
+    )
 
     resolved_license: str | None = None
     if license_path and license_path.strip():
         resolved_license = _as_windows_path(Path(license_path))
 
-    adjusted_files: list[FileSpecification] = []
-    for spec in files:
-        destination = spec.destination
-        if not destination:
-            message = "Destination paths must include a filename"
-            raise TemplateError(message)
-        if destination[0] != chosen_install_dir:
-            destination = (chosen_install_dir, *destination)
-        adjusted_files.append(
-            FileSpecification(source=spec.source, destination=destination)
-        )
+    adjusted_files = _adjust_file_destinations(
+        files,
+        chosen_install_dir=chosen_install_dir,
+    )
 
     return TemplateOptions(
         product_name=chosen_product,

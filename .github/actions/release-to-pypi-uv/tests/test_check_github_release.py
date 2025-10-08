@@ -25,90 +25,66 @@ def fixture_fake_token() -> str:
     return f"test-token-{uuid.uuid4().hex}"
 
 
-def _install_transport(
+def _install_client(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
-    handler: typ.Callable[[typ.Any], typ.Any],
-) -> None:
-    """Replace the retry transport with a handler backed by ``MockTransport``."""
+    handler: typ.Callable[[int, module.httpx.Request], module.httpx.Response | Exception],
+) -> list[int]:
+    """Replace ``httpx.Client`` with a stub that delegates to ``handler``."""
+    attempts: list[int] = []
 
-    def factory() -> module.RetryTransport:
-        transport = module.httpx.MockTransport(handler)
-        return module.RetryTransport(transport=transport, retry=module._GithubRetry())
+    class FakeClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: D401 - test stub
+            self._headers = kwargs.get("headers", {})
 
-    monkeypatch.setattr(module, "_build_retry_transport", factory)
+        def __enter__(self) -> FakeClient:
+            return self
 
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            traceback: object,
+        ) -> bool:
+            return False
 
-def test_github_retry_defaults(module: ModuleType) -> None:
-    """Instantiate the retry helper with default configuration."""
-    retry = module._GithubRetry()
+        def get(
+            self, url: module.httpx.URL, *, follow_redirects: bool
+        ) -> module.httpx.Response:
+            assert follow_redirects is False
+            request = module.httpx.Request("GET", url, headers=self._headers)
+            attempt = len(attempts) + 1
+            attempts.append(attempt)
+            result = handler(attempt, request)
+            if isinstance(result, Exception):
+                raise result
+            return result
 
-    assert retry.total == module._MAX_ATTEMPTS - 1
-    assert retry.allowed_methods == frozenset({"GET"})
-    assert retry.status_forcelist == module._RETRYABLE_STATUS_CODES
-    assert retry.retryable_exceptions == module.Retry.RETRYABLE_EXCEPTIONS
-    assert retry.backoff_factor == 0.0
-    assert retry.max_backoff_wait == 120.0
-    assert retry.backoff_jitter == 0.0
-    assert retry.respect_retry_after_header is True
-    assert retry.attempts_made == 0
-
-
-def test_github_retry_custom_config_and_increment(module: ModuleType) -> None:
-    """Respect overrides and carry them forward across increments."""
-    config = module.RetryConfig(
-        total=8,
-        allowed_methods=("get", "post"),
-        status_forcelist=(418,),
-        retry_on_exceptions=(RuntimeError,),
-        backoff_factor=2.5,
-        respect_retry_after_header=False,
-        max_backoff_wait=15.0,
-        backoff_jitter=0.3,
-    )
-
-    retry = module._GithubRetry(config=config)
-
-    assert retry.total == 8
-    assert retry.allowed_methods == frozenset({"GET", "POST"})
-    assert retry.status_forcelist == frozenset({418})
-    assert retry.retryable_exceptions == (RuntimeError,)
-    assert retry.backoff_factor == 2.5
-    assert retry.max_backoff_wait == 15.0
-    assert retry.backoff_jitter == 0.3
-    assert retry.respect_retry_after_header is False
-
-    incremented = retry.increment()
-    assert isinstance(incremented, module._GithubRetry)
-    assert incremented.attempts_made == retry.attempts_made + 1
-    assert incremented.allowed_methods == retry.allowed_methods
-    assert incremented.status_forcelist == retry.status_forcelist
-    assert incremented.retryable_exceptions == retry.retryable_exceptions
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
+    monkeypatch.setattr(module._fetch_release_with_retry.retry, "sleep", lambda _: None)
+    return attempts
 
 
-def test_github_retry_invalid_status_list_raises(module: ModuleType) -> None:
-    """Reject status_forcelist entries that cannot be coerced to integers."""
-    config = module.RetryConfig(status_forcelist=("not-a-code",))
-
-    with pytest.raises(ValueError, match="Invalid status code"):
-        module._GithubRetry(config=config)
-
-
-def test_sleep_with_jitter_allows_custom_rng(module: ModuleType) -> None:
-    """Allow tests to provide deterministic jitter and sleep functions."""
-    calls: list[float] = []
-
+def test_retry_wait_strategy_progression(module: ModuleType) -> None:
+    """Ensure the retry wait strategy scales delays with jitter bounds."""
+    wait = module._retry_wait_strategy()
+    # Force deterministic jitter
     class FixedRandom:
-        """Stub RNG that always returns a fixed jitter fraction."""
+        def __init__(self) -> None:
+            self.values = iter([0.0, 0.5, 1.0])
 
-        def uniform(self, a: float, b: float) -> float:
-            assert a == 0.0
-            assert b == 0.1
-            return 0.05
+        def uniform(self, a: float, b: float) -> float:  # noqa: D401 - deterministic stub
+            return next(self.values)
 
-    module._sleep_with_jitter(4.0, jitter=FixedRandom(), sleep=calls.append)
-
-    assert calls == [4.2]
+    wait._rng = FixedRandom()  # type: ignore[attr-defined]
+    delays = [wait(type("State", (), {"attempt_number": 1})())]
+    delays.append(wait(type("State", (), {"attempt_number": 2})()))
+    delays.append(wait(type("State", (), {"attempt_number": 3})()))
+    delays.append(wait(type("State", (), {"attempt_number": 4})()))
+    assert delays[0] == 0.0
+    assert pytest.approx(delays[1]) == module._INITIAL_DELAY
+    assert delays[2] > delays[1]
+    assert delays[3] >= delays[2]
 
 
 def test_success(
@@ -119,12 +95,12 @@ def test_success(
 ) -> None:
     """Print a success message when GitHub marks the release as published."""
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         assert request.headers["Authorization"] == f"Bearer {fake_token}"
         payload = {"draft": False, "prerelease": False, "name": "1.2.3"}
         return module.httpx.Response(200, json=payload, request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     module.main(tag="v1.2.3", token=fake_token, repo="owner/repo")
 
@@ -140,11 +116,11 @@ def test_draft_release(
 ) -> None:
     """Exit with an error when GitHub reports the release as a draft."""
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         payload = {"draft": True, "prerelease": False, "name": "draft"}
         return module.httpx.Response(200, json=payload, request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -161,11 +137,11 @@ def test_prerelease(
 ) -> None:
     """Exit with an error when GitHub flags the release as a prerelease."""
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         payload = {"draft": False, "prerelease": True, "name": "pre"}
         return module.httpx.Response(200, json=payload, request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -182,10 +158,10 @@ def test_missing_release(
 ) -> None:
     """Raise an error when the GitHub API cannot find the release."""
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         return module.httpx.Response(404, content=b"", request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -203,10 +179,10 @@ def test_authentication_failure(
     """Exit with guidance when GitHub rejects the authentication token."""
     detail = b"Bad credentials"
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         return module.httpx.Response(401, content=detail, request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -225,10 +201,10 @@ def test_permission_denied(
     """Exit with a helpful error when GitHub responds with 403 Forbidden."""
     detail = b"forbidden"
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         return module.httpx.Response(403, content=detail, request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -246,10 +222,10 @@ def test_invalid_json_reports_payload(
     """Surface the problematic payload when JSON decoding fails."""
     payload = "{" * (module._JSON_PAYLOAD_PREVIEW_LIMIT + 10)
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         return module.httpx.Response(200, content=payload.encode(), request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -267,55 +243,25 @@ def test_forbidden_with_retry_after(
     capsys: pytest.CaptureFixture[str],
     fake_token: str,
 ) -> None:
-    """Respect Retry-After guidance on 403 responses before failing."""
+    """Respect Retry-After guidance on 403 responses before retrying."""
     sleep_calls: list[float] = []
-    attempts: list[int] = []
 
-    def record_sleep(delay: float) -> None:
-        sleep_calls.append(delay)
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        if attempt == 1:
+            return module.httpx.Response(
+                403,
+                headers={"Retry-After": "1"},
+                request=request,
+                content=b"",
+            )
+        payload = {"draft": False, "prerelease": False, "name": "ok"}
+        return module.httpx.Response(200, json=payload, request=request)
 
-    class FakeClient:
-        """Stub ``httpx.Client`` that simulates a retry after throttling."""
-
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            headers = kwargs.get("headers", {})
-            assert headers["Authorization"] == f"Bearer {fake_token}"
-            self._calls = 0
-
-        def __enter__(self) -> FakeClient:
-            return self
-
-        def __exit__(
-            self,
-            exc_type: type[BaseException] | None,
-            exc: BaseException | None,
-            traceback: object,
-        ) -> bool:
-            return False
-
-        def get(
-            self, url: module.httpx.URL, *, follow_redirects: bool
-        ) -> module.httpx.Response:
-            assert follow_redirects is False
-            self._calls += 1
-            attempts.append(self._calls)
-            request = module.httpx.Request("GET", url)
-            if self._calls == 1:
-                return module.httpx.Response(
-                    403,
-                    headers={"Retry-After": "1"},
-                    request=request,
-                    content=b"",
-                )
-            payload = {"draft": False, "prerelease": False, "name": "ok"}
-            return module.httpx.Response(200, json=payload, request=request)
-
-    monkeypatch.setattr(module.httpx, "Client", FakeClient)
-    monkeypatch.setattr(module.time, "sleep", record_sleep)
+    _install_client(monkeypatch, module, handler)
+    monkeypatch.setattr(module.time, "sleep", sleep_calls.append)
 
     module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
-    assert attempts == [1, 2]
     assert sleep_calls == [1.0]
     captured = capsys.readouterr()
     assert "GitHub Release 'ok' is published." in captured.out
@@ -328,22 +274,19 @@ def test_retries_then_success(
     fake_token: str,
 ) -> None:
     """Retry transient HTTP failures until GitHub releases the metadata."""
-    attempts: list[int] = []
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
-        attempts.append(1)
-        if len(attempts) < 3:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
+        if attempt < 3:
             message = "temporary"
             raise module.httpx.ReadTimeout(message, request=request)
         payload = {"draft": False, "prerelease": False, "name": "ok"}
         return module.httpx.Response(200, json=payload, request=request)
 
-    _install_transport(monkeypatch, module, handler)
-    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    attempts = _install_client(monkeypatch, module, handler)
 
     module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
-    assert len(attempts) == 3
+    assert attempts == [1, 2, 3]
     captured = capsys.readouterr()
     assert "GitHub Release 'ok' is published." in captured.out
 
@@ -357,10 +300,10 @@ def test_error_detail_truncated(
     """Truncate oversized error responses before surfacing them."""
     detail = "x" * (module._ERROR_DETAIL_LIMIT + 50)
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         return module.httpx.Response(500, content=detail.encode(), request=request)
 
-    _install_transport(monkeypatch, module, handler)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit):
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
@@ -379,16 +322,16 @@ def test_retries_then_fail(
 ) -> None:
     """Abort after exhausting retries when transient errors persist."""
 
-    def handler(request: module.httpx.Request) -> module.httpx.Response:
+    def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         message = "temporary"
         raise module.httpx.ReadTimeout(message, request=request)
 
-    _install_transport(monkeypatch, module, handler)
-    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    _install_client(monkeypatch, module, handler)
 
     with pytest.raises(SystemExit) as exc_info:
         module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 
     captured = capsys.readouterr()
     assert exc_info.value.code == 1
-    assert "temporary" in captured.err or "fetch" in captured.err
+    assert "Failed to reach GitHub API" in captured.err
+    assert "temporary" in captured.err

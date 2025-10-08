@@ -4,7 +4,7 @@
 # dependencies = [
 #     "cyclopts>=2.9,<3.0",
 #     "httpx>=0.28,<0.29",
-#     "httpx-retries>=0.4,<0.5",
+#     "tenacity>=8.2,<9.0",
 # ]
 # ///
 """Verify that the GitHub Release for the provided tag exists and is published."""
@@ -12,19 +12,19 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import random
 import sys
 import time
 import typing as typ
-from dataclasses import dataclass  # noqa: ICN003
+from email.utils import parsedate_to_datetime
 
 import cyclopts
 import httpx
 from cyclopts import App, Parameter
-from httpx_retries import Retry, RetryTransport
-
-if typ.TYPE_CHECKING:
-    import collections.abc as cabc
+from tenacity import RetryCallState, retry, retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity.wait import wait_base
 
 app = App(config=cyclopts.config.Env(prefix="", command=False))
 
@@ -36,250 +36,68 @@ class _UniformGenerator(typ.Protocol):
         """Return a random floating point number N such that ``a <= N <= b``."""
 
 
-SleepFn = typ.Callable[[float], None]
-
 _JITTER = random.SystemRandom()
-
-
-def _sleep_with_jitter(
-    delay: float,
-    *,
-    jitter: _UniformGenerator | None = None,
-    sleep: SleepFn | None = None,
-    jitter_factor: float = 0.1,
-) -> None:
-    """Sleep for ``delay`` seconds with a deterministic jitter hook for tests."""
-    sleep_base = max(delay, 0.0)
-    jitter_source = _JITTER if jitter is None else jitter
-    sleep_fn = time.sleep if sleep is None else sleep
-    if jitter_factor > 0:
-        jitter_amount = sleep_base * jitter_source.uniform(0.0, jitter_factor)
-    else:
-        jitter_amount = 0.0
-    sleep_fn(sleep_base + jitter_amount)
+_JITTER_FACTOR = 0.1
+_MAX_ATTEMPTS = 5
+_BACKOFF_FACTOR = 1.5
+_INITIAL_DELAY = 1.0
+_MAX_BACKOFF_WAIT = 120.0
+_RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504, 429})
+_ERROR_DETAIL_LIMIT = 1024
+_JSON_PAYLOAD_PREVIEW_LIMIT = 500
 
 
 class GithubReleaseError(RuntimeError):
     """Raised when the GitHub release is not ready for publishing."""
 
 
-_MAX_ATTEMPTS = 5
-_BACKOFF_FACTOR = 1.5
-_INITIAL_DELAY = 1.0
-_RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504, 429})
-_ERROR_DETAIL_LIMIT = 1024
-_JSON_PAYLOAD_PREVIEW_LIMIT = 500
+class GithubReleaseRetryError(GithubReleaseError):
+    """Raised to indicate that the request should be retried."""
 
 
-@dataclass(frozen=True, kw_only=True)
-class RetryConfig:
-    """Configuration for retry behaviour."""
-
-    total: int | None = None
-    allowed_methods: typ.Iterable[str] | str | None = None
-    status_forcelist: typ.Iterable[int] | None = None
-    retry_on_exceptions: typ.Iterable[type[Exception]] | None = None
-    backoff_factor: float = 0.0
-    respect_retry_after_header: bool = True
-    max_backoff_wait: float = 120.0
-    backoff_jitter: float = 0.0
-
-
-_T = typ.TypeVar("_T")
-_U = typ.TypeVar("_U")
-
-
-def _resolve_optional(
-    value: _T | None,
-    default: _T,
-    *,
-    transform: typ.Callable[[_T], _U] | None = None,
-) -> _T | _U:
-    if value is None:
-        return default
-    if transform is None:
-        return value
-    return transform(value)
-
-
-def _normalize_allowed_methods(
-    allowed_methods: typ.Iterable[str] | str | None,
-) -> frozenset[str]:
-    if allowed_methods is None:
-        methods_iterable: tuple[str, ...] = ("GET",)
-    elif isinstance(allowed_methods, str):
-        methods_iterable = (allowed_methods,)
-    else:
-        methods_iterable = tuple(allowed_methods)
-    return frozenset(str(method).upper() for method in methods_iterable)
-
-
-def _validate_status_forcelist(
-    status_forcelist: typ.Iterable[int] | None,
-) -> frozenset[int]:
-    def _validator(values: typ.Iterable[int]) -> frozenset[int]:
-        validated: set[int] = set()
-        for code in values:
-            try:
-                validated.add(int(code))
-            except (TypeError, ValueError) as exc:
-                message = (
-                    "Invalid status code in status_forcelist: "
-                    f"{code!r} is not an integer"
-                )
-                raise ValueError(message) from exc
-        return frozenset(validated)
-
-    return _resolve_optional(
-        status_forcelist,
-        _RETRYABLE_STATUS_CODES,
-        transform=_validator,
-    )
-
-
-def _normalize_retry_exceptions(
-    retry_on_exceptions: typ.Iterable[type[Exception]] | None,
-) -> tuple[type[Exception], ...]:
-    return _resolve_optional(
-        retry_on_exceptions,
-        Retry.RETRYABLE_EXCEPTIONS,
-        transform=lambda values: tuple(values),
-    )
-
-
-class _GithubRetry(Retry):
-    """Retry configuration that mirrors the action's backoff strategy."""
+class _GithubRetryWait(wait_base):
+    """Wait strategy that mirrors the action's backoff with jitter."""
 
     def __init__(
         self,
-        config: RetryConfig | None = None,
         *,
-        total: int | None = None,
-        allowed_methods: cabc.Iterable[str] | str | None = None,
-        status_forcelist: cabc.Iterable[int] | None = None,
-        retry_on_exceptions: cabc.Iterable[type[Exception]] | None = None,
-        backoff_factor: float | None = None,
-        respect_retry_after_header: bool | None = None,
-        max_backoff_wait: float | None = None,
-        backoff_jitter: float | None = None,
-        attempts_made: int = 0,
+        initial_delay: float,
+        backoff_factor: float,
+        max_delay: float,
+        jitter_factor: float,
+        rng: _UniformGenerator | None = None,
     ) -> None:
-        base_config = RetryConfig() if config is None else config
-        effective_config = RetryConfig(
-            total=total if total is not None else base_config.total,
-            allowed_methods=(
-                allowed_methods
-                if allowed_methods is not None
-                else base_config.allowed_methods
-            ),
-            status_forcelist=(
-                status_forcelist
-                if status_forcelist is not None
-                else base_config.status_forcelist
-            ),
-            retry_on_exceptions=(
-                retry_on_exceptions
-                if retry_on_exceptions is not None
-                else base_config.retry_on_exceptions
-            ),
-            backoff_factor=(
-                backoff_factor
-                if backoff_factor is not None
-                else base_config.backoff_factor
-            ),
-            respect_retry_after_header=(
-                respect_retry_after_header
-                if respect_retry_after_header is not None
-                else base_config.respect_retry_after_header
-            ),
-            max_backoff_wait=(
-                max_backoff_wait
-                if max_backoff_wait is not None
-                else base_config.max_backoff_wait
-            ),
-            backoff_jitter=(
-                backoff_jitter
-                if backoff_jitter is not None
-                else base_config.backoff_jitter
-            ),
+        super().__init__()
+        self._initial_delay = max(initial_delay, 0.0)
+        self._backoff_factor = max(backoff_factor, 1.0)
+        self._max_delay = max(max_delay, 0.0)
+        self._jitter_factor = max(jitter_factor, 0.0)
+        self._rng = _JITTER if rng is None else rng
+
+    def __call__(self, retry_state: RetryCallState) -> float:
+        attempt_number = retry_state.attempt_number
+        if attempt_number <= 1:
+            return 0.0
+        exponent = max(attempt_number - 2, 0)
+        delay = min(
+            self._initial_delay * (self._backoff_factor**exponent),
+            self._max_delay,
         )
-        self._config = effective_config
-        super().__init__(
-            total=_resolve_optional(effective_config.total, _MAX_ATTEMPTS - 1),
-            allowed_methods=_normalize_allowed_methods(
-                effective_config.allowed_methods
-            ),
-            status_forcelist=_validate_status_forcelist(
-                effective_config.status_forcelist
-            ),
-            retry_on_exceptions=_normalize_retry_exceptions(
-                effective_config.retry_on_exceptions
-            ),
-            backoff_factor=effective_config.backoff_factor,
-            respect_retry_after_header=effective_config.respect_retry_after_header,
-            max_backoff_wait=effective_config.max_backoff_wait,
-            backoff_jitter=effective_config.backoff_jitter,
-            attempts_made=attempts_made,
-        )
-        self._backoff_base = (
-            effective_config.backoff_factor
-            if effective_config.backoff_factor > 0
-            else _BACKOFF_FACTOR
-        )
-        self.backoff_jitter = effective_config.backoff_jitter
-
-    def increment(self) -> _GithubRetry:
-        return self.__class__(
-            config=self._config,
-            attempts_made=self.attempts_made + 1,
-        )
-
-    def backoff_strategy(self) -> float:  # pragma: no cover - exercised via sleep()
-        exponent = max(self.attempts_made - 1, 0)
-        delay = _INITIAL_DELAY * (self._backoff_base**exponent)
-        return min(delay, self.max_backoff_wait)
-
-    def sleep(self, response: httpx.Response | httpx.HTTPError) -> None:
-        headers: httpx.Headers
-        if isinstance(response, httpx.Response):
-            headers = response.headers
-        else:  # pragma: no cover - defensive branch for transport errors
-            headers = httpx.Headers()
-
-        if self.respect_retry_after_header:
-            retry_after = headers.get("Retry-After", "").strip()
-            if retry_after:
-                with contextlib.suppress(ValueError):
-                    seconds = min(
-                        self.parse_retry_after(retry_after), self.max_backoff_wait
-                    )
-                    if seconds > 0:
-                        time.sleep(seconds)
-                        return
-
-        delay = self.backoff_strategy()
-        if delay > 0:
-            if self.backoff_jitter > 0:
-                _sleep_with_jitter(delay, jitter_factor=self.backoff_jitter)
-            else:
-                time.sleep(delay)
+        if delay <= 0:
+            return 0.0
+        if self._jitter_factor <= 0:
+            return delay
+        jitter = delay * self._rng.uniform(0.0, self._jitter_factor)
+        return delay + jitter
 
 
-def _build_retry_transport() -> RetryTransport:
-    """Construct a retry transport for GitHub API requests."""
-    return RetryTransport(retry=_GithubRetry())
-
-
-def _parse_retry_after_header(value: str | None) -> float | None:
-    """Return a parsed ``Retry-After`` delay in seconds when available."""
-    if value is None:
-        return None
-    helper = _GithubRetry()
-    with contextlib.suppress(ValueError):
-        seconds = helper.parse_retry_after(value)
-        if seconds > 0:
-            return seconds
-    return None
+def _retry_wait_strategy() -> wait_base:
+    return _GithubRetryWait(
+        initial_delay=_INITIAL_DELAY,
+        backoff_factor=_BACKOFF_FACTOR,
+        max_delay=_MAX_BACKOFF_WAIT,
+        jitter_factor=_JITTER_FACTOR,
+    )
 
 
 def _truncate_text(value: str, limit: int, *, suffix: str = "…") -> str:
@@ -303,7 +121,81 @@ def _extract_error_detail(
     return _truncate_text(detail, limit)
 
 
-def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
+def _parse_retry_after_header(value: str | None) -> float | None:
+    """Return a parsed ``Retry-After`` delay in seconds when available."""
+    if value is None:
+        return None
+    retry_after = value.strip()
+    if not retry_after:
+        return None
+    if retry_after.isdigit():
+        seconds = int(retry_after, base=10)
+        return float(seconds) if seconds > 0 else None
+    with contextlib.suppress((TypeError, ValueError, OverflowError)):
+        parsed = parsedate_to_datetime(retry_after)
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        now = dt.datetime.now(dt.timezone.utc)
+        delay = (parsed - now).total_seconds()
+        if delay > 0:
+            return delay
+    return None
+
+
+def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
+    status = response.status_code
+    detail = _extract_error_detail(response)
+
+    if status == httpx.codes.UNAUTHORIZED:
+        context = detail
+        message = (
+            "GitHub rejected the token (401 Unauthorized). "
+            "Verify that GH_TOKEN is correct and has not expired."
+        )
+        if context:
+            message = f"{message} ({context})"
+        raise GithubReleaseError(message)
+
+    if status == httpx.codes.FORBIDDEN:
+        retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
+        if retry_after is not None:
+            time.sleep(retry_after)
+            reason = detail or "Forbidden response with Retry-After header"
+            raise GithubReleaseRetryError(
+                f"GitHub API request failed with status {status}: {reason}"
+            )
+        permission_message = (
+            "GitHub token lacks permission to read releases "
+            "or has expired. "
+            "Use a token with contents:read scope."
+        )
+        context = detail
+        message = f"{permission_message} ({context})"
+        raise GithubReleaseError(message)
+
+    if status == httpx.codes.NOT_FOUND:
+        message = (
+            "No GitHub release found for tag "
+            f"{tag}. Create and publish the release first."
+        )
+        raise GithubReleaseError(message)
+
+    if status in _RETRYABLE_STATUS_CODES:
+        retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
+        if retry_after is not None:
+            time.sleep(retry_after)
+        failure_reason = detail or "Retryable error"
+        message = f"GitHub API request failed with status {status}: {failure_reason}"
+        raise GithubReleaseRetryError(message)
+
+    failure_reason = detail or "Unknown error"
+    message = f"GitHub API request failed with status {status}: {failure_reason}"
+    raise GithubReleaseError(message)
+
+
+def _request_release(repo: str, tag: str, token: str) -> dict[str, object]:
     url = httpx.URL(f"https://api.github.com/repos/{repo}/releases/tags/{tag}")
     if url.scheme != "https":  # pragma: no cover - defensive guard
         message = f"Unsupported URL scheme '{url.scheme}' for GitHub API request."
@@ -316,96 +208,47 @@ def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
         "User-Agent": "release-to-pypi-action",
     }
 
+    with httpx.Client(timeout=httpx.Timeout(30.0), headers=headers) as client:
+        response = client.get(url, follow_redirects=False)
+
+    if response.status_code == httpx.codes.OK:
+        try:
+            return response.json()
+        except ValueError as exc:  # pragma: no cover - unexpected payload
+            truncated_payload = _truncate_text(
+                response.text,
+                _JSON_PAYLOAD_PREVIEW_LIMIT,
+                suffix="...",
+            )
+            message = (
+                "GitHub API returned invalid JSON. "
+                f"Raw payload (truncated): {truncated_payload}"
+            )
+            raise GithubReleaseError(message) from exc
+
+    _handle_http_response_error(response, tag)
+    raise GithubReleaseRetryError("GitHub API request requires retry")
+
+
+@retry(
+    stop=stop_after_attempt(_MAX_ATTEMPTS),
+    wait=_retry_wait_strategy(),
+    retry=retry_if_exception_type((httpx.RequestError, GithubReleaseRetryError)),
+    reraise=True,
+)
+def _fetch_release_with_retry(repo: str, tag: str, token: str) -> dict[str, object]:
+    return _request_release(repo, tag, token)
+
+
+def _fetch_release(repo: str, tag: str, token: str) -> dict[str, object]:
     try:
-        with httpx.Client(
-            timeout=httpx.Timeout(30.0),
-            transport=_build_retry_transport(),
-            headers=headers,
-        ) as client:
-            delay = _INITIAL_DELAY
-            for attempt in range(1, _MAX_ATTEMPTS + 1):
-                try:
-                    response = client.get(url, follow_redirects=False)
-                except httpx.RequestError as exc:  # pragma: no cover
-                    # Network failure path.
-                    if attempt == _MAX_ATTEMPTS:
-                        message = f"Failed to reach GitHub API: {exc!s}"
-                        raise GithubReleaseError(message) from exc
-                    _sleep_with_jitter(delay)
-                    delay *= _BACKOFF_FACTOR
-                    continue
-
-                if response.status_code == httpx.codes.OK:
-                    try:
-                        return response.json()
-                    except ValueError as exc:  # pragma: no cover - unexpected payload
-                        truncated_payload = _truncate_text(
-                            response.text,
-                            _JSON_PAYLOAD_PREVIEW_LIMIT,
-                            suffix="...",
-                        )
-                        message = (
-                            "GitHub API returned invalid JSON. "
-                            f"Raw payload (truncated): {truncated_payload}"
-                        )
-                        raise GithubReleaseError(message) from exc
-
-                should_retry = _handle_http_response_error(
-                    response,
-                    tag,
-                    attempt=attempt,
-                )
-                if should_retry:
-                    delay *= _BACKOFF_FACTOR
-                    continue
-
-            message = "GitHub API request failed after retries."
-            raise GithubReleaseError(message)
+        return _fetch_release_with_retry(repo, tag, token)
+    except GithubReleaseRetryError as exc:
+        message = str(exc) or "GitHub API request failed after retries."
+        raise GithubReleaseError(message) from exc
     except httpx.RequestError as exc:  # pragma: no cover - network failure path
         message = f"Failed to reach GitHub API: {exc!s}"
         raise GithubReleaseError(message) from exc
-
-
-def _handle_http_response_error(
-    response: httpx.Response,
-    tag: str,
-    *,
-    attempt: int,
-) -> bool:
-    status = response.status_code
-    detail = _extract_error_detail(response)
-    if status == httpx.codes.UNAUTHORIZED:
-        context = detail
-        message = (
-            "GitHub rejected the token (401 Unauthorized). "
-            "Verify that GH_TOKEN is correct and has not expired."
-        )
-        if context:
-            message = f"{message} ({context})"
-        raise GithubReleaseError(message)
-    if status == httpx.codes.FORBIDDEN:
-        retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
-        if retry_after is not None and attempt < _MAX_ATTEMPTS:
-            time.sleep(retry_after)
-            return True
-        permission_message = (
-            "GitHub token lacks permission to read releases "
-            "or has expired. "
-            "Use a token with contents:read scope."
-        )
-        context = detail
-        message = f"{permission_message} ({context})"
-        raise GithubReleaseError(message)
-    if status == httpx.codes.NOT_FOUND:
-        message = (
-            "No GitHub release found for tag "
-            f"{tag}. Create and publish the release first."
-        )
-        raise GithubReleaseError(message)
-
-    failure_reason = detail or "Unknown error"
-    message = f"GitHub API request failed with status {status}: {failure_reason}"
-    raise GithubReleaseError(message)
 
 
 def _validate_release(tag: str, data: dict[str, object]) -> str:

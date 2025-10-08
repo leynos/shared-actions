@@ -27,15 +27,11 @@ app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[u
 
 
 def _parse_additional_files(values: list[str] | None) -> list[FileSpecification]:
-    if not values:
-        return []
-    files: list[FileSpecification] = []
-    for spec in values:
-        spec = spec.strip()
-        if not spec:
-            continue
-        files.append(parse_file_specification(spec))
-    return files
+    return [
+        parse_file_specification(stripped)
+        for spec in (values or [])
+        if (stripped := spec.strip())
+    ]
 
 
 @app.default

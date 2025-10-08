@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import os
 import tempfile
 import typing as typ
 from pathlib import Path
 
 from cyclopts import App, Parameter
 from cyclopts import config as cyclopts_config
+from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 from validate_architecture import (
     UnsupportedTargetError,
     deb_arch_for_target,
@@ -350,17 +353,75 @@ def _prepare_paths(
     return tuple(expected_paths_list), tuple(executable_paths_list)
 
 
+def _supports_executable_stores(base: Path) -> Path | None:
+    """Return ``base`` when the filesystem allows executing files."""
+    try:
+        candidate = ensure_directory(base).resolve()
+    except OSError:
+        return None
+
+    if os.name != "posix":  # pragma: no cover - non-POSIX runners
+        return candidate
+
+    probe_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="polythene-validate-probe-",
+            dir=candidate,
+            delete=False,
+        ) as tmp:
+            probe_path = Path(tmp.name)
+            tmp.write("#!/bin/sh\nexit 0\n")
+
+        probe_path.chmod(0o700)
+        local[probe_path.as_posix()]()
+    except (OSError, ProcessExecutionError):
+        return None
+    finally:
+        if probe_path is not None:
+            with contextlib.suppress(OSError):
+                probe_path.unlink()
+
+    return candidate
+
+
+def _find_executable_candidate() -> Path | None:
+    """Find an executable filesystem candidate from environment variables."""
+    for env_var in ("GITHUB_WORKSPACE", "RUNNER_TEMP"):
+        location = os.environ.get(env_var)
+        if not location:
+            continue
+
+        candidate = _supports_executable_stores(Path(location))
+        if candidate is not None:
+            return candidate
+
+    return None
+
+
 @contextlib.contextmanager
 def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
     if polythene_store:
-        store_base = polythene_store.resolve()
-        ensure_directory(store_base)
+        store_base = ensure_directory(polythene_store.resolve())
         yield store_base
         return
 
+    candidate = _find_executable_candidate()
+    if candidate is not None:
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="polythene-validate-",
+                dir=candidate,
+            ) as tmp:
+                yield ensure_directory(Path(tmp))
+                return
+        except OSError:
+            pass
+
     with tempfile.TemporaryDirectory(prefix="polythene-validate-") as tmp:
-        yield Path(tmp)
+        yield ensure_directory(Path(tmp))
 
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:

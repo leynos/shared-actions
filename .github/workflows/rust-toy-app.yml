@@ -100,6 +100,7 @@ jobs:
           expected-paths: |
             /usr/bin/rust-toy-app
             /usr/share/man/man1/rust-toy-app.1.gz
+          polythene-store: ${{ runner.temp }}/polythene-store
       - name: Package macOS installer
         if: contains(matrix.target, 'apple-darwin')
         id: package-macos

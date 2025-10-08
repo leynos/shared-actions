@@ -33,6 +33,16 @@ nFPM.
 | deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
 | rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
 
+Before invoking sibling actions the composite mirrors the repository snapshot
+that GitHub already downloaded for the action into a local `_self/` directory.
+This guarantees that nested `./_self/.github/actions/*` references resolve to the
+same commit without performing an additional network checkout. For private
+repositories GitHub performs the initial download using the workflow’s
+configured credentials; once the runner has the action payload this mirroring
+step works without additional tokens. Local workflows that reference the action
+via a relative path reuse the same mirroring logic, copying the repository
+contents from the workspace instead of the runner cache.
+
 ## Outputs
 
 None.

@@ -46,12 +46,16 @@ def _sleep_with_jitter(
     *,
     jitter: _UniformGenerator | None = None,
     sleep: SleepFn | None = None,
+    jitter_factor: float = 0.1,
 ) -> None:
     """Sleep for ``delay`` seconds with a deterministic jitter hook for tests."""
     sleep_base = max(delay, 0.0)
     jitter_source = _JITTER if jitter is None else jitter
     sleep_fn = time.sleep if sleep is None else sleep
-    jitter_amount = sleep_base * jitter_source.uniform(0.0, 0.1)
+    if jitter_factor > 0:
+        jitter_amount = sleep_base * jitter_source.uniform(0.0, jitter_factor)
+    else:
+        jitter_amount = 0.0
     sleep_fn(sleep_base + jitter_amount)
 
 
@@ -72,10 +76,10 @@ class RetryConfig:
     """Configuration for retry behaviour."""
 
     total: int | None = None
-    allowed_methods: typ.Iterable[str] | None = None
+    allowed_methods: typ.Iterable[str] | str | None = None
     status_forcelist: typ.Iterable[int] | None = None
     retry_on_exceptions: typ.Iterable[type[Exception]] | None = None
-    backoff_factor: float = 0.0
+    backoff_factor: float = _BACKOFF_FACTOR
     respect_retry_after_header: bool = True
     max_backoff_wait: float = 120.0
     backoff_jitter: float = 0.0
@@ -99,13 +103,15 @@ def _resolve_optional(
 
 
 def _normalize_allowed_methods(
-    allowed_methods: typ.Iterable[str] | None,
+    allowed_methods: typ.Iterable[str] | str | None,
 ) -> frozenset[str]:
-    return _resolve_optional(
-        allowed_methods,
-        frozenset({"GET"}),
-        transform=lambda methods: frozenset(str(method).upper() for method in methods),
-    )
+    if allowed_methods is None:
+        methods_iterable: tuple[str, ...] = ("GET",)
+    elif isinstance(allowed_methods, str):
+        methods_iterable = (allowed_methods,)
+    else:
+        methods_iterable = tuple(allowed_methods)
+    return frozenset(str(method).upper() for method in methods_iterable)
 
 
 def _validate_status_forcelist(
@@ -149,7 +155,7 @@ class _GithubRetry(Retry):
         config: RetryConfig | None = None,
         *,
         total: int | None = None,
-        allowed_methods: cabc.Iterable[str] | None = None,
+        allowed_methods: cabc.Iterable[str] | str | None = None,
         status_forcelist: cabc.Iterable[int] | None = None,
         retry_on_exceptions: cabc.Iterable[type[Exception]] | None = None,
         backoff_factor: float | None = None,
@@ -213,6 +219,8 @@ class _GithubRetry(Retry):
             backoff_jitter=effective_config.backoff_jitter,
             attempts_made=attempts_made,
         )
+        self.backoff_factor = effective_config.backoff_factor
+        self.backoff_jitter = effective_config.backoff_jitter
 
     def increment(self) -> _GithubRetry:
         return self.__class__(
@@ -222,7 +230,7 @@ class _GithubRetry(Retry):
 
     def backoff_strategy(self) -> float:  # pragma: no cover - exercised via sleep()
         exponent = max(self.attempts_made - 1, 0)
-        delay = _INITIAL_DELAY * (_BACKOFF_FACTOR**exponent)
+        delay = _INITIAL_DELAY * (self.backoff_factor**exponent)
         return min(delay, self.max_backoff_wait)
 
     def sleep(self, response: httpx.Response | httpx.HTTPError) -> None:
@@ -245,7 +253,12 @@ class _GithubRetry(Retry):
 
         delay = self.backoff_strategy()
         if delay > 0:
-            _sleep_with_jitter(delay)
+            if self.backoff_jitter > 0:
+                _sleep_with_jitter(delay, jitter_factor=self.backoff_jitter)
+            else:
+                time.sleep(delay)
+
+
 
 
 def _build_retry_transport() -> RetryTransport:

@@ -18,10 +18,10 @@ dotnet tool update @installArgs 2>&1 | Tee-Object -Variable updateOutput | Out-N
 $updateExitCode = $LASTEXITCODE
 if ($updateExitCode -ne 0) {
     if ($updateOutput) {
-        Write-Warning "dotnet tool update failed with exit code $updateExitCode:`n$updateOutput"
+        Write-Warning "dotnet tool update failed with exit code $($updateExitCode):`n$updateOutput"
     }
     else {
-        Write-Warning "dotnet tool update failed with exit code $updateExitCode."
+        Write-Warning "dotnet tool update failed with exit code $($updateExitCode)."
     }
 
     dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null

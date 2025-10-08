@@ -98,7 +98,7 @@ if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
     }
 }
 
-$arguments += @('-arch', $arch, "-dVersion=$($env:VERSION)", '-o', $outputPath)
+$arguments += @('-arch', $arch, '-d', "Version=$($env:VERSION)", '-o', $outputPath)
 wix @arguments
 
 if (-not (Test-Path -LiteralPath $outputPath)) {

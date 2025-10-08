@@ -11,6 +11,7 @@ import sys
 import tempfile
 import types
 import typing as typ
+from collections import defaultdict
 from pathlib import Path
 
 import _packaging_utils as pkg_utils
@@ -187,14 +188,34 @@ def test_ensure_executable_permissions_sets_exec_bits(
     binary.write_bytes(b"#!/bin/sh\n")
     binary.chmod(0o640)
 
-    packaging_module._ensure_executable_permissions(binary)
+    mode = packaging_module._ensure_executable_permissions(binary)
 
-    mode = binary.stat().st_mode & 0o777
-    assert mode & stat.S_IXUSR
-    assert mode & stat.S_IXGRP
-    assert mode & stat.S_IXOTH
-    assert mode & stat.S_IRUSR
-    assert mode & stat.S_IWUSR
+    assert mode is not None
+    assert stat.S_IMODE(mode) == 0o751
+    resulting = binary.stat().st_mode & 0o777
+    assert resulting & stat.S_IXUSR
+    assert resulting & stat.S_IXGRP
+    assert resulting & stat.S_IXOTH
+    assert resulting & stat.S_IRUSR
+    assert resulting & stat.S_IWUSR
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
+def test_ensure_executable_permissions_returns_existing_mode(
+    packaging_module: types.ModuleType, tmp_path: Path
+) -> None:
+    """Helper returns the original mode when execute bits are already set."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o755)
+
+    original_mode = binary.stat().st_mode
+    result = packaging_module._ensure_executable_permissions(binary)
+
+    assert result == original_mode
+    assert binary.stat().st_mode == original_mode
 
 
 def test_ensure_executable_permissions_skips_on_windows(
@@ -210,9 +231,45 @@ def test_ensure_executable_permissions_skips_on_windows(
 
     monkeypatch.setattr(packaging_module, "os", types.SimpleNamespace(name="nt"))
 
-    packaging_module._ensure_executable_permissions(binary)
+    result = packaging_module._ensure_executable_permissions(binary)
 
+    assert result is None
     assert binary.stat().st_mode == original_mode
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
+def test_ensure_executable_permissions_returns_none_when_stat_unavailable(
+    packaging_module: types.ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stat failures are surfaced by returning ``None`` without chmod attempts."""
+    binary = tmp_path / "bin"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    original_stat = packaging_module.Path.stat
+    original_chmod = packaging_module.Path.chmod
+
+    def failing_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:  # type: ignore[override]
+        if self == binary:
+            message = "stat unavailable"
+            raise OSError(message)
+        return original_stat(self, follow_symlinks=follow_symlinks)
+
+    def failing_chmod(self: Path, mode: int) -> None:  # type: ignore[override]
+        if self == binary:
+            pytest.fail("chmod should not be attempted when stat fails")
+        original_chmod(self, mode)
+
+    monkeypatch.setattr(packaging_module.Path, "stat", failing_stat)
+    monkeypatch.setattr(packaging_module.Path, "chmod", failing_chmod)
+
+    result = packaging_module._ensure_executable_permissions(binary)
+
+    assert result is None
 
 
 @pytest.mark.parametrize(
@@ -290,6 +347,53 @@ def test_main_reinstates_binary_execute_permissions(
     assert mode & stat.S_IXUSR
     assert mode & stat.S_IXGRP
     assert mode & stat.S_IXOTH
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Unix permissions not supported on Windows"
+)
+def test_main_uses_cached_mode_from_permission_helper(
+    packaging_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """``main`` reuses the mode returned by the helper instead of re-statting."""
+    target = "x86_64-unknown-linux-gnu"
+    release_dir = tmp_path / "target" / target / "release"
+    release_dir.mkdir(parents=True)
+    binary = release_dir / "toy"
+    binary.write_bytes(b"#!/bin/sh\n")
+    binary.chmod(0o640)
+
+    outdir = tmp_path / "dist"
+    config_out = tmp_path / "nfpm.yaml"
+
+    monkeypatch.setattr(
+        packaging_module, "get_command", lambda _: _FakeBoundCommand("nfpm")
+    )
+    monkeypatch.setattr(packaging_module, "run_cmd", lambda *_, **__: None)
+    monkeypatch.setattr(packaging_module, "ensure_exists", lambda *_: None)
+
+    original_stat = packaging_module.Path.stat
+    call_counts: dict[Path, int] = defaultdict(int)
+
+    def monitored_stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:  # type: ignore[override]
+        call_counts[self] += 1
+        return original_stat(self, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(packaging_module.Path, "stat", monitored_stat)
+
+    packaging_module.main(
+        bin_name="toy",
+        version="1.2.3",
+        formats=["deb"],
+        target=target,
+        binary_dir=tmp_path / "target",
+        outdir=outdir,
+        config_out=config_out,
+    )
+
+    assert call_counts[binary] == 1
 
 
 def test_coerce_optional_path_handles_none_and_blank(

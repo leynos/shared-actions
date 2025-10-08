@@ -120,22 +120,28 @@ class OctalInt(int):
         return obj
 
 
-def _ensure_executable_permissions(path: Path) -> None:
-    """Ensure ``path`` is executable on POSIX systems without clobbering other bits."""
+def _ensure_executable_permissions(path: Path) -> int | None:
+    """Ensure ``path`` is executable on POSIX systems without clobbering other bits.
+
+    Returns the resulting numeric mode when it can be determined, or ``None`` when
+    execution permissions are not adjusted (e.g. on Windows) or when the current
+    file mode cannot be read.
+    """
     if os.name == "nt":  # pragma: no cover - exercised on Windows runners only
-        return
+        return None
 
     try:
         current_mode = path.stat().st_mode
     except OSError:  # pragma: no cover - defensive guard for transient IO errors
-        return
+        return None
 
     exec_bits = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     desired_mode = current_mode | exec_bits
     if desired_mode == current_mode:
-        return
+        return current_mode
 
     path.chmod(desired_mode)
+    return desired_mode
 
 
 def _represent_octal_int(dumper: yaml.Dumper, data: OctalInt) -> yaml.ScalarNode:
@@ -338,10 +344,10 @@ def main(
 
     bin_path = binary_root / target_value / "release" / bin_value
     ensure_exists(bin_path, "built binary not found; build first")
-    _ensure_executable_permissions(bin_path)
-    import stat as stat_module
-
-    source_mode = stat_module.S_IMODE(bin_path.stat().st_mode)
+    source_mode = _ensure_executable_permissions(bin_path)
+    if source_mode is None:
+        source_mode = bin_path.stat().st_mode
+    source_mode = stat.S_IMODE(source_mode)
     print(
         f"DEBUG: Source binary permissions: {oct(source_mode)}",
         file=sys.stderr,

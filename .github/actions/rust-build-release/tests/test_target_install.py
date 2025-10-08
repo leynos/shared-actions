@@ -115,26 +115,15 @@ def test_errors_when_target_unsupported_without_cross(
 
 
 @CMD_MOX_UNSUPPORTED
-@pytest.mark.parametrize(
-    ("cross_available", "container_available", "expected_phrases"),
-    [
-        (False, False, ("cross is not installed", "no container runtime detected")),
-        (False, True, ("cross is not installed",)),
-        (True, False, ("no container runtime detected",)),
-    ],
-)
-def test_container_required_target_reports_missing_prerequisites(
-    main_module: ModuleType,
+def _setup_container_test_environment(
     cross_module: ModuleType,
+    main_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
-    capsys: pytest.CaptureFixture[str],
-    *,
     cross_available: bool,
     container_available: bool,
-    expected_phrases: tuple[str, ...],
-) -> None:
-    """Errors when prerequisites for containerized builds are missing."""
+) -> tuple[str, str | None]:
+    """Configure module harnesses and mocks for container prerequisite tests."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
@@ -168,22 +157,60 @@ def test_container_required_target_reports_missing_prerequisites(
             for name in ("cross", "cross.exe"):
                 (shim_dir / name).unlink(missing_ok=True)
 
-    cmd_mox.replay()
-    with pytest.raises(main_module.typer.Exit):
-        main_module.main("x86_64-unknown-freebsd", default_toolchain)
-    cmd_mox.verify()
+    return default_toolchain, cross_path
 
-    err = capsys.readouterr().err
+
+def _assert_error_phrases(err: str, expected_phrases: tuple[str, ...]) -> None:
+    """Validate that container prerequisite errors include the right hints."""
     assert "requires cross" in err
     assert ("cross" in err) or ("container runtime" in err)
     for phrase in expected_phrases:
         assert phrase in err
     if len(expected_phrases) > 1:
         assert ", ".join(expected_phrases) in err
-    for phrase in {"cross is not installed", "no container runtime detected"} - set(
-        expected_phrases
-    ):
+    for phrase in {
+        "cross is not installed",
+        "no container runtime detected",
+    } - set(expected_phrases):
         assert phrase not in err
+
+
+@CMD_MOX_UNSUPPORTED
+@pytest.mark.parametrize(
+    ("cross_available", "container_available", "expected_phrases"),
+    [
+        (False, False, ("cross is not installed", "no container runtime detected")),
+        (False, True, ("cross is not installed",)),
+        (True, False, ("no container runtime detected",)),
+    ],
+)
+def test_container_required_target_reports_missing_prerequisites(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    cmd_mox: CmdMox,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    cross_available: bool,
+    container_available: bool,
+    expected_phrases: tuple[str, ...],
+) -> None:
+    """Errors when prerequisites for containerized builds are missing."""
+    default_toolchain, _ = _setup_container_test_environment(
+        cross_module,
+        main_module,
+        module_harness,
+        cmd_mox,
+        cross_available,
+        container_available,
+    )
+    cmd_mox.replay()
+    with pytest.raises(main_module.typer.Exit):
+        main_module.main("x86_64-unknown-freebsd", default_toolchain)
+    cmd_mox.verify()
+
+    err = capsys.readouterr().err
+    _assert_error_phrases(err, expected_phrases)
 
 
 @CMD_MOX_UNSUPPORTED

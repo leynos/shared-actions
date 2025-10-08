@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing as typ
 import uuid
 
+import httpx
 import pytest
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
@@ -28,13 +29,16 @@ def fixture_fake_token() -> str:
 def _install_client(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
-    handler: typ.Callable[[int, module.httpx.Request], module.httpx.Response | Exception],
-) -> list[int]:
+    handler: typ.Callable[[int, httpx.Request], httpx.Response | Exception],
+    *,
+    record_sleep: bool = False,
+) -> list[int] | tuple[list[int], list[float]]:
     """Replace ``httpx.Client`` with a stub that delegates to ``handler``."""
     attempts: list[int] = []
+    sleep_calls: list[float] = []
 
     class FakeClient:
-        def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: D401 - test stub
+        def __init__(self, *args: object, **kwargs: object) -> None:
             self._headers = kwargs.get("headers", {})
 
         def __enter__(self) -> FakeClient:
@@ -48,11 +52,9 @@ def _install_client(
         ) -> bool:
             return False
 
-        def get(
-            self, url: module.httpx.URL, *, follow_redirects: bool
-        ) -> module.httpx.Response:
+        def get(self, url: httpx.URL, *, follow_redirects: bool) -> httpx.Response:
             assert follow_redirects is False
-            request = module.httpx.Request("GET", url, headers=self._headers)
+            request = httpx.Request("GET", url, headers=self._headers)
             attempt = len(attempts) + 1
             attempts.append(attempt)
             result = handler(attempt, request)
@@ -61,19 +63,32 @@ def _install_client(
             return result
 
     monkeypatch.setattr(module.httpx, "Client", FakeClient)
-    monkeypatch.setattr(module._fetch_release_with_retry.retry, "sleep", lambda _: None)
+
+    def fake_sleep(duration: float) -> None:
+        if record_sleep:
+            sleep_calls.append(duration)
+
+    monkeypatch.setattr(
+        module._fetch_release_with_retry.retry,
+        "sleep",
+        fake_sleep if record_sleep else lambda _: None,
+    )
+
+    if record_sleep:
+        return attempts, sleep_calls
     return attempts
 
 
 def test_retry_wait_strategy_progression(module: ModuleType) -> None:
     """Ensure the retry wait strategy scales delays with jitter bounds."""
     wait = module._retry_wait_strategy()
+
     # Force deterministic jitter
     class FixedRandom:
         def __init__(self) -> None:
             self.values = iter([0.0, 0.5, 1.0])
 
-        def uniform(self, a: float, b: float) -> float:  # noqa: D401 - deterministic stub
+        def uniform(self, a: float, b: float) -> float:
             return next(self.values)
 
     wait._rng = FixedRandom()  # type: ignore[attr-defined]
@@ -244,7 +259,6 @@ def test_forbidden_with_retry_after(
     fake_token: str,
 ) -> None:
     """Respect Retry-After guidance on 403 responses before retrying."""
-    sleep_calls: list[float] = []
 
     def handler(attempt: int, request: module.httpx.Request) -> module.httpx.Response:
         if attempt == 1:
@@ -257,8 +271,7 @@ def test_forbidden_with_retry_after(
         payload = {"draft": False, "prerelease": False, "name": "ok"}
         return module.httpx.Response(200, json=payload, request=request)
 
-    _install_client(monkeypatch, module, handler)
-    monkeypatch.setattr(module.time, "sleep", sleep_calls.append)
+    _, sleep_calls = _install_client(monkeypatch, module, handler, record_sleep=True)
 
     module.main(tag="v1.0.0", token=fake_token, repo="owner/repo")
 

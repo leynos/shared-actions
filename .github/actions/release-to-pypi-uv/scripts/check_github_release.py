@@ -15,15 +15,13 @@ import contextlib
 import datetime as dt
 import random
 import sys
-import time
 import typing as typ
 from email.utils import parsedate_to_datetime
 
 import cyclopts
 import httpx
 from cyclopts import App, Parameter
-from tenacity import RetryCallState, retry, retry_if_exception_type
-from tenacity import stop_after_attempt
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 from tenacity.wait import wait_base
 
 app = App(config=cyclopts.config.Env(prefix="", command=False))
@@ -54,6 +52,10 @@ class GithubReleaseError(RuntimeError):
 class GithubReleaseRetryError(GithubReleaseError):
     """Raised to indicate that the request should be retried."""
 
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
 
 class _GithubRetryWait(wait_base):
     """Wait strategy that mirrors the action's backoff with jitter."""
@@ -75,6 +77,14 @@ class _GithubRetryWait(wait_base):
         self._rng = _JITTER if rng is None else rng
 
     def __call__(self, retry_state: RetryCallState) -> float:
+        outcome = getattr(retry_state, "outcome", None)
+        if outcome is not None and getattr(outcome, "failed", False):
+            exception = outcome.exception()
+            if (
+                isinstance(exception, GithubReleaseRetryError)
+                and exception.retry_after is not None
+            ):
+                return min(max(exception.retry_after, 0.0), self._max_delay)
         attempt_number = retry_state.attempt_number
         if attempt_number <= 1:
             return 0.0
@@ -130,17 +140,19 @@ def _parse_retry_after_header(value: str | None) -> float | None:
         return None
     if retry_after.isdigit():
         seconds = int(retry_after, base=10)
-        return float(seconds) if seconds > 0 else None
+        if seconds <= 0:
+            return None
+        return min(float(seconds), _MAX_BACKOFF_WAIT)
     with contextlib.suppress((TypeError, ValueError, OverflowError)):
         parsed = parsedate_to_datetime(retry_after)
         if parsed is None:
             return None
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=dt.timezone.utc)
-        now = dt.datetime.now(dt.timezone.utc)
+            parsed = parsed.replace(tzinfo=dt.UTC)
+        now = dt.datetime.now(dt.UTC)
         delay = (parsed - now).total_seconds()
         if delay > 0:
-            return delay
+            return min(delay, _MAX_BACKOFF_WAIT)
     return None
 
 
@@ -161,11 +173,9 @@ def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
     if status == httpx.codes.FORBIDDEN:
         retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
         if retry_after is not None:
-            time.sleep(retry_after)
             reason = detail or "Forbidden response with Retry-After header"
-            raise GithubReleaseRetryError(
-                f"GitHub API request failed with status {status}: {reason}"
-            )
+            message = f"GitHub API request failed with status {status}: {reason}"
+            raise GithubReleaseRetryError(message, retry_after=retry_after)
         permission_message = (
             "GitHub token lacks permission to read releases "
             "or has expired. "
@@ -184,11 +194,9 @@ def _handle_http_response_error(response: httpx.Response, tag: str) -> None:
 
     if status in _RETRYABLE_STATUS_CODES:
         retry_after = _parse_retry_after_header(response.headers.get("Retry-After"))
-        if retry_after is not None:
-            time.sleep(retry_after)
         failure_reason = detail or "Retryable error"
         message = f"GitHub API request failed with status {status}: {failure_reason}"
-        raise GithubReleaseRetryError(message)
+        raise GithubReleaseRetryError(message, retry_after=retry_after)
 
     failure_reason = detail or "Unknown error"
     message = f"GitHub API request failed with status {status}: {failure_reason}"
@@ -227,7 +235,8 @@ def _request_release(repo: str, tag: str, token: str) -> dict[str, object]:
             raise GithubReleaseError(message) from exc
 
     _handle_http_response_error(response, tag)
-    raise GithubReleaseRetryError("GitHub API request requires retry")
+    message = "GitHub API request requires retry"
+    raise GithubReleaseRetryError(message)
 
 
 @retry(

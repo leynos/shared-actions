@@ -28,7 +28,7 @@ def _format_command(command: BaseCommand | typ.Sequence[object] | None) -> str:
         return "<unknown command>"
     if argv := getattr(command, "argv", None):
         return " ".join(str(part) for part in argv)
-    if isinstance(command, (tuple, list)):
+    if isinstance(command, tuple | list):
         return " ".join(str(part) for part in command)
     return repr(command)
 

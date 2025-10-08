@@ -133,7 +133,7 @@ def _ensure_text(value: str | bytes | None) -> str:
                 literal = ast.literal_eval(value)
             except (SyntaxError, ValueError):
                 return value
-            if isinstance(literal, (bytes, bytearray)):
+            if isinstance(literal, bytes | bytearray):
                 return bytes(literal).decode("utf-8", errors="replace")
         return value
     if value is None:
@@ -184,8 +184,8 @@ def process_error_to_subprocess(
             stderr=_ensure_text(getattr(exc, "stderr", "")),
         )
     raw_timeout = getattr(exc, "timeout", None)
-    fallback_timeout = timeout if isinstance(timeout, (int, float)) else None
-    if isinstance(raw_timeout, (int, float)):
+    fallback_timeout = timeout if isinstance(timeout, int | float) else None
+    if isinstance(raw_timeout, int | float):
         timeout_value = float(raw_timeout)
     elif fallback_timeout is not None:
         timeout_value = float(fallback_timeout)
@@ -269,7 +269,7 @@ def _run_handler(
         raise
     except TimeoutError as exc:
         timeout_value = run_options.get("timeout", getattr(exc, "timeout", None))
-        if isinstance(timeout_value, (int, float)):
+        if isinstance(timeout_value, int | float):
             normalized_timeout: float | None = float(timeout_value)
         else:
             normalized_timeout = None

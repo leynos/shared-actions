@@ -79,7 +79,7 @@ class RetryConfig:
     allowed_methods: typ.Iterable[str] | str | None = None
     status_forcelist: typ.Iterable[int] | None = None
     retry_on_exceptions: typ.Iterable[type[Exception]] | None = None
-    backoff_factor: float = _BACKOFF_FACTOR
+    backoff_factor: float = 0.0
     respect_retry_after_header: bool = True
     max_backoff_wait: float = 120.0
     backoff_jitter: float = 0.0
@@ -206,7 +206,9 @@ class _GithubRetry(Retry):
         self._config = effective_config
         super().__init__(
             total=_resolve_optional(effective_config.total, _MAX_ATTEMPTS - 1),
-            allowed_methods=_normalize_allowed_methods(effective_config.allowed_methods),
+            allowed_methods=_normalize_allowed_methods(
+                effective_config.allowed_methods
+            ),
             status_forcelist=_validate_status_forcelist(
                 effective_config.status_forcelist
             ),
@@ -219,7 +221,11 @@ class _GithubRetry(Retry):
             backoff_jitter=effective_config.backoff_jitter,
             attempts_made=attempts_made,
         )
-        self.backoff_factor = effective_config.backoff_factor
+        self._backoff_base = (
+            effective_config.backoff_factor
+            if effective_config.backoff_factor > 0
+            else _BACKOFF_FACTOR
+        )
         self.backoff_jitter = effective_config.backoff_jitter
 
     def increment(self) -> _GithubRetry:
@@ -230,7 +236,7 @@ class _GithubRetry(Retry):
 
     def backoff_strategy(self) -> float:  # pragma: no cover - exercised via sleep()
         exponent = max(self.attempts_made - 1, 0)
-        delay = _INITIAL_DELAY * (self.backoff_factor**exponent)
+        delay = _INITIAL_DELAY * (self._backoff_base**exponent)
         return min(delay, self.max_backoff_wait)
 
     def sleep(self, response: httpx.Response | httpx.HTTPError) -> None:
@@ -257,8 +263,6 @@ class _GithubRetry(Retry):
                 _sleep_with_jitter(delay, jitter_factor=self.backoff_jitter)
             else:
                 time.sleep(delay)
-
-
 
 
 def _build_retry_transport() -> RetryTransport:

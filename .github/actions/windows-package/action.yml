@@ -2,9 +2,41 @@ name: Windows package
 description: Build a WiX v4 MSI from prebuilt application assets on Windows runners
 inputs:
   wxs-path:
-    description: Path to the WiX authoring (.wxs) file that defines the installer.
+    description: Path to a custom WiX authoring (.wxs) file. When omitted the action renders a default template.
     required: false
-    default: installer/Package.wxs
+    default: ''
+  application-path:
+    description: >-
+      Source executable or bundle that should be installed. When combined with `|relative\\path` the
+      portion after the pipe customises the install location beneath the install directory.
+    required: false
+    default: ''
+  additional-files:
+    description: >-
+      Additional file specifications in the form `source|relative\\path`. Provide one per line to install
+      supporting assets alongside the main application.
+    required: false
+    default: ''
+  product-name:
+    description: Display name used by the generated WiX authoring when `wxs-path` is omitted.
+    required: false
+    default: ''
+  manufacturer:
+    description: Manufacturer string embedded in the generated template when `wxs-path` is omitted.
+    required: false
+    default: ''
+  install-dir-name:
+    description: Directory name created beneath Program Files for the default template.
+    required: false
+    default: ''
+  description:
+    description: Optional installer description stored in the MSI summary information stream.
+    required: false
+    default: ''
+  upgrade-code:
+    description: Stable UpgradeCode GUID for the generated MSI. Defaults to a deterministic value when omitted.
+    required: false
+    default: ''
   architecture:
     description: Target architecture passed to `wix build` (for example `x64` or `x86`).
     required: false
@@ -73,10 +105,13 @@ runs:
       with:
         dotnet-version: ${{ inputs.dotnet-version }}
     - name: Setup Python
-      if: ${{ inputs.license-plaintext-path != '' }}
       uses: actions/setup-python@v5
       with:
-        python-version: '>=3.11'
+        python-version: '3.12'
+    - name: Install Python dependencies
+      shell: pwsh
+      run: |
+        python -m pip install --disable-pip-version-check "cyclopts>=3.24,<4" "jinja2>=3.1,<4"
     - name: Install WiX CLI and extensions
       shell: pwsh
       env:
@@ -99,6 +134,13 @@ runs:
       shell: pwsh
       env:
         WXS_PATH: ${{ inputs.wxs-path }}
+        APPLICATION_SPEC: ${{ inputs.application-path }}
+        ADDITIONAL_FILES: ${{ inputs.additional-files }}
+        PRODUCT_NAME: ${{ inputs.product-name }}
+        MANUFACTURER: ${{ inputs.manufacturer }}
+        INSTALL_DIR_NAME: ${{ inputs.install-dir-name }}
+        DESCRIPTION: ${{ inputs.description }}
+        UPGRADE_CODE: ${{ inputs.upgrade-code }}
         ARCHITECTURE: ${{ inputs.architecture }}
         OUTPUT_BASENAME: ${{ inputs.output-basename }}
         OUTPUT_DIRECTORY: ${{ inputs.output-directory }}

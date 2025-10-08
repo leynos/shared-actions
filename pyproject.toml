@@ -16,6 +16,7 @@ dependencies = [
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",
     "cyclopts>=3.24,<4.0",
+    "jinja2>=3.1,<4.0",
     "polythene@git+https://github.com/leynos/polythene.git@8eec18952abf7b665eb4b05e87af91652f358739",
 ]
 classifiers = [

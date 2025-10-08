@@ -81,7 +81,12 @@ jobs:
         if: contains(matrix.target, 'pc-windows-')
         uses: ./.github/actions/windows-package
         with:
-          wxs-path: rust-toy-app/installer/Package.wxs
+          application-path: ${{ steps.verify-artifacts.outputs.binary }}
+          product-name: Rust Toy App
+          manufacturer: Shared Actions
+          install-dir-name: RustToyApp
+          description: Rust Toy App installer
+          upgrade-code: 2b1fda33-2f4d-46ef-8e9b-3b52a28b2d1c
           architecture: ${{ contains(matrix.target, 'aarch64') && 'arm64' || 'x64' }}
           version: ${{ steps.crate-version.outputs.version }}
           output-basename: rust-toy-app

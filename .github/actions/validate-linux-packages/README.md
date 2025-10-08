@@ -65,9 +65,10 @@ None.
 ```
 
 When `polythene-store` is not provided the action now creates a temporary store
-inside `$RUNNER_TEMP`, falling back to the workspace (or `/tmp` when neither is
-available). Each candidate directory is validated to ensure it resides on an
-executable filesystem so sandboxed binaries can be executed during verification.
+inside `$GITHUB_WORKSPACE` when available, falling back to `$RUNNER_TEMP` (or
+`/tmp` when neither is available). Each candidate directory is validated to
+ensure it resides on an executable filesystem so sandboxed binaries can be
+executed during verification.
 
 Paths supplied to `expected-paths` and `executable-paths` must already be
 canonical absolute strings.

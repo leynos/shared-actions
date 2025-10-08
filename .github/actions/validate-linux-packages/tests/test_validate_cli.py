@@ -798,12 +798,12 @@ def test_main_respects_explicit_polythene_store(
     assert {path.name for path in dispatched} == {"deb", "rpm"}
 
 
-def test_polythene_store_prefers_runner_temp(
+def test_polythene_store_prefers_workspace(
     validate_cli_module: object,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """RUNNER_TEMP is preferred when it supports executable stores."""
+    """GITHUB_WORKSPACE is preferred when it supports executable stores."""
     module = validate_cli_module
     runner_temp = tmp_path / "runner"
     workspace = tmp_path / "workspace"
@@ -813,43 +813,43 @@ def test_polythene_store_prefers_runner_temp(
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
     def fake_supports(base: Path) -> Path | None:
+        if base == workspace:
+            return workspace
         if base == runner_temp:
             return runner_temp
-        if base == workspace:
-            return workspace
-        pytest.fail(f"unexpected base: {base!s}")
-
-    monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
-
-    with module._polythene_store(None) as store_base:
-        assert store_base.parent == runner_temp
-
-
-def test_polythene_store_falls_back_to_workspace(
-    validate_cli_module: object,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """When RUNNER_TEMP is unusable the workspace is selected."""
-    module = validate_cli_module
-    runner_temp = tmp_path / "runner"
-    workspace = tmp_path / "workspace"
-    runner_temp.mkdir()
-    workspace.mkdir()
-    monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
-    monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
-
-    def fake_supports(base: Path) -> Path | None:
-        if base == runner_temp:
-            return None
-        if base == workspace:
-            return workspace
         pytest.fail(f"unexpected base: {base!s}")
 
     monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
 
     with module._polythene_store(None) as store_base:
         assert store_base.parent == workspace
+
+
+def test_polythene_store_falls_back_to_runner_temp(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When the workspace is unusable RUNNER_TEMP is selected."""
+    module = validate_cli_module
+    runner_temp = tmp_path / "runner"
+    workspace = tmp_path / "workspace"
+    runner_temp.mkdir()
+    workspace.mkdir()
+    monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
+    monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
+
+    def fake_supports(base: Path) -> Path | None:
+        if base == workspace:
+            return None
+        if base == runner_temp:
+            return runner_temp
+        pytest.fail(f"unexpected base: {base!s}")
+
+    monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
+
+    with module._polythene_store(None) as store_base:
+        assert store_base.parent == runner_temp
 
 
 def test_main_raises_for_missing_package_dir(

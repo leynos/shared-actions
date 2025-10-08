@@ -388,7 +388,7 @@ def _supports_executable_stores(base: Path) -> Path | None:
 
 def _find_executable_candidate() -> Path | None:
     """Find an executable filesystem candidate from environment variables."""
-    for env_var in ("RUNNER_TEMP", "GITHUB_WORKSPACE"):
+    for env_var in ("GITHUB_WORKSPACE", "RUNNER_TEMP"):
         location = os.environ.get(env_var)
         if not location:
             continue

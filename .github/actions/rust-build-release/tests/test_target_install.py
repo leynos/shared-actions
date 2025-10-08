@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum.commands.processes import ProcessExecutionError
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
@@ -43,8 +44,8 @@ def test_skips_target_install_when_cross_available(
     app_env = module_harness(main_module)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
-        if cmd[:3] == ["rustup", "target", "add"]:
-            raise subprocess.CalledProcessError(1, cmd)
+        if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
+            raise ProcessExecutionError(cmd, 1, "", "")
 
     app_env.patch_run_cmd(run_cmd_side_effect)
 
@@ -97,8 +98,8 @@ def test_errors_when_target_unsupported_without_cross(
     app_env.patch_shutil_which(fake_which)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
-        if cmd[:3] == ["rustup", "target", "add"]:
-            raise subprocess.CalledProcessError(1, cmd)
+        if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
+            raise ProcessExecutionError(cmd, 1, "", "")
 
     app_env.patch_run_cmd(run_cmd_side_effect)
     app_env.patch_attr("ensure_cross", lambda *_: (None, None))
@@ -307,8 +308,8 @@ def test_errors_when_cross_container_start_fails(
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
-        if cmd and cmd[0] == "cross":
-            raise subprocess.CalledProcessError(125, cmd)
+        if cmd and Path(cmd[0]).name == "cross":
+            raise ProcessExecutionError(cmd, 125, "", "")
 
     app_env.patch_run_cmd(run_cmd_side_effect)
 
@@ -357,7 +358,7 @@ def test_sets_cross_container_engine_when_docker_available(
     engines: list[str | None] = []
 
     def record_engine(cmd: list[str]) -> None:
-        if cmd and cmd[0] == "cross":
+        if cmd and Path(cmd[0]).name == "cross":
             engines.append(os.environ.get("CROSS_CONTAINER_ENGINE"))
 
     app_env.patch_run_cmd(record_engine)
@@ -518,8 +519,8 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     app_env = module_harness(main_module)
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
-        if cmd and cmd[0] == "cross":
-            raise subprocess.CalledProcessError(125, cmd)
+        if cmd and Path(cmd[0]).name == "cross":
+            raise ProcessExecutionError(cmd, 125, "", "")
 
     app_env.patch_run_cmd(run_cmd_side_effect)
 

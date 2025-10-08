@@ -77,15 +77,12 @@ class StubManager:
         default: DefaultResponse | None = None,
     ) -> None:
         """Register a stub for *name* using cmd_mox doubles."""
-        if default is None:
-            default = DefaultResponse()
+        default = default or DefaultResponse()
         stub = self._controller.stub(name)
         if variants:
             handler = self._build_variant_handler(
                 variants,
-                default_stdout=default.stdout,
-                default_stderr=default.stderr,
-                default_exit_code=default.exit_code,
+                default=default,
             )
             stub.runs(handler)
         else:
@@ -164,13 +161,16 @@ class StubManager:
     def _prepare_variants(
         self,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]],
-        default_stdout: str,
-        default_stderr: str,
-        default_exit_code: int,
+        default: DefaultResponse,
     ) -> tuple[list[tuple[list[str] | None, dict[str, typ.Any]]], dict[str, typ.Any]]:
         """Prepare variant specifications, returning (prepared_list, default_spec)."""
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]] = []
         default_spec: dict[str, typ.Any] | None = None
+        fallback_spec = {
+            "stdout": default.stdout,
+            "stderr": default.stderr,
+            "exit_code": default.exit_code,
+        }
         for spec in variants:
             # Normalize the declared match pattern and response payload.
             match = spec.get("match")
@@ -186,13 +186,10 @@ class StubManager:
                 default_spec = response_spec
                 continue
             prepared.append((match_list, response_spec))
+        default_spec = default_spec or fallback_spec
         if default_spec is None:
-            # Use register() defaults when variants omit a baseline response.
-            default_spec = {
-                "stdout": default_stdout,
-                "stderr": default_stderr,
-                "exit_code": default_exit_code,
-            }
+            message = "Variant configuration must define a default response."
+            raise ValueError(message)
         return prepared, default_spec
 
     def _match_invocation(
@@ -201,36 +198,32 @@ class StubManager:
         prepared: list[tuple[list[str] | None, dict[str, typ.Any]]],
     ) -> dict[str, typ.Any] | None:
         """Find the first prepared response matching the invocation's args."""
-        for match_list, response_spec in prepared:
-            if match_list is None:
-                continue
-            if list(invocation.args) == match_list:
-                return response_spec
-        return None
+        args = list(invocation.args)
+        return next(
+            (
+                response_spec
+                for match_list, response_spec in prepared
+                if match_list is not None and match_list == args
+            ),
+            None,
+        )
 
     def _build_variant_handler(
         self,
         variants: typ.Sequence[typ.Mapping[str, typ.Any]],
         *,
-        default_stdout: str,
-        default_stderr: str,
-        default_exit_code: int,
+        default: DefaultResponse,
     ) -> typ.Callable[[Invocation], Response]:
         # Collect (match pattern, response spec) pairs so replay can scan quickly.
-        prepared, default_spec = self._prepare_variants(
-            variants,
-            default_stdout,
-            default_stderr,
-            default_exit_code,
-        )
+        prepared, default_spec = self._prepare_variants(variants, default)
 
         def handler(invocation: Invocation) -> Response:
             # Return the first prepared response whose argv matches the invocation.
             matched = self._match_invocation(invocation, prepared)
-            if matched is not None:
-                return Response(**matched)
             # Otherwise fall back to the default response determined above.
-            return Response(**default_spec)
+            return (
+                Response(**matched) if matched is not None else Response(**default_spec)
+            )
 
         return handler
 

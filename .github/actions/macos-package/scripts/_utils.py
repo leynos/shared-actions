@@ -10,6 +10,9 @@ from pathlib import Path
 import cyclopts
 from cyclopts import App, Parameter
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 __all__ = [
     "ActionError",
     "Parameter",
@@ -40,7 +43,7 @@ def _emit_error(message: str) -> None:
     sys.stderr.write(f"{message}\n")
 
 
-def run_app(app: App, *, argv: typ.Sequence[str] | None = None) -> None:
+def run_app(app: App, *, argv: cabc.Sequence[str] | None = None) -> None:
     """Execute ``app`` and present user-facing errors consistently."""
     if argv is None:
         if "PYTEST_CURRENT_TEST" in environ:

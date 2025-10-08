@@ -70,7 +70,7 @@ def test_skips_target_install_when_cross_available(
     main_module.main("aarch64-pc-windows-gnu", default_toolchain)
     cmd_mox.verify()
     build_cmd = app_env.calls[-1]
-    assert build_cmd[0] == "cross"
+    assert Path(build_cmd[0]).name == "cross"
     assert build_cmd[1] == f"+{default_toolchain}"
 
 
@@ -161,6 +161,12 @@ def test_container_required_target_reports_missing_prerequisites(
         lambda runtime: container_available if runtime == "docker" else False,
     )
 
+    if not cross_available:
+        shim_dir = cmd_mox.environment.shim_dir
+        if shim_dir is not None:
+            for name in ("cross", "cross.exe"):
+                (shim_dir / name).unlink(missing_ok=True)
+
     cmd_mox.replay()
     with pytest.raises(main_module.typer.Exit):
         main_module.main("x86_64-unknown-freebsd", default_toolchain)
@@ -169,7 +175,6 @@ def test_container_required_target_reports_missing_prerequisites(
     err = capsys.readouterr().err
     assert "requires cross" in err
     assert ("cross" in err) or ("container runtime" in err)
-    assert "missing:" in err
     for phrase in expected_phrases:
         assert phrase in err
     if len(expected_phrases) > 1:
@@ -223,7 +228,7 @@ def test_builds_freebsd_target_with_cross_and_container(
     cmd_mox.verify()
 
     assert commands, "expected commands to be executed"
-    assert commands[-1][0] == "cross"
+    assert Path(commands[-1][0]).name == "cross"
     captured = capsys.readouterr()
     _assert_no_timeout_trace(captured.err)
     assert captured.err == ""

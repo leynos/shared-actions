@@ -19,7 +19,7 @@ NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
 
 test: .venv ## Run tests
-	uv run --with typer --with packaging --with plumbum --with pyyaml pytest -v
+	uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
 
 .venv:
 	uv venv

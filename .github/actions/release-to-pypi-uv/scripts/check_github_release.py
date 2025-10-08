@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses as dc
 import random
 import sys
 import time
@@ -63,48 +64,63 @@ _ERROR_DETAIL_LIMIT = 1024
 _JSON_PAYLOAD_PREVIEW_LIMIT = 500
 
 
+@dc.dataclass(frozen=True, kw_only=True)
+class RetryConfig:
+    """Configuration for retry behaviour."""
+
+    total: int | None = None
+    allowed_methods: typ.Iterable[str] | None = None
+    status_forcelist: typ.Iterable[int] | None = None
+    retry_on_exceptions: typ.Iterable[type[Exception]] | None = None
+    backoff_factor: float = 0.0
+    respect_retry_after_header: bool = True
+    max_backoff_wait: float = 120.0
+    backoff_jitter: float = 0.0
+
+
 class _GithubRetry(Retry):
     """Retry configuration that mirrors the action's backoff strategy."""
 
     def __init__(
         self,
+        config: RetryConfig | None = None,
         *,
-        total: int | None = None,
-        allowed_methods: typ.Iterable[str] | None = None,
-        status_forcelist: typ.Iterable[int] | None = None,
-        retry_on_exceptions: typ.Iterable[type[Exception]] | None = None,
-        backoff_factor: float = 0.0,
-        respect_retry_after_header: bool = True,
-        max_backoff_wait: float = 120.0,
-        backoff_jitter: float = 0.0,
         attempts_made: int = 0,
     ) -> None:
-        configured_total = _MAX_ATTEMPTS - 1 if total is None else total
+        cfg = RetryConfig() if config is None else config
+        self._config: RetryConfig = cfg
+        configured_total = _MAX_ATTEMPTS - 1 if cfg.total is None else cfg.total
         configured_methods = (
             frozenset({"GET"})
-            if allowed_methods is None
-            else frozenset(str(method) for method in allowed_methods)
+            if cfg.allowed_methods is None
+            else frozenset(str(method) for method in cfg.allowed_methods)
         )
         configured_statuses = (
             _RETRYABLE_STATUS_CODES
-            if status_forcelist is None
-            else frozenset(int(code) for code in status_forcelist)
+            if cfg.status_forcelist is None
+            else frozenset(int(code) for code in cfg.status_forcelist)
         )
         configured_exceptions = (
             self.RETRYABLE_EXCEPTIONS
-            if retry_on_exceptions is None
-            else tuple(retry_on_exceptions)
+            if cfg.retry_on_exceptions is None
+            else tuple(cfg.retry_on_exceptions)
         )
         super().__init__(
             total=configured_total,
             allowed_methods=configured_methods,
             status_forcelist=configured_statuses,
             retry_on_exceptions=configured_exceptions,
-            backoff_factor=backoff_factor,
-            respect_retry_after_header=respect_retry_after_header,
-            max_backoff_wait=max_backoff_wait,
-            backoff_jitter=backoff_jitter,
+            backoff_factor=cfg.backoff_factor,
+            respect_retry_after_header=cfg.respect_retry_after_header,
+            max_backoff_wait=cfg.max_backoff_wait,
+            backoff_jitter=cfg.backoff_jitter,
             attempts_made=attempts_made,
+        )
+
+    def increment(self) -> _GithubRetry:
+        return self.__class__(
+            config=self._config,
+            attempts_made=self.attempts_made + 1,
         )
 
     def backoff_strategy(self) -> float:  # pragma: no cover - exercised via sleep()

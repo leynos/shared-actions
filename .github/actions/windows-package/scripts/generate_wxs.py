@@ -34,6 +34,46 @@ def _parse_additional_files(values: list[str] | None) -> list[FileSpecification]
     ]
 
 
+def _generate_wxs_file(
+    *,
+    output: Path,
+    version: str,
+    architecture: str,
+    application: str,
+    product_name: str | None = None,
+    manufacturer: str | None = None,
+    install_dir_name: str | None = None,
+    description: str | None = None,
+    upgrade_code: str | None = None,
+    license_path: str | None = None,
+    additional_file: list[str] | None = None,
+) -> Path:
+    """Generate WiX authoring and return the absolute output path."""
+    output_path = output if output.is_absolute() else Path.cwd() / output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    app_spec = parse_file_specification(application)
+    extras = _parse_additional_files(additional_file)
+
+    options = prepare_template_options(
+        version=version,
+        architecture=architecture,
+        application=app_spec,
+        product_name=product_name,
+        manufacturer=manufacturer,
+        install_dir_name=install_dir_name,
+        description=description,
+        upgrade_code=upgrade_code,
+        additional_files=extras,
+        license_path=license_path,
+    )
+
+    authoring = render_default_wxs(options)
+    with output_path.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(authoring)
+    return output_path
+
+
 @app.default
 def main(
     *,
@@ -50,32 +90,23 @@ def main(
     additional_file: list[str] | None = None,
 ) -> None:
     """Generate WiX authoring for ``application`` and supporting files."""
-    output_path = output if output.is_absolute() else Path.cwd() / output
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    app_spec = parse_file_specification(application)
-    extras = _parse_additional_files(additional_file)
-
     try:
-        options = prepare_template_options(
+        output_path = _generate_wxs_file(
+            output=output,
             version=version,
             architecture=architecture,
-            application=app_spec,
+            application=application,
             product_name=product_name,
             manufacturer=manufacturer,
             install_dir_name=install_dir_name,
             description=description,
             upgrade_code=upgrade_code,
-            additional_files=extras,
             license_path=license_path,
+            additional_file=additional_file,
         )
     except TemplateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-
-    authoring = render_default_wxs(options)
-    with output_path.open("w", encoding="utf-8", newline="\n") as stream:
-        stream.write(authoring)
     print(str(output_path))
 
 

@@ -203,23 +203,38 @@ def _flatten_components(node: DirectoryNode) -> list[Component]:
     return items
 
 
+def _parse_spec_into_parts(spec: str) -> tuple[str, str]:
+    """Split a raw specification into source and destination components."""
+    if "|" in spec:
+        source_str, destination = spec.split("|", 1)
+    else:
+        source_str, destination = spec, ""
+    return source_str.strip(), destination
+
+
+def _validate_source(source_str: str) -> None:
+    """Ensure that the extracted source portion is non-empty."""
+    if not source_str:
+        message = "Source path cannot be empty"
+        raise TemplateError(message)
+
+
+def _validate_destination(destination: str) -> None:
+    """Ensure that the destination, when supplied, includes a filename."""
+    if destination and destination.strip().endswith(("\\", "/")):
+        message = "Destination must include a filename, not just a directory"
+        raise TemplateError(message)
+
+
 def parse_file_specification(spec: str) -> FileSpecification:
     r"""Parse ``spec`` in the form ``source|relative\path\file``."""
     if not spec or not spec.strip():
         message = "File specification cannot be empty"
         raise TemplateError(message)
-    if "|" in spec:
-        source_str, destination = spec.split("|", 1)
-    else:
-        source_str, destination = spec, ""
-    source_str = source_str.strip()
-    if not source_str:
-        message = "Source path cannot be empty"
-        raise TemplateError(message)
+    source_str, destination = _parse_spec_into_parts(spec)
+    _validate_source(source_str)
+    _validate_destination(destination)
     source = Path(source_str)
-    if destination and destination.strip().endswith(("\\", "/")):
-        message = "Destination must include a filename, not just a directory"
-        raise TemplateError(message)
     destination_parts = _split_destination(destination, source.name)
     return FileSpecification(source=source, destination=destination_parts)
 
@@ -262,6 +277,27 @@ def _build_directory_tree(
     return root
 
 
+def _resolve_product_name(product_name: str | None, app_filename: str) -> str:
+    """Determine the product name, falling back to the executable filename."""
+    chosen = (product_name or app_filename.removesuffix(".exe") or app_filename).strip()
+    return chosen or app_filename
+
+
+def _resolve_manufacturer_name(manufacturer: str | None) -> str:
+    """Determine the manufacturer name with a sensible default."""
+    return (manufacturer or "Unknown Publisher").strip() or "Unknown Publisher"
+
+
+def _resolve_product_description(description: str | None, product_name: str) -> str:
+    """Determine the product description based on supplied metadata."""
+    return (description or f"{product_name} installer").strip() or product_name
+
+
+def _resolve_install_directory(install_dir_name: str | None, product_name: str) -> str:
+    """Determine the installation directory name for the product."""
+    return _normalise_directory_name(install_dir_name or product_name)
+
+
 def _resolve_product_metadata(
     *,
     app_filename: str,
@@ -270,18 +306,10 @@ def _resolve_product_metadata(
     description: str | None,
     install_dir_name: str | None,
 ) -> tuple[str, str, str, str]:
-    chosen_product = (
-        product_name or app_filename.removesuffix(".exe") or app_filename
-    ).strip()
-    if not chosen_product:
-        chosen_product = app_filename
-    chosen_manufacturer = (
-        manufacturer or "Unknown Publisher"
-    ).strip() or "Unknown Publisher"
-    chosen_description = (
-        description or f"{chosen_product} installer"
-    ).strip() or chosen_product
-    chosen_install_dir = _normalise_directory_name(install_dir_name or chosen_product)
+    chosen_product = _resolve_product_name(product_name, app_filename)
+    chosen_manufacturer = _resolve_manufacturer_name(manufacturer)
+    chosen_description = _resolve_product_description(description, chosen_product)
+    chosen_install_dir = _resolve_install_directory(install_dir_name, chosen_product)
     return (
         chosen_product,
         chosen_manufacturer,

@@ -46,6 +46,47 @@ function Invoke-PythonScript {
     return $output
 }
 
+function Ensure-OutputDirectory {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Path
+    )
+
+    $directory = Split-Path -Path $Path -Parent
+    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+}
+
+function Build-ConverterArguments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Converter,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $SourcePath
+    )
+
+    $arguments = @(
+        $Converter,
+        '--input',
+        $SourcePath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
+        $rtfTarget = [System.IO.Path]::GetFullPath($env:LICENSE_RTF_PATH)
+        Ensure-OutputDirectory -Path $rtfTarget
+        $arguments += @('--output', $rtfTarget)
+    }
+
+    return ,$arguments
+}
+
 function Process-LicenseFile {
     if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_TEXT_PATH)) {
         $sourcePath = Resolve-Path -LiteralPath $env:LICENSE_TEXT_PATH -ErrorAction SilentlyContinue
@@ -60,15 +101,7 @@ function Process-LicenseFile {
             exit 1
         }
 
-        $arguments = @($converter, '--input', $sourcePath.Path)
-        if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
-            $rtfTarget = [System.IO.Path]::GetFullPath($env:LICENSE_RTF_PATH)
-            $rtfDirectory = Split-Path -Path $rtfTarget -Parent
-            if (-not [string]::IsNullOrWhiteSpace($rtfDirectory) -and -not (Test-Path -LiteralPath $rtfDirectory)) {
-                New-Item -ItemType Directory -Path $rtfDirectory -Force | Out-Null
-            }
-            $arguments += @('--output', $rtfTarget)
-        }
+        $arguments = Build-ConverterArguments -Converter $converter -SourcePath $sourcePath.Path
 
         $generatedOutput = Invoke-PythonScript -Arguments $arguments
         $generatedPath = $generatedOutput.Trim()
@@ -124,23 +157,20 @@ function Build-WxsGenerationArguments {
         $ApplicationSpec
     )
 
-    if (-not [string]::IsNullOrWhiteSpace($env:PRODUCT_NAME)) {
-        $arguments += @('--product-name', $env:PRODUCT_NAME)
+    $optionalArgs = @{
+        'PRODUCT_NAME'    = '--product-name'
+        'MANUFACTURER'    = '--manufacturer'
+        'INSTALL_DIR_NAME' = '--install-dir-name'
+        'DESCRIPTION'     = '--description'
+        'UPGRADE_CODE'    = '--upgrade-code'
+        'LICENSE_RTF_PATH' = '--license-path'
     }
-    if (-not [string]::IsNullOrWhiteSpace($env:MANUFACTURER)) {
-        $arguments += @('--manufacturer', $env:MANUFACTURER)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:INSTALL_DIR_NAME)) {
-        $arguments += @('--install-dir-name', $env:INSTALL_DIR_NAME)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:DESCRIPTION)) {
-        $arguments += @('--description', $env:DESCRIPTION)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:UPGRADE_CODE)) {
-        $arguments += @('--upgrade-code', $env:UPGRADE_CODE)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:LICENSE_RTF_PATH)) {
-        $arguments += @('--license-path', $env:LICENSE_RTF_PATH)
+
+    foreach ($envVar in $optionalArgs.Keys) {
+        $value = ${env:$envVar}
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $arguments += @($optionalArgs[$envVar], $value)
+        }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($env:ADDITIONAL_FILES)) {

@@ -9,7 +9,8 @@ one composite call.
 
 - Installs the WiX v4 CLI and UI extension on the runner.
 - Resolves the MSI version from an explicit input or a tagged Git reference.
-- Builds a single-file MSI (`EmbedCab="yes"`) for the supplied WiX authoring.
+- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a generated template that
+  installs the provided application and supporting files.
 - Optionally uploads the generated MSI via `actions/upload-artifact`.
 
 > [!IMPORTANT]
@@ -31,11 +32,22 @@ inputs):
    └─ README.pdf               # documentation shipped with the installer
 ```
 
+The `installer/Package.wxs` authoring is optional—omit it when using the default template and
+provide the executable (and optional additional files) via the `application-path` and
+`additional-files` inputs.
+
 ## Inputs
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `wxs-path` | no | `installer/Package.wxs` | Path to the WiX authoring file used to build the MSI. |
+| `wxs-path` | no | `''` | Path to the WiX authoring file used to build the MSI. When omitted a default template is rendered. |
+| `application-path` | no | `''` | Main executable or bundle to install. Append `\|relative\\path` to customise the install location. |
+| `additional-files` | no | `''` | Additional `source\|relative\\path` mappings (one per line) to include in the installer. |
+| `product-name` | no | `''` | Product name used by the generated template when `wxs-path` is omitted. |
+| `manufacturer` | no | `''` | Manufacturer string embedded by the generated template. |
+| `install-dir-name` | no | `''` | Optional install directory name (defaults to a sanitised product name). |
+| `description` | no | `''` | Installer description stored in MSI summary information when templating. |
+| `upgrade-code` | no | `''` | Optional UpgradeCode GUID. A deterministic GUID is derived when omitted. |
 | `architecture` | no | `x64` | Architecture supplied to `wix build` (`x86`, `x64`, or `arm64`). |
 | `version` | no | _auto_ | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`. |
 | `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
@@ -71,6 +83,11 @@ jobs:
       - name: Build WiX MSI
         uses: ./.github/actions/windows-package
         with:
+          application-path: dist/win/MyApp.exe
+          additional-files: |
+            docs/manual.pdf|docs/manual.pdf
+          product-name: MyApp
+          manufacturer: Example Org
           output-basename: MyApp
           architecture: x64
           # version: "1.2.3"               # optional override

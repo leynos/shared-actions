@@ -11,6 +11,8 @@
 - Clarify documentation to use the `$(var.Version)` preprocessor form.
 - Convert UTF-8 plain text license files to RTF automatically when requested
   via the `license-plaintext-path` and `license-rtf-path` inputs.
+- Generate WiX authoring from a Jinja2 template when `wxs-path` is omitted and
+  surface new inputs for product metadata and additional files.
 
 ## windows-package-v0.1.0
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
+import types
 import typing as typ
 from pathlib import Path
 
@@ -23,7 +25,39 @@ from windows_installer import (
     render_default_wxs,
 )
 
+_SELF_MODULE: types.ModuleType
+if __name__ not in sys.modules:
+    _SELF_MODULE = types.ModuleType(__name__)
+    sys.modules[__name__] = _SELF_MODULE
+else:
+    _SELF_MODULE = sys.modules[__name__]
+
 app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[unknown-argument]
+
+
+@dataclasses.dataclass(frozen=True)
+class WxsConfiguration:
+    """Configuration required to generate WiX authoring."""
+
+    version: str
+    architecture: str
+    application: str
+
+
+@dataclasses.dataclass(frozen=True)
+class WxsMetadata:
+    """Optional metadata applied when rendering WiX authoring."""
+
+    product_name: str | None = None
+    manufacturer: str | None = None
+    install_dir_name: str | None = None
+    description: str | None = None
+    upgrade_code: str | None = None
+    license_path: str | None = None
+    additional_files: list[str] | None = None
+
+
+_SELF_MODULE.__dict__.update(globals())
 
 
 def _parse_additional_files(values: list[str] | None) -> list[FileSpecification]:
@@ -37,35 +71,28 @@ def _parse_additional_files(values: list[str] | None) -> list[FileSpecification]
 def _generate_wxs_file(
     *,
     output: Path,
-    version: str,
-    architecture: str,
-    application: str,
-    product_name: str | None = None,
-    manufacturer: str | None = None,
-    install_dir_name: str | None = None,
-    description: str | None = None,
-    upgrade_code: str | None = None,
-    license_path: str | None = None,
-    additional_file: list[str] | None = None,
+    config: WxsConfiguration,
+    metadata: WxsMetadata | None = None,
 ) -> Path:
     """Generate WiX authoring and return the absolute output path."""
     output_path = output if output.is_absolute() else Path.cwd() / output
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    app_spec = parse_file_specification(application)
-    extras = _parse_additional_files(additional_file)
+    meta = metadata or WxsMetadata()
+    app_spec = parse_file_specification(config.application)
+    extras = _parse_additional_files(meta.additional_files)
 
     options = prepare_template_options(
-        version=version,
-        architecture=architecture,
+        version=config.version,
+        architecture=config.architecture,
         application=app_spec,
-        product_name=product_name,
-        manufacturer=manufacturer,
-        install_dir_name=install_dir_name,
-        description=description,
-        upgrade_code=upgrade_code,
+        product_name=meta.product_name,
+        manufacturer=meta.manufacturer,
+        install_dir_name=meta.install_dir_name,
+        description=meta.description,
+        upgrade_code=meta.upgrade_code,
         additional_files=extras,
-        license_path=license_path,
+        license_path=meta.license_path,
     )
 
     authoring = render_default_wxs(options)
@@ -91,18 +118,24 @@ def main(
 ) -> None:
     """Generate WiX authoring for ``application`` and supporting files."""
     try:
-        output_path = _generate_wxs_file(
-            output=output,
+        config = WxsConfiguration(
             version=version,
             architecture=architecture,
             application=application,
+        )
+        metadata = WxsMetadata(
             product_name=product_name,
             manufacturer=manufacturer,
             install_dir_name=install_dir_name,
             description=description,
             upgrade_code=upgrade_code,
             license_path=license_path,
-            additional_file=additional_file,
+            additional_files=additional_file,
+        )
+        output_path = _generate_wxs_file(
+            output=output,
+            config=config,
+            metadata=metadata,
         )
     except TemplateError as exc:
         print(f"error: {exc}", file=sys.stderr)

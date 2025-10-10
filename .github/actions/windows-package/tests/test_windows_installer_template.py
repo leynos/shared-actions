@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -101,6 +104,40 @@ def test_generate_wxs_cli_writes_file(
     assert "Widget" in contents
     assert "ProgramFiles64Folder" in contents
     assert "logo.ico" in contents
+
+
+def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:
+    """The CLI should honour the INPUT_VERSION environment variable."""
+    app_path = tmp_path / "binary.exe"
+    app_path.write_bytes(b"binary")
+
+    output_path = tmp_path / "Package.wxs"
+
+    env = os.environ.copy()
+    env.pop("INPUT_VERSION", None)
+    env["INPUT_VERSION"] = "2.5.0"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(GENERATE_WXS_PATH),
+            "--output",
+            str(output_path),
+            "--architecture",
+            "x64",
+            "--application",
+            str(app_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.stdout.strip() == str(output_path)
+    assert output_path.exists()
+    contents = output_path.read_text(encoding="utf-8")
+    assert "Version=\"2.5.0\"" in contents
 
 
 def test_parse_file_specification_rejects_empty() -> None:

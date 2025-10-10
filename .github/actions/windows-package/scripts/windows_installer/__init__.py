@@ -72,7 +72,6 @@ _DEFAULT_TEMPLATE = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
         Title=\"{{ product_name }}\"
         Level=\"1\"
         Display=\"expand\"
-        Absent=\"disallow\"
     >
       {% for component in components -%}
       <ComponentRef Id=\"{{ component.id }}\" />

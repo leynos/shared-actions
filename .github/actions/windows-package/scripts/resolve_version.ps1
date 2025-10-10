@@ -15,7 +15,8 @@ available, and ultimately emits a deterministic three-part ProductVersion.
 Get-MsiVersion is the focal point: it normalises raw candidates, rejects
 invalid combinations, and pads missing components so that downstream callers do
 not replicate defensive logic. Helper functions keep each normalisation stage
-focused on a single concern to minimise drift between validation and comments.
+focused on a single responsibility so future edits remain readable without
+heavy inline commentary.
 #>
 
 function Write-Log {
@@ -80,9 +81,11 @@ function ConvertTo-Version {
 function Validate-MsiVersion {
     param([System.Version] $version)
 
+    # MSI ProductVersion constrains Major to 0–255.
     if ($version.Major -gt 255) {
         return $null
     }
+    # MSI ProductVersion constrains Minor to 0–255.
     if ($version.Minor -gt 255) {
         return $null
     }

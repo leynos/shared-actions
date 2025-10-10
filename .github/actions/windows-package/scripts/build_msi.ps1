@@ -373,4 +373,6 @@ function Invoke-Main {
     "msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
-Invoke-Main
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-Main
+}

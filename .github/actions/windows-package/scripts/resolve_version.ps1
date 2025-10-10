@@ -7,33 +7,32 @@ function Get-MsiVersion([string] $candidate) {
     if ([string]::IsNullOrWhiteSpace($candidate)) {
         return $null
     }
+
     $trimmed = $candidate.Trim()
-    $pattern = '^[vV]?\d+(\.\d+){0,2}$'
-    if ($trimmed -notmatch $pattern) {
+    $trimmed = $trimmed.TrimStart('v', 'V')
+    try {
+        $version = [System.Version]$trimmed
+    }
+    catch {
         return $null
     }
-    $numeric = $trimmed.TrimStart('v', 'V')
-    $parts = $numeric.Split('.', [System.StringSplitOptions]::RemoveEmptyEntries)
-    while ($parts.Count -lt 3) {
-        $parts += '0'
+
+    if ($version.Major -lt 0 -or $version.Major -gt 255) {
+        return $null
     }
-    if ($parts.Count -gt 3) {
-        $parts = $parts[0..2]
+    if ($version.Minor -lt 0 -or $version.Minor -gt 255) {
+        return $null
     }
-    $validated = @()
-    for ($i = 0; $i -lt $parts.Count; $i++) {
-        $part = $parts[$i]
-        $value = 0
-        if (-not [int]::TryParse($part, [ref]$value)) {
-            return $null
-        }
-        $max = if ($i -eq 2) { 65535 } else { 255 }
-        if ($value -lt 0 -or $value -gt $max) {
-            return $null
-        }
-        $validated += $value
+    if ($version.Revision -ge 0) {
+        return $null
     }
-    return ($validated -join '.')
+
+    $build = if ($version.Build -lt 0) { 0 } else { $version.Build }
+    if ($build -gt 65535) {
+        return $null
+    }
+
+    return ([System.Version]::new($version.Major, $version.Minor, $build)).ToString()
 }
 
 $versionSource = 'default'

@@ -54,9 +54,11 @@ def _run_script(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     ("candidate", "expected"),
     [
         ("v1", "1.0.0"),
+        ("V2", "2.0.0"),
         ("v1.2", "1.2.0"),
         ("1.2.3", "1.2.3"),
         ("  v01.02  ", "1.2.0"),
+        ("3", "3.0.0"),
     ],
 )
 def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> None:
@@ -70,6 +72,8 @@ def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> 
         "v1.2.3.4",
         "v1..2",
         "v1.2.-1",
+        "256.0.0",
+        "0.256.0",
         "v1.2.70000",
         "version",
     ],

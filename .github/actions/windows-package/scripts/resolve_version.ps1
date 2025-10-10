@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
+Set-StrictMode -Version Latest
 
 <#
 .SYNOPSIS

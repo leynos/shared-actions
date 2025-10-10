@@ -71,6 +71,7 @@ def test_render_default_wxs_builds_directory_structure(tmp_path: Path) -> None:
     assert 'UpgradeCode="12345678-1234-1234-1234-1234567890AB"' in authoring
     assert '<StandardDirectory Id="ProgramFiles64Folder"' in authoring
     assert '<Directory Id="INSTALLFOLDER" Name="SampleApp">' in authoring
+    assert 'Absent=' not in authoring
     # File sources should be converted to Windows-style absolute paths
     assert 'app.exe" />' in authoring
     assert 'docs\\guide.txt"' in authoring
@@ -107,6 +108,7 @@ def test_generate_wxs_cli_writes_file(
     assert "Widget" in contents
     assert "ProgramFiles64Folder" in contents
     assert "logo.ico" in contents
+    assert "Absent=" not in contents
 
 
 def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:

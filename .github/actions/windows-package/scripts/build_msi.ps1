@@ -8,6 +8,16 @@ $ErrorActionPreference = 'Stop'
 $script:PythonCommand = $null
 $script:PythonArgs = @()
 
+function Ensure-WixToolAvailable {
+    $wixCommand = Get-Command -Name wix -ErrorAction SilentlyContinue
+    if (-not $wixCommand) {
+        Write-Error 'WiX toolset not found on PATH. Ensure install_wix_cli.ps1 completed successfully.'
+        exit 1
+    }
+
+    return $wixCommand
+}
+
 function Ensure-PythonCommand {
     if ($script:PythonCommand) {
         return
@@ -247,6 +257,16 @@ function Ensure-WxsFile {
         $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
         $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
 
+        Write-Host "Generating WXS file at: $targetWxs"
+        Ensure-PythonCommand
+        $pythonExecutable = if ($script:PythonCommand.Source) { $script:PythonCommand.Source } else { $script:PythonCommand.Name }
+        $pythonArgumentList = @()
+        if ($script:PythonArgs.Count -gt 0) {
+            $pythonArgumentList += $script:PythonArgs
+        }
+        $pythonArgumentList += $arguments
+        Write-Host "Generation command: $pythonExecutable $($pythonArgumentList -join ' ')"
+
         try {
             $generationResult = Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock {
                 Invoke-PythonScript -Arguments $arguments
@@ -283,6 +303,8 @@ function Build-MsiPackage {
         $Architecture
     )
 
+    $wixCommand = Ensure-WixToolAvailable
+
     $arguments = @('build', $env:WXS_PATH)
     if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
         $extensions = $env:WIX_EXTENSION -split '[,\s]+'
@@ -295,10 +317,27 @@ function Build-MsiPackage {
     }
 
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)
-    wix @arguments
+    $wixExecutable = $wixCommand.Name
+    $wixExecutablePath = if ($wixCommand.Source -and (Test-Path -LiteralPath $wixCommand.Source)) { $wixCommand.Source } elseif ($wixCommand.Path) { $wixCommand.Path } else { $wixCommand.Name }
+    Write-Host "Executing WiX command: $wixExecutablePath $($arguments -join ' ')"
+
+    $wixOutput = & $wixExecutable @arguments 2>&1
+    $wixExitCode = $LASTEXITCODE
+
+    if ($wixOutput) {
+        Write-Host 'WiX output:'
+        foreach ($line in $wixOutput) {
+            Write-Host $line
+        }
+    }
+
+    if ($wixExitCode -ne 0) {
+        Write-Error "WiX build failed with exit code $wixExitCode. See output above for details."
+        exit $wixExitCode
+    }
 
     if (-not (Test-Path -LiteralPath $OutputPath)) {
-        Write-Error "MSI build failed: output file '$OutputPath' was not created."
+        Write-Error "MSI build completed with exit code 0 but output file '$OutputPath' was not created. This may indicate a WiX configuration issue."
         exit 1
     }
 

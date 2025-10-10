@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 import types
 from pathlib import Path
 
@@ -261,6 +262,105 @@ def test_build_msi_requires_version_input_when_none_provided() -> None:
 
     assert result.returncode != 0
     assert "VERSION environment variable or INPUT_VERSION must be provided" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_requires_wix_tool(tmp_path: Path) -> None:
+    """Surface a clear error when wix is unavailable on PATH."""
+    env = os.environ.copy()
+    env["WXS_PATH"] = str(tmp_path / "input.wxs")
+    env["VERSION"] = "1.0.0"
+    env["OUTPUT_DIRECTORY"] = str(tmp_path)
+    env["PATH"] = ""
+
+    Path(env["WXS_PATH"]).write_text("<Wix/>", encoding="utf-8")
+
+    output_path = tmp_path / "package.msi"
+    command = textwrap.dedent(
+        f"""
+        . \"{BUILD_MSI_SCRIPT_PATH}\"
+        Build-MsiPackage -OutputPath \"{output_path}\" -Architecture x64
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode != 0
+    assert "WiX toolset not found on PATH" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
+    """The WiX build step should emit the executed command and captured output."""
+    env = os.environ.copy()
+    env["WXS_PATH"] = str(tmp_path / "input.wxs")
+    env["VERSION"] = "9.9.9"
+    env["OUTPUT_DIRECTORY"] = str(tmp_path)
+
+    wix_output_path = tmp_path / "package.msi"
+    Path(env["WXS_PATH"]).write_text("<Wix/>", encoding="utf-8")
+
+    command = textwrap.dedent(
+        f"""
+        . \"{BUILD_MSI_SCRIPT_PATH}\"
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            $global:LASTEXITCODE = 0
+            $outputIndex = $args.IndexOf('-o')
+            if ($outputIndex -ge 0 -and $outputIndex + 1 -lt $args.Count) {{
+                $target = $args[$outputIndex + 1]
+                Set-Content -LiteralPath $target -Value 'dummy' -Encoding utf8
+            }}
+            Write-Output 'Simulated WiX output'
+        }}
+        $result = Build-MsiPackage -OutputPath \"{wix_output_path}\" -Architecture x64
+        Write-Output \"result:$result\"
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    assert wix_output_path.exists()
+
+    stdout = result.stdout
+    assert "Executing WiX command:" in stdout
+    assert "wix" in stdout
+    assert "WiX output:" in stdout
+    assert "Simulated WiX output" in stdout
+    assert any(line.startswith("result:") for line in stdout.splitlines())
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
+    """Non-zero WiX exits should propagate with captured output."""
+    env = os.environ.copy()
+    env["WXS_PATH"] = str(tmp_path / "input.wxs")
+    env["VERSION"] = "3.4.5"
+    env["OUTPUT_DIRECTORY"] = str(tmp_path)
+
+    Path(env["WXS_PATH"]).write_text("<Wix/>", encoding="utf-8")
+    output_path = tmp_path / "package.msi"
+
+    command = textwrap.dedent(
+        f"""
+        . \"{BUILD_MSI_SCRIPT_PATH}\"
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            Write-Error 'WiX compiler failed'
+            $global:LASTEXITCODE = 17
+        }}
+        Build-MsiPackage -OutputPath \"{output_path}\" -Architecture x64
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 17
+    assert "WiX output:" in result.stdout
+    assert "WiX compiler failed" in result.stdout
+    assert "WiX build failed with exit code 17" in result.stderr
+    assert not output_path.exists()
 
 
 def test_parse_file_specification_rejects_empty() -> None:

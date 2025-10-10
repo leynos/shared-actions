@@ -9,9 +9,34 @@ function Get-MsiVersion([string] $candidate) {
     }
 
     $trimmed = $candidate.Trim()
-    $trimmed = $trimmed.TrimStart('v', 'V')
+    $numeric = $trimmed.TrimStart('v', 'V')
+
+    if ([string]::IsNullOrWhiteSpace($numeric)) {
+        return $null
+    }
+
+    $rawParts = $numeric.Split('.')
+    if ($rawParts.Count -gt 3) {
+        return $null
+    }
+
+    $parts = @()
+    foreach ($rawPart in $rawParts) {
+        $part = $rawPart.Trim()
+        if ($part.Length -eq 0) {
+            return $null
+        }
+        $parts += $part
+    }
+
+    while ($parts.Count -lt 3) {
+        $parts += '0'
+    }
+
+    $normalized = $parts -join '.'
+
     try {
-        $version = [System.Version]$trimmed
+        $version = [System.Version]$normalized
     }
     catch {
         return $null

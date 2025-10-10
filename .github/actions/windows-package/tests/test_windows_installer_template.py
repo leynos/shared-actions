@@ -71,11 +71,11 @@ def test_render_default_wxs_builds_directory_structure(tmp_path: Path) -> None:
     assert 'UpgradeCode="12345678-1234-1234-1234-1234567890AB"' in authoring
     assert '<StandardDirectory Id="ProgramFiles64Folder"' in authoring
     assert '<Directory Id="INSTALLFOLDER" Name="SampleApp">' in authoring
-    assert 'Absent=' not in authoring
+    assert "Absent=" not in authoring
     assert 'xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"' in authoring
     assert 'InstallDirectory="INSTALLFOLDER"' in authoring
     assert 'ExtendedPathValidation="yes"' in authoring
-    assert 'WIXUI_INSTALLDIR' not in authoring
+    assert "WIXUI_INSTALLDIR" not in authoring
     # File sources should be converted to Windows-style absolute paths
     assert 'app.exe" />' in authoring
     assert 'docs\\guide.txt"' in authoring
@@ -116,7 +116,7 @@ def test_generate_wxs_cli_writes_file(
     assert 'xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"' in contents
     assert 'InstallDirectory="INSTALLFOLDER"' in contents
     assert 'ExtendedPathValidation="yes"' in contents
-    assert 'WIXUI_INSTALLDIR' not in contents
+    assert "WIXUI_INSTALLDIR" not in contents
 
 
 def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:
@@ -150,7 +150,7 @@ def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:
     assert result.stdout.strip() == str(output_path)
     assert output_path.exists()
     contents = output_path.read_text(encoding="utf-8")
-    assert "Version=\"2.5.0\"" in contents
+    assert 'Version="2.5.0"' in contents
 
 
 def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> None:
@@ -179,7 +179,7 @@ def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> N
     )
 
     assert result.returncode != 0
-    assert "Parameter \"--version\" requires an argument." in result.stdout
+    assert 'Parameter "--version" requires an argument.' in result.stdout
 
 
 def _run_pwsh(command: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -202,7 +202,7 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
     env["VERSION"] = "7.8.9"
 
     command = (
-        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         "Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock { Write-Output $env:INPUT_VERSION }"
     )
 
@@ -220,11 +220,11 @@ def test_build_msi_restores_existing_input_version() -> None:
     env["VERSION"] = "9.2.6"
 
     command = (
-        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         "$output = Invoke-WithTemporaryInputVersion -Version $env:VERSION "
-        "-ScriptBlock { Write-Output \"during:$env:INPUT_VERSION\" }; "
+        '-ScriptBlock { Write-Output "during:$env:INPUT_VERSION" }; '
         "Write-Output $output; "
-        "Write-Output \"after:$env:INPUT_VERSION\""
+        'Write-Output "after:$env:INPUT_VERSION"'
     )
 
     result = _run_pwsh(command, env)
@@ -242,11 +242,11 @@ def test_build_msi_reuses_existing_input_version_when_version_missing() -> None:
     env.pop("VERSION", None)
 
     command = (
-        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         "$output = Invoke-WithTemporaryInputVersion -ScriptBlock { "
-        "Write-Output \"during:$env:INPUT_VERSION\" }; "
+        'Write-Output "during:$env:INPUT_VERSION" }; '
         "Write-Output $output; "
-        "Write-Output \"after:$env:INPUT_VERSION\""
+        'Write-Output "after:$env:INPUT_VERSION"'
     )
 
     result = _run_pwsh(command, env)
@@ -264,14 +264,17 @@ def test_build_msi_requires_version_input_when_none_provided() -> None:
     env.pop("VERSION", None)
 
     command = (
-        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         "Invoke-WithTemporaryInputVersion -ScriptBlock { Write-Output 'noop' }"
     )
 
     result = _run_pwsh(command, env)
 
     assert result.returncode != 0
-    assert "VERSION environment variable or INPUT_VERSION must be provided" in result.stderr
+    assert (
+        "VERSION environment variable or INPUT_VERSION must be provided"
+        in result.stderr
+    )
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")

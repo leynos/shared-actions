@@ -80,22 +80,19 @@ function ConvertTo-Version {
 function Validate-MsiVersion {
     param([System.Version] $version)
 
-    if ($version.Major -lt 0 -or $version.Major -gt 255) {
+    if ($version.Major -gt 255) {
         return $null
     }
-    if ($version.Minor -lt 0 -or $version.Minor -gt 255) {
-        return $null
-    }
-    if ($version.Revision -ge 0) {
+    if ($version.Minor -gt 255) {
         return $null
     }
 
-    $build = if ($version.Build -lt 0) { 0 } else { $version.Build }
-    if ($build -gt 65535) {
+    # MSI ProductVersion caps Build at 65535.
+    if ($version.Build -gt 65535) {
         return $null
     }
 
-    return [System.Version]::new($version.Major, $version.Minor, $build)
+    return [System.Version]::new($version.Major, $version.Minor, $version.Build)
 }
 
 function Get-MsiVersion {

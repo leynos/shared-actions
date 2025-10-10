@@ -173,10 +173,10 @@ if __name__ == "__main__":
     except cyclopts_exceptions.UsageError as exc:  # pragma: no cover - defensive
         message = str(exc)
         safe_message = (
-            message.replace("“", '"')
-            .replace("”", '"')
-            .replace("‘", "'")
-            .replace("’", "'")
+            message.replace("\u201c", '"')
+            .replace("\u201d", '"')
+            .replace("\u2018", "'")
+            .replace("\u2019", "'")
         )
         stream = sys.stdout if getattr(exc, "use_stdout", False) else sys.stderr
         print(safe_message, file=stream)

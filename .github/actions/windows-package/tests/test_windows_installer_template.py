@@ -5,13 +5,15 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
-import subprocess
 import sys
 import textwrap
 import types
 from pathlib import Path
 
 import pytest
+from plumbum import local
+
+from cmd_utils_importer import import_cmd_utils
 
 MODULE_DIR = Path(__file__).resolve().parents[1] / "scripts"
 WINDOWS_INSTALLER_PATH = MODULE_DIR / "windows_installer" / "__init__.py"
@@ -32,6 +34,10 @@ def _load_module(path: Path, name: str) -> types.ModuleType:
 
 WINDOWS_INSTALLER = _load_module(WINDOWS_INSTALLER_PATH, "windows_installer")
 GENERATE_WXS = _load_module(GENERATE_WXS_PATH, "generate_wxs")
+
+_cmd_utils = import_cmd_utils()
+run_cmd = _cmd_utils.run_cmd
+RunResult = _cmd_utils.RunResult
 
 
 def test_render_default_wxs_builds_directory_structure(tmp_path: Path) -> None:
@@ -130,23 +136,19 @@ def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:
     env.pop("INPUT_VERSION", None)
     env["INPUT_VERSION"] = "2.5.0"
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(GENERATE_WXS_PATH),
-            "--output",
-            str(output_path),
-            "--architecture",
-            "x64",
-            "--application",
-            str(app_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    command = local[sys.executable][
+        str(GENERATE_WXS_PATH),
+        "--output",
+        str(output_path),
+        "--architecture",
+        "x64",
+        "--application",
+        str(app_path),
+    ]
 
+    result = run_cmd(command, method="run", env=env)
+
+    assert result.returncode == 0
     assert result.stdout.strip() == str(output_path)
     assert output_path.exists()
     contents = output_path.read_text(encoding="utf-8")
@@ -162,36 +164,29 @@ def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> N
     env.pop("INPUT_VERSION", None)
     env.pop("VERSION", None)
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(GENERATE_WXS_PATH),
-            "--output",
-            str(tmp_path / "Package.wxs"),
-            "--architecture",
-            "x64",
-            "--application",
-            str(app_path),
-        ],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    command = local[sys.executable][
+        str(GENERATE_WXS_PATH),
+        "--output",
+        str(tmp_path / "Package.wxs"),
+        "--architecture",
+        "x64",
+        "--application",
+        str(app_path),
+    ]
+
+    result = run_cmd(command, method="run", env=env)
 
     assert result.returncode != 0
     assert 'Parameter "--version" requires an argument.' in result.stdout
 
 
-def _run_pwsh(command: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _run_pwsh(command: str, env: dict[str, str]) -> RunResult:
     pwsh = shutil.which("pwsh")
     if pwsh is None:  # pragma: no cover - guarded by skip condition
-        raise RuntimeError("pwsh is required for this test")
-    return subprocess.run(
-        [pwsh, "-NoLogo", "-NoProfile", "-Command", command],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+        message = "pwsh is required for this test"
+        raise RuntimeError(message)
+    pwsh_cmd = local[pwsh]["-NoLogo", "-NoProfile", "-Command", command]
+    return run_cmd(pwsh_cmd, method="run", env=env)
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
@@ -201,9 +196,14 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
     env.pop("INPUT_VERSION", None)
     env["VERSION"] = "7.8.9"
 
-    command = (
-        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
-        "Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock { Write-Output $env:INPUT_VERSION }"
+    command = "; ".join(
+        [
+            f'. "{BUILD_MSI_SCRIPT_PATH}"',
+            (
+                "Invoke-WithTemporaryInputVersion -Version $env:VERSION "
+                "-ScriptBlock { Write-Output $env:INPUT_VERSION }"
+            ),
+        ]
     )
 
     result = _run_pwsh(command, env)
@@ -236,7 +236,7 @@ def test_build_msi_restores_existing_input_version() -> None:
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
 def test_build_msi_reuses_existing_input_version_when_version_missing() -> None:
-    """The helper should defer to a pre-existing INPUT_VERSION when VERSION is absent."""
+    """Helper reuses existing INPUT_VERSION when VERSION is absent."""
     env = os.environ.copy()
     env["INPUT_VERSION"] = "5.4.3"
     env.pop("VERSION", None)

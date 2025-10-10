@@ -332,7 +332,7 @@ function Build-MsiPackage {
     }
 
     if ($wixExitCode -ne 0) {
-        Write-Error "WiX build failed with exit code $wixExitCode. See output above for details."
+        Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue
         exit $wixExitCode
     }
 

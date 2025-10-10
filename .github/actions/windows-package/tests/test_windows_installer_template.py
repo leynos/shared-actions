@@ -72,6 +72,10 @@ def test_render_default_wxs_builds_directory_structure(tmp_path: Path) -> None:
     assert '<StandardDirectory Id="ProgramFiles64Folder"' in authoring
     assert '<Directory Id="INSTALLFOLDER" Name="SampleApp">' in authoring
     assert 'Absent=' not in authoring
+    assert 'xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"' in authoring
+    assert 'InstallDirectory="INSTALLFOLDER"' in authoring
+    assert 'ExtendedPathValidation="yes"' in authoring
+    assert 'WIXUI_INSTALLDIR' not in authoring
     # File sources should be converted to Windows-style absolute paths
     assert 'app.exe" />' in authoring
     assert 'docs\\guide.txt"' in authoring
@@ -109,6 +113,10 @@ def test_generate_wxs_cli_writes_file(
     assert "ProgramFiles64Folder" in contents
     assert "logo.ico" in contents
     assert "Absent=" not in contents
+    assert 'xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"' in contents
+    assert 'InstallDirectory="INSTALLFOLDER"' in contents
+    assert 'ExtendedPathValidation="yes"' in contents
+    assert 'WIXUI_INSTALLDIR' not in contents
 
 
 def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:

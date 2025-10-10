@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import types
@@ -14,6 +15,7 @@ import pytest
 MODULE_DIR = Path(__file__).resolve().parents[1] / "scripts"
 WINDOWS_INSTALLER_PATH = MODULE_DIR / "windows_installer" / "__init__.py"
 GENERATE_WXS_PATH = MODULE_DIR / "generate_wxs.py"
+BUILD_MSI_SCRIPT_PATH = MODULE_DIR / "build_msi.ps1"
 
 
 def _load_module(path: Path, name: str) -> types.ModuleType:
@@ -138,6 +140,127 @@ def test_generate_wxs_cli_uses_env_version(tmp_path: Path) -> None:
     assert output_path.exists()
     contents = output_path.read_text(encoding="utf-8")
     assert "Version=\"2.5.0\"" in contents
+
+
+def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> None:
+    """Omitting version inputs should surface a clear CLI error."""
+    app_path = tmp_path / "binary.exe"
+    app_path.write_bytes(b"binary")
+
+    env = os.environ.copy()
+    env.pop("INPUT_VERSION", None)
+    env.pop("VERSION", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(GENERATE_WXS_PATH),
+            "--output",
+            str(tmp_path / "Package.wxs"),
+            "--architecture",
+            "x64",
+            "--application",
+            str(app_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "Parameter \"--version\" requires an argument." in result.stdout
+
+
+def _run_pwsh(command: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:  # pragma: no cover - guarded by skip condition
+        raise RuntimeError("pwsh is required for this test")
+    return subprocess.run(
+        [pwsh, "-NoLogo", "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_sets_input_version_from_version_env() -> None:
+    """VERSION should seed INPUT_VERSION for the generator invocation."""
+    env = os.environ.copy()
+    env.pop("INPUT_VERSION", None)
+    env["VERSION"] = "7.8.9"
+
+    command = (
+        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        "Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock { Write-Output $env:INPUT_VERSION }"
+    )
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "7.8.9"
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_restores_existing_input_version() -> None:
+    """Existing INPUT_VERSION values should be restored after invocation."""
+    env = os.environ.copy()
+    env["INPUT_VERSION"] = "3.1.4"
+    env["VERSION"] = "9.2.6"
+
+    command = (
+        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        "$output = Invoke-WithTemporaryInputVersion -Version $env:VERSION "
+        "-ScriptBlock { Write-Output \"during:$env:INPUT_VERSION\" }; "
+        "Write-Output $output; "
+        "Write-Output \"after:$env:INPUT_VERSION\""
+    )
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    assert lines == ["during:9.2.6", "after:3.1.4"]
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_reuses_existing_input_version_when_version_missing() -> None:
+    """The helper should defer to a pre-existing INPUT_VERSION when VERSION is absent."""
+    env = os.environ.copy()
+    env["INPUT_VERSION"] = "5.4.3"
+    env.pop("VERSION", None)
+
+    command = (
+        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        "$output = Invoke-WithTemporaryInputVersion -ScriptBlock { "
+        "Write-Output \"during:$env:INPUT_VERSION\" }; "
+        "Write-Output $output; "
+        "Write-Output \"after:$env:INPUT_VERSION\""
+    )
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    assert lines == ["during:5.4.3", "after:5.4.3"]
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_requires_version_input_when_none_provided() -> None:
+    """Fail fast when neither VERSION nor INPUT_VERSION is available."""
+    env = os.environ.copy()
+    env.pop("INPUT_VERSION", None)
+    env.pop("VERSION", None)
+
+    command = (
+        f". \"{BUILD_MSI_SCRIPT_PATH}\"; "
+        "Invoke-WithTemporaryInputVersion -ScriptBlock { Write-Output 'noop' }"
+    )
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode != 0
+    assert "VERSION environment variable or INPUT_VERSION must be provided" in result.stderr
 
 
 def test_parse_file_specification_rejects_empty() -> None:

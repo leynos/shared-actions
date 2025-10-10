@@ -46,6 +46,46 @@ function Invoke-PythonScript {
     return $output
 }
 
+function Invoke-WithTemporaryInputVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ScriptBlock]
+        $ScriptBlock,
+
+        [string]
+        $Version
+    )
+
+    $hadInputVersion = Test-Path Env:INPUT_VERSION
+    if ($hadInputVersion) {
+        $previousInputVersion = $env:INPUT_VERSION
+    }
+
+    $setNewInputVersion = $false
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($Version)) {
+            $env:INPUT_VERSION = $Version.Trim()
+            if (-not $hadInputVersion) {
+                $setNewInputVersion = $true
+            }
+        }
+        elseif (-not $hadInputVersion) {
+            throw [System.InvalidOperationException]::new('VERSION environment variable or INPUT_VERSION must be provided to generate WiX authoring.')
+        }
+
+        return & $ScriptBlock
+    }
+    finally {
+        if ($hadInputVersion) {
+            $env:INPUT_VERSION = $previousInputVersion
+        }
+        elseif ($setNewInputVersion) {
+            Remove-Item Env:INPUT_VERSION -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Ensure-OutputDirectory {
     [CmdletBinding()]
     param(
@@ -207,22 +247,14 @@ function Ensure-WxsFile {
         $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
         $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
 
-        $hadInputVersion = Test-Path Env:INPUT_VERSION
-        if ($hadInputVersion) {
-            $previousInputVersion = $env:INPUT_VERSION
-        }
-
         try {
-            $env:INPUT_VERSION = $env:VERSION
-            $generationResult = Invoke-PythonScript -Arguments $arguments
+            $generationResult = Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock {
+                Invoke-PythonScript -Arguments $arguments
+            }
         }
-        finally {
-            if ($hadInputVersion) {
-                $env:INPUT_VERSION = $previousInputVersion
-            }
-            else {
-                Remove-Item Env:INPUT_VERSION -ErrorAction SilentlyContinue
-            }
+        catch [System.InvalidOperationException] {
+            Write-Error $_.Exception.Message
+            exit 1
         }
         $generatedWxs = $generationResult.Trim()
         if (-not (Test-Path -LiteralPath $generatedWxs)) {

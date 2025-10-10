@@ -149,8 +149,6 @@ function Build-WxsGenerationArguments {
         $Generator,
         '--output',
         $TargetWxs,
-        '--version',
-        $env:VERSION,
         '--architecture',
         $Architecture,
         '--application',
@@ -209,7 +207,23 @@ function Ensure-WxsFile {
         $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
         $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
 
-        $generationResult = Invoke-PythonScript -Arguments $arguments
+        $hadInputVersion = Test-Path Env:INPUT_VERSION
+        if ($hadInputVersion) {
+            $previousInputVersion = $env:INPUT_VERSION
+        }
+
+        try {
+            $env:INPUT_VERSION = $env:VERSION
+            $generationResult = Invoke-PythonScript -Arguments $arguments
+        }
+        finally {
+            if ($hadInputVersion) {
+                $env:INPUT_VERSION = $previousInputVersion
+            }
+            else {
+                Remove-Item Env:INPUT_VERSION -ErrorAction SilentlyContinue
+            }
+        }
         $generatedWxs = $generationResult.Trim()
         if (-not (Test-Path -LiteralPath $generatedWxs)) {
             Write-Error "Expected WiX authoring was not created: $generatedWxs"

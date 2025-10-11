@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,23 @@ def _run_script(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.fixture
+def script_runner(
+    tmp_path: Path,
+) -> Callable[[dict[str, str]], tuple[subprocess.CompletedProcess[str], Path]]:
+    """Fixture providing a helper to run the script with custom environment variables."""
+
+    def run_with_env(env_vars: dict[str, str]) -> tuple[subprocess.CompletedProcess[str], Path]:
+        output_file = tmp_path / "output.txt"
+        env = os.environ.copy()
+        env["GITHUB_OUTPUT"] = str(output_file)
+        env.update(env_vars)
+        result = _run_script(env)
+        return result, output_file
+
+    return run_with_env
+
+
 @pytest.mark.parametrize(
     ("candidate", "expected"),
     [
@@ -82,47 +100,24 @@ def test_get_msi_version_rejects_invalid_inputs(candidate: str) -> None:
     assert _invoke_get_msi_version(candidate) is None
 
 
-def test_script_honours_explicit_input_version(tmp_path: Path) -> None:
-    output_file = tmp_path / "output.txt"
-    env = os.environ.copy()
-    env.update(
-        {
-            "INPUT_VERSION": "2.3.4",
-            "GITHUB_OUTPUT": str(output_file),
-        }
-    )
-    result = _run_script(env)
+def test_script_honours_explicit_input_version(script_runner) -> None:
+    result, output_file = script_runner({"INPUT_VERSION": "2.3.4"})
     assert result.returncode == 0
     assert "Resolved version (input): 2.3.4" in result.stdout
     assert output_file.read_text(encoding="utf-8").strip() == "version=2.3.4"
 
 
-def test_script_warns_on_invalid_tag(tmp_path: Path) -> None:
-    output_file = tmp_path / "output.txt"
-    env = os.environ.copy()
-    env.update(
-        {
-            "GITHUB_REF_TYPE": "tag",
-            "GITHUB_REF_NAME": "release",
-            "GITHUB_OUTPUT": str(output_file),
-        }
+def test_script_warns_on_invalid_tag(script_runner) -> None:
+    result, output_file = script_runner(
+        {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "release"}
     )
-    result = _run_script(env)
     assert result.returncode == 0
     assert "Tag 'release' does not match" in result.stderr
     assert output_file.read_text(encoding="utf-8").strip() == "version=0.0.0"
 
 
-def test_script_errors_on_invalid_explicit_version(tmp_path: Path) -> None:
-    output_file = tmp_path / "output.txt"
-    env = os.environ.copy()
-    env.update(
-        {
-            "INPUT_VERSION": "invalid",  # fails validation
-            "GITHUB_OUTPUT": str(output_file),
-        }
-    )
-    result = _run_script(env)
+def test_script_errors_on_invalid_explicit_version(script_runner) -> None:
+    result, output_file = script_runner({"INPUT_VERSION": "invalid"})
     assert result.returncode != 0
     assert "Invalid MSI version 'invalid'" in result.stderr
     assert not output_file.exists()

@@ -120,41 +120,59 @@ function Get-MsiVersion {
     return $validated.ToString()
 }
 
+function Resolve-TagVersion {
+    param(
+        [string] $refType,
+        [string] $refName
+    )
+
+    if ($refType -ne 'tag') {
+        if (-not [string]::IsNullOrWhiteSpace($refName)) {
+            Write-Log -Level 'Info' -Message "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
+        }
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($refName)) {
+        return $null
+    }
+
+    $resolved = Get-MsiVersion $refName
+    if ($null -eq $resolved) {
+        Write-Log -Level 'Warning' -Message "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
+        return $null
+    }
+
+    return @{
+        Version = $resolved
+        Source = "tag '$refName'"
+    }
+}
+
 function Invoke-ResolveVersion {
-    $versionSource = 'default'
     $explicitVersion = $env:INPUT_VERSION
-    $resolved = $null
     if (-not [string]::IsNullOrWhiteSpace($explicitVersion)) {
         $resolved = Get-MsiVersion $explicitVersion
         if ($null -eq $resolved) {
             Write-Log -Level 'Error' -Message "Invalid MSI version '$explicitVersion'. Provide numeric major.minor.build where major/minor are 0–255 and build is 0–65535."
             exit 1
         }
-        $versionSource = 'input'
+
+        Write-Log -Level 'Info' -Message "Resolved version (input): $resolved"
+        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        return
     }
 
-    if ($null -eq $resolved) {
-        $refType = $env:GITHUB_REF_TYPE
-        $refName = $env:GITHUB_REF_NAME
-        if ($refType -eq 'tag' -and -not [string]::IsNullOrWhiteSpace($refName)) {
-            $resolved = Get-MsiVersion $refName
-            if ($null -eq $resolved) {
-                Write-Log -Level 'Warning' -Message "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
-            }
-            else {
-                $versionSource = "tag '$refName'"
-            }
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($refName)) {
-            Write-Log -Level 'Info' -Message "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
-        }
+    $tagResult = Resolve-TagVersion -refType $env:GITHUB_REF_TYPE -refName $env:GITHUB_REF_NAME
+    if ($null -ne $tagResult) {
+        $resolved = $tagResult.Version
+        Write-Log -Level 'Info' -Message "Resolved version ($($tagResult.Source)): $resolved"
+        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        return
     }
 
-    if ($null -eq $resolved) {
-        $resolved = '0.0.0'
-    }
-
-    Write-Log -Level 'Info' -Message "Resolved version ($versionSource): $resolved"
+    $resolved = '0.0.0'
+    Write-Log -Level 'Info' -Message "Resolved version (default): $resolved"
     "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 

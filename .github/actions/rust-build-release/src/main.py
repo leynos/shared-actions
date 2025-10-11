@@ -467,7 +467,10 @@ def main(
             cross_engine_restorer = True
 
     if decision.use_cross:
-        executor = local[decision.cross_path or "cross"]
+        cross_executable = (
+            Path(decision.cross_path).name if decision.cross_path else "cross"
+        )
+        executor = local[cross_executable]
         build_cmd = executor[
             decision.cross_toolchain_spec,
             "build",
@@ -516,7 +519,10 @@ def main(
             raise
     finally:
         if cross_engine_restorer:
-            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+            if previous_engine is None:
+                os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+            else:
+                os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
 if __name__ == "__main__":

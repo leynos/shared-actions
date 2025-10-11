@@ -34,6 +34,10 @@ if __name__ not in sys.modules:
 else:
     _SELF_MODULE = sys.modules[__name__]
 
+UsageError = typ.cast(
+    "type[Exception]", getattr(cyclopts_exceptions, "UsageError", Exception)
+)
+
 app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[unknown-argument]
 
 
@@ -170,7 +174,7 @@ if __name__ == "__main__":
 
     try:
         app()
-    except cyclopts_exceptions.UsageError as exc:  # pragma: no cover - defensive
+    except UsageError as exc:  # pragma: no cover - defensive
         message = str(exc)
         safe_message = (
             message.replace("\u201c", '"')

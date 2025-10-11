@@ -16,6 +16,8 @@ from cmd_utils import RunResult, run_cmd
 
 if typ.TYPE_CHECKING:
     from collections import abc as cabc
+else:  # pragma: no cover - runtime fallback for annotations
+    cabc = typ.cast("object", None)
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -66,6 +68,17 @@ def _strip_ansi(value: str) -> str:
 def _combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated without colour control codes."""
     return _strip_ansi(f"{result.stdout}\n{result.stderr}")
+
+
+def _read_outputs(path: Path) -> dict[str, str]:
+    """Parse ``GITHUB_OUTPUT`` style key=value lines into a mapping."""
+    outputs: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        outputs[key] = value
+    return outputs
 
 
 @pytest.fixture
@@ -128,7 +141,9 @@ def test_script_honours_explicit_input_version(
     result, output_file = script_runner({"INPUT_VERSION": "2.3.4"})
     assert result.returncode == 0
     assert "Resolved version (input): 2.3.4" in result.stdout
-    assert output_file.read_text(encoding="utf-8").strip() == "version=2.3.4"
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == "2.3.4"
+    assert outputs["versionSource"] == "input"
 
 
 def test_script_warns_on_invalid_tag(
@@ -140,7 +155,9 @@ def test_script_warns_on_invalid_tag(
     )
     assert result.returncode == 0
     assert "Tag 'release' does not match" in _combined_stream(result)
-    assert output_file.read_text(encoding="utf-8").strip() == "version=0.0.0"
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == "0.0.0"
+    assert outputs["versionSource"] == "default"
 
 
 def test_script_errors_on_invalid_explicit_version(
@@ -151,3 +168,35 @@ def test_script_errors_on_invalid_explicit_version(
     assert result.returncode != 0
     assert "Invalid MSI version 'invalid'" in _combined_stream(result)
     assert not output_file.exists()
+
+
+def test_script_resolves_valid_tag(
+    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+) -> None:
+    """Resolve and emit outputs when a well-formed tag is provided."""
+    result, output_file = script_runner(
+        {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v1.2.3"}
+    )
+    assert result.returncode == 0
+    assert "Resolved version (tag 'v1.2.3'): 1.2.3" in _combined_stream(result)
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == "1.2.3"
+    assert outputs["versionSource"] == "tag"
+
+
+def test_script_ignores_non_tag_refs(
+    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+) -> None:
+    """Fallback to the default version when running on non-tag refs."""
+    result, output_file = script_runner(
+        {"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "main"}
+    )
+    combined = _combined_stream(result)
+    assert result.returncode == 0
+    assert (
+        "Ignoring ref 'main' of type 'branch' when resolving MSI version." in combined
+    )
+    assert "Resolved version (default): 0.0.0" in combined
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == "0.0.0"
+    assert outputs["versionSource"] == "default"

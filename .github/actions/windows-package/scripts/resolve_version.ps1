@@ -146,6 +146,7 @@ function Resolve-TagVersion {
     return @{
         Version = $resolved
         Source = "tag '$refName'"
+        SourceKey = 'tag'
     }
 }
 
@@ -160,6 +161,7 @@ function Invoke-ResolveVersion {
 
         Write-Log -Level 'Info' -Message "Resolved version (input): $resolved"
         "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "versionSource=input" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         return
     }
 
@@ -168,12 +170,14 @@ function Invoke-ResolveVersion {
         $resolved = $tagResult.Version
         Write-Log -Level 'Info' -Message "Resolved version ($($tagResult.Source)): $resolved"
         "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "versionSource=$($tagResult.SourceKey)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         return
     }
 
     $resolved = '0.0.0'
     Write-Log -Level 'Info' -Message "Resolved version (default): $resolved"
     "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+    "versionSource=default" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

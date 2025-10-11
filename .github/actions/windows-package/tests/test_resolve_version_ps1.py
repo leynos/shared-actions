@@ -16,8 +16,6 @@ from cmd_utils import RunResult, run_cmd
 
 if typ.TYPE_CHECKING:
     from collections import abc as cabc
-else:  # pragma: no cover - runtime fallback for annotations
-    cabc = typ.cast("object", None)
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")

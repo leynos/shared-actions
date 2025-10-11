@@ -318,7 +318,7 @@ function Build-MsiPackage {
 
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)
     $wixExecutable = $wixCommand.Name
-    $wixExecutablePath = if ($wixCommand.Source -and (Test-Path -LiteralPath $wixCommand.Source)) { $wixCommand.Source } elseif ($wixCommand.Path) { $wixCommand.Path } else { $wixCommand.Name }
+    $wixExecutablePath = $wixCommand.Source
     Write-Host "Executing WiX command: $wixExecutablePath $($arguments -join ' ')"
 
     $wixOutput = & $wixExecutable @arguments 2>&1

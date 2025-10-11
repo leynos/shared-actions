@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 import shutil
 import sys
@@ -24,6 +23,8 @@ from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_av
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
+if typ.TYPE_CHECKING:
+    from cmd_utils import SupportsFormulate
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -89,20 +90,34 @@ class _CrossDecision(typ.NamedTuple):
     requires_cross_container: bool
 
 
-def _override_formulate_display(command: object, executable_name: str) -> None:
-    """Force *command* to report *executable_name* as its first argument."""
-    original_formulate = getattr(command, "formulate", None)
-    if original_formulate is None:
-        return
+class _CommandWrapper:
+    """Expose a stable display name for a plumbum command."""
 
-    def formulate() -> list[str]:
-        parts = list(original_formulate())  # type: ignore[call-arg]
+    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+        self._command = command
+        self._display_name = display_name
+
+    def formulate(self) -> list[str]:
+        parts = list(self._command.formulate())
         if parts:
-            parts[0] = executable_name
+            parts[0] = self._display_name
         return parts
 
-    with contextlib.suppress(AttributeError):
-        command.formulate = formulate  # type: ignore[assignment]
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        return self._command(*args, **kwargs)
+
+    def run(self, *args: object, **kwargs: object) -> object:
+        return self._command.run(*args, **kwargs)
+
+    def popen(self, *args: object, **kwargs: object) -> object:
+        return self._command.popen(*args, **kwargs)
+
+    def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        wrapped = self._command.with_env(*args, **kwargs)
+        return _CommandWrapper(wrapped, self._display_name)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._command, name)
 
 
 def _target_is_windows(target: str) -> bool:
@@ -476,12 +491,10 @@ def main(
     _announce_build_mode(decision)
 
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    restored_engine = False
     if decision.use_cross and not decision.use_cross_local_backend:
         engine = decision.container_engine
-        if engine and previous_engine is None:
+        if engine:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
-            restored_engine = True
 
     if decision.use_cross:
         cross_executable = decision.cross_path or "cross"
@@ -494,7 +507,7 @@ def main(
             target_to_build,
         ]
         if decision.cross_path:
-            _override_formulate_display(build_cmd, Path(decision.cross_path).name)
+            build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     else:
         executor = local["cargo"]
         build_cmd = executor[
@@ -535,10 +548,9 @@ def main(
         else:
             raise
     finally:
-        if restored_engine:
+        if previous_engine is None:
             os.environ.pop("CROSS_CONTAINER_ENGINE", None)
-
-        elif previous_engine is not None:
+        else:
             os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 

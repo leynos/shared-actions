@@ -340,7 +340,11 @@ function Build-MsiPackage {
 
     if ($wixExitCode -ne 0) {
         Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue
-        [System.Environment]::Exit($wixExitCode)
+        $global:LASTEXITCODE = $wixExitCode
+        if ($Host -and ($Host.PSObject.Properties.Name -contains 'SetShouldExit')) {
+            $Host.SetShouldExit($wixExitCode)
+        }
+        exit $wixExitCode
     }
 
     if (-not (Test-Path -LiteralPath $OutputPath)) {

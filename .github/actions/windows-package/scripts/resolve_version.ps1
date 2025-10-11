@@ -2,26 +2,58 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+$InformationPreference = 'Continue'
+Set-StrictMode -Version Latest
 
-function Get-MsiVersion([string] $candidate) {
+<#
+.SYNOPSIS
+Resolve a Windows Installer ProductVersion with consistent validation and logging.
+
+.DESCRIPTION
+The script accepts an explicit version input, falls back to tags when
+available, and ultimately emits a deterministic three-part ProductVersion.
+
+Get-MsiVersion is the focal point: it normalises raw candidates, rejects
+invalid combinations, and pads missing components so that downstream callers do
+not replicate defensive logic. Helper functions keep each normalisation stage
+focused on a single responsibility so future edits remain readable without
+heavy inline commentary.
+#>
+
+function Write-Log {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Info', 'Warning', 'Error')][string] $Level,
+        [Parameter(Mandatory = $true)][string] $Message
+    )
+
+    switch ($Level) {
+        'Info' { Write-Information -MessageData $Message }
+        'Warning' { Write-Warning $Message }
+        'Error' { Write-Error $Message }
+    }
+}
+
+function Normalize-VersionParts {
+    param([string] $candidate)
+
     if ([string]::IsNullOrWhiteSpace($candidate)) {
         return $null
     }
 
     $trimmed = $candidate.Trim()
     $numeric = $trimmed.TrimStart('v', 'V')
-
     if ([string]::IsNullOrWhiteSpace($numeric)) {
         return $null
     }
 
-    $rawParts = $numeric.Split('.')
-    if ($rawParts.Count -gt 3) {
+    $split = $numeric.Split('.')
+    if ($split.Count -gt 3) {
         return $null
     }
 
     $parts = @()
-    foreach ($rawPart in $rawParts) {
+    foreach ($rawPart in $split) {
         $part = $rawPart.Trim()
         if ($part.Length -eq 0) {
             return $null
@@ -33,65 +65,121 @@ function Get-MsiVersion([string] $candidate) {
         $parts += '0'
     }
 
-    $normalized = $parts -join '.'
+    return $parts
+}
+
+function ConvertTo-Version {
+    param([string[]] $parts)
 
     try {
-        $version = [System.Version]$normalized
+        return [System.Version]($parts -join '.')
     }
     catch {
         return $null
     }
-
-    if ($version.Major -lt 0 -or $version.Major -gt 255) {
-        return $null
-    }
-    if ($version.Minor -lt 0 -or $version.Minor -gt 255) {
-        return $null
-    }
-    if ($version.Revision -ge 0) {
-        return $null
-    }
-
-    $build = if ($version.Build -lt 0) { 0 } else { $version.Build }
-    if ($build -gt 65535) {
-        return $null
-    }
-
-    return ([System.Version]::new($version.Major, $version.Minor, $build)).ToString()
 }
 
-$versionSource = 'default'
-$explicitVersion = $env:INPUT_VERSION
-$resolved = $null
-if (-not [string]::IsNullOrWhiteSpace($explicitVersion)) {
-    $resolved = Get-MsiVersion $explicitVersion
+function Validate-MsiVersion {
+    param([System.Version] $version)
+
+    # MSI ProductVersion constrains Major to 0–255.
+    if ($version.Major -gt 255) {
+        return $null
+    }
+    # MSI ProductVersion constrains Minor to 0–255.
+    if ($version.Minor -gt 255) {
+        return $null
+    }
+
+    # MSI ProductVersion caps Build at 65535.
+    if ($version.Build -gt 65535) {
+        return $null
+    }
+
+    return [System.Version]::new($version.Major, $version.Minor, $version.Build)
+}
+
+function Get-MsiVersion {
+    param([string] $candidate)
+
+    $parts = Normalize-VersionParts $candidate
+    if ($null -eq $parts) {
+        return $null
+    }
+
+    $version = ConvertTo-Version $parts
+    if ($null -eq $version) {
+        return $null
+    }
+
+    $validated = Validate-MsiVersion $version
+    if ($null -eq $validated) {
+        return $null
+    }
+
+    return $validated.ToString()
+}
+
+function Resolve-TagVersion {
+    param(
+        [string] $refType,
+        [string] $refName
+    )
+
+    if ($refType -ne 'tag') {
+        if (-not [string]::IsNullOrWhiteSpace($refName)) {
+            Write-Log -Level 'Info' -Message "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
+        }
+        return $null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($refName)) {
+        return $null
+    }
+
+    $resolved = Get-MsiVersion $refName
     if ($null -eq $resolved) {
-        Write-Error "Invalid MSI version '$explicitVersion'. Provide numeric major.minor.build where major/minor are 0–255 and build is 0–65535."
-        exit 1
+        Write-Log -Level 'Warning' -Message "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
+        return $null
     }
-    $versionSource = 'input'
+
+    return @{
+        Version = $resolved
+        Source = "tag '$refName'"
+        SourceKey = 'tag'
+    }
 }
 
-if ($null -eq $resolved) {
-    $refType = $env:GITHUB_REF_TYPE
-    $refName = $env:GITHUB_REF_NAME
-    if ($refType -eq 'tag' -and -not [string]::IsNullOrWhiteSpace($refName)) {
-        $resolved = Get-MsiVersion $refName
+function Invoke-ResolveVersion {
+    $explicitVersion = $env:INPUT_VERSION
+    if (-not [string]::IsNullOrWhiteSpace($explicitVersion)) {
+        $resolved = Get-MsiVersion $explicitVersion
         if ($null -eq $resolved) {
-            Write-Warning "Tag '$refName' does not match v#.#.# semantics required for MSI ProductVersion. Falling back to 0.0.0."
+            Write-Log -Level 'Error' -Message "Invalid MSI version '$explicitVersion'. Provide numeric major.minor.build where major/minor are 0–255 and build is 0–65535."
+            exit 1
         }
-        else {
-            $versionSource = "tag '$refName'"
-        }
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($refName)) {
-        Write-Host "Ignoring ref '$refName' of type '$refType' when resolving MSI version."
-    }
-}
 
-if ($null -eq $resolved) {
+        Write-Log -Level 'Info' -Message "Resolved version (input): $resolved"
+        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "versionSource=input" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        return
+    }
+
+    $tagResult = Resolve-TagVersion -refType $env:GITHUB_REF_TYPE -refName $env:GITHUB_REF_NAME
+    if ($null -ne $tagResult) {
+        $resolved = $tagResult.Version
+        Write-Log -Level 'Info' -Message "Resolved version ($($tagResult.Source)): $resolved"
+        "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "versionSource=$($tagResult.SourceKey)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        return
+    }
+
     $resolved = '0.0.0'
+    Write-Log -Level 'Info' -Message "Resolved version (default): $resolved"
+    "version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+    "versionSource=default" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
-Write-Host "Resolved version ($versionSource): $resolved"
-"version=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-ResolveVersion
+}

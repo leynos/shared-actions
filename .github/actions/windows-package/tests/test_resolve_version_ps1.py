@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import textwrap
 import typing as typ
@@ -30,6 +31,8 @@ if POWERSHELL is None:  # pragma: no cover - exercised only when PowerShell is m
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "resolve_version.ps1"
 
+_ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
+
 
 def _invoke_get_msi_version(candidate: str) -> str | None:
     """Execute Get-MsiVersion with *candidate* and normalise the result."""
@@ -55,6 +58,16 @@ def _run_script(env: dict[str, str]) -> RunResult:
     """Invoke resolve_version.ps1 with the supplied environment overrides."""
     ps_command = local[POWERSHELL]["-NoLogo", "-NoProfile", "-File", str(SCRIPT_PATH)]
     return typ.cast("RunResult", run_cmd(ps_command, method="run", env=env))
+
+
+def _strip_ansi(value: str) -> str:
+    """Remove ANSI escape sequences from *value* for reliable assertions."""
+    return _ANSI_ESCAPE.sub("", value)
+
+
+def _combined_stream(result: RunResult) -> str:
+    """Return stdout and stderr concatenated without colour control codes."""
+    return _strip_ansi(f"{result.stdout}\n{result.stderr}")
 
 
 @pytest.fixture
@@ -128,7 +141,7 @@ def test_script_warns_on_invalid_tag(
         {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "release"}
     )
     assert result.returncode == 0
-    assert "Tag 'release' does not match" in result.stderr
+    assert "Tag 'release' does not match" in _combined_stream(result)
     assert output_file.read_text(encoding="utf-8").strip() == "version=0.0.0"
 
 
@@ -138,5 +151,5 @@ def test_script_errors_on_invalid_explicit_version(
     """Fail fast when the explicit version input does not parse."""
     result, output_file = script_runner({"INPUT_VERSION": "invalid"})
     assert result.returncode != 0
-    assert "Invalid MSI version 'invalid'" in result.stderr
+    assert "Invalid MSI version 'invalid'" in _combined_stream(result)
     assert not output_file.exists()

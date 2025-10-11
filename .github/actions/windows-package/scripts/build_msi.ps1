@@ -15,6 +15,13 @@ function Ensure-WixToolAvailable {
         exit 1
     }
 
+    if ([string]::IsNullOrWhiteSpace($wixCommand.Source)) {
+        $wixCommand = [PSCustomObject]@{
+            Name   = $wixCommand.Name
+            Source = $wixCommand.Name
+        }
+    }
+
     return $wixCommand
 }
 
@@ -333,7 +340,7 @@ function Build-MsiPackage {
 
     if ($wixExitCode -ne 0) {
         Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue
-        exit $wixExitCode
+        [System.Environment]::Exit($wixExitCode)
     }
 
     if (-not (Test-Path -LiteralPath $OutputPath)) {

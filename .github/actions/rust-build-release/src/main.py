@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import sys
@@ -86,6 +87,22 @@ class _CrossDecision(typ.NamedTuple):
     has_container: bool
     container_engine: str | None
     requires_cross_container: bool
+
+
+def _override_formulate_display(command: object, executable_name: str) -> None:
+    """Force *command* to report *executable_name* as its first argument."""
+    original_formulate = getattr(command, "formulate", None)
+    if original_formulate is None:
+        return
+
+    def formulate() -> list[str]:
+        parts = list(original_formulate())  # type: ignore[call-arg]
+        if parts:
+            parts[0] = executable_name
+        return parts
+
+    with contextlib.suppress(AttributeError):
+        command.formulate = formulate  # type: ignore[assignment]
 
 
 def _target_is_windows(target: str) -> bool:
@@ -459,17 +476,15 @@ def main(
     _announce_build_mode(decision)
 
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    cross_engine_restorer = False
+    restored_engine = False
     if decision.use_cross and not decision.use_cross_local_backend:
         engine = decision.container_engine
         if engine and previous_engine is None:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
-            cross_engine_restorer = True
+            restored_engine = True
 
     if decision.use_cross:
-        cross_executable = (
-            Path(decision.cross_path).name if decision.cross_path else "cross"
-        )
+        cross_executable = decision.cross_path or "cross"
         executor = local[cross_executable]
         build_cmd = executor[
             decision.cross_toolchain_spec,
@@ -478,6 +493,8 @@ def main(
             "--target",
             target_to_build,
         ]
+        if decision.cross_path:
+            _override_formulate_display(build_cmd, Path(decision.cross_path).name)
     else:
         executor = local["cargo"]
         build_cmd = executor[
@@ -518,11 +535,11 @@ def main(
         else:
             raise
     finally:
-        if cross_engine_restorer:
-            if previous_engine is None:
-                os.environ.pop("CROSS_CONTAINER_ENGINE", None)
-            else:
-                os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
+        if restored_engine:
+            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+
+        elif previous_engine is not None:
+            os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
 if __name__ == "__main__":

@@ -31,7 +31,10 @@ def render(jinja_template_string: str, /, **context: object) -> str:
 
 
 _DEFAULT_TEMPLATE = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<Wix xmlns=\"http://wixtoolset.org/schemas/v4/wxs\">
+<Wix
+    xmlns=\"http://wixtoolset.org/schemas/v4/wxs\"
+    xmlns:ui=\"http://wixtoolset.org/schemas/v4/wxs/ui\"
+>
   {% macro render_directory(node) -%}
   <Directory Id=\"{{ node.id }}\" Name=\"{{ node.name }}\">
     {% for component in node.components -%}
@@ -72,16 +75,16 @@ _DEFAULT_TEMPLATE = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
         Title=\"{{ product_name }}\"
         Level=\"1\"
         Display=\"expand\"
-        Absent=\"disallow\"
     >
       {% for component in components -%}
       <ComponentRef Id=\"{{ component.id }}\" />
       {% endfor -%}
     </Feature>
-    <UI>
-      <UIRef Id=\"WixUI_InstallDir\" />
-      <Property Id=\"WIXUI_INSTALLDIR\" Value=\"INSTALLFOLDER\" />
-    </UI>
+    <ui:WixUI
+        Id=\"WixUI_InstallDir\"
+        InstallDirectory=\"INSTALLFOLDER\"
+        ExtendedPathValidation=\"yes\"
+    />
   </Package>
 </Wix>
 """

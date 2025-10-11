@@ -23,6 +23,8 @@ from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_av
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
+if typ.TYPE_CHECKING:
+    from cmd_utils import SupportsFormulate
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -86,6 +88,36 @@ class _CrossDecision(typ.NamedTuple):
     has_container: bool
     container_engine: str | None
     requires_cross_container: bool
+
+
+class _CommandWrapper:
+    """Expose a stable display name for a plumbum command."""
+
+    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+        self._command = command
+        self._display_name = display_name
+
+    def formulate(self) -> list[str]:
+        parts = list(self._command.formulate())
+        if parts:
+            parts[0] = self._display_name
+        return parts
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        return self._command(*args, **kwargs)
+
+    def run(self, *args: object, **kwargs: object) -> object:
+        return self._command.run(*args, **kwargs)
+
+    def popen(self, *args: object, **kwargs: object) -> object:
+        return self._command.popen(*args, **kwargs)
+
+    def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        wrapped = self._command.with_env(*args, **kwargs)
+        return _CommandWrapper(wrapped, self._display_name)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._command, name)
 
 
 def _target_is_windows(target: str) -> bool:
@@ -459,15 +491,14 @@ def main(
     _announce_build_mode(decision)
 
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    cross_engine_restorer = False
     if decision.use_cross and not decision.use_cross_local_backend:
         engine = decision.container_engine
-        if engine and previous_engine is None:
+        if engine:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
-            cross_engine_restorer = True
 
     if decision.use_cross:
-        executor = local[decision.cross_path or "cross"]
+        cross_executable = decision.cross_path or "cross"
+        executor = local[cross_executable]
         build_cmd = executor[
             decision.cross_toolchain_spec,
             "build",
@@ -475,6 +506,8 @@ def main(
             "--target",
             target_to_build,
         ]
+        if decision.cross_path:
+            build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     else:
         executor = local["cargo"]
         build_cmd = executor[
@@ -515,8 +548,10 @@ def main(
         else:
             raise
     finally:
-        if cross_engine_restorer:
+        if previous_engine is None:
             os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+        else:
+            os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
 if __name__ == "__main__":

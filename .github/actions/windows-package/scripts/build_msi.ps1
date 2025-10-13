@@ -299,6 +299,45 @@ function Ensure-WxsFile {
     return $env:WXS_PATH
 }
 
+function Build-WixExtensionArguments {
+    [CmdletBinding()]
+    param(
+        [string]
+        $ExtensionList
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExtensionList)) {
+        return ,@()
+    }
+
+    $arguments = @()
+    foreach ($extension in ($ExtensionList -split '[,\s]+')) {
+        $trimmed = $extension.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            $arguments += @('-ext', $trimmed)
+        }
+    }
+
+    return ,$arguments
+}
+
+function Write-WixOutput {
+    [CmdletBinding()]
+    param(
+        [string[]]
+        $Output
+    )
+
+    if (-not $Output) {
+        return
+    }
+
+    Write-Host 'WiX output:'
+    foreach ($line in $Output) {
+        Write-Host $line
+    }
+}
+
 function Build-MsiPackage {
     param(
         [Parameter(Mandatory = $true)]
@@ -313,15 +352,7 @@ function Build-MsiPackage {
     $wixCommand = Ensure-WixToolAvailable
 
     $arguments = @('build', $env:WXS_PATH)
-    if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-        $extensions = $env:WIX_EXTENSION -split '[,\s]+'
-        foreach ($extension in $extensions) {
-            $trimmed = $extension.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $arguments += @('-ext', $trimmed)
-            }
-        }
-    }
+    $arguments += Build-WixExtensionArguments -ExtensionList $env:WIX_EXTENSION
 
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)
     $wixExecutable = $wixCommand.Name
@@ -331,12 +362,7 @@ function Build-MsiPackage {
     $wixOutput = & $wixExecutable @arguments 2>&1
     $wixExitCode = $LASTEXITCODE
 
-    if ($wixOutput) {
-        Write-Host 'WiX output:'
-        foreach ($line in $wixOutput) {
-            Write-Host $line
-        }
-    }
+    Write-WixOutput -Output $wixOutput
 
     if ($wixExitCode -ne 0) {
         Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue

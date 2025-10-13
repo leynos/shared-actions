@@ -435,6 +435,13 @@ function Build-MsiPackage {
         $ErrorActionPreference = $previousPreference
     }
 
+    if ($null -ne $global:LASTEXITCODE) {
+        $nativeExit = [int]$global:LASTEXITCODE
+        if ($nativeExit -ne 0) {
+            $wixExitCode = $nativeExit
+        }
+    }
+
     Write-WixOutput -Output $wixOutput
 
     if ($wixExitCode -ne 0) {

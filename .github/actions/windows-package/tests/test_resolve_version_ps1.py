@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import shutil
 import textwrap
 import typing as typ
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -21,8 +21,10 @@ else:  # pragma: no cover - runtime fallback for annotations
     cabc = typ.cast("object", None)
 
 
-@dataclass
+@dataclasses.dataclass
 class ExpectedOutput:
+    """Expected values for tag-based version resolution outcomes."""
+
     version: str
     source: str
     log_fragment: str

@@ -147,15 +147,16 @@ def _run_probe(
     **kwargs: object,
 ) -> tuple[int, str, str] | None:
     """Execute a runtime probe and handle common failure modes."""
+    call_kwargs: dict[str, object] = dict(kwargs)
+    call_kwargs.setdefault("timeout", PROBE_TIMEOUT)
     try:
         return run_validated(
             exec_path,
             args,
             allowed_names=(name, f"{name}.exe"),
-            timeout=PROBE_TIMEOUT,
             cwd=cwd,
             method="run",
-            **kwargs,
+            **call_kwargs,
         )
     except ProcessTimedOut:
         typer.echo(

@@ -425,6 +425,68 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
         )
 
 
+def _restore_container_engine(previous_engine: str | None) -> None:
+    if previous_engine is None:
+        os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+    else:
+        os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
+
+
+def _build_cross_command(
+    decision: _CrossDecision, target_to_build: str
+) -> SupportsFormulate:
+    cross_executable = decision.cross_path or "cross"
+    executor = local[cross_executable]
+    build_cmd = executor[
+        decision.cross_toolchain_spec,
+        "build",
+        "--release",
+        "--target",
+        target_to_build,
+    ]
+    if decision.cross_path:
+        build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
+    return build_cmd
+
+
+def _build_cargo_command(
+    cargo_toolchain_spec: str, target_to_build: str
+) -> SupportsFormulate:
+    executor = local["cargo"]
+    return executor[
+        cargo_toolchain_spec,
+        "build",
+        "--release",
+        "--target",
+        target_to_build,
+    ]
+
+
+def _handle_cross_container_error(
+    exc: ProcessExecutionError, decision: _CrossDecision, target_to_build: str
+) -> None:
+    if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
+        if decision.requires_cross_container and not decision.use_cross_local_backend:
+            engine = decision.container_engine or "unknown"
+            typer.echo(
+                "::error:: cross failed to start a container runtime for "
+                f"target '{target_to_build}' (engine={engine})",
+                err=True,
+            )
+            raise typer.Exit(exc.retcode) from exc
+
+        typer.echo(
+            "::warning:: cross failed to start a container; retrying with cargo",
+            err=True,
+        )
+        fallback_cmd = _build_cargo_command(
+            decision.cargo_toolchain_spec, target_to_build
+        )
+        run_cmd(fallback_cmd)
+        return
+    raise exc
+
+
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
@@ -497,61 +559,15 @@ def main(
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
 
     if decision.use_cross:
-        cross_executable = decision.cross_path or "cross"
-        executor = local[cross_executable]
-        build_cmd = executor[
-            decision.cross_toolchain_spec,
-            "build",
-            "--release",
-            "--target",
-            target_to_build,
-        ]
-        if decision.cross_path:
-            build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
+        build_cmd = _build_cross_command(decision, target_to_build)
     else:
-        executor = local["cargo"]
-        build_cmd = executor[
-            decision.cargo_toolchain_spec,
-            "build",
-            "--release",
-            "--target",
-            target_to_build,
-        ]
+        build_cmd = _build_cargo_command(decision.cargo_toolchain_spec, target_to_build)
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
-            if (
-                decision.requires_cross_container
-                and not decision.use_cross_local_backend
-            ):
-                engine = decision.container_engine or "unknown"
-                typer.echo(
-                    "::error:: cross failed to start a container runtime for "
-                    f"target '{target_to_build}' (engine={engine})",
-                    err=True,
-                )
-                raise typer.Exit(exc.retcode) from exc
-
-            typer.echo(
-                "::warning:: cross failed to start a container; retrying with cargo",
-                err=True,
-            )
-            fallback_cmd = local["cargo"][
-                decision.cargo_toolchain_spec,
-                "build",
-                "--release",
-                "--target",
-                target_to_build,
-            ]
-            run_cmd(fallback_cmd)
-        else:
-            raise
+        _handle_cross_container_error(exc, decision, target_to_build)
     finally:
-        if previous_engine is None:
-            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
-        else:
-            os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
+        _restore_container_engine(previous_engine)
 
 
 if __name__ == "__main__":

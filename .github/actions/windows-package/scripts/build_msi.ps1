@@ -415,8 +415,25 @@ function Build-MsiPackage {
     $wixExecutablePath = $wixCommand.Source
     Write-Host "Executing WiX command: $wixExecutablePath $($arguments -join ' ')"
 
-    $wixOutput = & $wixExecutable @arguments 2>&1
-    $wixExitCode = $LASTEXITCODE
+    $previousPreference = $ErrorActionPreference
+    $wixOutput = @()
+    $wixExitCode = 0
+    try {
+        $ErrorActionPreference = 'Continue'
+        $wixOutput = & $wixExecutable @arguments 2>&1
+        $wixExitCode = $LASTEXITCODE
+    }
+    catch {
+        $wixExitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+        $errorMessage = ($_ | Out-String).TrimEnd()
+        if ([string]::IsNullOrWhiteSpace($errorMessage)) {
+            $errorMessage = $_.ToString()
+        }
+        $wixOutput = @($errorMessage)
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
 
     Write-WixOutput -Output $wixOutput
 

@@ -75,9 +75,8 @@ function Invoke-WithTemporaryInputVersion {
     )
 
     $hadInputVersion = Test-Path Env:INPUT_VERSION
-    if ($hadInputVersion) {
-        $previousInputVersion = $env:INPUT_VERSION
-    }
+    $previousInputVersion = if ($hadInputVersion) { $env:INPUT_VERSION } else { $null }
+    $hadNonEmptyInputVersion = $hadInputVersion -and -not [string]::IsNullOrWhiteSpace($previousInputVersion)
 
     $setNewInputVersion = $false
     try {
@@ -87,7 +86,7 @@ function Invoke-WithTemporaryInputVersion {
                 $setNewInputVersion = $true
             }
         }
-        elseif (-not $hadInputVersion) {
+        elseif (-not $hadNonEmptyInputVersion) {
             throw [System.InvalidOperationException]::new('VERSION environment variable or INPUT_VERSION must be provided to generate WiX authoring.')
         }
 

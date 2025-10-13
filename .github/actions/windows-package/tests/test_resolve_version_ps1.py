@@ -7,6 +7,7 @@ import re
 import shutil
 import textwrap
 import typing as typ
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,13 @@ if typ.TYPE_CHECKING:
     from collections import abc as cabc
 else:  # pragma: no cover - runtime fallback for annotations
     cabc = typ.cast("object", None)
+
+
+@dataclass
+class ExpectedOutput:
+    version: str
+    source: str
+    log_fragment: str
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -157,29 +165,41 @@ def test_script_errors_on_invalid_explicit_version(
 
 
 @pytest.mark.parametrize(
-    ("tag_name", "expected_version", "expected_source", "expected_log_fragment"),
+    ("tag_name", "expected"),
     [
-        ("v1.2.3", "1.2.3", "tag", "Resolved version (tag 'v1.2.3'): 1.2.3"),
-        ("release", "0.0.0", "default", "Tag 'release' does not match"),
+        (
+            "v1.2.3",
+            ExpectedOutput(
+                version="1.2.3",
+                source="tag",
+                log_fragment="Resolved version (tag 'v1.2.3'): 1.2.3",
+            ),
+        ),
+        (
+            "release",
+            ExpectedOutput(
+                version="0.0.0",
+                source="default",
+                log_fragment="Tag 'release' does not match",
+            ),
+        ),
     ],
     ids=["valid_tag", "invalid_tag"],
 )
 def test_script_tag_resolution(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
     tag_name: str,
-    expected_version: str,
-    expected_source: str,
-    expected_log_fragment: str,
+    expected: ExpectedOutput,
 ) -> None:
     """Resolve or reject tag-based versions and emit appropriate outputs."""
     result, output_file = script_runner(
         {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag_name}
     )
     assert result.returncode == 0
-    assert expected_log_fragment in _combined_stream(result)
+    assert expected.log_fragment in _combined_stream(result)
     outputs = _read_outputs(output_file)
-    assert outputs["version"] == expected_version
-    assert outputs["versionSource"] == expected_source
+    assert outputs["version"] == expected.version
+    assert outputs["versionSource"] == expected.source
 
 
 def test_script_ignores_non_tag_refs(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import os
 import sys
 import types
 import typing as typ
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+from cyclopts.exceptions import CycloptsError
 
 if __package__ in {None, ""}:
     _MODULE_DIR = Path(__file__).resolve().parent
@@ -31,6 +33,8 @@ if __name__ not in sys.modules:
     sys.modules[__name__] = _SELF_MODULE
 else:
     _SELF_MODULE = sys.modules[__name__]
+
+UsageError = typ.cast("type[Exception]", CycloptsError)
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[unknown-argument]
 
@@ -144,4 +148,51 @@ def main(
 
 
 if __name__ == "__main__":
-    app()
+    argv = sys.argv[1:]
+
+    def _extract_version_from_key_value(values: list[str]) -> str | None:
+        """Extract version from --version=VALUE format."""
+        for value in values:
+            if value.startswith("--version="):
+                candidate = value.split("=", 1)[1]
+                return candidate if candidate else None
+        return None
+
+    def _extract_version_from_flag_arg(values: list[str]) -> str | None:
+        """Extract version from --version VALUE format."""
+        for index, value in enumerate(values):
+            if value == "--version" and index + 1 < len(values):
+                candidate = values[index + 1]
+                return candidate if candidate else None
+        return None
+
+    def _extract_version_argument(values: list[str]) -> str | None:
+        """Extract version argument from command-line values."""
+        version = _extract_version_from_key_value(values)
+        if version:
+            return version
+        return _extract_version_from_flag_arg(values)
+
+    env_version = os.environ.get("INPUT_VERSION")
+    if not (env_version and env_version.strip()):
+        provided_version = _extract_version_argument(argv)
+        if not provided_version:
+            print(
+                "A version must be provided via the INPUT_VERSION environment "
+                "variable or the --version flag (e.g. --version 1.2.3)."
+            )
+            raise SystemExit(2)
+
+    try:
+        app()
+    except UsageError as exc:  # pragma: no cover - defensive
+        message = str(exc)
+        safe_message = (
+            message.replace("\u201c", '"')
+            .replace("\u201d", '"')
+            .replace("\u2018", "'")
+            .replace("\u2019", "'")
+        )
+        stream = sys.stdout if getattr(exc, "use_stdout", False) else sys.stderr
+        print(safe_message, file=stream)
+        raise SystemExit(getattr(exc, "exit_code", getattr(exc, "code", 2))) from exc

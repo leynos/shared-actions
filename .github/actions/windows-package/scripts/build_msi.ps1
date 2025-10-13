@@ -8,6 +8,23 @@ $ErrorActionPreference = 'Stop'
 $script:PythonCommand = $null
 $script:PythonArgs = @()
 
+function Ensure-WixToolAvailable {
+    $wixCommand = Get-Command -Name wix -ErrorAction SilentlyContinue
+    if (-not $wixCommand) {
+        Write-Error 'WiX toolset not found on PATH. Ensure install_wix_cli.ps1 completed successfully.'
+        exit 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($wixCommand.Source)) {
+        $wixCommand = [PSCustomObject]@{
+            Name   = $wixCommand.Name
+            Source = $wixCommand.Name
+        }
+    }
+
+    return $wixCommand
+}
+
 function Ensure-PythonCommand {
     if ($script:PythonCommand) {
         return
@@ -44,6 +61,45 @@ function Invoke-PythonScript {
         exit $LASTEXITCODE
     }
     return $output
+}
+
+function Invoke-WithTemporaryInputVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ScriptBlock]
+        $ScriptBlock,
+
+        [string]
+        $Version
+    )
+
+    $hadInputVersion = Test-Path Env:INPUT_VERSION
+    $previousInputVersion = if ($hadInputVersion) { $env:INPUT_VERSION } else { $null }
+    $hadNonEmptyInputVersion = $hadInputVersion -and -not [string]::IsNullOrWhiteSpace($previousInputVersion)
+
+    $setNewInputVersion = $false
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($Version)) {
+            $env:INPUT_VERSION = $Version.Trim()
+            if (-not $hadInputVersion) {
+                $setNewInputVersion = $true
+            }
+        }
+        elseif (-not $hadNonEmptyInputVersion) {
+            throw [System.InvalidOperationException]::new('VERSION environment variable or INPUT_VERSION must be provided to generate WiX authoring.')
+        }
+
+        return & $ScriptBlock
+    }
+    finally {
+        if ($hadInputVersion) {
+            $env:INPUT_VERSION = $previousInputVersion
+        }
+        elseif ($setNewInputVersion) {
+            Remove-Item Env:INPUT_VERSION -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Ensure-OutputDirectory {
@@ -149,8 +205,6 @@ function Build-WxsGenerationArguments {
         $Generator,
         '--output',
         $TargetWxs,
-        '--version',
-        $env:VERSION,
         '--architecture',
         $Architecture,
         '--application',
@@ -186,6 +240,84 @@ function Build-WxsGenerationArguments {
     return ,$arguments
 }
 
+function Resolve-ApplicationSpecification {
+    [CmdletBinding()]
+    param()
+
+    $spec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
+    if ([string]::IsNullOrWhiteSpace($spec)) {
+        Write-Error 'application-path input is required when wxs-path is not provided.'
+        exit 1
+    }
+
+    return $spec
+}
+
+function Validate-GeneratorScript {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $GeneratorPath
+    )
+
+    if (-not (Test-Path -LiteralPath $GeneratorPath)) {
+        Write-Error "WiX generator script not found: $GeneratorPath"
+        exit 1
+    }
+
+    return $GeneratorPath
+}
+
+function Build-PythonCommandDisplay {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]
+        $Arguments
+    )
+
+    Ensure-PythonCommand
+    $pythonExecutable = if ($script:PythonCommand.Source) { $script:PythonCommand.Source } else { $script:PythonCommand.Name }
+    $pythonArgumentList = @()
+    if ($script:PythonArgs.Count -gt 0) {
+        $pythonArgumentList += $script:PythonArgs
+    }
+    $pythonArgumentList += $Arguments
+
+    return @{
+        Executable  = $pythonExecutable
+        FullCommand = $pythonArgumentList
+    }
+}
+
+function Invoke-WxsGeneration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]
+        $Arguments
+    )
+
+    try {
+        $generationResult = Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock {
+            Invoke-PythonScript -Arguments $Arguments
+        }
+    }
+    catch [System.InvalidOperationException] {
+        Write-Error $_.Exception.Message
+        exit 1
+    }
+
+    $generatedWxs = $generationResult.Trim()
+    if (-not (Test-Path -LiteralPath $generatedWxs)) {
+        Write-Error "Expected WiX authoring was not created: $generatedWxs"
+        exit 1
+    }
+
+    return $generatedWxs
+}
+
 function Ensure-WxsFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -194,27 +326,19 @@ function Ensure-WxsFile {
     )
 
     if ([string]::IsNullOrWhiteSpace($env:WXS_PATH)) {
-        $applicationSpec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
-        if ([string]::IsNullOrWhiteSpace($applicationSpec)) {
-            Write-Error 'application-path input is required when wxs-path is not provided.'
-            exit 1
-        }
+        $applicationSpec = Resolve-ApplicationSpecification
 
         $generator = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\generate_wxs.py'
-        if (-not (Test-Path -LiteralPath $generator)) {
-            Write-Error "WiX generator script not found: $generator"
-            exit 1
-        }
+        $generatorPath = Validate-GeneratorScript -GeneratorPath $generator
 
         $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
-        $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
+        $arguments = Build-WxsGenerationArguments -Generator $generatorPath -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
 
-        $generationResult = Invoke-PythonScript -Arguments $arguments
-        $generatedWxs = $generationResult.Trim()
-        if (-not (Test-Path -LiteralPath $generatedWxs)) {
-            Write-Error "Expected WiX authoring was not created: $generatedWxs"
-            exit 1
-        }
+        Write-Host "Generating WXS file at: $targetWxs"
+        $commandInfo = Build-PythonCommandDisplay -Arguments $arguments
+        Write-Host "Generation command: $($commandInfo.Executable) $($commandInfo.FullCommand -join ' ')"
+
+        $generatedWxs = Invoke-WxsGeneration -Arguments $arguments
         $env:WXS_PATH = (Resolve-Path -LiteralPath $generatedWxs).Path
         Write-Host "Generated default WiX authoring: $($env:WXS_PATH)"
     }
@@ -224,6 +348,91 @@ function Ensure-WxsFile {
     }
 
     return $env:WXS_PATH
+}
+
+function Build-WixExtensionArguments {
+    [CmdletBinding()]
+    param(
+        [string]
+        $ExtensionList
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExtensionList)) {
+        return ,@()
+    }
+
+    $arguments = @()
+    foreach ($extension in ($ExtensionList -split '[,\s]+')) {
+        $trimmed = $extension.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+            $arguments += @('-ext', $trimmed)
+        }
+    }
+
+    return ,$arguments
+}
+
+function Write-WixOutput {
+    [CmdletBinding()]
+    param(
+        [string[]]
+        $Output
+    )
+
+    if (-not $Output) {
+        return
+    }
+
+    Write-Host 'WiX output:'
+    foreach ($line in $Output) {
+        Write-Host $line
+    }
+}
+
+function Resolve-WixExitCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $CapturedExitCode
+    )
+
+    if ($null -ne $global:LASTEXITCODE) {
+        $nativeExit = [int]$global:LASTEXITCODE
+        if ($nativeExit -ne 0) {
+            return $nativeExit
+        }
+    }
+
+    return $CapturedExitCode
+}
+
+function Get-ErrorMessage {
+    [CmdletBinding()]
+    param(
+        $Exception
+    )
+
+    $errorMessage = ($Exception | Out-String).TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($errorMessage)) {
+        return $Exception.ToString()
+    }
+
+    return $errorMessage
+}
+
+function Set-HostExitCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $ExitCode
+    )
+
+    $global:LASTEXITCODE = $ExitCode
+    if ($Host -and ($Host.PSObject.Properties.Name -contains 'SetShouldExit')) {
+        $Host.SetShouldExit($ExitCode)
+    }
 }
 
 function Build-MsiPackage {
@@ -237,22 +446,49 @@ function Build-MsiPackage {
         $Architecture
     )
 
-    $arguments = @('build', $env:WXS_PATH)
-    if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-        $extensions = $env:WIX_EXTENSION -split '[,\s]+'
-        foreach ($extension in $extensions) {
-            $trimmed = $extension.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $arguments += @('-ext', $trimmed)
-            }
-        }
+    $wixCommand = Ensure-WixToolAvailable
+
+    if ([string]::IsNullOrWhiteSpace($env:VERSION)) {
+        Write-Error "VERSION environment variable is required. Run resolve_version.ps1 or supply VERSION before invoking Build-MsiPackage."
+        exit 1
     }
 
+    $arguments = @('build', $env:WXS_PATH)
+    $arguments += Build-WixExtensionArguments -ExtensionList $env:WIX_EXTENSION
+
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)
-    wix @arguments
+    $wixExecutable = $wixCommand.Name
+    $wixExecutablePath = $wixCommand.Source
+    Write-Host "Executing WiX command: $wixExecutablePath $($arguments -join ' ')"
+
+    $previousPreference = $ErrorActionPreference
+    $wixOutput = @()
+    $wixExitCode = 0
+    try {
+        $ErrorActionPreference = 'Continue'
+        $wixOutput = & $wixExecutable @arguments 2>&1
+        $wixExitCode = $LASTEXITCODE
+    }
+    catch {
+        $wixExitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
+        $wixOutput = @(Get-ErrorMessage -Exception $_)
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+
+    $wixExitCode = Resolve-WixExitCode -CapturedExitCode $wixExitCode
+
+    Write-WixOutput -Output $wixOutput
+
+    if ($wixExitCode -ne 0) {
+        Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue
+        Set-HostExitCode -ExitCode $wixExitCode
+        exit $wixExitCode
+    }
 
     if (-not (Test-Path -LiteralPath $OutputPath)) {
-        Write-Error "MSI build failed: output file '$OutputPath' was not created."
+        Write-Error "MSI build completed with exit code 0 but output file '$OutputPath' was not created. This may indicate a WiX configuration issue."
         exit 1
     }
 
@@ -288,4 +524,6 @@ function Invoke-Main {
     "msi-path=$resolved" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 }
 
-Invoke-Main
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-Main
+}

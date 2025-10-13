@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003
 import os
 import shutil
 import sys
@@ -23,6 +24,10 @@ from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_av
 from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
+if typ.TYPE_CHECKING:
+    import subprocess
+
+    from cmd_utils import SupportsFormulate
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -86,6 +91,86 @@ class _CrossDecision(typ.NamedTuple):
     has_container: bool
     container_engine: str | None
     requires_cross_container: bool
+
+
+class _CommandWrapper:
+    """Expose a stable display name for a plumbum command."""
+
+    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+        formulate_callable = getattr(command, "formulate", None)
+        if not callable(formulate_callable):
+            message = (
+                f"{command!r} does not expose a callable formulate(); cannot wrap "
+                "for display override"
+            )
+            raise TypeError(message)
+
+        self._command = command
+        self._display_name = display_name
+        self._override_formulate: typ.Callable[[], cabc.Sequence[str]] | None = None
+
+        def _override() -> list[str]:
+            parts = list(formulate_callable())
+            if parts:
+                parts[0] = display_name
+            return parts
+
+        try:
+            command.formulate = _override  # type: ignore[attr-defined]
+            self._override_formulate = _override
+        except (AttributeError, TypeError) as exc:
+            typer.echo(
+                f"::warning:: failed to set display override for {command!r}: {exc}",
+                err=True,
+            )
+            self._override_formulate = None
+
+    def formulate(self) -> cabc.Sequence[str]:
+        formulate_callable = getattr(self._command, "formulate", None)
+        if not callable(formulate_callable):
+            typer.echo(
+                f"::warning:: command {self._command!r} does not support formulate(); "
+                "returning display name only",
+                err=True,
+            )
+            return [self._display_name]
+        try:
+            parts = list(formulate_callable())
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
+            typer.echo(
+                f"::warning:: failed to generate command line for {self._command!r}: "
+                f"{exc}",
+                err=True,
+            )
+            return [self._display_name]
+        if parts:
+            parts[0] = self._display_name
+        return parts
+
+    def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
+        return self._command(*args, **kwargs)
+
+    def run(
+        self, *args: object, **kwargs: object
+    ) -> tuple[int, str | bytes | None, str | bytes | None]:
+        return self._command.run(*args, **kwargs)
+
+    def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
+        return self._command.popen(*args, **kwargs)
+
+    def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        wrapped = self._command.with_env(*args, **kwargs)
+        wrapped_formulate = getattr(wrapped, "formulate", None)
+        if not callable(wrapped_formulate):
+            message = (
+                f"{wrapped!r} returned from with_env() does not expose formulate(); "
+                "cannot maintain display override"
+            )
+            raise TypeError(message)
+        return _CommandWrapper(wrapped, self._display_name)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._command, name)
 
 
 def _target_is_windows(target: str) -> bool:
@@ -393,6 +478,68 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
         )
 
 
+def _restore_container_engine(previous_engine: str | None) -> None:
+    if previous_engine is None:
+        os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+    else:
+        os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
+
+
+def _build_cross_command(
+    decision: _CrossDecision, target_to_build: str
+) -> SupportsFormulate:
+    cross_executable = decision.cross_path or "cross"
+    executor = local[cross_executable]
+    build_cmd = executor[
+        decision.cross_toolchain_spec,
+        "build",
+        "--release",
+        "--target",
+        target_to_build,
+    ]
+    if decision.cross_path:
+        build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
+    return build_cmd
+
+
+def _build_cargo_command(
+    cargo_toolchain_spec: str, target_to_build: str
+) -> SupportsFormulate:
+    executor = local["cargo"]
+    return executor[
+        cargo_toolchain_spec,
+        "build",
+        "--release",
+        "--target",
+        target_to_build,
+    ]
+
+
+def _handle_cross_container_error(
+    exc: ProcessExecutionError, decision: _CrossDecision, target_to_build: str
+) -> None:
+    if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
+        if decision.requires_cross_container and not decision.use_cross_local_backend:
+            engine = decision.container_engine or "unknown"
+            typer.echo(
+                "::error:: cross failed to start a container runtime for "
+                f"target '{target_to_build}' (engine={engine})",
+                err=True,
+            )
+            raise typer.Exit(exc.retcode) from exc
+
+        typer.echo(
+            "::warning:: cross failed to start a container; retrying with cargo",
+            err=True,
+        )
+        fallback_cmd = _build_cargo_command(
+            decision.cargo_toolchain_spec, target_to_build
+        )
+        run_cmd(fallback_cmd)
+        return
+    raise exc
+
+
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
@@ -459,64 +606,21 @@ def main(
     _announce_build_mode(decision)
 
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    cross_engine_restorer = False
     if decision.use_cross and not decision.use_cross_local_backend:
         engine = decision.container_engine
-        if engine and previous_engine is None:
+        if engine is not None:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
-            cross_engine_restorer = True
 
     if decision.use_cross:
-        executor = local[decision.cross_path or "cross"]
-        build_cmd = executor[
-            decision.cross_toolchain_spec,
-            "build",
-            "--release",
-            "--target",
-            target_to_build,
-        ]
+        build_cmd = _build_cross_command(decision, target_to_build)
     else:
-        executor = local["cargo"]
-        build_cmd = executor[
-            decision.cargo_toolchain_spec,
-            "build",
-            "--release",
-            "--target",
-            target_to_build,
-        ]
+        build_cmd = _build_cargo_command(decision.cargo_toolchain_spec, target_to_build)
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
-            if (
-                decision.requires_cross_container
-                and not decision.use_cross_local_backend
-            ):
-                engine = decision.container_engine or "unknown"
-                typer.echo(
-                    "::error:: cross failed to start a container runtime for "
-                    f"target '{target_to_build}' (engine={engine})",
-                    err=True,
-                )
-                raise typer.Exit(exc.retcode) from exc
-
-            typer.echo(
-                "::warning:: cross failed to start a container; retrying with cargo",
-                err=True,
-            )
-            fallback_cmd = local["cargo"][
-                decision.cargo_toolchain_spec,
-                "build",
-                "--release",
-                "--target",
-                target_to_build,
-            ]
-            run_cmd(fallback_cmd)
-        else:
-            raise
+        _handle_cross_container_error(exc, decision, target_to_build)
     finally:
-        if cross_engine_restorer:
-            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+        _restore_container_engine(previous_engine)
 
 
 if __name__ == "__main__":

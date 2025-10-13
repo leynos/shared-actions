@@ -96,9 +96,50 @@ class _CommandWrapper:
     def __init__(self, command: SupportsFormulate, display_name: str) -> None:
         self._command = command
         self._display_name = display_name
+        original_formulate = getattr(command, "formulate", None)
+        self._override_formulate: typ.Callable[[], list[str]] | None = None
+        if not callable(original_formulate):
+            typer.echo(
+                f"::warning:: unable to override display name for {command!r}; "
+                "missing callable formulate()",
+                err=True,
+            )
+            return
+
+        def _override() -> list[str]:
+            parts = list(original_formulate())
+            if parts:
+                parts[0] = display_name
+            return parts
+
+        try:
+            command.formulate = _override  # type: ignore[attr-defined]
+            self._override_formulate = _override
+        except (AttributeError, TypeError) as exc:
+            typer.echo(
+                f"::warning:: failed to set display override for {command!r}: {exc}",
+                err=True,
+            )
+            self._override_formulate = None
 
     def formulate(self) -> list[str]:
-        parts = list(self._command.formulate())
+        formulate_callable = getattr(self._command, "formulate", None)
+        if not callable(formulate_callable):
+            typer.echo(
+                f"::warning:: command {self._command!r} does not support formulate(); "
+                "returning display name only",
+                err=True,
+            )
+            return [self._display_name]
+        try:
+            parts = list(formulate_callable())
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
+            typer.echo(
+                f"::warning:: failed to generate command line for {self._command!r}: "
+                f"{exc}",
+                err=True,
+            )
+            return [self._display_name]
         if parts:
             parts[0] = self._display_name
         return parts

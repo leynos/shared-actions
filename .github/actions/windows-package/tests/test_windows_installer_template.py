@@ -177,14 +177,17 @@ def test_generate_wxs_cli_requires_version_when_env_missing(tmp_path: Path) -> N
     result = run_cmd(command, method="run", env=env)
 
     assert result.returncode != 0
-    assert 'Parameter "--version" requires an argument.' in result.stdout
+    combined_output = "\n".join(
+        line for line in (result.stdout, result.stderr) if line.strip()
+    )
+    assert (
+        "A version must be provided via the INPUT_VERSION environment variable "
+        "or the --version flag" in combined_output
+    )
 
 
 def _run_pwsh(command: str, env: dict[str, str]) -> RunResult:
     pwsh = shutil.which("pwsh")
-    if pwsh is None:  # pragma: no cover - guarded by skip condition
-        message = "pwsh is required for this test"
-        raise RuntimeError(message)
     pwsh_cmd = local[pwsh]["-NoLogo", "-NoProfile", "-Command", command]
     return run_cmd(pwsh_cmd, method="run", env=env)
 

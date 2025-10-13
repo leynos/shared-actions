@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
-from cyclopts import exceptions as cyclopts_exceptions
+from cyclopts.exceptions import CycloptsError
 
 if __package__ in {None, ""}:
     _MODULE_DIR = Path(__file__).resolve().parent
@@ -34,9 +34,7 @@ if __name__ not in sys.modules:
 else:
     _SELF_MODULE = sys.modules[__name__]
 
-UsageError = typ.cast(
-    "type[Exception]", getattr(cyclopts_exceptions, "UsageError", Exception)
-)
+UsageError = typ.cast("type[Exception]", CycloptsError)
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[unknown-argument]
 
@@ -179,7 +177,10 @@ if __name__ == "__main__":
     if not (env_version and env_version.strip()):
         provided_version = _extract_version_argument(argv)
         if not provided_version:
-            print('Parameter "--version" requires an argument.')
+            print(
+                "A version must be provided via the INPUT_VERSION environment "
+                "variable or the --version flag (e.g. --version 1.2.3)."
+            )
             raise SystemExit(2)
 
     try:

@@ -389,6 +389,52 @@ function Write-WixOutput {
     }
 }
 
+function Resolve-WixExitCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $CapturedExitCode
+    )
+
+    if ($null -ne $global:LASTEXITCODE) {
+        $nativeExit = [int]$global:LASTEXITCODE
+        if ($nativeExit -ne 0) {
+            return $nativeExit
+        }
+    }
+
+    return $CapturedExitCode
+}
+
+function Get-ErrorMessage {
+    [CmdletBinding()]
+    param(
+        $Exception
+    )
+
+    $errorMessage = ($Exception | Out-String).TrimEnd()
+    if ([string]::IsNullOrWhiteSpace($errorMessage)) {
+        return $Exception.ToString()
+    }
+
+    return $errorMessage
+}
+
+function Set-HostExitCode {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $ExitCode
+    )
+
+    $global:LASTEXITCODE = $ExitCode
+    if ($Host -and ($Host.PSObject.Properties.Name -contains 'SetShouldExit')) {
+        $Host.SetShouldExit($ExitCode)
+    }
+}
+
 function Build-MsiPackage {
     param(
         [Parameter(Mandatory = $true)]
@@ -425,31 +471,19 @@ function Build-MsiPackage {
     }
     catch {
         $wixExitCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }
-        $errorMessage = ($_ | Out-String).TrimEnd()
-        if ([string]::IsNullOrWhiteSpace($errorMessage)) {
-            $errorMessage = $_.ToString()
-        }
-        $wixOutput = @($errorMessage)
+        $wixOutput = @(Get-ErrorMessage -Exception $_)
     }
     finally {
         $ErrorActionPreference = $previousPreference
     }
 
-    if ($null -ne $global:LASTEXITCODE) {
-        $nativeExit = [int]$global:LASTEXITCODE
-        if ($nativeExit -ne 0) {
-            $wixExitCode = $nativeExit
-        }
-    }
+    $wixExitCode = Resolve-WixExitCode -CapturedExitCode $wixExitCode
 
     Write-WixOutput -Output $wixOutput
 
     if ($wixExitCode -ne 0) {
         Write-Error -Message "WiX build failed with exit code $wixExitCode. See output above for details." -ErrorAction Continue
-        $global:LASTEXITCODE = $wixExitCode
-        if ($Host -and ($Host.PSObject.Properties.Name -contains 'SetShouldExit')) {
-            $Host.SetShouldExit($wixExitCode)
-        }
+        Set-HostExitCode -ExitCode $wixExitCode
         exit $wixExitCode
     }
 

@@ -155,9 +155,7 @@ class _CommandWrapper:
     ) -> tuple[int, str | bytes | None, str | bytes | None]:
         return self._command.run(*args, **kwargs)
 
-    def popen(
-        self, *args: object, **kwargs: object
-    ) -> subprocess.Popen[typ.Any]:
+    def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
         return self._command.popen(*args, **kwargs)
 
     def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:

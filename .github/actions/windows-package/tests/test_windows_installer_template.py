@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import os
 import shutil
@@ -215,51 +216,53 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
     assert result.stdout.strip() == "7.8.9"
 
 
+@dataclasses.dataclass(slots=True)
+class InputVersionScenario:
+    """Test scenario for INPUT_VERSION handling."""
+
+    input_version: str
+    version_value: str | None
+    use_version_param: bool
+    expected_during: str
+    expected_after: str
+
+
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
 @pytest.mark.parametrize(
-    (
-        "input_version",
-        "version_value",
-        "use_version_param",
-        "expected_during",
-        "expected_after",
-    ),
+    "scenario",
     [
         pytest.param(
-            "3.1.4",
-            "9.2.6",
-            True,
-            "9.2.6",
-            "3.1.4",
+            InputVersionScenario(
+                input_version="3.1.4",
+                version_value="9.2.6",
+                use_version_param=True,
+                expected_during="9.2.6",
+                expected_after="3.1.4",
+            ),
             id="restores_existing_input_version",
         ),
         pytest.param(
-            "5.4.3",
-            None,
-            False,
-            "5.4.3",
-            "5.4.3",
+            InputVersionScenario(
+                input_version="5.4.3",
+                version_value=None,
+                use_version_param=False,
+                expected_during="5.4.3",
+                expected_after="5.4.3",
+            ),
             id="reuses_existing_input_version_when_version_missing",
         ),
     ],
 )
-def test_build_msi_input_version_handling(
-    input_version: str,
-    version_value: str | None,
-    *,
-    use_version_param: bool,
-    expected_during: str,
-    expected_after: str,
-) -> None:
+def test_build_msi_input_version_handling(scenario: InputVersionScenario) -> None:
     """Verify INPUT_VERSION handling in various scenarios."""
     env = os.environ.copy()
-    env["INPUT_VERSION"] = input_version
-    if version_value is not None:
-        env["VERSION"] = version_value
+    env["INPUT_VERSION"] = scenario.input_version
+    if scenario.version_value is not None:
+        env["VERSION"] = scenario.version_value
     else:
         env.pop("VERSION", None)
 
-    version_param = " -Version $env:VERSION" if use_version_param else ""
+    version_param = " -Version $env:VERSION" if scenario.use_version_param else ""
     command = (
         f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         f"$output = Invoke-WithTemporaryInputVersion{version_param} -ScriptBlock {{ "
@@ -272,7 +275,10 @@ def test_build_msi_input_version_handling(
 
     assert result.returncode == 0
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    assert lines == [f"during:{expected_during}", f"after:{expected_after}"]
+    assert lines == [
+        f"during:{scenario.expected_during}",
+        f"after:{scenario.expected_after}",
+    ]
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")

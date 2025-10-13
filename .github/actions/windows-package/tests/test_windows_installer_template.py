@@ -266,7 +266,7 @@ def test_build_msi_input_version_handling(scenario: InputVersionScenario) -> Non
     command = (
         f'. "{BUILD_MSI_SCRIPT_PATH}"; '
         f"$output = Invoke-WithTemporaryInputVersion{version_param} -ScriptBlock {{ "
-        'Write-Output "during:$env:INPUT_VERSION" }}; '
+        'Write-Output "during:$env:INPUT_VERSION" }; '
         "Write-Output $output; "
         'Write-Output "after:$env:INPUT_VERSION"'
     )

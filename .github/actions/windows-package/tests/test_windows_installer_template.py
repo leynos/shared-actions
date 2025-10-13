@@ -213,16 +213,54 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
-def test_build_msi_restores_existing_input_version() -> None:
-    """Existing INPUT_VERSION values should be restored after invocation."""
+@pytest.mark.parametrize(
+    (
+        "input_version",
+        "version_value",
+        "use_version_param",
+        "expected_during",
+        "expected_after",
+    ),
+    [
+        pytest.param(
+            "3.1.4",
+            "9.2.6",
+            True,
+            "9.2.6",
+            "3.1.4",
+            id="restores_existing_input_version",
+        ),
+        pytest.param(
+            "5.4.3",
+            None,
+            False,
+            "5.4.3",
+            "5.4.3",
+            id="reuses_existing_input_version_when_version_missing",
+        ),
+    ],
+)
+def test_build_msi_input_version_handling(
+    input_version: str,
+    version_value: str | None,
+    *,
+    use_version_param: bool,
+    expected_during: str,
+    expected_after: str,
+) -> None:
+    """Verify INPUT_VERSION handling in various scenarios."""
     env = os.environ.copy()
-    env["INPUT_VERSION"] = "3.1.4"
-    env["VERSION"] = "9.2.6"
+    env["INPUT_VERSION"] = input_version
+    if version_value is not None:
+        env["VERSION"] = version_value
+    else:
+        env.pop("VERSION", None)
 
+    version_param = " -Version $env:VERSION" if use_version_param else ""
     command = (
         f'. "{BUILD_MSI_SCRIPT_PATH}"; '
-        "$output = Invoke-WithTemporaryInputVersion -Version $env:VERSION "
-        '-ScriptBlock { Write-Output "during:$env:INPUT_VERSION" }; '
+        f"$output = Invoke-WithTemporaryInputVersion{version_param} -ScriptBlock {{ "
+        'Write-Output "during:$env:INPUT_VERSION" }}; '
         "Write-Output $output; "
         'Write-Output "after:$env:INPUT_VERSION"'
     )
@@ -231,29 +269,7 @@ def test_build_msi_restores_existing_input_version() -> None:
 
     assert result.returncode == 0
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    assert lines == ["during:9.2.6", "after:3.1.4"]
-
-
-@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
-def test_build_msi_reuses_existing_input_version_when_version_missing() -> None:
-    """Helper reuses existing INPUT_VERSION when VERSION is absent."""
-    env = os.environ.copy()
-    env["INPUT_VERSION"] = "5.4.3"
-    env.pop("VERSION", None)
-
-    command = (
-        f'. "{BUILD_MSI_SCRIPT_PATH}"; '
-        "$output = Invoke-WithTemporaryInputVersion -ScriptBlock { "
-        'Write-Output "during:$env:INPUT_VERSION" }; '
-        "Write-Output $output; "
-        'Write-Output "after:$env:INPUT_VERSION"'
-    )
-
-    result = _run_pwsh(command, env)
-
-    assert result.returncode == 0
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    assert lines == ["during:5.4.3", "after:5.4.3"]
+    assert lines == [f"during:{expected_during}", f"after:{expected_after}"]
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")

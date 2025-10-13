@@ -350,6 +350,11 @@ function Build-MsiPackage {
 
     $wixCommand = Ensure-WixToolAvailable
 
+    if ([string]::IsNullOrWhiteSpace($env:VERSION)) {
+        Write-Error "VERSION environment variable is required. Run resolve_version.ps1 or supply VERSION before invoking Build-MsiPackage."
+        exit 1
+    }
+
     $arguments = @('build', $env:WXS_PATH)
     $arguments += Build-WixExtensionArguments -ExtensionList $env:WIX_EXTENSION
 

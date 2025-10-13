@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import shutil
@@ -18,6 +19,15 @@ if typ.TYPE_CHECKING:
     from collections import abc as cabc
 else:  # pragma: no cover - runtime fallback for annotations
     cabc = typ.cast("object", None)
+
+
+@dataclasses.dataclass
+class ExpectedOutput:
+    """Expected values for tag-based version resolution outcomes."""
+
+    version: str
+    source: str
+    log_fragment: str
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -146,20 +156,6 @@ def test_script_honours_explicit_input_version(
     assert outputs["versionSource"] == "input"
 
 
-def test_script_warns_on_invalid_tag(
-    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
-) -> None:
-    """Emit a warning and fall back to 0.0.0 for malformed tag versions."""
-    result, output_file = script_runner(
-        {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "release"}
-    )
-    assert result.returncode == 0
-    assert "Tag 'release' does not match" in _combined_stream(result)
-    outputs = _read_outputs(output_file)
-    assert outputs["version"] == "0.0.0"
-    assert outputs["versionSource"] == "default"
-
-
 def test_script_errors_on_invalid_explicit_version(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
 ) -> None:
@@ -170,18 +166,42 @@ def test_script_errors_on_invalid_explicit_version(
     assert not output_file.exists()
 
 
-def test_script_resolves_valid_tag(
+@pytest.mark.parametrize(
+    ("tag_name", "expected"),
+    [
+        (
+            "v1.2.3",
+            ExpectedOutput(
+                version="1.2.3",
+                source="tag",
+                log_fragment="Resolved version (tag 'v1.2.3'): 1.2.3",
+            ),
+        ),
+        (
+            "release",
+            ExpectedOutput(
+                version="0.0.0",
+                source="default",
+                log_fragment="Tag 'release' does not match",
+            ),
+        ),
+    ],
+    ids=["valid_tag", "invalid_tag"],
+)
+def test_script_tag_resolution(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+    tag_name: str,
+    expected: ExpectedOutput,
 ) -> None:
-    """Resolve and emit outputs when a well-formed tag is provided."""
+    """Resolve or reject tag-based versions and emit appropriate outputs."""
     result, output_file = script_runner(
-        {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v1.2.3"}
+        {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag_name}
     )
     assert result.returncode == 0
-    assert "Resolved version (tag 'v1.2.3'): 1.2.3" in _combined_stream(result)
+    assert expected.log_fragment in _combined_stream(result)
     outputs = _read_outputs(output_file)
-    assert outputs["version"] == "1.2.3"
-    assert outputs["versionSource"] == "tag"
+    assert outputs["version"] == expected.version
+    assert outputs["versionSource"] == expected.source
 
 
 def test_script_ignores_non_tag_refs(

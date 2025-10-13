@@ -152,18 +152,28 @@ def main(
 if __name__ == "__main__":
     argv = sys.argv[1:]
 
-    def _extract_version_argument(values: list[str]) -> str | None:
+    def _extract_version_from_key_value(values: list[str]) -> str | None:
+        """Extract version from --version=VALUE format."""
         for value in values:
             if value.startswith("--version="):
                 candidate = value.split("=", 1)[1]
                 return candidate if candidate else None
-        for index, value in enumerate(values):
-            if value == "--version":
-                if index + 1 < len(values):
-                    candidate = values[index + 1]
-                    return candidate if candidate else None
-                return None
         return None
+
+    def _extract_version_from_flag_arg(values: list[str]) -> str | None:
+        """Extract version from --version VALUE format."""
+        for index, value in enumerate(values):
+            if value == "--version" and index + 1 < len(values):
+                candidate = values[index + 1]
+                return candidate if candidate else None
+        return None
+
+    def _extract_version_argument(values: list[str]) -> str | None:
+        """Extract version argument from command-line values."""
+        version = _extract_version_from_key_value(values)
+        if version:
+            return version
+        return _extract_version_from_flag_arg(values)
 
     env_version = os.environ.get("INPUT_VERSION")
     if not (env_version and env_version.strip()):

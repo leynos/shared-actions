@@ -240,6 +240,84 @@ function Build-WxsGenerationArguments {
     return ,$arguments
 }
 
+function Resolve-ApplicationSpecification {
+    [CmdletBinding()]
+    param()
+
+    $spec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
+    if ([string]::IsNullOrWhiteSpace($spec)) {
+        Write-Error 'application-path input is required when wxs-path is not provided.'
+        exit 1
+    }
+
+    return $spec
+}
+
+function Validate-GeneratorScript {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $GeneratorPath
+    )
+
+    if (-not (Test-Path -LiteralPath $GeneratorPath)) {
+        Write-Error "WiX generator script not found: $GeneratorPath"
+        exit 1
+    }
+
+    return $GeneratorPath
+}
+
+function Build-PythonCommandDisplay {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]
+        $Arguments
+    )
+
+    Ensure-PythonCommand
+    $pythonExecutable = if ($script:PythonCommand.Source) { $script:PythonCommand.Source } else { $script:PythonCommand.Name }
+    $pythonArgumentList = @()
+    if ($script:PythonArgs.Count -gt 0) {
+        $pythonArgumentList += $script:PythonArgs
+    }
+    $pythonArgumentList += $Arguments
+
+    return @{
+        Executable  = $pythonExecutable
+        FullCommand = $pythonArgumentList
+    }
+}
+
+function Invoke-WxsGeneration {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]
+        $Arguments
+    )
+
+    try {
+        $generationResult = Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock {
+            Invoke-PythonScript -Arguments $Arguments
+        }
+    }
+    catch [System.InvalidOperationException] {
+        Write-Error $_.Exception.Message
+        exit 1
+    }
+
+    $generatedWxs = $generationResult.Trim()
+    if (-not (Test-Path -LiteralPath $generatedWxs)) {
+        Write-Error "Expected WiX authoring was not created: $generatedWxs"
+        exit 1
+    }
+
+    return $generatedWxs
+}
+
 function Ensure-WxsFile {
     param(
         [Parameter(Mandatory = $true)]
@@ -248,45 +326,19 @@ function Ensure-WxsFile {
     )
 
     if ([string]::IsNullOrWhiteSpace($env:WXS_PATH)) {
-        $applicationSpec = if ([string]::IsNullOrWhiteSpace($env:APPLICATION_SPEC)) { '' } else { $env:APPLICATION_SPEC.Trim() }
-        if ([string]::IsNullOrWhiteSpace($applicationSpec)) {
-            Write-Error 'application-path input is required when wxs-path is not provided.'
-            exit 1
-        }
+        $applicationSpec = Resolve-ApplicationSpecification
 
         $generator = Join-Path -Path $env:GITHUB_ACTION_PATH -ChildPath 'scripts\generate_wxs.py'
-        if (-not (Test-Path -LiteralPath $generator)) {
-            Write-Error "WiX generator script not found: $generator"
-            exit 1
-        }
+        $generatorPath = Validate-GeneratorScript -GeneratorPath $generator
 
         $targetWxs = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ("windows-package-{0}.wxs" -f ([guid]::NewGuid()))
-        $arguments = Build-WxsGenerationArguments -Generator $generator -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
+        $arguments = Build-WxsGenerationArguments -Generator $generatorPath -TargetWxs $targetWxs -Architecture $Architecture -ApplicationSpec $applicationSpec
 
         Write-Host "Generating WXS file at: $targetWxs"
-        Ensure-PythonCommand
-        $pythonExecutable = if ($script:PythonCommand.Source) { $script:PythonCommand.Source } else { $script:PythonCommand.Name }
-        $pythonArgumentList = @()
-        if ($script:PythonArgs.Count -gt 0) {
-            $pythonArgumentList += $script:PythonArgs
-        }
-        $pythonArgumentList += $arguments
-        Write-Host "Generation command: $pythonExecutable $($pythonArgumentList -join ' ')"
+        $commandInfo = Build-PythonCommandDisplay -Arguments $arguments
+        Write-Host "Generation command: $($commandInfo.Executable) $($commandInfo.FullCommand -join ' ')"
 
-        try {
-            $generationResult = Invoke-WithTemporaryInputVersion -Version $env:VERSION -ScriptBlock {
-                Invoke-PythonScript -Arguments $arguments
-            }
-        }
-        catch [System.InvalidOperationException] {
-            Write-Error $_.Exception.Message
-            exit 1
-        }
-        $generatedWxs = $generationResult.Trim()
-        if (-not (Test-Path -LiteralPath $generatedWxs)) {
-            Write-Error "Expected WiX authoring was not created: $generatedWxs"
-            exit 1
-        }
+        $generatedWxs = Invoke-WxsGeneration -Arguments $arguments
         $env:WXS_PATH = (Resolve-Path -LiteralPath $generatedWxs).Path
         Write-Host "Generated default WiX authoring: $($env:WXS_PATH)"
     }

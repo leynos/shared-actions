@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import collections.abc as cabc  # noqa: TC003
 import os
 import shutil
 import sys
@@ -24,6 +25,8 @@ from toolchain import configure_windows_linkers, read_default_toolchain
 from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
 
 if typ.TYPE_CHECKING:
+    import subprocess
+
     from cmd_utils import SupportsFormulate
 from cmd_utils_importer import import_cmd_utils
 
@@ -94,20 +97,20 @@ class _CommandWrapper:
     """Expose a stable display name for a plumbum command."""
 
     def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+        formulate_callable = getattr(command, "formulate", None)
+        if not callable(formulate_callable):
+            message = (
+                f"{command!r} does not expose a callable formulate(); cannot wrap "
+                "for display override"
+            )
+            raise TypeError(message)
+
         self._command = command
         self._display_name = display_name
-        original_formulate = getattr(command, "formulate", None)
-        self._override_formulate: typ.Callable[[], list[str]] | None = None
-        if not callable(original_formulate):
-            typer.echo(
-                f"::warning:: unable to override display name for {command!r}; "
-                "missing callable formulate()",
-                err=True,
-            )
-            return
+        self._override_formulate: typ.Callable[[], cabc.Sequence[str]] | None = None
 
         def _override() -> list[str]:
-            parts = list(original_formulate())
+            parts = list(formulate_callable())
             if parts:
                 parts[0] = display_name
             return parts
@@ -122,7 +125,7 @@ class _CommandWrapper:
             )
             self._override_formulate = None
 
-    def formulate(self) -> list[str]:
+    def formulate(self) -> cabc.Sequence[str]:
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
             typer.echo(
@@ -144,17 +147,28 @@ class _CommandWrapper:
             parts[0] = self._display_name
         return parts
 
-    def __call__(self, *args: object, **kwargs: object) -> object:
+    def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
         return self._command(*args, **kwargs)
 
-    def run(self, *args: object, **kwargs: object) -> object:
+    def run(
+        self, *args: object, **kwargs: object
+    ) -> tuple[int, str | bytes | None, str | bytes | None]:
         return self._command.run(*args, **kwargs)
 
-    def popen(self, *args: object, **kwargs: object) -> object:
+    def popen(
+        self, *args: object, **kwargs: object
+    ) -> subprocess.Popen[typ.Any]:
         return self._command.popen(*args, **kwargs)
 
     def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
         wrapped = self._command.with_env(*args, **kwargs)
+        wrapped_formulate = getattr(wrapped, "formulate", None)
+        if not callable(wrapped_formulate):
+            message = (
+                f"{wrapped!r} returned from with_env() does not expose formulate(); "
+                "cannot maintain display override"
+            )
+            raise TypeError(message)
         return _CommandWrapper(wrapped, self._display_name)
 
     def __getattr__(self, name: str) -> object:
@@ -596,7 +610,7 @@ def main(
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
     if decision.use_cross and not decision.use_cross_local_backend:
         engine = decision.container_engine
-        if engine:
+        if engine is not None:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine
 
     if decision.use_cross:

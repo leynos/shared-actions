@@ -7,6 +7,7 @@ import pathlib
 import platform
 import typing as typ
 
+from plumbum.commands.processes import ProcessExecutionError
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, unique_match
 from validate_metadata import (
@@ -152,18 +153,42 @@ def _trim_output(output: str, *, line_limit: int = 5, char_limit: int = 400) -> 
     return text
 
 
-def _format_path_diagnostics(sandbox: PolytheneSession, path: str) -> str | None:
+def _decode_stream(value: object | None) -> str:
+    """Decode ``value`` from a process stream into ``str``."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _format_path_diagnostics(
+    sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
+) -> str | None:
     """Return sandbox diagnostics describing ``path`` when checks fail."""
     commands: list[tuple[str, tuple[str, ...]]] = [
         ("ls -ld", ("ls", "-ld", path)),
         ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
     ]
 
+    script = (
+        "import os; "
+        f"path={path!r}; "
+        "st=os.stat(path); "
+        "print('mode', oct(st.st_mode), 'uid', st.st_uid, 'gid', st.st_gid); "
+        "print('x_ok', os.access(path, os.X_OK))"
+    )
+    commands.append(("python os.access", ("python3", "-c", script)))
+
     parent = str(pathlib.PurePosixPath(path).parent)
     if parent and parent != ".":
         commands.append(("ls parent", ("ls", "-l", parent)))
 
     details: list[str] = []
+    if isinstance(error, ProcessExecutionError):
+        stderr_text = _trim_output(_decode_stream(error.stderr))
+        if stderr_text:
+            details.append(f"- stderr: {stderr_text}")
     for label, args in commands:
         try:
             output = sandbox.exec(*args)
@@ -199,19 +224,30 @@ def _install_and_verify(
 
         sandbox_path = f"/{package_path.name}"
 
+        logger.info(
+            "Using sandbox isolation %s for %s",
+            sandbox.isolation or "default",
+            sandbox.root,
+        )
+
         def _exec_with_context(
             *args: str,
             context: str,
             timeout: int | None = None,
-            diagnostics: typ.Callable[[], str | None] | None = None,
+            diagnostics: typ.Callable[[BaseException | None], str | None] | None = None,
         ) -> str:
             try:
                 return sandbox.exec(*args, timeout=timeout)
             except ValidationError as exc:
+                cause = exc.__cause__
+                stderr_detail: str | None = None
+                if isinstance(cause, ProcessExecutionError):
+                    stderr_text = _decode_stream(cause.stderr)
+                    stderr_detail = _trim_output(stderr_text)
                 detail: str | None = None
                 if diagnostics is not None:
                     try:
-                        detail = diagnostics()
+                        detail = diagnostics(cause)
                     except ValidationError as diag_exc:  # pragma: no cover - defensive
                         logger.debug(
                             "diagnostic collection raised ValidationError for %s: %s",
@@ -225,6 +261,8 @@ def _install_and_verify(
                             diag_exc,
                         )
                 message = f"{context}: {exc}"
+                if stderr_detail:
+                    message = f"{message}\nstderr: {stderr_detail}"
                 if detail:
                     message = f"{message}\n{detail}"
                 raise ValidationError(message) from exc
@@ -235,13 +273,36 @@ def _install_and_verify(
 
         _exec_with_context(*install_args, context=install_error)
 
+        env_details: list[str] = []
+        for label, command in (
+            ("id -u", ("id", "-u")),
+            ("umask", ("sh", "-c", "umask")),
+            (
+                "mount /usr",
+                ("sh", "-c", "mount | grep ' /usr ' || true"),
+            ),
+        ):
+            try:
+                output = sandbox.exec(*command)
+            except ValidationError as exc:
+                summary = _trim_output(str(exc))
+                env_details.append(f"{label}: error ({summary})")
+            else:
+                summary = _trim_output(output)
+                env_details.append(f"{label}: {summary}")
+
+        if env_details:
+            logger.info("Sandbox context: %s", "; ".join(env_details))
+
         for path in expected_paths:
             _exec_with_context(
                 "test",
                 "-e",
                 path,
                 context=f"expected path missing from sandbox payload: {path}",
-                diagnostics=lambda path=path: _format_path_diagnostics(sandbox, path),
+                diagnostics=lambda err, path=path: _format_path_diagnostics(
+                    sandbox, path, error=err
+                ),
             )
         for path in executable_paths:
             _exec_with_context(
@@ -249,7 +310,9 @@ def _install_and_verify(
                 "-x",
                 path,
                 context=f"expected path is not executable: {path}",
-                diagnostics=lambda path=path: _format_path_diagnostics(sandbox, path),
+                diagnostics=lambda err, path=path: _format_path_diagnostics(
+                    sandbox, path, error=err
+                ),
             )
         if verify_command:
             _exec_with_context(

@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from plumbum.commands.processes import ProcessExecutionError
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_packages.py"
@@ -48,6 +49,7 @@ class DummySandbox:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self._calls = calls
+        self.isolation: str | None = None
 
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Record sandbox exec calls."""
@@ -65,15 +67,19 @@ class RaisingSandbox(DummySandbox):
         *,
         failure_command: tuple[str, ...],
         error: Exception,
+        cause: BaseException | None = None,
     ) -> None:
         super().__init__(root, calls)
         self._failure_command = failure_command
         self._error = error
+        self._cause = cause
 
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Raise the configured error when ``failure_command`` is executed."""
         if tuple(args) == self._failure_command:
             self._calls.append((tuple(args), timeout))
+            if self._cause is not None:
+                raise self._error from self._cause
             raise self._error
         return super().exec(*args, timeout=timeout)
 
@@ -334,6 +340,12 @@ def test_install_and_verify_wraps_validation_errors(
         lambda: "x86_64",
     )
 
+    process_error = ProcessExecutionError(
+        ["test", "-x", "/usr/bin/rust-toy-app"],
+        1,
+        "",
+        "permission denied",
+    )
     error = validate_packages_module.ValidationError("command failed")
     calls: list[tuple[tuple[str, ...], int | None]] = []
     sandbox = RaisingSandbox(
@@ -341,6 +353,7 @@ def test_install_and_verify_wraps_validation_errors(
         calls,
         failure_command=failure_command,
         error=error,
+        cause=process_error,
     )
 
     with pytest.raises(validate_packages_module.ValidationError) as excinfo:
@@ -361,7 +374,9 @@ def test_install_and_verify_wraps_validation_errors(
     assert expected_message in message
 
     diag_calls = [
-        call for call, _timeout in calls if call and call[0] in {"ls", "stat"}
+        call
+        for call, _timeout in calls
+        if call and (call[0] in {"ls", "stat"} or call[0] == "python3")
     ]
 
     if diagnostic_kind == "path":
@@ -369,6 +384,8 @@ def test_install_and_verify_wraps_validation_errors(
         assert f"Path diagnostics for {path}" in message
         assert "- ls -ld" in message
         assert "- stat" in message
+        assert "- python os.access" in message
+        assert "stderr: permission denied" in message
         assert diag_calls, "expected diagnostic commands to run"
     else:
         assert "Path diagnostics for" not in message

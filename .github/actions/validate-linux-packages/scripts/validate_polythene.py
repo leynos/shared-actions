@@ -151,6 +151,37 @@ def _build_command_args(
     return _CommandArgsResult(args=[*base_args, "--", *args], used_isolation=False)
 
 
+def _should_compare_without_isolation(args: tuple[str, ...]) -> bool:
+    """Return ``True`` when ``args`` represent an executable check."""
+    return len(args) >= 3 and args[0] == "test" and args[1] == "-x"
+
+
+def _compare_without_isolation(
+    base_args: list[str], args: tuple[str, ...], *, timeout: int | None
+) -> None:
+    """Run ``args`` without isolation and log the outcome for diagnostics."""
+    debug_args = _build_command_args(
+        base_args,
+        args,
+        isolation="none",
+        supports_isolation=True,
+    )
+    debug_cmd = local["uv"][tuple(debug_args.args)]
+    try:
+        run_text(debug_cmd, timeout=timeout)
+    except ValidationError as exc:  # pragma: no cover - diagnostic helper
+        logger.debug(
+            "no-isolation comparison for %s failed: %s",
+            " ".join(args),
+            exc,
+        )
+    else:
+        logger.debug(
+            "no-isolation comparison for %s succeeded",
+            " ".join(args),
+        )
+
+
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
@@ -212,6 +243,12 @@ class PolytheneSession:
                 )
                 fallback_cmd = local["uv"][tuple(fallback_args.args)]
                 return run_text(fallback_cmd, timeout=effective_timeout)
+            if include_isolation and _should_compare_without_isolation(args):
+                _compare_without_isolation(
+                    base_args,
+                    args,
+                    timeout=effective_timeout,
+                )
             raise
         else:
             if include_isolation and self._supports_isolation_option is not True:

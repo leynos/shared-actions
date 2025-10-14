@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -45,6 +45,27 @@ class PackagingConfig:
 
 Command = tuple[str, ...]
 DEFAULT_POLYTHENE_COMMAND: Command = ("polythene",)
+
+
+def _podman_runtime_available(timeout: float = 5.0) -> bool:
+    """Return ``True`` when Podman is installed and ``podman info`` succeeds."""
+    podman = shutil.which("podman")
+    if podman is None:
+        return False
+
+    try:
+        result = run_cmd(
+            local[podman]["info"],
+            method="run",
+            timeout=timeout,
+        )
+    except (OSError, ProcessExecutionError, ProcessTimedOut, subprocess.TimeoutExpired):
+        return False
+
+    return result.returncode == 0
+
+
+HAS_PODMAN_RUNTIME: typ.Final[bool] = _podman_runtime_available()
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -406,6 +427,7 @@ __all__ = sorted(
         "deb_arch_for_target",
         "DEFAULT_CONFIG",
         "DEFAULT_TARGET",
+        "HAS_PODMAN_RUNTIME",
         "ensure_nfpm",
         "ChecksumReadError",
         "IsolationUnavailableError",

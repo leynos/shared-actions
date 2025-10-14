@@ -551,9 +551,9 @@ def test_ensure_nfpm_errors_when_checksum_entry_missing(
 @pytest.mark.skipif(
     sys.platform == "win32"
     or shutil.which("dpkg-deb") is None
-    or shutil.which("podman") is None
+    or not pkg_utils.HAS_PODMAN_RUNTIME
     or shutil.which("uv") is None,
-    reason="dpkg-deb, podman or uv not available",
+    reason="dpkg-deb, podman runtime or uv not available",
 )
 def test_package_cli_stages_binary_with_executable_permissions(
     packaging_project_paths: pkg_utils.PackagingProject,

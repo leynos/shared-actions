@@ -11,7 +11,11 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
-from cyclopts.exceptions import CycloptsError
+
+try:
+    from cyclopts.exceptions import UsageError  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - compatibility with older cyclopts
+    from cyclopts.exceptions import CycloptsError as UsageError
 
 if __package__ in {None, ""}:
     _MODULE_DIR = Path(__file__).resolve().parent
@@ -33,8 +37,6 @@ if __name__ not in sys.modules:
     sys.modules[__name__] = _SELF_MODULE
 else:
     _SELF_MODULE = sys.modules[__name__]
-
-UsageError = typ.cast("type[Exception]", CycloptsError)
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))  # type: ignore[unknown-argument]
 

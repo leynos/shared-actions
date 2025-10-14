@@ -107,6 +107,8 @@ jobs:
       - name: Validate Linux packages
         if: contains(matrix.target, 'unknown-linux-')
         uses: ./.github/actions/validate-linux-packages
+        env:
+          POLYTHENE_ISOLATION: bubblewrap
         with:
           project-dir: rust-toy-app
           package-name: rust-toy-app

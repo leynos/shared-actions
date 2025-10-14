@@ -86,6 +86,40 @@ def _prepare_polythene_stub(
     return calls, exec_calls
 
 
+def test_polythene_store_accepts_executable_override(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """User supplied polythene-store paths are validated for executability."""
+    module = validate_cli_module
+    custom_store = tmp_path / "custom-store"
+
+    with module._polythene_store(custom_store) as store:
+        assert store == custom_store.resolve()
+        assert store.exists()
+
+        marker = store / "marker"
+        marker.write_text("ok")
+
+    assert (custom_store / "marker").exists()
+
+
+def test_polythene_store_rejects_non_executable_override(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A clear error is raised when the filesystem forbids execution."""
+    module = validate_cli_module
+    monkeypatch.setattr(module, "_supports_executable_stores", lambda _path: None)
+
+    with pytest.raises(module.ValidationError) as excinfo:
+        module.ensure_executable_store(tmp_path / "non-exec")
+
+    message = str(excinfo.value)
+    assert "polythene-store must be located on an executable filesystem" in message
+
+
 def test_build_config_splits_verify_command(
     validate_cli_module: object,
     tmp_path: Path,
@@ -814,10 +848,10 @@ def test_polythene_store_prefers_workspace(
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
     def fake_supports(base: Path) -> Path | None:
-        if base == workspace:
-            return workspace
-        if base == runner_temp:
-            return runner_temp
+        if base.is_relative_to(workspace):
+            return base
+        if base.is_relative_to(runner_temp):
+            return base
         pytest.fail(f"unexpected base: {base!s}")
 
     monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
@@ -841,10 +875,10 @@ def test_polythene_store_falls_back_to_runner_temp(
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
     def fake_supports(base: Path) -> Path | None:
-        if base == workspace:
+        if base.is_relative_to(workspace):
             return None
-        if base == runner_temp:
-            return runner_temp
+        if base.is_relative_to(runner_temp):
+            return base
         pytest.fail(f"unexpected base: {base!s}")
 
     monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)

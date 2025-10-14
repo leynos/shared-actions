@@ -386,6 +386,20 @@ def _supports_executable_stores(base: Path) -> Path | None:
     return candidate
 
 
+def ensure_executable_store(path: Path) -> Path:
+    """Ensure ``path`` resides on an executable filesystem."""
+    candidate = _supports_executable_stores(path)
+    if candidate is not None:
+        return candidate
+
+    message = (
+        "polythene-store must be located on an executable filesystem; "
+        f"{path} does not allow running binaries. "
+        "Choose a directory under $GITHUB_WORKSPACE or another exec-mounted path."
+    )
+    raise ValidationError(message)
+
+
 def _find_executable_candidate() -> Path | None:
     """Find an executable filesystem candidate from environment variables."""
     for env_var in ("GITHUB_WORKSPACE", "RUNNER_TEMP"):
@@ -404,7 +418,7 @@ def _find_executable_candidate() -> Path | None:
 def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
     if polythene_store:
-        store_base = ensure_directory(polythene_store.resolve())
+        store_base = ensure_executable_store(polythene_store.resolve())
         yield store_base
         return
 
@@ -415,13 +429,13 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
                 prefix="polythene-validate-",
                 dir=candidate,
             ) as tmp:
-                yield ensure_directory(Path(tmp))
+                yield ensure_executable_store(Path(tmp))
                 return
         except OSError:
             pass
 
     with tempfile.TemporaryDirectory(prefix="polythene-validate-") as tmp:
-        yield ensure_directory(Path(tmp))
+        yield ensure_executable_store(Path(tmp))
 
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:

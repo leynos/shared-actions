@@ -112,12 +112,14 @@ def test_polythene_store_rejects_non_executable_override(
     """A clear error is raised when the filesystem forbids execution."""
     module = validate_cli_module
     monkeypatch.setattr(module, "_supports_executable_stores", lambda _path: None)
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs info")
 
     with pytest.raises(module.ValidationError) as excinfo:
         module.ensure_executable_store(tmp_path / "non-exec")
 
     message = str(excinfo.value)
     assert "polythene-store must be located on an executable filesystem" in message
+    assert "Filesystem details: fs info" in message
 
 
 def test_build_config_splits_verify_command(
@@ -196,6 +198,8 @@ def test_main_invokes_deb_validation(
 
     monkeypatch.setattr(module, "validate_deb_package", _validate_deb_package)
 
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs info")
+
     module.main(
         project_dir=project_dir,
         bin_name="rust-toy-app",
@@ -205,6 +209,8 @@ def test_main_invokes_deb_validation(
     )
 
     out = capsys.readouterr().out
+    assert "Using polythene store base" in out
+    assert "[fs info]" in out
     assert "✓ validated Debian package" in out
 
     assert recorded["path"] == package_path

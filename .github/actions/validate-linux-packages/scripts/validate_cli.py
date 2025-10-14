@@ -353,6 +353,120 @@ def _prepare_paths(
     return tuple(expected_paths_list), tuple(executable_paths_list)
 
 
+@dataclasses.dataclass(frozen=True)
+class _MountDetails:
+    """Lightweight mount descriptor extracted from ``/proc/self/mountinfo``."""
+
+    mount_point: str
+    fs_type: str
+    mount_options: tuple[str, ...]
+    super_options: tuple[str, ...]
+
+
+def _decode_mount_field(value: str) -> str:
+    """Decode octal escape sequences present in ``mountinfo`` fields."""
+    result: list[str] = []
+    index = 0
+    length = len(value)
+    while index < length:
+        if (
+            value[index] == "\\"
+            and index + 3 < length
+            and value[index + 1 : index + 4].isdigit()
+        ):
+            try:
+                code = int(value[index + 1 : index + 4], 8)
+            except ValueError:
+                result.append(value[index])
+                index += 1
+                continue
+            result.append(chr(code))
+            index += 4
+            continue
+        result.append(value[index])
+        index += 1
+    return "".join(result)
+
+
+def _split_mount_options(raw: str) -> tuple[str, ...]:
+    """Return mount options from a comma-delimited ``raw`` string."""
+    if not raw:
+        return ()
+    return tuple(part for part in raw.split(",") if part)
+
+
+def _mount_details(path: Path) -> _MountDetails | None:
+    """Return mount metadata for ``path`` derived from ``/proc/self/mountinfo``."""
+    mountinfo = Path("/proc/self/mountinfo")
+    try:
+        lines = mountinfo.read_text().splitlines()
+    except OSError:
+        return None
+
+    try:
+        target = path.resolve(strict=False)
+    except OSError:
+        target = path
+
+    target_str = target.as_posix()
+    best: _MountDetails | None = None
+    best_length = -1
+
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            left, right = line.split(" - ", 1)
+        except ValueError:
+            continue
+
+        left_fields = left.split()
+        if len(left_fields) < 6:
+            continue
+
+        mount_point = _decode_mount_field(left_fields[4])
+        mount_point_length = len(mount_point)
+        if mount_point == "/":
+            matches = True
+        else:
+            matches = target_str == mount_point or target_str.startswith(
+                f"{mount_point}/"
+            )
+        if not matches:
+            continue
+
+        right_fields = right.split()
+        if len(right_fields) < 3:
+            continue
+
+        if mount_point_length > best_length:
+            best = _MountDetails(
+                mount_point=mount_point,
+                fs_type=right_fields[0],
+                mount_options=_split_mount_options(left_fields[5]),
+                super_options=_split_mount_options(right_fields[2]),
+            )
+            best_length = mount_point_length
+
+    return best
+
+
+def _describe_mount(path: Path) -> str:
+    """Return a human-readable description of the filesystem for ``path``."""
+    details = _mount_details(path)
+    if details is None:
+        return "mount information unavailable"
+
+    option_set = set(details.mount_options) | set(details.super_options)
+    exec_state = "exec" if "noexec" not in option_set else "noexec"
+    mount_opts = ",".join(details.mount_options) or "-"
+    super_opts = ",".join(details.super_options) or "-"
+    return (
+        f"{details.fs_type} at {details.mount_point} "
+        f"({exec_state}; mount={mount_opts}; super={super_opts})"
+    )
+
+
 def _supports_executable_stores(base: Path) -> Path | None:
     """Return ``base`` when the filesystem allows executing files."""
     try:
@@ -386,21 +500,29 @@ def _supports_executable_stores(base: Path) -> Path | None:
     return candidate
 
 
+def _log_store_selection(path: Path, *, source: str) -> None:
+    """Emit a diagnostic message describing the chosen store directory."""
+    description = _describe_mount(path)
+    print(f"Using polythene store base from {source}: {path} [{description}]")
+
+
 def ensure_executable_store(path: Path) -> Path:
     """Ensure ``path`` resides on an executable filesystem."""
     candidate = _supports_executable_stores(path)
     if candidate is not None:
         return candidate
 
+    mount_description = _describe_mount(path)
     message = (
         "polythene-store must be located on an executable filesystem; "
         f"{path} does not allow running binaries. "
-        "Choose a directory under $GITHUB_WORKSPACE or another exec-mounted path."
+        "Choose a directory under $GITHUB_WORKSPACE or another exec-mounted path. "
+        f"Filesystem details: {mount_description}"
     )
     raise ValidationError(message)
 
 
-def _find_executable_candidate() -> Path | None:
+def _find_executable_candidate() -> tuple[Path, str] | None:
     """Find an executable filesystem candidate from environment variables."""
     for env_var in ("GITHUB_WORKSPACE", "RUNNER_TEMP"):
         location = os.environ.get(env_var)
@@ -409,7 +531,7 @@ def _find_executable_candidate() -> Path | None:
 
         candidate = _supports_executable_stores(Path(location))
         if candidate is not None:
-            return candidate
+            return candidate, env_var
 
     return None
 
@@ -419,23 +541,32 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
     if polythene_store:
         store_base = ensure_executable_store(polythene_store.resolve())
+        _log_store_selection(store_base, source="user override")
         yield store_base
         return
 
     candidate = _find_executable_candidate()
     if candidate is not None:
+        candidate_path, env_var = candidate
         try:
             with tempfile.TemporaryDirectory(
                 prefix="polythene-validate-",
-                dir=candidate,
+                dir=candidate_path,
             ) as tmp:
-                yield ensure_executable_store(Path(tmp))
+                store_path = ensure_executable_store(Path(tmp))
+                _log_store_selection(
+                    store_path,
+                    source=f"{env_var} temporary directory",
+                )
+                yield store_path
                 return
         except OSError:
             pass
 
     with tempfile.TemporaryDirectory(prefix="polythene-validate-") as tmp:
-        yield ensure_executable_store(Path(tmp))
+        store_path = ensure_executable_store(Path(tmp))
+        _log_store_selection(store_path, source="system temporary directory")
+        yield store_path
 
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:

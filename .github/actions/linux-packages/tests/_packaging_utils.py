@@ -59,7 +59,7 @@ def _podman_runtime_available(timeout: float = 5.0) -> bool:
             method="run",
             timeout=timeout,
         )
-    except (OSError, ProcessExecutionError, ProcessTimedOut, subprocess.TimeoutExpired):
+    except (OSError, ProcessExecutionError, ProcessTimedOut):
         return False
 
     return result.returncode == 0

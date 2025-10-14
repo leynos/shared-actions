@@ -300,23 +300,51 @@ def polythene_rootfs(
     try:
         session.exec("true")
     except ValidationError as exc:
-        formatted = _format_isolation_error(exc)
-        if formatted is not None:
-            raise ValidationError(formatted) from exc
-
+        fallback_exc = exc
+        fallback_succeeded = False
         cause = exc.__cause__
-        if isinstance(cause, ProcessExecutionError):
-            stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
-            message = f"polythene exec failed: {cause}"
-            if stderr is not None:
-                message = (
-                    f"{message}\n"
-                    f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
-                    f"{stderr}"
-                )
-            raise ValidationError(message) from exc
 
-        raise
+        if (
+            session.isolation
+            and session.isolation != DEFAULT_ISOLATION
+            and isinstance(cause, ProcessExecutionError)
+        ):
+            stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+            if re.search(r"permission denied", stderr_text, re.IGNORECASE):
+                logger.info(
+                    "Isolation %s failed with permission denied; falling back to %s",
+                    session.isolation,
+                    DEFAULT_ISOLATION,
+                )
+                session.isolation = DEFAULT_ISOLATION
+                try:
+                    session.exec("true")
+                except ValidationError as retry_exc:  # pragma: no cover - fallback path
+                    fallback_exc = retry_exc
+                else:
+                    fallback_succeeded = True
+
+        if fallback_succeeded:
+            logger.info("Fallback to %s isolation succeeded", DEFAULT_ISOLATION)
+        else:
+            exc = fallback_exc
+            formatted = _format_isolation_error(exc)
+            if formatted is not None:
+                raise ValidationError(formatted) from exc
+
+            cause = exc.__cause__
+            if isinstance(cause, ProcessExecutionError):
+                stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
+                message = f"polythene exec failed: {cause}"
+                if stderr is not None:
+                    message = (
+                        f"{message}\n"
+                        f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                        f"{stderr}"
+                    )
+                raise ValidationError(message) from exc
+
+            raise
     try:
         yield session
     finally:

@@ -373,10 +373,15 @@ def test_install_and_verify_wraps_validation_errors(
     message = str(excinfo.value)
     assert expected_message in message
 
+    path = "/usr/bin/rust-toy-app"
     diag_calls = [
         call
         for call, _timeout in calls
-        if call and (call[0] in {"ls", "stat"} or call[0] == "python3")
+        if call
+        and (
+            call[0] in {"ls", "stat", "python3", "file", "sha256sum"}
+            or (call[0] == path and len(call) > 1 and call[1] == "--help")
+        )
     ]
 
     if diagnostic_kind == "path":
@@ -384,6 +389,9 @@ def test_install_and_verify_wraps_validation_errors(
         assert f"Path diagnostics for {path}" in message
         assert "- ls -ld" in message
         assert "- stat" in message
+        assert "- file" in message
+        assert "- sha256sum" in message
+        assert f"- {path} --help" in message
         assert "- python os.access" in message
         assert "stderr: permission denied" in message
         assert diag_calls, "expected diagnostic commands to run"

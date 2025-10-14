@@ -169,6 +169,9 @@ def _format_path_diagnostics(
     commands: list[tuple[str, tuple[str, ...]]] = [
         ("ls -ld", ("ls", "-ld", path)),
         ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
+        ("file", ("file", path)),
+        ("sha256sum", ("sha256sum", path)),
+        (f"{path} --help", (path, "--help")),
     ]
 
     script = (
@@ -194,7 +197,13 @@ def _format_path_diagnostics(
             output = sandbox.exec(*args)
         except ValidationError as exc:
             summary = _trim_output(str(exc))
-            details.append(f"- {label}: error ({summary})")
+            entry_lines = [f"- {label}: error ({summary})"]
+            cause = exc.__cause__
+            if isinstance(cause, ProcessExecutionError):
+                stderr_text = _trim_output(_decode_stream(getattr(cause, "stderr", "")))
+                if stderr_text:
+                    entry_lines.append(f"  stderr: {stderr_text}")
+            details.append("\n".join(entry_lines))
         else:
             summary = _trim_output(output)
             details.append(f"- {label}: {summary}")
@@ -217,6 +226,9 @@ def _install_and_verify(
     *,
     install_error: str,
 ) -> None:
+    expected_paths = tuple(expected_paths)
+    executable_paths = tuple(executable_paths)
+
     with sandbox_factory() as sandbox:
         dest = sandbox.root / package_path.name
         ensure_directory(dest.parent)
@@ -293,6 +305,23 @@ def _install_and_verify(
 
         if env_details:
             logger.info("Sandbox context: %s", "; ".join(env_details))
+
+        combined_paths = list(dict.fromkeys((*expected_paths, *executable_paths)))
+        host_details: list[str] = []
+        for path in combined_paths:
+            host_path = sandbox.root / path.lstrip("/")
+            try:
+                stat_result = host_path.stat()
+            except FileNotFoundError as err:
+                host_details.append(f"{path}: missing ({err})")
+            else:
+                host_details.append(
+                    f"{path}: mode={oct(stat_result.st_mode)} "
+                    f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
+                )
+
+        if host_details:
+            logger.info("Host view of sandbox paths: %s", "; ".join(host_details))
 
         for path in expected_paths:
             _exec_with_context(

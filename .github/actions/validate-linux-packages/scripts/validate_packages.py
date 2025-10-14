@@ -134,6 +134,53 @@ def ensure_subset(
         raise ValidationError(message)
 
 
+def _trim_output(output: str, *, line_limit: int = 5, char_limit: int = 400) -> str:
+    """Return ``output`` trimmed to a manageable length for diagnostics."""
+    text = output.strip()
+    if not text:
+        return "<no output>"
+
+    lines = text.splitlines()
+    if len(lines) > line_limit:
+        text = "\n".join(lines[:line_limit]) + "\n…"
+    else:
+        text = "\n".join(lines)
+
+    if len(text) > char_limit:
+        text = text[: char_limit - 1].rstrip() + "…"
+
+    return text
+
+
+def _format_path_diagnostics(sandbox: PolytheneSession, path: str) -> str | None:
+    """Return sandbox diagnostics describing ``path`` when checks fail."""
+    commands: list[tuple[str, tuple[str, ...]]] = [
+        ("ls -ld", ("ls", "-ld", path)),
+        ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
+    ]
+
+    parent = str(pathlib.PurePosixPath(path).parent)
+    if parent and parent != ".":
+        commands.append(("ls parent", ("ls", "-l", parent)))
+
+    details: list[str] = []
+    for label, args in commands:
+        try:
+            output = sandbox.exec(*args)
+        except ValidationError as exc:
+            summary = _trim_output(str(exc))
+            details.append(f"- {label}: error ({summary})")
+        else:
+            summary = _trim_output(output)
+            details.append(f"- {label}: {summary}")
+
+    if not details:
+        return None
+
+    joined = "\n".join(details)
+    return f"Path diagnostics for {path}:\n{joined}"
+
+
 def _install_and_verify(
     sandbox_factory: SandboxFactory,
     package_path: Path,
@@ -153,12 +200,33 @@ def _install_and_verify(
         sandbox_path = f"/{package_path.name}"
 
         def _exec_with_context(
-            *args: str, context: str, timeout: int | None = None
+            *args: str,
+            context: str,
+            timeout: int | None = None,
+            diagnostics: typ.Callable[[], str | None] | None = None,
         ) -> str:
             try:
                 return sandbox.exec(*args, timeout=timeout)
             except ValidationError as exc:
+                detail: str | None = None
+                if diagnostics is not None:
+                    try:
+                        detail = diagnostics()
+                    except ValidationError as diag_exc:  # pragma: no cover - defensive
+                        logger.debug(
+                            "diagnostic collection raised ValidationError for %s: %s",
+                            args,
+                            diag_exc,
+                        )
+                    except Exception as diag_exc:  # noqa: BLE001
+                        logger.debug(
+                            "failed to collect diagnostics for %s: %s",
+                            args,
+                            diag_exc,
+                        )
                 message = f"{context}: {exc}"
+                if detail:
+                    message = f"{message}\n{detail}"
                 raise ValidationError(message) from exc
 
         install_args = tuple(
@@ -173,6 +241,7 @@ def _install_and_verify(
                 "-e",
                 path,
                 context=f"expected path missing from sandbox payload: {path}",
+                diagnostics=lambda path=path: _format_path_diagnostics(sandbox, path),
             )
         for path in executable_paths:
             _exec_with_context(
@@ -180,6 +249,7 @@ def _install_and_verify(
                 "-x",
                 path,
                 context=f"expected path is not executable: {path}",
+                diagnostics=lambda path=path: _format_path_diagnostics(sandbox, path),
             )
         if verify_command:
             _exec_with_context(

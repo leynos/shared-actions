@@ -287,23 +287,27 @@ def test_validate_deb_package_rejects_unexpected_architecture(
 
 
 @pytest.mark.parametrize(
-    ("failure_command", "expected_message"),
+    ("failure_command", "expected_message", "diagnostic_kind"),
     [
         (
             ("dpkg", "-i", "/rust-toy-app_1.2.3-1_amd64.deb"),
             "dpkg installation failed",
+            "none",
         ),
         (
             ("test", "-e", "/usr/bin/rust-toy-app"),
             "expected path missing from sandbox payload",
+            "path",
         ),
         (
             ("test", "-x", "/usr/bin/rust-toy-app"),
             "expected path is not executable",
+            "path",
         ),
         (
             ("/usr/bin/rust-toy-app", "--version"),
             "sandbox verify command failed",
+            "none",
         ),
     ],
 )
@@ -313,6 +317,7 @@ def test_install_and_verify_wraps_validation_errors(
     validate_packages_module: ModuleType,
     failure_command: tuple[str, ...],
     expected_message: str,
+    diagnostic_kind: str,
 ) -> None:
     """Failures inside the sandbox surface descriptive error messages."""
     package = tmp_path / "rust-toy-app_1.2.3-1_amd64.deb"
@@ -338,10 +343,7 @@ def test_install_and_verify_wraps_validation_errors(
         error=error,
     )
 
-    with pytest.raises(
-        validate_packages_module.ValidationError,
-        match=re.escape(expected_message),
-    ):
+    with pytest.raises(validate_packages_module.ValidationError) as excinfo:
         validate_packages_module.validate_deb_package(
             dpkg_deb=object(),
             package_path=package,
@@ -354,6 +356,23 @@ def test_install_and_verify_wraps_validation_errors(
             verify_command=("/usr/bin/rust-toy-app", "--version"),
             sandbox_factory=lambda: contextlib.nullcontext(sandbox),
         )
+
+    message = str(excinfo.value)
+    assert expected_message in message
+
+    diag_calls = [
+        call for call, _timeout in calls if call and call[0] in {"ls", "stat"}
+    ]
+
+    if diagnostic_kind == "path":
+        path = failure_command[-1]
+        assert f"Path diagnostics for {path}" in message
+        assert "- ls -ld" in message
+        assert "- stat" in message
+        assert diag_calls, "expected diagnostic commands to run"
+    else:
+        assert "Path diagnostics for" not in message
+        assert not diag_calls
 
 
 def test_validate_rpm_package_rejects_unexpected_release(

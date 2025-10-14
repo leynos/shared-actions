@@ -99,6 +99,9 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
 - **Coverage gate**: Keep ≥ 80 % branch coverage.
 
 - **Static analysis**: ESLint + prettier + `@typescript-eslint` presets.
+- **Change gateways**: After modifying any Python code or GitHub Action logic,
+  ensure `make check-fmt`, `make typecheck`, `make lint`, and `make test`
+  complete successfully before requesting review.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

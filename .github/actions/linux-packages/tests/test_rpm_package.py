@@ -9,6 +9,7 @@ import typing as typ
 
 import pytest
 from _packaging_utils import (
+    HAS_PODMAN_RUNTIME,
     IsolationUnavailableError,
     PackagingProject,
     polythene_rootfs,
@@ -32,10 +33,8 @@ def _parse_rpm_info(output: str) -> dict[str, str]:
 
 @pytest.mark.usefixtures("uncapture_if_verbose")
 @pytest.mark.skipif(
-    sys.platform == "win32"
-    or shutil.which("podman") is None
-    or shutil.which("uv") is None,
-    reason="podman or uv not available",
+    sys.platform == "win32" or not HAS_PODMAN_RUNTIME or shutil.which("uv") is None,
+    reason="podman runtime or uv not available",
 )
 def test_rpm_package_metadata(
     packaging_project_paths: PackagingProject,

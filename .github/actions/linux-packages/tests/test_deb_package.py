@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from _packaging_utils import (
+    HAS_PODMAN_RUNTIME,
     BuildArtifacts,
     IsolationUnavailableError,
     PackagingProject,
@@ -28,9 +29,9 @@ run_cmd = import_cmd_utils().run_cmd
 @pytest.mark.skipif(
     sys.platform == "win32"
     or shutil.which("dpkg-deb") is None
-    or shutil.which("podman") is None
+    or not HAS_PODMAN_RUNTIME
     or shutil.which("uv") is None,
-    reason="dpkg-deb, podman or uv not available",
+    reason="dpkg-deb, podman runtime or uv not available",
 )
 def test_deb_package_installs(
     packaging_project_paths: PackagingProject,

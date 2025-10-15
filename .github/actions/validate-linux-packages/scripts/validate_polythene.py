@@ -204,6 +204,48 @@ class PolytheneSession:
         """Return the root filesystem path for this session."""
         return self.store / self.uid
 
+    def _retry_without_isolation(
+        self,
+        base_args: list[str],
+        args: tuple[str, ...],
+        timeout: int | None,
+    ) -> str:
+        """Retry ``args`` without ``--isolation`` when the flag is unsupported."""
+        logger.info(
+            "Isolation flag unsupported; retrying without --isolation for %s",
+            self.uid,
+        )
+        self._supports_isolation_option = False
+        fallback_args = _build_command_args(
+            base_args,
+            args,
+            isolation=None,
+            supports_isolation=False,
+        )
+        fallback_cmd = local["uv"][tuple(fallback_args.args)]
+        return run_text(fallback_cmd, timeout=timeout)
+
+    def _handle_exec_error(
+        self,
+        exc: ValidationError,
+        base_args: list[str],
+        args: tuple[str, ...],
+        timeout: int | None,
+        *,
+        include_isolation: bool,
+    ) -> str:
+        """Handle ``ValidationError`` raised by ``exec`` attempts."""
+        if include_isolation and _is_unknown_isolation_option_error(exc):
+            return self._retry_without_isolation(base_args, args, timeout)
+        if include_isolation and _should_compare_without_isolation(args):
+            _compare_without_isolation(base_args, args, timeout=timeout)
+        raise exc
+
+    def _record_isolation_support(self, *, include_isolation: bool) -> None:
+        """Record that ``--isolation`` is supported when the call succeeds."""
+        if include_isolation and self._supports_isolation_option is not True:
+            self._supports_isolation_option = True
+
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
@@ -229,30 +271,15 @@ class PolytheneSession:
         try:
             result = run_text(cmd, timeout=effective_timeout)
         except ValidationError as exc:
-            if include_isolation and _is_unknown_isolation_option_error(exc):
-                logger.info(
-                    "Isolation flag unsupported; retrying without --isolation for %s",
-                    self.uid,
-                )
-                self._supports_isolation_option = False
-                fallback_args = _build_command_args(
-                    base_args,
-                    args,
-                    isolation=None,
-                    supports_isolation=False,
-                )
-                fallback_cmd = local["uv"][tuple(fallback_args.args)]
-                return run_text(fallback_cmd, timeout=effective_timeout)
-            if include_isolation and _should_compare_without_isolation(args):
-                _compare_without_isolation(
-                    base_args,
-                    args,
-                    timeout=effective_timeout,
-                )
-            raise
+            return self._handle_exec_error(
+                exc,
+                base_args,
+                args,
+                effective_timeout,
+                include_isolation=include_isolation,
+            )
         else:
-            if include_isolation and self._supports_isolation_option is not True:
-                self._supports_isolation_option = True
+            self._record_isolation_support(include_isolation=include_isolation)
             return result
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import typing as typ
 from pathlib import Path
@@ -24,11 +25,13 @@ if POWERSHELL is None:  # pragma: no cover - exercised only when PowerShell is m
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_inputs.ps1"
 
 ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
+_ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
 def _combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated for assertions."""
-    return f"{result.stdout}\n{result.stderr}"
+    combined = f"{result.stdout}\n{result.stderr}"
+    return _ANSI_ESCAPE.sub("", combined)
 
 
 def _run_script(

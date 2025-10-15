@@ -470,8 +470,11 @@ def _describe_mount(path: Path) -> str:
 def _supports_executable_stores(base: Path) -> Path | None:
     """Return ``base`` when the filesystem allows executing files."""
     try:
-        candidate = ensure_directory(base).resolve()
+        candidate = base.resolve()
     except OSError:
+        candidate = base
+
+    if not candidate.exists() or not candidate.is_dir():
         return None
 
     if os.name != "posix":  # pragma: no cover - non-POSIX runners
@@ -508,7 +511,8 @@ def _log_store_selection(path: Path, *, source: str) -> None:
 
 def ensure_executable_store(path: Path) -> Path:
     """Ensure ``path`` resides on an executable filesystem."""
-    candidate = _supports_executable_stores(path)
+    base = ensure_directory(path)
+    candidate = _supports_executable_stores(base)
     if candidate is not None:
         return candidate
 
@@ -539,34 +543,33 @@ def _find_executable_candidate() -> tuple[Path, str] | None:
 @contextlib.contextmanager
 def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
     """Yield a base directory for polythene store usage."""
-    if polythene_store:
-        store_base = ensure_executable_store(polythene_store.resolve())
-        _log_store_selection(store_base, source="user override")
+
+    def _prepare_store(base: Path, *, source: str) -> typ.Iterator[Path]:
+        store_base = ensure_executable_store(base)
+        _log_store_selection(store_base, source=source)
         yield store_base
+
+    if polythene_store:
+        yield from _prepare_store(polythene_store.resolve(), source="user override")
         return
 
     candidate = _find_executable_candidate()
     if candidate is not None:
         candidate_path, env_var = candidate
-        try:
-            with tempfile.TemporaryDirectory(
+        with (
+            contextlib.suppress(OSError),
+            tempfile.TemporaryDirectory(
                 prefix="polythene-validate-",
                 dir=candidate_path,
-            ) as tmp:
-                store_path = ensure_executable_store(Path(tmp))
-                _log_store_selection(
-                    store_path,
-                    source=f"{env_var} temporary directory",
-                )
-                yield store_path
-                return
-        except OSError:
-            pass
+            ) as tmp,
+        ):
+            yield from _prepare_store(
+                Path(tmp), source=f"{env_var} temporary directory"
+            )
+            return
 
     with tempfile.TemporaryDirectory(prefix="polythene-validate-") as tmp:
-        store_path = ensure_executable_store(Path(tmp))
-        _log_store_selection(store_path, source="system temporary directory")
-        yield store_path
+        yield from _prepare_store(Path(tmp), source="system temporary directory")
 
 
 def _validate_format(fmt: str, config: ValidationConfig, store_dir: Path) -> None:

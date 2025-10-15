@@ -71,12 +71,13 @@ inside `$GITHUB_WORKSPACE` when available, falling back to `$RUNNER_TEMP` (or
 ensure it resides on an executable filesystem so sandboxed binaries can be
 executed during verification.
 
-Providing an explicit `polythene-store` (for example
-`${{ github.workspace }}/.polythene-store`) allows repeated validations within
-the same job to reuse the same writable and executable filesystem mount. Ensure
-the override lives on an executable filesystem—directories under `${{ runner.temp }}`
-on GitHub-hosted Ubuntu runners are mounted with `noexec`, which prevents the
-sandbox from running the installed binaries.
+Providing an explicit `polythene-store`
+(for example `${{ github.workspace }}/.polythene-store`) allows repeated
+validations within the same job to reuse the same writable and executable
+filesystem mount. Ensure the override lives on an executable filesystem—
+directories under `${{ runner.temp }}` on GitHub-hosted Ubuntu runners are
+mounted with `noexec`, which prevents the sandbox from running the installed
+binaries.
 
 Paths supplied to `expected-paths` and `executable-paths` must already be
 canonical absolute strings.

@@ -395,6 +395,41 @@ def _split_mount_options(raw: str) -> tuple[str, ...]:
     return tuple(part for part in raw.split(",") if part)
 
 
+def _iter_mount_entries(lines: typ.Iterable[str]) -> typ.Iterator[_MountDetails]:
+    """Yield ``_MountDetails`` entries parsed from ``mountinfo`` lines."""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        try:
+            left, right = line.split(" - ", 1)
+        except ValueError:
+            continue
+
+        left_fields = left.split()
+        right_fields = right.split()
+
+        if len(left_fields) < 6 or len(right_fields) < 3:
+            continue
+
+        yield _MountDetails(
+            mount_point=_decode_mount_field(left_fields[4]),
+            fs_type=right_fields[0],
+            mount_options=_split_mount_options(left_fields[5]),
+            super_options=_split_mount_options(right_fields[2]),
+        )
+
+
+def _mount_matches_path(mount_point: str, target: str) -> bool:
+    """Check whether ``mount_point`` contains ``target``."""
+    return (
+        mount_point == "/"
+        or target == mount_point
+        or target.startswith(f"{mount_point}/")
+    )
+
+
 def _mount_details(path: Path) -> _MountDetails | None:
     """Return mount metadata for ``path`` derived from ``/proc/self/mountinfo``."""
     mountinfo = Path("/proc/self/mountinfo")
@@ -412,40 +447,13 @@ def _mount_details(path: Path) -> _MountDetails | None:
     best: _MountDetails | None = None
     best_length = -1
 
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            left, right = line.split(" - ", 1)
-        except ValueError:
+    for entry in _iter_mount_entries(lines):
+        if not _mount_matches_path(entry.mount_point, target_str):
             continue
 
-        left_fields = left.split()
-        if len(left_fields) < 6:
-            continue
-
-        mount_point = _decode_mount_field(left_fields[4])
-        mount_point_length = len(mount_point)
-        if mount_point == "/":
-            matches = True
-        else:
-            matches = target_str == mount_point or target_str.startswith(
-                f"{mount_point}/"
-            )
-        if not matches:
-            continue
-
-        right_fields = right.split()
-        if len(right_fields) < 3:
-            continue
-
+        mount_point_length = len(entry.mount_point)
         if mount_point_length > best_length:
-            best = _MountDetails(
-                mount_point=mount_point,
-                fs_type=right_fields[0],
-                mount_options=_split_mount_options(left_fields[5]),
-                super_options=_split_mount_options(right_fields[2]),
-            )
+            best = entry
             best_length = mount_point_length
 
     return best

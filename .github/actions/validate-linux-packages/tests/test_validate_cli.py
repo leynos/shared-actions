@@ -853,11 +853,13 @@ def test_polythene_store_prefers_workspace(
     monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
+    workspace_root = workspace.resolve()
+    runner_root = runner_temp.resolve()
+    allowed_roots = {workspace_root, runner_root}
+
     def fake_supports(base: Path) -> Path | None:
         resolved = base.resolve()
-        if resolved.is_relative_to(workspace):
-            return resolved
-        if resolved.is_relative_to(runner_temp):
+        if resolved in allowed_roots or resolved.parent in allowed_roots:
             return resolved
         pytest.fail(f"unexpected base: {base!s}")
 
@@ -881,11 +883,15 @@ def test_polythene_store_falls_back_to_runner_temp(
     monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
+    workspace_root = workspace.resolve()
+    runner_root = runner_temp.resolve()
+    allowed_roots = {workspace_root, runner_root}
+
     def fake_supports(base: Path) -> Path | None:
         resolved = base.resolve()
-        if resolved.is_relative_to(workspace):
-            return None
-        if resolved.is_relative_to(runner_temp):
+        if resolved in allowed_roots or resolved.parent in allowed_roots:
+            if resolved == workspace_root or resolved.parent == workspace_root:
+                return None
             return resolved
         pytest.fail(f"unexpected base: {base!s}")
 
@@ -934,8 +940,8 @@ def test_polythene_store_raises_when_no_executable_locations(
     monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
-    monkeypatch.setattr(module, "_supports_executable_stores", lambda base: None)
-    monkeypatch.setattr(module, "_describe_mount", lambda path: f"mount({path.name})")
+    monkeypatch.setattr(module, "_supports_executable_stores", lambda _base: None)
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs(ext4 noexec)")
 
     with (
         pytest.raises(module.ValidationError, match="polythene-store must be located"),

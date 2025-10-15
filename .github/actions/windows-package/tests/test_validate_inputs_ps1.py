@@ -23,6 +23,8 @@ if POWERSHELL is None:  # pragma: no cover - exercised only when PowerShell is m
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_inputs.ps1"
 
+ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
+
 
 def _combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated for assertions."""
@@ -48,27 +50,42 @@ def test_requires_application_when_using_template() -> None:
     """Fail fast when neither application-path nor wxs-path has been supplied."""
     result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
     assert result.returncode != 0
-    assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
-        result
-    )
+    assert ERROR_HINT in _combined_stream(result)
 
 
 def test_missing_application_spec_env_var() -> None:
     """Fail fast when APPLICATION_SPEC is undefined and wxs-path is empty."""
     result = _run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
     assert result.returncode != 0
-    assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
-        result
-    )
+    assert ERROR_HINT in _combined_stream(result)
 
 
 def test_missing_wxs_path_env_var() -> None:
     """Fail fast when WXS_PATH is undefined and application-path is empty."""
     result = _run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
     assert result.returncode != 0
-    assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
-        result
+    assert ERROR_HINT in _combined_stream(result)
+
+
+def test_accepts_both_inputs() -> None:
+    """Allow callers to supply both custom authoring and an application spec."""
+    result = _run_script(
+        {"WXS_PATH": r"installer\Package.wxs", "APPLICATION_SPEC": r"dist\MyApp.exe"}
     )
+    assert result.returncode == 0
+
+
+def test_whitespace_only_inputs_are_rejected() -> None:
+    """Treat whitespace-only inputs as empty and emit the validation error."""
+    result = _run_script({"WXS_PATH": "  ", "APPLICATION_SPEC": "\t\n"})
+    assert result.returncode == 1
+    assert ERROR_HINT in _combined_stream(result)
+
+
+def test_failure_exit_code_is_one() -> None:
+    """Return exit code 1 when validation fails."""
+    result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
+    assert result.returncode == 1
 
 
 def test_accepts_application_spec_without_wxs_path() -> None:

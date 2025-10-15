@@ -100,6 +100,13 @@ runs:
       shell: pwsh
       run: |
         & "${{ github.action_path }}\scripts\ensure_windows_runner.ps1"
+    - name: Validate inputs
+      shell: pwsh
+      env:
+        WXS_PATH: ${{ inputs.wxs-path }}
+        APPLICATION_SPEC: ${{ inputs.application-path }}
+      run: |
+        & "${{ github.action_path }}\scripts\validate_inputs.ps1"
     - name: Setup .NET SDK
       uses: actions/setup-dotnet@v4
       with:

@@ -215,6 +215,95 @@ def _format_path_diagnostics(
     return f"Path diagnostics for {path}:\n{joined}"
 
 
+def _collect_diagnostics_safely(
+    diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None,
+    args: tuple[str, ...],
+    cause: BaseException | None,
+) -> str | None:
+    """Return diagnostics from ``diagnostics_fn`` while suppressing errors."""
+    if diagnostics_fn is None:
+        return None
+
+    try:
+        return diagnostics_fn(cause)
+    except ValidationError as diag_exc:  # pragma: no cover - defensive
+        logger.debug(
+            "diagnostic collection raised ValidationError for %s: %s",
+            args,
+            diag_exc,
+        )
+    except Exception as diag_exc:  # noqa: BLE001
+        logger.debug(
+            "failed to collect diagnostics for %s: %s",
+            args,
+            diag_exc,
+        )
+    return None
+
+
+def _exec_with_diagnostics(
+    sandbox: PolytheneSession,
+    args: tuple[str, ...],
+    context: str,
+    timeout: int | None = None,
+    diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
+) -> str:
+    """Run ``sandbox.exec`` while enriching ``ValidationError`` messages."""
+    try:
+        return sandbox.exec(*args, timeout=timeout)
+    except ValidationError as exc:
+        cause = exc.__cause__
+        stderr_detail: str | None = None
+        if isinstance(cause, ProcessExecutionError):
+            stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+            stderr_detail = _trim_output(stderr_text)
+
+        detail = _collect_diagnostics_safely(diagnostics_fn, args, cause)
+
+        message = f"{context}: {exc}"
+        if stderr_detail:
+            message = f"{message}\nstderr: {stderr_detail}"
+        if detail:
+            message = f"{message}\n{detail}"
+        raise ValidationError(message) from exc
+
+
+def _validate_paths_exist(
+    sandbox: PolytheneSession,
+    paths: typ.Iterable[str],
+    exec_fn: typ.Callable[..., str],
+) -> None:
+    """Ensure each path in ``paths`` exists within ``sandbox``."""
+    for path in paths:
+        exec_fn(
+            "test",
+            "-e",
+            path,
+            context=f"expected path missing from sandbox payload: {path}",
+            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                sandbox, p, error=err
+            ),
+        )
+
+
+def _validate_paths_executable(
+    sandbox: PolytheneSession,
+    paths: typ.Iterable[str],
+    exec_fn: typ.Callable[..., str],
+) -> None:
+    """Ensure each path in ``paths`` is executable within ``sandbox``."""
+    for path in paths:
+        exec_fn(
+            "test",
+            "-x",
+            path,
+            context=f"expected path is not executable: {path}",
+            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                sandbox, p, error=err
+            ),
+        )
+
+
 def _install_and_verify(
     sandbox_factory: SandboxFactory,
     package_path: Path,
@@ -246,38 +335,16 @@ def _install_and_verify(
             *args: str,
             context: str,
             timeout: int | None = None,
-            diagnostics: typ.Callable[[BaseException | None], str | None] | None = None,
+            diagnostics_fn: typ.Callable[[BaseException | None], str | None]
+            | None = None,
         ) -> str:
-            try:
-                return sandbox.exec(*args, timeout=timeout)
-            except ValidationError as exc:
-                cause = exc.__cause__
-                stderr_detail: str | None = None
-                if isinstance(cause, ProcessExecutionError):
-                    stderr_text = _decode_stream(cause.stderr)
-                    stderr_detail = _trim_output(stderr_text)
-                detail: str | None = None
-                if diagnostics is not None:
-                    try:
-                        detail = diagnostics(cause)
-                    except ValidationError as diag_exc:  # pragma: no cover - defensive
-                        logger.debug(
-                            "diagnostic collection raised ValidationError for %s: %s",
-                            args,
-                            diag_exc,
-                        )
-                    except Exception as diag_exc:  # noqa: BLE001
-                        logger.debug(
-                            "failed to collect diagnostics for %s: %s",
-                            args,
-                            diag_exc,
-                        )
-                message = f"{context}: {exc}"
-                if stderr_detail:
-                    message = f"{message}\nstderr: {stderr_detail}"
-                if detail:
-                    message = f"{message}\n{detail}"
-                raise ValidationError(message) from exc
+            return _exec_with_diagnostics(
+                sandbox,
+                args,
+                context,
+                timeout,
+                diagnostics_fn,
+            )
 
         install_args = tuple(
             sandbox_path if arg == package_path.name else arg for arg in install_command
@@ -323,26 +390,8 @@ def _install_and_verify(
         if host_details:
             logger.info("Host view of sandbox paths: %s", "; ".join(host_details))
 
-        for path in expected_paths:
-            _exec_with_context(
-                "test",
-                "-e",
-                path,
-                context=f"expected path missing from sandbox payload: {path}",
-                diagnostics=lambda err, path=path: _format_path_diagnostics(
-                    sandbox, path, error=err
-                ),
-            )
-        for path in executable_paths:
-            _exec_with_context(
-                "test",
-                "-x",
-                path,
-                context=f"expected path is not executable: {path}",
-                diagnostics=lambda err, path=path: _format_path_diagnostics(
-                    sandbox, path, error=err
-                ),
-            )
+        _validate_paths_exist(sandbox, expected_paths, _exec_with_context)
+        _validate_paths_executable(sandbox, executable_paths, _exec_with_context)
         if verify_command:
             _exec_with_context(
                 *verify_command,

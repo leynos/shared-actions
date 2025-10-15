@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import os
+import re
 import tempfile
 import typing as typ
 from pathlib import Path
@@ -365,27 +366,14 @@ class _MountDetails:
 
 def _decode_mount_field(value: str) -> str:
     """Decode octal escape sequences present in ``mountinfo`` fields."""
-    result: list[str] = []
-    index = 0
-    length = len(value)
-    while index < length:
-        if (
-            value[index] == "\\"
-            and index + 3 < length
-            and value[index + 1 : index + 4].isdigit()
-        ):
-            try:
-                code = int(value[index + 1 : index + 4], 8)
-            except ValueError:
-                result.append(value[index])
-                index += 1
-                continue
-            result.append(chr(code))
-            index += 4
-            continue
-        result.append(value[index])
-        index += 1
-    return "".join(result)
+
+    def replace_octal(match: re.Match[str]) -> str:
+        try:
+            return chr(int(match.group(1), 8))
+        except ValueError:
+            return match.group(0)
+
+    return re.sub(r"\\(\d{3})", replace_octal, value)
 
 
 def _split_mount_options(raw: str) -> tuple[str, ...]:

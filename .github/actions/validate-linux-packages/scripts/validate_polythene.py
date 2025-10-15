@@ -288,6 +288,58 @@ def default_polythene_command() -> Command:
     return DEFAULT_POLYTHENE_COMMAND
 
 
+def _try_fallback_isolation(
+    session: PolytheneSession, original_exc: ValidationError
+) -> tuple[bool, ValidationError]:
+    """Attempt to fall back to :data:`DEFAULT_ISOLATION` when startup fails."""
+    cause = original_exc.__cause__
+    if (
+        not session.isolation
+        or session.isolation == DEFAULT_ISOLATION
+        or not isinstance(cause, ProcessExecutionError)
+    ):
+        return False, original_exc
+
+    stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+    if not re.search(r"permission denied", stderr_text, re.IGNORECASE):
+        return False, original_exc
+
+    logger.info(
+        "Isolation %s failed with permission denied; falling back to %s",
+        session.isolation,
+        DEFAULT_ISOLATION,
+    )
+    session.isolation = DEFAULT_ISOLATION
+    try:
+        session.exec("true")
+    except ValidationError as retry_exc:  # pragma: no cover - fallback path
+        return False, retry_exc
+
+    logger.info("Fallback to %s isolation succeeded", DEFAULT_ISOLATION)
+    return True, original_exc
+
+
+def _raise_formatted_exec_error(exc: ValidationError) -> typ.NoReturn:
+    """Raise ``exc`` with enhanced messaging when possible."""
+    formatted = _format_isolation_error(exc)
+    if formatted is not None:
+        raise ValidationError(formatted) from exc
+
+    cause = exc.__cause__
+    if isinstance(cause, ProcessExecutionError):
+        stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
+        message = f"polythene exec failed: {cause}"
+        if stderr is not None:
+            message = (
+                f"{message}\n"
+                f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                f"{stderr}"
+            )
+        raise ValidationError(message) from exc
+
+    raise
+
+
 @contextlib.contextmanager
 def polythene_rootfs(
     polythene_command: Command,
@@ -327,51 +379,9 @@ def polythene_rootfs(
     try:
         session.exec("true")
     except ValidationError as exc:
-        fallback_exc = exc
-        fallback_succeeded = False
-        cause = exc.__cause__
-
-        if (
-            session.isolation
-            and session.isolation != DEFAULT_ISOLATION
-            and isinstance(cause, ProcessExecutionError)
-        ):
-            stderr_text = _decode_stream(getattr(cause, "stderr", ""))
-            if re.search(r"permission denied", stderr_text, re.IGNORECASE):
-                logger.info(
-                    "Isolation %s failed with permission denied; falling back to %s",
-                    session.isolation,
-                    DEFAULT_ISOLATION,
-                )
-                session.isolation = DEFAULT_ISOLATION
-                try:
-                    session.exec("true")
-                except ValidationError as retry_exc:  # pragma: no cover - fallback path
-                    fallback_exc = retry_exc
-                else:
-                    fallback_succeeded = True
-
-        if fallback_succeeded:
-            logger.info("Fallback to %s isolation succeeded", DEFAULT_ISOLATION)
-        else:
-            exc = fallback_exc
-            formatted = _format_isolation_error(exc)
-            if formatted is not None:
-                raise ValidationError(formatted) from exc
-
-            cause = exc.__cause__
-            if isinstance(cause, ProcessExecutionError):
-                stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
-                message = f"polythene exec failed: {cause}"
-                if stderr is not None:
-                    message = (
-                        f"{message}\n"
-                        f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
-                        f"{stderr}"
-                    )
-                raise ValidationError(message) from exc
-
-            raise
+        fallback_succeeded, fallback_exc = _try_fallback_isolation(session, exc)
+        if not fallback_succeeded:
+            _raise_formatted_exec_error(fallback_exc)
     try:
         yield session
     finally:

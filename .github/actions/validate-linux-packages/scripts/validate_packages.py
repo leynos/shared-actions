@@ -162,6 +162,35 @@ def _decode_stream(value: object | None) -> str:
     return str(value)
 
 
+def _extract_process_stderr(error: BaseException | None) -> str | None:
+    """Return trimmed stderr output when ``error`` originated from a process."""
+    if not isinstance(error, ProcessExecutionError):
+        return None
+
+    stderr_text = _decode_stream(getattr(error, "stderr", None))
+    if not stderr_text.strip():
+        return None
+    return _trim_output(stderr_text)
+
+
+def _execute_diagnostic_command(
+    sandbox: PolytheneSession, label: str, args: tuple[str, ...]
+) -> str:
+    """Return formatted diagnostics for executing ``args`` in ``sandbox``."""
+    try:
+        output = sandbox.exec(*args)
+    except ValidationError as exc:
+        summary = _trim_output(str(exc))
+        entry_lines = [f"- {label}: error ({summary})"]
+        stderr_text = _extract_process_stderr(exc.__cause__)
+        if stderr_text is not None:
+            entry_lines.append(f"  stderr: {stderr_text}")
+        return "\n".join(entry_lines)
+
+    summary = _trim_output(output)
+    return f"- {label}: {summary}"
+
+
 def _format_path_diagnostics(
     sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
 ) -> str | None:
@@ -188,25 +217,13 @@ def _format_path_diagnostics(
         commands.append(("ls parent", ("ls", "-l", parent)))
 
     details: list[str] = []
-    if isinstance(error, ProcessExecutionError):
-        stderr_text = _trim_output(_decode_stream(error.stderr))
-        if stderr_text:
-            details.append(f"- stderr: {stderr_text}")
+    stderr_text = _extract_process_stderr(error)
+    if stderr_text:
+        details.append(f"- stderr: {stderr_text}")
+
     for label, args in commands:
-        try:
-            output = sandbox.exec(*args)
-        except ValidationError as exc:
-            summary = _trim_output(str(exc))
-            entry_lines = [f"- {label}: error ({summary})"]
-            cause = exc.__cause__
-            if isinstance(cause, ProcessExecutionError):
-                stderr_text = _trim_output(_decode_stream(getattr(cause, "stderr", "")))
-                if stderr_text:
-                    entry_lines.append(f"  stderr: {stderr_text}")
-            details.append("\n".join(entry_lines))
-        else:
-            summary = _trim_output(output)
-            details.append(f"- {label}: {summary}")
+        result = _execute_diagnostic_command(sandbox, label, args)
+        details.append(result)
 
     if not details:
         return None

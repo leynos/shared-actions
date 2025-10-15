@@ -49,21 +49,21 @@ def _run_script(
 def test_requires_application_when_using_template() -> None:
     """Fail fast when neither application-path nor wxs-path has been supplied."""
     result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
-    assert result.returncode != 0
+    assert result.returncode == 1
     assert ERROR_HINT in _combined_stream(result)
 
 
 def test_missing_application_spec_env_var() -> None:
     """Fail fast when APPLICATION_SPEC is undefined and wxs-path is empty."""
     result = _run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
-    assert result.returncode != 0
+    assert result.returncode == 1
     assert ERROR_HINT in _combined_stream(result)
 
 
 def test_missing_wxs_path_env_var() -> None:
     """Fail fast when WXS_PATH is undefined and application-path is empty."""
     result = _run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
-    assert result.returncode != 0
+    assert result.returncode == 1
     assert ERROR_HINT in _combined_stream(result)
 
 

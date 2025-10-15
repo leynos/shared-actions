@@ -546,7 +546,7 @@ def _polythene_store(polythene_store: Path | None) -> typ.Iterator[Path]:
         yield store_base
 
     if polythene_store:
-        yield from _prepare_store(polythene_store.resolve(), source="user override")
+        yield from _prepare_store(polythene_store, source="user override")
         return
 
     candidate = _find_executable_candidate()

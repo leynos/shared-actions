@@ -29,10 +29,17 @@ def _combined_stream(result: RunResult) -> str:
     return f"{result.stdout}\n{result.stderr}"
 
 
-def _run_script(overrides: dict[str, str]) -> RunResult:
+def _run_script(
+    overrides: dict[str, str] | None = None,
+    *,
+    unset: typ.Iterable[str] | None = None,
+) -> RunResult:
     """Invoke validate_inputs.ps1 applying the provided environment overrides."""
     env = os.environ.copy()
-    env.update(overrides)
+    if unset is not None:
+        for key in unset:
+            env.pop(key, None)
+    env = env | (overrides or {})
     ps_command = local[POWERSHELL]["-NoLogo", "-NoProfile", "-File", str(SCRIPT_PATH)]
     return typ.cast("RunResult", run_cmd(ps_command, method="run", env=env))
 
@@ -40,6 +47,24 @@ def _run_script(overrides: dict[str, str]) -> RunResult:
 def test_requires_application_when_using_template() -> None:
     """Fail fast when neither application-path nor wxs-path has been supplied."""
     result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
+    assert result.returncode != 0
+    assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
+        result
+    )
+
+
+def test_missing_application_spec_env_var() -> None:
+    """Fail fast when APPLICATION_SPEC is undefined and wxs-path is empty."""
+    result = _run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
+    assert result.returncode != 0
+    assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
+        result
+    )
+
+
+def test_missing_wxs_path_env_var() -> None:
+    """Fail fast when WXS_PATH is undefined and application-path is empty."""
+    result = _run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
     assert result.returncode != 0
     assert "provide 'application-path' when 'wxs-path' is omitted" in _combined_stream(
         result

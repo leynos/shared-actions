@@ -11,6 +11,6 @@ if ([string]::IsNullOrWhiteSpace($wxsPath) -and [string]::IsNullOrWhiteSpace($ap
 windows-package input validation failed: provide 'application-path' when 'wxs-path' is omitted so the action can generate WiX authoring for you.
 Set 'application-path' to your packaged executable (for example 'dist\MyApp.exe') or supply 'wxs-path' if you already maintain custom WiX authoring.
 "@
-    Write-Error $message.Trim()
+    Write-Error $message
     exit 1
 }

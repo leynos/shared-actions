@@ -35,6 +35,15 @@ class _CommandArgsResult:
     used_isolation: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _ExecContext:
+    """Execution context for retry operations."""
+
+    base_args: list[str]
+    args: tuple[str, ...]
+    timeout: int | None
+
+
 __all__ = sorted(
     (
         "Command",
@@ -206,9 +215,7 @@ class PolytheneSession:
 
     def _retry_without_isolation(
         self,
-        base_args: list[str],
-        args: tuple[str, ...],
-        timeout: int | None,
+        context: _ExecContext,
     ) -> str:
         """Retry ``args`` without ``--isolation`` when the flag is unsupported."""
         logger.info(
@@ -217,28 +224,28 @@ class PolytheneSession:
         )
         self._supports_isolation_option = False
         fallback_args = _build_command_args(
-            base_args,
-            args,
+            context.base_args,
+            context.args,
             isolation=None,
             supports_isolation=False,
         )
         fallback_cmd = local["uv"][tuple(fallback_args.args)]
-        return run_text(fallback_cmd, timeout=timeout)
+        return run_text(fallback_cmd, timeout=context.timeout)
 
     def _handle_exec_error(
         self,
         exc: ValidationError,
-        base_args: list[str],
-        args: tuple[str, ...],
-        timeout: int | None,
+        context: _ExecContext,
         *,
         include_isolation: bool,
     ) -> str:
         """Handle ``ValidationError`` raised by ``exec`` attempts."""
         if include_isolation and _is_unknown_isolation_option_error(exc):
-            return self._retry_without_isolation(base_args, args, timeout)
-        if include_isolation and _should_compare_without_isolation(args):
-            _compare_without_isolation(base_args, args, timeout=timeout)
+            return self._retry_without_isolation(context)
+        if include_isolation and _should_compare_without_isolation(context.args):
+            _compare_without_isolation(
+                context.base_args, context.args, timeout=context.timeout
+            )
         raise exc
 
     def _record_isolation_support(self, *, include_isolation: bool) -> None:
@@ -257,10 +264,11 @@ class PolytheneSession:
             "--store",
             self.store.as_posix(),
         ]
+        context = _ExecContext(base_args, args, effective_timeout)
         supports_isolation = self._supports_isolation_option is not False
         command_args = _build_command_args(
-            base_args,
-            args,
+            context.base_args,
+            context.args,
             self.isolation,
             supports_isolation=supports_isolation,
         )
@@ -273,9 +281,7 @@ class PolytheneSession:
         except ValidationError as exc:
             return self._handle_exec_error(
                 exc,
-                base_args,
-                args,
-                effective_timeout,
+                context,
                 include_isolation=include_isolation,
             )
         else:

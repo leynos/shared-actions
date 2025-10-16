@@ -172,8 +172,8 @@ def _compare_without_isolation(
     debug_args = _build_command_args(
         base_args,
         args,
-        isolation="none",
-        supports_isolation=True,
+        isolation=None,
+        supports_isolation=False,
     )
     debug_cmd = local["uv"][tuple(debug_args.args)]
     try:

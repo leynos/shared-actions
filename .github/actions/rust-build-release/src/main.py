@@ -132,19 +132,18 @@ class _CommandWrapper:
     def formulate(self) -> cabc.Sequence[str]:
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
-            typer.echo(
-                f"::warning:: command {self._command!r} does not support formulate(); "
-                "returning display name only",
-                err=True,
+            logger.warning(
+                "command %r does not support formulate(); returning display name only",
+                self._command,
             )
             return [self._display_name]
         try:
             parts = list(formulate_callable())
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            typer.echo(
-                f"::warning:: failed to generate command line for {self._command!r}: "
-                f"{exc}",
-                err=True,
+            logger.warning(
+                "failed to generate command line for %r: %s",
+                self._command,
+                exc,
             )
             return [self._display_name]
         if parts:

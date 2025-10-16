@@ -288,16 +288,23 @@ def default_polythene_command() -> Command:
     return DEFAULT_POLYTHENE_COMMAND
 
 
+def _should_skip_isolation_fallback(
+    session: PolytheneSession, cause: BaseException | None
+) -> bool:
+    """Return ``True`` if isolation fallback should be skipped."""
+    return (
+        not session.isolation
+        or session.isolation == DEFAULT_ISOLATION
+        or not isinstance(cause, ProcessExecutionError)
+    )
+
+
 def _try_fallback_isolation(
     session: PolytheneSession, original_exc: ValidationError
 ) -> tuple[bool, ValidationError]:
     """Attempt to fall back to :data:`DEFAULT_ISOLATION` when startup fails."""
     cause = original_exc.__cause__
-    if (
-        not session.isolation
-        or session.isolation == DEFAULT_ISOLATION
-        or not isinstance(cause, ProcessExecutionError)
-    ):
+    if _should_skip_isolation_fallback(session, cause):
         return False, original_exc
 
     stderr_text = _decode_stream(getattr(cause, "stderr", ""))

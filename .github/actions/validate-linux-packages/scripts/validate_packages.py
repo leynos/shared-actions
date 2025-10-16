@@ -258,6 +258,49 @@ def _collect_diagnostics_safely(
     return None
 
 
+def _collect_environment_details(sandbox: PolytheneSession) -> list[str]:
+    """Return environment diagnostics gathered from ``sandbox``."""
+    env_details: list[str] = []
+    for label, command in (
+        ("id -u", ("id", "-u")),
+        ("umask", ("sh", "-c", "umask")),
+        (
+            "mount /usr",
+            ("sh", "-c", "mount | grep ' /usr ' || true"),
+        ),
+    ):
+        try:
+            output = sandbox.exec(*command)
+        except ValidationError as exc:
+            summary = _trim_output(str(exc))
+            env_details.append(f"{label}: error ({summary})")
+        else:
+            summary = _trim_output(output)
+            env_details.append(f"{label}: {summary}")
+
+    return env_details
+
+
+def _collect_host_path_details(
+    sandbox: PolytheneSession, paths: list[str]
+) -> list[str]:
+    """Return host-side ``stat`` information for ``paths`` within ``sandbox``."""
+    host_details: list[str] = []
+    for path in paths:
+        host_path = sandbox.root / path.lstrip("/")
+        try:
+            stat_result = host_path.stat()
+        except FileNotFoundError as err:
+            host_details.append(f"{path}: missing ({err})")
+        else:
+            host_details.append(
+                f"{path}: mode={oct(stat_result.st_mode)} "
+                f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
+            )
+
+    return host_details
+
+
 def _exec_with_diagnostics(
     sandbox: PolytheneSession,
     args: tuple[str, ...],
@@ -369,40 +412,13 @@ def _install_and_verify(
 
         _exec_with_context(*install_args, context=install_error)
 
-        env_details: list[str] = []
-        for label, command in (
-            ("id -u", ("id", "-u")),
-            ("umask", ("sh", "-c", "umask")),
-            (
-                "mount /usr",
-                ("sh", "-c", "mount | grep ' /usr ' || true"),
-            ),
-        ):
-            try:
-                output = sandbox.exec(*command)
-            except ValidationError as exc:
-                summary = _trim_output(str(exc))
-                env_details.append(f"{label}: error ({summary})")
-            else:
-                summary = _trim_output(output)
-                env_details.append(f"{label}: {summary}")
+        env_details = _collect_environment_details(sandbox)
 
         if env_details:
             logger.info("Sandbox context: %s", "; ".join(env_details))
 
         combined_paths = list(dict.fromkeys((*expected_paths, *executable_paths)))
-        host_details: list[str] = []
-        for path in combined_paths:
-            host_path = sandbox.root / path.lstrip("/")
-            try:
-                stat_result = host_path.stat()
-            except FileNotFoundError as err:
-                host_details.append(f"{path}: missing ({err})")
-            else:
-                host_details.append(
-                    f"{path}: mode={oct(stat_result.st_mode)} "
-                    f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
-                )
+        host_details = _collect_host_path_details(sandbox, combined_paths)
 
         if host_details:
             logger.info("Host view of sandbox paths: %s", "; ".join(host_details))

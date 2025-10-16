@@ -41,13 +41,13 @@ ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
 _ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
-def _combined_stream(result: RunResult) -> str:
+def combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated for assertions."""
     combined = f"{result.stdout}\n{result.stderr}"
     return _ANSI_ESCAPE.sub("", combined)
 
 
-def _run_script(
+def run_script(
     overrides: dict[str, str] | None = None,
     *,
     unset: typ.Iterable[str] | None = None,
@@ -64,28 +64,28 @@ def _run_script(
 
 def test_requires_application_when_using_template() -> None:
     """Fail fast with exit code 1 when neither application-path nor wxs-path is set."""
-    result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
+    result = run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
     assert result.returncode == 1
-    assert ERROR_HINT in _combined_stream(result)
+    assert ERROR_HINT in combined_stream(result)
 
 
 def test_missing_application_spec_env_var() -> None:
     """Fail fast when APPLICATION_SPEC is undefined and wxs-path is empty."""
-    result = _run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
+    result = run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
     assert result.returncode == 1
-    assert ERROR_HINT in _combined_stream(result)
+    assert ERROR_HINT in combined_stream(result)
 
 
 def test_missing_wxs_path_env_var() -> None:
     """Fail fast when WXS_PATH is undefined and application-path is empty."""
-    result = _run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
+    result = run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
     assert result.returncode == 1
-    assert ERROR_HINT in _combined_stream(result)
+    assert ERROR_HINT in combined_stream(result)
 
 
 def test_accepts_both_inputs() -> None:
     """Allow callers to supply both custom authoring and an application spec."""
-    result = _run_script(
+    result = run_script(
         {"WXS_PATH": r"installer\Package.wxs", "APPLICATION_SPEC": r"dist\MyApp.exe"}
     )
     assert result.returncode == 0
@@ -93,18 +93,18 @@ def test_accepts_both_inputs() -> None:
 
 def test_whitespace_only_inputs_are_rejected() -> None:
     """Treat whitespace-only inputs as empty and emit the validation error."""
-    result = _run_script({"WXS_PATH": "  ", "APPLICATION_SPEC": "\t\n"})
+    result = run_script({"WXS_PATH": "  ", "APPLICATION_SPEC": "\t\n"})
     assert result.returncode == 1
-    assert ERROR_HINT in _combined_stream(result)
+    assert ERROR_HINT in combined_stream(result)
 
 
 def test_accepts_application_spec_without_wxs_path() -> None:
     """Allow the built-in template when the application-path input is present."""
-    result = _run_script({"APPLICATION_SPEC": r"dist\MyApp.exe"})
+    result = run_script({"APPLICATION_SPEC": r"dist\MyApp.exe"})
     assert result.returncode == 0
 
 
 def test_accepts_wxs_path_without_application_spec() -> None:
     """Allow callers to provide only a wxs-path when supplying custom authoring."""
-    result = _run_script({"WXS_PATH": r"installer\Package.wxs"})
+    result = run_script({"WXS_PATH": r"installer\Package.wxs"})
     assert result.returncode == 0

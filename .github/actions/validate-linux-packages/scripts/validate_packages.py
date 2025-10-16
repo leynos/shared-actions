@@ -16,7 +16,7 @@ from validate_metadata import (
     inspect_deb_package,
     inspect_rpm_package,
 )
-from validate_polythene import PolytheneSession
+from validate_polythene import PolytheneSession, _decode_stream
 
 logger = logging.getLogger(__name__)
 
@@ -153,15 +153,6 @@ def _trim_output(output: str, *, line_limit: int = 5, char_limit: int = 400) -> 
     return text
 
 
-def _decode_stream(value: object | None) -> str:
-    """Decode ``value`` from a process stream into ``str``."""
-    if value is None:
-        return ""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return str(value)
-
-
 def _extract_process_stderr(error: BaseException | None) -> str | None:
     """Return trimmed stderr output when ``error`` originated from a process."""
     if not isinstance(error, ProcessExecutionError):
@@ -191,10 +182,8 @@ def _execute_diagnostic_command(
     return f"- {label}: {summary}"
 
 
-def _format_path_diagnostics(
-    sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
-) -> str | None:
-    """Return sandbox diagnostics describing ``path`` when checks fail."""
+def _build_path_diagnostic_commands(path: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Return diagnostic command specifications for ``path``."""
     commands: list[tuple[str, tuple[str, ...]]] = [
         ("ls -ld", ("ls", "-ld", path)),
         ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
@@ -215,6 +204,15 @@ def _format_path_diagnostics(
     parent = str(pathlib.PurePosixPath(path).parent)
     if parent and parent != ".":
         commands.append(("ls parent", ("ls", "-l", parent)))
+
+    return commands
+
+
+def _format_path_diagnostics(
+    sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
+) -> str | None:
+    """Return sandbox diagnostics describing ``path`` when checks fail."""
+    commands = _build_path_diagnostic_commands(path)
 
     details: list[str] = []
     stderr_text = _extract_process_stderr(error)

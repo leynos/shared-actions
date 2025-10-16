@@ -7,7 +7,11 @@ import typing as typ
 
 import pytest
 
-from tests.helpers import build_deb_metadata, make_dummy_sandbox, write_package
+from test_support.validate_linux_packages import (
+    build_deb_metadata,
+    make_dummy_sandbox,
+    write_package,
+)
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path

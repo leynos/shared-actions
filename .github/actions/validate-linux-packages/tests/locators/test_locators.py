@@ -6,7 +6,7 @@ import typing as typ
 
 import pytest
 
-from tests.helpers import write_package
+from test_support.validate_linux_packages import write_package
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path

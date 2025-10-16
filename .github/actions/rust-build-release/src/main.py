@@ -478,7 +478,32 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
         )
 
 
-def _restore_container_engine(previous_engine: str | None) -> None:
+def _configure_cross_container_engine(
+    decision: _CrossDecision,
+) -> tuple[str | None, bool]:
+    """Ensure CROSS_CONTAINER_ENGINE matches the active cross backend."""
+    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+    if not decision.use_cross:
+        return previous_engine, False
+
+    if decision.use_cross_local_backend:
+        return previous_engine, False
+
+    if previous_engine is not None:
+        return previous_engine, False
+
+    engine = decision.container_engine
+    if engine is None:
+        return previous_engine, False
+
+    os.environ["CROSS_CONTAINER_ENGINE"] = engine
+    return previous_engine, True
+
+
+def _restore_container_engine(previous_engine: str | None, *, mutated: bool) -> None:
+    if not mutated:
+        return
+
     if previous_engine is None:
         os.environ.pop("CROSS_CONTAINER_ENGINE", None)
     else:
@@ -606,15 +631,7 @@ def main(
 
     _announce_build_mode(decision)
 
-    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    if (
-        decision.use_cross
-        and not decision.use_cross_local_backend
-        and previous_engine is None
-    ):
-        engine = decision.container_engine
-        if engine is not None:
-            os.environ["CROSS_CONTAINER_ENGINE"] = engine
+    previous_engine, engine_set = _configure_cross_container_engine(decision)
 
     if decision.use_cross:
         build_cmd = _build_cross_command(decision, target_to_build)
@@ -625,7 +642,7 @@ def main(
     except ProcessExecutionError as exc:
         _handle_cross_container_error(exc, decision, target_to_build)
     finally:
-        _restore_container_engine(previous_engine)
+        _restore_container_engine(previous_engine, mutated=engine_set)
 
 
 if __name__ == "__main__":

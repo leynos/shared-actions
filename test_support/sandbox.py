@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import typing as typ
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
@@ -27,28 +28,36 @@ class DummySandbox:
         return ""
 
 
+@dataclasses.dataclass(frozen=True)
+class SandboxFailure:
+    """Describe a command that should fail inside a sandbox."""
+
+    command: tuple[str, ...]
+    error: Exception
+    cause: BaseException | None = None
+
+
+@dataclasses.dataclass
+class SandboxContext:
+    """Configuration for sandboxes used in tests."""
+
+    root: Path
+    calls: list[tuple[tuple[str, ...], int | None]]
+    failure: SandboxFailure
+
+
 class RaisingSandbox(DummySandbox):
     """Sandbox variant that raises ValidationError for specific commands."""
 
-    def __init__(
-        self,
-        root: Path,
-        calls: list[tuple[tuple[str, ...], int | None]],
-        *,
-        failure_command: tuple[str, ...],
-        error: Exception,
-        cause: BaseException | None = None,
-    ) -> None:
-        super().__init__(root, calls)
-        self._failure_command = failure_command
-        self._error = error
-        self._cause = cause
+    def __init__(self, context: SandboxContext) -> None:
+        super().__init__(context.root, context.calls)
+        self._failure = context.failure
 
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Raise the configured error when ``failure_command`` is executed."""
-        if tuple(args) == self._failure_command:
+        if tuple(args) == self._failure.command:
             self._calls.append((tuple(args), timeout))
-            if self._cause is not None:
-                raise self._error from self._cause
-            raise self._error
+            if self._failure.cause is not None:
+                raise self._failure.error from self._failure.cause
+            raise self._failure.error
         return super().exec(*args, timeout=timeout)

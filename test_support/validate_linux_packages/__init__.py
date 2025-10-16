@@ -6,11 +6,10 @@ import typing as typ
 
 from test_support.sandbox import DummySandbox
 
-PackageMetadataModule = typ.Any
-
-
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path
+
+PackageMetadataModule = typ.Any
 
 
 def write_package(tmp_path: Path, filename: str, content: bytes = b"payload") -> Path:

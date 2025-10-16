@@ -13,6 +13,12 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+REPO_ROOT = SCRIPTS_ROOT.parents[2]
+if REPO_ROOT.name == ".github":
+    REPO_ROOT = REPO_ROOT.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 SCRIPTS_DIR = SCRIPTS_ROOT / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_packages.py"
 

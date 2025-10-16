@@ -350,7 +350,7 @@ def _raise_formatted_exec_error(exc: ValidationError) -> typ.NoReturn:
             )
         raise ValidationError(message) from exc
 
-    raise
+    raise exc
 
 
 @contextlib.contextmanager

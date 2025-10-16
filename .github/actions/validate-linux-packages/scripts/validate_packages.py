@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import pathlib
 import platform
+import shutil
+import stat
 import typing as typ
 
 from plumbum.commands.processes import ProcessExecutionError
@@ -291,8 +293,10 @@ def _collect_host_path_details(
         except FileNotFoundError as err:
             host_details.append(f"{path}: missing ({err})")
         else:
+            perm_bits = stat.S_IMODE(stat_result.st_mode)
             host_details.append(
                 f"{path}: mode={oct(stat_result.st_mode)} "
+                f"perm={oct(perm_bits)} "
                 f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
             )
 
@@ -311,10 +315,7 @@ def _exec_with_diagnostics(
         return sandbox.exec(*args, timeout=timeout)
     except ValidationError as exc:
         cause = exc.__cause__
-        stderr_detail: str | None = None
-        if isinstance(cause, ProcessExecutionError):
-            stderr_text = _decode_stream(getattr(cause, "stderr", ""))
-            stderr_detail = _trim_output(stderr_text)
+        stderr_detail = _extract_process_stderr(cause)
 
         detail = _collect_diagnostics_safely(diagnostics_fn, args, cause)
 
@@ -379,7 +380,9 @@ def _install_and_verify(
     with sandbox_factory() as sandbox:
         dest = sandbox.root / package_path.name
         ensure_directory(dest.parent)
-        dest.write_bytes(package_path.read_bytes())
+
+        with package_path.open("rb") as src, dest.open("wb") as out:
+            shutil.copyfileobj(src, out)
 
         sandbox_path = f"/{package_path.name}"
 

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003
+import logging
 import os
 import shutil
 import sys
@@ -31,6 +32,8 @@ if typ.TYPE_CHECKING:
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TOOLCHAIN = read_default_toolchain()
 
@@ -119,9 +122,10 @@ class _CommandWrapper:
             command.formulate = _override  # type: ignore[attr-defined]
             self._override_formulate = _override
         except (AttributeError, TypeError) as exc:
-            typer.echo(
-                f"::warning:: failed to set display override for {command!r}: {exc}",
-                err=True,
+            logger.debug(
+                "failed to set display override for %r: %s",
+                command,
+                exc,
             )
             self._override_formulate = None
 

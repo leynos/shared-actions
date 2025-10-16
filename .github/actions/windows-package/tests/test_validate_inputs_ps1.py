@@ -68,7 +68,11 @@ def run_script(
             env.pop(key, None)
     env = env | (overrides or {})
     ps_command = local[POWERSHELL]["-NoLogo", "-NoProfile", "-File", str(SCRIPT_PATH)]
-    return typ.cast("RunResult", run_cmd(ps_command, method="run", env=env))
+    result = run_cmd(ps_command, method="run", env=env)
+    if not isinstance(result, RunResult):  # pragma: no cover - defensive
+        msg = "validate_inputs.ps1 must return a RunResult when invoked via run_cmd"
+        raise TypeError(msg)
+    return result
 
 
 def assert_error_hint(result: RunResult) -> None:

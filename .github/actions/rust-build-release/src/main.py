@@ -32,7 +32,6 @@ if typ.TYPE_CHECKING:
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_TOOLCHAIN = read_default_toolchain()
@@ -132,18 +131,19 @@ class _CommandWrapper:
     def formulate(self) -> cabc.Sequence[str]:
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
-            logger.warning(
-                "command %r does not support formulate(); returning display name only",
-                self._command,
+            typer.echo(
+                f"::warning:: command {self._command!r} does not support formulate(); "
+                "returning display name only",
+                err=True,
             )
             return [self._display_name]
         try:
             parts = list(formulate_callable())
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            logger.warning(
-                "failed to generate command line for %r: %s",
-                self._command,
-                exc,
+            typer.echo(
+                "::warning:: failed to generate command line for "
+                f"{self._command!r}: {exc}",
+                err=True,
             )
             return [self._display_name]
         if parts:
@@ -509,13 +509,14 @@ def _build_cargo_command(
     cargo_toolchain_spec: str, target_to_build: str
 ) -> SupportsFormulate:
     executor = local["cargo"]
-    return executor[
+    build_cmd = executor[
         cargo_toolchain_spec,
         "build",
         "--release",
         "--target",
         target_to_build,
     ]
+    return _CommandWrapper(build_cmd, "cargo")
 
 
 def _handle_cross_container_error(
@@ -609,7 +610,11 @@ def main(
     _announce_build_mode(decision)
 
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    if decision.use_cross and not decision.use_cross_local_backend:
+    if (
+        decision.use_cross
+        and not decision.use_cross_local_backend
+        and previous_engine is None
+    ):
         engine = decision.container_engine
         if engine is not None:
             os.environ["CROSS_CONTAINER_ENGINE"] = engine

@@ -308,7 +308,11 @@ def _should_skip_isolation_fallback(
 def _try_fallback_isolation(
     session: PolytheneSession, original_exc: ValidationError
 ) -> tuple[bool, ValidationError]:
-    """Attempt to fall back to :data:`DEFAULT_ISOLATION` when startup fails."""
+    """Attempt to fall back to :data:`DEFAULT_ISOLATION` when startup fails.
+
+    Side effect: On success, mutates ``session.isolation`` to
+    :data:`DEFAULT_ISOLATION`.
+    """
     cause = original_exc.__cause__
     if _should_skip_isolation_fallback(session, cause):
         return False, original_exc

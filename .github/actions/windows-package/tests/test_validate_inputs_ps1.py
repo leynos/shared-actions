@@ -119,7 +119,9 @@ def test_whitespace_only_inputs_are_rejected() -> None:
 
 def test_accepts_application_spec_without_wxs_path() -> None:
     """Allow the built-in template when the application-path input is present."""
-    result = run_script({"APPLICATION_SPEC": r"dist\MyApp.exe"})
+    result = run_script(
+        {"APPLICATION_SPEC": r"dist\MyApp.exe", "WXS_PATH": ""},
+    )
     assert result.returncode == 0
 
 

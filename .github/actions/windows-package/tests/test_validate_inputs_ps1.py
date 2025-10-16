@@ -41,10 +41,19 @@ ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
 _ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
+def _normalize(text: str) -> str:
+    """Lowercase text, drop pipe gutters, and normalise whitespace for comparisons."""
+    cleaned = text.replace("\r", "").replace("|", "")
+    return " ".join(cleaned.split()).lower()
+
+
+ERROR_HINT_NORMALIZED = _normalize(ERROR_HINT)
+
+
 def combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated for assertions."""
     combined = f"{result.stdout}\n{result.stderr}"
-    return _ANSI_ESCAPE.sub("", combined)
+    return _ANSI_ESCAPE.sub("", combined).replace("\r", "")
 
 
 def run_script(
@@ -62,25 +71,31 @@ def run_script(
     return typ.cast("RunResult", run_cmd(ps_command, method="run", env=env))
 
 
+def assert_error_hint(result: RunResult) -> None:
+    """Assert the validation message is present in the PowerShell error output."""
+    normalised = _normalize(combined_stream(result))
+    assert ERROR_HINT_NORMALIZED in normalised
+
+
 def test_requires_application_when_using_template() -> None:
     """Fail fast with exit code 1 when neither application-path nor wxs-path is set."""
     result = run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
     assert result.returncode == 1
-    assert ERROR_HINT in combined_stream(result)
+    assert_error_hint(result)
 
 
 def test_missing_application_spec_env_var() -> None:
     """Fail fast when APPLICATION_SPEC is undefined and wxs-path is empty."""
     result = run_script({"WXS_PATH": ""}, unset=["APPLICATION_SPEC"])
     assert result.returncode == 1
-    assert ERROR_HINT in combined_stream(result)
+    assert_error_hint(result)
 
 
 def test_missing_wxs_path_env_var() -> None:
     """Fail fast when WXS_PATH is undefined and application-path is empty."""
     result = run_script({"APPLICATION_SPEC": ""}, unset=["WXS_PATH"])
     assert result.returncode == 1
-    assert ERROR_HINT in combined_stream(result)
+    assert_error_hint(result)
 
 
 def test_accepts_both_inputs() -> None:
@@ -95,7 +110,7 @@ def test_whitespace_only_inputs_are_rejected() -> None:
     """Treat whitespace-only inputs as empty and emit the validation error."""
     result = run_script({"WXS_PATH": "  ", "APPLICATION_SPEC": "\t\n"})
     assert result.returncode == 1
-    assert ERROR_HINT in combined_stream(result)
+    assert_error_hint(result)
 
 
 def test_accepts_application_spec_without_wxs_path() -> None:

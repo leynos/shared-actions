@@ -127,5 +127,8 @@ def test_accepts_application_spec_without_wxs_path() -> None:
 
 def test_accepts_wxs_path_without_application_spec() -> None:
     """Allow callers to provide only a wxs-path when supplying custom authoring."""
-    result = run_script({"WXS_PATH": r"installer\Package.wxs"})
+    result = run_script(
+        {"WXS_PATH": r"installer\Package.wxs"},
+        unset=["APPLICATION_SPEC"],
+    )
     assert result.returncode == 0

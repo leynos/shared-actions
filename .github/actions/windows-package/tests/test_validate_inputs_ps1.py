@@ -22,7 +22,20 @@ if POWERSHELL is None:  # pragma: no cover - exercised only when PowerShell is m
     )
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_inputs.ps1"
+ACTION_ROOT_ERROR = "Unable to locate windows-package action root"
+
+
+def _find_action_root(start: Path) -> Path:
+    """Return the action root directory that contains the scripts folder."""
+    for candidate in [start, *list(start.parents)]:
+        scripts_dir = candidate / "scripts"
+        if (scripts_dir / "validate_inputs.ps1").exists():
+            return candidate
+    raise FileNotFoundError(ACTION_ROOT_ERROR)
+
+
+ACTION_ROOT = _find_action_root(Path(__file__).resolve())
+SCRIPT_PATH = ACTION_ROOT / "scripts" / "validate_inputs.ps1"
 
 ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
 _ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
@@ -50,7 +63,7 @@ def _run_script(
 
 
 def test_requires_application_when_using_template() -> None:
-    """Fail fast when neither application-path nor wxs-path has been supplied."""
+    """Fail fast with exit code 1 when neither application-path nor wxs-path is set."""
     result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
     assert result.returncode == 1
     assert ERROR_HINT in _combined_stream(result)
@@ -83,12 +96,6 @@ def test_whitespace_only_inputs_are_rejected() -> None:
     result = _run_script({"WXS_PATH": "  ", "APPLICATION_SPEC": "\t\n"})
     assert result.returncode == 1
     assert ERROR_HINT in _combined_stream(result)
-
-
-def test_failure_exit_code_is_one() -> None:
-    """Return exit code 1 when validation fails."""
-    result = _run_script({"WXS_PATH": "", "APPLICATION_SPEC": ""})
-    assert result.returncode == 1
 
 
 def test_accepts_application_spec_without_wxs_path() -> None:

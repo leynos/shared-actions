@@ -10,6 +10,7 @@ import pytest
 from plumbum.commands.processes import ProcessExecutionError
 
 from test_support.sandbox import (
+    DummySandbox,
     RaisingSandbox,
     SandboxContext,
     SandboxFailure,
@@ -210,3 +211,67 @@ def test_install_and_verify_wraps_validation_errors(
             monkeypatch=monkeypatch,
             validate_packages_module=validate_packages_module,
         )
+
+
+@pytest.fixture
+def sandbox_with_python_fallback(
+    tmp_path: Path, validate_packages_module: ModuleType
+) -> tuple[DummySandbox, typ.Callable[..., str], list[tuple[tuple[str, ...], int | None]], str]:
+    """Return sandbox + executor where ``test -x`` fails but fallback succeeds."""
+
+    path = "/usr/bin/fallback-tool"
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    class FallbackSandbox(DummySandbox):
+        def __init__(self) -> None:
+            super().__init__(tmp_path / "sandbox-fallback", calls)
+
+        def exec(self, *args: str, timeout: int | None = None) -> str:
+            if tuple(args) == ("test", "-x", path):
+                calls.append((tuple(args), timeout))
+                raise validate_packages_module.ValidationError("not executable")
+            return super().exec(*args, timeout=timeout)
+
+    sandbox = FallbackSandbox()
+
+    def exec_with_context(
+        *args: str,
+        context: str,
+        timeout: int | None = None,
+        diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
+    ) -> str:
+        return validate_packages_module._exec_with_diagnostics(
+            sandbox, args, context, timeout, diagnostics_fn
+        )
+
+    return sandbox, exec_with_context, calls, path
+
+
+def test_validate_paths_executable_accepts_python_fallback(
+    sandbox_with_python_fallback: tuple[
+        DummySandbox,
+        typ.Callable[..., str],
+        list[tuple[tuple[str, ...], int | None]],
+        str,
+    ],
+    validate_packages_module: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure executables pass validation when the fallback succeeds."""
+
+    sandbox, exec_fn, calls, path = sandbox_with_python_fallback
+    caplog.set_level("INFO")
+
+    validate_packages_module._validate_paths_executable(
+        sandbox,
+        (path,),
+        exec_fn,
+    )
+
+    executed_commands = [command for command, _timeout in calls]
+    assert ("test", "-x", path) in executed_commands
+    assert any(command[0] == "python3" for command in executed_commands)
+    assert any(
+        "python os.access fallback succeeded" in record.getMessage()
+        for record in caplog.records
+    )

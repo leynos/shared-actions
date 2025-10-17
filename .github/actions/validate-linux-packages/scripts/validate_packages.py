@@ -352,15 +352,47 @@ def _validate_paths_executable(
 ) -> None:
     """Ensure each path in ``paths`` is executable within ``sandbox``."""
     for path in paths:
-        exec_fn(
-            "test",
-            "-x",
-            path,
-            context=f"expected path is not executable: {path}",
-            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
-                sandbox, p, error=err
-            ),
-        )
+        try:
+            exec_fn(
+                "test",
+                "-x",
+                path,
+                context=f"expected path is not executable: {path}",
+                diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                    sandbox, p, error=err
+                ),
+            )
+            continue
+        except ValidationError as exc:
+            fallback_script = (
+                "import os, sys; "
+                "path = sys.argv[1]; "
+                "sys.exit(0 if os.access(path, os.X_OK) else 1)"
+            )
+            try:
+                exec_fn(
+                    "python3",
+                    "-c",
+                    fallback_script,
+                    path,
+                    context=(
+                        "expected path is not executable (python os.access fallback): "
+                        f"{path}"
+                    ),
+                    diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                        sandbox, p, error=err
+                    ),
+                )
+            except ValidationError:
+                raise
+            else:
+                message = str(exc)
+                logger.info(
+                    "test -x reported %s as non-executable (%s); python os.access "
+                    "fallback succeeded",
+                    path,
+                    message,
+                )
 
 
 def _install_and_verify(

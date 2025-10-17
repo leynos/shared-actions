@@ -381,6 +381,48 @@ def _combine_fallback_errors(
     return "\n".join(message_lines)
 
 
+def _try_python_fallback(
+    path: str,
+    exec_fn: typ.Callable[..., str],
+    diagnostics_fn: typ.Callable[[BaseException | None], str | None],
+    primary_error: ValidationError,
+) -> None:
+    """Attempt Python fallback validation; raise ValidationError if all fail."""
+    fallback_failures: list[tuple[str, ValidationError]] = []
+
+    for command in _iter_python_fallback_commands(path):
+        interpreter = command[0]
+        try:
+            exec_fn(
+                *command,
+                context=(
+                    "expected path is not executable "
+                    "(python os.access fallback): "
+                    f"{path}"
+                ),
+                diagnostics_fn=diagnostics_fn,
+                timeout=_PATH_CHECK_TIMEOUT_SECONDS,
+            )
+        except ValidationError as fallback_exc:
+            fallback_failures.append((interpreter, fallback_exc))
+            continue
+        else:
+            logger.info(
+                "test -x reported %s as non-executable (%s); %s os.access "
+                "fallback succeeded",
+                path,
+                primary_error,
+                interpreter,
+            )
+            return
+
+    # All fallbacks failed
+    if not fallback_failures:
+        raise ValidationError(str(primary_error)) from primary_error
+    combined_message = _combine_fallback_errors(primary_error, fallback_failures)
+    raise ValidationError(combined_message) from fallback_failures[-1][1]
+
+
 def _validate_paths_executable(
     sandbox: PolytheneSession,
     paths: typ.Iterable[str],
@@ -398,39 +440,8 @@ def _validate_paths_executable(
                 diagnostics_fn=diagnostics_fn,
                 timeout=_PATH_CHECK_TIMEOUT_SECONDS,
             )
-            continue
         except ValidationError as exc:
-            fallback_failures: list[tuple[str, ValidationError]] = []
-            for command in _iter_python_fallback_commands(path):
-                interpreter = command[0]
-                try:
-                    exec_fn(
-                        *command,
-                        context=(
-                            "expected path is not executable "
-                            "(python os.access fallback): "
-                            f"{path}"
-                        ),
-                        diagnostics_fn=diagnostics_fn,
-                        timeout=_PATH_CHECK_TIMEOUT_SECONDS,
-                    )
-                except ValidationError as fallback_exc:
-                    fallback_failures.append((interpreter, fallback_exc))
-                    continue
-                else:
-                    logger.info(
-                        "test -x reported %s as non-executable (%s); %s os.access "
-                        "fallback succeeded",
-                        path,
-                        exc,
-                        interpreter,
-                    )
-                    break
-            else:
-                if not fallback_failures:
-                    raise ValidationError(str(exc)) from exc
-                combined_message = _combine_fallback_errors(exc, fallback_failures)
-                raise ValidationError(combined_message) from fallback_failures[-1][1]
+            _try_python_fallback(path, exec_fn, diagnostics_fn, exc)
 
 
 def _install_and_verify(

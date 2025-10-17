@@ -10,6 +10,7 @@ import pytest
 from plumbum.commands.processes import ProcessExecutionError
 
 from test_support.sandbox import (
+    DummySandbox,
     RaisingSandbox,
     SandboxContext,
     SandboxFailure,
@@ -21,6 +22,32 @@ if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
 else:  # pragma: no cover - runtime fallback
     Path = typ.Any
     ModuleType = typ.Any
+
+
+def _is_python_fallback_command(command: tuple[str, ...], path: str) -> bool:
+    """Check if command matches the Python os.access fallback pattern."""
+    return (
+        len(command) >= 4
+        and command[0] in {"python3", "python"}
+        and command[1] == "-c"
+        and command[3] == path
+    )
+
+
+def _make_exec_with_context(
+    sandbox: DummySandbox, validate_packages_module: ModuleType
+) -> typ.Callable[..., str]:
+    def _exec(
+        *args: str,
+        context: str,
+        timeout: int | None = None,
+        diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
+    ) -> str:
+        return validate_packages_module._exec_with_diagnostics(
+            sandbox, args, context, timeout, diagnostics_fn
+        )
+
+    return _exec
 
 
 def _create_test_package(
@@ -67,6 +94,29 @@ def _create_raising_sandbox(
         calls=calls,
         failure=failure,
     )
+    path = failure_command[-1]
+
+    if failure_command[:2] == ("test", "-x"):
+
+        class ExecutableFailureSandbox(RaisingSandbox):
+            def exec(self, *args: str, timeout: int | None = None) -> str:
+                command = tuple(args)
+                if _is_python_fallback_command(command, path):
+                    self._calls.append((command, timeout))
+                    fallback_error = validate_packages_module.ValidationError(
+                        "fallback failure"
+                    )
+                    fallback_process_error = ProcessExecutionError(
+                        list(command),
+                        1,
+                        "",
+                        "permission denied",
+                    )
+                    raise fallback_error from fallback_process_error
+                return super().exec(*args, timeout=timeout)
+
+        return ExecutableFailureSandbox(context)
+
     return RaisingSandbox(context)
 
 
@@ -210,3 +260,138 @@ def test_install_and_verify_wraps_validation_errors(
             monkeypatch=monkeypatch,
             validate_packages_module=validate_packages_module,
         )
+
+
+@pytest.fixture
+def sandbox_with_python_fallback(
+    tmp_path: Path, validate_packages_module: ModuleType
+) -> tuple[
+    DummySandbox, typ.Callable[..., str], list[tuple[tuple[str, ...], int | None]], str
+]:
+    """Return sandbox + executor where ``test -x`` fails but fallback succeeds."""
+    path = "/usr/bin/fallback-tool"
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    class FallbackSandbox(DummySandbox):
+        def __init__(self) -> None:
+            super().__init__(tmp_path / "sandbox-fallback", calls)
+
+        def exec(self, *args: str, timeout: int | None = None) -> str:
+            if tuple(args) == ("test", "-x", path):
+                command = tuple(args)
+                calls.append((command, timeout))
+                cause = ProcessExecutionError(
+                    list(command),
+                    1,
+                    "",
+                    "permission denied",
+                )
+                message = "not executable"
+                err = validate_packages_module.ValidationError(message)
+                raise err from cause
+            return super().exec(*args, timeout=timeout)
+
+    sandbox = FallbackSandbox()
+    exec_with_context = _make_exec_with_context(sandbox, validate_packages_module)
+
+    return sandbox, exec_with_context, calls, path
+
+
+@pytest.fixture
+def sandbox_with_double_failure(
+    tmp_path: Path, validate_packages_module: ModuleType
+) -> tuple[
+    DummySandbox, typ.Callable[..., str], list[tuple[tuple[str, ...], int | None]], str
+]:
+    """Return sandbox where both ``test -x`` and fallback fail."""
+    path = "/usr/bin/broken-tool"
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    class DoubleFailureSandbox(DummySandbox):
+        def __init__(self) -> None:
+            super().__init__(tmp_path / "sandbox-double-failure", calls)
+
+        def exec(self, *args: str, timeout: int | None = None) -> str:
+            command = tuple(args)
+            calls.append((command, timeout))
+            if command == ("test", "-x", path):
+                error = validate_packages_module.ValidationError("test -x failure")
+                process_error = ProcessExecutionError(list(command), 1, "", "")
+                raise error from process_error
+            if _is_python_fallback_command(command, path):
+                fallback_error = validate_packages_module.ValidationError(
+                    "fallback failure"
+                )
+                fallback_process_error = ProcessExecutionError(
+                    list(command),
+                    1,
+                    "",
+                    "permission denied",
+                )
+                raise fallback_error from fallback_process_error
+            return ""
+
+    sandbox = DoubleFailureSandbox()
+    exec_with_context = _make_exec_with_context(sandbox, validate_packages_module)
+
+    return sandbox, exec_with_context, calls, path
+
+
+def test_validate_paths_executable_accepts_python_fallback(
+    sandbox_with_python_fallback: tuple[
+        DummySandbox,
+        typ.Callable[..., str],
+        list[tuple[tuple[str, ...], int | None]],
+        str,
+    ],
+    validate_packages_module: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure executables pass validation when the fallback succeeds."""
+    sandbox, exec_fn, calls, path = sandbox_with_python_fallback
+    caplog.set_level("INFO")
+
+    validate_packages_module._validate_paths_executable(
+        sandbox,
+        (path,),
+        exec_fn,
+    )
+
+    executed_commands = [command for command, _timeout in calls]
+    assert ("test", "-x", path) in executed_commands
+    assert any(
+        _is_python_fallback_command(command, path) for command in executed_commands
+    )
+    assert any(
+        "os.access fallback succeeded" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_validate_paths_executable_reports_both_failures(
+    sandbox_with_double_failure: tuple[
+        DummySandbox,
+        typ.Callable[..., str],
+        list[tuple[tuple[str, ...], int | None]],
+        str,
+    ],
+    validate_packages_module: ModuleType,
+) -> None:
+    """Surface both failure messages when the fallback also fails."""
+    sandbox, exec_with_context, calls, path = sandbox_with_double_failure
+
+    with pytest.raises(validate_packages_module.ValidationError) as excinfo:
+        validate_packages_module._validate_paths_executable(
+            sandbox,
+            (path,),
+            exec_with_context,
+        )
+
+    message = str(excinfo.value)
+    assert "expected path is not executable" in message
+    assert "python os.access fallback" in message
+    assert "fallback failure" in message
+    assert "permission denied" in message
+    assert any(
+        _is_python_fallback_command(command, path) for command, _timeout in calls
+    )

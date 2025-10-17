@@ -7,7 +7,7 @@ import typing as typ
 
 import pytest
 
-from test_support.validate_linux_packages import (
+from tests.validate_linux_packages import (
     DebPackageParams,
     build_deb_metadata,
     make_dummy_sandbox,

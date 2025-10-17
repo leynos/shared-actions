@@ -21,14 +21,26 @@ if __package__:
         inspect_rpm_package,
     )
 else:  # pragma: no cover - exercised via CLI execution
-    from validate_cli import app, main, run
-    from validate_exceptions import ValidationError
-    from validate_metadata import (
-        DebMetadata,
-        RpmMetadata,
-        inspect_deb_package,
-        inspect_rpm_package,
-    )
+    import importlib
+    import sys
+    from pathlib import Path
+
+    _SCRIPT_DIR = Path(__file__).resolve().parent
+    if str(_SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPT_DIR))
+
+    validate_cli = importlib.import_module("validate_cli")
+    validate_exceptions = importlib.import_module("validate_exceptions")
+    validate_metadata = importlib.import_module("validate_metadata")
+
+    app = validate_cli.app
+    main = validate_cli.main
+    run = validate_cli.run
+    ValidationError = validate_exceptions.ValidationError
+    DebMetadata = validate_metadata.DebMetadata
+    RpmMetadata = validate_metadata.RpmMetadata
+    inspect_deb_package = validate_metadata.inspect_deb_package
+    inspect_rpm_package = validate_metadata.inspect_rpm_package
 
 __all__ = [
     "DebMetadata",

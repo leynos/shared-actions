@@ -38,16 +38,19 @@ ACTION_ROOT = _find_action_root(Path(__file__).resolve())
 SCRIPT_PATH = ACTION_ROOT / "scripts" / "validate_inputs.ps1"
 
 ERROR_HINT = "provide 'application-path' when 'wxs-path' is omitted"
+ERROR_HINT_WITH_PIPE = "provide 'application-path' when | 'wxs-path' is omitted"
 _ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
 def _normalize(text: str) -> str:
-    """Lowercase text, drop pipe gutters, and normalise whitespace for comparisons."""
-    cleaned = text.replace("\r", "").replace("|", "")
+    """Lowercase text and normalise whitespace for comparisons."""
+    cleaned = text.replace("\r", "")
+    # Keep this normalisation format-agnostic; adjust if exact formatting is asserted.
     return " ".join(cleaned.split()).lower()
 
 
 ERROR_HINT_NORMALIZED = _normalize(ERROR_HINT)
+ERROR_HINT_PIPE_NORMALIZED = _normalize(ERROR_HINT_WITH_PIPE)
 
 
 def combined_stream(result: RunResult) -> str:
@@ -78,7 +81,9 @@ def run_script(
 def assert_error_hint(result: RunResult) -> None:
     """Assert the validation message is present in the PowerShell error output."""
     normalised = _normalize(combined_stream(result))
-    assert ERROR_HINT_NORMALIZED in normalised
+    assert (
+        ERROR_HINT_NORMALIZED in normalised or ERROR_HINT_PIPE_NORMALIZED in normalised
+    )
 
 
 def test_requires_application_when_using_template() -> None:
@@ -129,4 +134,34 @@ def test_accepts_wxs_path_without_application_spec() -> None:
         {"WXS_PATH": r"installer\Package.wxs"},
         unset=["APPLICATION_SPEC"],
     )
+    assert result.returncode == 0
+
+
+@pytest.mark.parametrize(
+    "application_spec",
+    [
+        "dist\\My App.exe",
+        'dist\\MyApp_"quotes".exe',
+        "dist\\unicode_\u2603.exe",
+        "dist\\" + "a" * 200 + ".exe",
+    ],
+)
+def test_accepts_application_spec_with_special_paths(application_spec: str) -> None:
+    """Accept application-paths containing spaces, quotes, Unicode, or long segments."""
+    result = run_script({"APPLICATION_SPEC": application_spec}, unset=["WXS_PATH"])
+    assert result.returncode == 0
+
+
+@pytest.mark.parametrize(
+    "wxs_path",
+    [
+        "installer\\Template File.wxs",
+        'installer\\Authoring_"quotes".wxs',
+        "installer\\unicode_\u2603.wxs",
+        "installer\\" + "b" * 200 + ".wxs",
+    ],
+)
+def test_accepts_wxs_path_with_special_paths(wxs_path: str) -> None:
+    """Accept wxs-paths containing spaces, quotes, Unicode, or long segments."""
+    result = run_script({"WXS_PATH": wxs_path}, unset=["APPLICATION_SPEC"])
     assert result.returncode == 0

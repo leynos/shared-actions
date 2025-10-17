@@ -383,8 +383,15 @@ def _validate_paths_executable(
                         sandbox, p, error=err
                     ),
                 )
-            except ValidationError:
-                raise
+            except ValidationError as fallback_exc:
+                fallback_message = str(fallback_exc)
+                combined_message = (
+                    f"{exc}\n"
+                    "python os.access fallback also reported the path as "
+                    "non-executable:\n"
+                    f"{fallback_message}"
+                )
+                raise ValidationError(combined_message) from fallback_exc
             else:
                 message = str(exc)
                 logger.info(

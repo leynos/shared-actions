@@ -277,40 +277,13 @@ def sandbox_with_python_fallback(
     return sandbox, exec_with_context, calls, path
 
 
-def test_validate_paths_executable_accepts_python_fallback(
-    sandbox_with_python_fallback: tuple[
-        DummySandbox,
-        typ.Callable[..., str],
-        list[tuple[tuple[str, ...], int | None]],
-        str,
-    ],
-    validate_packages_module: ModuleType,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Ensure executables pass validation when the fallback succeeds."""
-    sandbox, exec_fn, calls, path = sandbox_with_python_fallback
-    caplog.set_level("INFO")
-
-    validate_packages_module._validate_paths_executable(
-        sandbox,
-        (path,),
-        exec_fn,
-    )
-
-    executed_commands = [command for command, _timeout in calls]
-    assert ("test", "-x", path) in executed_commands
-    assert any(command[0] == "python3" for command in executed_commands)
-    assert any(
-        "python os.access fallback succeeded" in record.getMessage()
-        for record in caplog.records
-    )
-
-
-def test_validate_paths_executable_reports_both_failures(
-    tmp_path: Path,
-    validate_packages_module: ModuleType,
-) -> None:
-    """Surface both failure messages when the fallback also fails."""
+@pytest.fixture
+def sandbox_with_double_failure(
+    tmp_path: Path, validate_packages_module: ModuleType
+) -> tuple[
+    DummySandbox, typ.Callable[..., str], list[tuple[tuple[str, ...], int | None]], str
+]:
+    """Return sandbox where both ``test -x`` and fallback fail."""
     path = "/usr/bin/broken-tool"
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
@@ -354,6 +327,50 @@ def test_validate_paths_executable_reports_both_failures(
         return validate_packages_module._exec_with_diagnostics(
             sandbox, args, context, timeout, diagnostics_fn
         )
+
+    return sandbox, exec_with_context, calls, path
+
+
+def test_validate_paths_executable_accepts_python_fallback(
+    sandbox_with_python_fallback: tuple[
+        DummySandbox,
+        typ.Callable[..., str],
+        list[tuple[tuple[str, ...], int | None]],
+        str,
+    ],
+    validate_packages_module: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ensure executables pass validation when the fallback succeeds."""
+    sandbox, exec_fn, calls, path = sandbox_with_python_fallback
+    caplog.set_level("INFO")
+
+    validate_packages_module._validate_paths_executable(
+        sandbox,
+        (path,),
+        exec_fn,
+    )
+
+    executed_commands = [command for command, _timeout in calls]
+    assert ("test", "-x", path) in executed_commands
+    assert any(command[0] == "python3" for command in executed_commands)
+    assert any(
+        "python os.access fallback succeeded" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_validate_paths_executable_reports_both_failures(
+    sandbox_with_double_failure: tuple[
+        DummySandbox,
+        typ.Callable[..., str],
+        list[tuple[tuple[str, ...], int | None]],
+        str,
+    ],
+    validate_packages_module: ModuleType,
+) -> None:
+    """Surface both failure messages when the fallback also fails."""
+    sandbox, exec_with_context, calls, path = sandbox_with_double_failure
 
     with pytest.raises(validate_packages_module.ValidationError) as excinfo:
         validate_packages_module._validate_paths_executable(

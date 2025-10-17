@@ -24,6 +24,16 @@ else:  # pragma: no cover - runtime fallback
     ModuleType = typ.Any
 
 
+def _is_python_fallback_command(command: tuple[str, ...], path: str) -> bool:
+    """Check if command is a python3 os.access fallback for the given path."""
+    return (
+        len(command) >= 4
+        and command[0] == "python3"
+        and command[1] == "-c"
+        and command[3] == path
+    )
+
+
 def _create_test_package(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -75,12 +85,7 @@ def _create_raising_sandbox(
         class ExecutableFailureSandbox(RaisingSandbox):
             def exec(self, *args: str, timeout: int | None = None) -> str:
                 command = tuple(args)
-                if (
-                    len(command) >= 4
-                    and command[0] == "python3"
-                    and command[1] == "-c"
-                    and command[3] == path
-                ):
+                if _is_python_fallback_command(command, path):
                     self._calls.append((command, timeout))
                     fallback_error = validate_packages_module.ValidationError(
                         "fallback failure"
@@ -298,12 +303,7 @@ def sandbox_with_double_failure(
                 error = validate_packages_module.ValidationError("test -x failure")
                 process_error = ProcessExecutionError(list(command), 1, "", "")
                 raise error from process_error
-            if (
-                len(command) >= 4
-                and command[0] == "python3"
-                and command[1] == "-c"
-                and command[3] == path
-            ):
+            if _is_python_fallback_command(command, path):
                 fallback_error = validate_packages_module.ValidationError(
                     "fallback failure"
                 )

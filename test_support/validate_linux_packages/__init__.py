@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from test_support.sandbox import DummySandbox
+from ..sandbox import DummySandbox  # noqa: TID252
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path

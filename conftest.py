@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import collections.abc as cabc
+import importlib.util
 import os
 import shutil
 import sys
@@ -19,6 +20,37 @@ def _default_action_path() -> str:
 
 
 os.environ.setdefault("GITHUB_ACTION_PATH", _default_action_path())
+
+_VLP_TESTS_ROOT = (
+    Path(__file__).resolve().parent / ".github" / "actions" / "validate-linux-packages"
+)
+if str(_VLP_TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_VLP_TESTS_ROOT))
+
+_ACTIONS_ROOT = Path(__file__).resolve().parent / ".github" / "actions"
+_VLP_TESTS_PACKAGE = _VLP_TESTS_ROOT / "tests"
+_VLP_TESTS_INIT = _VLP_TESTS_PACKAGE / "__init__.py"
+if _VLP_TESTS_INIT.exists():
+    package_paths = [str(_VLP_TESTS_PACKAGE)]
+    for action_dir in _ACTIONS_ROOT.iterdir():
+        candidate = action_dir / "tests"
+        if candidate.is_dir():
+            package_paths.append(str(candidate))
+
+    module = sys.modules.get("tests")
+    if module is None:
+        spec = importlib.util.spec_from_file_location("tests", _VLP_TESTS_INIT)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            module.__path__ = package_paths
+            sys.modules["tests"] = module
+            spec.loader.exec_module(module)
+    else:
+        existing = list(dict.fromkeys(getattr(module, "__path__", [])))
+        for path in package_paths:
+            if path not in existing:
+                existing.append(path)
+        module.__path__ = existing
 
 CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
     sys.platform == "win32", reason="cmd-mox does not support Windows"

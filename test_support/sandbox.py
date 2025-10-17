@@ -12,7 +12,14 @@ else:  # pragma: no cover - runtime fallback
 
 
 class DummySandbox:
-    """Minimal sandbox session recording exec calls for assertions."""
+    """Minimal sandbox session recording exec calls for assertions.
+
+    Attributes
+    ----------
+    isolation : str | None
+        Sandbox isolation mode for testing isolation-aware code paths.
+        Tests can set this to simulate different isolation configurations.
+    """
 
     def __init__(
         self, root: Path, calls: list[tuple[tuple[str, ...], int | None]]

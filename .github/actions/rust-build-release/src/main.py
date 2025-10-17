@@ -138,8 +138,7 @@ class _CommandWrapper:
             parts = list(formulate_callable())
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
             typer.echo(
-                "::warning:: failed to generate command line for "
-                f"{self._command!r}: {exc}",
+                f"::warning:: failed to generate command line for {self._command!r}: {exc}",  # noqa: E501
                 err=True,
             )
             return [self._display_name]
@@ -501,12 +500,11 @@ def _configure_cross_container_engine(
 
 
 def _restore_container_engine(previous_engine: str | None, *, mutated: bool) -> None:
-    if not mutated:
-        return
-
     if previous_engine is None:
         os.environ.pop("CROSS_CONTAINER_ENGINE", None)
-    else:
+        return
+
+    if mutated:
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 

@@ -86,6 +86,42 @@ def _prepare_polythene_stub(
     return calls, exec_calls
 
 
+def test_polythene_store_accepts_executable_override(
+    validate_cli_module: object,
+    tmp_path: Path,
+) -> None:
+    """User supplied polythene-store paths are validated for executability."""
+    module = validate_cli_module
+    custom_store = tmp_path / "custom-store"
+
+    with module._polythene_store(custom_store) as store:
+        assert store == custom_store.resolve()
+        assert store.exists()
+
+        marker = store / "marker"
+        marker.write_text("ok")
+
+    assert (custom_store / "marker").exists()
+
+
+def test_polythene_store_rejects_non_executable_override(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A clear error is raised when the filesystem forbids execution."""
+    module = validate_cli_module
+    monkeypatch.setattr(module, "_supports_executable_stores", lambda _path: None)
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs info")
+
+    with pytest.raises(module.ValidationError) as excinfo:
+        module.ensure_executable_store(tmp_path / "non-exec")
+
+    message = str(excinfo.value)
+    assert "polythene-store must be located on an executable filesystem" in message
+    assert "Filesystem details: fs info" in message
+
+
 def test_build_config_splits_verify_command(
     validate_cli_module: object,
     tmp_path: Path,
@@ -162,6 +198,8 @@ def test_main_invokes_deb_validation(
 
     monkeypatch.setattr(module, "validate_deb_package", _validate_deb_package)
 
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs info")
+
     module.main(
         project_dir=project_dir,
         bin_name="rust-toy-app",
@@ -171,6 +209,8 @@ def test_main_invokes_deb_validation(
     )
 
     out = capsys.readouterr().out
+    assert "Using polythene store base" in out
+    assert "[fs info]" in out
     assert "✓ validated Debian package" in out
 
     assert recorded["path"] == package_path
@@ -813,11 +853,14 @@ def test_polythene_store_prefers_workspace(
     monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
+    workspace_root = workspace.resolve()
+    runner_root = runner_temp.resolve()
+    allowed_roots = {workspace_root, runner_root}
+
     def fake_supports(base: Path) -> Path | None:
-        if base == workspace:
-            return workspace
-        if base == runner_temp:
-            return runner_temp
+        resolved = base.resolve()
+        if resolved in allowed_roots or resolved.parent in allowed_roots:
+            return resolved
         pytest.fail(f"unexpected base: {base!s}")
 
     monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
@@ -840,11 +883,16 @@ def test_polythene_store_falls_back_to_runner_temp(
     monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
     monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
 
+    workspace_root = workspace.resolve()
+    runner_root = runner_temp.resolve()
+    allowed_roots = {workspace_root, runner_root}
+
     def fake_supports(base: Path) -> Path | None:
-        if base == workspace:
-            return None
-        if base == runner_temp:
-            return runner_temp
+        resolved = base.resolve()
+        if resolved in allowed_roots or resolved.parent in allowed_roots:
+            if resolved == workspace_root or resolved.parent == workspace_root:
+                return None
+            return resolved
         pytest.fail(f"unexpected base: {base!s}")
 
     monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
@@ -876,6 +924,66 @@ def test_polythene_store_defaults_to_system_temp(
     with module._polythene_store(None) as store_base:
         assert store_base.parent == fallback_temp
         assert store_base.name.startswith("polythene-validate-")
+
+
+def test_polythene_store_raises_when_no_executable_locations(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A validation error bubbles up when every candidate directory fails."""
+    module = validate_cli_module
+    workspace = tmp_path / "workspace"
+    runner_temp = tmp_path / "runner"
+    workspace.mkdir()
+    runner_temp.mkdir()
+    monkeypatch.setenv("RUNNER_TEMP", runner_temp.as_posix())
+    monkeypatch.setenv("GITHUB_WORKSPACE", workspace.as_posix())
+
+    monkeypatch.setattr(module, "_supports_executable_stores", lambda _base: None)
+    monkeypatch.setattr(module, "_describe_mount", lambda _path: "fs(ext4 noexec)")
+
+    with (
+        pytest.raises(module.ValidationError, match="polythene-store must be located"),
+        module._polythene_store(None),
+    ):
+        pass
+
+
+def test_ensure_executable_store_creates_directory(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """ensure_executable_store returns the probed directory when executable."""
+    module = validate_cli_module
+    target = tmp_path / "store"
+
+    def fake_supports(base: Path) -> Path | None:
+        assert base == target
+        return base
+
+    monkeypatch.setattr(module, "_supports_executable_stores", fake_supports)
+
+    result = module.ensure_executable_store(target)
+    assert result == target
+    assert target.is_dir()
+
+
+def test_ensure_executable_store_raises_for_non_executable_filesystem(
+    validate_cli_module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A helpful error is raised when the directory is not executable."""
+    module = validate_cli_module
+    target = tmp_path / "store"
+
+    monkeypatch.setattr(module, "_supports_executable_stores", lambda base: None)
+    monkeypatch.setattr(module, "_describe_mount", lambda path: "fs(ext4 noexec)")
+
+    with pytest.raises(module.ValidationError, match=r"fs\(ext4 noexec\)"):
+        module.ensure_executable_store(target)
 
 
 def test_main_raises_for_missing_package_dir(

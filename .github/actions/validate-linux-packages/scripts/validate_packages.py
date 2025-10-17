@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import pathlib
 import platform
+import shutil
+import stat
 import typing as typ
 
+from plumbum.commands.processes import ProcessExecutionError
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, unique_match
 from validate_metadata import (
@@ -15,7 +18,7 @@ from validate_metadata import (
     inspect_deb_package,
     inspect_rpm_package,
 )
-from validate_polythene import PolytheneSession
+from validate_polythene import PolytheneSession, _decode_stream
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,232 @@ def ensure_subset(
         raise ValidationError(message)
 
 
+def _trim_output(output: str, *, line_limit: int = 5, char_limit: int = 400) -> str:
+    """Return ``output`` trimmed to a manageable length for diagnostics."""
+    text = output.strip()
+    if not text:
+        return "<no output>"
+
+    lines = text.splitlines()
+    if len(lines) > line_limit:
+        text = "\n".join(lines[:line_limit]) + "\n…"
+    else:
+        text = "\n".join(lines)
+
+    if len(text) > char_limit:
+        text = text[: char_limit - 1].rstrip() + "…"
+
+    return text
+
+
+def _extract_process_stderr(error: BaseException | None) -> str | None:
+    """Return trimmed stderr output when ``error`` originated from a process."""
+    if not isinstance(error, ProcessExecutionError):
+        return None
+
+    stderr_text = _decode_stream(getattr(error, "stderr", None))
+    if not stderr_text.strip():
+        return None
+    return _trim_output(stderr_text)
+
+
+def _execute_diagnostic_command(
+    sandbox: PolytheneSession, label: str, args: tuple[str, ...]
+) -> str:
+    """Return formatted diagnostics for executing ``args`` in ``sandbox``."""
+    try:
+        output = sandbox.exec(*args)
+    except ValidationError as exc:
+        summary = _trim_output(str(exc))
+        entry_lines = [f"- {label}: error ({summary})"]
+        stderr_text = _extract_process_stderr(exc.__cause__)
+        if stderr_text is not None:
+            entry_lines.append(f"  stderr: {stderr_text}")
+        return "\n".join(entry_lines)
+
+    summary = _trim_output(output)
+    return f"- {label}: {summary}"
+
+
+def _build_path_diagnostic_commands(path: str) -> list[tuple[str, tuple[str, ...]]]:
+    """Return diagnostic command specifications for ``path``."""
+    commands: list[tuple[str, tuple[str, ...]]] = [
+        ("ls -ld", ("ls", "-ld", path)),
+        ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
+        ("file", ("file", path)),
+        ("sha256sum", ("sha256sum", path)),
+        (f"{path} --help", (path, "--help")),
+    ]
+
+    script = (
+        "import os; "
+        f"path={path!r}; "
+        "st=os.stat(path); "
+        "print('mode', oct(st.st_mode), 'uid', st.st_uid, 'gid', st.st_gid); "
+        "print('x_ok', os.access(path, os.X_OK))"
+    )
+    commands.append(("python os.access", ("python3", "-c", script)))
+
+    parent = str(pathlib.PurePosixPath(path).parent)
+    if parent and parent != ".":
+        commands.append(("ls parent", ("ls", "-l", parent)))
+
+    return commands
+
+
+def _format_path_diagnostics(
+    sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
+) -> str | None:
+    """Return sandbox diagnostics describing ``path`` when checks fail."""
+    commands = _build_path_diagnostic_commands(path)
+
+    details: list[str] = []
+    stderr_text = _extract_process_stderr(error)
+    if stderr_text:
+        details.append(f"- stderr: {stderr_text}")
+
+    for label, args in commands:
+        result = _execute_diagnostic_command(sandbox, label, args)
+        details.append(result)
+
+    if not details:
+        return None
+
+    joined = "\n".join(details)
+    return f"Path diagnostics for {path}:\n{joined}"
+
+
+def _collect_diagnostics_safely(
+    diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None,
+    args: tuple[str, ...],
+    cause: BaseException | None,
+) -> str | None:
+    """Return diagnostics from ``diagnostics_fn`` while suppressing errors."""
+    if diagnostics_fn is None:
+        return None
+
+    try:
+        return diagnostics_fn(cause)
+    except ValidationError as diag_exc:  # pragma: no cover - defensive
+        logger.debug(
+            "diagnostic collection raised ValidationError for %s: %s",
+            args,
+            diag_exc,
+        )
+    except Exception as diag_exc:  # noqa: BLE001
+        logger.debug(
+            "failed to collect diagnostics for %s: %s",
+            args,
+            diag_exc,
+        )
+    return None
+
+
+def _collect_environment_details(sandbox: PolytheneSession) -> list[str]:
+    """Return environment diagnostics gathered from ``sandbox``."""
+    env_details: list[str] = []
+    for label, command in (
+        ("id -u", ("id", "-u")),
+        ("umask", ("sh", "-c", "umask")),
+        (
+            "mount /usr",
+            ("sh", "-c", "mount | grep ' /usr ' || true"),
+        ),
+    ):
+        try:
+            output = sandbox.exec(*command)
+        except ValidationError as exc:
+            summary = _trim_output(str(exc))
+            env_details.append(f"{label}: error ({summary})")
+        else:
+            summary = _trim_output(output)
+            env_details.append(f"{label}: {summary}")
+
+    return env_details
+
+
+def _collect_host_path_details(
+    sandbox: PolytheneSession, paths: list[str]
+) -> list[str]:
+    """Return host-side ``stat`` information for ``paths`` within ``sandbox``."""
+    host_details: list[str] = []
+    for path in paths:
+        host_path = sandbox.root / path.lstrip("/")
+        try:
+            stat_result = host_path.stat()
+        except FileNotFoundError as err:
+            host_details.append(f"{path}: missing ({err})")
+        else:
+            perm_bits = stat.S_IMODE(stat_result.st_mode)
+            host_details.append(
+                f"{path}: mode={oct(stat_result.st_mode)} "
+                f"perm={oct(perm_bits)} "
+                f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
+            )
+
+    return host_details
+
+
+def _exec_with_diagnostics(
+    sandbox: PolytheneSession,
+    args: tuple[str, ...],
+    context: str,
+    timeout: int | None = None,
+    diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
+) -> str:
+    """Run ``sandbox.exec`` while enriching ``ValidationError`` messages."""
+    try:
+        return sandbox.exec(*args, timeout=timeout)
+    except ValidationError as exc:
+        cause = exc.__cause__
+        stderr_detail = _extract_process_stderr(cause)
+
+        detail = _collect_diagnostics_safely(diagnostics_fn, args, cause)
+
+        message = f"{context}: {exc}"
+        if stderr_detail:
+            message = f"{message}\nstderr: {stderr_detail}"
+        if detail:
+            message = f"{message}\n{detail}"
+        raise ValidationError(message) from exc
+
+
+def _validate_paths_exist(
+    sandbox: PolytheneSession,
+    paths: typ.Iterable[str],
+    exec_fn: typ.Callable[..., str],
+) -> None:
+    """Ensure each path in ``paths`` exists within ``sandbox``."""
+    for path in paths:
+        exec_fn(
+            "test",
+            "-e",
+            path,
+            context=f"expected path missing from sandbox payload: {path}",
+            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                sandbox, p, error=err
+            ),
+        )
+
+
+def _validate_paths_executable(
+    sandbox: PolytheneSession,
+    paths: typ.Iterable[str],
+    exec_fn: typ.Callable[..., str],
+) -> None:
+    """Ensure each path in ``paths`` is executable within ``sandbox``."""
+    for path in paths:
+        exec_fn(
+            "test",
+            "-x",
+            path,
+            context=f"expected path is not executable: {path}",
+            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
+                sandbox, p, error=err
+            ),
+        )
+
+
 def _install_and_verify(
     sandbox_factory: SandboxFactory,
     package_path: Path,
@@ -145,21 +374,38 @@ def _install_and_verify(
     *,
     install_error: str,
 ) -> None:
+    expected_paths = tuple(expected_paths)
+    executable_paths = tuple(executable_paths)
+
     with sandbox_factory() as sandbox:
         dest = sandbox.root / package_path.name
         ensure_directory(dest.parent)
-        dest.write_bytes(package_path.read_bytes())
+
+        with package_path.open("rb") as src, dest.open("wb") as out:
+            shutil.copyfileobj(src, out)
 
         sandbox_path = f"/{package_path.name}"
 
+        logger.info(
+            "Using sandbox isolation %s for %s",
+            sandbox.isolation or "default",
+            sandbox.root,
+        )
+
         def _exec_with_context(
-            *args: str, context: str, timeout: int | None = None
+            *args: str,
+            context: str,
+            timeout: int | None = None,
+            diagnostics_fn: typ.Callable[[BaseException | None], str | None]
+            | None = None,
         ) -> str:
-            try:
-                return sandbox.exec(*args, timeout=timeout)
-            except ValidationError as exc:
-                message = f"{context}: {exc}"
-                raise ValidationError(message) from exc
+            return _exec_with_diagnostics(
+                sandbox,
+                args,
+                context,
+                timeout,
+                diagnostics_fn,
+            )
 
         install_args = tuple(
             sandbox_path if arg == package_path.name else arg for arg in install_command
@@ -167,20 +413,19 @@ def _install_and_verify(
 
         _exec_with_context(*install_args, context=install_error)
 
-        for path in expected_paths:
-            _exec_with_context(
-                "test",
-                "-e",
-                path,
-                context=f"expected path missing from sandbox payload: {path}",
-            )
-        for path in executable_paths:
-            _exec_with_context(
-                "test",
-                "-x",
-                path,
-                context=f"expected path is not executable: {path}",
-            )
+        env_details = _collect_environment_details(sandbox)
+
+        if env_details:
+            logger.info("Sandbox context: %s", "; ".join(env_details))
+
+        combined_paths = list(dict.fromkeys((*expected_paths, *executable_paths)))
+        host_details = _collect_host_path_details(sandbox, combined_paths)
+
+        if host_details:
+            logger.info("Host view of sandbox paths: %s", "; ".join(host_details))
+
+        _validate_paths_exist(sandbox, expected_paths, _exec_with_context)
+        _validate_paths_executable(sandbox, executable_paths, _exec_with_context)
         if verify_command:
             _exec_with_context(
                 *verify_command,

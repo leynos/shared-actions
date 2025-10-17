@@ -35,6 +35,15 @@ class _CommandArgsResult:
     used_isolation: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _ExecContext:
+    """Execution context for retry operations."""
+
+    base_args: list[str]
+    args: tuple[str, ...]
+    timeout: int | None
+
+
 __all__ = sorted(
     (
         "Command",
@@ -151,6 +160,37 @@ def _build_command_args(
     return _CommandArgsResult(args=[*base_args, "--", *args], used_isolation=False)
 
 
+def _should_compare_without_isolation(args: tuple[str, ...]) -> bool:
+    """Return ``True`` when ``args`` represent an executable check."""
+    return len(args) >= 3 and args[0] == "test" and args[1] == "-x"
+
+
+def _compare_without_isolation(
+    base_args: list[str], args: tuple[str, ...], *, timeout: int | None
+) -> None:
+    """Run ``args`` without isolation and log the outcome for diagnostics."""
+    debug_args = _build_command_args(
+        base_args,
+        args,
+        isolation=None,
+        supports_isolation=False,
+    )
+    debug_cmd = local["uv"][tuple(debug_args.args)]
+    try:
+        run_text(debug_cmd, timeout=timeout)
+    except ValidationError as exc:  # pragma: no cover - diagnostic helper
+        logger.debug(
+            "no-isolation comparison for %s failed: %s",
+            " ".join(args),
+            exc,
+        )
+    else:
+        logger.debug(
+            "no-isolation comparison for %s succeeded",
+            " ".join(args),
+        )
+
+
 @dataclasses.dataclass(slots=True)
 class PolytheneSession:
     """Handle for executing commands inside an exported polythene rootfs."""
@@ -173,6 +213,46 @@ class PolytheneSession:
         """Return the root filesystem path for this session."""
         return self.store / self.uid
 
+    def _retry_without_isolation(
+        self,
+        context: _ExecContext,
+    ) -> str:
+        """Retry ``args`` without ``--isolation`` when the flag is unsupported."""
+        logger.info(
+            "Isolation flag unsupported; retrying without --isolation for %s",
+            self.uid,
+        )
+        self._supports_isolation_option = False
+        fallback_args = _build_command_args(
+            context.base_args,
+            context.args,
+            isolation=None,
+            supports_isolation=False,
+        )
+        fallback_cmd = local["uv"][tuple(fallback_args.args)]
+        return run_text(fallback_cmd, timeout=context.timeout)
+
+    def _handle_exec_error(
+        self,
+        exc: ValidationError,
+        context: _ExecContext,
+        *,
+        include_isolation: bool,
+    ) -> str:
+        """Handle ``ValidationError`` raised by ``exec`` attempts."""
+        if include_isolation and _is_unknown_isolation_option_error(exc):
+            return self._retry_without_isolation(context)
+        if include_isolation and _should_compare_without_isolation(context.args):
+            _compare_without_isolation(
+                context.base_args, context.args, timeout=context.timeout
+            )
+        raise exc
+
+    def _record_isolation_support(self, *, include_isolation: bool) -> None:
+        """Record that ``--isolation`` is supported when the call succeeds."""
+        if include_isolation and self._supports_isolation_option is not True:
+            self._supports_isolation_option = True
+
     def exec(self, *args: str, timeout: int | None = None) -> str:
         """Execute ``args`` inside the sandbox and return its stdout."""
         effective_timeout = timeout if timeout is not None else self.timeout
@@ -184,10 +264,11 @@ class PolytheneSession:
             "--store",
             self.store.as_posix(),
         ]
+        context = _ExecContext(base_args, args, effective_timeout)
         supports_isolation = self._supports_isolation_option is not False
         command_args = _build_command_args(
-            base_args,
-            args,
+            context.base_args,
+            context.args,
             self.isolation,
             supports_isolation=supports_isolation,
         )
@@ -198,30 +279,82 @@ class PolytheneSession:
         try:
             result = run_text(cmd, timeout=effective_timeout)
         except ValidationError as exc:
-            if include_isolation and _is_unknown_isolation_option_error(exc):
-                logger.info(
-                    "Isolation flag unsupported; retrying without --isolation for %s",
-                    self.uid,
-                )
-                self._supports_isolation_option = False
-                fallback_args = _build_command_args(
-                    base_args,
-                    args,
-                    isolation=None,
-                    supports_isolation=False,
-                )
-                fallback_cmd = local["uv"][tuple(fallback_args.args)]
-                return run_text(fallback_cmd, timeout=effective_timeout)
-            raise
+            return self._handle_exec_error(
+                exc,
+                context,
+                include_isolation=include_isolation,
+            )
         else:
-            if include_isolation and self._supports_isolation_option is not True:
-                self._supports_isolation_option = True
+            self._record_isolation_support(include_isolation=include_isolation)
             return result
 
 
 def default_polythene_command() -> Command:
     """Return the default command tuple for invoking polythene."""
     return DEFAULT_POLYTHENE_COMMAND
+
+
+def _should_skip_isolation_fallback(
+    session: PolytheneSession, cause: BaseException | None
+) -> bool:
+    """Return ``True`` if isolation fallback should be skipped."""
+    return (
+        not session.isolation
+        or session.isolation == DEFAULT_ISOLATION
+        or not isinstance(cause, ProcessExecutionError)
+    )
+
+
+def _try_fallback_isolation(
+    session: PolytheneSession, original_exc: ValidationError
+) -> tuple[bool, ValidationError]:
+    """Attempt to fall back to :data:`DEFAULT_ISOLATION` when startup fails.
+
+    Side effect: On success, mutates ``session.isolation`` to
+    :data:`DEFAULT_ISOLATION`.
+    """
+    cause = original_exc.__cause__
+    if _should_skip_isolation_fallback(session, cause):
+        return False, original_exc
+
+    stderr_text = _decode_stream(getattr(cause, "stderr", ""))
+    if not re.search(r"permission denied", stderr_text, re.IGNORECASE):
+        return False, original_exc
+
+    logger.info(
+        "Isolation %s failed with permission denied; falling back to %s",
+        session.isolation,
+        DEFAULT_ISOLATION,
+    )
+    session.isolation = DEFAULT_ISOLATION
+    try:
+        session.exec("true")
+    except ValidationError as retry_exc:  # pragma: no cover - fallback path
+        return False, retry_exc
+
+    logger.info("Fallback to %s isolation succeeded", DEFAULT_ISOLATION)
+    return True, original_exc
+
+
+def _raise_formatted_exec_error(exc: ValidationError) -> typ.NoReturn:
+    """Raise ``exc`` with enhanced messaging when possible."""
+    formatted = _format_isolation_error(exc)
+    if formatted is not None:
+        raise ValidationError(formatted) from exc
+
+    cause = exc.__cause__
+    if isinstance(cause, ProcessExecutionError):
+        stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
+        message = f"polythene exec failed: {cause}"
+        if stderr is not None:
+            message = (
+                f"{message}\n"
+                f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
+                f"{stderr}"
+            )
+        raise ValidationError(message) from exc
+
+    raise exc
 
 
 @contextlib.contextmanager
@@ -263,23 +396,9 @@ def polythene_rootfs(
     try:
         session.exec("true")
     except ValidationError as exc:
-        formatted = _format_isolation_error(exc)
-        if formatted is not None:
-            raise ValidationError(formatted) from exc
-
-        cause = exc.__cause__
-        if isinstance(cause, ProcessExecutionError):
-            stderr = _stderr_snippet(_decode_stream(getattr(cause, "stderr", "")))
-            message = f"polythene exec failed: {cause}"
-            if stderr is not None:
-                message = (
-                    f"{message}\n"
-                    f"stderr (truncated to {_STDERR_SNIPPET_LIMIT} chars):\n"
-                    f"{stderr}"
-                )
-            raise ValidationError(message) from exc
-
-        raise
+        fallback_succeeded, fallback_exc = _try_fallback_isolation(session, exc)
+        if not fallback_succeeded:
+            _raise_formatted_exec_error(fallback_exc)
     try:
         yield session
     finally:

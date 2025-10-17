@@ -137,11 +137,11 @@ class _CommandWrapper:
         try:
             parts = list(formulate_callable())
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            typer.echo(
-                f"::warning:: failed to generate command line for {self._command!r}: "
-                f"{exc}",
-                err=True,
+            message = (
+                "::warning:: failed to generate command line for "
+                f"{self._command!r}: {exc}"
             )
+            typer.echo(message, err=True)
             return [self._display_name]
         if parts:
             parts[0] = self._display_name
@@ -478,10 +478,44 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
         )
 
 
-def _restore_container_engine(previous_engine: str | None) -> None:
+def _configure_cross_container_engine(
+    decision: _CrossDecision,
+) -> tuple[str | None, str | None]:
+    """Ensure CROSS_CONTAINER_ENGINE matches the active cross backend."""
+    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+
+    if not decision.use_cross:
+        return previous_engine, None
+
+    if decision.use_cross_local_backend:
+        return previous_engine, None
+
+    if previous_engine is not None:
+        return previous_engine, None
+
+    engine = decision.container_engine
+    if engine is None:
+        return previous_engine, None
+
+    os.environ["CROSS_CONTAINER_ENGINE"] = engine
+    return previous_engine, engine
+
+
+def _restore_container_engine(
+    previous_engine: str | None, *, applied_engine: str | None
+) -> None:
+    current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+
     if previous_engine is None:
-        os.environ.pop("CROSS_CONTAINER_ENGINE", None)
-    else:
+        if applied_engine is not None:
+            # Always remove the variable when no prior value existed so callers
+            # that temporarily enabled cross-backed containers do not leak the
+            # setting across invocations—even if an unexpected code path mutated
+            # the environment outside of ``_configure_cross_container_engine``.
+            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+        return
+
+    if current_engine != previous_engine:
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
@@ -506,13 +540,14 @@ def _build_cargo_command(
     cargo_toolchain_spec: str, target_to_build: str
 ) -> SupportsFormulate:
     executor = local["cargo"]
-    return executor[
+    build_cmd = executor[
         cargo_toolchain_spec,
         "build",
         "--release",
         "--target",
         target_to_build,
     ]
+    return _CommandWrapper(build_cmd, "cargo")
 
 
 def _handle_cross_container_error(
@@ -605,11 +640,7 @@ def main(
 
     _announce_build_mode(decision)
 
-    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-    if decision.use_cross and not decision.use_cross_local_backend:
-        engine = decision.container_engine
-        if engine is not None:
-            os.environ["CROSS_CONTAINER_ENGINE"] = engine
+    previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
     if decision.use_cross:
         build_cmd = _build_cross_command(decision, target_to_build)
@@ -620,7 +651,7 @@ def main(
     except ProcessExecutionError as exc:
         _handle_cross_container_error(exc, decision, target_to_build)
     finally:
-        _restore_container_engine(previous_engine)
+        _restore_container_engine(previous_engine, applied_engine=applied_engine)
 
 
 if __name__ == "__main__":

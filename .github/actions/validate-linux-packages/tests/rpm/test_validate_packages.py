@@ -8,6 +8,7 @@ import typing as typ
 import pytest
 
 from test_support.validate_linux_packages import (
+    RpmPackageParams,
     build_rpm_metadata,
     make_dummy_sandbox,
     write_package,
@@ -27,7 +28,7 @@ def test_validate_rpm_package_rejects_unexpected_release(
     package = write_package(tmp_path, "rust-toy-app-1.2.3-1.x86_64.rpm")
     metadata = build_rpm_metadata(
         validate_packages_module,
-        release="2.el9",
+        RpmPackageParams(release="2.el9"),
     )
     monkeypatch.setattr(
         validate_packages_module,
@@ -80,7 +81,7 @@ def test_validate_rpm_package_skips_cross_architecture_sandbox(
     package = write_package(tmp_path, "rust-toy-app-1.2.3-1.aarch64.rpm")
     metadata = build_rpm_metadata(
         validate_packages_module,
-        architecture="aarch64",
+        RpmPackageParams(architecture="aarch64"),
     )
     monkeypatch.setattr(
         validate_packages_module,
@@ -126,7 +127,7 @@ def test_validate_rpm_package_skips_using_metadata_architecture(
     package = write_package(tmp_path, "rust-toy-app-1.2.3-1.aarch64.rpm")
     metadata = build_rpm_metadata(
         validate_packages_module,
-        architecture="aarch64",
+        RpmPackageParams(architecture="aarch64"),
     )
     monkeypatch.setattr(
         validate_packages_module,

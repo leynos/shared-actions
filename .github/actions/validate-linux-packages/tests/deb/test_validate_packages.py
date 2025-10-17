@@ -8,6 +8,7 @@ import typing as typ
 import pytest
 
 from test_support.validate_linux_packages import (
+    DebPackageParams,
     build_deb_metadata,
     make_dummy_sandbox,
     write_package,
@@ -27,7 +28,9 @@ def test_validate_deb_package_runs_sandbox_checks(
     package = write_package(tmp_path, "rust-toy-app_1.2.3-1_amd64.deb")
     metadata = build_deb_metadata(
         validate_packages_module,
-        files={"/usr/bin/rust-toy-app", "/usr/share/doc/rust-toy-app"},
+        DebPackageParams(
+            files={"/usr/bin/rust-toy-app", "/usr/share/doc/rust-toy-app"}
+        ),
     )
     monkeypatch.setattr(
         validate_packages_module,
@@ -78,7 +81,7 @@ def test_validate_deb_package_skips_cross_architecture_sandbox(
     package = write_package(tmp_path, "rust-toy-app_1.2.3-1_arm64.deb")
     metadata = build_deb_metadata(
         validate_packages_module,
-        architecture="arm64",
+        DebPackageParams(architecture="arm64"),
     )
     monkeypatch.setattr(
         validate_packages_module,
@@ -124,7 +127,7 @@ def test_validate_deb_package_skips_using_metadata_architecture(
     package = write_package(tmp_path, "rust-toy-app_1.2.3-1_arm64.deb")
     metadata = build_deb_metadata(
         validate_packages_module,
-        architecture="arm64",
+        DebPackageParams(architecture="arm64"),
     )
     monkeypatch.setattr(
         validate_packages_module,

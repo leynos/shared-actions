@@ -479,32 +479,42 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
 
 def _configure_cross_container_engine(
     decision: _CrossDecision,
-) -> tuple[str | None, bool]:
+) -> tuple[str | None, str | None]:
     """Ensure CROSS_CONTAINER_ENGINE matches the active cross backend."""
     previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+
     if not decision.use_cross:
-        return previous_engine, False
+        return previous_engine, None
 
     if decision.use_cross_local_backend:
-        return previous_engine, False
+        return previous_engine, None
 
     if previous_engine is not None:
-        return previous_engine, False
+        return previous_engine, None
 
     engine = decision.container_engine
     if engine is None:
-        return previous_engine, False
+        return previous_engine, None
 
     os.environ["CROSS_CONTAINER_ENGINE"] = engine
-    return previous_engine, True
+    return previous_engine, engine
 
 
-def _restore_container_engine(previous_engine: str | None, *, mutated: bool) -> None:
+def _restore_container_engine(
+    previous_engine: str | None, *, applied_engine: str | None
+) -> None:
+    current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+
     if previous_engine is None:
-        os.environ.pop("CROSS_CONTAINER_ENGINE", None)
+        if applied_engine is not None or current_engine is not None:
+            # Always remove the variable when no prior value existed so callers
+            # that temporarily enabled cross-backed containers do not leak the
+            # setting across invocations—even if an unexpected code path mutated
+            # the environment outside of ``_configure_cross_container_engine``.
+            os.environ.pop("CROSS_CONTAINER_ENGINE", None)
         return
 
-    if mutated:
+    if applied_engine is not None or current_engine != previous_engine:
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
@@ -629,7 +639,7 @@ def main(
 
     _announce_build_mode(decision)
 
-    previous_engine, engine_set = _configure_cross_container_engine(decision)
+    previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
     if decision.use_cross:
         build_cmd = _build_cross_command(decision, target_to_build)
@@ -640,7 +650,7 @@ def main(
     except ProcessExecutionError as exc:
         _handle_cross_container_error(exc, decision, target_to_build)
     finally:
-        _restore_container_engine(previous_engine, mutated=engine_set)
+        _restore_container_engine(previous_engine, applied_engine=applied_engine)
 
 
 if __name__ == "__main__":

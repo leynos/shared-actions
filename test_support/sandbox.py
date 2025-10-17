@@ -54,7 +54,7 @@ class SandboxContext:
 
 
 class RaisingSandbox(DummySandbox):
-    """Sandbox variant that raises ValidationError for specific commands."""
+    """Sandbox variant that raises the configured error for specific commands."""
 
     def __init__(self, context: SandboxContext) -> None:
         super().__init__(context.root, context.calls)

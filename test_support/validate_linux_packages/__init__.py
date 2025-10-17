@@ -5,12 +5,17 @@ from __future__ import annotations
 import dataclasses
 import typing as typ
 
-from ..sandbox import DummySandbox  # noqa: TID252
+from test_support.sandbox import DummySandbox
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path
 
-PackageMetadataModule = typ.Any
+
+class PackageMetadataModule(typ.Protocol):
+    """Protocol describing package metadata constructors used in tests."""
+
+    DebMetadata: typ.Callable[..., object]
+    RpmMetadata: typ.Callable[..., object]
 
 
 @dataclasses.dataclass

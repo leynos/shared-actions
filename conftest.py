@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import collections
 import collections.abc as cabc
-import importlib.util
 import os
 import shutil
 import sys
@@ -13,11 +12,6 @@ from pathlib import Path
 
 import pytest
 
-if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
-    from types import ModuleType
-else:  # pragma: no cover - runtime fallback
-    ModuleType = typ.Any
-
 
 def _default_action_path() -> str:
     """Return the repository action directory used for cmd_utils discovery."""
@@ -25,52 +19,6 @@ def _default_action_path() -> str:
 
 
 os.environ.setdefault("GITHUB_ACTION_PATH", _default_action_path())
-
-_VLP_TESTS_ROOT = (
-    Path(__file__).resolve().parent / ".github" / "actions" / "validate-linux-packages"
-)
-if str(_VLP_TESTS_ROOT) not in sys.path:
-    sys.path.append(str(_VLP_TESTS_ROOT))
-
-_ACTIONS_ROOT = Path(__file__).resolve().parent / ".github" / "actions"
-_VLP_TESTS_PACKAGE = _VLP_TESTS_ROOT / "tests"
-_VLP_TESTS_INIT = _VLP_TESTS_PACKAGE / "__init__.py"
-
-
-def _collect_tests_package_paths() -> list[str]:
-    package_paths = [str(_VLP_TESTS_PACKAGE)]
-    for action_dir in _ACTIONS_ROOT.iterdir():
-        candidate = action_dir / "tests"
-        if candidate.is_dir():
-            package_paths.append(str(candidate))
-    return package_paths
-
-
-def _initialise_tests_namespace(package_paths: list[str]) -> None:
-    spec = importlib.util.spec_from_file_location("tests", _VLP_TESTS_INIT)
-    if not spec or not spec.loader:
-        return
-    module = importlib.util.module_from_spec(spec)
-    module.__path__ = package_paths
-    sys.modules["tests"] = module
-    spec.loader.exec_module(module)
-
-
-def _extend_tests_namespace(module: ModuleType, package_paths: list[str]) -> None:
-    existing = list(dict.fromkeys(getattr(module, "__path__", [])))
-    for path in package_paths:
-        if path not in existing:
-            existing.append(path)
-    module.__path__ = existing
-
-
-if _VLP_TESTS_INIT.exists():
-    package_paths = _collect_tests_package_paths()
-    module = sys.modules.get("tests")
-    if module is None:
-        _initialise_tests_namespace(package_paths)
-    else:
-        _extend_tests_namespace(module, package_paths)
 
 CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
     sys.platform == "win32", reason="cmd-mox does not support Windows"

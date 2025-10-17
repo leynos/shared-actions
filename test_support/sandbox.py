@@ -17,8 +17,10 @@ class DummySandbox:
     Attributes
     ----------
     isolation : str | None
-        Sandbox isolation mode for testing isolation-aware code paths.
-        Tests can set this to simulate different isolation configurations.
+        Sandbox isolation mode. Tests can set this to simulate
+        isolation-aware behaviour (for example ``"network"`` or
+        ``"filesystem"``). Defaults to ``None`` to mirror the action's
+        default isolation configuration.
     """
 
     def __init__(

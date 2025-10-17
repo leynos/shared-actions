@@ -137,10 +137,11 @@ class _CommandWrapper:
         try:
             parts = list(formulate_callable())
         except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            typer.echo(
-                f"::warning:: failed to generate command line for {self._command!r}: {exc}",  # noqa: E501
-                err=True,
+            message = (
+                "::warning:: failed to generate command line for "
+                f"{self._command!r}: {exc}"
             )
+            typer.echo(message, err=True)
             return [self._display_name]
         if parts:
             parts[0] = self._display_name
@@ -506,7 +507,7 @@ def _restore_container_engine(
     current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
 
     if previous_engine is None:
-        if applied_engine is not None or current_engine is not None:
+        if applied_engine is not None:
             # Always remove the variable when no prior value existed so callers
             # that temporarily enabled cross-backed containers do not leak the
             # setting across invocations—even if an unexpected code path mutated
@@ -514,7 +515,7 @@ def _restore_container_engine(
             os.environ.pop("CROSS_CONTAINER_ENGINE", None)
         return
 
-    if applied_engine is not None or current_engine != previous_engine:
+    if current_engine != previous_engine:
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 

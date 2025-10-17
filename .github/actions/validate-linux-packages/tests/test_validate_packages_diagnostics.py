@@ -28,10 +28,26 @@ def _is_python_fallback_command(command: tuple[str, ...], path: str) -> bool:
     """Check if command matches the Python os.access fallback pattern."""
     return (
         len(command) >= 4
-        and command[0] == "python3"
+        and command[0] in {"python3", "python"}
         and command[1] == "-c"
         and command[3] == path
     )
+
+
+def _make_exec_with_context(
+    sandbox: DummySandbox, validate_packages_module: ModuleType
+) -> typ.Callable[..., str]:
+    def _exec(
+        *args: str,
+        context: str,
+        timeout: int | None = None,
+        diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
+    ) -> str:
+        return validate_packages_module._exec_with_diagnostics(
+            sandbox, args, context, timeout, diagnostics_fn
+        )
+
+    return _exec
 
 
 def _create_test_package(
@@ -268,16 +284,7 @@ def sandbox_with_python_fallback(
             return super().exec(*args, timeout=timeout)
 
     sandbox = FallbackSandbox()
-
-    def exec_with_context(
-        *args: str,
-        context: str,
-        timeout: int | None = None,
-        diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
-    ) -> str:
-        return validate_packages_module._exec_with_diagnostics(
-            sandbox, args, context, timeout, diagnostics_fn
-        )
+    exec_with_context = _make_exec_with_context(sandbox, validate_packages_module)
 
     return sandbox, exec_with_context, calls, path
 
@@ -317,16 +324,7 @@ def sandbox_with_double_failure(
             return ""
 
     sandbox = DoubleFailureSandbox()
-
-    def exec_with_context(
-        *args: str,
-        context: str,
-        timeout: int | None = None,
-        diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None = None,
-    ) -> str:
-        return validate_packages_module._exec_with_diagnostics(
-            sandbox, args, context, timeout, diagnostics_fn
-        )
+    exec_with_context = _make_exec_with_context(sandbox, validate_packages_module)
 
     return sandbox, exec_with_context, calls, path
 
@@ -353,9 +351,11 @@ def test_validate_paths_executable_accepts_python_fallback(
 
     executed_commands = [command for command, _timeout in calls]
     assert ("test", "-x", path) in executed_commands
-    assert any(command[0] == "python3" for command in executed_commands)
     assert any(
-        "python os.access fallback succeeded" in record.getMessage()
+        _is_python_fallback_command(command, path) for command in executed_commands
+    )
+    assert any(
+        "os.access fallback succeeded" in record.getMessage()
         for record in caplog.records
     )
 
@@ -383,4 +383,7 @@ def test_validate_paths_executable_reports_both_failures(
     assert "expected path is not executable" in message
     assert "python os.access fallback" in message
     assert "fallback failure" in message
-    assert any(command[0] == "python3" for command, _timeout in calls)
+    assert "permission denied" in message
+    assert any(
+        _is_python_fallback_command(command, path) for command, _timeout in calls
+    )

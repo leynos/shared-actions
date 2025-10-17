@@ -25,7 +25,7 @@ else:  # pragma: no cover - runtime fallback
 
 
 def _is_python_fallback_command(command: tuple[str, ...], path: str) -> bool:
-    """Check if command is a python3 os.access fallback for the given path."""
+    """Check if command matches the Python os.access fallback pattern."""
     return (
         len(command) >= 4
         and command[0] == "python3"

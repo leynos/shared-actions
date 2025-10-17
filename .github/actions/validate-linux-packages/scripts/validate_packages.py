@@ -7,6 +7,7 @@ import pathlib
 import platform
 import shutil
 import stat
+import textwrap
 import typing as typ
 
 from plumbum.commands.processes import ProcessExecutionError
@@ -381,6 +382,14 @@ def _combine_fallback_errors(
     return "\n".join(message_lines)
 
 
+def _trim_output(text: str, char_limit: int = 200) -> str:
+    """Return a trimmed single-line summary suitable for logging."""
+    normalized = " ".join(text.split())
+    if len(normalized) <= char_limit:
+        return normalized
+    return textwrap.shorten(normalized, width=char_limit, placeholder="…")
+
+
 def _try_python_fallback(
     path: str,
     exec_fn: typ.Callable[..., str],
@@ -407,13 +416,14 @@ def _try_python_fallback(
             fallback_failures.append((interpreter, fallback_exc))
             continue
         else:
+            summary = _trim_output(str(primary_error))
             logger.info(
-                "test -x reported %s as non-executable (%s); %s os.access "
+                "test -x reported %s as non-executable; %s os.access "
                 "fallback succeeded",
                 path,
-                primary_error,
                 interpreter,
             )
+            logger.debug("test -x failure details for %s: %s", path, summary)
             return
 
     # All fallbacks failed

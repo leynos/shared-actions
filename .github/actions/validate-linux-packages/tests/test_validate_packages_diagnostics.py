@@ -278,9 +278,17 @@ def sandbox_with_python_fallback(
 
         def exec(self, *args: str, timeout: int | None = None) -> str:
             if tuple(args) == ("test", "-x", path):
-                calls.append((tuple(args), timeout))
+                command = tuple(args)
+                calls.append((command, timeout))
+                cause = ProcessExecutionError(
+                    list(command),
+                    1,
+                    "",
+                    "permission denied",
+                )
                 message = "not executable"
-                raise validate_packages_module.ValidationError(message)
+                err = validate_packages_module.ValidationError(message)
+                raise err from cause
             return super().exec(*args, timeout=timeout)
 
     sandbox = FallbackSandbox()

@@ -8,11 +8,10 @@
 # ///
 """Write coverage metadata outputs for downstream workflow steps."""
 
-from __future__ import annotations
-
 import os
 import re
 import typing as typ
+from dataclasses import Field, dataclass, field
 from pathlib import Path
 
 import cyclopts
@@ -24,6 +23,18 @@ from plumbum.commands.processes import ProcessExecutionError
 UNKNOWN_OS: typ.Final[str] = "unknown-os"
 UNKNOWN_ARCH: typ.Final[str] = "unknown-arch"
 EXTRA_SUFFIX_FALLBACK: typ.Final[str] = "custom"
+
+
+@dataclass(frozen=True)
+class JobInfo:
+    name: str
+    index: str
+
+
+@dataclass(frozen=True)
+class PlatformInfo:
+    os_segment: str
+    arch_segment: str
 
 
 _slug_pattern = re.compile(r"[^a-z0-9]+")
@@ -92,14 +103,15 @@ def detect_runner_details(
 
 def build_artifact_name(
     fmt: str,
-    job_name: str,
-    job_index: str,
-    os_segment: str,
-    arch_segment: str,
+    job_info: JobInfo,
+    platform_info: PlatformInfo,
     extra_suffix: str | None = None,
 ) -> str:
     """Compose the coverage artifact name with os/arch and optional suffix."""
-    base = f"{fmt}-{job_name}-{job_index}-{os_segment}-{arch_segment}"
+    base = (
+        f"{fmt}-{job_info.name}-"
+        f"{job_info.index}-{platform_info.os_segment}-{platform_info.arch_segment}"
+    )
     suffix = _normalise_optional(extra_suffix)
     if suffix is None:
         return base
@@ -124,26 +136,85 @@ def write_outputs(
             handle.write(f"{line}\n")
 
 
+@dataclass
+class ArtifactOptions:
+    """Artifact naming configuration."""
+
+    job_name: str | None = None
+    job_index: str = "0"
+    artifact_extra_suffix: str | None = None
+
+
+@dataclass
+class RunnerDetails:
+    """Platform detection configuration."""
+
+    runner_os: str | None = None
+    runner_arch: str | None = None
+
+
+_DEFAULT_ARTIFACT_OPTIONS = ArtifactOptions()
+
+
 @app.default
 def main(
     *,
     output_path: Path,
     fmt: str,
-    job_name: str | None = None,
-    job_index: str = "0",
-    artifact_extra_suffix: str | None = None,
-    runner_os: str | None = None,
-    runner_arch: str | None = None,
+    artifact: ArtifactOptions = field(default_factory=ArtifactOptions),
+    runner: RunnerDetails = field(default_factory=RunnerDetails),
 ) -> None:
-    resolved_job_name = job_name or os.environ.get("GITHUB_JOB", "job")
+    """Generate coverage outputs with platform-aware artifact naming."""
+    artifact_from_default = False
+    if isinstance(artifact, Field):
+        artifact = artifact.default_factory()
+        artifact_from_default = True
+    runner_from_default = False
+    if isinstance(runner, Field):
+        runner = runner.default_factory()
+        runner_from_default = True
+
+    env_job_name = _normalise_optional(os.environ.get("INPUT_JOB_NAME"))
+    env_job_index = _normalise_optional(os.environ.get("INPUT_JOB_INDEX"))
+    env_extra_suffix = os.environ.get("INPUT_ARTIFACT_EXTRA_SUFFIX")
+    env_runner_os = os.environ.get("INPUT_RUNNER_OS")
+    env_runner_arch = os.environ.get("INPUT_RUNNER_ARCH")
+
+    artifact_job_name = artifact.job_name
+    if artifact_job_name is None:
+        artifact_job_name = env_job_name
+    elif artifact_from_default and env_job_name is not None:
+        artifact_job_name = env_job_name
+
+    artifact_job_index = artifact.job_index
+    if artifact_from_default and env_job_index is not None:
+        artifact_job_index = env_job_index
+    elif not artifact_job_index:
+        artifact_job_index = env_job_index or _DEFAULT_ARTIFACT_OPTIONS.job_index
+    if artifact_job_index is None:
+        artifact_job_index = _DEFAULT_ARTIFACT_OPTIONS.job_index
+
+    artifact_extra_suffix = artifact.artifact_extra_suffix
+    if artifact_extra_suffix is None:
+        artifact_extra_suffix = env_extra_suffix
+    elif artifact_from_default and env_extra_suffix is not None:
+        artifact_extra_suffix = env_extra_suffix
+
+    resolved_job_name = artifact_job_name or os.environ.get("GITHUB_JOB", "job")
+
+    runner_os = runner.runner_os
+    if runner_os is None or runner_from_default:
+        runner_os = env_runner_os if env_runner_os is not None else runner_os
+
+    runner_arch = runner.runner_arch
+    if runner_arch is None or runner_from_default:
+        runner_arch = env_runner_arch if env_runner_arch is not None else runner_arch
+
     os_segment, arch_segment = detect_runner_details(runner_os, runner_arch)
+    job_info = JobInfo(name=resolved_job_name, index=artifact_job_index)
+    platform_info = PlatformInfo(os_segment=os_segment, arch_segment=arch_segment)
     artifact_name = build_artifact_name(
-        fmt,
-        resolved_job_name,
-        job_index,
-        os_segment,
-        arch_segment,
-        artifact_extra_suffix,
+        fmt, job_info, platform_info, artifact_extra_suffix
     )
     write_outputs(
         _github_output_path(),
@@ -158,7 +229,11 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "ArtifactOptions",
     "build_artifact_name",
     "detect_runner_details",
+    "JobInfo",
+    "PlatformInfo",
+    "RunnerDetails",
     "write_outputs",
 ]

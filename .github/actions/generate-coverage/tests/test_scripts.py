@@ -778,13 +778,10 @@ def test_build_artifact_name_with_extra_suffix(
 ) -> None:
     """``set_outputs.build_artifact_name`` normalises custom suffixes."""
     mod = _load_module(monkeypatch, "set_outputs")
+    job_info = mod.JobInfo(name="coverage", index="2")
+    platform_info = mod.PlatformInfo(os_segment="linux", arch_segment="x64")
     artifact = mod.build_artifact_name(
-        "cobertura",
-        "coverage",
-        "2",
-        "linux",
-        "x64",
-        "Nightly Build!",
+        "cobertura", job_info, platform_info, "Nightly Build!"
     )
     assert artifact == "cobertura-coverage-2-linux-x64-nightly-build"
 

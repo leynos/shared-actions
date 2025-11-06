@@ -771,3 +771,53 @@ def test_cobertura_permission_error(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+
+def test_build_artifact_name_with_extra_suffix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``set_outputs.build_artifact_name`` normalises custom suffixes."""
+    mod = _load_module(monkeypatch, "set_outputs")
+    artifact = mod.build_artifact_name(
+        "cobertura",
+        "coverage",
+        "2",
+        "linux",
+        "x64",
+        "Nightly Build!",
+    )
+    assert artifact == "cobertura-coverage-2-linux-x64-nightly-build"
+
+
+def test_detect_runner_details_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runner detection prefers explicit env hints over uname fallbacks."""
+    mod = _load_module(monkeypatch, "set_outputs")
+    monkeypatch.setenv("RUNNER_OS", "macOS")
+    monkeypatch.setenv("RUNNER_ARCH", "ARM64")
+    assert mod.detect_runner_details(None, None) == ("macos", "arm64")
+
+
+def test_set_outputs_e2e(tmp_path: Path) -> None:
+    """End-to-end invocation writes the computed artifact name."""
+    output_path = tmp_path / "cov.xml"
+    output_path.write_text("<cov />")
+    github_output = tmp_path / "gh.txt"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "set_outputs.py"
+    env = {
+        "INPUT_OUTPUT_PATH": str(output_path),
+        "INPUT_FMT": "cobertura",
+        "INPUT_JOB_NAME": "coverage-job",
+        "INPUT_JOB_INDEX": "3",
+        "INPUT_ARTIFACT_EXTRA_SUFFIX": "feature branch",
+        "INPUT_RUNNER_OS": "Linux",
+        "INPUT_RUNNER_ARCH": "ARM64",
+        "GITHUB_OUTPUT": str(github_output),
+    }
+
+    returncode, stdout, stderr = run_script(script, env)
+    assert returncode == 0, (stdout, stderr)
+
+    lines = github_output.read_text(encoding="utf-8").splitlines()
+    assert f"file={output_path}" in lines
+    assert "format=cobertura" in lines
+    assert "artifact-name=cobertura-coverage-job-3-linux-arm64-feature-branch" in lines

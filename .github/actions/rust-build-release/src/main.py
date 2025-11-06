@@ -27,7 +27,25 @@ from utils import UnexpectedExecutableError, ensure_allowed_executable, run_vali
 if typ.TYPE_CHECKING:
     import subprocess
 
-    from cmd_utils import SupportsFormulate
+    from cmd_utils import (
+        SupportsCall,
+        SupportsFormulate,
+        SupportsRun,
+        SupportsWithEnv,
+    )
+
+    class _PlumbumCommand(
+        SupportsCall,
+        SupportsRun,
+        SupportsWithEnv,
+        SupportsFormulate,
+        typ.Protocol,
+    ):
+        def popen(
+            self, *args: object, **kwargs: object
+        ) -> subprocess.Popen[typ.Any]: ...
+else:
+    _PlumbumCommand = typ.Any
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -96,7 +114,7 @@ class _CrossDecision(typ.NamedTuple):
 class _CommandWrapper:
     """Expose a stable display name for a plumbum command."""
 
-    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+    def __init__(self, command: _PlumbumCommand, display_name: str) -> None:
         formulate_callable = getattr(command, "formulate", None)
         if not callable(formulate_callable):
             message = (
@@ -105,7 +123,7 @@ class _CommandWrapper:
             )
             raise TypeError(message)
 
-        self._command = command
+        self._command: _PlumbumCommand = command
         self._display_name = display_name
         self._override_formulate: typ.Callable[[], cabc.Sequence[str]] | None = None
 
@@ -147,19 +165,22 @@ class _CommandWrapper:
             parts[0] = self._display_name
         return parts
 
-    def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
-        return self._command(*args, **kwargs)
+    def __call__(self, *args: object, **kwargs: object) -> _PlumbumCommand:
+        return typ.cast("_PlumbumCommand", self._command(*args, **kwargs))
 
     def run(
         self, *args: object, **kwargs: object
     ) -> tuple[int, str | bytes | None, str | bytes | None]:
-        return self._command.run(*args, **kwargs)
+        return typ.cast(
+            "tuple[int, str | bytes | None, str | bytes | None]",
+            self._command.run(*args, **kwargs),
+        )
 
     def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
         return self._command.popen(*args, **kwargs)
 
-    def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
-        wrapped = self._command.with_env(*args, **kwargs)
+    def with_env(self, **env: str) -> _CommandWrapper:
+        wrapped = typ.cast("_PlumbumCommand", self._command.with_env(**env))
         wrapped_formulate = getattr(wrapped, "formulate", None)
         if not callable(wrapped_formulate):
             message = (

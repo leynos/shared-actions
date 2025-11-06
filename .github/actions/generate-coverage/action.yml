@@ -37,6 +37,10 @@ inputs:
   cucumber-rs-args:
     description: Extra arguments for cucumber
     required: false
+  artifact-extra-suffix:
+    description: Optional extra suffix appended to coverage artifacts after the OS/architecture segment
+    required: false
+    default: ""
 outputs:
   file:
     description: Path to the generated coverage file
@@ -47,6 +51,9 @@ outputs:
   lang:
     description: Detected project language
     value: ${{ steps.detect.outputs.lang }}
+  artifact-name:
+    description: Coverage artifact name including OS, architecture and optional custom suffix
+    value: ${{ steps.out.outputs.artifact-name }}
 runs:
   using: composite
   steps:
@@ -181,14 +188,19 @@ runs:
     - id: out
       run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
       env:
-        DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
+        INPUT_FMT: ${{ steps.detect.outputs.fmt }}
+        INPUT_JOB_NAME: ${{ github.job }}
+        INPUT_JOB_INDEX: ${{ strategy.job-index }}
+        INPUT_ARTIFACT_EXTRA_SUFFIX: ${{ inputs.artifact-extra-suffix }}
+        INPUT_RUNNER_OS: ${{ runner.os }}
+        INPUT_RUNNER_ARCH: ${{ runner.arch }}
       shell: bash
     - name: Archive coverage
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.out.outputs.format }}-${{ github.job }}-${{ strategy.job-index }}
+        name: ${{ steps.out.outputs['artifact-name'] || format('{0}-{1}-{2}', steps.out.outputs.format, github.job, strategy.job-index) }}
         # Fallback to the configured output path when the step that sets
         # outputs didn't run successfully and the file output is empty.
         path: ${{ steps.out.outputs.file || inputs.output-path }}

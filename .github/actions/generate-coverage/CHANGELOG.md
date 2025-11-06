@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.3.9 (2025-11-06)
+
+- Archive coverage artifacts with OS/architecture suffixes and expose an
+  `artifact-extra-suffix` input that appends an additional, sanitised tag to the
+  name when provided.
+- Publish the computed artifact name via the action outputs so downstream jobs
+  can reference the same naming scheme when downloading coverage.
+
 ## v1.3.8 (2025-09-06)
 
 - Invalidate dependency cache when the action version changes by using

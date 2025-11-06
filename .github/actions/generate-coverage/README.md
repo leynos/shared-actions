@@ -46,6 +46,7 @@ flowchart TD
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
+| artifact-extra-suffix | Extra suffix appended to coverage artifacts after the `<os>-<arch>` segment. Useful for differentiating nightly/regional jobs. | no | |
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.
@@ -57,6 +58,7 @@ supported for Python projects. Mixed projects must use `cobertura`.
 | file   | Path to the generated coverage file             |
 | format | Format of the coverage file                     |
 | lang   | Detected language (`rust`, `python` or `mixed`) |
+| artifact-name | Coverage artifact name with OS/arch and optional custom suffix |
 
 ## Example
 
@@ -120,7 +122,8 @@ The action prints the current coverage percentage to the log. When
 percentage is shown as well.
 
 Coverage reports are archived as workflow artifacts named
-``<format>-<job>-<index>`` by default, preventing collisions when the action is
-run in matrix jobs.
+``<format>-<job>-<index>-<os>-<arch>``. When `artifact-extra-suffix` is set, the
+sanitised suffix is appended to that pattern, ensuring artifacts from different
+platforms or channels remain unique across matrix jobs.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

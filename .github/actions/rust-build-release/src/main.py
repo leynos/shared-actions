@@ -104,8 +104,7 @@ class _CommandWrapper:
                 "for display override"
             )
             raise TypeError(message)
-
-        self._command = command
+        self._command: typ.Any = command
         self._display_name = display_name
         self._override_formulate: typ.Callable[[], cabc.Sequence[str]] | None = None
 

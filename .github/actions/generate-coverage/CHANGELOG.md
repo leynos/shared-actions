@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.3.9 (2025-11-06)
+
+- Append the runner OS and architecture to the uploaded coverage artifact name
+  and allow callers to supply an additional suffix.
+
 ## v1.3.8 (2025-09-06)
 
 - Invalidate dependency cache when the action version changes by using

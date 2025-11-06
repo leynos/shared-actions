@@ -40,6 +40,7 @@ flowchart TD
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |
+| artifact-name-suffix | Additional suffix appended to the uploaded coverage artifact | no | |
 | baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
 <!-- markdownlint-disable-next-line MD013 -->
 | baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
@@ -120,7 +121,9 @@ The action prints the current coverage percentage to the log. When
 percentage is shown as well.
 
 Coverage reports are archived as workflow artifacts named
-``<format>-<job>-<index>`` by default, preventing collisions when the action is
-run in matrix jobs.
+``<format>-<job>-<index>-<os>-<arch>`` by default. When
+`artifact-name-suffix` is provided, the suffix is appended after the
+`<os>-<arch>` segment. This prevents collisions across matrix jobs and
+distinguishes runs on different platforms.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

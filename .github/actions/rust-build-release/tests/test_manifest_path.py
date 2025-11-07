@@ -165,7 +165,7 @@ def test_main_passes_manifest_to_cross_build(
 
     main_module.main(target, toolchain="1.89.0")
 
-    assert captured["manifest"] == Path("Cargo.toml")
+    assert captured["manifest"] == manifest
 
 
 def test_main_passes_manifest_to_cargo_build(

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import dataclasses as dc
 import os
 import re
 import sys
@@ -36,56 +37,80 @@ def _normalise_component(value: str | None, fallback: str) -> str:
     return cleaned.lower() or fallback
 
 
+def _get_fallback_value(default: str | None, fallback: str) -> str:
+    """Return ``default`` when provided, otherwise ``fallback``."""
+    if default is None:
+        return fallback
+    stripped = default.strip()
+    return stripped or fallback
+
+
+def _parse_platform_output(output: str) -> tuple[str, str] | None:
+    """Return (system, arch) when *output* contains at least two lines."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if len(lines) >= 2:
+        return lines[0], lines[1]
+    return None
+
+
 def _detect_runner_labels(
     default_os: str | None,
     default_arch: str | None,
 ) -> tuple[str, str]:
     """Return normalised platform identifiers for the current runner."""
+    fallback_system = _get_fallback_value(default_os, "unknown-os")
+    fallback_arch = _get_fallback_value(default_arch, "unknown-arch")
+
     script = "import platform;print(platform.system());print(platform.machine())"
     command = local[sys.executable]["-c", script]
+    system, arch = fallback_system, fallback_arch
+
     try:
         output = run_cmd(command)
     except ProcessExecutionError:
-        system = default_os or "unknown-os"
-        arch = default_arch or "unknown-arch"
+        parsed = None
     else:
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        if len(lines) >= 2:
-            system, arch = lines[0], lines[1]
-        else:
-            system = default_os or "unknown-os"
-            arch = default_arch or "unknown-arch"
+        parsed = _parse_platform_output(output)
+
+    if parsed is not None:
+        system, arch = parsed
+
     return (
         _normalise_component(system, "unknown-os"),
         _normalise_component(arch, "unknown-arch"),
     )
 
 
-def build_artifact_name(
-    fmt: str,
-    job: str,
-    job_index: str | None,
-    runner_os: str,
-    runner_arch: str,
-    extra_suffix: str | None = None,
-) -> str:
+@dc.dataclass(slots=True)
+class ArtifactNameComponents:
+    """Input fields used to construct the coverage artefact name."""
+
+    fmt: str
+    job: str
+    job_index: str | None
+    runner_os: str
+    runner_arch: str
+    extra_suffix: str | None = None
+
+
+def build_artifact_name(components: ArtifactNameComponents) -> str:
     """Compose the coverage artefact name using workflow metadata."""
-    index = job_index.strip() if job_index else ""
+    index = components.job_index.strip() if components.job_index else ""
     if not index.isdigit():
         index = "0"
 
-    components: list[str] = [
-        _normalise_component(fmt, "coverage"),
-        _normalise_component(job, "job"),
+    parts: list[str] = [
+        _normalise_component(components.fmt, "coverage"),
+        _normalise_component(components.job, "job"),
         _normalise_component(index, "0"),
-        _normalise_component(runner_os, "unknown-os"),
-        _normalise_component(runner_arch, "unknown-arch"),
+        _normalise_component(components.runner_os, "unknown-os"),
+        _normalise_component(components.runner_arch, "unknown-arch"),
     ]
 
-    if extra_suffix:
-        components.append(_normalise_component(extra_suffix, "extra"))
+    if components.extra_suffix:
+        parts.append(_normalise_component(components.extra_suffix, "extra"))
 
-    return "-".join(components)
+    return "-".join(parts)
 
 
 @app.default
@@ -99,7 +124,8 @@ def main(
     """Write final outputs to ``GITHUB_OUTPUT`` for the caller workflow."""
     fmt_value = fmt or os.environ.get("DETECTED_FMT")
     if not fmt_value:
-        raise RuntimeError("Coverage format is required via --fmt or DETECTED_FMT")
+        message = "Coverage format is required via --fmt or DETECTED_FMT"
+        raise RuntimeError(message)
 
     job = os.environ.get("GITHUB_JOB", "job")
     job_index = os.environ.get("STRATEGY_JOB_INDEX", "")
@@ -108,12 +134,14 @@ def main(
 
     runner_os, runner_arch = _detect_runner_labels(default_os, default_arch)
     artifact_name = build_artifact_name(
-        fmt_value,
-        job,
-        job_index,
-        runner_os,
-        runner_arch,
-        artifact_name_suffix,
+        ArtifactNameComponents(
+            fmt=fmt_value,
+            job=job,
+            job_index=job_index,
+            runner_os=runner_os,
+            runner_arch=runner_arch,
+            extra_suffix=artifact_name_suffix,
+        )
     )
 
     output_file = github_output or Path(os.environ["GITHUB_OUTPUT"])

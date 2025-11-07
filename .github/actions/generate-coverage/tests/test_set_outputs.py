@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
+
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - runtime import not required
@@ -20,7 +22,6 @@ else:  # pragma: no cover - annotate without importing at runtime
 
 def run_script(script: Path, env: dict[str, str]) -> object:
     """Run ``script`` using uv with ``env`` and return the plumbum result."""
-
     command = local["uv"]["run", "--script", str(script)]
     root = Path(__file__).resolve().parents[4]
     merged = {**os.environ, **env}
@@ -46,6 +47,7 @@ def set_outputs_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -56,14 +58,16 @@ def test_build_artifact_name_normalises_components(
     """The artefact name should incorporate normalised workflow metadata."""
     module = set_outputs_module
 
-    result = module.build_artifact_name(
-        "Cobertura",
-        "Coverage / Linux",
-        "3",
-        "Ubuntu",
-        "X86_64",
-        "Nightly Build",
+    components = module.ArtifactNameComponents(
+        fmt="Cobertura",
+        job="Coverage / Linux",
+        job_index="3",
+        runner_os="Ubuntu",
+        runner_arch="X86_64",
+        extra_suffix="Nightly Build",
     )
+
+    result = module.build_artifact_name(components)
 
     assert result == "cobertura-coverage-linux-3-ubuntu-x86_64-nightly-build"
 

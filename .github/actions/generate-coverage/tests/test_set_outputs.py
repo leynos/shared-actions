@@ -94,29 +94,23 @@ def test_detect_runner_labels_fallbacks(  # noqa: D103 - docstring via fixture n
     assert arch_label == "amd64"
 
 
-def test_detect_runner_labels_defaults_when_missing(
-    monkeypatch: pytest.MonkeyPatch, set_outputs_module: ModuleType
+@pytest.mark.parametrize(
+    ("default_os", "default_arch"),
+    [(None, None), ("", "")],
+    ids=["none_defaults", "empty_string_defaults"],
+)
+def test_detect_runner_labels_defaults_to_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+    set_outputs_module: ModuleType,
+    default_os: str | None,
+    default_arch: str | None,
 ) -> None:
     """Empty platform responses fall back to unknown identifiers."""
     module = set_outputs_module
     monkeypatch.setattr(module.platform, "system", lambda: "")
     monkeypatch.setattr(module.platform, "machine", lambda: "")
 
-    os_label, arch_label = module._detect_runner_labels(None, None)
-
-    assert os_label == "unknown-os"
-    assert arch_label == "unknown-arch"
-
-
-def test_detect_runner_labels_empty_string_defaults(
-    monkeypatch: pytest.MonkeyPatch, set_outputs_module: ModuleType
-) -> None:
-    """Empty defaults should also fall back to unknown identifiers."""
-    module = set_outputs_module
-    monkeypatch.setattr(module.platform, "system", lambda: "")
-    monkeypatch.setattr(module.platform, "machine", lambda: "")
-
-    os_label, arch_label = module._detect_runner_labels("", "")
+    os_label, arch_label = module._detect_runner_labels(default_os, default_arch)
 
     assert os_label == "unknown-os"
     assert arch_label == "unknown-arch"

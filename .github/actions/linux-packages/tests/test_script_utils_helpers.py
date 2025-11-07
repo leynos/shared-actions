@@ -49,7 +49,7 @@ def test_script_helper_exports_preserves_wrapped_callables(tmp_path: Path) -> No
         _record("run_cmd"),
     )
 
-    target = tmp_path / "artifact"
+    target = tmp_path / "artefact"
     result = exports.ensure_directory(target, exist_ok=False)
     assert result == target
 

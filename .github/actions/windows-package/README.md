@@ -61,8 +61,8 @@ provide the executable (and optional additional files) via the `application-path
 |                          |    |      | template. |
 | `license-rtf-path`       | no | `''` | Output path for the generated license RTF when converting from |
 |                          |    |      | plain text. Defaults to replacing the input suffix with `.rtf`. |
-| `upload-artifact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
-| `artifact-name` | no | `msi` | Name of the uploaded artifact. |
+| `upload-artefact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
+| `artefact-name` | no | `msi` | Name of the uploaded artefact. |
 
 ## Outputs
 
@@ -91,7 +91,7 @@ jobs:
           output-basename: MyApp
           architecture: x64
           # version: "1.2.3"               # optional override
-          # upload-artifact: 'false'       # disable artifact upload if not needed
+          # upload-artefact: 'false'       # disable artefact upload if not needed
 ```
 
 In WiX authoring, reference the preprocessor variable supplied via

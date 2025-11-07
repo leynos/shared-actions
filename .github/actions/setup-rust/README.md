@@ -119,7 +119,7 @@ pinned to a specific commit for reproducibility.
 - Caches are scoped to the runner OS; Linux, macOS, and Windows caches are
   independent.
 - The cache is best-effort: if the key changes or the cache is evicted, the
-  build will proceed without cached artifacts.
+  build will proceed without cached artefacts.
 
 ### Effective use
 

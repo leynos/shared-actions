@@ -38,10 +38,10 @@ def _parse_rpm_info(output: str) -> dict[str, str]:
 )
 def test_rpm_package_metadata(
     packaging_project_paths: PackagingProject,
-    packaged_artifacts: typ.Mapping[str, Path],
+    packaged_artefacts: typ.Mapping[str, Path],
 ) -> None:
     """Build the .rpm package and inspect its metadata inside an isolated rootfs."""
-    rpm_package_path = packaged_artifacts.get("rpm")
+    rpm_package_path = packaged_artefacts.get("rpm")
     assert rpm_package_path is not None, "expected RPM package to be built"
 
     try:

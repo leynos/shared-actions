@@ -30,7 +30,7 @@ try:
         DEFAULT_TARGET as _DEFAULT_TARGET,
     )
     from ._packaging_utils import (
-        BuildArtifacts as _BuildArtifacts,
+        BuildArtefacts as _BuildArtefacts,
     )
     from ._packaging_utils import (
         PackagingConfig as _PackagingConfig,
@@ -39,7 +39,7 @@ try:
         PackagingProject as _PackagingProject,
     )
     from ._packaging_utils import (
-        build_release_artifacts as _build_release_artifacts,
+        build_release_artefacts as _build_release_artefacts,
     )
     from ._packaging_utils import (
         clone_packaging_project as _clone_packaging_project,
@@ -68,11 +68,11 @@ except Exception:  # noqa: BLE001
     spec.loader.exec_module(mod)
     _DEFAULT_CONFIG = mod.DEFAULT_CONFIG
     _DEFAULT_TARGET = mod.DEFAULT_TARGET
-    _BuildArtifacts = mod.BuildArtifacts
+    _BuildArtefacts = mod.BuildArtefacts
     _PackagingConfig = mod.PackagingConfig
     _PackagingProject = mod.PackagingProject
     _clone_packaging_project = mod.clone_packaging_project
-    _build_release_artifacts = mod.build_release_artifacts
+    _build_release_artefacts = mod.build_release_artefacts
     _package_project = mod.package_project
     _packaging_project = mod.packaging_project
 
@@ -333,13 +333,13 @@ def packaging_project_paths(
 
 
 @pytest.fixture(scope="module")
-def build_artifacts(
+def build_artefacts(
     packaging_project_paths: _PackagingProject,
     packaging_target: str,
     packaging_config: _PackagingConfig,
-) -> _BuildArtifacts:
+) -> _BuildArtefacts:
     """Ensure the sample project is built for the requested target."""
-    return _build_release_artifacts(
+    return _build_release_artefacts(
         packaging_project_paths,
         packaging_target,
         config=packaging_config,
@@ -347,15 +347,15 @@ def build_artifacts(
 
 
 @pytest.fixture(scope="module")
-def packaged_artifacts(
+def packaged_artefacts(
     packaging_project_paths: _PackagingProject,
-    build_artifacts: _BuildArtifacts,
+    build_artefacts: _BuildArtefacts,
     packaging_config: _PackagingConfig,
 ) -> typ.Mapping[str, Path]:
     """Package the built project as both .deb and .rpm artefacts."""
     return _package_project(
         packaging_project_paths,
-        build_artifacts,
+        build_artefacts,
         config=packaging_config,
         formats=("deb", "rpm"),
     )

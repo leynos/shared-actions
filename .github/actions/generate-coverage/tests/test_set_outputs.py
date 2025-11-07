@@ -52,13 +52,13 @@ def set_outputs_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return module
 
 
-def test_build_artifact_name_normalises_components(
+def test_build_artefact_name_normalises_components(
     set_outputs_module: ModuleType,
 ) -> None:
     """The artefact name should incorporate normalised workflow metadata."""
     module = set_outputs_module
 
-    components = module.ArtifactNameComponents(
+    components = module.ArtefactNameComponents(
         fmt="Cobertura",
         job="Coverage / Linux",
         job_index="3",
@@ -67,7 +67,7 @@ def test_build_artifact_name_normalises_components(
         extra_suffix="Nightly Build",
     )
 
-    result = module.build_artifact_name(components)
+    result = module.build_artefact_name(components)
 
     assert result == "cobertura-coverage-linux-3-ubuntu-x86_64-nightly-build"
 
@@ -99,7 +99,7 @@ def test_set_outputs_e2e(tmp_path: Path, set_outputs_module: ModuleType) -> None
     env = {
         "INPUT_OUTPUT_PATH": str(cov_file),
         "DETECTED_FMT": "cobertura",
-        "INPUT_ARTIFACT_NAME_SUFFIX": "Nightly",
+        "INPUT_ARTEFACT_NAME_SUFFIX": "Nightly",
         "GITHUB_OUTPUT": str(gh_file),
         "GITHUB_JOB": "coverage-linux",
         "STRATEGY_JOB_INDEX": "5",
@@ -115,6 +115,6 @@ def test_set_outputs_e2e(tmp_path: Path, set_outputs_module: ModuleType) -> None
     assert f"file={cov_file}" in contents
     assert "format=cobertura" in contents
 
-    artifact_line = next(line for line in contents if line.startswith("artifact_name="))
+    artefact_line = next(line for line in contents if line.startswith("artefact_name="))
     expected_name = f"cobertura-coverage-linux-5-{expected_os}-{expected_arch}-nightly"
-    assert artifact_line == f"artifact_name={expected_name}"
+    assert artefact_line == f"artefact_name={expected_name}"

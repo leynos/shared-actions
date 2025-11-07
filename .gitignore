@@ -136,7 +136,7 @@ dist
 .pnp.*
 
 *~
-# Python artifacts
+# Python artefacts
 __pycache__/
 *.py[cod]
 *.pyo
@@ -149,7 +149,7 @@ venv/
 .mypy_cache/
 *.egg-info/
 
-# Rust artifacts
+# Rust artefacts
 target/
 
 # uv cache and lockfile

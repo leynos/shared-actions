@@ -153,7 +153,7 @@ def test_remove_file_logs_warning(
 ) -> None:
     """Log a warning when removing an existing file fails."""
     utils = load_module("_utils")
-    target = tmp_path / "artifact.txt"
+    target = tmp_path / "artefact.txt"
     target.write_text("payload", encoding="utf-8")
 
     original_unlink = Path.unlink
@@ -165,9 +165,9 @@ def test_remove_file_logs_warning(
         original_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", _raise)
-    utils.remove_file(target, context="test artifact")
+    utils.remove_file(target, context="test artefact")
 
     assert (
-        "Warning: Could not remove existing test artifact: denied"
+        "Warning: Could not remove existing test artefact: denied"
         in capsys.readouterr().err
     )

@@ -141,9 +141,9 @@ runs:
         cd rust
         HOST_TRIPLE=$(rustc -vV | grep '^host:' | awk '{print $2}')
         ./x.py build --stage 1 --target x86_64-unknown-openbsd library/std
-        ARTIFACT_DIR="build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd"
+        ARTEFACT_DIR="build/$HOST_TRIPLE/stage1/lib/rustlib/x86_64-unknown-openbsd"
         uv run --script "${{ github.action_path }}/scripts/copy_openbsd_stdlib.py" \
-          "$ARTIFACT_DIR" "$NIGHTLY_SYSROOT"
+          "$ARTEFACT_DIR" "$NIGHTLY_SYSROOT"
       shell: bash
     - name: Add OpenBSD target
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}

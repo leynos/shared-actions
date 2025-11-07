@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
-"""Copy OpenBSD standard library build artifacts into the nightly sysroot.
+"""Copy OpenBSD standard library build artefacts into the nightly sysroot.
 
 The copy is performed via ``rsync`` into a temporary directory and then
 renamed into place so consumers never see a partially copied stdlib.
@@ -26,10 +26,10 @@ app = typer.Typer(add_completion=False)
 
 
 @app.command()
-def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
-    """Copy artifacts from *artifact_dir* into *nightly_sysroot*."""
-    if not artifact_dir.is_dir():
-        typer.echo(f"Error: Build artifacts not found at {artifact_dir}", err=True)
+def main(artefact_dir: Path, nightly_sysroot: Path) -> None:
+    """Copy artefacts from *artefact_dir* into *nightly_sysroot*."""
+    if not artefact_dir.is_dir():
+        typer.echo(f"Error: Build artefacts not found at {artefact_dir}", err=True)
         raise typer.Exit(1)
 
     base = nightly_sysroot / "lib" / "rustlib"
@@ -41,20 +41,20 @@ def main(artifact_dir: Path, nightly_sysroot: Path) -> None:
 
     if os.name == "nt":
         tmp.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(artifact_dir, tmp)
+        shutil.copytree(artefact_dir, tmp)
     else:
         tmp.mkdir(parents=True, exist_ok=True)
         try:
-            run_cmd(local["rsync"]["-a", "--delete", f"{artifact_dir}/", str(tmp)])
+            run_cmd(local["rsync"]["-a", "--delete", f"{artefact_dir}/", str(tmp)])
         except FileNotFoundError:
             # Fallback when rsync is not available.
-            shutil.copytree(artifact_dir, tmp, dirs_exist_ok=True)
+            shutil.copytree(artefact_dir, tmp, dirs_exist_ok=True)
 
     if dest.exists():
         shutil.rmtree(dest)
     tmp.replace(dest)
 
-    typer.echo(f"Copied OpenBSD stdlib from {artifact_dir} to {dest}")
+    typer.echo(f"Copied OpenBSD stdlib from {artefact_dir} to {dest}")
 
 
 if __name__ == "__main__":

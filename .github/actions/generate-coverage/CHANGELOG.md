@@ -2,7 +2,7 @@
 
 ## v1.3.9 (2025-11-06)
 
-- Append the runner OS and architecture to the uploaded coverage artifact name
+- Append the runner OS and architecture to the uploaded coverage artefact name
   and allow callers to supply an additional suffix.
 
 ## v1.3.8 (2025-09-06)
@@ -14,7 +14,7 @@
 
 ## v1.3.7
 
-- Include job identifier and matrix index in the coverage artifact name to
+- Include job identifier and matrix index in the coverage artefact name to
   avoid collisions in matrix workflows.
 
 ## v1.3.6 (2025-07-28)
@@ -37,7 +37,7 @@
 
 - Install `cargo-llvm-cov` automatically when running Rust coverage and cache
   the
-  binary along with Cargo artifacts.
+  binary along with Cargo artefacts.
 
 ## v1.3.2 (2025-07-26)
 

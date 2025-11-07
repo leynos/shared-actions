@@ -82,7 +82,7 @@ def _detect_runner_labels(
 
 
 @dc.dataclass(slots=True)
-class ArtifactNameComponents:
+class ArtefactNameComponents:
     """Input fields used to construct the coverage artefact name."""
 
     fmt: str
@@ -93,7 +93,7 @@ class ArtifactNameComponents:
     extra_suffix: str | None = None
 
 
-def build_artifact_name(components: ArtifactNameComponents) -> str:
+def build_artefact_name(components: ArtefactNameComponents) -> str:
     """Compose the coverage artefact name using workflow metadata."""
     index = components.job_index.strip() if components.job_index else ""
     if not index.isdigit():
@@ -118,7 +118,7 @@ def main(
     *,
     output_path: typ.Annotated[Path, Parameter(required=True)],
     fmt: str | None = None,
-    artifact_name_suffix: str | None = None,
+    artefact_name_suffix: str | None = None,
     github_output: Path | None = None,
 ) -> None:
     """Write final outputs to ``GITHUB_OUTPUT`` for the caller workflow."""
@@ -133,14 +133,14 @@ def main(
     default_arch = os.environ.get("RUNNER_ARCH")
 
     runner_os, runner_arch = _detect_runner_labels(default_os, default_arch)
-    artifact_name = build_artifact_name(
-        ArtifactNameComponents(
+    artefact_name = build_artefact_name(
+        ArtefactNameComponents(
             fmt=fmt_value,
             job=job,
             job_index=job_index,
             runner_os=runner_os,
             runner_arch=runner_arch,
-            extra_suffix=artifact_name_suffix,
+            extra_suffix=artefact_name_suffix,
         )
     )
 
@@ -148,7 +148,7 @@ def main(
     with output_file.open("a") as fh:
         fh.write(f"file={output_path}\n")
         fh.write(f"format={fmt_value}\n")
-        fh.write(f"artifact_name={artifact_name}\n")
+        fh.write(f"artefact_name={artefact_name}\n")
 
 
 if __name__ == "__main__":

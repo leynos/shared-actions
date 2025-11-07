@@ -19,8 +19,8 @@ inputs:
     description: Fail if coverage falls below the stored baseline
     required: false
     default: "false"
-  artifact-name-suffix:
-    description: Optional suffix appended to the coverage artifact name
+  artefact-name-suffix:
+    description: Optional suffix appended to the coverage artefact name
     required: false
   baseline-rust-file:
     description: Path to store the Rust coverage baseline
@@ -50,9 +50,9 @@ outputs:
   lang:
     description: Detected project language
     value: ${{ steps.detect.outputs.lang }}
-  artifact-name:
-    description: Name used for the uploaded coverage artifact
-    value: ${{ steps.out.outputs.artifact_name }}
+  artefact-name:
+    description: Name used for the uploaded coverage artefact
+    value: ${{ steps.out.outputs.artefact_name }}
 runs:
   using: composite
   steps:
@@ -91,7 +91,7 @@ runs:
           echo 0 > "${{ inputs.baseline-python-file }}"
         fi
       shell: bash
-    - name: Cache cargo artifacts
+    - name: Cache cargo artefacts
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       uses: actions/cache@v4
       with:
@@ -189,7 +189,7 @@ runs:
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
-        INPUT_ARTIFACT_NAME_SUFFIX: ${{ inputs.artifact-name-suffix }}
+        INPUT_ARTEFACT_NAME_SUFFIX: ${{ inputs.artefact-name-suffix }}
         GITHUB_JOB: ${{ github.job }}
         STRATEGY_JOB_INDEX: ${{ strategy.job-index }}
         RUNNER_OS: ${{ runner.os }}
@@ -199,7 +199,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.out.outputs.artifact_name }}
+        name: ${{ steps.out.outputs.artefact_name }}
         # Fallback to the configured output path when the step that sets
         # outputs didn't run successfully and the file output is empty.
         path: ${{ steps.out.outputs.file || inputs.output-path }}

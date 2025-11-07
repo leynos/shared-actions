@@ -38,8 +38,8 @@ The workflow proceeds in two distinct stages:
 
 1. **Build Stage**: A parallelized matrix job that uses `cross` to compile the
    Rust binary and its associated man page for each target platform. The
-   resulting artifacts are uploaded for the next stage.
-2. **Release Stage**: A single job that downloads all build artifacts, then
+   resulting artefacts are uploaded for the next stage.
+2. **Release Stage**: A single job that downloads all build artefacts, then
    orchestrates GoReleaser to package them into archives and distribution
    formats before creating a GitHub Release.
 
@@ -109,14 +109,14 @@ jobs:
           else
             cross build --release --target ${{ matrix.target }}
           fi
-      - name: Stage artifacts
+      - name: Stage artefacts
         run: |
           mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/release/<binary-name> \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
           cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
-      - name: Upload artifacts
+      - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
           name: dist_${{ matrix.os }}_${{ matrix.arch }}
@@ -271,7 +271,7 @@ nfpms:
 
 #### 3.2.2 Release Job Workflow
 
-The release job downloads all artifacts and invokes GoReleaser. Separate steps
+The release job downloads all artefacts and invokes GoReleaser. Separate steps
 will be required on dedicated runners for the custom packaging.
 
 ```yaml
@@ -283,7 +283,7 @@ will be required on dedicated runners for the custom packaging.
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Download all build artifacts
+      - name: Download all build artefacts
         uses: actions/download-artifact@v4
         with:
           path: dist
@@ -346,7 +346,7 @@ The E2E test job will:
 
 1. Execute the full workflow using the local, in-repository versions of the
    actions.
-2. Download all package artifacts (`.deb`, `.rpm`, `.pkg`).
+2. Download all package artefacts (`.deb`, `.rpm`, `.pkg`).
 3. On a Linux runner, install the `.deb` package using `sudo dpkg -i` and
    verify the installation by checking the binary's presence and executability,
    and the man page's accessibility.
@@ -427,7 +427,7 @@ jobs:
 - [x] Ensure the CI workflow verifies that the action generates a man page
   via the build script.
 - [x] Validate that a `cross build` command successfully produces both the
-  binary and the man page artifact.
+  binary and the man page artefact.
 - [x] Construct any required Python helper scripts using the self-contained
   `uv` and PEP 723 pattern.
 - [x] Enable the Linux aarch64 branch of the CI workflow.

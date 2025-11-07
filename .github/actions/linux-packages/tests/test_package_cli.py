@@ -557,14 +557,14 @@ def test_ensure_nfpm_errors_when_checksum_entry_missing(
 )
 def test_package_cli_stages_binary_with_executable_permissions(
     packaging_project_paths: pkg_utils.PackagingProject,
-    build_artifacts: pkg_utils.BuildArtifacts,
+    build_artefacts: pkg_utils.BuildArtefacts,
     packaging_config: pkg_utils.PackagingConfig,
 ) -> None:
     """The CLI normalises the staged binary to be executable before packaging."""
     bin_path = (
         packaging_project_paths.project_dir
         / "target"
-        / build_artifacts.target
+        / build_artefacts.target
         / "release"
         / packaging_config.bin_name
     )
@@ -573,7 +573,7 @@ def test_package_cli_stages_binary_with_executable_permissions(
 
     packages = pkg_utils.package_project(
         packaging_project_paths,
-        build_artifacts,
+        build_artefacts,
         config=packaging_config,
         formats=("deb",),
     )

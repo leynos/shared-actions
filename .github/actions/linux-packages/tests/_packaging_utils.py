@@ -79,7 +79,7 @@ class PackagingProject:
 
 
 @dc.dataclass(frozen=True, slots=True)
-class BuildArtifacts:
+class BuildArtefacts:
     """Details about build outputs needed for packaging tests."""
 
     target: str
@@ -126,12 +126,12 @@ def clone_packaging_project(
     return dc.replace(project, project_dir=destination)
 
 
-def build_release_artifacts(
+def build_release_artefacts(
     project: PackagingProject,
     target: str,
     *,
     config: PackagingConfig = DEFAULT_CONFIG,
-) -> BuildArtifacts:
+) -> BuildArtefacts:
     """Compile the Rust project and return the artefacts needed for packaging."""
     with local.cwd(project.project_dir):
         run_cmd(
@@ -152,12 +152,12 @@ def build_release_artifacts(
             ),
             description=f"{config.name} man page",
         )
-    return BuildArtifacts(target=target, man_page=man_src)
+    return BuildArtefacts(target=target, man_page=man_src)
 
 
 def package_project(
     project: PackagingProject,
-    build: BuildArtifacts,
+    build: BuildArtefacts,
     *,
     config: PackagingConfig = DEFAULT_CONFIG,
     formats: typ.Iterable[str] = ("deb",),
@@ -418,8 +418,8 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
 
 __all__ = sorted(
     [
-        "build_release_artifacts",
-        "BuildArtifacts",
+        "build_release_artefacts",
+        "BuildArtefacts",
         "clone_packaging_project",
         "ChecksumMismatchError",
         "ChecksumDownloadError",

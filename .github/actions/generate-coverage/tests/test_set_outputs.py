@@ -89,6 +89,20 @@ def test_detect_runner_labels_fallbacks(  # noqa: D103 - docstring via fixture n
     assert arch_label == "amd64"
 
 
+def test_detect_runner_labels_defaults_when_missing(
+    monkeypatch: pytest.MonkeyPatch, set_outputs_module: ModuleType
+) -> None:
+    """Empty platform responses fall back to unknown identifiers."""
+    module = set_outputs_module
+    monkeypatch.setattr(module.platform, "system", lambda: "")
+    monkeypatch.setattr(module.platform, "machine", lambda: "")
+
+    os_label, arch_label = module._detect_runner_labels(None, None)
+
+    assert os_label == "unknown-os"
+    assert arch_label == "unknown-arch"
+
+
 def test_set_outputs_e2e(tmp_path: Path, set_outputs_module: ModuleType) -> None:
     """Running the script via ``uv`` should emit the expected GitHub outputs."""
     module = set_outputs_module
@@ -119,3 +133,14 @@ def test_set_outputs_e2e(tmp_path: Path, set_outputs_module: ModuleType) -> None
     artefact_line = next(line for line in contents if line.startswith("artefact_name="))
     expected_name = f"cobertura-coverage-linux-5-{expected_os}-{expected_arch}-nightly"
     assert artefact_line == f"artefact_name={expected_name}"
+
+
+def test_main_requires_github_output(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, set_outputs_module: ModuleType
+) -> None:
+    """Calling ``main`` without ``GITHUB_OUTPUT`` fails with a clear error message."""
+    module = set_outputs_module
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    with pytest.raises(RuntimeError, match="GITHUB_OUTPUT"):
+        module.main(output_path=tmp_path / "cov.xml", fmt="cobertura")

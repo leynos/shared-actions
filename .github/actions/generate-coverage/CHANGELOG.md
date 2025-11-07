@@ -2,8 +2,9 @@
 
 ## v1.3.9 (2025-11-06)
 
-- Append the runner OS and architecture to the uploaded coverage artefact name
-  and allow callers to supply an additional suffix.
+- Include runner OS and architecture in uploaded coverage artefact names.
+- Add optional `artefact-name-suffix` input so callers can customise naming.
+- Expose new `artefact-name` output for referencing archived coverage artefacts.
 
 ## v1.3.8 (2025-09-06)
 

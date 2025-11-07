@@ -66,6 +66,20 @@ def _detect_runner_labels(
     )
 
 
+def _resolve_github_output_path(github_output: Path | None) -> Path:
+    """Return the writable path for ``GITHUB_OUTPUT``."""
+    if github_output is not None:
+        return github_output
+    env_value = os.environ.get("GITHUB_OUTPUT")
+    if env_value and env_value.strip():
+        return Path(env_value)
+    message = (
+        "GITHUB_OUTPUT is not set; provide --github-output or export the "
+        "environment variable before invoking set_outputs.py"
+    )
+    raise RuntimeError(message)
+
+
 @dc.dataclass(slots=True)
 class ArtefactNameComponents:
     """Input fields used to construct the coverage artefact name."""
@@ -129,7 +143,7 @@ def main(
         )
     )
 
-    output_file = github_output or Path(os.environ["GITHUB_OUTPUT"])
+    output_file = _resolve_github_output_path(github_output)
     with output_file.open("a") as fh:
         fh.write(f"file={output_path}\n")
         fh.write(f"format={fmt_value}\n")

@@ -62,17 +62,42 @@ def _unexpected(message: str) -> cabc.Callable[..., None]:
     return _raiser
 
 
-def test_resolve_manifest_path_defaults_to_cwd(
-    main_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+@pytest.fixture
+def setup_manifest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     manifest = tmp_path / "Cargo.toml"
     manifest.write_text("[package]\nname='demo'\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
+    return manifest
 
+
+@pytest.fixture
+def patch_common_main_deps(
+    main_module: ModuleType, module_harness: HarnessFactory
+) -> Harness:
+    harness: Harness = module_harness(main_module)
+    harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
+    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
+    harness.patch_attr("_ensure_target_installed", lambda *_: True)
+    harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
+    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
+    harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
+    return harness
+
+
+def assert_manifest_in_command(cmd: object, expected: Path) -> None:
+    parts = list(cmd.formulate())
+    assert "--manifest-path" in parts
+    idx = parts.index("--manifest-path")
+    assert parts[idx + 1] == str(expected)
+
+
+def test_resolve_manifest_path_defaults_to_cwd(
+    main_module: ModuleType, setup_manifest: Path
+) -> None:
     resolved = main_module._resolve_manifest_path()
 
-    assert resolved == manifest.resolve()
+    assert resolved == setup_manifest.resolve()
 
 
 def test_resolve_manifest_path_uses_env_override(
@@ -129,26 +154,15 @@ def test_manifest_argument_returns_absolute_outside_cwd(
 
 def test_main_passes_manifest_to_cross_build(
     main_module: ModuleType,
-    module_harness: HarnessFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    patch_common_main_deps: Harness,
+    setup_manifest: Path,
 ) -> None:
-    harness: Harness = module_harness(main_module)
-    manifest = tmp_path / "Cargo.toml"
-    manifest.write_text("[package]\nname='demo'\n")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
-
+    harness = patch_common_main_deps
     target = "aarch64-unknown-linux-gnu"
     harness.patch_attr("_resolve_target_argument", lambda value: target)
-    harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
     harness.patch_attr("_resolve_toolchain", lambda *_: ("1.89.0", ["1.89.0"]))
-    harness.patch_attr("_ensure_target_installed", lambda *_: True)
-    harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
     decision = _cross_decision(main_module, use_cross=True)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
-    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
-    harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
 
     captured: dict[str, object] = {}
 
@@ -165,31 +179,19 @@ def test_main_passes_manifest_to_cross_build(
 
     main_module.main(target, toolchain="1.89.0")
 
-    assert captured["manifest"] == manifest
+    assert captured["manifest"] == setup_manifest
 
 
 def test_main_passes_manifest_to_cargo_build(
     main_module: ModuleType,
-    module_harness: HarnessFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    patch_common_main_deps: Harness,
+    setup_manifest: Path,
 ) -> None:
-    harness: Harness = module_harness(main_module)
-    manifest = tmp_path / "Cargo.toml"
-    manifest.write_text("[package]\nname='demo'\n")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
-
+    harness = patch_common_main_deps
     target = "x86_64-unknown-linux-gnu"
     harness.patch_attr("_resolve_target_argument", lambda value: value)
-    harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
-    harness.patch_attr("_ensure_target_installed", lambda *_: True)
-    harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
     decision = _cross_decision(main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
-    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
-    harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
 
     captured: dict[str, object] = {}
 
@@ -208,24 +210,18 @@ def test_main_passes_manifest_to_cargo_build(
 
 def test_main_errors_when_manifest_missing(
     main_module: ModuleType,
-    module_harness: HarnessFactory,
+    patch_common_main_deps: Harness,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    harness: Harness = module_harness(main_module)
+    harness = patch_common_main_deps
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
 
     target = "x86_64-unknown-linux-gnu"
     harness.patch_attr("_resolve_target_argument", lambda value: target)
-    harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
-    harness.patch_attr("_ensure_target_installed", lambda *_: True)
-    harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
     decision = _cross_decision(main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
-    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
-    harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
     harness.patch_attr("_build_cargo_command", _unexpected("unexpected build"))
 
     with pytest.raises(main_module.typer.Exit):
@@ -234,31 +230,24 @@ def test_main_errors_when_manifest_missing(
     assert harness.calls == []
 
 
-def test_build_cross_command_includes_manifest_path(
-    main_module: ModuleType, tmp_path: Path
+@pytest.mark.parametrize(
+    ("builder", "target"),
+    [
+        ("cross", "x86_64-unknown-linux-gnu"),
+        ("cargo", "x86_64-unknown-linux-gnu"),
+    ],
+)
+def test_build_commands_include_manifest_path(
+    main_module: ModuleType, tmp_path: Path, builder: str, target: str
 ) -> None:
     manifest = (tmp_path / "Cargo.toml").resolve()
-    decision = _cross_decision(main_module, use_cross=True)
+    if builder == "cross":
+        decision = _cross_decision(main_module, use_cross=True)
+        cmd = main_module._build_cross_command(decision, target, manifest)
+    else:
+        cmd = main_module._build_cargo_command("+stable", target, manifest)
 
-    cmd = main_module._build_cross_command(decision, "x86_64", manifest)
-
-    parts = list(cmd.formulate())
-    assert "--manifest-path" in parts
-    idx = parts.index("--manifest-path")
-    assert parts[idx + 1] == str(manifest)
-
-
-def test_build_cargo_command_includes_manifest_path(
-    main_module: ModuleType, tmp_path: Path
-) -> None:
-    manifest = (tmp_path / "Cargo.toml").resolve()
-
-    cmd = main_module._build_cargo_command("+stable", "x86_64", manifest)
-
-    parts = list(cmd.formulate())
-    assert "--manifest-path" in parts
-    idx = parts.index("--manifest-path")
-    assert parts[idx + 1] == str(manifest)
+    assert_manifest_in_command(cmd, manifest)
 
 
 def test_handle_cross_container_error_passes_manifest_to_fallback(

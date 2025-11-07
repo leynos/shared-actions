@@ -19,8 +19,8 @@ else:  # pragma: no cover - annotate without importing at runtime
     ModuleType = object  # type: ignore[assignment]
 
 
-def run_script(script: Path, env: dict[str, str]) -> object:
-    """Run ``script`` using uv with ``env`` and return the plumbum result."""
+def run_script(script: Path, env: dict[str, str]) -> tuple[int, str, str]:
+    """Run ``script`` via uv with ``env`` and return ``(code, stdout, stderr)``."""
     command = local["uv"]["run", "--script", str(script)]
     root = Path(__file__).resolve().parents[4]
     merged = {**os.environ, **env}
@@ -29,7 +29,12 @@ def run_script(script: Path, env: dict[str, str]) -> object:
         f"{root}{os.pathsep}{current_pp}" if current_pp else str(root)
     )
     merged["PYTHONIOENCODING"] = "utf-8"
-    return run_plumbum_command(command, method="run", env=merged)
+    outcome = run_plumbum_command(command, method="run", env=merged)
+    return (
+        int(outcome.returncode),
+        str(outcome.stdout),
+        str(outcome.stderr),
+    )
 
 
 @pytest.fixture

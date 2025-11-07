@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
 
 from test_support.plumbum_helpers import run_plumbum_command
 
@@ -77,10 +76,12 @@ def test_detect_runner_labels_fallbacks(  # noqa: D103 - docstring via fixture n
 ) -> None:
     module = set_outputs_module
 
-    def raise_process_error(_command: object) -> str:
-        raise ProcessExecutionError(("python",), 1, "", "")
+    def raise_oserror() -> str:
+        message = "platform unavailable"
+        raise OSError(message)
 
-    monkeypatch.setattr(module, "run_cmd", raise_process_error)
+    monkeypatch.setattr(module.platform, "system", raise_oserror)
+    monkeypatch.setattr(module.platform, "machine", raise_oserror)
 
     os_label, arch_label = module._detect_runner_labels("Linux", "AMD64")
 

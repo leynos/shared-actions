@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["cyclopts>=3.24,<4.0", "plumbum>=1.8,<2.0", "typer"]
+# dependencies = ["cyclopts>=3.24,<4.0"]
 # ///
 """Write coverage output metadata for the caller workflow."""
 
@@ -9,16 +9,13 @@ from __future__ import annotations
 
 import dataclasses as dc
 import os
+import platform
 import re
-import sys
 import typing as typ
 from pathlib import Path
 
 import cyclopts
-from cmd_utils_loader import run_cmd
 from cyclopts import App, Parameter
-from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError
 
 app = App()
 _env_config = cyclopts.config.Env("INPUT_", command=False)
@@ -45,14 +42,6 @@ def _get_fallback_value(default: str | None, fallback: str) -> str:
     return stripped or fallback
 
 
-def _parse_platform_output(output: str) -> tuple[str, str] | None:
-    """Return (system, arch) when *output* contains at least two lines."""
-    lines = [line.strip() for line in output.splitlines() if line.strip()]
-    if len(lines) >= 2:
-        return lines[0], lines[1]
-    return None
-
-
 def _detect_runner_labels(
     default_os: str | None,
     default_arch: str | None,
@@ -61,19 +50,15 @@ def _detect_runner_labels(
     fallback_system = _get_fallback_value(default_os, "unknown-os")
     fallback_arch = _get_fallback_value(default_arch, "unknown-arch")
 
-    script = "import platform;print(platform.system());print(platform.machine())"
-    command = local[sys.executable]["-c", script]
-    system, arch = fallback_system, fallback_arch
-
     try:
-        output = run_cmd(command)
-    except ProcessExecutionError:
-        parsed = None
-    else:
-        parsed = _parse_platform_output(output)
+        detected_system = platform.system()
+        detected_arch = platform.machine()
+    except OSError:
+        detected_system = None
+        detected_arch = None
 
-    if parsed is not None:
-        system, arch = parsed
+    system = _get_fallback_value(detected_system, fallback_system)
+    arch = _get_fallback_value(detected_arch, fallback_arch)
 
     return (
         _normalise_component(system, "unknown-os"),

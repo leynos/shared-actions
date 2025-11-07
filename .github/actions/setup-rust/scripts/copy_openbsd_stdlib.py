@@ -47,7 +47,7 @@ def main(artefact_dir: Path, nightly_sysroot: Path) -> None:
         tmp.mkdir(parents=True, exist_ok=True)
         try:
             run_cmd(local["rsync"]["-a", "--delete", f"{artefact_dir}/", str(tmp)])
-        except (FileNotFoundError, CommandNotFound):
+        except CommandNotFound:
             # Fallback when rsync is not available.
             shutil.copytree(artefact_dir, tmp, dirs_exist_ok=True)
 

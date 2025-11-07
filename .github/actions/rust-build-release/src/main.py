@@ -603,7 +603,16 @@ def _resolve_manifest_path() -> Path:
             err=True,
         )
         raise typer.Exit(1)
-    return manifest_argument
+    return manifest_location
+
+
+def _manifest_argument(manifest_path: Path) -> Path:
+    """Return a manifest path suitable for CLI consumption."""
+    cwd = Path.cwd().resolve()
+    try:
+        return manifest_path.relative_to(cwd)
+    except ValueError:
+        return manifest_path
 
 
 @app.command()
@@ -674,16 +683,17 @@ def main(
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
     manifest_path = _resolve_manifest_path()
+    manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
-        build_cmd = _build_cross_command(decision, target_to_build, manifest_path)
+        build_cmd = _build_cross_command(decision, target_to_build, manifest_argument)
     else:
         build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_path
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument
         )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        _handle_cross_container_error(exc, decision, target_to_build, manifest_path)
+        _handle_cross_container_error(exc, decision, target_to_build, manifest_argument)
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)
 

@@ -208,8 +208,8 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                 run_cmd(
                     local["cargo"][
                         "install",
-                        "--locked",
                         "cross",
+                        "--locked",
                         "--version",
                         required_cross_version,
                     ]
@@ -219,8 +219,8 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                     run_cmd(
                         local["cargo"][
                             "install",
-                            "--locked",
                             "cross",
+                            "--locked",
                             "--git",
                             "https://github.com/cross-rs/cross",
                             "--tag",

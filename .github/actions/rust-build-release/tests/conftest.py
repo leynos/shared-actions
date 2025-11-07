@@ -140,6 +140,8 @@ class ModuleHarness:
 
         def fake(cmd: SupportsFormulate) -> object | None:
             formulated = list(cmd.formulate())
+            if formulated:
+                formulated[0] = Path(formulated[0]).name
             self.calls.append(formulated)
             return side_effect(formulated) if side_effect is not None else None
 

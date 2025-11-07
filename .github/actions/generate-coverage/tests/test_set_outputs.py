@@ -103,6 +103,20 @@ def test_detect_runner_labels_defaults_when_missing(
     assert arch_label == "unknown-arch"
 
 
+def test_detect_runner_labels_empty_string_defaults(
+    monkeypatch: pytest.MonkeyPatch, set_outputs_module: ModuleType
+) -> None:
+    """Empty defaults should also fall back to unknown identifiers."""
+    module = set_outputs_module
+    monkeypatch.setattr(module.platform, "system", lambda: "")
+    monkeypatch.setattr(module.platform, "machine", lambda: "")
+
+    os_label, arch_label = module._detect_runner_labels("", "")
+
+    assert os_label == "unknown-os"
+    assert arch_label == "unknown-arch"
+
+
 def test_set_outputs_e2e(tmp_path: Path, set_outputs_module: ModuleType) -> None:
     """Running the script via ``uv`` should emit the expected GitHub outputs."""
     module = set_outputs_module

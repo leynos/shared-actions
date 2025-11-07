@@ -91,7 +91,7 @@ jobs:
           project-dir: rust-toy-app
 ```
 
-The Stage artifacts step maps the resulting files into
+The Stage artefacts step maps the resulting files into
 `dist/rust-toy-app_illumos_amd64/` so they can be uploaded or packaged by
 downstream workflows.
 

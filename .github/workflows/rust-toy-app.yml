@@ -57,8 +57,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
-      - name: Verify artifacts
-        id: verify-artifacts
+      - name: Verify artefacts
+        id: verify-artefacts
         run: |
           set -euo pipefail
           bin=rust-toy-app
@@ -81,7 +81,7 @@ jobs:
         if: contains(matrix.target, 'pc-windows-')
         uses: ./.github/actions/windows-package
         with:
-          application-path: ${{ steps.verify-artifacts.outputs.binary }}
+          application-path: ${{ steps.verify-artefacts.outputs.binary }}
           product-name: Rust Toy App
           manufacturer: Shared Actions
           install-dir-name: RustToyApp
@@ -93,8 +93,8 @@ jobs:
           output-directory: rust-toy-app/target/${{ matrix.target }}/msi
           license-plaintext-path: rust-toy-app/LICENSE
           wix-extension-version: '6'
-          artifact-name: rust-toy-app-${{ matrix.target }}-msi-${{ steps.crate-version.outputs.version }}
-      - name: Package Linux artifacts
+          artefact-name: rust-toy-app-${{ matrix.target }}-msi-${{ steps.crate-version.outputs.version }}
+      - name: Package Linux artefacts
         if: contains(matrix.target, 'unknown-linux-')
         uses: ./.github/actions/linux-packages
         with:
@@ -103,7 +103,7 @@ jobs:
           package-name: rust-toy-app
           target: ${{ matrix.target }}
           version: ${{ steps.crate-version.outputs.version }}
-          man-paths: ${{ steps.verify-artifacts.outputs.manpage-relative }}
+          man-paths: ${{ steps.verify-artefacts.outputs.manpage-relative }}
       - name: Validate Linux packages
         if: contains(matrix.target, 'unknown-linux-')
         uses: ./.github/actions/validate-linux-packages
@@ -126,7 +126,7 @@ jobs:
         with:
           name: rust-toy-app
           identifier: dev.sharedactions.rust-toy-app
-          binary: ${{ steps.verify-artifacts.outputs.binary }}
-          manpage: ${{ steps.verify-artifacts.outputs.manpage }}
+          binary: ${{ steps.verify-artefacts.outputs.binary }}
+          manpage: ${{ steps.verify-artefacts.outputs.manpage }}
           license-file: rust-toy-app/LICENSE
           version: ${{ steps.crate-version.outputs.version }}

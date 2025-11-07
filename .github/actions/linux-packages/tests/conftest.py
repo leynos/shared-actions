@@ -9,10 +9,10 @@ import pytest
 from _packaging_utils import (
     DEFAULT_CONFIG,
     DEFAULT_TARGET,
-    BuildArtifacts,
+    BuildArtefacts,
     PackagingConfig,
     PackagingProject,
-    build_release_artifacts,
+    build_release_artefacts,
     clone_packaging_project,
     package_project,
     packaging_project,
@@ -56,13 +56,13 @@ def packaging_project_paths(
 
 
 @pytest.fixture(scope="module")
-def build_artifacts(
+def build_artefacts(
     packaging_project_paths: PackagingProject,
     packaging_target: str,
     packaging_config: PackagingConfig,
-) -> BuildArtifacts:
+) -> BuildArtefacts:
     """Ensure the sample project is built for the requested target."""
-    return build_release_artifacts(
+    return build_release_artefacts(
         packaging_project_paths,
         packaging_target,
         config=packaging_config,
@@ -70,15 +70,15 @@ def build_artifacts(
 
 
 @pytest.fixture(scope="module")
-def packaged_artifacts(
+def packaged_artefacts(
     packaging_project_paths: PackagingProject,
-    build_artifacts: BuildArtifacts,
+    build_artefacts: BuildArtefacts,
     packaging_config: PackagingConfig,
 ) -> typ.Mapping[str, Path]:
     """Package the built project for all requested formats."""
     return package_project(
         packaging_project_paths,
-        build_artifacts,
+        build_artefacts,
         config=packaging_config,
         formats=("deb", "rpm"),
     )

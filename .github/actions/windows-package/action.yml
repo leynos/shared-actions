@@ -78,12 +78,12 @@ inputs:
     description: Destination path for the generated license RTF when converting from plain text.
     required: false
     default: ''
-  upload-artifact:
+  upload-artefact:
     description: Upload the generated MSI with `actions/upload-artifact`.
     required: false
     default: 'true'
-  artifact-name:
-    description: Artifact name when `upload-artifact` is enabled.
+  artefact-name:
+    description: Artefact name when `upload-artefact` is enabled.
     required: false
     default: msi
 outputs:
@@ -157,11 +157,11 @@ runs:
         LICENSE_RTF_PATH: ${{ inputs.license-rtf-path }}
       run: |
         & "${{ github.action_path }}\scripts\build_msi.ps1"
-    - name: Upload MSI artifact
-      if: ${{ fromJSON(inputs.upload-artifact) }}
+    - name: Upload MSI artefact
+      if: ${{ fromJSON(inputs.upload-artefact) }}
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ inputs.artifact-name }}
+        name: ${{ inputs.artefact-name }}
         path: ${{ steps.build-msi.outputs.msi-path }}
 branding:
   icon: package

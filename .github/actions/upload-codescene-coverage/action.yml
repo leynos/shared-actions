@@ -64,7 +64,7 @@ runs:
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
       shell: bash
 
-    - name: Upload coverage GitHub artifact
+    - name: Upload coverage GitHub artefact
       uses: actions/upload-artifact@v4
       with:
         name: coverage

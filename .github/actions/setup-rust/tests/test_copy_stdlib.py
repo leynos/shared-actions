@@ -32,14 +32,14 @@ def run_script(script: Path, *args: str) -> RunResult:
 
 def test_copy_success(tmp_path: Path) -> None:
     """Copying succeeds and preserves file contents."""
-    artifact = tmp_path / "build" / "artifacts"
-    artifact.mkdir(parents=True)
-    (artifact / "foo.txt").write_text("hi")
+    artefact = tmp_path / "build" / "artefacts"
+    artefact.mkdir(parents=True)
+    (artefact / "foo.txt").write_text("hi")
 
     sysroot = tmp_path / "sysroot"
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
-    res = run_script(script, str(artifact), str(sysroot))
+    res = run_script(script, str(artefact), str(sysroot))
 
     assert res.returncode == 0
     dest = sysroot / "lib" / "rustlib" / "x86_64-unknown-openbsd" / "foo.txt"
@@ -48,9 +48,9 @@ def test_copy_success(tmp_path: Path) -> None:
 
 def test_copy_overwrite(tmp_path: Path) -> None:
     """Existing destination files are overwritten."""
-    artifact = tmp_path / "build" / "artifacts"
-    artifact.mkdir(parents=True)
-    (artifact / "new.txt").write_text("new")
+    artefact = tmp_path / "build" / "artefacts"
+    artefact.mkdir(parents=True)
+    (artefact / "new.txt").write_text("new")
 
     sysroot = tmp_path / "sysroot"
     dest = sysroot / "lib" / "rustlib" / "x86_64-unknown-openbsd"
@@ -58,7 +58,7 @@ def test_copy_overwrite(tmp_path: Path) -> None:
     (dest / "old.txt").write_text("old")
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
-    res = run_script(script, str(artifact), str(sysroot))
+    res = run_script(script, str(artefact), str(sysroot))
 
     assert res.returncode == 0
     assert not (dest / "old.txt").exists()
@@ -67,11 +67,11 @@ def test_copy_overwrite(tmp_path: Path) -> None:
 
 def test_copy_missing(tmp_path: Path) -> None:
     """Missing source directory exits with an error."""
-    artifact = tmp_path / "missing"
+    artefact = tmp_path / "missing"
     sysroot = tmp_path / "sysroot"
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "copy_openbsd_stdlib.py"
-    res = run_script(script, str(artifact), str(sysroot))
+    res = run_script(script, str(artefact), str(sysroot))
 
     assert res.returncode == 1
-    assert "Error: Build artifacts not found" in res.stderr
+    assert "Error: Build artefacts not found" in res.stderr

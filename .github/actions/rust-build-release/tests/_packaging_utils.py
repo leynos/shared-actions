@@ -17,9 +17,9 @@ _spec.loader.exec_module(_mod)
 
 DEFAULT_CONFIG = _mod.DEFAULT_CONFIG
 DEFAULT_TARGET = _mod.DEFAULT_TARGET
-BuildArtifacts = _mod.BuildArtifacts
+BuildArtefacts = _mod.BuildArtefacts
 PackagingConfig = _mod.PackagingConfig
 PackagingProject = _mod.PackagingProject
-build_release_artifacts = _mod.build_release_artifacts
+build_release_artefacts = _mod.build_release_artefacts
 package_project = _mod.package_project
 packaging_project = _mod.packaging_project

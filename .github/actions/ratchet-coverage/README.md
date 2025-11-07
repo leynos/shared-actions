@@ -41,7 +41,7 @@ cache for future runs.
 
 ## Caching
 
-Two caches are used: one for the baseline file and another for cargo artifacts
+Two caches are used: one for the baseline file and another for cargo artefacts
 and the `cargo-llvm-cov` binary. The baseline cache is restored when the action
 starts and saved again after updating the file. The cargo cache uses the
 operating system and the checksum of `Cargo.lock` to avoid rebuilds.

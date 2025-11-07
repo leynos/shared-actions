@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from _packaging_utils import (
     HAS_PODMAN_RUNTIME,
-    BuildArtifacts,
+    BuildArtefacts,
     IsolationUnavailableError,
     PackagingProject,
     deb_arch_for_target,
@@ -35,14 +35,14 @@ run_cmd = import_cmd_utils().run_cmd
 )
 def test_deb_package_installs(
     packaging_project_paths: PackagingProject,
-    build_artifacts: BuildArtifacts,
-    packaged_artifacts: typ.Mapping[str, Path],
+    build_artefacts: BuildArtefacts,
+    packaged_artefacts: typ.Mapping[str, Path],
 ) -> None:
     """Build the .deb, install in an isolated rootfs, and verify binary and man page."""
     polythene = packaging_project_paths.polythene_command
-    deb = packaged_artifacts.get("deb")
+    deb = packaged_artefacts.get("deb")
     assert deb is not None, "expected Debian package to be built"
-    deb_arch = deb_arch_for_target(build_artifacts.target)
+    deb_arch = deb_arch_for_target(build_artefacts.target)
     with tempfile.TemporaryDirectory() as td:
         run_cmd(local["dpkg-deb"]["-x", str(deb), td])
         bin_extracted = Path(td, "usr/bin/rust-toy-app")

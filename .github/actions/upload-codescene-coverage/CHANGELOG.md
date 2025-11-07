@@ -59,5 +59,5 @@
 
 ## v1.5.3
 
-- Treat empty `path` input the same as `__auto__` to avoid artifact upload
+- Treat empty `path` input the same as `__auto__` to avoid artefact upload
   failures.

@@ -1,4 +1,4 @@
-"""Tests covering the Stage artifacts step mapping."""
+"""Tests covering the Stage artefacts step mapping."""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ def _load_stage_step() -> dict[str, object]:
     data = yaml.safe_load(action.read_text(encoding="utf-8"))
     steps: list[dict[str, object]] = data["runs"]["steps"]
     for step in steps:
-        if step.get("id") == "stage-artifacts":
+        if step.get("id") == "stage-artefacts":
             return step
-    message = "stage-artifacts step missing from action"
+    message = "stage-artefacts step missing from action"
     raise AssertionError(message)
 
 
 def test_stage_step_condition_includes_illumos() -> None:
-    """Validate illumos targets trigger the Stage artifacts step."""
+    """Validate illumos targets trigger the Stage artefacts step."""
     step = _load_stage_step()
     condition = step.get("if")
     assert isinstance(condition, str)

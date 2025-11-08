@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections.abc as cabc
+import dataclasses as dc
 import typing as typ
 from pathlib import Path
 from types import ModuleType
@@ -158,28 +159,38 @@ def test_manifest_argument_returns_absolute_outside_cwd(
     assert argument == manifest
 
 
+@dc.dataclass
+class BuildTestConfig:
+    """Configuration for build mode test scenarios."""
+
+    build_mode: str
+    target: str
+    toolchain: str
+
+
 @pytest.mark.parametrize(
-    ("build_mode", "target", "toolchain"),
+    "config",
     [
-        ("cross", "aarch64-unknown-linux-gnu", "1.89.0"),
-        ("cargo", "x86_64-unknown-linux-gnu", "stable"),
+        BuildTestConfig("cross", "aarch64-unknown-linux-gnu", "1.89.0"),
+        BuildTestConfig("cargo", "x86_64-unknown-linux-gnu", "stable"),
     ],
+    ids=["cross", "cargo"],
 )
 def test_main_passes_manifest_to_builder(
     main_module: ModuleType,
     patch_common_main_deps: Harness,
     setup_manifest: Path,
-    build_mode: str,
-    target: str,
-    toolchain: str,
+    config: BuildTestConfig,
 ) -> None:
     """Ensure both build modes receive the manifest path."""
     harness = patch_common_main_deps
     captured: dict[str, object] = {}
 
-    if build_mode == "cross":
-        harness.patch_attr("_resolve_target_argument", lambda _value: target)
-        harness.patch_attr("_resolve_toolchain", lambda *_: (toolchain, [toolchain]))
+    if config.build_mode == "cross":
+        harness.patch_attr("_resolve_target_argument", lambda _value: config.target)
+        harness.patch_attr(
+            "_resolve_toolchain", lambda *_: (config.toolchain, [config.toolchain])
+        )
         decision = _cross_decision(main_module, use_cross=True)
 
         def fake_cross(
@@ -210,7 +221,7 @@ def test_main_passes_manifest_to_builder(
 
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-    main_module.main(target, toolchain=toolchain)
+    main_module.main(config.target, toolchain=config.toolchain)
 
     assert captured["manifest"] == Path("Cargo.toml")
 

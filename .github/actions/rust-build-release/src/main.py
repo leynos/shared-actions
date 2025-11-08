@@ -519,13 +519,15 @@ def _restore_container_engine(
 
 
 def _build_cross_command(
-    decision: _CrossDecision, target_to_build: str
+    decision: _CrossDecision, target_to_build: str, manifest_path: Path
 ) -> SupportsFormulate:
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
     build_cmd = executor[
         decision.cross_toolchain_spec,
         "build",
+        "--manifest-path",
+        str(manifest_path),
         "--release",
         "--target",
         target_to_build,
@@ -536,12 +538,14 @@ def _build_cross_command(
 
 
 def _build_cargo_command(
-    cargo_toolchain_spec: str, target_to_build: str
+    cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path
 ) -> SupportsFormulate:
     executor = local["cargo"]
     build_cmd = executor[
         cargo_toolchain_spec,
         "build",
+        "--manifest-path",
+        str(manifest_path),
         "--release",
         "--target",
         target_to_build,
@@ -550,7 +554,10 @@ def _build_cargo_command(
 
 
 def _handle_cross_container_error(
-    exc: ProcessExecutionError, decision: _CrossDecision, target_to_build: str
+    exc: ProcessExecutionError,
+    decision: _CrossDecision,
+    target_to_build: str,
+    manifest_path: Path,
 ) -> None:
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
@@ -567,11 +574,45 @@ def _handle_cross_container_error(
             err=True,
         )
         fallback_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build
+            decision.cargo_toolchain_spec,
+            target_to_build,
+            manifest_path,
         )
         run_cmd(fallback_cmd)
         return
     raise exc
+
+
+def _resolve_manifest_path() -> Path:
+    """Locate the Cargo manifest for the project being built."""
+    manifest_override = os.environ.get("RBR_MANIFEST_PATH", "").strip()
+    manifest_argument = (
+        Path(manifest_override).expanduser()
+        if manifest_override
+        else Path("Cargo.toml")
+    )
+    if manifest_argument.is_absolute():
+        manifest_location = manifest_argument
+    else:
+        manifest_location = Path.cwd() / manifest_argument
+
+    manifest_location = manifest_location.resolve()
+    if not manifest_location.is_file():
+        typer.echo(
+            f"::error:: Cargo manifest not found at {manifest_location}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return manifest_location
+
+
+def _manifest_argument(manifest_path: Path) -> Path:
+    """Return a manifest path suitable for CLI consumption."""
+    cwd = Path.cwd().resolve()
+    try:
+        return manifest_path.relative_to(cwd)
+    except ValueError:
+        return manifest_path
 
 
 @app.command()
@@ -641,14 +682,18 @@ def main(
 
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
+    manifest_path = _resolve_manifest_path()
+    manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
-        build_cmd = _build_cross_command(decision, target_to_build)
+        build_cmd = _build_cross_command(decision, target_to_build, manifest_argument)
     else:
-        build_cmd = _build_cargo_command(decision.cargo_toolchain_spec, target_to_build)
+        build_cmd = _build_cargo_command(
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument
+        )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        _handle_cross_container_error(exc, decision, target_to_build)
+        _handle_cross_container_error(exc, decision, target_to_build, manifest_argument)
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)
 

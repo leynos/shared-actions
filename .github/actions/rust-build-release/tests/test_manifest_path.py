@@ -158,60 +158,59 @@ def test_manifest_argument_returns_absolute_outside_cwd(
     assert argument == manifest
 
 
-def test_main_passes_manifest_to_cross_build(
+@pytest.mark.parametrize(
+    ("build_mode", "target", "toolchain"),
+    [
+        ("cross", "aarch64-unknown-linux-gnu", "1.89.0"),
+        ("cargo", "x86_64-unknown-linux-gnu", "stable"),
+    ],
+)
+def test_main_passes_manifest_to_builder(
     main_module: ModuleType,
     patch_common_main_deps: Harness,
     setup_manifest: Path,
+    build_mode: str,
+    target: str,
+    toolchain: str,
 ) -> None:
-    """Ensure cross builds receive the manifest path."""
+    """Ensure both build modes receive the manifest path."""
     harness = patch_common_main_deps
-    target = "aarch64-unknown-linux-gnu"
-    harness.patch_attr("_resolve_target_argument", lambda value: target)
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("1.89.0", ["1.89.0"]))
-    decision = _cross_decision(main_module, use_cross=True)
-    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
-
     captured: dict[str, object] = {}
 
-    def fake_cross(
-        decision_arg: object, target_arg: str, manifest_arg: Path
-    ) -> _DummyCommand:
-        captured["decision"] = decision_arg
-        captured["target"] = target_arg
-        captured["manifest"] = manifest_arg
-        return _DummyCommand("cross-build")
+    if build_mode == "cross":
+        harness.patch_attr("_resolve_target_argument", lambda _value: target)
+        harness.patch_attr("_resolve_toolchain", lambda *_: (toolchain, [toolchain]))
+        decision = _cross_decision(main_module, use_cross=True)
 
-    harness.patch_attr("_build_cross_command", fake_cross)
-    harness.patch_attr("_build_cargo_command", _unexpected("unexpected cargo build"))
+        def fake_cross(
+            decision_arg: object, target_arg: str, manifest_arg: Path
+        ) -> _DummyCommand:
+            captured["decision"] = decision_arg
+            captured["target"] = target_arg
+            captured["manifest"] = manifest_arg
+            return _DummyCommand("cross-build")
 
-    main_module.main(target, toolchain="1.89.0")
+        harness.patch_attr("_build_cross_command", fake_cross)
+        harness.patch_attr(
+            "_build_cargo_command", _unexpected("unexpected cargo build")
+        )
+    else:
+        harness.patch_attr("_resolve_target_argument", lambda value: value)
+        decision = _cross_decision(main_module, use_cross=False)
 
-    assert captured["manifest"] == setup_manifest
+        def fake_cargo(spec: str, target_arg: str, manifest_arg: Path) -> _DummyCommand:
+            captured["target"] = target_arg
+            captured["manifest"] = manifest_arg
+            return _DummyCommand("cargo-build")
 
+        harness.patch_attr("_build_cargo_command", fake_cargo)
+        harness.patch_attr(
+            "_build_cross_command", _unexpected("unexpected cross build")
+        )
 
-def test_main_passes_manifest_to_cargo_build(
-    main_module: ModuleType,
-    patch_common_main_deps: Harness,
-    setup_manifest: Path,
-) -> None:
-    """Ensure cargo builds receive the manifest path."""
-    harness = patch_common_main_deps
-    target = "x86_64-unknown-linux-gnu"
-    harness.patch_attr("_resolve_target_argument", lambda value: value)
-    decision = _cross_decision(main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-    captured: dict[str, object] = {}
-
-    def fake_cargo(spec: str, target_arg: str, manifest_arg: Path) -> _DummyCommand:
-        captured["target"] = target_arg
-        captured["manifest"] = manifest_arg
-        return _DummyCommand("cargo-build")
-
-    harness.patch_attr("_build_cargo_command", fake_cargo)
-    harness.patch_attr("_build_cross_command", _unexpected("unexpected cross build"))
-
-    main_module.main(target, toolchain="stable")
+    main_module.main(target, toolchain=toolchain)
 
     assert captured["manifest"] == Path("Cargo.toml")
 

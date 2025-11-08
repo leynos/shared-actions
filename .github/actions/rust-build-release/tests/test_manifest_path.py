@@ -206,10 +206,12 @@ def test_main_passes_manifest_to_builder(
             "_build_cargo_command", _unexpected("unexpected cargo build")
         )
     else:
-        harness.patch_attr("_resolve_target_argument", lambda value: value)
+        harness.patch_attr("_resolve_target_argument", lambda _value: _value)
         decision = _cross_decision(main_module, use_cross=False)
 
-        def fake_cargo(spec: str, target_arg: str, manifest_arg: Path) -> _DummyCommand:
+        def fake_cargo(
+            _spec: str, target_arg: str, manifest_arg: Path
+        ) -> _DummyCommand:
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             return _DummyCommand("cargo-build")
@@ -280,7 +282,7 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
     manifest = (tmp_path / "Cargo.toml").resolve()
     captured: dict[str, object] = {}
 
-    def fake_cargo(spec: str, target_arg: str, manifest_arg: Path) -> _DummyCommand:
+    def fake_cargo(_spec: str, target_arg: str, manifest_arg: Path) -> _DummyCommand:
         captured["target"] = target_arg
         captured["manifest"] = manifest_arg
         return _DummyCommand("fallback")
@@ -292,6 +294,6 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
 
     main_module._handle_cross_container_error(exc, decision, "aarch64", manifest)
 
-    assert captured["manifest"] == Path("Cargo.toml")
+    assert captured["manifest"] == manifest
     assert harness.calls
     assert harness.calls[0] == ["fallback"]

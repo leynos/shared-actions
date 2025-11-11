@@ -607,14 +607,13 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
-def _assert_uv_command_structure(parts: list[str]) -> int:
+def _assert_uv_command_structure(parts: list[str]) -> None:
     assert Path(parts[0]).name == "uv"
     assert parts[1] == "run"
     python_idx = parts.index("python")
     slip_idx = parts.index("-m", python_idx + 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
     assert parts[-3:] == ["-m", "pytest", "-v"]
-    return slip_idx
 
 
 def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> None:
@@ -655,7 +654,7 @@ def test_tmp_coveragepy_xml_invokes_uv(tmp_path: Path, run_python_module: Module
     xml_path = out.with_suffix(".xml")
     recorded: dict[str, list[str]] = {}
 
-    def fake_run_cmd(cmd: object, *args: object, **kwargs: object) -> None:
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
         recorded["cmd"] = list(cmd.formulate())  # type: ignore[attr-defined]
         xml_path.write_text("<coverage/>", encoding="utf-8")
 

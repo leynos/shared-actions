@@ -28,6 +28,17 @@ FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 
+SLIPCOVER_ARGS: tuple[str, ...] = (
+    "-m",
+    "slipcover",
+    "--branch",
+)
+PYTEST_ARGS: tuple[str, ...] = (
+    "-m",
+    "pytest",
+    "-v",
+)
+
 
 def _uv_python_cmd() -> BoundCommand:
     """Return ``uv run`` configured with the required coverage tools."""
@@ -43,21 +54,19 @@ def _uv_python_cmd() -> BoundCommand:
     ]
 
 
+def _coverage_args(fmt: str, out: Path) -> list[str]:
+    """Return the slipcover/pytest argv for the requested format."""
+    args: list[str] = [*SLIPCOVER_ARGS]
+    if fmt == "cobertura":
+        args.extend(["--xml", str(out)])
+    args.extend(PYTEST_ARGS)
+    return args
+
+
 def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     """Return the slipcover command for the requested format."""
     python_cmd = _uv_python_cmd()
-    if fmt == "cobertura":
-        return python_cmd[
-            "-m",
-            "slipcover",
-            "--branch",
-            "--xml",
-            str(out),
-            "-m",
-            "pytest",
-            "-v",
-        ]
-    return python_cmd["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
+    return python_cmd[_coverage_args(fmt, out)]
 
 
 @contextlib.contextmanager

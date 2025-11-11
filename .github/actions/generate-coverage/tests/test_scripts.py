@@ -630,12 +630,27 @@ def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> No
     assert {"slipcover", "pytest", "coverage"}.issubset(parts)
 
 
-def test_coverage_cmd_cobertura_uses_uv(tmp_path: Path, run_python_module: ModuleType) -> None:
-    """Cobertura format invokes slipcover with ``--xml`` using ``uv run``."""
-    out = tmp_path / "cov.xml"
-    cmd = run_python_module.coverage_cmd_for_fmt("cobertura", out)
+def _get_coverage_cmd_parts(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    fmt: str,
+    suffix: str,
+) -> tuple[list[str], Path]:
+    """Build coverage command for format and return parts and output path."""
+    out = tmp_path / f"cov.{suffix}"
+    cmd = run_python_module.coverage_cmd_for_fmt(fmt, out)
     parts = list(cmd.formulate())
     _assert_uv_command_structure(parts)
+    return parts, out
+
+
+def test_coverage_cmd_cobertura_uses_uv(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Cobertura format invokes slipcover with ``--xml`` using ``uv run``."""
+    parts, out = _get_coverage_cmd_parts(
+        tmp_path, run_python_module, "cobertura", "xml"
+    )
     assert "--xml" in parts
     assert str(out) in parts
 
@@ -644,15 +659,16 @@ def test_coverage_cmd_default_branch_has_shared_args(
     tmp_path: Path, run_python_module: ModuleType
 ) -> None:
     """Non-Cobertura formats reuse the shared slipcover arguments."""
-    out = tmp_path / "cov.dat"
-    cmd = run_python_module.coverage_cmd_for_fmt("coveragepy", out)
-    parts = list(cmd.formulate())
-    _assert_uv_command_structure(parts)
+    parts, out = _get_coverage_cmd_parts(
+        tmp_path, run_python_module, "coveragepy", "dat"
+    )
     assert "--xml" not in parts
     assert str(out) not in parts
 
 
-def test_tmp_coveragepy_xml_invokes_uv(tmp_path: Path, run_python_module: ModuleType) -> None:
+def test_tmp_coveragepy_xml_invokes_uv(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
     """The coverage.py exporter also reuses the uv helper."""
     out = tmp_path / "coveragepy.dat"
     xml_path = out.with_suffix(".xml")
@@ -670,8 +686,7 @@ def test_tmp_coveragepy_xml_invokes_uv(tmp_path: Path, run_python_module: Module
 
     assert not xml_path.exists()
     parts = recorded["cmd"]
-    assert Path(parts[0]).name == "uv"
-    assert parts[1] == "run"
+    _assert_uv_run_base(parts)
     assert parts[-5:] == ["-m", "coverage", "xml", "-o", str(xml_path)]
     assert {"coverage", "pytest", "slipcover"}.issubset(parts)
 

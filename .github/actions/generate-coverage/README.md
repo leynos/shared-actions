@@ -5,7 +5,9 @@ Run coverage for Rust, Python, or mixed Rust+Python projects.
 Run code coverage for Rust projects, Python projects, and mixed Rust + Python
 projects. The action uses `cargo llvm-cov` when a `Cargo.toml` is present and
 `slipcover` with `pytest` when a `pyproject.toml` is present. It installs
-`slipcover` and `pytest` automatically via `uv` before running the tests. When
+`slipcover` and `pytest` automatically via `uv` before running the tests,
+leveraging ``uv run --with`` so no system-level Python installs are required.
+When
 Rust coverage is required, `cargo-llvm-cov` is installed automatically as well.
 If both configuration files are present, coverage is run for each language and
 the Cobertura reports are merged using `uvx merge-cobertura`.

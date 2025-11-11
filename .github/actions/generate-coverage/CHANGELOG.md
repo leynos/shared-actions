@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.10 (2025-11-11)
+
+- Remove the step that attempted to ``uv pip install --system`` Python
+  dependencies and instead run slipcover/pytest via ``uv run`` so the action
+  works on environments where the system interpreter is marked as
+  externally-managed (e.g. Ubuntu 24.04).
+
 ## v1.3.9 (2025-11-06)
 
 - Include runner OS and architecture in uploaded coverage artefact names.

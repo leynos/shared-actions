@@ -607,6 +607,18 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
+def test_run_python_invokes_uv_for_slipcover(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Coverage commands rely on ``uv run`` with bundled dependencies."""
+    cmd = run_python_module.coverage_cmd_for_fmt("cobertura", tmp_path / "cov.xml")
+    parts = list(cmd.formulate())
+    assert Path(parts[0]).name == "uv"
+    assert parts[1] == "run"
+    assert parts.count("--with") >= 3
+    assert {"slipcover", "pytest", "coverage"}.issubset(parts)
+
+
 def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles per-line detail."""
     xml = tmp_path / "cov.xml"

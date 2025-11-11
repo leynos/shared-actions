@@ -652,8 +652,11 @@ def test_coverage_cmd_cobertura_uses_uv(
     parts, out = _get_coverage_cmd_parts(
         tmp_path, run_python_module, "cobertura", "xml"
     )
-    assert "--xml" in parts
-    assert str(out) in parts
+    assert parts.count("--xml") == 1
+    assert "--out" in parts
+    out_idx = parts.index("--out")
+    assert parts[out_idx + 1] == str(out)
+    assert parts.index("--xml") < out_idx
 
 
 def test_coverage_cmd_default_branch_has_shared_args(

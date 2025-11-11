@@ -607,6 +607,16 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
+def _assert_uv_command_structure(parts: list[str]) -> int:
+    assert Path(parts[0]).name == "uv"
+    assert parts[1] == "run"
+    python_idx = parts.index("python")
+    slip_idx = parts.index("-m", python_idx + 1)
+    assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
+    assert parts[-3:] == ["-m", "pytest", "-v"]
+    return slip_idx
+
+
 def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> None:
     """The helper wires ``uv run`` with slipcover/pytest/coverage."""
     cmd = run_python_module._uv_python_cmd()
@@ -622,14 +632,9 @@ def test_coverage_cmd_cobertura_uses_uv(tmp_path: Path, run_python_module: Modul
     out = tmp_path / "cov.xml"
     cmd = run_python_module.coverage_cmd_for_fmt("cobertura", out)
     parts = list(cmd.formulate())
-    assert Path(parts[0]).name == "uv"
-    assert parts[1] == "run"
+    _assert_uv_command_structure(parts)
     assert "--xml" in parts
     assert str(out) in parts
-
-    slip_idx = parts.index("-m", parts.index("python") + 1)
-    assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
-    assert parts[-3:] == ["-m", "pytest", "-v"]
 
 
 def test_coverage_cmd_default_branch_has_shared_args(
@@ -639,12 +644,9 @@ def test_coverage_cmd_default_branch_has_shared_args(
     out = tmp_path / "cov.dat"
     cmd = run_python_module.coverage_cmd_for_fmt("coveragepy", out)
     parts = list(cmd.formulate())
-    assert Path(parts[0]).name == "uv"
+    _assert_uv_command_structure(parts)
     assert "--xml" not in parts
     assert str(out) not in parts
-    slip_idx = parts.index("-m", parts.index("python") + 1)
-    assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
-    assert parts[-3:] == ["-m", "pytest", "-v"]
 
 
 def test_tmp_coveragepy_xml_invokes_uv(tmp_path: Path, run_python_module: ModuleType) -> None:

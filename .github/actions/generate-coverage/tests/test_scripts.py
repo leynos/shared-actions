@@ -614,6 +614,7 @@ def _assert_uv_run_base(parts: list[str]) -> None:
 
 
 def _assert_uv_command_structure(parts: list[str]) -> None:
+    """Verify common uv run command structure with slipcover and pytest."""
     _assert_uv_run_base(parts)
     python_idx = parts.index("python")
     slip_idx = parts.index("-m", python_idx + 1)

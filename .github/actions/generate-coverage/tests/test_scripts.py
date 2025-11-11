@@ -667,7 +667,7 @@ def test_tmp_coveragepy_xml_invokes_uv(tmp_path: Path, run_python_module: Module
     parts = recorded["cmd"]
     assert Path(parts[0]).name == "uv"
     assert parts[1] == "run"
-    assert parts[-4:] == ["coverage", "xml", "-o", str(xml_path)]
+    assert parts[-5:] == ["-m", "coverage", "xml", "-o", str(xml_path)]
     assert {"coverage", "pytest", "slipcover"}.issubset(parts)
 
 

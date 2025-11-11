@@ -607,9 +607,14 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
-def _assert_uv_command_structure(parts: list[str]) -> None:
+def _assert_uv_run_base(parts: list[str]) -> None:
+    """Assert that parts starts with 'uv run'."""
     assert Path(parts[0]).name == "uv"
     assert parts[1] == "run"
+
+
+def _assert_uv_command_structure(parts: list[str]) -> None:
+    _assert_uv_run_base(parts)
     python_idx = parts.index("python")
     slip_idx = parts.index("-m", python_idx + 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
@@ -620,8 +625,7 @@ def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> No
     """The helper wires ``uv run`` with slipcover/pytest/coverage."""
     cmd = run_python_module._uv_python_cmd()
     parts = list(cmd.formulate())
-    assert Path(parts[0]).name == "uv"
-    assert parts[1] == "run"
+    _assert_uv_run_base(parts)
     assert parts.count("--with") >= 3
     assert {"slipcover", "pytest", "coverage"}.issubset(parts)
 

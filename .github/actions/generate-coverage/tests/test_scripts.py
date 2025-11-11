@@ -607,6 +607,91 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
+def _assert_uv_run_base(parts: list[str]) -> None:
+    """Assert that parts starts with 'uv run'."""
+    assert Path(parts[0]).name == "uv"
+    assert parts[1] == "run"
+
+
+def _assert_uv_command_structure(parts: list[str]) -> None:
+    """Verify common uv run command structure with slipcover and pytest."""
+    _assert_uv_run_base(parts)
+    python_idx = parts.index("python")
+    slip_idx = parts.index("-m", python_idx + 1)
+    assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
+    assert parts[-3:] == ["-m", "pytest", "-v"]
+
+
+def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> None:
+    """The helper wires ``uv run`` with slipcover/pytest/coverage."""
+    cmd = run_python_module._uv_python_cmd()
+    parts = list(cmd.formulate())
+    _assert_uv_run_base(parts)
+    assert parts.count("--with") >= 3
+    assert {"slipcover", "pytest", "coverage"}.issubset(parts)
+
+
+def _get_coverage_cmd_parts(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    fmt: str,
+    suffix: str,
+) -> tuple[list[str], Path]:
+    """Build coverage command for format and return parts and output path."""
+    out = tmp_path / f"cov.{suffix}"
+    cmd = run_python_module.coverage_cmd_for_fmt(fmt, out)
+    parts = list(cmd.formulate())
+    _assert_uv_command_structure(parts)
+    return parts, out
+
+
+def test_coverage_cmd_cobertura_uses_uv(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Cobertura format invokes slipcover with ``--xml`` using ``uv run``."""
+    parts, out = _get_coverage_cmd_parts(
+        tmp_path, run_python_module, "cobertura", "xml"
+    )
+    assert "--xml" in parts
+    assert str(out) in parts
+
+
+def test_coverage_cmd_default_branch_has_shared_args(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Non-Cobertura formats reuse the shared slipcover arguments."""
+    parts, out = _get_coverage_cmd_parts(
+        tmp_path, run_python_module, "coveragepy", "dat"
+    )
+    assert "--xml" not in parts
+    assert str(out) not in parts
+
+
+def test_tmp_coveragepy_xml_invokes_uv(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """The coverage.py exporter also reuses the uv helper."""
+    out = tmp_path / "coveragepy.dat"
+    xml_path = out.with_suffix(".xml")
+    recorded: dict[str, list[str]] = {}
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded["cmd"] = list(cmd.formulate())  # type: ignore[attr-defined]
+        xml_path.write_text("<coverage/>", encoding="utf-8")
+
+    run_python_module.run_cmd = fake_run_cmd  # type: ignore[assignment]
+
+    with run_python_module.tmp_coveragepy_xml(out) as generated:
+        assert generated == xml_path
+        assert xml_path.exists()
+
+    assert not xml_path.exists()
+    parts = recorded["cmd"]
+    _assert_uv_run_base(parts)
+    assert parts[-5:] == ["-m", "coverage", "xml", "-o", str(xml_path)]
+    assert {"coverage", "pytest", "slipcover"}.issubset(parts)
+
+
 def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles per-line detail."""
     xml = tmp_path / "cov.xml"

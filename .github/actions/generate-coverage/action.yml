@@ -136,11 +136,6 @@ runs:
         restore-keys: |
           ${{ runner.os }}-py-deps-
 
-    - name: Install slipcover and pytest
-      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
-      run: uv pip install --system slipcover pytest
-      shell: bash
-
     - id: python
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/run_python.py"

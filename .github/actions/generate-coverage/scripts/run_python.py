@@ -15,7 +15,7 @@ from pathlib import Path
 import typer
 from cmd_utils_loader import run_cmd
 from coverage_parsers import get_line_coverage_percent_from_cobertura
-from plumbum.cmd import python
+from plumbum.cmd import uv
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
@@ -28,21 +28,45 @@ FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 
+SLIPCOVER_ARGS: tuple[str, ...] = (
+    "-m",
+    "slipcover",
+    "--branch",
+)
+PYTEST_ARGS: tuple[str, ...] = (
+    "-m",
+    "pytest",
+    "-v",
+)
+
+
+def _uv_python_cmd() -> BoundCommand:
+    """Return ``uv run`` configured with the required coverage tools."""
+    return uv[
+        "run",
+        "--with",
+        "slipcover",
+        "--with",
+        "pytest",
+        "--with",
+        "coverage",
+        "python",
+    ]
+
+
+def _coverage_args(fmt: str, out: Path) -> list[str]:
+    """Return the slipcover/pytest argv for the requested format."""
+    args: list[str] = [*SLIPCOVER_ARGS]
+    if fmt == "cobertura":
+        args.extend(["--xml", str(out)])
+    args.extend(PYTEST_ARGS)
+    return args
+
 
 def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     """Return the slipcover command for the requested format."""
-    if fmt == "cobertura":
-        return python[
-            "-m",
-            "slipcover",
-            "--branch",
-            "--xml",
-            str(out),
-            "-m",
-            "pytest",
-            "-v",
-        ]
-    return python["-m", "slipcover", "--branch", "-m", "pytest", "-v"]
+    python_cmd = _uv_python_cmd()
+    return python_cmd[_coverage_args(fmt, out)]
 
 
 @contextlib.contextmanager
@@ -50,7 +74,7 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
     try:
-        cmd = python["-m", "coverage", "xml", "-o", str(xml_tmp)]
+        cmd = _uv_python_cmd()["-m", "coverage", "xml", "-o", str(xml_tmp)]
         run_cmd(cmd)
     except ProcessExecutionError as exc:
         typer.echo(

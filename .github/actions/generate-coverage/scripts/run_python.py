@@ -58,6 +58,7 @@ def _coverage_args(fmt: str, out: Path) -> list[str]:
     """Return the slipcover/pytest argv for the requested format."""
     args: list[str] = [*SLIPCOVER_ARGS]
     if fmt == "cobertura":
+        # slipcover treats --xml as a boolean flag; --out sets the report path
         args.extend(["--xml", "--out", str(out)])
     args.extend(PYTEST_ARGS)
     return args

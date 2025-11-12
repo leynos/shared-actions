@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import itertools
 import os
 import sys
 import typing as typ
@@ -622,6 +623,27 @@ def _assert_uv_command_structure(parts: list[str]) -> None:
     assert parts[-3:] == ["-m", "pytest", "-v"]
 
 
+def _assert_tokens_in_order(parts: list[str], *tokens: str) -> None:
+    """Assert that ``tokens`` appear in ``parts`` while preserving order."""
+    iterator = iter(parts)
+    for token in tokens:
+        for part in iterator:
+            if part == token:
+                break
+        else:  # pragma: no cover - AssertionError path
+            message = f"{token!r} not found after prior tokens {tokens!r}"
+            pytest.fail(message)
+
+
+def _assert_flag_value_pair(parts: list[str], flag: str, value: str) -> None:
+    """Assert that ``flag`` is immediately followed by ``value`` in ``parts``."""
+    for candidate in itertools.pairwise(parts):
+        if candidate == (flag, value):
+            return
+    message = f"{flag!r} not paired with {value!r}"
+    pytest.fail(message)
+
+
 def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> None:
     """The helper wires ``uv run`` with slipcover/pytest/coverage."""
     cmd = run_python_module._uv_python_cmd()
@@ -653,10 +675,8 @@ def test_coverage_cmd_cobertura_uses_uv(
         tmp_path, run_python_module, "cobertura", "xml"
     )
     assert parts.count("--xml") == 1
-    assert "--out" in parts
-    out_idx = parts.index("--out")
-    assert parts[out_idx + 1] == str(out)
-    assert parts.index("--xml") < out_idx
+    _assert_tokens_in_order(parts, "--xml", "--out")
+    _assert_flag_value_pair(parts, "--out", str(out))
 
 
 def test_coverage_cmd_default_branch_has_shared_args(
@@ -668,6 +688,14 @@ def test_coverage_cmd_default_branch_has_shared_args(
     )
     assert "--xml" not in parts
     assert str(out) not in parts
+
+
+def test_non_cobertura_formats_do_not_emit_out_flag(
+    tmp_path: Path, run_python_module: ModuleType
+) -> None:
+    """Ensure slipcover output targeting stays isolated to Cobertura runs."""
+    parts, _ = _get_coverage_cmd_parts(tmp_path, run_python_module, "coveragepy", "dat")
+    assert "--out" not in parts
 
 
 def test_tmp_coveragepy_xml_invokes_uv(
@@ -693,6 +721,36 @@ def test_tmp_coveragepy_xml_invokes_uv(
     _assert_uv_run_base(parts)
     assert parts[-5:] == ["-m", "coverage", "xml", "-o", str(xml_path)]
     assert {"coverage", "pytest", "slipcover"}.issubset(parts)
+
+
+def test_run_python_cobertura_passes_out_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` keeps Cobertura output wiring explicit when invoking slipcover."""
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+    recorded: dict[str, list[str]] = {}
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded["cmd"] = list(cmd.formulate())  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    run_python_module.main(output, "python", "cobertura", github_output, None)
+
+    parts = recorded["cmd"]
+    _assert_uv_command_structure(parts)
+    _assert_tokens_in_order(parts, "--xml", "--out")
+    _assert_flag_value_pair(parts, "--out", str(output))
+    data = github_output.read_text().splitlines()
+    assert f"file={output}" in data
+    assert "percent=100.00" in data
 
 
 def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:

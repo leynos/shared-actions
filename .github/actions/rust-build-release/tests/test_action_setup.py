@@ -31,14 +31,14 @@ def _reset_bootstrap_cache(module: ModuleType, monkeypatch: pytest.MonkeyPatch) 
 def test_bootstrap_inserts_repo_root_first_when_path_empty(
     action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An empty ``sys.path`` receives the repo root at index ``0``."""
+    """An empty ``sys.path`` receives the repo root once."""
     path_entries: list[str] = []
     monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[0] == str(repo_root)
+    assert path_entries == [str(repo_root)]
 
     repo_root_str = str(repo_root)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
@@ -50,7 +50,7 @@ def test_bootstrap_inserts_repo_root_first_when_path_empty(
 def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
     action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Repo root insertion honours a leading script directory entry."""
+    """Repo root insertion preserves existing path prefix entries."""
     script_dir = Path(action_setup_module.__file__).resolve().parent
     script_dir_str = str(script_dir)
     path_entries: list[str] = [script_dir_str, "other"]
@@ -59,13 +59,14 @@ def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[1] == str(repo_root)
+    assert path_entries[:2] == [script_dir_str, "other"]
+    assert path_entries[-1] == str(repo_root)
 
 
 def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
     action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Blank ``sys.path`` entries do not offset repo root insertion."""
+    """Blank ``sys.path`` entries remain while repo root is appended."""
     path_entries = ["", "other"]
     monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
     sentinel = "sentinel-action-path"
@@ -74,7 +75,12 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[0] == str(repo_root)
+    assert path_entries[0] == ""
+    resolved_entries = [
+        Path(entry).resolve() if entry else Path.cwd().resolve()
+        for entry in path_entries
+    ]
+    assert resolved_entries.count(repo_root.resolve()) == 1
     assert os.environ["GITHUB_ACTION_PATH"] == sentinel
 
 

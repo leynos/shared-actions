@@ -8,16 +8,15 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from syspath_hack import add_to_syspath
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
+add_to_syspath(SCRIPTS_ROOT)
 
 REPO_ROOT = SCRIPTS_ROOT.parents[2]
 if REPO_ROOT.name == ".github":
     REPO_ROOT = REPO_ROOT.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+add_to_syspath(REPO_ROOT)
 
 SCRIPTS_DIR = SCRIPTS_ROOT / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_packages.py"
@@ -31,8 +30,7 @@ else:  # pragma: no cover - runtime fallback
 @pytest.fixture
 def validate_packages_module() -> ModuleType:
     """Load the validate_packages module under test."""
-    if str(SCRIPTS_DIR) not in sys.path:
-        sys.path.append(str(SCRIPTS_DIR))
+    add_to_syspath(SCRIPTS_DIR)
 
     module = sys.modules.get("validate_packages")
     if module is not None:

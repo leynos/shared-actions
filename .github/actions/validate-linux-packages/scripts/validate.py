@@ -4,6 +4,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
+#   "syspath-hack>=0.1,<0.2",
 # ]
 # ///
 
@@ -25,9 +26,10 @@ else:  # pragma: no cover - exercised via CLI execution
     import sys
     from pathlib import Path
 
+    from syspath_hack import add_to_syspath
+
     _SCRIPT_DIR = Path(__file__).resolve().parent
-    if str(_SCRIPT_DIR) not in sys.path:
-        sys.path.insert(0, str(_SCRIPT_DIR))
+    add_to_syspath(_SCRIPT_DIR)
 
     validate_cli = importlib.import_module("validate_cli")
     validate_exceptions = importlib.import_module("validate_exceptions")

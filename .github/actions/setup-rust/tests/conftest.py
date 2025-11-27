@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from syspath_hack import add_to_syspath
 
 if sys.platform.startswith("win"):
     pytest.skip("cmd-mox IPC is unavailable on Windows", allow_module_level=True)
@@ -27,7 +28,7 @@ def _find_root(start: Path) -> Path:
 
 
 ROOT = _find_root(Path(__file__).resolve())
-sys.path.insert(0, str(ROOT))
+add_to_syspath(ROOT)
 
 
 @pytest.fixture

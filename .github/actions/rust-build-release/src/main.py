@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["packaging", "plumbum", "typer"]
+# dependencies = ["packaging", "plumbum", "syspath-hack", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -14,7 +14,9 @@ import sys
 import typing as typ
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[4]))
+from syspath_hack import add_to_syspath
+
+add_to_syspath(Path(__file__).resolve().parents[4])
 
 import typer
 from cross_manager import ensure_cross

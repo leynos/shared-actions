@@ -18,15 +18,16 @@ from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
 
 from cmd_utils_importer import import_cmd_utils
+from syspath_hack import add_to_syspath
 
 run_cmd = import_cmd_utils().run_cmd
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(TESTS_ROOT / "scripts"))
+add_to_syspath(TESTS_ROOT / "scripts")
 from script_utils import unique_match  # noqa: E402
 
 SCRIPTS_DIR = TESTS_ROOT.parent / "scripts"
-sys.path.append(str(SCRIPTS_DIR))
+add_to_syspath(SCRIPTS_DIR)
 import architectures  # noqa: E402
 import package as packaging_script  # noqa: E402
 

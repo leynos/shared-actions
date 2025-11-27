@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "syspath-hack", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 
@@ -13,6 +13,8 @@ import sys
 import typing as typ
 from pathlib import Path
 
+from syspath_hack import add_to_syspath
+
 # The bootstrap walks upward from this module to locate key directories instead of
 # relying on hard-coded parent counts. ``_ACTION_MARKERS`` are used to identify the
 # composite action directory, while ``_REPO_MARKERS`` detect the repository root so the
@@ -20,30 +22,6 @@ from pathlib import Path
 _ACTION_MARKERS: typ.Final[tuple[str, ...]] = ("action.yml", "action.yaml")
 _REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock")
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
-
-
-def _compute_sys_path_insert_index(
-    script_dir: Path, path_entries: typ.Sequence[str]
-) -> int:
-    """Return the insertion index for ``script_dir`` aware path updates."""
-    if not path_entries:
-        return 0
-
-    head = path_entries[0]
-    if not head:
-        return 0
-
-    try:
-        head_path = Path(head).resolve()
-    except (OSError, RuntimeError, ValueError):  # pragma: no cover - defensive guard
-        return 0
-
-    try:
-        script_dir_resolved = script_dir.resolve()
-    except (OSError, RuntimeError):  # pragma: no cover - defensive guard
-        script_dir_resolved = script_dir
-
-    return 1 if head_path == script_dir_resolved else 0
 
 
 def _initialise_cmd_utils() -> None:
@@ -103,10 +81,7 @@ def bootstrap_environment() -> tuple[Path, Path]:
     if not repo_root.exists():
         message = f"Repository root does not exist: {repo_root}"
         raise FileNotFoundError(message)
-    repo_root_str = str(repo_root)
-    if repo_root_str not in sys.path:
-        insert_index = _compute_sys_path_insert_index(script_path.parent, sys.path)
-        sys.path.insert(insert_index, repo_root_str)
+    add_to_syspath(repo_root)
 
     _initialise_cmd_utils()
 

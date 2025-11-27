@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
+from syspath_hack import add_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -110,8 +111,7 @@ def _load_module(
     *,
     deps: cabc.Sequence[tuple[str, str | None]] = (),
 ) -> ModuleType:
-    if str(SRC_DIR) not in sys.path:
-        sys.path.insert(0, str(SRC_DIR))
+    add_to_syspath(SRC_DIR)
     for dep_name, attr in deps:
         _ensure_dependency(dep_name, attr)
     module_path = SRC_DIR / filename

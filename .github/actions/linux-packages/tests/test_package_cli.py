@@ -20,6 +20,7 @@ import pytest
 import yaml
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
+from syspath_hack import add_to_syspath, remove_from_syspath
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -606,7 +607,10 @@ def _run_script_with_fallback(
     finally:
         if missing_geteuid:
             delattr(os, "geteuid")
-        sys.path[:] = original_sys_path
+        for entry in list(sys.path):
+            remove_from_syspath(entry)
+        for entry in original_sys_path:
+            add_to_syspath(entry)
         if original_helper is None:
             sys.modules.pop("script_utils", None)
         else:

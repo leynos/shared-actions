@@ -13,7 +13,7 @@ import sys
 import typing as typ
 from pathlib import Path
 
-from syspath_hack import add_to_syspath
+from syspath_hack import prepend_to_syspath
 
 # The bootstrap walks upward from this module to locate key directories instead of
 # relying on hard-coded parent counts. ``_ACTION_MARKERS`` are used to identify the
@@ -81,7 +81,7 @@ def bootstrap_environment() -> tuple[Path, Path]:
     if not repo_root.exists():
         message = f"Repository root does not exist: {repo_root}"
         raise FileNotFoundError(message)
-    add_to_syspath(repo_root)
+    prepend_to_syspath(repo_root)
 
     _initialise_cmd_utils()
 

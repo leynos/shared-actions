@@ -26,10 +26,10 @@ else:  # pragma: no cover - exercised via CLI execution
     import sys
     from pathlib import Path
 
-    from syspath_hack import add_to_syspath
+    from syspath_hack import prepend_to_syspath
 
     _SCRIPT_DIR = Path(__file__).resolve().parent
-    add_to_syspath(_SCRIPT_DIR)
+    prepend_to_syspath(_SCRIPT_DIR)
 
     validate_cli = importlib.import_module("validate_cli")
     validate_exceptions = importlib.import_module("validate_exceptions")

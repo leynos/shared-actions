@@ -111,8 +111,8 @@ def test_load_script_helpers_uses_loader_fallback(
     monkeypatch.setattr(sys, "path", [str(script_dir)])
 
     module = importlib.import_module("script_utils")
-    assert sys.path[0] == str(script_dir)
-    assert sys.path[-1] == str(repo_root)
+    assert sys.path[0] == str(repo_root)
+    assert sys.path[1] == str(script_dir)
     assert sys.path.count(str(repo_root)) == 1
     assert module.import_cmd_utils.__module__ == "cmd_utils_importer"
 
@@ -175,7 +175,7 @@ def test_load_script_helpers_uses_loader_fallback(
 def test_ensure_repo_root_on_sys_path_variants(
     monkeypatch: pytest.MonkeyPatch, initial_paths: list[str]
 ) -> None:
-    """Standalone bootstrap appends the repo root exactly once to ``sys.path``."""
+    """Standalone bootstrap prepends the repo root exactly once to ``sys.path``."""
     script_dir, repo_root = _script_dir_and_repo_root()
 
     resolved = []
@@ -192,7 +192,7 @@ def test_ensure_repo_root_on_sys_path_variants(
     result = script_utils._ensure_repo_root_on_sys_path()
 
     assert result == repo_root
-    assert sys.path[-1] == str(repo_root)
+    assert sys.path[0] == str(repo_root)
     assert sys.path.count(str(repo_root)) == 1
 
 
@@ -292,7 +292,7 @@ def test_script_utils_bootstraps_repo_root_in_subprocess(tmp_path: Path) -> None
 
     assert payload["expected_present"] is True
     assert payload["script_dir_present"] is True
-    assert payload["last_sys_path"] == str(repo_root)
+    assert payload["first_sys_path"] == str(repo_root)
     assert payload["repo_root_count"] == 1
     assert payload["import_cmd_utils_module"] == "cmd_utils_importer"
     assert payload["helpers_run_cmd_module"] == "cmd_utils"

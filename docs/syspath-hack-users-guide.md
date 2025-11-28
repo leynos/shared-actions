@@ -9,6 +9,7 @@ from syspath_hack import (
     add_project_root,
     add_to_syspath,
     find_project_root,
+    prepend_to_syspath,
     remove_from_syspath,
 )
 ```
@@ -18,6 +19,9 @@ from syspath_hack import (
 - `add_to_syspath(path)` resolves the provided path (accepting `pathlib.Path`
   objects or strings) and appends it to `sys.path` only if the normalised path
   is missing.
+- `prepend_to_syspath(path)` performs the same normalisation but ensures the
+  path is the first entry in `sys.path`, removing any existing duplicates so
+  imports favour that location.
 - `remove_from_syspath(path)` performs the inverse operation and removes all
   occurrences of the resolved path from `sys.path`.
 

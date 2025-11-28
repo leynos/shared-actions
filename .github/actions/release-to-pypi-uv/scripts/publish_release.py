@@ -15,7 +15,7 @@ from pathlib import Path
 
 import typer
 from plumbum import local
-from syspath_hack import add_to_syspath
+from syspath_hack import prepend_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -50,7 +50,7 @@ def _extend_sys_path() -> None:
     for candidate in candidates:
         if not candidate.exists():
             continue
-        add_to_syspath(candidate)
+        prepend_to_syspath(candidate)
 
 
 _ensure_python_runtime()

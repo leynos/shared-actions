@@ -59,14 +59,15 @@ def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[:2] == [script_dir_str, "other"]
-    assert path_entries[-1] == str(repo_root)
+    assert path_entries[0] == str(repo_root)
+    assert script_dir_str in path_entries
+    assert "other" in path_entries
 
 
 def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
     action_setup_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Blank ``sys.path`` entries remain while repo root is appended."""
+    """Blank ``sys.path`` entries remain while repo root is prepended."""
     path_entries = ["", "other"]
     monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
     sentinel = "sentinel-action-path"
@@ -75,12 +76,8 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[0] == ""
-    resolved_entries = [
-        Path(entry).resolve() if entry else Path.cwd().resolve()
-        for entry in path_entries
-    ]
-    assert resolved_entries.count(repo_root.resolve()) == 1
+    assert path_entries[0] == str(repo_root)
+    assert path_entries.count(str(repo_root)) == 1
     assert os.environ["GITHUB_ACTION_PATH"] == sentinel
 
 

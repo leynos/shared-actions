@@ -13,7 +13,7 @@ from pathlib import Path
 
 import typer
 from plumbum import local
-from syspath_hack import add_to_syspath, remove_from_syspath
+from syspath_hack import add_to_syspath, prepend_to_syspath, remove_from_syspath
 
 PKG_DIR = Path(__file__).resolve().parent
 
@@ -47,7 +47,7 @@ def _ensure_repo_root_on_sys_path() -> Path | None:
         return None
 
     remove_from_syspath(repo_root)
-    add_to_syspath(repo_root)
+    prepend_to_syspath(repo_root)
     return repo_root
 
 

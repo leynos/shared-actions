@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
-from syspath_hack import add_to_syspath
+from syspath_hack import prepend_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
@@ -49,7 +49,7 @@ def _import_packaging_utils() -> ModuleType:
 
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
-add_to_syspath(SRC_DIR)
+prepend_to_syspath(SRC_DIR)
 
 runtime_module = importlib.import_module("runtime")
 detect_host_target = runtime_module.detect_host_target

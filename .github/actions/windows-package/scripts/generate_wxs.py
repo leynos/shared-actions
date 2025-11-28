@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
-from syspath_hack import add_to_syspath
+from syspath_hack import prepend_to_syspath
 
 try:
     from cyclopts.exceptions import UsageError  # type: ignore[attr-defined]
@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - compatibility with older cyclopts
 
 if __package__ in {None, ""}:
     _MODULE_DIR = Path(__file__).resolve().parent
-    add_to_syspath(_MODULE_DIR)
+    prepend_to_syspath(_MODULE_DIR)
 
 from windows_installer import (
     FileSpecification,

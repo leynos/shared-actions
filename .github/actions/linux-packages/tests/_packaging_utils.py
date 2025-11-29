@@ -24,12 +24,12 @@ run_cmd = import_cmd_utils().run_cmd
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 add_to_syspath(TESTS_ROOT / "scripts")
-from script_utils import unique_match  # noqa: E402
+from script_utils import unique_match
 
 SCRIPTS_DIR = TESTS_ROOT.parent / "scripts"
 add_to_syspath(SCRIPTS_DIR)
-import architectures  # noqa: E402
-import package as packaging_script  # noqa: E402
+import architectures
+import package as packaging_script
 
 deb_arch_for_target = architectures.deb_arch_for_target
 

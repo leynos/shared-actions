@@ -88,8 +88,9 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
     [
         ["other", "<repo_root>", "another"],
         ["first", "second", "<repo_root>"],
+        ["<repo_root>", "other", "<repo_root>"],
     ],
-    ids=["repo_root_middle", "repo_root_end"],
+    ids=["repo_root_middle", "repo_root_end", "repo_root_multiple"],
 )
 def test_bootstrap_dedupes_existing_repo_root(
     action_setup_module: ModuleType,

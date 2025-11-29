@@ -14,24 +14,14 @@ import sys
 import typing as typ
 from pathlib import Path
 
-from syspath_hack import add_to_syspath
-
-try:
-    from syspath_hack import prepend_project_root  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - compat for older syspath-hack
-
-    def prepend_project_root(sigil: str = "pyproject.toml") -> Path:
-        """Fallback prepend when syspath_hack lacks prepend_project_root."""
-        root = Path(__file__).resolve().parents[4]
-        add_to_syspath(root)
-        return root
+from syspath_hack import add_to_syspath, prepend_project_root
 
 
 def _prime_repo_root() -> None:
     """Ensure the repository root containing cmd_utils is importable."""
     try:
         prepend_project_root(sigil="cmd_utils_importer.py")
-    except (OSError, RuntimeError, ImportError):  # pragma: no cover - fallback
+    except (OSError, RuntimeError):  # pragma: no cover - fallback
         add_to_syspath(Path(__file__).resolve().parents[4])
 
 

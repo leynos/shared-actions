@@ -274,15 +274,12 @@ def test_script_utils_bootstraps_repo_root_in_subprocess(tmp_path: Path) -> None
         """
     ).strip()
 
-    env = os.environ.copy()
-    env.update(
-        {
-            "PYTHONPATH": str(script_dir),
-            "GITHUB_ACTION_PATH": str(action_path),
-            "EXPECTED_REPO_ROOT": str(repo_root),
-            "EXPECTED_SCRIPT_DIR": str(script_dir),
-        }
-    )
+    env = os.environ.copy() | {
+        "PYTHONPATH": str(script_dir),
+        "GITHUB_ACTION_PATH": str(action_path),
+        "EXPECTED_REPO_ROOT": str(repo_root),
+        "EXPECTED_SCRIPT_DIR": str(script_dir),
+    }
 
     command = local[sys.executable]["-c", script]
     completed = command.run(env=env, cwd=str(tmp_path))

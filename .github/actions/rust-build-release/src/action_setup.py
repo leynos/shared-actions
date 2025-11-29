@@ -90,8 +90,8 @@ def bootstrap_environment() -> tuple[Path, Path]:
 
 _ACTION_PATH, _REPO_ROOT = bootstrap_environment()
 
-import typer  # noqa: E402
-from toolchain import read_default_toolchain  # noqa: E402
+import typer
+from toolchain import read_default_toolchain
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 

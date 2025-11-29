@@ -18,7 +18,6 @@ from plumbum import local
 from syspath_hack import (
     SysPathMode,
     ensure_module_dir,
-    prepend_project_root,
     prepend_to_syspath,
 )
 

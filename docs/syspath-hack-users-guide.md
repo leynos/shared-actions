@@ -2,7 +2,7 @@
 
 The `syspath_hack` package provides helpers for managing `sys.path` entries and
 for discovering the project root marker that contains `pyproject.toml` (or any
-custom marker). Import the helpers you need from the package root:
+custom marker). Import the required helpers from the package root:
 
 ```python
 from syspath_hack import (
@@ -37,8 +37,8 @@ entries in `sys.path` that use different but equivalent representations. The
 normalization prevents duplicates when the same location is spelled different
 ways.
 
-When paths need to be added only temporarily, use `temp_syspath()` as a context
-manager. It normalizes and deduplicates the supplied paths, mutates `sys.path`
+To add paths only temporarily, use `temp_syspath()` as a context manager. It
+normalizes and deduplicates the supplied paths, mutates `sys.path`
 according to the requested `mode`, and restores the original `sys.path` list
 (not just its contents) on exit.
 
@@ -83,5 +83,5 @@ can resolve modules relative to the project root immediately afterwards.
 - `SysPathMode.PREPEND` places paths at the start of `sys.path`.
 - `SysPathMode.APPEND` places them at the end.
 
-Pass either value, or combine them with `|` when you want a helper to perform
-both operations in order, typically to guarantee the path ends up first.
+Pass either value, or combine them with `|` to perform both operations in
+order, typically to guarantee the path ends up first.

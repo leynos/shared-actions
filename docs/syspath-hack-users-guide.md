@@ -37,7 +37,7 @@ entries in `sys.path` that use different but equivalent representations. The
 normalisation prevents duplicates when the same location is spelled different
 ways.
 
-When you need to add paths only temporarily, use `temp_syspath()` as a context
+When paths need to be added only temporarily, use `temp_syspath()` as a context
 manager. It normalises and deduplicates the supplied paths, mutates `sys.path`
 according to the requested `mode`, and restores the original `sys.path` list
 (not just its contents) on exit.

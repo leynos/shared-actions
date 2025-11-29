@@ -19,6 +19,7 @@ from syspath_hack import add_to_syspath
 try:
     from syspath_hack import prepend_project_root  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - compat for older syspath-hack
+
     def prepend_project_root(sigil: str = "pyproject.toml") -> Path:
         """Fallback prepend when syspath_hack lacks prepend_project_root."""
         root = Path(__file__).resolve().parents[4]

@@ -33,7 +33,7 @@ def test_bootstrap_inserts_repo_root_first_when_path_empty(
 ) -> None:
     """An empty ``sys.path`` receives the repo root once."""
     path_entries: list[str] = []
-    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    monkeypatch.setattr(sys, "path", path_entries)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
 
     _, repo_root = action_setup_module.bootstrap_environment()
@@ -54,7 +54,7 @@ def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
     script_dir = Path(action_setup_module.__file__).resolve().parent
     script_dir_str = str(script_dir)
     path_entries: list[str] = [script_dir_str, "other"]
-    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    monkeypatch.setattr(sys, "path", path_entries)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
 
     _, repo_root = action_setup_module.bootstrap_environment()
@@ -69,7 +69,7 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
 ) -> None:
     """Blank ``sys.path`` entries remain while repo root is prepended."""
     path_entries = ["", "other"]
-    monkeypatch.setattr(action_setup_module.sys, "path", path_entries)
+    monkeypatch.setattr(sys, "path", path_entries)
     sentinel = "sentinel-action-path"
     monkeypatch.setenv("GITHUB_ACTION_PATH", sentinel)
     _reset_bootstrap_cache(action_setup_module, monkeypatch)
@@ -79,6 +79,38 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
     assert path_entries[0] == str(repo_root)
     assert path_entries.count(str(repo_root)) == 1
     assert os.environ["GITHUB_ACTION_PATH"] == sentinel
+
+
+@pytest.mark.parametrize(
+    "initial_paths",
+    [
+        ["other", "<repo_root>", "another"],
+        ["first", "second", "<repo_root>"],
+    ],
+    ids=["repo_root_middle", "repo_root_end"],
+)
+def test_bootstrap_dedupes_existing_repo_root(
+    action_setup_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    initial_paths: list[str],
+) -> None:
+    """Existing repo root entries are deduplicated and moved to the front."""
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+    _, repo_root = action_setup_module.bootstrap_environment()
+    repo_root_str = str(repo_root)
+
+    resolved_paths = [
+        repo_root_str if entry == "<repo_root>" else entry for entry in initial_paths
+    ]
+    monkeypatch.setattr(sys, "path", list(resolved_paths))
+    _reset_bootstrap_cache(action_setup_module, monkeypatch)
+
+    action_setup_module.bootstrap_environment()
+
+    assert sys.path[0] == repo_root_str
+    assert sys.path.count(repo_root_str) == 1
+    expected_tail = [entry for entry in resolved_paths if entry != repo_root_str]
+    assert sys.path[1:] == expected_tail
 
 
 def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:

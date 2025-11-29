@@ -16,9 +16,9 @@ from pathlib import Path
 import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
+from syspath_hack import add_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
-from syspath_hack import add_to_syspath
 
 run_cmd = import_cmd_utils().run_cmd
 

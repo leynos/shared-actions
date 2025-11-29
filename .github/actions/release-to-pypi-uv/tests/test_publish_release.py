@@ -10,8 +10,8 @@ if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
 
 import pytest
-from typer.testing import CliRunner
 from syspath_hack import prepend_to_syspath
+from typer.testing import CliRunner
 
 from ._helpers import SCRIPTS_DIR, load_script_module
 

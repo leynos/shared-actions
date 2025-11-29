@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "syspath-hack", "typer"]
+# dependencies = ["plumbum", "syspath-hack>=0.2,<0.4", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-import sys
+import sys  # noqa: F401
 import typing as typ
 from pathlib import Path
 

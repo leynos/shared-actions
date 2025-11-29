@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib
 import importlib.machinery
 import importlib.util
 import os
-import sys
 import typing as typ
 from pathlib import Path
 
 import typer
 from plumbum import local
-from syspath_hack import add_to_syspath, prepend_to_syspath, remove_from_syspath
+from syspath_hack import prepend_to_syspath, remove_from_syspath
 
 PKG_DIR = Path(__file__).resolve().parent
 

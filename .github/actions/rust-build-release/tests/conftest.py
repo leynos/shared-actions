@@ -96,6 +96,17 @@ WINDOWS_XFAIL_REASON = (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide writable cargo/rustup homes for integration tests."""
+    cargo_home = tmp_path / "cargo-home"
+    rustup_home = tmp_path / "rustup-home"
+    cargo_home.mkdir(parents=True, exist_ok=True)
+    rustup_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("CARGO_HOME", str(cargo_home))
+    monkeypatch.setenv("RUSTUP_HOME", str(rustup_home))
+
+
 def _ensure_dependency(name: str, attribute: str | None = None) -> None:
     try:
         module = importlib.import_module(name)

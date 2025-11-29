@@ -11,7 +11,33 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
-from syspath_hack import prepend_to_syspath
+
+try:
+    from syspath_hack import SysPathMode, ensure_module_dir  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - compat with older syspath-hack
+    import enum
+
+    class SysPathMode(enum.StrEnum):
+        """Compatibility enum when syspath_hack lacks SysPathMode."""
+
+        PREPEND = "prepend"
+        APPEND = "append"
+
+    def ensure_module_dir(
+        file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
+    ) -> Path:
+        """Add the directory for *file* to sys.path in the requested mode."""
+        path = Path(file).resolve().parent
+        path_str = str(path)
+        if mode == SysPathMode.PREPEND:
+            if path_str in sys.path:
+                sys.path.remove(path_str)
+            sys.path.insert(0, path_str)
+        else:
+            if path_str not in sys.path:
+                sys.path.append(path_str)
+        return path
+
 
 try:
     from cyclopts.exceptions import UsageError  # type: ignore[attr-defined]
@@ -19,8 +45,7 @@ except ImportError:  # pragma: no cover - compatibility with older cyclopts
     from cyclopts.exceptions import CycloptsError as UsageError
 
 if __package__ in {None, ""}:
-    _MODULE_DIR = Path(__file__).resolve().parent
-    prepend_to_syspath(_MODULE_DIR)
+    _MODULE_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
 
 from windows_installer import (
     FileSpecification,

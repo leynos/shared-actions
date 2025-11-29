@@ -4,7 +4,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
-#   "syspath-hack>=0.1,<0.2",
+#   "syspath-hack>=0.2,<0.4",
 # ]
 # ///
 
@@ -26,10 +26,33 @@ else:  # pragma: no cover - exercised via CLI execution
     import sys
     from pathlib import Path
 
-    from syspath_hack import prepend_to_syspath
+    try:
+        from syspath_hack import SysPathMode, ensure_module_dir  # type: ignore[attr-defined]
+    except ImportError:  # pragma: no cover - compat for older syspath-hack
+        import enum
 
-    _SCRIPT_DIR = Path(__file__).resolve().parent
-    prepend_to_syspath(_SCRIPT_DIR)
+        class SysPathMode(enum.StrEnum):
+            """Compatibility enum when syspath_hack lacks SysPathMode."""
+
+            PREPEND = "prepend"
+            APPEND = "append"
+
+        def ensure_module_dir(
+            file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
+        ) -> Path:
+            """Add the directory for *file* to sys.path in the requested mode."""
+            path = Path(file).resolve().parent
+            path_str = str(path)
+            if mode == SysPathMode.PREPEND:
+                if path_str in sys.path:
+                    sys.path.remove(path_str)
+                sys.path.insert(0, path_str)
+            else:
+                if path_str not in sys.path:
+                    sys.path.append(path_str)
+            return path
+
+    _SCRIPT_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
 
     validate_cli = importlib.import_module("validate_cli")
     validate_exceptions = importlib.import_module("validate_exceptions")

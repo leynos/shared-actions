@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["packaging", "plumbum", "syspath-hack", "typer"]
+# dependencies = ["packaging", "plumbum", "syspath-hack>=0.2,<0.4", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -15,22 +15,38 @@ import typing as typ
 from pathlib import Path
 
 from syspath_hack import add_to_syspath
+try:
+    from syspath_hack import prepend_project_root
+except ImportError:  # pragma: no cover - compat for older syspath-hack
+    def prepend_project_root(sigil: str = "pyproject.toml") -> Path:
+        root = Path(__file__).resolve().parents[4]
+        add_to_syspath(root)
+        return root
 
-add_to_syspath(Path(__file__).resolve().parents[4])
 
-import typer
-from cross_manager import ensure_cross
-from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
-from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
-from toolchain import configure_windows_linkers, read_default_toolchain
-from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
+def _prime_repo_root() -> None:
+    """Ensure the repository root containing cmd_utils is importable."""
+    try:
+        prepend_project_root(sigil="cmd_utils_importer.py")
+    except Exception:  # pragma: no cover - fallback for older syspath-hack
+        add_to_syspath(Path(__file__).resolve().parents[4])
+
+
+_prime_repo_root()
+
+import typer  # noqa: E402
+from cross_manager import ensure_cross  # noqa: E402
+from plumbum import local  # noqa: E402
+from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut  # noqa: E402
+from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available  # noqa: E402
+from toolchain import configure_windows_linkers, read_default_toolchain  # noqa: E402
+from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated  # noqa: E402
 
 if typ.TYPE_CHECKING:
     import subprocess
 
     from cmd_utils import SupportsFormulate
-from cmd_utils_importer import import_cmd_utils
+from cmd_utils_importer import import_cmd_utils  # noqa: E402
 
 run_cmd = import_cmd_utils().run_cmd
 

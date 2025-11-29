@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["plumbum", "syspath-hack", "typer>=0.17,<0.18"]
+# dependencies = ["plumbum", "syspath-hack>=0.2,<0.4", "typer>=0.17,<0.18"]
 # ///
 """Publish the built distributions using uv."""
 
@@ -15,7 +15,52 @@ from pathlib import Path
 
 import typer
 from plumbum import local
-from syspath_hack import prepend_to_syspath
+
+try:
+    from syspath_hack import (
+        SysPathMode,
+        ensure_module_dir,
+        prepend_project_root,
+        prepend_to_syspath,
+    )
+except ImportError:  # pragma: no cover - compat for older syspath-hack
+    import enum
+
+    from syspath_hack import prepend_to_syspath
+
+    class SysPathMode(enum.StrEnum):
+        """Compatibility enum when syspath_hack lacks SysPathMode."""
+
+        PREPEND = "prepend"
+        APPEND = "append"
+
+    def ensure_module_dir(
+        file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
+    ) -> Path:
+        """Add the directory for *file* to sys.path in the requested mode."""
+        path = Path(file).resolve().parent
+        path_str = str(path)
+        if mode == SysPathMode.PREPEND:
+            if path_str in sys.path:
+                sys.path.remove(path_str)
+            sys.path.insert(0, path_str)
+        else:
+            if path_str not in sys.path:
+                sys.path.append(path_str)
+        return path
+
+    def prepend_project_root(
+        sigil: str = "pyproject.toml", *, extra_paths: list[Path] | None = None
+    ) -> Path:
+        """Ensure the project root marked by *sigil* is first on sys.path."""
+        from syspath_hack import add_project_root, find_project_root
+
+        root = find_project_root(sigil)
+        add_project_root(sigil)
+        for extra in extra_paths or []:
+            prepend_to_syspath(extra)
+        return root
+
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -41,8 +86,7 @@ def _extend_sys_path() -> None:
         with contextlib.suppress(IndexError):
             candidates.append(action_path.parents[2])
     else:
-        script_path = Path(__file__).resolve()
-        scripts_dir = script_path.parent
+        scripts_dir = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
         candidates.append(scripts_dir)
         with contextlib.suppress(IndexError):
             candidates.append(scripts_dir.parents[3])

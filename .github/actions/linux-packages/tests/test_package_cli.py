@@ -22,6 +22,38 @@ from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
 from syspath_hack import add_to_syspath, remove_from_syspath
 
+try:
+    from syspath_hack import SysPathMode, clear_from_syspath, temp_syspath
+except ImportError:  # pragma: no cover - compat for older syspath-hack
+    import contextlib
+    import enum
+
+    class SysPathMode(enum.StrEnum):
+        """Compatibility enum when syspath_hack lacks SysPathMode."""
+
+        PREPEND = "prepend"
+        APPEND = "append"
+
+    def clear_from_syspath(paths: typ.Iterable[Path | str]) -> None:
+        """Remove each provided path from sys.path if present."""
+        for entry in paths:
+            with contextlib.suppress(Exception):
+                remove_from_syspath(entry)
+
+    @contextlib.contextmanager
+    def temp_syspath(
+        paths: typ.Iterable[Path | str], *, mode: SysPathMode = SysPathMode.PREPEND
+    ) -> typ.Iterator[None]:
+        """Temporarily adjust sys.path to include *paths*."""
+        original = list(sys.path)
+        for entry in paths:
+            add_to_syspath(entry)
+        try:
+            yield
+        finally:
+            sys.path[:] = original
+
+
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -595,22 +627,20 @@ def _run_script_with_fallback(
     """Execute ``script`` via runpy using the ImportError fallback path."""
     scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
     module_path = scripts_dir / script
-    original_sys_path = list(sys.path)
     original_helper = sys.modules.get("script_utils")
     missing_geteuid = False
     if not hasattr(os, "geteuid"):
         missing_geteuid = True
         os.geteuid = lambda: 0  # type: ignore[attr-defined]
     try:
-        result_globals = runpy.run_path(module_path.as_posix(), run_name=module_name)
-        helper_module = sys.modules.get("script_utils")
+        with temp_syspath([scripts_dir], mode=SysPathMode.PREPEND):
+            result_globals = runpy.run_path(
+                module_path.as_posix(), run_name=module_name
+            )
+            helper_module = sys.modules.get("script_utils")
     finally:
         if missing_geteuid:
             delattr(os, "geteuid")
-        for entry in list(sys.path):
-            remove_from_syspath(entry)
-        for entry in original_sys_path:
-            add_to_syspath(entry)
         if original_helper is None:
             sys.modules.pop("script_utils", None)
         else:

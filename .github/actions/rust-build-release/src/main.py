@@ -37,20 +37,20 @@ def _prime_repo_root() -> None:
 
 _prime_repo_root()
 
-import typer  # noqa: E402
-from cross_manager import ensure_cross  # noqa: E402
-from plumbum import local  # noqa: E402
-from plumbum.commands.processes import (  # noqa: E402
+import typer
+from cross_manager import ensure_cross
+from plumbum import local
+from plumbum.commands.processes import (
     ProcessExecutionError,
     ProcessTimedOut,
 )
-from runtime import (  # noqa: E402
+from runtime import (
     CROSS_CONTAINER_ERROR_CODES,
     DEFAULT_HOST_TARGET,
     runtime_available,
 )
-from toolchain import configure_windows_linkers, read_default_toolchain  # noqa: E402
-from utils import (  # noqa: E402
+from toolchain import configure_windows_linkers, read_default_toolchain
+from utils import (
     UnexpectedExecutableError,
     ensure_allowed_executable,
     run_validated,
@@ -60,7 +60,7 @@ if typ.TYPE_CHECKING:
     import subprocess
 
     from cmd_utils import SupportsFormulate
-from cmd_utils_importer import import_cmd_utils  # noqa: E402
+from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
 

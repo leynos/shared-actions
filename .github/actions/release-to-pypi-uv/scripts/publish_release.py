@@ -15,60 +15,12 @@ from pathlib import Path
 
 import typer
 from plumbum import local
-
-try:
-    from syspath_hack import (
-        SysPathMode,
-        ensure_module_dir,
-        prepend_project_root,
-        prepend_to_syspath,
-    )
-except ImportError:  # pragma: no cover - compat for older syspath-hack
-    import enum
-
-    from syspath_hack import prepend_to_syspath
-
-    class SysPathMode(enum.StrEnum):
-        """Compatibility enum when syspath_hack lacks SysPathMode."""
-
-        PREPEND = "prepend"
-        APPEND = "append"
-
-    def _prepend_path_to_syspath(path_str: str) -> None:
-        """Place ``path_str`` at the start of sys.path, removing duplicates first."""
-        if path_str in sys.path:
-            sys.path.remove(path_str)
-        sys.path.insert(0, path_str)
-
-    def _append_path_to_syspath(path_str: str) -> None:
-        """Append ``path_str`` to sys.path if it is not already present."""
-        if path_str not in sys.path:
-            sys.path.append(path_str)
-
-    def ensure_module_dir(
-        file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
-    ) -> Path:
-        """Add the directory for *file* to sys.path in the requested mode."""
-        path = Path(file).resolve().parent
-        path_str = str(path)
-        if mode == SysPathMode.PREPEND:
-            _prepend_path_to_syspath(path_str)
-        else:
-            _append_path_to_syspath(path_str)
-        return path
-
-    def prepend_project_root(
-        sigil: str = "pyproject.toml", *, extra_paths: list[Path] | None = None
-    ) -> Path:
-        """Ensure the project root marked by *sigil* is first on sys.path."""
-        from syspath_hack import add_project_root, find_project_root
-
-        root = find_project_root(sigil)
-        add_project_root(sigil)
-        for extra in extra_paths or []:
-            prepend_to_syspath(extra)
-        return root
-
+from syspath_hack import (
+    SysPathMode,
+    ensure_module_dir,
+    prepend_project_root,
+    prepend_to_syspath,
+)
 
 from cmd_utils_importer import import_cmd_utils
 

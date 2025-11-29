@@ -78,6 +78,8 @@ def test_bootstrap_ignores_blank_first_entry_for_insertion_index(
 
     assert path_entries[0] == str(repo_root)
     assert path_entries.count(str(repo_root)) == 1
+    assert "" in path_entries
+    assert path_entries.index("") == 1
     assert os.environ["GITHUB_ACTION_PATH"] == sentinel
 
 

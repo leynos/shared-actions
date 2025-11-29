@@ -22,9 +22,9 @@ from syspath_hack import (
 ## Controlling `sys.path`
 
 - `add_to_syspath(path)` resolves the provided path (accepting `pathlib.Path`
-  objects or strings) and appends it to `sys.path` only if the normalised path
+  objects or strings) and appends it to `sys.path` only if the normalized path
   is missing.
-- `prepend_to_syspath(path)` performs the same normalisation but ensures the
+- `prepend_to_syspath(path)` performs the same normalization but ensures the
   path is the first entry in `sys.path`, removing any existing duplicates, so
   imports favour that location.
 - `remove_from_syspath(path)` performs the inverse operation and removes all
@@ -34,11 +34,11 @@ from syspath_hack import (
 
 These helpers work with relative paths, paths containing `~`, and existing
 entries in `sys.path` that use different but equivalent representations. The
-normalisation prevents duplicates when the same location is spelled different
+normalization prevents duplicates when the same location is spelled different
 ways.
 
 When paths need to be added only temporarily, use `temp_syspath()` as a context
-manager. It normalises and deduplicates the supplied paths, mutates `sys.path`
+manager. It normalizes and deduplicates the supplied paths, mutates `sys.path`
 according to the requested `mode`, and restores the original `sys.path` list
 (not just its contents) on exit.
 

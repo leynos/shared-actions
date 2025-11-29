@@ -27,7 +27,10 @@ else:  # pragma: no cover - exercised via CLI execution
     from pathlib import Path
 
     try:
-        from syspath_hack import SysPathMode, ensure_module_dir  # type: ignore[attr-defined]
+        from syspath_hack import (  # type: ignore[attr-defined]
+            SysPathMode,
+            ensure_module_dir,
+        )
     except ImportError:  # pragma: no cover - compat for older syspath-hack
         import enum
 
@@ -37,6 +40,17 @@ else:  # pragma: no cover - exercised via CLI execution
             PREPEND = "prepend"
             APPEND = "append"
 
+        def _prepend_path_to_syspath(path_str: str) -> None:
+            """Place ``path_str`` first on sys.path, dropping duplicates."""
+            if path_str in sys.path:
+                sys.path.remove(path_str)
+            sys.path.insert(0, path_str)
+
+        def _append_path_to_syspath(path_str: str) -> None:
+            """Append ``path_str`` to sys.path if it is not already present."""
+            if path_str not in sys.path:
+                sys.path.append(path_str)
+
         def ensure_module_dir(
             file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
         ) -> Path:
@@ -44,12 +58,9 @@ else:  # pragma: no cover - exercised via CLI execution
             path = Path(file).resolve().parent
             path_str = str(path)
             if mode == SysPathMode.PREPEND:
-                if path_str in sys.path:
-                    sys.path.remove(path_str)
-                sys.path.insert(0, path_str)
+                _prepend_path_to_syspath(path_str)
             else:
-                if path_str not in sys.path:
-                    sys.path.append(path_str)
+                _append_path_to_syspath(path_str)
             return path
 
     _SCRIPT_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)

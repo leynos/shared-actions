@@ -20,39 +20,10 @@ import pytest
 import yaml
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
-from syspath_hack import add_to_syspath, remove_from_syspath
-
-try:
-    from syspath_hack import SysPathMode, clear_from_syspath, temp_syspath
-except ImportError:  # pragma: no cover - compat for older syspath-hack
-    import contextlib
-    import enum
-
-    class SysPathMode(enum.StrEnum):
-        """Compatibility enum when syspath_hack lacks SysPathMode."""
-
-        PREPEND = "prepend"
-        APPEND = "append"
-
-    def clear_from_syspath(paths: typ.Iterable[Path | str]) -> None:
-        """Remove each provided path from sys.path if present."""
-        for entry in paths:
-            with contextlib.suppress(Exception):
-                remove_from_syspath(entry)
-
-    @contextlib.contextmanager
-    def temp_syspath(
-        paths: typ.Iterable[Path | str], *, mode: SysPathMode = SysPathMode.PREPEND
-    ) -> typ.Iterator[None]:
-        """Temporarily adjust sys.path to include *paths*."""
-        original = list(sys.path)
-        for entry in paths:
-            add_to_syspath(entry)
-        try:
-            yield
-        finally:
-            sys.path[:] = original
-
+from syspath_hack import (
+    SysPathMode,
+    temp_syspath,
+)
 
 from cmd_utils_importer import import_cmd_utils
 

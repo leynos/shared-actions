@@ -34,6 +34,17 @@ except ImportError:  # pragma: no cover - compat for older syspath-hack
         PREPEND = "prepend"
         APPEND = "append"
 
+    def _prepend_path_to_syspath(path_str: str) -> None:
+        """Place ``path_str`` at the start of sys.path, removing duplicates first."""
+        if path_str in sys.path:
+            sys.path.remove(path_str)
+        sys.path.insert(0, path_str)
+
+    def _append_path_to_syspath(path_str: str) -> None:
+        """Append ``path_str`` to sys.path if it is not already present."""
+        if path_str not in sys.path:
+            sys.path.append(path_str)
+
     def ensure_module_dir(
         file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
     ) -> Path:
@@ -41,12 +52,9 @@ except ImportError:  # pragma: no cover - compat for older syspath-hack
         path = Path(file).resolve().parent
         path_str = str(path)
         if mode == SysPathMode.PREPEND:
-            if path_str in sys.path:
-                sys.path.remove(path_str)
-            sys.path.insert(0, path_str)
+            _prepend_path_to_syspath(path_str)
         else:
-            if path_str not in sys.path:
-                sys.path.append(path_str)
+            _append_path_to_syspath(path_str)
         return path
 
     def prepend_project_root(

@@ -15,10 +15,12 @@ import typing as typ
 from pathlib import Path
 
 from syspath_hack import add_to_syspath
+
 try:
-    from syspath_hack import prepend_project_root
+    from syspath_hack import prepend_project_root  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - compat for older syspath-hack
     def prepend_project_root(sigil: str = "pyproject.toml") -> Path:
+        """Fallback prepend when syspath_hack lacks prepend_project_root."""
         root = Path(__file__).resolve().parents[4]
         add_to_syspath(root)
         return root
@@ -28,7 +30,7 @@ def _prime_repo_root() -> None:
     """Ensure the repository root containing cmd_utils is importable."""
     try:
         prepend_project_root(sigil="cmd_utils_importer.py")
-    except Exception:  # pragma: no cover - fallback for older syspath-hack
+    except (OSError, RuntimeError, ImportError):  # pragma: no cover - fallback
         add_to_syspath(Path(__file__).resolve().parents[4])
 
 
@@ -37,10 +39,21 @@ _prime_repo_root()
 import typer  # noqa: E402
 from cross_manager import ensure_cross  # noqa: E402
 from plumbum import local  # noqa: E402
-from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut  # noqa: E402
-from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available  # noqa: E402
+from plumbum.commands.processes import (  # noqa: E402
+    ProcessExecutionError,
+    ProcessTimedOut,
+)
+from runtime import (  # noqa: E402
+    CROSS_CONTAINER_ERROR_CODES,
+    DEFAULT_HOST_TARGET,
+    runtime_available,
+)
 from toolchain import configure_windows_linkers, read_default_toolchain  # noqa: E402
-from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated  # noqa: E402
+from utils import (  # noqa: E402
+    UnexpectedExecutableError,
+    ensure_allowed_executable,
+    run_validated,
+)
 
 if typ.TYPE_CHECKING:
     import subprocess

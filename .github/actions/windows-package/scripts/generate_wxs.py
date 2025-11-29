@@ -13,8 +13,14 @@ import cyclopts
 from cyclopts import App, Parameter
 
 try:
-    from syspath_hack import SysPathMode, ensure_module_dir  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - compat with older syspath-hack
+    import syspath_hack as _sh
+
+    SysPathMode = _sh.SysPathMode  # type: ignore[attr-defined]
+    ensure_module_dir = _sh.ensure_module_dir  # type: ignore[attr-defined]
+except (
+    ImportError,
+    AttributeError,
+):  # pragma: no cover - compat with older syspath-hack
     import enum
 
     class SysPathMode(enum.StrEnum):
@@ -23,6 +29,17 @@ except ImportError:  # pragma: no cover - compat with older syspath-hack
         PREPEND = "prepend"
         APPEND = "append"
 
+    def _prepend_to_syspath(path_str: str) -> None:
+        """Place ``path_str`` first on sys.path, removing any duplicate."""
+        if path_str in sys.path:
+            sys.path.remove(path_str)
+        sys.path.insert(0, path_str)
+
+    def _append_to_syspath(path_str: str) -> None:
+        """Append ``path_str`` to sys.path if it is not already present."""
+        if path_str not in sys.path:
+            sys.path.append(path_str)
+
     def ensure_module_dir(
         file: str | Path, *, mode: SysPathMode = SysPathMode.PREPEND
     ) -> Path:
@@ -30,12 +47,9 @@ except ImportError:  # pragma: no cover - compat with older syspath-hack
         path = Path(file).resolve().parent
         path_str = str(path)
         if mode == SysPathMode.PREPEND:
-            if path_str in sys.path:
-                sys.path.remove(path_str)
-            sys.path.insert(0, path_str)
+            _prepend_to_syspath(path_str)
         else:
-            if path_str not in sys.path:
-                sys.path.append(path_str)
+            _append_to_syspath(path_str)
         return path
 
 

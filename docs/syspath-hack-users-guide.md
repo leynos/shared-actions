@@ -25,7 +25,7 @@ from syspath_hack import (
   objects or strings) and appends it to `sys.path` only if the normalised path
   is missing.
 - `prepend_to_syspath(path)` performs the same normalisation but ensures the
-  path is the first entry in `sys.path`, removing any existing duplicates so
+  path is the first entry in `sys.path`, removing any existing duplicates, so
   imports favour that location.
 - `remove_from_syspath(path)` performs the inverse operation and removes all
   occurrences of the resolved path from `sys.path`.

@@ -16,7 +16,6 @@ from pathlib import Path
 
 from syspath_hack import add_to_syspath, prepend_project_root
 
-
 try:
     prepend_project_root(sigil="cmd_utils_importer.py")
 except (OSError, RuntimeError):  # pragma: no cover - fallback

@@ -59,9 +59,7 @@ def test_bootstrap_inserts_repo_root_after_script_dir_prefix(
 
     _, repo_root = action_setup_module.bootstrap_environment()
 
-    assert path_entries[0] == str(repo_root)
-    assert script_dir_str in path_entries
-    assert "other" in path_entries
+    assert path_entries == [str(repo_root), script_dir_str, "other"]
 
 
 def test_bootstrap_ignores_blank_first_entry_for_insertion_index(

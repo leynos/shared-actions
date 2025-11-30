@@ -17,15 +17,10 @@ from pathlib import Path
 from syspath_hack import add_to_syspath, prepend_project_root
 
 
-def _prime_repo_root() -> None:
-    """Ensure the repository root containing cmd_utils is importable."""
-    try:
-        prepend_project_root(sigil="cmd_utils_importer.py")
-    except (OSError, RuntimeError):  # pragma: no cover - fallback
-        add_to_syspath(Path(__file__).resolve().parents[4])
-
-
-_prime_repo_root()
+try:
+    prepend_project_root(sigil="cmd_utils_importer.py")
+except (OSError, RuntimeError):  # pragma: no cover - fallback
+    add_to_syspath(Path(__file__).resolve().parents[4])
 
 import typer
 from cross_manager import ensure_cross

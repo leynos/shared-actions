@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "syspath-hack>=0.2,<0.4", "typer"]
+# dependencies = ["plumbum", "syspath-hack==0.3.0b1", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 

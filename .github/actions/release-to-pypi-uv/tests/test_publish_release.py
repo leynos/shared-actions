@@ -10,6 +10,7 @@ if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
 
 import pytest
+from syspath_hack import prepend_to_syspath
 from typer.testing import CliRunner
 
 from ._helpers import SCRIPTS_DIR, load_script_module
@@ -26,9 +27,7 @@ def _normalize_invocation(formulated: list[str]) -> list[str]:
 def fixture_publish_module() -> ModuleType:
     """Load the ``publish_release`` script module with repository paths set."""
     module = load_script_module("publish_release")
-    scripts_dir = str(SCRIPTS_DIR)
-    if scripts_dir not in module.sys.path:  # type: ignore[attr-defined]
-        module.sys.path.insert(0, scripts_dir)  # type: ignore[attr-defined]
+    prepend_to_syspath(SCRIPTS_DIR)
     return module
 
 

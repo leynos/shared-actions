@@ -11,6 +11,7 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+from syspath_hack import SysPathMode, ensure_module_dir
 
 try:
     from cyclopts.exceptions import UsageError  # type: ignore[attr-defined]
@@ -18,10 +19,7 @@ except ImportError:  # pragma: no cover - compatibility with older cyclopts
     from cyclopts.exceptions import CycloptsError as UsageError
 
 if __package__ in {None, ""}:
-    _MODULE_DIR = Path(__file__).resolve().parent
-    _MODULE_DIR_STR = str(_MODULE_DIR)
-    if _MODULE_DIR_STR not in sys.path:
-        sys.path.insert(0, _MODULE_DIR_STR)
+    _MODULE_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
 
 from windows_installer import (
     FileSpecification,

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.13"
-# dependencies = ["plumbum", "typer>=0.17,<0.18"]
+# dependencies = ["plumbum", "syspath-hack==0.3.0b1", "typer>=0.17,<0.18"]
 # ///
 """Publish the built distributions using uv."""
 
@@ -15,6 +15,11 @@ from pathlib import Path
 
 import typer
 from plumbum import local
+from syspath_hack import (
+    SysPathMode,
+    ensure_module_dir,
+    prepend_to_syspath,
+)
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -40,8 +45,7 @@ def _extend_sys_path() -> None:
         with contextlib.suppress(IndexError):
             candidates.append(action_path.parents[2])
     else:
-        script_path = Path(__file__).resolve()
-        scripts_dir = script_path.parent
+        scripts_dir = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
         candidates.append(scripts_dir)
         with contextlib.suppress(IndexError):
             candidates.append(scripts_dir.parents[3])
@@ -49,9 +53,7 @@ def _extend_sys_path() -> None:
     for candidate in candidates:
         if not candidate.exists():
             continue
-        path_str = str(candidate)
-        if path_str not in sys.path:
-            sys.path.insert(0, path_str)
+        prepend_to_syspath(candidate)
 
 
 _ensure_python_runtime()

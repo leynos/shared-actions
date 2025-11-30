@@ -20,6 +20,10 @@ import pytest
 import yaml
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError
+from syspath_hack import (
+    SysPathMode,
+    temp_syspath,
+)
 
 from cmd_utils_importer import import_cmd_utils
 
@@ -594,19 +598,20 @@ def _run_script_with_fallback(
     """Execute ``script`` via runpy using the ImportError fallback path."""
     scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
     module_path = scripts_dir / script
-    original_sys_path = list(sys.path)
     original_helper = sys.modules.get("script_utils")
     missing_geteuid = False
     if not hasattr(os, "geteuid"):
         missing_geteuid = True
         os.geteuid = lambda: 0  # type: ignore[attr-defined]
     try:
-        result_globals = runpy.run_path(module_path.as_posix(), run_name=module_name)
-        helper_module = sys.modules.get("script_utils")
+        with temp_syspath([scripts_dir], mode=SysPathMode.PREPEND):
+            result_globals = runpy.run_path(
+                module_path.as_posix(), run_name=module_name
+            )
+            helper_module = sys.modules.get("script_utils")
     finally:
         if missing_geteuid:
             delattr(os, "geteuid")
-        sys.path[:] = original_sys_path
         if original_helper is None:
             sys.modules.pop("script_utils", None)
         else:

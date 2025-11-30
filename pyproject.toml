@@ -16,6 +16,7 @@ dependencies = [
     "typer>=0.9,<1.0",
     "lxml>=5.2,<6.0",
     "cyclopts>=3.24,<4.0",
+    "syspath-hack==0.3.0b1",
     "jinja2>=3.1,<4.0",
     # Pin Polythene to the requested commit for Linux package validation tooling.
     "polythene@git+https://github.com/leynos/polythene.git@61b4566130305fcb32f419f09ae8b3940ceb4107",
@@ -77,7 +78,7 @@ select = [
     "ANN",
 ]
 per-file-ignores = {"**/test_*.py" = ["S101"]}
-ignore = ["D205"]
+ignore = ["D205", "E402"]
 
 [tool.ruff.lint.flake8-import-conventions]
 # Declare the banned `from` imports.
@@ -128,4 +129,3 @@ package = true
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
-

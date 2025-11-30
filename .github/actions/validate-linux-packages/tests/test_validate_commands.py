@@ -8,17 +8,16 @@ from pathlib import Path
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
+from syspath_hack import add_to_syspath
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_commands.py"
+add_to_syspath(SCRIPTS_DIR)
 
 
 @pytest.fixture(scope="module")
 def validate_commands_module() -> object:
     """Load the validate_commands module under test."""
-    if str(SCRIPTS_DIR) not in sys.path:
-        sys.path.append(str(SCRIPTS_DIR))
-
     module = sys.modules.get("validate_commands")
     if module is not None:
         return module

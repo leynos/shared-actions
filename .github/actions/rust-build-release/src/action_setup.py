@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["plumbum", "syspath-hack==0.3.0b1", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 
@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import typing as typ
 from pathlib import Path
+
+from syspath_hack import prepend_to_syspath
 
 # The bootstrap walks upward from this module to locate key directories instead of
 # relying on hard-coded parent counts. ``_ACTION_MARKERS`` are used to identify the
@@ -20,30 +21,6 @@ from pathlib import Path
 _ACTION_MARKERS: typ.Final[tuple[str, ...]] = ("action.yml", "action.yaml")
 _REPO_MARKERS: typ.Final[tuple[str, ...]] = (".git", "pyproject.toml", "uv.lock")
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
-
-
-def _compute_sys_path_insert_index(
-    script_dir: Path, path_entries: typ.Sequence[str]
-) -> int:
-    """Return the insertion index for ``script_dir`` aware path updates."""
-    if not path_entries:
-        return 0
-
-    head = path_entries[0]
-    if not head:
-        return 0
-
-    try:
-        head_path = Path(head).resolve()
-    except (OSError, RuntimeError, ValueError):  # pragma: no cover - defensive guard
-        return 0
-
-    try:
-        script_dir_resolved = script_dir.resolve()
-    except (OSError, RuntimeError):  # pragma: no cover - defensive guard
-        script_dir_resolved = script_dir
-
-    return 1 if head_path == script_dir_resolved else 0
 
 
 def _initialise_cmd_utils() -> None:
@@ -103,10 +80,7 @@ def bootstrap_environment() -> tuple[Path, Path]:
     if not repo_root.exists():
         message = f"Repository root does not exist: {repo_root}"
         raise FileNotFoundError(message)
-    repo_root_str = str(repo_root)
-    if repo_root_str not in sys.path:
-        insert_index = _compute_sys_path_insert_index(script_path.parent, sys.path)
-        sys.path.insert(insert_index, repo_root_str)
+    prepend_to_syspath(repo_root)
 
     _initialise_cmd_utils()
 
@@ -116,8 +90,8 @@ def bootstrap_environment() -> tuple[Path, Path]:
 
 _ACTION_PATH, _REPO_ROOT = bootstrap_environment()
 
-import typer  # noqa: E402
-from toolchain import read_default_toolchain  # noqa: E402
+import typer
+from toolchain import read_default_toolchain
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 

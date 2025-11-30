@@ -16,19 +16,20 @@ from pathlib import Path
 import pytest
 from plumbum import local
 from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
+from syspath_hack import add_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(TESTS_ROOT / "scripts"))
-from script_utils import unique_match  # noqa: E402
+add_to_syspath(TESTS_ROOT / "scripts")
+from script_utils import unique_match
 
 SCRIPTS_DIR = TESTS_ROOT.parent / "scripts"
-sys.path.append(str(SCRIPTS_DIR))
-import architectures  # noqa: E402
-import package as packaging_script  # noqa: E402
+add_to_syspath(SCRIPTS_DIR)
+import architectures
+import package as packaging_script
 
 deb_arch_for_target = architectures.deb_arch_for_target
 

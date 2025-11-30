@@ -9,17 +9,16 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from syspath_hack import add_to_syspath
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 MODULE_PATH = SCRIPTS_DIR / "validate_cli.py"
+add_to_syspath(SCRIPTS_DIR)
 
 
 @pytest.fixture
 def validate_cli_module() -> object:
     """Load the validate_cli module under test."""
-    if str(SCRIPTS_DIR) not in sys.path:
-        sys.path.append(str(SCRIPTS_DIR))
-
     module = sys.modules.get("validate_cli")
     if module is not None:
         return module

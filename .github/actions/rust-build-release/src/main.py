@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["packaging", "plumbum", "typer"]
+# dependencies = ["packaging", "plumbum", "syspath-hack==0.3.0b1", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -14,15 +14,31 @@ import sys
 import typing as typ
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[4]))
+from syspath_hack import add_to_syspath, prepend_project_root
+
+try:
+    prepend_project_root(sigil="cmd_utils_importer.py")
+except (OSError, RuntimeError):  # pragma: no cover - fallback
+    add_to_syspath(Path(__file__).resolve().parents[4])
 
 import typer
 from cross_manager import ensure_cross
 from plumbum import local
-from plumbum.commands.processes import ProcessExecutionError, ProcessTimedOut
-from runtime import CROSS_CONTAINER_ERROR_CODES, DEFAULT_HOST_TARGET, runtime_available
+from plumbum.commands.processes import (
+    ProcessExecutionError,
+    ProcessTimedOut,
+)
+from runtime import (
+    CROSS_CONTAINER_ERROR_CODES,
+    DEFAULT_HOST_TARGET,
+    runtime_available,
+)
 from toolchain import configure_windows_linkers, read_default_toolchain
-from utils import UnexpectedExecutableError, ensure_allowed_executable, run_validated
+from utils import (
+    UnexpectedExecutableError,
+    ensure_allowed_executable,
+    run_validated,
+)
 
 if typ.TYPE_CHECKING:
     import subprocess

@@ -99,9 +99,14 @@ WINDOWS_XFAIL_REASON = (
 @pytest.fixture(autouse=True)
 def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide writable cargo/rustup homes for integration tests."""
-    cargo_home = tmp_path / "cargo-home"
+    rustup_bin = shutil.which("rustup")
+    if rustup_bin is None:  # pragma: no cover - guarded by caller checks
+        pytest.skip("rustup not installed")
+
+    # Keep rustup state isolated, but use the real cargo home so the rustup
+    # shim continues to find its installed path layout.
+    cargo_home = Path(rustup_bin).resolve().parent.parent
     rustup_home = tmp_path / "rustup-home"
-    cargo_home.mkdir(parents=True, exist_ok=True)
     rustup_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CARGO_HOME", str(cargo_home))
     monkeypatch.setenv("RUSTUP_HOME", str(rustup_home))

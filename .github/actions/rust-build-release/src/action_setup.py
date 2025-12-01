@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "syspath-hack==0.3.0b1", "typer"]
+# dependencies = ["plumbum", "syspath-hack>=0.3.0,<0.4.0", "typer"]
 # ///
 """Helper utilities for composite action setup steps."""
 
@@ -11,7 +11,6 @@ import os
 import re
 import typing as typ
 from pathlib import Path
-
 from syspath_hack import prepend_to_syspath
 
 # The bootstrap walks upward from this module to locate key directories instead of

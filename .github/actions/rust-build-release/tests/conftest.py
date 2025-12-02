@@ -105,9 +105,16 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     if not Path(rustup_bin).is_file():
         pytest.skip(f"rustup missing at resolved path: {rustup_bin}")
 
+    # Determine the actual cargo home from environment or use default
+    import os
+    cargo_home_str = os.environ.get("CARGO_HOME")
+    if cargo_home_str:
+        cargo_home = Path(cargo_home_str)
+    else:
+        cargo_home = Path.home() / ".cargo"
+
     # Keep rustup state isolated, but use the real cargo home so the rustup
     # shim continues to find its installed path layout.
-    cargo_home = Path(rustup_bin).resolve().parent.parent
     rustup_home = tmp_path / "rustup-home"
     rustup_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CARGO_HOME", str(cargo_home))

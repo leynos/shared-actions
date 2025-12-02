@@ -102,6 +102,8 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     rustup_bin = shutil.which("rustup")
     if rustup_bin is None:  # pragma: no cover - guarded by caller checks
         pytest.skip("rustup not installed")
+    if not Path(rustup_bin).is_file():
+        pytest.skip(f"rustup missing at resolved path: {rustup_bin}")
 
     # Keep rustup state isolated, but use the real cargo home so the rustup
     # shim continues to find its installed path layout.
@@ -225,6 +227,8 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         rustup_path = shutil.which("rustup")
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
+        if not Path(rustup_path).is_file():
+            pytest.skip(f"rustup missing at resolved path: {rustup_path}")
         _, stdout, _ = typ.cast(
             "tuple[int, str, str]",
             run_cmd(

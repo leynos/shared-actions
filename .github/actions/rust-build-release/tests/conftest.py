@@ -246,7 +246,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                 else toolchain_version
             )
             run_cmd(
-                local["rustup"][
+                local[rustup_path][
                     "toolchain",
                     "install",
                     install_spec,

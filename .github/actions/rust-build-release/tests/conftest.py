@@ -229,13 +229,16 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
             pytest.skip("rustup not installed")
         if not Path(rustup_path).is_file():
             pytest.skip(f"rustup missing at resolved path: {rustup_path}")
-        _, stdout, _ = typ.cast(
-            "tuple[int, str, str]",
-            run_cmd(
-                local[rustup_path]["toolchain", "list"],
-                method="run",
-            ),
-        )
+        try:
+            _, stdout, _ = typ.cast(
+                "tuple[int, str, str]",
+                run_cmd(
+                    local[rustup_path]["toolchain", "list"],
+                    method="run",
+                ),
+            )
+        except Exception as exc:  # pragma: no cover - env guard
+            pytest.skip(f"rustup unavailable on runner: {exc}")
         installed_names = [
             line.split()[0] for line in stdout.splitlines() if line.strip()
         ]

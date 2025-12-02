@@ -237,7 +237,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                     method="run",
                 ),
             )
-        except Exception as exc:  # pragma: no cover - env guard
+        except (OSError, ProcessExecutionError) as exc:  # pragma: no cover - env guard
             pytest.skip(f"rustup unavailable on runner: {exc}")
         installed_names = [
             line.split()[0] for line in stdout.splitlines() if line.strip()

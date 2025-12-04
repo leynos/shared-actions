@@ -107,6 +107,7 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Determine the actual cargo home from environment or use default
     import os
+
     cargo_home_str = os.environ.get("CARGO_HOME")
     if cargo_home_str:
         cargo_home = Path(cargo_home_str)

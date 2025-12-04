@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 from syspath_hack import prepend_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
@@ -109,10 +110,7 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import os
 
     cargo_home_str = os.environ.get("CARGO_HOME")
-    if cargo_home_str:
-        cargo_home = Path(cargo_home_str)
-    else:
-        cargo_home = Path.home() / ".cargo"
+    cargo_home = Path(cargo_home_str) if cargo_home_str else Path.home() / ".cargo"
 
     # Keep rustup state isolated, but use the real cargo home so the rustup
     # shim continues to find its installed path layout.

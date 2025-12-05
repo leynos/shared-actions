@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from plumbum import local
+from plumbum.commands.processes import ProcessExecutionError
 from syspath_hack import prepend_to_syspath
 
 from cmd_utils_importer import import_cmd_utils
@@ -99,9 +100,21 @@ WINDOWS_XFAIL_REASON = (
 @pytest.fixture(autouse=True)
 def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide writable cargo/rustup homes for integration tests."""
-    cargo_home = tmp_path / "cargo-home"
+    rustup_bin = shutil.which("rustup")
+    if rustup_bin is None:  # pragma: no cover - guarded by caller checks
+        pytest.skip("rustup not installed")
+    if not Path(rustup_bin).is_file():
+        pytest.skip(f"rustup missing at resolved path: {rustup_bin}")
+
+    # Determine the actual cargo home from environment or use default
+    import os
+
+    cargo_home_str = os.environ.get("CARGO_HOME")
+    cargo_home = Path(cargo_home_str) if cargo_home_str else Path.home() / ".cargo"
+
+    # Keep rustup state isolated, but use the real cargo home so the rustup
+    # shim continues to find its installed path layout.
     rustup_home = tmp_path / "rustup-home"
-    cargo_home.mkdir(parents=True, exist_ok=True)
     rustup_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CARGO_HOME", str(cargo_home))
     monkeypatch.setenv("RUSTUP_HOME", str(rustup_home))
@@ -220,13 +233,18 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         rustup_path = shutil.which("rustup")
         if rustup_path is None:  # pragma: no cover - guarded by caller checks
             pytest.skip("rustup not installed")
-        _, stdout, _ = typ.cast(
-            "tuple[int, str, str]",
-            run_cmd(
-                local[rustup_path]["toolchain", "list"],
-                method="run",
-            ),
-        )
+        if not Path(rustup_path).is_file():
+            pytest.skip(f"rustup missing at resolved path: {rustup_path}")
+        try:
+            _, stdout, _ = typ.cast(
+                "tuple[int, str, str]",
+                run_cmd(
+                    local[rustup_path]["toolchain", "list"],
+                    method="run",
+                ),
+            )
+        except (OSError, ProcessExecutionError) as exc:  # pragma: no cover - env guard
+            pytest.skip(f"rustup unavailable on runner: {exc}")
         installed_names = [
             line.split()[0] for line in stdout.splitlines() if line.strip()
         ]
@@ -241,7 +259,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                 else toolchain_version
             )
             run_cmd(
-                local["rustup"][
+                local[rustup_path][
                     "toolchain",
                     "install",
                     install_spec,

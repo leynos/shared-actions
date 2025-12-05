@@ -26,7 +26,9 @@ from syspath_hack import (
   is missing.
 - `prepend_to_syspath(path)` performs the same normalization but ensures the
   path is the first entry in `sys.path`, removing any existing duplicates, so
-  imports favour that location.
+  imports favour that location. When the list already begins with `""` (the
+  interpreter's sentinel meaning "current working directory"), the helper
+  preserves that entry even if it resolves to the same directory as the target.
 - `remove_from_syspath(path)` performs the inverse operation and removes all
   occurrences of the resolved path from `sys.path`.
 - `clear_from_syspath(paths)` accepts an iterable of paths and removes each

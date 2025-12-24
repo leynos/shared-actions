@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13]
+        os: [ubuntu-latest, macos-15]
     steps:
       - name: Checkout repository
         # v4
@@ -40,7 +40,7 @@ jobs:
         # v2.0.2
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
       - name: Setup Bun (macOS)
-        if: matrix.os == 'macos-13'
+        if: matrix.os == 'macos-15'
         # v2.0.2
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
       - name: Install action-validator

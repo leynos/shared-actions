@@ -18,7 +18,7 @@
 //! ## Pattern
 //!
 //! Tests are structured using Given/When/Then comments to maintain BDD semantics
-//! while leveraging rstest's powerful fixture and parametrization features.
+//! while leveraging rstest's powerful fixture and parameterisation features.
 //!
 //! [`generate-coverage`]: https://github.com/anthropics/shared-actions/tree/main/.github/actions/generate-coverage
 
@@ -69,20 +69,6 @@ fn state() -> GreetingState {
     GreetingState::default()
 }
 
-/// Fixture providing a CLI configured with a specific name.
-#[fixture]
-fn cli_with_name() -> Cli {
-    Cli {
-        name: Some("FixtureUser".into()),
-    }
-}
-
-/// Fixture providing a CLI with no name (default greeting).
-#[fixture]
-fn cli_default() -> Cli {
-    Cli { name: None }
-}
-
 // =============================================================================
 // BDD Scenarios: Greeting Feature
 // =============================================================================
@@ -102,9 +88,9 @@ fn scenario_default_greeting_without_name(mut state: GreetingState) {
     state.then_greeting_is("Hello, world!");
 }
 
-/// Scenario: Personalized greeting with a name
+/// Scenario: Personalised greeting with a name
 ///
-/// Mirrors: tests/features/greeting.feature - "Personalized greeting with a name"
+/// Mirrors: tests/features/greeting.feature - "Personalised greeting with a name"
 #[rstest]
 fn scenario_personalized_greeting_with_name(mut state: GreetingState) {
     // Given: a name "Alice" is provided
@@ -155,26 +141,32 @@ fn scenario_outline_various_names(
 }
 
 // =============================================================================
-// Fixture-based Tests
+// Direct CLI Tests (demonstrating inline CLI construction)
 // =============================================================================
 
-/// Test using the cli_with_name fixture directly.
+/// Test direct CLI usage with a named greeting.
 #[rstest]
-fn fixture_based_named_greeting(cli_with_name: Cli) {
-    // Given: a CLI fixture with "FixtureUser"
-    // When: we generate a greeting
-    let greeting = cli_with_name.run();
+fn direct_cli_named_greeting() {
+    // Given: a CLI with a specific name
+    let cli = Cli {
+        name: Some("DirectUser".into()),
+    };
 
-    // Then: the greeting uses the fixture's name
-    assert_eq!(greeting, "Hello, FixtureUser!");
+    // When: we generate a greeting
+    let greeting = cli.run();
+
+    // Then: the greeting uses the provided name
+    assert_eq!(greeting, "Hello, DirectUser!");
 }
 
-/// Test using the cli_default fixture directly.
+/// Test direct CLI usage with the default greeting.
 #[rstest]
-fn fixture_based_default_greeting(cli_default: Cli) {
-    // Given: a CLI fixture with no name
+fn direct_cli_default_greeting() {
+    // Given: a CLI with no name
+    let cli = Cli { name: None };
+
     // When: we generate a greeting
-    let greeting = cli_default.run();
+    let greeting = cli.run();
 
     // Then: the greeting is the default
     assert_eq!(greeting, "Hello, world!");

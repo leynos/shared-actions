@@ -6,14 +6,14 @@
 
 ## Purpose
 
-This simple CLI application demonstrates various Rust testing patterns for
+This simple Command Line Interface (CLI) application demonstrates various Rust testing patterns for
 coverage collection validation:
 
 | Test Type | Framework | File(s) | Harness |
 |-----------|-----------|---------|---------|
 | Unit tests | [rstest](https://crates.io/crates/rstest) | `src/lib.rs` | Standard |
 | Integration tests | rstest + assert_cmd | `tests/cli.rs` | Standard |
-| BDD (Gherkin) | [cucumber-rs](https://cucumber-rs.github.io/cucumber/current/) | `tests/cucumber.rs`, `tests/features/*.feature` | Custom (`harness = false`) |
+| Behaviour-Driven Development (BDD) (Gherkin) | [cucumber-rs](https://cucumber-rs.github.io/cucumber/current/) | `tests/cucumber.rs`, `tests/features/*.feature` | Custom (`harness = false`) |
 | BDD (rstest-style) | rstest | `tests/bdd.rs` | Standard |
 
 The test suite validates that the `generate-coverage` action correctly:
@@ -103,7 +103,7 @@ The test suite is designed to be invoked via the `generate-coverage` action:
 
 ## Test Structure
 
-```
+```text
 rust-toy-app/
   src/
     lib.rs          # Library with unit tests (rstest fixtures)
@@ -115,7 +115,7 @@ rust-toy-app/
     bdd.rs          # BDD-style rstest tests (standard harness)
     features/
       greeting.feature  # Gherkin scenarios for greeting
-      cli.feature       # Gherkin scenarios for CLI behavior
+      cli.feature       # Gherkin scenarios for CLI behaviour
 ```
 
 ## Test Patterns Demonstrated
@@ -176,6 +176,6 @@ fn scenario_default_greeting_without_name(mut state: GreetingState) {
 }
 ```
 
-## License
+## Licence
 
 ISC

@@ -125,28 +125,36 @@ fn exit_code_should_be(world: &mut GreetingWorld, expected: i32) {
     );
 }
 
+/// Enum to select which output stream to check.
+enum OutputStream {
+    Stdout,
+    Stderr,
+}
+
+/// Helper function to check if an output stream contains the expected string.
+fn check_output_stream_contains(world: &mut GreetingWorld, stream: OutputStream, expected: String) {
+    let output = world.output.as_ref().expect("no output captured");
+    let (content, stream_name) = match stream {
+        OutputStream::Stdout => (String::from_utf8_lossy(&output.stdout), "stdout"),
+        OutputStream::Stderr => (String::from_utf8_lossy(&output.stderr), "stderr"),
+    };
+    assert!(
+        content.contains(&expected),
+        "Expected {} to contain '{}' but got: {}",
+        stream_name,
+        expected,
+        content
+    );
+}
+
 #[then(expr = "the output should contain {string}")]
 fn output_contains(world: &mut GreetingWorld, expected: String) {
-    let output = world.output.as_ref().expect("no output captured");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(&expected),
-        "Expected stdout to contain '{}' but got: {}",
-        expected,
-        stdout
-    );
+    check_output_stream_contains(world, OutputStream::Stdout, expected);
 }
 
 #[then(expr = "the stderr should contain {string}")]
 fn stderr_contains(world: &mut GreetingWorld, expected: String) {
-    let output = world.output.as_ref().expect("no output captured");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains(&expected),
-        "Expected stderr to contain '{}' but got: {}",
-        expected,
-        stderr
-    );
+    check_output_stream_contains(world, OutputStream::Stderr, expected);
 }
 
 fn main() {

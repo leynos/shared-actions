@@ -1,7 +1,7 @@
 # rust-toy-app
 
 > **Test Fixture** - This application serves as a test fixture for validating the
-> [`generate-coverage`](.github/actions/generate-coverage/) GitHub Action.
+> [`generate-coverage`](../.github/actions/generate-coverage/) GitHub Action.
 > It is **not** intended as a functional product.
 
 ## Purpose

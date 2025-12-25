@@ -28,6 +28,12 @@ use std::process::{Command, Output};
 use cucumber::{given, then, when, World};
 use rust_toy_app::cli::Cli;
 
+/// Path to the Gherkin feature files, relative to the crate root.
+///
+/// This path must match the `cucumber-rs-features` input when using the
+/// `generate-coverage` action with `with-cucumber-rs: true`.
+const FEATURES_PATH: &str = "tests/features";
+
 /// World struct maintaining state across cucumber steps.
 ///
 /// Each scenario gets a fresh instance of this struct.
@@ -159,6 +165,5 @@ fn stderr_contains(world: &mut GreetingWorld, expected: String) {
 
 fn main() {
     // Run cucumber tests synchronously using futures executor.
-    // The path matches the `cucumber-rs-features` input expected by generate-coverage action.
-    futures::executor::block_on(GreetingWorld::run("tests/features"));
+    futures::executor::block_on(GreetingWorld::run(FEATURES_PATH));
 }

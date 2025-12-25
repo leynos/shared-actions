@@ -37,3 +37,22 @@ Feature: Greeting generation
       | Charlie  |
       | Diana    |
       | Eve      |
+
+  # Edge Case Scenarios
+  # These scenarios validate the same edge cases as src/lib.rs and tests/bdd.rs
+  # to ensure cross-harness coverage validation.
+
+  Scenario: Empty name produces minimal greeting
+    Given a name "" is provided
+    When the greeting is generated
+    Then the output should be "Hello, !"
+
+  Scenario: Whitespace-only name is preserved
+    Given a name "   " is provided
+    When the greeting is generated
+    Then the output should be "Hello,    !"
+
+  Scenario: Very long name is handled correctly
+    Given a name "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" is provided
+    When the greeting is generated
+    Then the output should be "Hello, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!"

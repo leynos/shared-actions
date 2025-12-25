@@ -88,9 +88,9 @@ fn scenario_default_greeting_without_name(mut state: GreetingState) {
     state.then_greeting_is("Hello, world!");
 }
 
-/// Scenario: Personalised greeting with a name
+/// Scenario: Personalized greeting with a name
 ///
-/// Mirrors: tests/features/greeting.feature - "Personalised greeting with a name"
+/// Mirrors: tests/features/greeting.feature - "Personalized greeting with a name"
 #[rstest]
 fn scenario_personalized_greeting_with_name(mut state: GreetingState) {
     // Given: a name "Alice" is provided

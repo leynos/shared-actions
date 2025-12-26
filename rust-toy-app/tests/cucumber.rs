@@ -63,9 +63,8 @@ fn name_is_provided(world: &mut GreetingWorld, name: String) {
 
 #[when("the greeting is generated")]
 fn greeting_is_generated(world: &mut GreetingWorld) {
-    if let Some(cli) = &world.cli {
-        world.greeting = Some(cli.run());
-    }
+    let cli = world.cli.as_ref().expect("CLI not configured; missing 'Given' step");
+    world.greeting = Some(cli.run());
 }
 
 #[then(expr = "the output should be {string}")]

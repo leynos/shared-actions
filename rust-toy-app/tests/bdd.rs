@@ -204,7 +204,7 @@ fn scenario_whitespace_name(mut state: GreetingState) {
 
 /// Scenario: Name with special characters
 #[rstest]
-#[case::emoji("Hello, World! 🎉")]
+#[case::emoji("🎉")]
 #[case::quotes("O'Brien")]
 #[case::unicode("Müller")]
 #[case::numbers("Agent007")]

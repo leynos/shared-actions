@@ -167,6 +167,35 @@ def _validate_checksum(name: str | None) -> str:
     return algorithm
 
 
+def _validate_string_field(
+    value: object,
+    field_name: str,
+    index: int,
+    config_path: Path,
+    *,
+    allow_empty: bool,
+) -> str:
+    """Validate a string field value.
+
+    When ``allow_empty=False``, also checks the string is non-empty.
+    """
+    if not isinstance(value, str):
+        msg = (
+            f"Artefact '{field_name}' must be a string, "
+            f"got {type(value).__name__} in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+
+    if not allow_empty and not value:
+        msg = (
+            f"Missing required artefact key '{field_name}' "
+            f"in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+
+    return value
+
+
 def _validate_field_type[T](
     value: object,
     field_name: str,
@@ -180,16 +209,13 @@ def _validate_field_type[T](
 
     For strings with ``allow_empty_str=False``, also checks the value is non-empty.
     """
-    is_nonempty_str = isinstance(value, str) and value
-    if expected_type is str and not allow_empty_str and is_nonempty_str:
-        return typ.cast("T", value)
-
-    if expected_type is str and not allow_empty_str:
-        msg = (
-            f"Missing required artefact key '{field_name}' "
-            f"in entry #{index} of {config_path}"
+    if expected_type is str:
+        return typ.cast(
+            "T",
+            _validate_string_field(
+                value, field_name, index, config_path, allow_empty=allow_empty_str
+            ),
         )
-        raise StageError(msg)
 
     if not isinstance(value, expected_type):
         type_name = "boolean" if expected_type is bool else expected_type.__name__

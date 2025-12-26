@@ -59,9 +59,7 @@ class ReleaseModes:
         }
 
 
-def _determine_dry_run(
-    event_name: str, inputs: cabc.Mapping[str, typ.Any]
-) -> bool:
+def _determine_dry_run(event_name: str, inputs: cabc.Mapping[str, typ.Any]) -> bool:
     """Determine the dry-run flag from environment override or event inputs."""
     input_dry_run = os.environ.get("INPUT_DRY_RUN", "").strip()
     dry_run_default = event_name == "pull_request"

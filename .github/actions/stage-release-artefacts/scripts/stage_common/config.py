@@ -199,9 +199,7 @@ def _validate_field_type[T](
     return value
 
 
-def _validate_source(
-    entry: dict[str, typ.Any], index: int, config_path: Path
-) -> str:
+def _validate_source(entry: dict[str, typ.Any], index: int, config_path: Path) -> str:
     """Validate and extract the source field from an artefact entry."""
     return _validate_field_type(
         entry.get("source"), "source", str, index, config_path, allow_empty_str=False

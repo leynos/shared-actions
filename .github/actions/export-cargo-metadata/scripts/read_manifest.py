@@ -104,9 +104,9 @@ def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:
     print(f"::error {metadata}::{_esc(message)}")
 
 
-_SUPPORTED_FIELDS: frozenset[str] = frozenset({
-    "name", "version", "bin-name", "description"
-})
+_SUPPORTED_FIELDS: frozenset[str] = frozenset(
+    {"name", "version", "bin-name", "description"}
+)
 
 
 def _emit_warning(message: str) -> None:
@@ -163,9 +163,7 @@ def _load_manifest(resolved_path: Path) -> dict[str, typ.Any]:
         raise SystemExit(1) from exc
 
 
-def _export_field(
-    field: str, value: str, *, should_export_env: bool
-) -> str:
+def _export_field(field: str, value: str, *, should_export_env: bool) -> str:
     """Export a field to outputs and optionally to environment."""
     output_name = field.replace("_", "-")
     _write_output(output_name, value)

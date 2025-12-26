@@ -19,6 +19,7 @@ from .errors import StageError
 __all__ = [
     "ArtefactConfig",
     "StagingConfig",
+    "ValidationContext",
     "load_config",
 ]
 
@@ -78,6 +79,14 @@ class StagingConfig:
         return template_context | {
             "staging_dir_name": self.staging_dir_template.format(**template_context)
         }
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
+class ValidationContext:
+    """Context information for validation error messages."""
+
+    index: int
+    config_path: Path
 
 
 def load_config(config_file: Path, target_key: str) -> StagingConfig:
@@ -170,8 +179,7 @@ def _validate_checksum(name: str | None) -> str:
 def _validate_string_field(
     value: object,
     field_name: str,
-    index: int,
-    config_path: Path,
+    context: ValidationContext,
     *,
     allow_empty: bool,
 ) -> str:
@@ -182,14 +190,15 @@ def _validate_string_field(
     if not isinstance(value, str):
         msg = (
             f"Artefact '{field_name}' must be a string, "
-            f"got {type(value).__name__} in entry #{index} of {config_path}"
+            f"got {type(value).__name__} "
+            f"in entry #{context.index} of {context.config_path}"
         )
         raise StageError(msg)
 
     if not allow_empty and not value:
         msg = (
             f"Missing required artefact key '{field_name}' "
-            f"in entry #{index} of {config_path}"
+            f"in entry #{context.index} of {context.config_path}"
         )
         raise StageError(msg)
 
@@ -200,8 +209,7 @@ def _validate_field_type[T](
     value: object,
     field_name: str,
     expected_type: type[T],
-    index: int,
-    config_path: Path,
+    context: ValidationContext,
     *,
     allow_empty_str: bool = True,
 ) -> T:
@@ -213,7 +221,7 @@ def _validate_field_type[T](
         return typ.cast(
             "T",
             _validate_string_field(
-                value, field_name, index, config_path, allow_empty=allow_empty_str
+                value, field_name, context, allow_empty=allow_empty_str
             ),
         )
 
@@ -221,7 +229,8 @@ def _validate_field_type[T](
         type_name = "boolean" if expected_type is bool else expected_type.__name__
         msg = (
             f"Artefact '{field_name}' must be a {type_name}, "
-            f"got {type(value).__name__} in entry #{index} of {config_path}"
+            f"got {type(value).__name__} "
+            f"in entry #{context.index} of {context.config_path}"
         )
         raise StageError(msg)
 
@@ -230,8 +239,9 @@ def _validate_field_type[T](
 
 def _validate_source(entry: dict[str, typ.Any], index: int, config_path: Path) -> str:
     """Validate and extract the source field from an artefact entry."""
+    context = ValidationContext(index=index, config_path=config_path)
     return _validate_field_type(
-        entry.get("source"), "source", str, index, config_path, allow_empty_str=False
+        entry.get("source"), "source", str, context, allow_empty_str=False
     )
 
 
@@ -239,8 +249,9 @@ def _validate_required(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> bool:
     """Validate and extract the required field from an artefact entry."""
+    context = ValidationContext(index=index, config_path=config_path)
     return _validate_field_type(
-        entry.get("required", True), "required", bool, index, config_path
+        entry.get("required", True), "required", bool, context
     )
 
 

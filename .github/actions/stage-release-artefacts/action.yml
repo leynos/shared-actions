@@ -1,0 +1,59 @@
+name: Stage Release Artefacts
+description: Stage release artefacts using a TOML configuration file
+
+inputs:
+  config-file:
+    description: Path to the project-specific TOML staging configuration file
+    required: true
+  target:
+    description: The target key from the configuration file to be staged
+    required: true
+  normalize-windows-paths:
+    description: Normalize Windows-style paths in outputs (convert backslashes)
+    required: false
+    default: "false"
+
+outputs:
+  artifact-dir:
+    description: Absolute path to the directory containing the staged artefacts
+    value: ${{ steps.run-stage.outputs.artifact_dir }}
+  dist-dir:
+    description: Absolute path to the workspace distribution directory
+    value: ${{ steps.run-stage.outputs.dist_dir }}
+  staged-files:
+    description: Newline-separated list of staged file names
+    value: ${{ steps.run-stage.outputs.staged_files }}
+  artefact-map:
+    description: JSON map of named artefact outputs to their absolute paths
+    value: ${{ steps.run-stage.outputs.artefact_map }}
+  checksum-map:
+    description: JSON map of staged file names to their checksum digests
+    value: ${{ steps.run-stage.outputs.checksum_map }}
+  binary-path:
+    description: Absolute path to the staged binary artefact, when available
+    value: ${{ steps.run-stage.outputs.binary_path }}
+  man-path:
+    description: Absolute path to the staged manual page artefact, when available
+    value: ${{ steps.run-stage.outputs.man_path }}
+  license-path:
+    description: Absolute path to the staged licence artefact, when available
+    value: ${{ steps.run-stage.outputs.license_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      with:
+        enable-cache: false
+
+    - name: Stage artefacts
+      id: run-stage
+      shell: bash
+      env:
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_NORMALIZE_WINDOWS_PATHS: ${{ inputs.normalize-windows-paths }}
+      run: |
+        set -euo pipefail
+        uv run "${{ github.action_path }}/scripts/stage.py"

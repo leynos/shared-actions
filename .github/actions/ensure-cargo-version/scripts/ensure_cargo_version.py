@@ -15,12 +15,24 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
-import tomllib
+import sys
 import typing as typ
 from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+
+# Add repository root to path for cargo_utils import
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from cargo_utils import (
+    ManifestError,
+    find_workspace_root,
+    get_workspace_version,
+    read_manifest,
+)
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
@@ -32,14 +44,6 @@ class ManifestVersion:
     path: Path
     name: str
     version: str
-
-
-class ManifestError(Exception):
-    """Raised when a manifest cannot be processed."""
-
-    def __init__(self, path: Path, message: str) -> None:
-        super().__init__(message)
-        self.path = path
 
 
 def _workspace() -> Path:
@@ -62,12 +66,11 @@ def _resolve_paths(manifests: list[Path]) -> list[Path]:
 def _read_manifest_version(path: Path) -> ManifestVersion:
     """Parse a manifest and return the discovered package metadata."""
     try:
-        with path.open("rb") as handle:
-            data = tomllib.load(handle)
+        data = read_manifest(path)
+    except ManifestError:
+        raise
     except FileNotFoundError as exc:  # pragma: no cover - fatal path
         raise ManifestError(path, "Manifest not found") from exc
-    except tomllib.TOMLDecodeError as exc:
-        raise ManifestError(path, "Invalid TOML in manifest") from exc
 
     package = data.get("package")
     if not isinstance(package, dict):
@@ -80,13 +83,13 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
 
     version = package.get("version")
     if isinstance(version, dict) and version.get("workspace") is True:
-        workspace_manifest = _find_workspace_root(path.parent)
+        workspace_manifest = find_workspace_root(path.parent)
         if workspace_manifest is None:
             raise ManifestError(
                 path,
                 "Could not resolve workspace root for inherited version",
             )
-        workspace_version = _read_workspace_version(workspace_manifest)
+        workspace_version = get_workspace_version(workspace_manifest)
         if workspace_version is None:
             raise ManifestError(
                 workspace_manifest,
@@ -98,39 +101,6 @@ def _read_manifest_version(path: Path) -> ManifestVersion:
         raise ManifestError(path, "Could not read package.version")
 
     return ManifestVersion(path=path, name=crate_name, version=version.strip())
-
-
-def _find_workspace_root(start_dir: Path) -> Path | None:
-    """Locate nearest ancestor manifest that declares a workspace."""
-    directory = start_dir.resolve()
-    while True:
-        candidate = directory / "Cargo.toml"
-        if candidate.exists():
-            try:
-                with candidate.open("rb") as handle:
-                    data = tomllib.load(handle)
-            except (OSError, tomllib.TOMLDecodeError):  # pragma: no cover
-                data = None
-            if isinstance(data, dict) and isinstance(data.get("workspace"), dict):
-                return candidate
-        if directory.parent == directory:
-            return None
-        directory = directory.parent
-
-
-def _read_workspace_version(root_manifest: Path) -> str | None:
-    """Read [workspace.package].version from the workspace root manifest."""
-    with root_manifest.open("rb") as handle:
-        data = tomllib.load(handle)
-
-    workspace = data.get("workspace")
-    if not isinstance(workspace, dict):
-        return None
-    package = workspace.get("package")
-    if not isinstance(package, dict):
-        return None
-    version = package.get("version")
-    return version.strip() if isinstance(version, str) else None
 
 
 def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:

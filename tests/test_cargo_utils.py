@@ -88,14 +88,14 @@ class TestGetPackageField:
         """A missing field should raise ManifestError."""
         manifest = {"package": {"name": "example"}}
 
-        with pytest.raises(ManifestError, match="package.version is missing"):
+        with pytest.raises(ManifestError, match=r"package\.version is missing"):
             get_package_field(manifest, "version")
 
     def test_raises_for_empty_field(self) -> None:
         """An empty field value should raise ManifestError."""
         manifest = {"package": {"name": "", "version": "1.0.0"}}
 
-        with pytest.raises(ManifestError, match="package.name is missing or empty"):
+        with pytest.raises(ManifestError, match=r"package\.name is missing or empty"):
             get_package_field(manifest, "name")
 
 
@@ -311,7 +311,7 @@ members = ["member"]
 
         manifest = {"package": {"name": "member", "version": {"workspace": True}}}
 
-        with pytest.raises(ManifestError, match="workspace.package"):
+        with pytest.raises(ManifestError, match=r"workspace\.package"):
             resolve_version(manifest, member_manifest_path)
 
     def test_raises_for_missing_package_table(self, tmp_path: Path) -> None:
@@ -327,5 +327,5 @@ members = ["member"]
         manifest = {"package": {"name": "pkg", "version": ""}}
         manifest_path = tmp_path / "Cargo.toml"
 
-        with pytest.raises(ManifestError, match="package.version is missing"):
+        with pytest.raises(ManifestError, match=r"package\.version is missing"):
             resolve_version(manifest, manifest_path)

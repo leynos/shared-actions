@@ -180,14 +180,16 @@ def _validate_field_type[T](
 
     For strings with ``allow_empty_str=False``, also checks the value is non-empty.
     """
-    if expected_type is str and not allow_empty_str:
-        if not isinstance(value, str) or not value:
-            msg = (
-                f"Missing required artefact key '{field_name}' "
-                f"in entry #{index} of {config_path}"
-            )
-            raise StageError(msg)
+    is_nonempty_str = isinstance(value, str) and value
+    if expected_type is str and not allow_empty_str and is_nonempty_str:
         return typ.cast("T", value)
+
+    if expected_type is str and not allow_empty_str:
+        msg = (
+            f"Missing required artefact key '{field_name}' "
+            f"in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
 
     if not isinstance(value, expected_type):
         type_name = "boolean" if expected_type is bool else expected_type.__name__
@@ -196,6 +198,7 @@ def _validate_field_type[T](
             f"got {type(value).__name__} in entry #{index} of {config_path}"
         )
         raise StageError(msg)
+
     return value
 
 

@@ -53,7 +53,7 @@ def prepare_output_data(
         Dictionary describing the staging results ready to be exported to the
         GitHub Actions output file.
     """
-    staged_file_names = [path.name for path in sorted(staged_paths)]
+    staged_file_names: list[str] = [path.name for path in sorted(staged_paths)]
     artefact_map_json = json.dumps(
         {key: path.as_posix() for key, path in sorted(outputs.items())}
     )
@@ -62,7 +62,7 @@ def prepare_output_data(
     return {
         "artifact_dir": staging_dir.as_posix(),
         "dist_dir": staging_dir.parent.as_posix(),
-        "staged_files": "\n".join(staged_file_names),
+        "staged_files": staged_file_names,
         "artefact_map": artefact_map_json,
         "checksum_map": checksum_map_json,
     } | {key: path.as_posix() for key, path in outputs.items()}

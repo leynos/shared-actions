@@ -184,13 +184,38 @@ def _make_artefacts(
                 f"in entry #{index} of {config_path}"
             )
             raise StageError(msg)
+
+        required = entry.get("required", True)
+        if not isinstance(required, bool):
+            msg = (
+                f"Artefact 'required' must be a boolean, got {type(required).__name__} "
+                f"in entry #{index} of {config_path}"
+            )
+            raise StageError(msg)
+
+        alternatives = entry.get("alternatives", [])
+        if not isinstance(alternatives, list):
+            alt_type = type(alternatives).__name__
+            msg = (
+                f"Artefact 'alternatives' must be a list, got {alt_type} "
+                f"in entry #{index} of {config_path}"
+            )
+            raise StageError(msg)
+        for alt_idx, alt in enumerate(alternatives):
+            if not isinstance(alt, str):
+                msg = (
+                    f"Artefact alternatives[{alt_idx}] must be a string, "
+                    f"got {type(alt).__name__} in entry #{index} of {config_path}"
+                )
+                raise StageError(msg)
+
         artefacts.append(
             ArtefactConfig(
                 source=source,
-                required=entry.get("required", True),
+                required=required,
                 output=entry.get("output"),
                 destination=entry.get("destination"),
-                alternatives=entry.get("alternatives", []),
+                alternatives=alternatives,
             )
         )
     return artefacts

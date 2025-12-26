@@ -91,12 +91,14 @@ def read_manifest(path: Path) -> dict[str, typ.Any]:
     True
     """
     if not path.is_file():
-        raise ManifestError(path, f"Manifest not found: {path}")
+        msg = f"Manifest not found: {path}"
+        raise ManifestError(path, msg)
     try:
         with path.open("rb") as handle:
             return tomllib.load(handle)
     except tomllib.TOMLDecodeError as exc:
-        raise ManifestError(path, f"Invalid TOML in manifest: {exc}") from exc
+        msg = f"Invalid TOML in manifest: {exc}"
+        raise ManifestError(path, msg) from exc
 
 
 def get_package_field(manifest: dict[str, typ.Any], field: str) -> str:

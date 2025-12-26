@@ -104,6 +104,17 @@ def _emit_error(title: str, message: str, *, path: Path | None = None) -> None:
     print(f"::error {metadata}::{_esc(message)}")
 
 
+_SUPPORTED_FIELDS: frozenset[str] = frozenset({
+    "name", "version", "bin-name", "description"
+})
+
+
+def _emit_warning(message: str) -> None:
+    """Print a warning in the format expected by GitHub Actions."""
+    escaped = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::warning::{escaped}")
+
+
 def _extract_field(
     manifest: dict[str, typ.Any],
     manifest_path: Path,
@@ -177,6 +188,11 @@ def _process_fields(
     exported: list[str] = []
 
     for field in field_list:
+        if field not in _SUPPORTED_FIELDS:
+            supported = ", ".join(sorted(_SUPPORTED_FIELDS))
+            _emit_warning(f"Unknown field '{field}' ignored. Supported: {supported}")
+            continue
+
         try:
             value = _extract_field(manifest, manifest_path, field)
         except ManifestError as exc:

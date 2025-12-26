@@ -80,7 +80,8 @@ runs:
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
     - name: Cache cargo registry
-      uses: actions/cache@v4
+      # v4.3.0
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: |
           ~/.cargo/registry
@@ -111,7 +112,8 @@ runs:
 
     - name: Install MSYS2 toolchain and SQLite
       if: ${{ inputs.install-sqlite-deps == 'true' && runner.os == 'Windows' }}
-      uses: msys2/setup-msys2@v2
+      # v2.30.0
+      uses: msys2/setup-msys2@4f806de0a5a7294ffabaff804b38a9b435a73bda
       with:
         msystem: MINGW64
         update: true
@@ -130,7 +132,8 @@ runs:
     - name: Cache OpenBSD stdlib
       if: ${{ inputs.with-openbsd == 'true' && runner.os == 'Linux' }}
       id: openbsd-stdlib-cache
-      uses: actions/cache@v4
+      # v4.3.0
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
       with:
         path: ${{ env.NIGHTLY_SYSROOT }}/lib/rustlib/x86_64-unknown-openbsd
         key: openbsd-stdlib-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}

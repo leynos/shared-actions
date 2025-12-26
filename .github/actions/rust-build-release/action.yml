@@ -35,16 +35,9 @@ runs:
           --runner-arch "${{ runner.arch }}")"
         echo "RBR_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
     - name: Setup Rust toolchain
-      uses: leynos/shared-actions/.github/actions/setup-rust@f9f1c863c8a5bef64aa6779caa746e1a4a6c1ad4
+      uses: ./.github/actions/setup-rust
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
-    - name: Cache cargo
-      uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0
-      with:
-        toolchain: ${{ env.RBR_TOOLCHAIN }}
-        workspaces: ${{ format('{0} -> target/{1}', inputs.project-dir, inputs.target) }}
-        shared-key: ${{ runner.os }}-toolchain-${{ env.RBR_TOOLCHAIN }}
-        cache-on-failure: true
     - name: Configure gnullvm target on Windows
       if: runner.os == 'Windows' && endsWith(inputs.target, '-pc-windows-gnullvm')
       shell: bash

@@ -133,7 +133,7 @@ def _platform_default_host_target() -> str:
 
 
 DEFAULT_HOST_TARGET = _platform_default_host_target()
-_DEFAULT_PROBE_TIMEOUT = 10
+_DEFAULT_PROBE_TIMEOUT = 30
 _MAX_PROBE_TIMEOUT = 300
 
 

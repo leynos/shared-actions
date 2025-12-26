@@ -21,7 +21,7 @@
 //! cargo llvm-cov -- --test cucumber -- cucumber --features tests/features
 //! ```
 //!
-//! [`generate-coverage`]: https://github.com/anthropics/shared-actions/tree/main/.github/actions/generate-coverage
+//! [`generate-coverage`]: https://github.com/leynos/shared-actions/tree/main/.github/actions/generate-coverage
 
 use std::process::{Command, Output};
 

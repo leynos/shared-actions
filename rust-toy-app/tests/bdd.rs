@@ -20,7 +20,7 @@
 //! Tests are structured using Given/When/Then comments to maintain BDD semantics
 //! while leveraging rstest's powerful fixture and parameterisation features.
 //!
-//! [`generate-coverage`]: https://github.com/anthropics/shared-actions/tree/main/.github/actions/generate-coverage
+//! [`generate-coverage`]: https://github.com/leynos/shared-actions/tree/main/.github/actions/generate-coverage
 
 use rstest::{fixture, rstest};
 use rust_toy_app::cli::Cli;

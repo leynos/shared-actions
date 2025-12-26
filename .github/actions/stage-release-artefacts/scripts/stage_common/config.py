@@ -167,32 +167,54 @@ def _validate_checksum(name: str | None) -> str:
     return algorithm
 
 
+def _validate_field_type[T](
+    value: object,
+    field_name: str,
+    expected_type: type[T],
+    index: int,
+    config_path: Path,
+    *,
+    allow_empty_str: bool = True,
+) -> T:
+    """Validate a field value has the expected type.
+
+    For strings with ``allow_empty_str=False``, also checks the value is non-empty.
+    """
+    if expected_type is str and not allow_empty_str:
+        if not isinstance(value, str) or not value:
+            msg = (
+                f"Missing required artefact key '{field_name}' "
+                f"in entry #{index} of {config_path}"
+            )
+            raise StageError(msg)
+        return typ.cast("T", value)
+
+    if not isinstance(value, expected_type):
+        type_name = "boolean" if expected_type is bool else expected_type.__name__
+        msg = (
+            f"Artefact '{field_name}' must be a {type_name}, "
+            f"got {type(value).__name__} in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+    return value
+
+
 def _validate_source(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> str:
     """Validate and extract the source field from an artefact entry."""
-    source = entry.get("source")
-    if not isinstance(source, str) or not source:
-        msg = (
-            "Missing required artefact key 'source' "
-            f"in entry #{index} of {config_path}"
-        )
-        raise StageError(msg)
-    return source
+    return _validate_field_type(
+        entry.get("source"), "source", str, index, config_path, allow_empty_str=False
+    )
 
 
 def _validate_required(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> bool:
     """Validate and extract the required field from an artefact entry."""
-    required = entry.get("required", True)
-    if not isinstance(required, bool):
-        msg = (
-            f"Artefact 'required' must be a boolean, got {type(required).__name__} "
-            f"in entry #{index} of {config_path}"
-        )
-        raise StageError(msg)
-    return required
+    return _validate_field_type(
+        entry.get("required", True), "required", bool, index, config_path
+    )
 
 
 def _validate_alternatives(

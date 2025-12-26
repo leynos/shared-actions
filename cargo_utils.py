@@ -144,6 +144,19 @@ def get_package_field(manifest: dict[str, typ.Any], field: str) -> str:
     return value.strip()
 
 
+def _extract_first_bin_name(bins: object) -> str | None:
+    """Extract the name from the first [[bin]] entry if valid."""
+    if not isinstance(bins, list) or not bins:
+        return None
+    first_bin = bins[0]
+    if not isinstance(first_bin, dict):
+        return None
+    bin_name = first_bin.get("name")
+    if isinstance(bin_name, str) and bin_name.strip():
+        return bin_name.strip()
+    return None
+
+
 def get_bin_name(manifest: dict[str, typ.Any]) -> str:
     """Extract the binary name from [[bin]] or [package].name.
 
@@ -182,14 +195,9 @@ def get_bin_name(manifest: dict[str, typ.Any]) -> str:
         >>> get_bin_name(manifest)
         'my-package'
     """
-    bins = manifest.get("bin")
-    if isinstance(bins, list) and bins:
-        first_bin = bins[0]
-        if isinstance(first_bin, dict):
-            bin_name = first_bin.get("name")
-            if isinstance(bin_name, str) and bin_name.strip():
-                return bin_name.strip()
-
+    bin_name = _extract_first_bin_name(manifest.get("bin"))
+    if bin_name is not None:
+        return bin_name
     return get_package_field(manifest, "name")
 
 

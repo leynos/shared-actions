@@ -167,6 +167,69 @@ def _validate_checksum(name: str | None) -> str:
     return algorithm
 
 
+def _validate_source(
+    entry: dict[str, typ.Any], index: int, config_path: Path
+) -> str:
+    """Validate and extract the source field from an artefact entry."""
+    source = entry.get("source")
+    if not isinstance(source, str) or not source:
+        msg = (
+            "Missing required artefact key 'source' "
+            f"in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+    return source
+
+
+def _validate_required(
+    entry: dict[str, typ.Any], index: int, config_path: Path
+) -> bool:
+    """Validate and extract the required field from an artefact entry."""
+    required = entry.get("required", True)
+    if not isinstance(required, bool):
+        msg = (
+            f"Artefact 'required' must be a boolean, got {type(required).__name__} "
+            f"in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+    return required
+
+
+def _validate_alternatives(
+    entry: dict[str, typ.Any], index: int, config_path: Path
+) -> list[str]:
+    """Validate and extract the alternatives field from an artefact entry."""
+    alternatives = entry.get("alternatives", [])
+    if not isinstance(alternatives, list):
+        alt_type = type(alternatives).__name__
+        msg = (
+            f"Artefact 'alternatives' must be a list, got {alt_type} "
+            f"in entry #{index} of {config_path}"
+        )
+        raise StageError(msg)
+    for alt_idx, alt in enumerate(alternatives):
+        if not isinstance(alt, str):
+            msg = (
+                f"Artefact alternatives[{alt_idx}] must be a string, "
+                f"got {type(alt).__name__} in entry #{index} of {config_path}"
+            )
+            raise StageError(msg)
+    return alternatives
+
+
+def _parse_artefact_entry(
+    entry: dict[str, typ.Any], index: int, config_path: Path
+) -> ArtefactConfig:
+    """Parse and validate a single artefact entry."""
+    return ArtefactConfig(
+        source=_validate_source(entry, index, config_path),
+        required=_validate_required(entry, index, config_path),
+        output=entry.get("output"),
+        destination=entry.get("destination"),
+        alternatives=_validate_alternatives(entry, index, config_path),
+    )
+
+
 def _make_artefacts(
     common: dict[str, typ.Any], target_cfg: dict[str, typ.Any], config_path: Path
 ) -> list[ArtefactConfig]:
@@ -175,50 +238,10 @@ def _make_artefacts(
     if not entries:
         msg = "No artefacts configured to stage."
         raise StageError(msg)
-    artefacts: list[ArtefactConfig] = []
-    for index, entry in enumerate(entries, start=1):
-        source = entry.get("source")
-        if not isinstance(source, str) or not source:
-            msg = (
-                "Missing required artefact key 'source' "
-                f"in entry #{index} of {config_path}"
-            )
-            raise StageError(msg)
-
-        required = entry.get("required", True)
-        if not isinstance(required, bool):
-            msg = (
-                f"Artefact 'required' must be a boolean, got {type(required).__name__} "
-                f"in entry #{index} of {config_path}"
-            )
-            raise StageError(msg)
-
-        alternatives = entry.get("alternatives", [])
-        if not isinstance(alternatives, list):
-            alt_type = type(alternatives).__name__
-            msg = (
-                f"Artefact 'alternatives' must be a list, got {alt_type} "
-                f"in entry #{index} of {config_path}"
-            )
-            raise StageError(msg)
-        for alt_idx, alt in enumerate(alternatives):
-            if not isinstance(alt, str):
-                msg = (
-                    f"Artefact alternatives[{alt_idx}] must be a string, "
-                    f"got {type(alt).__name__} in entry #{index} of {config_path}"
-                )
-                raise StageError(msg)
-
-        artefacts.append(
-            ArtefactConfig(
-                source=source,
-                required=required,
-                output=entry.get("output"),
-                destination=entry.get("destination"),
-                alternatives=alternatives,
-            )
-        )
-    return artefacts
+    return [
+        _parse_artefact_entry(entry, index, config_path)
+        for index, entry in enumerate(entries, start=1)
+    ]
 
 
 def _require_keys(

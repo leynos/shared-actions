@@ -148,24 +148,29 @@ def test_extract_field(
     assert result == expected
 
 
+def _setup_github_env(
+    monkeypatch: pytest.MonkeyPatch, workspace: PathType
+) -> tuple[PathType, PathType]:
+    """Set up GITHUB_* environment variables and return output/env file paths."""
+    output_file = workspace / "outputs"
+    env_file = workspace / "env"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_ENV", str(env_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    return output_file, env_file
+
+
 def test_main_exports_outputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: PathType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The main function should write outputs to GITHUB_OUTPUT."""
-    workspace = tmp_path
-    manifest_path = workspace / "Cargo.toml"
     _write_manifest(
-        manifest_path,
+        tmp_path / "Cargo.toml",
         '[package]\nname = "demo-pkg"\nversion = "3.4.5"\n',
     )
-
-    output_file = workspace / "outputs"
-    env_file = workspace / "env"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
-    monkeypatch.setenv("GITHUB_ENV", str(env_file))
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    output_file, _ = _setup_github_env(monkeypatch, tmp_path)
 
     read_manifest_mod.main(
         manifest_path="Cargo.toml",
@@ -186,18 +191,11 @@ def test_main_exports_to_env_when_enabled(
     tmp_path: PathType,
 ) -> None:
     """The main function should write to GITHUB_ENV when enabled."""
-    workspace = tmp_path
-    manifest_path = workspace / "Cargo.toml"
     _write_manifest(
-        manifest_path,
+        tmp_path / "Cargo.toml",
         '[package]\nname = "env-pkg"\nversion = "1.2.3"\n',
     )
-
-    output_file = workspace / "outputs"
-    env_file = workspace / "env"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
-    monkeypatch.setenv("GITHUB_ENV", str(env_file))
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    _, env_file = _setup_github_env(monkeypatch, tmp_path)
 
     read_manifest_mod.main(
         manifest_path="Cargo.toml",
@@ -215,10 +213,7 @@ def test_main_handles_missing_manifest(
     tmp_path: PathType,
 ) -> None:
     """The main function should fail gracefully for missing manifests."""
-    workspace = tmp_path
-    output_file = workspace / "outputs"
-    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
-    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    _setup_github_env(monkeypatch, tmp_path)
 
     recorded_errors: list[tuple[str, str]] = []
 

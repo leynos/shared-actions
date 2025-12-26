@@ -35,19 +35,34 @@ def _windows_root(rendered: str) -> tuple[Path, tuple[str, ...]]:
     return root, relative_parts
 
 
+def _parts_to_pattern(parts: tuple[str, ...]) -> str:
+    """Convert path parts to a glob pattern string."""
+    return PurePosixPath(*parts).as_posix() if parts else "*"
+
+
+def _resolve_absolute_glob(candidate: Path) -> typ.Iterator[Path]:
+    """Resolve a glob for an absolute path."""
+    root = Path(candidate.anchor or "/")
+    relative_parts = candidate.parts[1:]
+    pattern = _parts_to_pattern(relative_parts)
+    return root.glob(pattern)
+
+
+def _resolve_windows_glob(rendered: str) -> typ.Iterator[Path]:
+    """Resolve a glob for a Windows absolute path."""
+    root, relative_parts = _windows_root(rendered)
+    pattern = _parts_to_pattern(relative_parts)
+    return root.glob(pattern)
+
+
 def _resolve_glob_pattern(
     workspace: Path, rendered: str, candidate: Path
 ) -> Path | None:
     """Resolve a glob ``rendered`` against ``workspace``."""
     if candidate.is_absolute():
-        root = Path(candidate.anchor or "/")
-        relative_parts = candidate.parts[1:]
-        pattern = PurePosixPath(*relative_parts).as_posix() if relative_parts else "*"
-        matches = root.glob(pattern)
+        matches = _resolve_absolute_glob(candidate)
     elif PureWindowsPath(rendered).is_absolute():
-        root, relative_parts = _windows_root(rendered)
-        pattern = PurePosixPath(*relative_parts).as_posix() if relative_parts else "*"
-        matches = root.glob(pattern)
+        matches = _resolve_windows_glob(rendered)
     else:
         matches = workspace.glob(rendered)
     return _newest_file(matches)

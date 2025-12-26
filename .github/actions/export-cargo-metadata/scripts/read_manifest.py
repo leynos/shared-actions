@@ -123,6 +123,74 @@ def _extract_field(
     return None
 
 
+def _resolve_manifest_path(manifest_path: str) -> Path:
+    """Resolve the manifest path, considering GITHUB_WORKSPACE."""
+    resolved_path = Path(manifest_path)
+    if resolved_path.is_absolute():
+        return resolved_path
+    workspace = os.environ.get("GITHUB_WORKSPACE", "")
+    if workspace:
+        return Path(workspace) / resolved_path
+    return resolved_path
+
+
+def _validate_export_flag(*, export_to_env: bool | str) -> bool:
+    """Validate and return the export-to-env flag."""
+    try:
+        return _coerce_bool(value=export_to_env, parameter="export-to-env")
+    except ValueError as exc:
+        _emit_error("Invalid input", str(exc))
+        raise SystemExit(1) from exc
+
+
+def _load_manifest(resolved_path: Path) -> dict[str, typ.Any]:
+    """Load the manifest with error handling."""
+    try:
+        return read_manifest(resolved_path)
+    except ManifestError as exc:
+        _emit_error("Cargo.toml read failure", str(exc), path=exc.path)
+        raise SystemExit(1) from exc
+
+
+def _export_field(
+    field: str, value: str, *, should_export_env: bool
+) -> str:
+    """Export a field to outputs and optionally to environment."""
+    output_name = field.replace("_", "-")
+    _write_output(output_name, value)
+
+    if should_export_env:
+        env_name = field.upper().replace("-", "_")
+        _write_env(env_name, value)
+
+    return f"{output_name}={value}"
+
+
+def _process_fields(
+    manifest: dict[str, typ.Any],
+    manifest_path: Path,
+    field_list: list[str],
+    *,
+    should_export_env: bool,
+) -> list[str]:
+    """Process all fields and return the list of exported values."""
+    exported: list[str] = []
+
+    for field in field_list:
+        try:
+            value = _extract_field(manifest, manifest_path, field)
+        except ManifestError as exc:
+            _emit_error("Field extraction failed", str(exc), path=exc.path)
+            raise SystemExit(1) from exc
+
+        if value is not None:
+            exported.append(
+                _export_field(field, value, should_export_env=should_export_env)
+            )
+
+    return exported
+
+
 @app.default
 def main(
     *,
@@ -131,44 +199,14 @@ def main(
     export_to_env: typ.Annotated[bool | str, Parameter()] = True,
 ) -> None:
     """Extract and export Cargo manifest metadata."""
-    resolved_path = Path(manifest_path)
-    if not resolved_path.is_absolute():
-        workspace = os.environ.get("GITHUB_WORKSPACE", "")
-        if workspace:
-            resolved_path = Path(workspace) / resolved_path
-
-    try:
-        should_export_env = _coerce_bool(value=export_to_env, parameter="export-to-env")
-    except ValueError as exc:
-        _emit_error("Invalid input", str(exc))
-        raise SystemExit(1) from exc
-
-    try:
-        manifest = read_manifest(resolved_path)
-    except ManifestError as exc:
-        _emit_error("Cargo.toml read failure", str(exc), path=exc.path)
-        raise SystemExit(1) from exc
+    resolved_path = _resolve_manifest_path(manifest_path)
+    should_export_env = _validate_export_flag(export_to_env=export_to_env)
+    manifest = _load_manifest(resolved_path)
 
     field_list = [f.strip() for f in fields.split(",") if f.strip()]
-    exported: list[str] = []
-
-    for field in field_list:
-        try:
-            value = _extract_field(manifest, resolved_path, field)
-        except ManifestError as exc:
-            _emit_error("Field extraction failed", str(exc), path=exc.path)
-            raise SystemExit(1) from exc
-
-        if value is None:
-            continue
-
-        output_name = field.replace("_", "-")
-        _write_output(output_name, value)
-        exported.append(f"{output_name}={value}")
-
-        if should_export_env:
-            env_name = field.upper().replace("-", "_")
-            _write_env(env_name, value)
+    exported = _process_fields(
+        manifest, resolved_path, field_list, should_export_env=should_export_env
+    )
 
     if exported:
         print(f"Exported: {', '.join(exported)}")

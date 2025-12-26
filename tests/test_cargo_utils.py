@@ -209,68 +209,47 @@ members = []
 class TestGetWorkspaceVersion:
     """Tests for :func:`get_workspace_version`."""
 
-    def test_reads_workspace_version(self, tmp_path: Path) -> None:
-        """The version from [workspace.package] should be returned."""
+    @pytest.mark.parametrize(
+        ("manifest_content", "expected"),
+        [
+            pytest.param(
+                "[workspace]\n"
+                'members = ["member"]\n\n'
+                "[workspace.package]\n"
+                'version = "2.0.0"\n',
+                "2.0.0",
+                id="reads_workspace_version",
+            ),
+            pytest.param(
+                '[package]\nname = "no-workspace"\nversion = "1.0.0"\n',
+                None,
+                id="returns_none_for_missing_workspace",
+            ),
+            pytest.param(
+                '[workspace]\nmembers = ["member"]\n',
+                None,
+                id="returns_none_for_missing_version",
+            ),
+            pytest.param(
+                "[workspace]\n"
+                "members = []\n\n"
+                "[workspace.package]\n"
+                'version = "  3.0.0  "\n',
+                "3.0.0",
+                id="strips_version_whitespace",
+            ),
+        ],
+    )
+    def test_workspace_version_extraction(
+        self, tmp_path: Path, manifest_content: str, expected: str | None
+    ) -> None:
+        """Verify workspace version extraction handles various manifest formats."""
         manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text(
-            """\
-[workspace]
-members = ["member"]
-
-[workspace.package]
-version = "2.0.0"
-"""
-        )
+        manifest_path.write_text(manifest_content)
 
         result = get_workspace_version(manifest_path)
 
-        assert result == "2.0.0"
-
-    def test_returns_none_for_missing_workspace(self, tmp_path: Path) -> None:
-        """A manifest without [workspace] should return None."""
-        manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text(
-            """\
-[package]
-name = "no-workspace"
-version = "1.0.0"
-"""
-        )
-
-        result = get_workspace_version(manifest_path)
-
-        assert result is None
-
-    def test_returns_none_for_missing_version(self, tmp_path: Path) -> None:
-        """A workspace without [workspace.package].version should return None."""
-        manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text(
-            """\
-[workspace]
-members = ["member"]
-"""
-        )
-
-        result = get_workspace_version(manifest_path)
-
-        assert result is None
-
-    def test_strips_version_whitespace(self, tmp_path: Path) -> None:
-        """The version should have whitespace stripped."""
-        manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text(
-            """\
-[workspace]
-members = []
-
-[workspace.package]
-version = "  3.0.0  "
-"""
-        )
-
-        result = get_workspace_version(manifest_path)
-
-        assert result == "3.0.0"
+        assert result == expected
 
 
 class TestResolveVersion:

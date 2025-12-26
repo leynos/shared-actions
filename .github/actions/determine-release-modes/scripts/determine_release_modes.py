@@ -59,6 +59,33 @@ class ReleaseModes:
         }
 
 
+def _determine_dry_run(
+    event_name: str, inputs: cabc.Mapping[str, typ.Any]
+) -> bool:
+    """Determine the dry-run flag from environment override or event inputs."""
+    input_dry_run = os.environ.get("INPUT_DRY_RUN", "").strip()
+    dry_run_default = event_name == "pull_request"
+
+    if input_dry_run:
+        return _coerce_bool(input_dry_run, default=dry_run_default)
+    return _coerce_bool(inputs.get("dry-run"), default=dry_run_default)
+
+
+def _determine_should_publish(
+    event_name: str, inputs: cabc.Mapping[str, typ.Any], *, dry_run: bool
+) -> bool:
+    """Determine the should-publish flag from event type and inputs."""
+    if dry_run:
+        return False
+    if event_name == "push":
+        return True
+
+    input_publish = os.environ.get("INPUT_PUBLISH", "").strip()
+    if input_publish:
+        return _coerce_bool(input_publish, default=False)
+    return _coerce_bool(inputs.get("publish"), default=False)
+
+
 def determine_release_modes(
     event_name: str, event: cabc.Mapping[str, typ.Any]
 ) -> ReleaseModes:
@@ -112,26 +139,8 @@ def determine_release_modes(
         raise ValueError(msg)
 
     inputs = _extract_inputs(event) if event_name in _INPUT_DRIVEN_EVENTS else {}
-
-    # Check for action input overrides first
-    input_dry_run = os.environ.get("INPUT_DRY_RUN", "").strip()
-    input_publish = os.environ.get("INPUT_PUBLISH", "").strip()
-
-    dry_run_default = event_name == "pull_request"
-    if input_dry_run:
-        dry_run = _coerce_bool(input_dry_run, default=dry_run_default)
-    else:
-        dry_run = _coerce_bool(inputs.get("dry-run"), default=dry_run_default)
-
-    if event_name == "push":
-        should_publish = True
-    elif input_publish:
-        should_publish = _coerce_bool(input_publish, default=False)
-    else:
-        should_publish = _coerce_bool(inputs.get("publish"), default=False)
-
-    if dry_run:
-        should_publish = False
+    dry_run = _determine_dry_run(event_name, inputs)
+    should_publish = _determine_should_publish(event_name, inputs, dry_run=dry_run)
 
     return ReleaseModes(
         dry_run=dry_run,

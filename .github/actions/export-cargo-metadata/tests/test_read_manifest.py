@@ -79,129 +79,73 @@ def test_coerce_bool_rejects_invalid_values() -> None:
         read_manifest_mod._coerce_bool(value="not-a-boolean", parameter="export-to-env")
 
 
-def test_extract_field_returns_name(tmp_path: PathType) -> None:
-    """The name field should be extracted from the manifest."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
-    )
-
+def _load_and_extract(
+    tmp_path: PathType, manifest_content: str, field: str
+) -> str | None:
+    """Write a manifest, load it, and extract a field."""
     from cargo_utils import read_manifest
 
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "name")
-
-    assert result == "test-pkg"
-
-
-def test_extract_field_returns_version(tmp_path: PathType) -> None:
-    """The version field should be extracted from the manifest."""
     manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        '[package]\nname = "test-pkg"\nversion = "2.3.4"\n',
-    )
-
-    from cargo_utils import read_manifest
-
+    _write_manifest(manifest_path, manifest_content)
     manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "version")
-
-    assert result == "2.3.4"
+    return read_manifest_mod._extract_field(manifest, manifest_path, field)
 
 
-def test_extract_field_returns_bin_name_from_bin_section(tmp_path: PathType) -> None:
-    """The bin-name field should prefer [[bin]].name."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        """[package]
-name = "my-lib"
-version = "1.0.0"
-
-[[bin]]
-name = "my-cli"
-path = "src/main.rs"
-""",
-    )
-
-    from cargo_utils import read_manifest
-
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "bin-name")
-
-    assert result == "my-cli"
-
-
-def test_extract_field_returns_bin_name_from_package(tmp_path: PathType) -> None:
-    """The bin-name field should fall back to package name."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        '[package]\nname = "fallback-pkg"\nversion = "1.0.0"\n',
-    )
-
-    from cargo_utils import read_manifest
-
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "bin-name")
-
-    assert result == "fallback-pkg"
-
-
-def test_extract_field_returns_description(tmp_path: PathType) -> None:
-    """The description field should be extracted when present."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        """[package]
-name = "test-pkg"
-version = "1.0.0"
-description = "A test package"
-""",
-    )
-
-    from cargo_utils import read_manifest
-
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "description")
-
-    assert result == "A test package"
-
-
-def test_extract_field_returns_none_for_missing_description(
-    tmp_path: PathType,
+@pytest.mark.parametrize(
+    ("manifest_content", "field", "expected"),
+    [
+        pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
+            "name",
+            "test-pkg",
+            id="name_field",
+        ),
+        pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "2.3.4"\n',
+            "version",
+            "2.3.4",
+            id="version_field",
+        ),
+        pytest.param(
+            '[package]\nname = "my-lib"\nversion = "1.0.0"\n\n'
+            '[[bin]]\nname = "my-cli"\npath = "src/main.rs"\n',
+            "bin-name",
+            "my-cli",
+            id="bin_name_from_bin_section",
+        ),
+        pytest.param(
+            '[package]\nname = "fallback-pkg"\nversion = "1.0.0"\n',
+            "bin-name",
+            "fallback-pkg",
+            id="bin_name_from_package",
+        ),
+        pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "1.0.0"\n'
+            'description = "A test package"\n',
+            "description",
+            "A test package",
+            id="description_present",
+        ),
+        pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
+            "description",
+            None,
+            id="description_missing",
+        ),
+        pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
+            "unknown-field",
+            None,
+            id="unknown_field",
+        ),
+    ],
+)
+def test_extract_field(
+    tmp_path: PathType, manifest_content: str, field: str, expected: str | None
 ) -> None:
-    """The description field should return None when not present."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
-    )
-
-    from cargo_utils import read_manifest
-
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "description")
-
-    assert result is None
-
-
-def test_extract_field_returns_none_for_unknown_field(tmp_path: PathType) -> None:
-    """Unknown fields should return None."""
-    manifest_path = tmp_path / "Cargo.toml"
-    _write_manifest(
-        manifest_path,
-        '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
-    )
-
-    from cargo_utils import read_manifest
-
-    manifest = read_manifest(manifest_path)
-    result = read_manifest_mod._extract_field(manifest, manifest_path, "unknown-field")
-
-    assert result is None
+    """Verify _extract_field handles various manifest formats and field types."""
+    result = _load_and_extract(tmp_path, manifest_content, field)
+    assert result == expected
 
 
 def test_main_exports_outputs(

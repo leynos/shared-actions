@@ -87,6 +87,23 @@ def validate_no_reserved_key_collisions(outputs: dict[str, Path]) -> None:
         raise StageError(msg)
 
 
+def _format_list_output(key: str, values: list[str]) -> str:
+    """Format a list value for GitHub Actions output using heredoc syntax."""
+    delimiter = f"gh_{key.upper()}"
+    content = "\n".join(values)
+    return f"{key}<<{delimiter}\n{content}\n{delimiter}\n"
+
+
+def _format_scalar_output(
+    key: str, value: str, *, normalize_windows_paths: bool
+) -> str:
+    """Format a scalar value for GitHub Actions output with escaping."""
+    if normalize_windows_paths:
+        value = value.replace("\\", "/")
+    escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return f"{key}={escaped}\n"
+
+
 def write_github_output(
     file: Path,
     values: dict[str, str | list[str]],
@@ -109,14 +126,10 @@ def write_github_output(
     with file.open("a", encoding="utf-8") as handle:
         for key, value in sorted(values.items()):
             if isinstance(value, list):
-                delimiter = f"gh_{key.upper()}"
-                handle.write(f"{key}<<{delimiter}\n")
-                handle.write("\n".join(value))
-                handle.write(f"\n{delimiter}\n")
+                handle.write(_format_list_output(key, value))
             else:
-                if normalize_windows_paths:
-                    value = value.replace("\\", "/")
-                escaped = (
-                    value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                handle.write(
+                    _format_scalar_output(
+                        key, value, normalize_windows_paths=normalize_windows_paths
+                    )
                 )
-                handle.write(f"{key}={escaped}\n")

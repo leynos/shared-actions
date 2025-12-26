@@ -264,6 +264,45 @@ def get_workspace_version(root_manifest: Path) -> str | None:
     return version.strip() if isinstance(version, str) else None
 
 
+def _require_package_table(
+    manifest: dict[str, typ.Any], manifest_path: Path
+) -> dict[str, typ.Any]:
+    """Extract and validate the [package] table from a manifest."""
+    package = manifest.get("package")
+    if not isinstance(package, dict):
+        raise ManifestError(manifest_path, "Manifest missing [package] table")
+    return package
+
+
+def _is_workspace_inherited(version: object) -> bool:
+    """Check if a version field uses workspace inheritance."""
+    return isinstance(version, dict) and version.get("workspace") is True
+
+
+def _resolve_inherited_version(manifest_path: Path) -> str:
+    """Resolve the version from the workspace root manifest."""
+    workspace_root = find_workspace_root(manifest_path.parent)
+    if workspace_root is None:
+        raise ManifestError(
+            manifest_path,
+            "Could not locate workspace root for inherited version",
+        )
+    workspace_version = get_workspace_version(workspace_root)
+    if workspace_version is None:
+        raise ManifestError(
+            workspace_root,
+            "Workspace manifest missing [workspace.package].version",
+        )
+    return workspace_version
+
+
+def _require_version_string(version: object, manifest_path: Path) -> str:
+    """Validate and return a version string."""
+    if not isinstance(version, str) or not version.strip():
+        raise ManifestError(manifest_path, "package.version is missing or empty")
+    return version.strip()
+
+
 def resolve_version(
     manifest: dict[str, typ.Any],
     manifest_path: Path,
@@ -304,31 +343,13 @@ def resolve_version(
         >>> resolve_version(manifest, Path("crates/member/Cargo.toml"))
         '2.0.0'
     """
-    package = manifest.get("package")
-    if not isinstance(package, dict):
-        raise ManifestError(manifest_path, "Manifest missing [package] table")
-
+    package = _require_package_table(manifest, manifest_path)
     version = package.get("version")
 
-    if isinstance(version, dict) and version.get("workspace") is True:
-        workspace_root = find_workspace_root(manifest_path.parent)
-        if workspace_root is None:
-            raise ManifestError(
-                manifest_path,
-                "Could not locate workspace root for inherited version",
-            )
-        workspace_version = get_workspace_version(workspace_root)
-        if workspace_version is None:
-            raise ManifestError(
-                workspace_root,
-                "Workspace manifest missing [workspace.package].version",
-            )
-        return workspace_version
+    if _is_workspace_inherited(version):
+        return _resolve_inherited_version(manifest_path)
 
-    if not isinstance(version, str) or not version.strip():
-        raise ManifestError(manifest_path, "package.version is missing or empty")
-
-    return version.strip()
+    return _require_version_string(version, manifest_path)
 
 
 __all__ = [

@@ -2,7 +2,9 @@
 # fmt: off
 # /// script
 # requires-python = ">=3.12"
-# dependencies = []
+# dependencies = [
+#   "syspath-hack>=0.3.0,<0.4.0",
+# ]
 # ///
 # fmt: on
 
@@ -37,6 +39,13 @@ import os
 import typing as typ
 from pathlib import Path
 
+from syspath_hack import prepend_project_root
+
+# Add project root for bool_utils import
+prepend_project_root()
+
+from bool_utils import coerce_bool
+
 _INPUT_DRIVEN_EVENTS = {"workflow_call", "pull_request"}
 
 
@@ -65,8 +74,8 @@ def _determine_dry_run(event_name: str, inputs: cabc.Mapping[str, typ.Any]) -> b
     dry_run_default = event_name == "pull_request"
 
     if input_dry_run:
-        return _coerce_bool(input_dry_run, default=dry_run_default)
-    return _coerce_bool(inputs.get("dry-run"), default=dry_run_default)
+        return coerce_bool(input_dry_run, default=dry_run_default)
+    return coerce_bool(inputs.get("dry-run"), default=dry_run_default)
 
 
 def _determine_should_publish(
@@ -80,8 +89,8 @@ def _determine_should_publish(
 
     input_publish = os.environ.get("INPUT_PUBLISH", "").strip()
     if input_publish:
-        return _coerce_bool(input_publish, default=False)
-    return _coerce_bool(inputs.get("publish"), default=False)
+        return coerce_bool(input_publish, default=False)
+    return coerce_bool(inputs.get("publish"), default=False)
 
 
 def determine_release_modes(
@@ -189,28 +198,6 @@ def _extract_inputs(event: cabc.Mapping[str, typ.Any]) -> cabc.Mapping[str, typ.
     if isinstance(inputs, cabc.Mapping):
         return inputs
     msg = "workflow inputs must be a mapping"
-    raise ValueError(msg)
-
-
-def _coerce_bool(value: object, *, default: bool) -> bool:
-    """Interpret GitHub input values as booleans.
-
-    GitHub Actions forwards ``workflow_call`` inputs as strings, so we accept a
-    variety of spellings. ``None`` or empty strings fall back to ``default``.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalised = value.strip().lower()
-        if not normalised:
-            return default
-        if normalised in {"1", "true", "yes", "on"}:
-            return True
-        if normalised in {"0", "false", "no", "off"}:
-            return False
-    msg = f"Cannot interpret {value!r} as boolean"
     raise ValueError(msg)
 
 

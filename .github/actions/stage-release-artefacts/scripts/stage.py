@@ -28,36 +28,19 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App
+from syspath_hack import prepend_to_syspath
 
 # Add script directory to path for stage_common import
 _SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
+prepend_to_syspath(_SCRIPT_DIR)
 
+from bool_utils import coerce_bool
 from stage_common import StageError, load_config, require_env_path, stage_artefacts
 
 app: App = App(
     help="Stage release artefacts using a TOML configuration file.",
     config=cyclopts.config.Env("INPUT_", command=False),
 )
-
-
-def _coerce_bool(value: object, *, default: bool) -> bool:
-    """Interpret GitHub input values as booleans."""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalised = value.strip().lower()
-        if not normalised:
-            return default
-        if normalised in {"1", "true", "yes", "on"}:
-            return True
-        if normalised in {"0", "false", "no", "off"}:
-            return False
-    msg = f"Cannot interpret {value!r} as boolean"
-    raise ValueError(msg)
 
 
 @app.default
@@ -89,7 +72,7 @@ def main(
         config_path = Path(config_file)
         github_output = require_env_path("GITHUB_OUTPUT")
         config = load_config(config_path, target)
-        normalize = _coerce_bool(normalize_windows_paths, default=False)
+        normalize = coerce_bool(normalize_windows_paths, default=False)
         result = stage_artefacts(
             config, github_output, normalize_windows_paths=normalize
         )

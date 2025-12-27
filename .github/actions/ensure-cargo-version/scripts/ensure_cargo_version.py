@@ -15,18 +15,17 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
-import sys
 import typing as typ
 from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+from syspath_hack import prepend_project_root
 
-# Add repository root to path for cargo_utils import
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+# Add repository root to path for cargo_utils and bool_utils imports
+prepend_project_root()
 
+from bool_utils import coerce_bool_strict
 from cargo_utils import (
     ManifestError,
     find_workspace_root,
@@ -148,24 +147,6 @@ def _write_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def _coerce_bool(*, value: bool | str, parameter: str) -> bool:
-    """Convert boolean-like values into ``bool`` instances."""
-    if isinstance(value, bool):
-        return value
-
-    if isinstance(value, str):
-        normalised = value.strip().lower()
-        if normalised in {"1", "true", "yes", "on"}:
-            return True
-        if normalised in {"0", "false", "no", "off", ""}:
-            return False
-
-    message = (
-        f"Invalid value for {parameter!s}: {value!r}. Expected a boolean-like string."
-    )
-    raise ValueError(message)
-
-
 def _display_path(path: Path) -> str:
     """Return a display-friendly version of a manifest path."""
     workspace = _workspace()
@@ -187,7 +168,7 @@ def main(
     resolved = _resolve_paths(manifest_args)
 
     try:
-        should_check_tag = _coerce_bool(value=check_tag, parameter="check-tag")
+        should_check_tag = coerce_bool_strict(check_tag, parameter="check-tag")
     except ValueError as exc:
         _emit_error("Invalid input", str(exc))
         raise SystemExit(1) from exc

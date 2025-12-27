@@ -6,12 +6,11 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from syspath_hack import prepend_to_syspath
 
 MODULE_PATH = Path(__file__).resolve().parent.parent / "ensure_cargo_version.py"
 SCRIPT_DIR = MODULE_PATH.parent
-SCRIPT_DIR_STR = str(SCRIPT_DIR)
-if SCRIPT_DIR_STR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR_STR)
+prepend_to_syspath(SCRIPT_DIR)
 
 spec = importlib.util.spec_from_file_location(
     "ensure_cargo_version_module", MODULE_PATH
@@ -26,39 +25,6 @@ if not isinstance(module, ModuleType):  # pragma: no cover - importlib contract
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)  # type: ignore[misc]
 ensure = module
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        (True, True),
-        (False, False),
-        ("true", True),
-        ("TRUE", True),
-        ("On", True),
-        ("1", True),
-        ("yes", True),
-        ("false", False),
-        ("FALSE", False),
-        ("No", False),
-        ("0", False),
-        ("off", False),
-        ("OFF", False),
-        ("", False),
-    ],
-)
-def test_coerce_bool_accepts_expected_inputs(
-    case: tuple[bool | str, bool],
-) -> None:
-    """Ensure ``_coerce_bool`` recognises accepted truthy and falsey values."""
-    value, expected = case
-    assert ensure._coerce_bool(value=value, parameter="check-tag") is expected
-
-
-def test_coerce_bool_rejects_invalid_values() -> None:
-    """Invalid values should raise an informative ``ValueError``."""
-    with pytest.raises(ValueError, match="boolean-like"):
-        ensure._coerce_bool(value="not-a-boolean", parameter="check-tag")
 
 
 def _write_manifest(path: Path, version: str, *, name: str = "demo") -> None:

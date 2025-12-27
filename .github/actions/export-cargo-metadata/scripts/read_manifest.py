@@ -28,18 +28,17 @@ Extract specific fields::
 from __future__ import annotations
 
 import os
-import sys
 import typing as typ
 from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+from syspath_hack import prepend_project_root
 
-# Add repository root to path for cargo_utils import
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+# Add repository root to path for cargo_utils and bool_utils imports
+prepend_project_root()
 
+from bool_utils import coerce_bool_strict
 from cargo_utils import (
     ManifestError,
     get_bin_name,
@@ -49,24 +48,6 @@ from cargo_utils import (
 )
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
-
-
-def _coerce_bool(*, value: bool | str, parameter: str) -> bool:
-    """Convert boolean-like values into ``bool`` instances."""
-    if isinstance(value, bool):
-        return value
-
-    if isinstance(value, str):
-        normalised = value.strip().lower()
-        if normalised in {"1", "true", "yes", "on"}:
-            return True
-        if normalised in {"0", "false", "no", "off", ""}:
-            return False
-
-    message = (
-        f"Invalid value for {parameter!s}: {value!r}. Expected a boolean-like string."
-    )
-    raise ValueError(message)
 
 
 def _write_output(name: str, value: str) -> None:
@@ -148,7 +129,7 @@ def _resolve_manifest_path(manifest_path: str) -> Path:
 def _validate_export_flag(*, export_to_env: bool | str) -> bool:
     """Validate and return the export-to-env flag."""
     try:
-        return _coerce_bool(value=export_to_env, parameter="export-to-env")
+        return coerce_bool_strict(export_to_env, parameter="export-to-env")
     except ValueError as exc:
         _emit_error("Invalid input", str(exc))
         raise SystemExit(1) from exc

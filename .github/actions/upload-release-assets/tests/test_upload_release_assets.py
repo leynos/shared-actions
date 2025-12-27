@@ -9,6 +9,7 @@ from types import ModuleType
 from unittest import mock
 
 import pytest
+from syspath_hack import prepend_to_syspath
 
 if typ.TYPE_CHECKING:
     from pathlib import Path as PathType
@@ -19,9 +20,7 @@ MODULE_PATH = (
     Path(__file__).resolve().parent.parent / "scripts" / "upload_release_assets.py"
 )
 SCRIPT_DIR = MODULE_PATH.parent
-SCRIPT_DIR_STR = str(SCRIPT_DIR)
-if SCRIPT_DIR_STR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR_STR)
+prepend_to_syspath(SCRIPT_DIR)
 
 spec = importlib.util.spec_from_file_location(
     "upload_release_assets_module", MODULE_PATH
@@ -36,50 +35,6 @@ if not isinstance(module, ModuleType):  # pragma: no cover - importlib contract
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)  # type: ignore[misc]
 upload_mod = module
-
-
-class TestCoerceBool:
-    """Tests for the _coerce_bool helper function."""
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (True, True),
-            (False, False),
-            ("true", True),
-            ("TRUE", True),
-            ("1", True),
-            ("yes", True),
-            ("on", True),
-            ("false", False),
-            ("FALSE", False),
-            ("0", False),
-            ("no", False),
-            ("off", False),
-        ],
-    )
-    def test_accepts_valid_values(
-        self,
-        value: bool | str,  # noqa: FBT001
-        expected: bool,  # noqa: FBT001
-    ) -> None:
-        """Valid boolean-like values are coerced correctly."""
-        result = upload_mod._coerce_bool(value, default=False)
-        assert result is expected
-
-    def test_returns_default_for_none(self) -> None:
-        """None values return the default."""
-        assert upload_mod._coerce_bool(None, default=True) is True
-        assert upload_mod._coerce_bool(None, default=False) is False
-
-    def test_returns_default_for_empty_string(self) -> None:
-        """Empty strings return the default."""
-        assert upload_mod._coerce_bool("", default=True) is True
-
-    def test_rejects_invalid_string(self) -> None:
-        """Invalid strings raise ValueError."""
-        with pytest.raises(ValueError, match="Cannot interpret"):
-            upload_mod._coerce_bool("maybe", default=False)
 
 
 class TestIsCandidate:

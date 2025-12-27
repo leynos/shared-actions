@@ -10,12 +10,11 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from syspath_hack import prepend_to_syspath
 
 MODULE_PATH = Path(__file__).resolve().parent.parent / "run_rust.py"
 SCRIPT_DIR = MODULE_PATH.parent
-SCRIPT_DIR_STR = str(SCRIPT_DIR)
-if SCRIPT_DIR_STR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR_STR)
+prepend_to_syspath(SCRIPT_DIR)
 
 spec = importlib.util.spec_from_file_location("run_rust_module", MODULE_PATH)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard

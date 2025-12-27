@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import sys
 import typing as typ
 from pathlib import Path
 
 import pytest
+from syspath_hack import prepend_to_syspath
 
 # Add scripts directory to path
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
 from stage_common.config import ArtefactConfig, StagingConfig, load_config

@@ -40,9 +40,15 @@ import cyclopts
 from cyclopts import App, Parameter
 from plumbum import local
 from plumbum.commands import CommandNotFound, ProcessExecutionError
+from syspath_hack import prepend_project_root
 
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BoundCommand
+
+# Add project root for bool_utils import
+prepend_project_root()
+
+from bool_utils import coerce_bool
 
 
 class AssetError(RuntimeError):
@@ -59,28 +65,6 @@ class ReleaseAsset:
 
 
 app: App = App(config=cyclopts.config.Env("INPUT_", command=False))
-
-
-def _coerce_bool(value: object, *, default: bool) -> bool:
-    """Interpret GitHub input values as booleans.
-
-    GitHub Actions forwards ``workflow_call`` inputs as strings, so we accept a
-    variety of spellings. ``None`` or empty strings fall back to ``default``.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalised = value.strip().lower()
-        if not normalised:
-            return default
-        if normalised in {"1", "true", "yes", "on"}:
-            return True
-        if normalised in {"0", "false", "no", "off"}:
-            return False
-    msg = f"Cannot interpret {value!r} as boolean"
-    raise ValueError(msg)
 
 
 def _is_candidate(path: Path, bin_name: str) -> bool:
@@ -332,8 +316,8 @@ def cli(
         release_tag=release_tag,
         bin_name=bin_name,
         dist_dir=dist_dir,
-        dry_run=_coerce_bool(dry_run, default=False),
-        clobber=_coerce_bool(clobber, default=True),
+        dry_run=coerce_bool(dry_run, default=False),
+        clobber=coerce_bool(clobber, default=True),
     )
     raise SystemExit(exit_code)
 

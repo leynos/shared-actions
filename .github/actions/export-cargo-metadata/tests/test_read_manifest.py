@@ -9,17 +9,14 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from syspath_hack import prepend_project_root, prepend_to_syspath
 
 MODULE_PATH = Path(__file__).resolve().parent.parent / "scripts" / "read_manifest.py"
 SCRIPT_DIR = MODULE_PATH.parent
-SCRIPT_DIR_STR = str(SCRIPT_DIR)
-if SCRIPT_DIR_STR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR_STR)
+prepend_to_syspath(SCRIPT_DIR)
 
-# Add repository root for cargo_utils import
-REPO_ROOT = Path(__file__).resolve().parents[5]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# Add repository root for cargo_utils and bool_utils imports
+prepend_project_root()
 
 spec = importlib.util.spec_from_file_location("read_manifest_module", MODULE_PATH)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard
@@ -41,42 +38,6 @@ def _write_manifest(path: PathType, content: str) -> None:
     """Write a manifest with content to path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (True, True),
-        (False, False),
-        ("true", True),
-        ("TRUE", True),
-        ("On", True),
-        ("1", True),
-        ("yes", True),
-        ("false", False),
-        ("FALSE", False),
-        ("No", False),
-        ("0", False),
-        ("off", False),
-        ("OFF", False),
-        ("", False),
-    ],
-)
-def test_coerce_bool_accepts_expected_inputs(
-    value: bool | str,  # noqa: FBT001
-    expected: bool,  # noqa: FBT001
-) -> None:
-    """Ensure _coerce_bool recognises accepted truthy and falsey values."""
-    assert (
-        read_manifest_mod._coerce_bool(value=value, parameter="export-to-env")
-        is expected
-    )
-
-
-def test_coerce_bool_rejects_invalid_values() -> None:
-    """Invalid values should raise an informative ValueError."""
-    with pytest.raises(ValueError, match="boolean-like"):
-        read_manifest_mod._coerce_bool(value="not-a-boolean", parameter="export-to-env")
 
 
 def _load_and_extract(

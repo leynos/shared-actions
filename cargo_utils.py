@@ -36,7 +36,9 @@ from __future__ import annotations
 
 import tomllib
 import typing as typ
-from pathlib import Path  # noqa: TC003
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ManifestError(Exception):

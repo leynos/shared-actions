@@ -28,7 +28,8 @@ class TestReadManifest:
 [package]
 name = "test-pkg"
 version = "1.2.3"
-"""
+""",
+            encoding="utf-8",
         )
 
         result = read_manifest(manifest_path)
@@ -155,7 +156,8 @@ members = ["member"]
 
 [workspace.package]
 version = "1.0.0"
-"""
+""",
+            encoding="utf-8",
         )
 
         member_dir = tmp_path / "member"
@@ -166,7 +168,8 @@ version = "1.0.0"
 [package]
 name = "member"
 version.workspace = true
-"""
+""",
+            encoding="utf-8",
         )
 
         result = find_workspace_root(member_dir)
@@ -181,7 +184,8 @@ version.workspace = true
 [package]
 name = "standalone"
 version = "1.0.0"
-"""
+""",
+            encoding="utf-8",
         )
 
         result = find_workspace_root(tmp_path)
@@ -195,7 +199,8 @@ version = "1.0.0"
             """\
 [workspace]
 members = []
-"""
+""",
+            encoding="utf-8",
         )
 
         result = find_workspace_root(tmp_path)
@@ -242,7 +247,7 @@ class TestGetWorkspaceVersion:
     ) -> None:
         """Verify workspace version extraction handles various manifest formats."""
         manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text(manifest_content)
+        manifest_path.write_text(manifest_content, encoding="utf-8")
 
         result = get_workspace_version(manifest_path)
 
@@ -271,7 +276,8 @@ members = ["member"]
 
 [workspace.package]
 version = "2.0.0"
-"""
+""",
+            encoding="utf-8",
         )
 
         member_dir = tmp_path / "member"
@@ -299,7 +305,8 @@ version = "2.0.0"
             """\
 [workspace]
 members = ["member"]
-"""
+""",
+            encoding="utf-8",
         )
 
         member_dir = tmp_path / "member"

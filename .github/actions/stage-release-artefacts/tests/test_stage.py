@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import typing as typ
 from pathlib import Path
 
 import pytest
@@ -27,15 +26,12 @@ from stage_common.pipeline import (
 )
 from stage_common.resolution import match_candidate_path
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path as PathType
-
 
 class TestRequireEnvPath:
     """Tests for the require_env_path function."""
 
     def test_returns_path_when_set(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: PathType
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Returns Path when environment variable is set."""
         monkeypatch.setenv("TEST_VAR", str(tmp_path))
@@ -71,7 +67,7 @@ class TestArtefactConfig:
 class TestStagingConfig:
     """Tests for the StagingConfig dataclass."""
 
-    def test_staging_dir(self, tmp_path: PathType) -> None:
+    def test_staging_dir(self, tmp_path: Path) -> None:
         """staging_dir returns correct path."""
         config = StagingConfig(
             workspace=tmp_path,
@@ -86,7 +82,7 @@ class TestStagingConfig:
         expected = tmp_path / "dist" / "myapp_linux_x86_64"
         assert config.staging_dir() == expected
 
-    def test_as_template_context(self, tmp_path: PathType) -> None:
+    def test_as_template_context(self, tmp_path: Path) -> None:
         """as_template_context returns complete context."""
         config = StagingConfig(
             workspace=tmp_path,
@@ -112,7 +108,7 @@ class TestLoadConfig:
     """Tests for the load_config function."""
 
     def test_loads_valid_config(
-        self, tmp_path: PathType, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """load_config parses valid TOML configuration."""
         monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
@@ -139,14 +135,14 @@ target = "x86_64-unknown-linux-gnu"
         assert config.platform == "linux"
         assert len(config.artefacts) == 1
 
-    def test_raises_for_missing_file(self, tmp_path: PathType) -> None:
+    def test_raises_for_missing_file(self, tmp_path: Path) -> None:
         """load_config raises for missing configuration file."""
         missing = tmp_path / "missing.toml"
         with pytest.raises(FileNotFoundError):
             load_config(missing, "linux-x86_64")
 
     def test_raises_for_missing_target(
-        self, tmp_path: PathType, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """load_config raises for missing target section."""
         monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
@@ -171,7 +167,7 @@ target = "x86_64-unknown-linux-gnu"
 class TestMatchCandidatePath:
     """Tests for the match_candidate_path function."""
 
-    def test_matches_direct_path(self, tmp_path: PathType) -> None:
+    def test_matches_direct_path(self, tmp_path: Path) -> None:
         """Matches a direct file path."""
         target = tmp_path / "myapp"
         target.write_text("binary", encoding="utf-8")
@@ -180,7 +176,7 @@ class TestMatchCandidatePath:
 
         assert result == target
 
-    def test_matches_glob_pattern(self, tmp_path: PathType) -> None:
+    def test_matches_glob_pattern(self, tmp_path: Path) -> None:
         """Matches a glob pattern."""
         subdir = tmp_path / "dist"
         subdir.mkdir()
@@ -191,7 +187,7 @@ class TestMatchCandidatePath:
 
         assert result == target
 
-    def test_returns_none_for_no_match(self, tmp_path: PathType) -> None:
+    def test_returns_none_for_no_match(self, tmp_path: Path) -> None:
         """Returns None when no file matches."""
         result = match_candidate_path(tmp_path, "nonexistent")
         assert result is None
@@ -200,7 +196,7 @@ class TestMatchCandidatePath:
 class TestPrepareOutputData:
     """Tests for the prepare_output_data function."""
 
-    def test_includes_all_fields(self, tmp_path: PathType) -> None:
+    def test_includes_all_fields(self, tmp_path: Path) -> None:
         """Output data includes all required fields."""
         staging_dir = tmp_path / "staging"
         staging_dir.mkdir()
@@ -225,12 +221,12 @@ class TestPrepareOutputData:
 class TestValidateNoReservedKeyCollisions:
     """Tests for the validate_no_reserved_key_collisions function."""
 
-    def test_allows_non_reserved_keys(self, tmp_path: PathType) -> None:
+    def test_allows_non_reserved_keys(self, tmp_path: Path) -> None:
         """Non-reserved keys are allowed."""
         outputs = {"binary_path": tmp_path / "myapp"}
         validate_no_reserved_key_collisions(outputs)  # Should not raise
 
-    def test_raises_for_reserved_key(self, tmp_path: PathType) -> None:
+    def test_raises_for_reserved_key(self, tmp_path: Path) -> None:
         """Reserved keys raise StageError."""
         outputs = {"artifact_dir": tmp_path / "myapp"}
         with pytest.raises(StageError, match="reserved keys"):
@@ -240,7 +236,7 @@ class TestValidateNoReservedKeyCollisions:
 class TestWriteGithubOutput:
     """Tests for the write_github_output function."""
 
-    def test_writes_simple_values(self, tmp_path: PathType) -> None:
+    def test_writes_simple_values(self, tmp_path: Path) -> None:
         """Simple string values are written correctly."""
         output_file = tmp_path / "output"
         write_github_output(output_file, {"key": "value"})
@@ -248,7 +244,7 @@ class TestWriteGithubOutput:
         contents = output_file.read_text(encoding="utf-8")
         assert "key=value" in contents
 
-    def test_escapes_special_characters(self, tmp_path: PathType) -> None:
+    def test_escapes_special_characters(self, tmp_path: Path) -> None:
         """Special characters are escaped."""
         output_file = tmp_path / "output"
         write_github_output(output_file, {"key": "line1\nline2"})
@@ -256,7 +252,7 @@ class TestWriteGithubOutput:
         contents = output_file.read_text(encoding="utf-8")
         assert "key=line1%0Aline2" in contents
 
-    def test_normalizes_windows_paths(self, tmp_path: PathType) -> None:
+    def test_normalizes_windows_paths(self, tmp_path: Path) -> None:
         """Windows paths are normalized when flag is set."""
         output_file = tmp_path / "output"
         write_github_output(
@@ -268,7 +264,7 @@ class TestWriteGithubOutput:
         contents = output_file.read_text(encoding="utf-8")
         assert "path=C:/Users/test" in contents
 
-    def test_writes_list_values_with_heredoc(self, tmp_path: PathType) -> None:
+    def test_writes_list_values_with_heredoc(self, tmp_path: Path) -> None:
         """List values are written using heredoc syntax."""
         output_file = tmp_path / "output"
         write_github_output(output_file, {"staged_files": ["file1.txt", "file2.txt"]})
@@ -278,7 +274,7 @@ class TestWriteGithubOutput:
         assert "file1.txt\nfile2.txt" in contents
         assert "gh_STAGED_FILES\n" in contents
 
-    def test_list_values_preserve_windows_paths(self, tmp_path: PathType) -> None:
+    def test_list_values_preserve_windows_paths(self, tmp_path: Path) -> None:
         """List values are not affected by normalize_windows_paths flag."""
         output_file = tmp_path / "output"
         write_github_output(
@@ -296,7 +292,7 @@ class TestWriteGithubOutput:
 class TestStageArtefacts:
     """Tests for the stage_artefacts function."""
 
-    def test_stages_artefact(self, tmp_path: PathType) -> None:
+    def test_stages_artefact(self, tmp_path: Path) -> None:
         """Artefacts are copied to staging directory."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -323,7 +319,7 @@ class TestStageArtefacts:
         assert (result.staging_dir / "myapp").exists()
         assert "myapp" in result.checksums
 
-    def test_raises_for_missing_required_artefact(self, tmp_path: PathType) -> None:
+    def test_raises_for_missing_required_artefact(self, tmp_path: Path) -> None:
         """Missing required artefacts raise StageError."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -343,7 +339,7 @@ class TestStageArtefacts:
         with pytest.raises(StageError, match="not found"):
             stage_artefacts(config, output_file)
 
-    def test_skips_optional_artefact(self, tmp_path: PathType) -> None:
+    def test_skips_optional_artefact(self, tmp_path: Path) -> None:
         """Missing optional artefacts are skipped."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -369,7 +365,7 @@ class TestStageArtefacts:
 
         assert len(result.staged_artefacts) == 1
 
-    def test_uses_alternative_when_primary_missing(self, tmp_path: PathType) -> None:
+    def test_uses_alternative_when_primary_missing(self, tmp_path: Path) -> None:
         """Alternative source is used when primary source is missing."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -401,7 +397,7 @@ class TestStageArtefacts:
         assert staged_file.name == "fallback"
         assert staged_file.read_text(encoding="utf-8") == "fallback content"
 
-    def test_generates_checksum_sidecar(self, tmp_path: PathType) -> None:
+    def test_generates_checksum_sidecar(self, tmp_path: Path) -> None:
         """Checksum sidecar files are generated."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
@@ -446,7 +442,7 @@ class TestRenderTemplate:
 class TestSafeDestinationPath:
     """Tests for the _safe_destination_path helper function."""
 
-    def test_allows_nested_path(self, tmp_path: PathType) -> None:
+    def test_allows_nested_path(self, tmp_path: Path) -> None:
         """Nested paths within staging directory are allowed."""
         staging_dir = tmp_path / "staging"
         staging_dir.mkdir()
@@ -455,7 +451,7 @@ class TestSafeDestinationPath:
 
         assert result.is_relative_to(staging_dir)
 
-    def test_rejects_escape_attempt(self, tmp_path: PathType) -> None:
+    def test_rejects_escape_attempt(self, tmp_path: Path) -> None:
         """Paths escaping the staging directory are rejected."""
         staging_dir = tmp_path / "staging"
         staging_dir.mkdir()

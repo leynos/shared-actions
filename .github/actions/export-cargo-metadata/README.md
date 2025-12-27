@@ -1,7 +1,7 @@
 # Export Cargo Metadata
 
-Extract metadata from Cargo.toml and export as GitHub Actions outputs and
-environment variables.
+Extract metadata from the Cargo.toml (Tom's Obvious, Minimal Language, TOML)
+manifest and export as GitHub Actions outputs and environment variables.
 
 ## Inputs
 

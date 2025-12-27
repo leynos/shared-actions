@@ -1,6 +1,7 @@
 # Stage Release Artefacts
 
-Stage release artefacts using a TOML configuration file.
+Stage release artefacts using a Tom's Obvious, Minimal Language (TOML)
+configuration file.
 
 This action copies build artefacts into a staging directory, generates checksum
 sidecar files, and exports paths and metadata as workflow outputs. It supports
@@ -21,11 +22,11 @@ glob patterns, template variables, and optional artefacts.
 | `artifact-dir` | Absolute path to the directory containing staged artefacts |
 | `dist-dir` | Absolute path to the parent distribution directory |
 | `staged-files` | Newline-separated list of staged file names |
-| `artefact-map` | JSON map of named outputs to their absolute paths |
+| `artefact-map` | JavaScript Object Notation (JSON) map of named outputs to their absolute paths |
 | `checksum-map` | JSON map of file names to checksum digests |
 | `binary-path` | Absolute path to the staged binary (when configured) |
 | `man-path` | Absolute path to the staged man page (when configured) |
-| `license-path` | Absolute path to the staged license file (when configured) |
+| `licence-path` | Absolute path to the staged licence file (when configured) |
 
 ## Usage
 

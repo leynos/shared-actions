@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#   "cyclopts>=2.9,<3.0",
+#   "cyclopts>=3.24,<4.0",
 # ]
 # ///
 # fmt: on
@@ -56,6 +56,7 @@ def _write_output(name: str, value: str) -> None:
     if not output_path:
         return
     path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{name}={value}\n")
 
@@ -66,6 +67,7 @@ def _write_env(name: str, value: str) -> None:
     if not env_path:
         return
     path = Path(env_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{name}={value}\n")
 
@@ -103,11 +105,11 @@ def _extract_field(
 ) -> str | None:
     """Extract a single field from the manifest."""
     if field == "name":
-        return get_package_field(manifest, "name")
+        return get_package_field(manifest, "name", manifest_path)
     if field == "version":
         return resolve_version(manifest, manifest_path)
     if field == "bin-name":
-        return get_bin_name(manifest)
+        return get_bin_name(manifest, manifest_path)
     if field == "description":
         package = manifest.get("package", {})
         desc = package.get("description")
@@ -126,15 +128,6 @@ def _resolve_manifest_path(manifest_path: str) -> Path:
     return resolved_path
 
 
-def _validate_export_flag(*, export_to_env: bool | str) -> bool:
-    """Validate and return the export-to-env flag."""
-    try:
-        return coerce_bool_strict(export_to_env, parameter="export-to-env")
-    except ValueError as exc:
-        _emit_error("Invalid input", str(exc))
-        raise SystemExit(1) from exc
-
-
 def _load_manifest(resolved_path: Path) -> dict[str, typ.Any]:
     """Load the manifest with error handling."""
     try:
@@ -142,18 +135,6 @@ def _load_manifest(resolved_path: Path) -> dict[str, typ.Any]:
     except ManifestError as exc:
         _emit_error("Cargo.toml read failure", str(exc), path=exc.path)
         raise SystemExit(1) from exc
-
-
-def _export_field(field: str, value: str, *, should_export_env: bool) -> str:
-    """Export a field to outputs and optionally to environment."""
-    output_name = field.replace("_", "-")
-    _write_output(output_name, value)
-
-    if should_export_env:
-        env_name = field.upper().replace("-", "_")
-        _write_env(env_name, value)
-
-    return f"{output_name}={value}"
 
 
 def _process_fields(
@@ -178,10 +159,17 @@ def _process_fields(
             _emit_error("Field extraction failed", str(exc), path=exc.path)
             raise SystemExit(1) from exc
 
-        if value is not None:
-            exported.append(
-                _export_field(field, value, should_export_env=should_export_env)
-            )
+        if value is None:
+            continue
+
+        output_name = field.replace("_", "-")
+        _write_output(output_name, value)
+
+        if should_export_env:
+            env_name = field.upper().replace("-", "_")
+            _write_env(env_name, value)
+
+        exported.append(f"{output_name}={value}")
 
     return exported
 
@@ -195,7 +183,13 @@ def main(
 ) -> None:
     """Extract and export Cargo manifest metadata."""
     resolved_path = _resolve_manifest_path(manifest_path)
-    should_export_env = _validate_export_flag(export_to_env=export_to_env)
+
+    try:
+        should_export_env = coerce_bool_strict(export_to_env, parameter="export-to-env")
+    except ValueError as exc:
+        _emit_error("Invalid input", str(exc))
+        raise SystemExit(1) from exc
+
     manifest = _load_manifest(resolved_path)
 
     field_list = [f.strip() for f in fields.split(",") if f.strip()]

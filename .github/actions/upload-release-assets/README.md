@@ -3,8 +3,9 @@
 Upload staged artefacts to a GitHub release or validate them in dry-run mode.
 
 This action discovers artefacts in a staging directory, validates their
-filenames and sizes, and uploads them using the GitHub CLI (`gh`). It supports
-a dry-run mode for validating assets without mutating release state.
+filenames and sizes, and uploads them using the GitHub command-line interface
+(CLI) (`gh`). It supports a dry-run mode for validating assets without mutating
+release state.
 
 ## Inputs
 
@@ -72,10 +73,10 @@ The action discovers the following artefact types within `dist-dir`:
 | `{bin-name}.exe` | Windows executable |
 | `{bin-name}.1` | Man page |
 | `*.deb` | Debian package |
-| `*.rpm` | RPM package |
+| `*.rpm` | Red Hat Package Manager (RPM) package |
 | `*.pkg` | macOS installer package |
 | `*.msi` | Windows installer |
-| `*.sha256` | SHA-256 checksum sidecar files |
+| `*.sha256` | Secure Hash Algorithm (SHA-256) checksum sidecar files |
 
 ### Nested directories
 

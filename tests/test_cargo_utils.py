@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import typing as typ
+from pathlib import Path
 
 import pytest
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 from cargo_utils import (
     ManifestError,
@@ -62,41 +59,41 @@ class TestGetPackageField:
         """The name field should be extracted from [package]."""
         manifest = {"package": {"name": "example", "version": "1.0.0"}}
 
-        assert get_package_field(manifest, "name") == "example"
+        assert get_package_field(manifest, "name", Path("Cargo.toml")) == "example"
 
     def test_extracts_version(self) -> None:
         """The version field should be extracted from [package]."""
         manifest = {"package": {"name": "example", "version": "2.3.4"}}
 
-        assert get_package_field(manifest, "version") == "2.3.4"
+        assert get_package_field(manifest, "version", Path("Cargo.toml")) == "2.3.4"
 
     def test_strips_whitespace(self) -> None:
         """Field values should have leading and trailing whitespace removed."""
         manifest = {"package": {"name": "  padded  ", "version": " 1.0.0 "}}
 
-        assert get_package_field(manifest, "name") == "padded"
-        assert get_package_field(manifest, "version") == "1.0.0"
+        assert get_package_field(manifest, "name", Path("Cargo.toml")) == "padded"
+        assert get_package_field(manifest, "version", Path("Cargo.toml")) == "1.0.0"
 
     def test_raises_for_missing_package_table(self) -> None:
         """A manifest without [package] should raise ManifestError."""
         manifest: dict[str, object] = {}
 
         with pytest.raises(ManifestError, match="missing \\[package\\] table"):
-            get_package_field(manifest, "name")
+            get_package_field(manifest, "name", Path("Cargo.toml"))
 
     def test_raises_for_missing_field(self) -> None:
         """A missing field should raise ManifestError."""
         manifest = {"package": {"name": "example"}}
 
         with pytest.raises(ManifestError, match=r"package\.version is missing"):
-            get_package_field(manifest, "version")
+            get_package_field(manifest, "version", Path("Cargo.toml"))
 
     def test_raises_for_empty_field(self) -> None:
         """An empty field value should raise ManifestError."""
         manifest = {"package": {"name": "", "version": "1.0.0"}}
 
         with pytest.raises(ManifestError, match=r"package\.name is missing or empty"):
-            get_package_field(manifest, "name")
+            get_package_field(manifest, "name", Path("Cargo.toml"))
 
 
 class TestGetBinName:
@@ -109,13 +106,13 @@ class TestGetBinName:
             "bin": [{"name": "my-cli", "path": "src/main.rs"}],
         }
 
-        assert get_bin_name(manifest) == "my-cli"
+        assert get_bin_name(manifest, Path("Cargo.toml")) == "my-cli"
 
     def test_falls_back_to_package_name(self) -> None:
         """Without [[bin]], the package name should be used."""
         manifest = {"package": {"name": "my-package", "version": "1.0.0"}}
 
-        assert get_bin_name(manifest) == "my-package"
+        assert get_bin_name(manifest, Path("Cargo.toml")) == "my-package"
 
     def test_ignores_empty_bin_list(self) -> None:
         """An empty [[bin]] list should fall back to package name."""
@@ -124,7 +121,7 @@ class TestGetBinName:
             "bin": [],
         }
 
-        assert get_bin_name(manifest) == "fallback"
+        assert get_bin_name(manifest, Path("Cargo.toml")) == "fallback"
 
     def test_ignores_bin_without_name(self) -> None:
         """A [[bin]] entry without a name should fall back to package name."""
@@ -133,7 +130,7 @@ class TestGetBinName:
             "bin": [{"path": "src/main.rs"}],
         }
 
-        assert get_bin_name(manifest) == "fallback"
+        assert get_bin_name(manifest, Path("Cargo.toml")) == "fallback"
 
     def test_strips_bin_name_whitespace(self) -> None:
         """The bin name should have whitespace stripped."""
@@ -142,7 +139,7 @@ class TestGetBinName:
             "bin": [{"name": "  spaced  ", "path": "src/main.rs"}],
         }
 
-        assert get_bin_name(manifest) == "spaced"
+        assert get_bin_name(manifest, Path("Cargo.toml")) == "spaced"
 
 
 class TestFindWorkspaceRoot:

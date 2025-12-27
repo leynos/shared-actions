@@ -20,7 +20,11 @@ from stage_common.output import (
     validate_no_reserved_key_collisions,
     write_github_output,
 )
-from stage_common.pipeline import stage_artefacts
+from stage_common.pipeline import (
+    _render_template,
+    _safe_destination_path,
+    stage_artefacts,
+)
 from stage_common.resolution import match_candidate_path
 
 if typ.TYPE_CHECKING:
@@ -264,6 +268,30 @@ class TestWriteGithubOutput:
         contents = output_file.read_text(encoding="utf-8")
         assert "path=C:/Users/test" in contents
 
+    def test_writes_list_values_with_heredoc(self, tmp_path: PathType) -> None:
+        """List values are written using heredoc syntax."""
+        output_file = tmp_path / "output"
+        write_github_output(output_file, {"staged_files": ["file1.txt", "file2.txt"]})
+
+        contents = output_file.read_text(encoding="utf-8")
+        assert "staged_files<<gh_STAGED_FILES" in contents
+        assert "file1.txt\nfile2.txt" in contents
+        assert "gh_STAGED_FILES\n" in contents
+
+    def test_list_values_preserve_windows_paths(self, tmp_path: PathType) -> None:
+        """List values are not affected by normalize_windows_paths flag."""
+        output_file = tmp_path / "output"
+        write_github_output(
+            output_file,
+            {"files": ["C:\\Users\\file1.txt", "C:\\Users\\file2.txt"]},
+            normalize_windows_paths=True,
+        )
+
+        contents = output_file.read_text(encoding="utf-8")
+        # List values use heredoc syntax, not the scalar formatting
+        assert "C:\\Users\\file1.txt" in contents
+        assert "C:\\Users\\file2.txt" in contents
+
 
 class TestStageArtefacts:
     """Tests for the stage_artefacts function."""
@@ -368,3 +396,39 @@ class TestStageArtefacts:
         assert checksum_file.exists()
         contents = checksum_file.read_text(encoding="utf-8")
         assert "myapp" in contents
+
+
+class TestRenderTemplate:
+    """Tests for the _render_template helper function."""
+
+    def test_renders_valid_template(self) -> None:
+        """Valid template keys are substituted."""
+        result = _render_template("{name}-{version}", {"name": "app", "version": "1.0"})
+
+        assert result == "app-1.0"
+
+    def test_unknown_key_raises_stage_error(self) -> None:
+        """Unknown template keys raise StageError."""
+        with pytest.raises(StageError, match="Invalid template key"):
+            _render_template("{unknown_key}", {"known_key": "value"})
+
+
+class TestSafeDestinationPath:
+    """Tests for the _safe_destination_path helper function."""
+
+    def test_allows_nested_path(self, tmp_path: PathType) -> None:
+        """Nested paths within staging directory are allowed."""
+        staging_dir = tmp_path / "staging"
+        staging_dir.mkdir()
+
+        result = _safe_destination_path(staging_dir, "subdir/file.txt")
+
+        assert result.is_relative_to(staging_dir)
+
+    def test_rejects_escape_attempt(self, tmp_path: PathType) -> None:
+        """Paths escaping the staging directory are rejected."""
+        staging_dir = tmp_path / "staging"
+        staging_dir.mkdir()
+
+        with pytest.raises(StageError, match="escapes staging directory"):
+            _safe_destination_path(staging_dir, "../evil/outside.txt")

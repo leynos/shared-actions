@@ -155,18 +155,6 @@ class TestDiscoverAssets:
         with pytest.raises(upload_mod.AssetError, match="is empty"):
             upload_mod.discover_assets(tmp_path, bin_name="myapp")
 
-    def test_raises_for_name_collision(self, tmp_path: PathType) -> None:
-        """Name collision raises AssetError."""
-        # Create two files that would resolve to the same name
-        (tmp_path / "myapp").write_text("binary1", encoding="utf-8")
-        subdir = tmp_path / "linux"
-        subdir.mkdir()
-        # This creates a different scenario - let's test with actual collision
-        # by using checksums that exist in different subdirs
-        (tmp_path / "myapp.sha256").write_text("hash1", encoding="utf-8")
-        # Can't easily create collision with current naming - skip test
-        # Collision detection is tested in TestRegisterAsset
-
 
 class TestReleaseAsset:
     """Tests for the ReleaseAsset dataclass."""
@@ -322,6 +310,64 @@ class TestMain:
         )
 
         assert result == 1
+
+    def test_gh_command_not_found_returns_one(
+        self,
+        tmp_path: PathType,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Missing gh CLI returns exit code 1."""
+        from plumbum.commands import CommandNotFound
+
+        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
+        output_file = tmp_path / "outputs"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+
+        mock_local = mock.MagicMock()
+        mock_local.__getitem__.side_effect = CommandNotFound("gh", "not found")
+        monkeypatch.setattr(upload_mod, "local", mock_local)
+
+        result = upload_mod.main(
+            release_tag="v1.0.0",
+            bin_name="myapp",
+            dist_dir=tmp_path,
+            dry_run=False,
+        )
+
+        assert result == 1
+        contents = output_file.read_text(encoding="utf-8")
+        assert "upload_error=true" in contents
+
+    def test_gh_process_error_returns_one(
+        self,
+        tmp_path: PathType,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Gh CLI failure returns exit code 1."""
+        from plumbum.commands import ProcessExecutionError
+
+        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
+        output_file = tmp_path / "outputs"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+
+        mock_cmd = mock.MagicMock()
+        mock_cmd.side_effect = ProcessExecutionError([], 1, "", "upload failed")
+        mock_bound = mock.MagicMock()
+        mock_bound.__getitem__.return_value = mock_cmd
+        mock_local = mock.MagicMock()
+        mock_local.__getitem__.return_value = mock_bound
+        monkeypatch.setattr(upload_mod, "local", mock_local)
+
+        result = upload_mod.main(
+            release_tag="v1.0.0",
+            bin_name="myapp",
+            dist_dir=tmp_path,
+            dry_run=False,
+        )
+
+        assert result == 1
+        contents = output_file.read_text(encoding="utf-8")
+        assert "upload_error=true" in contents
 
 
 class TestWriteOutput:

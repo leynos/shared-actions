@@ -19,7 +19,6 @@ from .errors import StageError
 __all__ = [
     "ArtefactConfig",
     "StagingConfig",
-    "ValidationContext",
     "load_config",
 ]
 
@@ -79,14 +78,6 @@ class StagingConfig:
         return template_context | {
             "staging_dir_name": self.staging_dir_template.format(**template_context)
         }
-
-
-@dataclasses.dataclass(slots=True, frozen=True)
-class ValidationContext:
-    """Context information for validation error messages."""
-
-    index: int
-    config_path: Path
 
 
 def load_config(config_file: Path, target_key: str) -> StagingConfig:
@@ -176,115 +167,54 @@ def _validate_checksum(name: str | None) -> str:
     return algorithm
 
 
-def _validate_string_field(
-    value: object,
-    field_name: str,
-    context: ValidationContext,
-    *,
-    allow_empty: bool,
-) -> str:
-    """Validate a string field value.
-
-    When ``allow_empty=False``, also checks the string is non-empty.
-    """
-    if not isinstance(value, str):
-        msg = (
-            f"Artefact '{field_name}' must be a string, "
-            f"got {type(value).__name__} "
-            f"in entry #{context.index} of {context.config_path}"
-        )
-        raise StageError(msg)
-
-    if not allow_empty and not value:
-        msg = (
-            f"Missing required artefact key '{field_name}' "
-            f"in entry #{context.index} of {context.config_path}"
-        )
-        raise StageError(msg)
-
-    return value
-
-
-def _validate_field_type[T](
-    value: object,
-    field_name: str,
-    expected_type: type[T],
-    context: ValidationContext,
-    *,
-    allow_empty_str: bool = True,
-) -> T:
-    """Validate a field value has the expected type.
-
-    For strings with ``allow_empty_str=False``, also checks the value is non-empty.
-    """
-    if expected_type is str:
-        return typ.cast(
-            "T",
-            _validate_string_field(
-                value, field_name, context, allow_empty=allow_empty_str
-            ),
-        )
-
-    if not isinstance(value, expected_type):
-        type_name = "boolean" if expected_type is bool else expected_type.__name__
-        msg = (
-            f"Artefact '{field_name}' must be a {type_name}, "
-            f"got {type(value).__name__} "
-            f"in entry #{context.index} of {context.config_path}"
-        )
-        raise StageError(msg)
-
-    return value
-
-
-def _validate_source(entry: dict[str, typ.Any], index: int, config_path: Path) -> str:
-    """Validate and extract the source field from an artefact entry."""
-    context = ValidationContext(index=index, config_path=config_path)
-    return _validate_field_type(
-        entry.get("source"), "source", str, context, allow_empty_str=False
-    )
-
-
-def _validate_required(
+def _parse_artefact_entry(
     entry: dict[str, typ.Any], index: int, config_path: Path
-) -> bool:
-    """Validate and extract the required field from an artefact entry."""
-    context = ValidationContext(index=index, config_path=config_path)
-    return _validate_field_type(entry.get("required", True), "required", bool, context)
+) -> ArtefactConfig:
+    """Parse and validate a single artefact entry."""
+    prefix = f"in entry #{index} of {config_path}"
 
+    # source: required, non-empty string
+    source = entry.get("source")
+    if not isinstance(source, str):
+        msg = (
+            f"Artefact 'source' must be a string, got {type(source).__name__} {prefix}"
+        )
+        raise StageError(msg)
+    if not source:
+        msg = f"Missing required artefact key 'source' {prefix}"
+        raise StageError(msg)
 
-def _validate_alternatives(
-    entry: dict[str, typ.Any], index: int, config_path: Path
-) -> list[str]:
-    """Validate and extract the alternatives field from an artefact entry."""
+    # required: optional bool (default True)
+    required = entry.get("required", True)
+    if not isinstance(required, bool):
+        msg = (
+            f"Artefact 'required' must be a boolean, "
+            f"got {type(required).__name__} {prefix}"
+        )
+        raise StageError(msg)
+
+    # alternatives: list[str]
     alternatives = entry.get("alternatives", [])
     if not isinstance(alternatives, list):
-        alt_type = type(alternatives).__name__
         msg = (
-            f"Artefact 'alternatives' must be a list, got {alt_type} "
-            f"in entry #{index} of {config_path}"
+            f"Artefact 'alternatives' must be a list, "
+            f"got {type(alternatives).__name__} {prefix}"
         )
         raise StageError(msg)
     for alt_idx, alt in enumerate(alternatives):
         if not isinstance(alt, str):
             msg = (
                 f"Artefact alternatives[{alt_idx}] must be a string, "
-                f"got {type(alt).__name__} in entry #{index} of {config_path}"
+                f"got {type(alt).__name__} {prefix}"
             )
             raise StageError(msg)
-    return alternatives
 
-
-def _parse_artefact_entry(
-    entry: dict[str, typ.Any], index: int, config_path: Path
-) -> ArtefactConfig:
-    """Parse and validate a single artefact entry."""
     return ArtefactConfig(
-        source=_validate_source(entry, index, config_path),
-        required=_validate_required(entry, index, config_path),
+        source=source,
+        required=required,
         output=entry.get("output"),
         destination=entry.get("destination"),
-        alternatives=_validate_alternatives(entry, index, config_path),
+        alternatives=alternatives,
     )
 
 

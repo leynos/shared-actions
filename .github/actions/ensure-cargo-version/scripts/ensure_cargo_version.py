@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
-#   "cyclopts>=2.9,<3.0",
+#   "cyclopts>=3.24,<4.0",
 # ]
 # ///
 # fmt: on
@@ -64,12 +64,7 @@ def _resolve_paths(manifests: list[Path]) -> list[Path]:
 
 def _read_manifest_version(path: Path) -> ManifestVersion:
     """Parse a manifest and return the discovered package metadata."""
-    try:
-        data = read_manifest(path)
-    except ManifestError:
-        raise
-    except FileNotFoundError as exc:  # pragma: no cover - fatal path
-        raise ManifestError(path, "Manifest not found") from exc
+    data = read_manifest(path)
 
     package = data.get("package")
     if not isinstance(package, dict):
@@ -143,6 +138,7 @@ def _write_output(name: str, value: str) -> None:
     if not output_path:
         return
     path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(f"{name}={value}\n")
 

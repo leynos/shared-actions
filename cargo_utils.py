@@ -10,15 +10,16 @@ Examples
 Basic usage to read package name and version::
 
     >>> from pathlib import Path
-    >>> manifest = read_manifest(Path("Cargo.toml"))
-    >>> get_package_field(manifest, "name")
+    >>> manifest_path = Path("Cargo.toml")
+    >>> manifest = read_manifest(manifest_path)
+    >>> get_package_field(manifest, "name", manifest_path)
     'my-package'
-    >>> get_package_field(manifest, "version")
+    >>> get_package_field(manifest, "version", manifest_path)
     '1.2.3'
 
 Extracting the binary name with [[bin]] fallback::
 
-    >>> bin_name = get_bin_name(manifest)
+    >>> bin_name = get_bin_name(manifest, manifest_path)
     >>> bin_name
     'my-binary'
 
@@ -35,7 +36,7 @@ from __future__ import annotations
 
 import tomllib
 import typing as typ
-from pathlib import Path
+from pathlib import Path  # noqa: TC003
 
 
 class ManifestError(Exception):
@@ -101,7 +102,9 @@ def read_manifest(path: Path) -> dict[str, typ.Any]:
         raise ManifestError(path, msg) from exc
 
 
-def get_package_field(manifest: dict[str, typ.Any], field: str) -> str:
+def get_package_field(
+    manifest: dict[str, typ.Any], field: str, manifest_path: Path
+) -> str:
     """Extract a field from the [package] table.
 
     Parameters
@@ -110,6 +113,8 @@ def get_package_field(manifest: dict[str, typ.Any], field: str) -> str:
         Parsed Cargo manifest dictionary.
     field : str
         Name of the field to extract (e.g., ``"name"``, ``"version"``).
+    manifest_path : Path
+        Path to the manifest file, used for error reporting.
 
     Returns
     -------
@@ -123,22 +128,23 @@ def get_package_field(manifest: dict[str, typ.Any], field: str) -> str:
 
     Examples
     --------
+    >>> from pathlib import Path
     >>> manifest = {"package": {"name": "example", "version": "1.0.0"}}
-    >>> get_package_field(manifest, "name")
+    >>> get_package_field(manifest, "name", Path("Cargo.toml"))
     'example'
-    >>> get_package_field(manifest, "version")
+    >>> get_package_field(manifest, "version", Path("Cargo.toml"))
     '1.0.0'
     """
     package = manifest.get("package")
     if not isinstance(package, dict):
         raise ManifestError(
-            Path("<unknown>"),
+            manifest_path,
             "Manifest missing [package] table",
         )
     value = package.get(field)
     if not isinstance(value, str) or not value.strip():
         raise ManifestError(
-            Path("<unknown>"),
+            manifest_path,
             f"package.{field} is missing or empty",
         )
     return value.strip()
@@ -157,7 +163,7 @@ def _extract_first_bin_name(bins: object) -> str | None:
     return None
 
 
-def get_bin_name(manifest: dict[str, typ.Any]) -> str:
+def get_bin_name(manifest: dict[str, typ.Any], manifest_path: Path) -> str:
     """Extract the binary name from [[bin]] or [package].name.
 
     Checks the first ``[[bin]]`` entry for a ``name`` field and falls
@@ -167,6 +173,8 @@ def get_bin_name(manifest: dict[str, typ.Any]) -> str:
     ----------
     manifest : dict[str, Any]
         Parsed Cargo manifest dictionary.
+    manifest_path : Path
+        Path to the manifest file, used for error reporting.
 
     Returns
     -------
@@ -182,23 +190,24 @@ def get_bin_name(manifest: dict[str, typ.Any]) -> str:
     --------
     With an explicit [[bin]] entry::
 
+        >>> from pathlib import Path
         >>> manifest = {
         ...     "package": {"name": "my-lib"},
         ...     "bin": [{"name": "my-cli", "path": "src/main.rs"}],
         ... }
-        >>> get_bin_name(manifest)
+        >>> get_bin_name(manifest, Path("Cargo.toml"))
         'my-cli'
 
     Falling back to [package].name::
 
         >>> manifest = {"package": {"name": "my-package", "version": "1.0.0"}}
-        >>> get_bin_name(manifest)
+        >>> get_bin_name(manifest, Path("Cargo.toml"))
         'my-package'
     """
     bin_name = _extract_first_bin_name(manifest.get("bin"))
     if bin_name is not None:
         return bin_name
-    return get_package_field(manifest, "name")
+    return get_package_field(manifest, "name", manifest_path)
 
 
 def find_workspace_root(start_dir: Path) -> Path | None:

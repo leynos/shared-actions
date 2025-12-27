@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#   "cyclopts>=2.9,<3.0",
+#   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
 # ]
 # ///

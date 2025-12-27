@@ -57,7 +57,7 @@ def coerce_bool(value: object, *, default: bool) -> bool:
     raise ValueError(msg)
 
 
-def coerce_bool_strict(value: bool | str, *, parameter: str) -> bool:
+def coerce_bool_strict(value: bool | str, *, parameter: str) -> bool:  # noqa: FBT001
     """Coerce a value to bool, raising ValueError with parameter name on failure.
 
     Unlike :func:`coerce_bool`, this function treats empty strings as False

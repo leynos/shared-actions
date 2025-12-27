@@ -3,7 +3,7 @@
 Normalize GitHub Actions event payloads into release workflow decision flags.
 
 This action determines whether a workflow is a dry run, should publish to a
-release, and should upload workflow artifacts based on the triggering event
+release, and should upload workflow artefacts based on the triggering event
 type and optional input overrides.
 
 ## Inputs
@@ -19,7 +19,7 @@ type and optional input overrides.
 | ---- | ----------- |
 | `dry-run` | `"true"` or `"false"` indicating dry-run mode |
 | `should-publish` | `"true"` or `"false"` indicating whether to publish to a release |
-| `should-upload-workflow-artifacts` | `"true"` or `"false"` indicating whether to upload workflow artifacts |
+| `should-upload-workflow-artifacts` | `"true"` or `"false"` indicating whether to upload workflow artefacts |
 
 ## Usage
 
@@ -55,7 +55,7 @@ type and optional input overrides.
 
 The action derives modes based on the GitHub event type:
 
-| Event | Default dry-run | Default publish | Artifacts |
+| Event | Default dry-run | Default publish | Artefacts |
 |-------|-----------------|-----------------|-----------|
 | `push` (tag) | `false` | `true` | Uploaded |
 | `workflow_call` | From inputs | From inputs | If not dry-run |
@@ -63,19 +63,19 @@ The action derives modes based on the GitHub event type:
 
 ### Rules
 
-1. **Tag pushes** (`push` event): Always publish and upload artifacts unless
+1. **Tag pushes** (`push` event): Always publish and upload artefacts unless
    explicitly overridden.
 
 2. **Workflow calls** (`workflow_call`): Respect the caller's `dry-run` and
    `publish` inputs. Default to non-dry-run with no publishing.
 
 3. **Pull requests** (`pull_request`): Default to dry-run mode for safety.
-   Publishing and artifact uploads are disabled.
+   Publishing and artefact uploads are disabled.
 
 4. **Dry-run override**: When dry-run is enabled (explicitly or by default),
    publishing is automatically disabled regardless of the `publish` input.
 
-5. **Artifact uploads**: Artifacts are uploaded whenever `dry-run` is `false`.
+5. **Artefact uploads**: Artefacts are uploaded whenever `dry-run` is `false`.
 
 ## Release History
 

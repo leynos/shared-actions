@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#   "cyclopts>=2.9,<3.0",
+#   "cyclopts>=3.24,<4.0",
 # ]
 # ///
 # fmt: on
@@ -34,7 +34,7 @@ from syspath_hack import prepend_to_syspath
 _SCRIPT_DIR = Path(__file__).resolve().parent
 prepend_to_syspath(_SCRIPT_DIR)
 
-from bool_utils import coerce_bool
+from bool_utils import coerce_bool  # noqa: I001
 from stage_common import StageError, load_config, require_env_path, stage_artefacts
 
 app: App = App(

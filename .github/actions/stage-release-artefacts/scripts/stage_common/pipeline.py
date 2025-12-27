@@ -45,14 +45,6 @@ class StageResult:
     checksums: dict[str, str]
 
 
-@dataclasses.dataclass(slots=True)
-class _StagingEnvironment:
-    """Encapsulates the staging directory and template context."""
-
-    staging_dir: Path
-    context: dict[str, typ.Any]
-
-
 @dataclasses.dataclass(slots=True, frozen=True)
 class StagedArtefact:
     """Describe a staged artefact yielded by :func:`_iter_staged_artefacts`."""
@@ -164,8 +156,6 @@ def _iter_staged_artefacts(
     config: StagingConfig, staging_dir: Path, context: dict[str, typ.Any]
 ) -> typ.Iterator[StagedArtefact]:
     """Yield :class:`StagedArtefact` entries describing staged artefacts."""
-    env = _StagingEnvironment(staging_dir=staging_dir, context=context)
-
     for artefact in config.artefacts:
         source_path, attempts = _resolve_artefact_source(
             config.workspace, artefact, context
@@ -176,7 +166,7 @@ def _iter_staged_artefacts(
             continue
 
         destination_path = _stage_single_artefact(
-            config, env, artefact, typ.cast("Path", source_path)
+            config, staging_dir, context, artefact, typ.cast("Path", source_path)
         )
         digest = _write_checksum(destination_path, config.checksum_algorithm)
         yield StagedArtefact(destination_path, artefact, digest)
@@ -184,12 +174,13 @@ def _iter_staged_artefacts(
 
 def _stage_single_artefact(
     config: StagingConfig,
-    env: _StagingEnvironment,
+    staging_dir: Path,
+    context: dict[str, typ.Any],
     artefact: ArtefactConfig,
     source_path: Path,
 ) -> Path:
-    """Copy ``source_path`` into ``env.staging_dir`` and return the staged path."""
-    artefact_context = env.context | {
+    """Copy ``source_path`` into ``staging_dir`` and return the staged path."""
+    artefact_context = context | {
         "source_path": source_path.as_posix(),
         "source_name": source_path.name,
     }
@@ -199,7 +190,7 @@ def _stage_single_artefact(
         else source_path.name
     )
 
-    destination_path = _safe_destination_path(env.staging_dir, destination_text)
+    destination_path = _safe_destination_path(staging_dir, destination_text)
     if destination_path.exists():
         destination_path.unlink()
     shutil.copy2(source_path, destination_path)

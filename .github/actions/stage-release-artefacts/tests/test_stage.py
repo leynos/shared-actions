@@ -371,6 +371,38 @@ class TestStageArtefacts:
 
         assert len(result.staged_artefacts) == 1
 
+    def test_uses_alternative_when_primary_missing(self, tmp_path: PathType) -> None:
+        """Alternative source is used when primary source is missing."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        # Primary source does not exist, but alternative does
+        alt_source = workspace / "fallback"
+        alt_source.write_text("fallback content", encoding="utf-8")
+        output_file = tmp_path / "output"
+
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="myapp",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(
+                    source="primary",
+                    alternatives=["fallback"],
+                ),
+            ],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+        )
+
+        result = stage_artefacts(config, output_file)
+
+        assert len(result.staged_artefacts) == 1
+        staged_file = result.staged_artefacts[0]
+        assert staged_file.name == "fallback"
+        assert staged_file.read_text(encoding="utf-8") == "fallback content"
+
     def test_generates_checksum_sidecar(self, tmp_path: PathType) -> None:
         """Checksum sidecar files are generated."""
         workspace = tmp_path / "workspace"

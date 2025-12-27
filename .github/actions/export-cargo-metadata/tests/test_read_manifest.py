@@ -88,6 +88,13 @@ def _load_and_extract(
             id="description_present",
         ),
         pytest.param(
+            '[package]\nname = "test-pkg"\nversion = "1.0.0"\n'
+            'description = "  whitespace padded  "\n',
+            "description",
+            "whitespace padded",
+            id="description_whitespace_trimmed",
+        ),
+        pytest.param(
             '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
             "description",
             None,
@@ -231,3 +238,31 @@ def test_main_handles_invalid_export_to_env(
     first_title, first_message = recorded_errors[0]
     assert first_title == "Invalid input"
     assert "invalid-bool" in first_message
+
+
+def test_main_warns_for_unknown_field(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Unknown fields emit a warning and are skipped."""
+    _write_manifest(
+        tmp_path / "Cargo.toml",
+        '[package]\nname = "test-pkg"\nversion = "1.0.0"\n',
+    )
+    output_file, _ = _setup_github_env(monkeypatch, tmp_path)
+
+    read_manifest_mod.main(
+        manifest_path="Cargo.toml",
+        fields="name,unknown-field",
+        export_to_env="false",
+    )
+
+    captured = capsys.readouterr()
+    assert "::warning::" in captured.out
+    assert "unknown-field" in captured.out
+    assert "Supported:" in captured.out
+
+    # Verify known field was still exported
+    contents = output_file.read_text(encoding="utf-8")
+    assert "name=test-pkg" in contents

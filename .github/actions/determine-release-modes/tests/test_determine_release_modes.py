@@ -174,29 +174,54 @@ class TestExtractInputs:
             drm._extract_inputs({"inputs": "not-a-dict"})
 
 
+def _setup_github_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: PathType,
+    event_name: str,
+    event_data: dict[str, typ.Any] | None = None,
+) -> tuple[PathType, PathType]:
+    """Set up GITHUB_* environment variables and return (event_file, output_file)."""
+    event_file = tmp_path / "event.json"
+    event_file.write_text(json.dumps(event_data or {}), encoding="utf-8")
+    output_file = tmp_path / "outputs"
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    return event_file, output_file
+
+
 class TestMain:
     """Tests for the main entry point."""
 
-    def test_main_requires_github_event_name(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("env_setup", "missing_var"),
+        [
+            pytest.param(
+                {},
+                "GITHUB_EVENT_NAME",
+                id="missing_event_name",
+            ),
+            pytest.param(
+                {"GITHUB_EVENT_NAME": "push"},
+                "GITHUB_EVENT_PATH",
+                id="missing_event_path",
+            ),
+        ],
+    )
+    def test_main_requires_env_vars(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_setup: dict[str, str],
+        missing_var: str,
     ) -> None:
-        """Missing GITHUB_EVENT_NAME raises RuntimeError."""
-        monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
-        monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-        monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+        """Missing required environment variables raise RuntimeError."""
+        for var in ("GITHUB_EVENT_NAME", "GITHUB_EVENT_PATH", "GITHUB_OUTPUT"):
+            monkeypatch.delenv(var, raising=False)
+        for key, value in env_setup.items():
+            monkeypatch.setenv(key, value)
 
-        with pytest.raises(RuntimeError, match="GITHUB_EVENT_NAME"):
-            drm.main()
-
-    def test_main_requires_github_event_path(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Missing GITHUB_EVENT_PATH raises RuntimeError."""
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-        monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-
-        with pytest.raises(RuntimeError, match="GITHUB_EVENT_PATH"):
+        with pytest.raises(RuntimeError, match=missing_var):
             drm.main()
 
     def test_main_requires_github_output(
@@ -220,13 +245,7 @@ class TestMain:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Main function writes outputs to GITHUB_OUTPUT."""
-        event_file = tmp_path / "event.json"
-        event_file.write_text("{}", encoding="utf-8")
-        output_file = tmp_path / "outputs"
-
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        _, output_file = _setup_github_env(monkeypatch, tmp_path, "push")
 
         drm.main()
 
@@ -244,14 +263,10 @@ class TestMain:
         tmp_path: PathType,
     ) -> None:
         """Main handles workflow_call events with inputs."""
-        event_file = tmp_path / "event.json"
         event_data = {"inputs": {"dry-run": "true", "publish": "false"}}
-        event_file.write_text(json.dumps(event_data), encoding="utf-8")
-        output_file = tmp_path / "outputs"
-
-        monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_call")
-        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        _, output_file = _setup_github_env(
+            monkeypatch, tmp_path, "workflow_call", event_data
+        )
 
         drm.main()
 

@@ -167,54 +167,58 @@ def _validate_checksum(name: str | None) -> str:
     return algorithm
 
 
+def _require_string(entry: dict[str, typ.Any], key: str, prefix: str) -> str:
+    """Validate and return a required non-empty string field."""
+    value = entry.get(key)
+    if not isinstance(value, str):
+        msg = f"Artefact '{key}' must be a string, got {type(value).__name__} {prefix}"
+        raise StageError(msg)
+    if not value:
+        msg = f"Missing required artefact key '{key}' {prefix}"
+        raise StageError(msg)
+    return value
+
+
+def _optional_bool(
+    entry: dict[str, typ.Any], key: str, prefix: str, *, default: bool
+) -> bool:
+    """Validate and return an optional boolean field with default."""
+    value = entry.get(key, default)
+    if not isinstance(value, bool):
+        msg = f"Artefact '{key}' must be a boolean, got {type(value).__name__} {prefix}"
+        raise StageError(msg)
+    return value
+
+
+def _optional_string_list(
+    entry: dict[str, typ.Any], key: str, prefix: str
+) -> list[str]:
+    """Validate and return an optional list of strings."""
+    value = entry.get(key, [])
+    if not isinstance(value, list):
+        msg = f"Artefact '{key}' must be a list, got {type(value).__name__} {prefix}"
+        raise StageError(msg)
+    for idx, item in enumerate(value):
+        if not isinstance(item, str):
+            msg = (
+                f"Artefact {key}[{idx}] must be a string, "
+                f"got {type(item).__name__} {prefix}"
+            )
+            raise StageError(msg)
+    return value
+
+
 def _parse_artefact_entry(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> ArtefactConfig:
     """Parse and validate a single artefact entry."""
     prefix = f"in entry #{index} of {config_path}"
-
-    # source: required, non-empty string
-    source = entry.get("source")
-    if not isinstance(source, str):
-        msg = (
-            f"Artefact 'source' must be a string, got {type(source).__name__} {prefix}"
-        )
-        raise StageError(msg)
-    if not source:
-        msg = f"Missing required artefact key 'source' {prefix}"
-        raise StageError(msg)
-
-    # required: optional bool (default True)
-    required = entry.get("required", True)
-    if not isinstance(required, bool):
-        msg = (
-            f"Artefact 'required' must be a boolean, "
-            f"got {type(required).__name__} {prefix}"
-        )
-        raise StageError(msg)
-
-    # alternatives: list[str]
-    alternatives = entry.get("alternatives", [])
-    if not isinstance(alternatives, list):
-        msg = (
-            f"Artefact 'alternatives' must be a list, "
-            f"got {type(alternatives).__name__} {prefix}"
-        )
-        raise StageError(msg)
-    for alt_idx, alt in enumerate(alternatives):
-        if not isinstance(alt, str):
-            msg = (
-                f"Artefact alternatives[{alt_idx}] must be a string, "
-                f"got {type(alt).__name__} {prefix}"
-            )
-            raise StageError(msg)
-
     return ArtefactConfig(
-        source=source,
-        required=required,
+        source=_require_string(entry, "source", prefix),
+        required=_optional_bool(entry, "required", prefix, default=True),
         output=entry.get("output"),
         destination=entry.get("destination"),
-        alternatives=alternatives,
+        alternatives=_optional_string_list(entry, "alternatives", prefix),
     )
 
 

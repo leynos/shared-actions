@@ -166,17 +166,21 @@ def _iter_staged_artefacts(
             continue
 
         destination_path = _stage_single_artefact(
-            config, staging_dir, context, artefact, typ.cast("Path", source_path)
+            config.workspace,
+            staging_dir,
+            context,
+            artefact.destination,
+            typ.cast("Path", source_path),
         )
         digest = _write_checksum(destination_path, config.checksum_algorithm)
         yield StagedArtefact(destination_path, artefact, digest)
 
 
 def _stage_single_artefact(
-    config: StagingConfig,
+    workspace: Path,
     staging_dir: Path,
     context: dict[str, typ.Any],
-    artefact: ArtefactConfig,
+    artefact_destination: str | None,
     source_path: Path,
 ) -> Path:
     """Copy ``source_path`` into ``staging_dir`` and return the staged path."""
@@ -186,7 +190,7 @@ def _stage_single_artefact(
     }
     destination_text = (
         _render_template(destination, artefact_context)
-        if (destination := artefact.destination)
+        if (destination := artefact_destination)
         else source_path.name
     )
 
@@ -196,8 +200,8 @@ def _stage_single_artefact(
     shutil.copy2(source_path, destination_path)
     logger.info(
         "Staged '%s' -> '%s'",
-        source_path.relative_to(config.workspace),
-        destination_path.relative_to(config.workspace),
+        source_path.relative_to(workspace),
+        destination_path.relative_to(workspace),
     )
     return destination_path
 

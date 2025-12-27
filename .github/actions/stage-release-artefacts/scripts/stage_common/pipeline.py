@@ -221,7 +221,7 @@ def _stage_single_artefact(
 
     destination_path = _safe_destination_path(dirs.staging_dir, destination_text)
     if destination_path.exists():
-        logger.debug("Overwriting existing file: %s", destination_path)
+        logger.info("Overwriting existing file: %s", destination_path)
         destination_path.unlink()
     shutil.copy2(source_path, destination_path)
     logger.info(

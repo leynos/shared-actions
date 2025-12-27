@@ -269,6 +269,13 @@ def _run_main(tmp_path: PathType, *, dry_run: bool = True) -> int:
     )
 
 
+def _verify_output(output_file: PathType, expected: dict[str, str]) -> None:
+    """Verify output file contains expected key-value pairs."""
+    contents = output_file.read_text(encoding="utf-8")
+    for key, value in expected.items():
+        assert f"{key}={value}" in contents
+
+
 class TestMain:
     """Tests for the main entry point."""
 
@@ -283,9 +290,7 @@ class TestMain:
         result = _run_main(tmp_path)
 
         assert result == 0
-        contents = output_file.read_text(encoding="utf-8")
-        assert "uploaded_count=1" in contents
-        assert "upload_error=false" in contents
+        _verify_output(output_file, {"uploaded_count": "1", "upload_error": "false"})
 
     def test_missing_dir_returns_one(
         self,
@@ -304,9 +309,7 @@ class TestMain:
         )
 
         assert result == 1
-        contents = output_file.read_text(encoding="utf-8")
-        assert "uploaded_count=0" in contents
-        assert "upload_error=true" in contents
+        _verify_output(output_file, {"uploaded_count": "0", "upload_error": "true"})
 
     def test_no_artifacts_returns_one(
         self,
@@ -319,9 +322,7 @@ class TestMain:
         result = _run_main(tmp_path)
 
         assert result == 1
-        contents = output_file.read_text(encoding="utf-8")
-        assert "uploaded_count=0" in contents
-        assert "upload_error=true" in contents
+        _verify_output(output_file, {"uploaded_count": "0", "upload_error": "true"})
 
     def test_gh_command_not_found_returns_one(
         self,
@@ -340,8 +341,7 @@ class TestMain:
         result = _run_main(tmp_path, dry_run=False)
 
         assert result == 1
-        contents = output_file.read_text(encoding="utf-8")
-        assert "upload_error=true" in contents
+        _verify_output(output_file, {"upload_error": "true"})
 
     def test_gh_process_error_returns_one(
         self,
@@ -364,8 +364,7 @@ class TestMain:
         result = _run_main(tmp_path, dry_run=False)
 
         assert result == 1
-        contents = output_file.read_text(encoding="utf-8")
-        assert "upload_error=true" in contents
+        _verify_output(output_file, {"upload_error": "true"})
 
 
 class TestWriteOutput:

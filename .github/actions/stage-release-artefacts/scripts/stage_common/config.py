@@ -250,9 +250,7 @@ def _validate_required(
 ) -> bool:
     """Validate and extract the required field from an artefact entry."""
     context = ValidationContext(index=index, config_path=config_path)
-    return _validate_field_type(
-        entry.get("required", True), "required", bool, context
-    )
+    return _validate_field_type(entry.get("required", True), "required", bool, context)
 
 
 def _validate_alternatives(

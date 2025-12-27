@@ -248,6 +248,27 @@ class TestUploadAssets:
         )
 
 
+def _setup_main_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathType, *, create_asset: bool = False
+) -> PathType:
+    """Set up GITHUB_OUTPUT and optionally create asset file. Returns output_file."""
+    output_file = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    if create_asset:
+        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
+    return output_file
+
+
+def _run_main(tmp_path: PathType, *, dry_run: bool = True) -> int:
+    """Run main with standard test arguments."""
+    return upload_mod.main(
+        release_tag="v1.0.0",
+        bin_name="myapp",
+        dist_dir=tmp_path,
+        dry_run=dry_run,
+    )
+
+
 class TestMain:
     """Tests for the main entry point."""
 
@@ -257,16 +278,9 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Successful execution returns exit code 0."""
-        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
-        output_file = tmp_path / "outputs"
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        output_file = _setup_main_env(monkeypatch, tmp_path, create_asset=True)
 
-        result = upload_mod.main(
-            release_tag="v1.0.0",
-            bin_name="myapp",
-            dist_dir=tmp_path,
-            dry_run=True,
-        )
+        result = _run_main(tmp_path)
 
         assert result == 0
         contents = output_file.read_text(encoding="utf-8")
@@ -279,8 +293,7 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Missing directory returns exit code 1."""
-        output_file = tmp_path / "outputs"
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        output_file = _setup_main_env(monkeypatch, tmp_path)
         missing = tmp_path / "nonexistent"
 
         result = upload_mod.main(
@@ -301,15 +314,9 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """No artefacts returns exit code 1."""
-        output_file = tmp_path / "outputs"
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        _setup_main_env(monkeypatch, tmp_path)
 
-        result = upload_mod.main(
-            release_tag="v1.0.0",
-            bin_name="myapp",
-            dist_dir=tmp_path,
-            dry_run=True,
-        )
+        result = _run_main(tmp_path)
 
         assert result == 1
 
@@ -321,20 +328,13 @@ class TestMain:
         """Missing gh CLI returns exit code 1."""
         from plumbum.commands import CommandNotFound
 
-        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
-        output_file = tmp_path / "outputs"
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        output_file = _setup_main_env(monkeypatch, tmp_path, create_asset=True)
 
         mock_local = mock.MagicMock()
         mock_local.__getitem__.side_effect = CommandNotFound("gh", "not found")
         monkeypatch.setattr(upload_mod, "local", mock_local)
 
-        result = upload_mod.main(
-            release_tag="v1.0.0",
-            bin_name="myapp",
-            dist_dir=tmp_path,
-            dry_run=False,
-        )
+        result = _run_main(tmp_path, dry_run=False)
 
         assert result == 1
         contents = output_file.read_text(encoding="utf-8")
@@ -348,9 +348,7 @@ class TestMain:
         """Gh CLI failure returns exit code 1."""
         from plumbum.commands import ProcessExecutionError
 
-        (tmp_path / "myapp").write_text("binary", encoding="utf-8")
-        output_file = tmp_path / "outputs"
-        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        output_file = _setup_main_env(monkeypatch, tmp_path, create_asset=True)
 
         mock_cmd = mock.MagicMock()
         mock_cmd.side_effect = ProcessExecutionError([], 1, "", "upload failed")
@@ -360,12 +358,7 @@ class TestMain:
         mock_local.__getitem__.return_value = mock_bound
         monkeypatch.setattr(upload_mod, "local", mock_local)
 
-        result = upload_mod.main(
-            release_tag="v1.0.0",
-            bin_name="myapp",
-            dist_dir=tmp_path,
-            dry_run=False,
-        )
+        result = _run_main(tmp_path, dry_run=False)
 
         assert result == 1
         contents = output_file.read_text(encoding="utf-8")

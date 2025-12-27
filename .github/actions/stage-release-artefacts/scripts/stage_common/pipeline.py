@@ -46,6 +46,14 @@ class StageResult:
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
+class StagingDirs:
+    """Bundle workspace and staging directory paths."""
+
+    workspace: Path
+    staging_dir: Path
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
 class StagedArtefact:
     """Describe a staged artefact yielded by :func:`_iter_staged_artefacts`."""
 
@@ -165,9 +173,9 @@ def _iter_staged_artefacts(
         ):
             continue
 
+        dirs = StagingDirs(config.workspace, staging_dir)
         destination_path = _stage_single_artefact(
-            config.workspace,
-            staging_dir,
+            dirs,
             context,
             artefact.destination,
             typ.cast("Path", source_path),
@@ -177,13 +185,12 @@ def _iter_staged_artefacts(
 
 
 def _stage_single_artefact(
-    workspace: Path,
-    staging_dir: Path,
+    dirs: StagingDirs,
     context: dict[str, typ.Any],
     artefact_destination: str | None,
     source_path: Path,
 ) -> Path:
-    """Copy ``source_path`` into ``staging_dir`` and return the staged path."""
+    """Copy ``source_path`` into ``dirs.staging_dir`` and return the staged path."""
     artefact_context = context | {
         "source_path": source_path.as_posix(),
         "source_name": source_path.name,
@@ -194,14 +201,14 @@ def _stage_single_artefact(
         else source_path.name
     )
 
-    destination_path = _safe_destination_path(staging_dir, destination_text)
+    destination_path = _safe_destination_path(dirs.staging_dir, destination_text)
     if destination_path.exists():
         destination_path.unlink()
     shutil.copy2(source_path, destination_path)
     logger.info(
         "Staged '%s' -> '%s'",
-        source_path.relative_to(workspace),
-        destination_path.relative_to(workspace),
+        source_path.relative_to(dirs.workspace),
+        destination_path.relative_to(dirs.workspace),
     )
     return destination_path
 

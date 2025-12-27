@@ -296,9 +296,7 @@ class TestWriteGithubOutput:
 class TestStageArtefacts:
     """Tests for the stage_artefacts function."""
 
-    def test_stages_artefact(
-        self, tmp_path: PathType, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_stages_artefact(self, tmp_path: PathType) -> None:
         """Artefacts are copied to staging directory."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()

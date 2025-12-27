@@ -243,7 +243,9 @@ class TestUploadAssets:
             )
 
         assert count == 1
-        mock_gh.__getitem__.assert_called()
+        mock_gh.__getitem__.assert_called_with(
+            ["release", "upload", "v1.0.0", f"{tmp_path / 'myapp'}#myapp", "--clobber"]
+        )
 
 
 class TestMain:

@@ -1,4 +1,4 @@
-r"""Utilities for reading Cargo.toml manifest files.
+"""Utilities for reading Cargo.toml manifest files.
 
 This module provides functions for parsing Cargo manifest files and
 extracting package metadata such as name, version, and binary targets.

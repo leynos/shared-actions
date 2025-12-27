@@ -13,8 +13,7 @@ def _newest_file(candidates: typ.Iterable[Path]) -> Path | None:
     """Return the newest file from ``candidates``."""
     best_path: Path | None = None
     best_key: tuple[int, str] | None = None
-    for candidate in candidates:
-        path = Path(candidate)
+    for path in candidates:
         if not path.is_file():
             continue
         try:

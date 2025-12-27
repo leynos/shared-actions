@@ -34,8 +34,9 @@ from syspath_hack import prepend_to_syspath
 _SCRIPT_DIR = Path(__file__).resolve().parent
 prepend_to_syspath(_SCRIPT_DIR)
 
-from bool_utils import coerce_bool  # noqa: I001
 from stage_common import StageError, load_config, require_env_path, stage_artefacts
+
+from bool_utils import coerce_bool
 
 app: App = App(
     help="Stage release artefacts using a TOML configuration file.",

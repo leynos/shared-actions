@@ -98,7 +98,7 @@ The following variables are available in `source`, `destination`, and
 | `{workspace}` | GitHub workspace path |
 | `{bin_name}` | Binary name from config |
 | `{dist_dir}` | Distribution directory |
-| `{platform}` | Platform identifier (linux, windows, macos) |
+| `{platform}` | Platform identifier (linux, windows, macOS) |
 | `{arch}` | Architecture identifier (x86_64, aarch64) |
 | `{target}` | Rust target triple |
 | `{bin_ext}` | Binary extension (.exe on Windows) |

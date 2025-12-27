@@ -104,17 +104,19 @@ def _extract_field(
     field: str,
 ) -> str | None:
     """Extract a single field from the manifest."""
-    if field == "name":
-        return get_package_field(manifest, "name", manifest_path)
-    if field == "version":
-        return resolve_version(manifest, manifest_path)
-    if field == "bin-name":
-        return get_bin_name(manifest, manifest_path)
-    if field == "description":
-        package = manifest.get("package", {})
-        desc = package.get("description")
-        return desc.strip() if isinstance(desc, str) else None
-    return None
+    match field:
+        case "name":
+            return get_package_field(manifest, "name", manifest_path)
+        case "version":
+            return resolve_version(manifest, manifest_path)
+        case "bin-name":
+            return get_bin_name(manifest, manifest_path)
+        case "description":
+            package = manifest.get("package", {})
+            desc = package.get("description")
+            return desc.strip() if isinstance(desc, str) else None
+        case _:
+            return None
 
 
 def _resolve_manifest_path(manifest_path: str) -> Path:

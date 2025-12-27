@@ -5,6 +5,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
+#   "syspath-hack>=0.3.0,<0.4.0",
 # ]
 # ///
 # fmt: on
@@ -208,7 +209,10 @@ def upload_assets(
     for asset in assets:
         descriptor = f"{asset.path}#{asset.asset_name}"
         if dry_run:
-            print(f"[dry-run] gh release upload {release_tag} {descriptor} --clobber")
+            clobber_flag = " --clobber" if clobber else ""
+            print(
+                f"[dry-run] gh release upload {release_tag} {descriptor}{clobber_flag}"
+            )
             count += 1
             continue
 

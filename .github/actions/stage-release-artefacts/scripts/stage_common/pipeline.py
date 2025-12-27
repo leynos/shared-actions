@@ -144,11 +144,11 @@ def _ensure_source_available(
         )
         raise StageError(msg)
 
-    warning = (
-        "::warning title=Artefact Skipped::Optional artefact missing: "
+    print(
+        f"::warning title=Artefact Skipped::Optional artefact missing: "
         f"{artefact.source}"
     )
-    logger.warning(warning)
+    logger.warning("Optional artefact missing: %s", artefact.source)
     return False
 
 

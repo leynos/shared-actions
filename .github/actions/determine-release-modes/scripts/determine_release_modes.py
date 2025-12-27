@@ -156,26 +156,20 @@ def determine_release_modes(
     )
 
 
-def main() -> None:
-    """Entry point for GitHub Actions steps."""
+def _require_env(var: str) -> str:
+    """Return the value of an environment variable, raising if unset."""
     try:
-        event_name = os.environ["GITHUB_EVENT_NAME"]
+        return os.environ[var]
     except KeyError as exc:
-        msg = "GITHUB_EVENT_NAME environment variable must be set"
-        raise RuntimeError(msg) from exc
-    try:
-        event_path_value = os.environ["GITHUB_EVENT_PATH"]
-    except KeyError as exc:
-        msg = "GITHUB_EVENT_PATH environment variable must be set"
-        raise RuntimeError(msg) from exc
-    try:
-        output_path_value = os.environ["GITHUB_OUTPUT"]
-    except KeyError as exc:
-        msg = "GITHUB_OUTPUT environment variable must be set"
+        msg = f"{var} environment variable must be set"
         raise RuntimeError(msg) from exc
 
-    event_path = Path(event_path_value).resolve()
-    output_path = Path(output_path_value)
+
+def main() -> None:
+    """Entry point for GitHub Actions steps."""
+    event_name = _require_env("GITHUB_EVENT_NAME")
+    event_path = Path(_require_env("GITHUB_EVENT_PATH")).resolve()
+    output_path = Path(_require_env("GITHUB_OUTPUT"))
     event_payload = _load_event(event_path)
 
     modes = determine_release_modes(event_name, event_payload)
@@ -184,7 +178,7 @@ def main() -> None:
     print(f"Release modes: {modes}")
 
 
-def _load_event(event_path: Path) -> cabc.Mapping[str, typ.Any]:
+def _load_event(event_path: Path) -> dict[str, typ.Any]:
     """Load the JSON payload for the triggering event."""
     if not event_path.exists():
         return {}

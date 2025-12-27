@@ -46,7 +46,7 @@ version = "1.2.3"
     def test_raises_for_invalid_toml(self, tmp_path: Path) -> None:
         """Invalid TOML syntax should raise ManifestError."""
         manifest_path = tmp_path / "Cargo.toml"
-        manifest_path.write_text("invalid [ toml ]]")
+        manifest_path.write_text("invalid [ toml ]]", encoding="utf-8")
 
         with pytest.raises(ManifestError, match="Invalid TOML"):
             read_manifest(manifest_path)

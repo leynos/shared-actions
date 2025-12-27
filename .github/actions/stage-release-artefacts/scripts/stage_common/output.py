@@ -18,13 +18,15 @@ __all__ = [
 ]
 
 
-RESERVED_OUTPUT_KEYS: set[str] = {
-    "artifact_dir",
-    "dist_dir",
-    "staged_files",
-    "artefact_map",
-    "checksum_map",
-}
+RESERVED_OUTPUT_KEYS: frozenset[str] = frozenset(
+    {
+        "artifact_dir",
+        "dist_dir",
+        "staged_files",
+        "artefact_map",
+        "checksum_map",
+    }
+)
 
 
 def prepare_output_data(

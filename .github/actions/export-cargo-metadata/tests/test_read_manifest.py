@@ -185,7 +185,9 @@ def test_main_handles_missing_manifest(
 
     recorded_errors: list[tuple[str, str]] = []
 
-    def record_error(title: str, message: str, *, path: PathType | None = None) -> None:
+    def record_error(
+        title: str, message: str, *, path: PathType | None = None  # noqa: ARG001
+    ) -> None:
         recorded_errors.append((title, message))
 
     monkeypatch.setattr(read_manifest_mod, "_emit_error", record_error)
@@ -221,7 +223,9 @@ def test_main_handles_invalid_export_to_env(
 
     recorded_errors: list[tuple[str, str]] = []
 
-    def record_error(title: str, message: str, *, path: PathType | None = None) -> None:
+    def record_error(
+        title: str, message: str, *, path: PathType | None = None  # noqa: ARG001
+    ) -> None:
         recorded_errors.append((title, message))
 
     monkeypatch.setattr(read_manifest_mod, "_emit_error", record_error)

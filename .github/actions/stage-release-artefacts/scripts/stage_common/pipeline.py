@@ -62,8 +62,21 @@ class StagedArtefact:
     checksum: str
 
 
-def _initialize_staging_dir(staging_dir: Path) -> None:
+def _validate_staging_dir_safety(staging_dir: Path, workspace: Path) -> None:
+    """Ensure staging_dir is safe to delete by verifying it's under workspace."""
+    resolved_staging = staging_dir.resolve()
+    resolved_workspace = workspace.resolve()
+    if not resolved_staging.is_relative_to(resolved_workspace):
+        msg = (
+            f"Staging directory must be under workspace. "
+            f"staging_dir={resolved_staging}, workspace={resolved_workspace}"
+        )
+        raise StageError(msg)
+
+
+def _initialize_staging_dir(staging_dir: Path, workspace: Path) -> None:
     """Create a clean staging directory ready to receive artefacts."""
+    _validate_staging_dir_safety(staging_dir, workspace)
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -101,7 +114,7 @@ def stage_artefacts(
     staging_dir = config.staging_dir()
     context = config.as_template_context()
 
-    _initialize_staging_dir(staging_dir)
+    _initialize_staging_dir(staging_dir, config.workspace)
 
     staged_paths: list[Path] = []
     outputs: dict[str, Path] = {}
@@ -115,7 +128,12 @@ def stage_artefacts(
             outputs[staged.artefact.output] = staged.path
 
     if not staged_paths:
-        msg = "No artefacts were staged."
+        artefact_count = len(config.artefacts)
+        msg = (
+            f"No artefacts were staged. "
+            f"Configuration defined {artefact_count} artefact(s), "
+            f"but none were found or all were optional and missing."
+        )
         raise StageError(msg)
 
     validate_no_reserved_key_collisions(outputs)
@@ -164,6 +182,7 @@ def _iter_staged_artefacts(
     config: StagingConfig, staging_dir: Path, context: dict[str, typ.Any]
 ) -> typ.Iterator[StagedArtefact]:
     """Yield :class:`StagedArtefact` entries describing staged artefacts."""
+    dirs = StagingDirs(config.workspace, staging_dir)
     for artefact in config.artefacts:
         source_path, attempts = _resolve_artefact_source(
             config.workspace, artefact, context
@@ -173,7 +192,6 @@ def _iter_staged_artefacts(
         ):
             continue
 
-        dirs = StagingDirs(config.workspace, staging_dir)
         destination_path = _stage_single_artefact(
             dirs,
             context,
@@ -203,6 +221,7 @@ def _stage_single_artefact(
 
     destination_path = _safe_destination_path(dirs.staging_dir, destination_text)
     if destination_path.exists():
+        logger.debug("Overwriting existing file: %s", destination_path)
         destination_path.unlink()
     shutil.copy2(source_path, destination_path)
     logger.info(
@@ -244,14 +263,22 @@ def _safe_destination_path(staging_dir: Path, destination: str) -> Path:
     target = (staging_dir / destination).resolve()
     staging_root = staging_dir.resolve()
     if not target.is_relative_to(staging_root):
-        msg = f"Destination escapes staging directory: {destination}"
+        msg = (
+            f"Destination escapes staging directory: {destination!r} "
+            f"(resolved to {target}, staging_root={staging_root})"
+        )
         raise StageError(msg)
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
 
 
 def _write_checksum(path: Path, algorithm: str) -> str:
-    """Write the checksum sidecar for ``path`` and return the digest."""
+    r"""Write the checksum sidecar for ``path`` and return the digest.
+
+    The sidecar file uses the BSD-style checksum format compatible with
+    standard tools like ``sha256sum -c``: ``<digest>  <filename>\n``
+    (two spaces between digest and filename).
+    """
     hasher = hashlib.new(algorithm)
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8192), b""):

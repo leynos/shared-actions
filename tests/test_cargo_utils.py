@@ -75,6 +75,21 @@ class TestGetPackageField:
         assert get_package_field(manifest, "name", Path("Cargo.toml")) == "padded"
         assert get_package_field(manifest, "version", Path("Cargo.toml")) == "1.0.0"
 
+    def test_strips_description_whitespace(self) -> None:
+        """Description field whitespace should be trimmed."""
+        manifest = {
+            "package": {
+                "name": "pkg",
+                "version": "1.0.0",
+                "description": "  A test package  ",
+            }
+        }
+
+        assert (
+            get_package_field(manifest, "description", Path("Cargo.toml"))
+            == "A test package"
+        )
+
     def test_raises_for_missing_package_table(self) -> None:
         """A manifest without [package] should raise ManifestError."""
         manifest: dict[str, object] = {}

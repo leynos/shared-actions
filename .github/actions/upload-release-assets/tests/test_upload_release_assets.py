@@ -314,11 +314,14 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """No artefacts returns exit code 1."""
-        _setup_main_env(monkeypatch, tmp_path)
+        output_file = _setup_main_env(monkeypatch, tmp_path)
 
         result = _run_main(tmp_path)
 
         assert result == 1
+        contents = output_file.read_text(encoding="utf-8")
+        assert "uploaded_count=0" in contents
+        assert "upload_error=true" in contents
 
     def test_gh_command_not_found_returns_one(
         self,

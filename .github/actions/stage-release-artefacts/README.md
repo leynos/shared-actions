@@ -23,10 +23,10 @@ glob patterns, template variables, and optional artefacts.
 | `dist-dir` | Absolute path to the parent distribution directory |
 | `staged-files` | Newline-separated list of staged file names |
 | `artefact-map` | JavaScript Object Notation (JSON) map of named outputs to their absolute paths |
-| `checksum-map` | JSON map of file names to checksum digests |
+| `checksum-map` | JSON map of relative paths to checksum digests |
 | `binary-path` | Absolute path to the staged binary (when configured) |
 | `man-path` | Absolute path to the staged man page (when configured) |
-| `licence-path` | Absolute path to the staged licence file (when configured) |
+| `license-path` | Absolute path to the staged license file (when configured) |
 
 ## Usage
 

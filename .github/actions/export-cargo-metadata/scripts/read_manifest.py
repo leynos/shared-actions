@@ -112,7 +112,9 @@ def _extract_field(
         case "bin-name":
             return get_bin_name(manifest, manifest_path)
         case "description":
-            package = manifest.get("package", {})
+            package = manifest.get("package")
+            if not isinstance(package, dict):
+                return None
             desc = package.get("description")
             return desc.strip() if isinstance(desc, str) else None
         case _:

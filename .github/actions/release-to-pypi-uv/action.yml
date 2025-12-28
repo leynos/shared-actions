@@ -1,6 +1,6 @@
 name: Release to PyPI (uv)
 description: Build and publish Python distributions to PyPI using uv.
-# Required job permissions for OIDC trusted publishing:
+# Required job permissions for OpenID Connect (OIDC) trusted publishing:
 #   contents: read
 #   id-token: write
 inputs:

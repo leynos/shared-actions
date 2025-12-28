@@ -288,6 +288,15 @@ class TestWriteGithubOutput:
         assert "C:\\Users\\file1.txt" in contents
         assert "C:\\Users\\file2.txt" in contents
 
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """Parent directories are created if needed."""
+        output_file = tmp_path / "subdir" / "nested" / "output"
+        write_github_output(output_file, {"key": "value"})
+
+        assert output_file.exists()
+        contents = output_file.read_text(encoding="utf-8")
+        assert "key=value" in contents
+
 
 class TestStageArtefacts:
     """Tests for the stage_artefacts function."""

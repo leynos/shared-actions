@@ -28,13 +28,16 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App
-from syspath_hack import prepend_to_syspath
+from syspath_hack import prepend_project_root, prepend_to_syspath
 
 # Add script directory to path for stage_common import
 _SCRIPT_DIR = Path(__file__).resolve().parent
 prepend_to_syspath(_SCRIPT_DIR)
 
 from stage_common import StageError, load_config, require_env_path, stage_artefacts
+
+# Add project root for bool_utils import
+prepend_project_root()
 
 from bool_utils import coerce_bool
 

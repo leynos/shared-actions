@@ -122,7 +122,8 @@ def stage_artefacts(
 
     for staged in _iter_staged_artefacts(config, staging_dir, context):
         staged_paths.append(staged.path)
-        checksums[staged.path.name] = staged.checksum
+        relative_path = staged.path.relative_to(staging_dir).as_posix()
+        checksums[relative_path] = staged.checksum
 
         if staged.artefact.output:
             outputs[staged.artefact.output] = staged.path

@@ -12,7 +12,7 @@ command interception is intentionally avoided; containers execute in isolation.
 - Integration-test the **workflow** locally via `act`, from a `pytest` harness.
 - Assert on **artefacts**, **file outputs**, and **logs** (using `act --json`).
 - Treat results as pre-CI confidence; certify on GitHub runners for
-  permissions/OIDC parity.
+  permissions/OpenID Connect (OIDC) parity.
 
 ## Prerequisites
 

@@ -47,7 +47,7 @@ def prepare_output_data(
         Mapping of configured GitHub Action output keys to staged artefact
         destinations.
     checksums
-        Mapping of staged artefact file names to their checksum digests.
+        Mapping of staged artefact relative paths to their checksum digests.
 
     Returns
     -------

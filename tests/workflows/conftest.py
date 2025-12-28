@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 from plumbum import CommandNotFound, ProcessTimedOut, local
 
+from bool_utils import coerce_bool
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -35,7 +37,7 @@ def _container_runtime_available() -> bool:
 
 def _workflow_tests_enabled() -> bool:
     """Return True if ACT_WORKFLOW_TESTS is set."""
-    return os.environ.get("ACT_WORKFLOW_TESTS", "").lower() in ("1", "true", "yes")
+    return coerce_bool(os.environ.get("ACT_WORKFLOW_TESTS"), default=False)
 
 
 skip_unless_act = pytest.mark.skipif(

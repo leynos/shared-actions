@@ -272,6 +272,8 @@ def test_main_creates_parent_directories_for_github_output(
 
     ensure.main(manifests=[Path("Cargo.toml")], check_tag="false")
 
+    # Verify parent directories were created
+    assert nested_output_dir.exists(), "Parent directories were not created"
     assert output_file.exists()
     contents = output_file.read_text(encoding="utf-8")
     assert "crate-version=1.0.0" in contents

@@ -6,8 +6,10 @@ on:
 jobs:
   test-upload-assets-dry-run:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Create test dist directory
         run: |
@@ -27,8 +29,8 @@ jobs:
 
       - name: Verify outputs
         run: |
-          echo "uploaded_count=${{ steps.upload.outputs.uploaded_count }}"
-          echo "upload_error=${{ steps.upload.outputs.upload_error }}"
+          echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
+          echo "upload-error=${{ steps.upload.outputs.upload-error }}"
           # Verify dry-run processed assets
-          [[ "${{ steps.upload.outputs.uploaded_count }}" -gt 0 ]]
-          [[ "${{ steps.upload.outputs.upload_error }}" == "false" ]]
+          [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
+          [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]

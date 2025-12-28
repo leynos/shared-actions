@@ -6,8 +6,10 @@ on:
 jobs:
   test-stage-artefacts:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Create test artefacts
         run: |
@@ -48,8 +50,8 @@ jobs:
 
       - name: Verify outputs
         run: |
-          echo "artifact_dir=${{ steps.stage.outputs.artifact-dir }}"
-          echo "staged_files=${{ steps.stage.outputs.staged-files }}"
+          echo "artifact-dir=${{ steps.stage.outputs.artifact-dir }}"
+          echo "staged-files=${{ steps.stage.outputs.staged-files }}"
           # Verify staging directory exists
           [[ -d "${{ steps.stage.outputs.artifact-dir }}" ]]
           # Verify binary was staged

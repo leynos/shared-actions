@@ -1,20 +1,16 @@
-"""Shared fixtures and utilities for behavioral workflow tests."""
+"""Shared fixtures and utilities for behavioural workflow tests."""
 
 from __future__ import annotations
 
 import dataclasses
 import os
 import shutil
-import typing as typ
+from pathlib import Path
 
 import pytest
 from plumbum import CommandNotFound, ProcessTimedOut, local
-from plumbum.commands import ProcessExecutionError
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
-FIXTURES_DIR = local.path(__file__).dirname / "fixtures"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _act_available() -> bool:
@@ -122,5 +118,3 @@ def run_act(
         return retcode, stdout + "\n" + stderr
     except ProcessTimedOut:
         return 1, f"act timed out after {config.timeout}s"
-    except ProcessExecutionError as exc:
-        return exc.retcode, exc.stdout + "\n" + exc.stderr

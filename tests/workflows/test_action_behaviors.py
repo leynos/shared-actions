@@ -1,6 +1,6 @@
-"""Behavioral tests for composite actions using act.
+"""Behavioural tests for composite actions using act.
 
-These tests invoke the composite actions via act to verify end-to-end behavior.
+These tests invoke the composite actions via act to verify end-to-end behaviour.
 They require Docker/Podman and act to be available, and must be opted into via
 the ACT_WORKFLOW_TESTS=1 environment variable.
 
@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import re
 import typing as typ
 
 import pytest
@@ -56,18 +57,29 @@ def _run_act_and_get_logs(
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestDetermineReleaseModes:
-    """Behavioral tests for the determine-release-modes action."""
+    """Behavioural tests for the determine-release-modes action."""
 
-    def test_workflow_call_dry_run(self, artifact_dir: Path) -> None:
-        """Workflow call with dry-run input produces expected outputs."""
+    @pytest.mark.parametrize(
+        ("event", "description"),
+        [
+            ("workflow_call", "Workflow call with dry-run input"),
+            ("pull_request", "Pull request event defaults to dry-run mode"),
+        ],
+    )
+    def test_dry_run_mode(
+        self, artifact_dir: Path, event: str, description: str
+    ) -> None:
+        """Verify dry-run mode is enabled for specific events."""
         logs = _run_act_and_get_logs(
             workflow="test-determine-release-modes.yml",
-            event="workflow_call",
+            event=event,
             job="test-determine-modes",
             artifact_dir=artifact_dir,
         )
 
-        assert "dry_run=true" in logs or '"dry_run":"true"' in logs
+        assert re.search(r'dry[-_]run["\s]*[:=]["\s]*true', logs, re.IGNORECASE), (
+            f"{description}: dry-run=true not found in logs"
+        )
 
     def test_push_tag_event(self, artifact_dir: Path) -> None:
         """Push tag event enables publishing."""
@@ -78,25 +90,15 @@ class TestDetermineReleaseModes:
             artifact_dir=artifact_dir,
         )
 
-        # On push, should_publish should be true
-        assert "should_publish=true" in logs or '"should_publish":"true"' in logs
-
-    def test_pull_request_defaults_to_dry_run(self, artifact_dir: Path) -> None:
-        """Pull request event defaults to dry-run mode."""
-        logs = _run_act_and_get_logs(
-            workflow="test-determine-release-modes.yml",
-            event="pull_request",
-            job="test-determine-modes",
-            artifact_dir=artifact_dir,
-        )
-
-        assert "dry_run=true" in logs or '"dry_run":"true"' in logs
+        assert re.search(
+            r'should[-_]publish["\s]*[:=]["\s]*true', logs, re.IGNORECASE
+        ), "Push tag event: should-publish=true not found in logs"
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestExportCargoMetadata:
-    """Behavioral tests for the export-cargo-metadata action."""
+    """Behavioural tests for the export-cargo-metadata action."""
 
     def test_exports_cargo_metadata(self, artifact_dir: Path) -> None:
         """Action exports name and version from Cargo.toml."""
@@ -107,15 +109,19 @@ class TestExportCargoMetadata:
             artifact_dir=artifact_dir,
         )
 
-        # Verify metadata was exported (check for output patterns in logs)
-        assert "name=" in logs
-        assert "version=" in logs
+        # Verify metadata was exported with non-empty values
+        assert re.search(r'name["\s]*[:=]["\s]*\S+', logs), (
+            "name= not found or empty in logs"
+        )
+        assert re.search(r'version["\s]*[:=]["\s]*\S+', logs), (
+            "version= not found or empty in logs"
+        )
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestStageReleaseArtefacts:
-    """Behavioral tests for the stage-release-artefacts action."""
+    """Behavioural tests for the stage-release-artefacts action."""
 
     def test_stages_artefacts(self, artifact_dir: Path) -> None:
         """Action stages artefacts and creates checksum sidecars."""
@@ -126,15 +132,19 @@ class TestStageReleaseArtefacts:
             artifact_dir=artifact_dir,
         )
 
-        # Verify staging completed
-        assert "artifact_dir=" in logs or "artifact-dir=" in logs
-        assert "staged_files=" in logs or "staged-files=" in logs
+        # Verify staging completed with actual values
+        assert re.search(r'artifact[-_]dir["\s]*[:=]["\s]*\S+', logs), (
+            "artifact-dir not found or empty in logs"
+        )
+        assert re.search(r'staged[-_]files["\s]*[:=]["\s]*\S+', logs), (
+            "staged-files not found or empty in logs"
+        )
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestUploadReleaseAssets:
-    """Behavioral tests for the upload-release-assets action."""
+    """Behavioural tests for the upload-release-assets action."""
 
     def test_dry_run_validates_assets(self, artifact_dir: Path) -> None:
         """Dry-run mode validates assets without uploading."""
@@ -145,6 +155,11 @@ class TestUploadReleaseAssets:
             artifact_dir=artifact_dir,
         )
 
-        # Verify dry-run processed assets
-        assert "uploaded_count=" in logs
-        assert "upload_error=false" in logs or '"upload_error":"false"' in logs
+        # Verify dry-run processed assets with specific values
+        uploaded_match = re.search(r'uploaded[-_]count["\s]*[:=]["\s]*(\d+)', logs)
+        error_match = re.search(
+            r'upload[-_]error["\s]*[:=]["\s]*false', logs, re.IGNORECASE
+        )
+        assert uploaded_match, "uploaded-count not found in logs"
+        assert uploaded_match.group(1), "uploaded-count has no value in logs"
+        assert error_match, "upload-error=false not found in logs"

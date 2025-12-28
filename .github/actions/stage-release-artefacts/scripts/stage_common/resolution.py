@@ -1,4 +1,31 @@
-"""Path resolution helpers for artefact staging."""
+r"""Path resolution helpers for artefact staging.
+
+This module provides utilities for resolving artefact paths during release
+staging. It handles glob patterns, absolute paths (POSIX and Windows), and
+relative paths, always resolving against a workspace directory.
+
+Key behaviours:
+- Glob patterns (e.g., ``target/release/*.exe``) match the newest file
+- Absolute paths are resolved directly without workspace prefix
+- Relative paths are resolved relative to the workspace directory
+- Windows-style paths (e.g., ``C:\path``) are detected and handled
+
+Example usage::
+
+    from pathlib import Path
+    from stage_common.resolution import match_candidate_path
+
+    workspace = Path("/home/runner/work/myproject")
+
+    # Direct path resolution
+    binary = match_candidate_path(workspace, "target/release/myapp")
+
+    # Glob pattern resolution (returns newest match)
+    binary = match_candidate_path(workspace, "target/release/myapp*")
+
+    # Absolute path (ignores workspace)
+    binary = match_candidate_path(workspace, "/usr/local/bin/myapp")
+"""
 
 from __future__ import annotations
 

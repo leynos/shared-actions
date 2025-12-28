@@ -16,8 +16,10 @@ on:
 jobs:
   test-determine-modes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Determine release modes
         id: modes
@@ -25,10 +27,10 @@ jobs:
 
       - name: Verify outputs
         run: |
-          echo "dry_run=${{ steps.modes.outputs.dry_run }}"
-          echo "should_publish=${{ steps.modes.outputs.should_publish }}"
-          echo "should_upload_workflow_artifacts=${{ steps.modes.outputs.should_upload_workflow_artifacts }}"
+          echo "dry-run=${{ steps.modes.outputs.dry-run }}"
+          echo "should-publish=${{ steps.modes.outputs.should-publish }}"
+          echo "should-upload-workflow-artifacts=${{ steps.modes.outputs.should-upload-workflow-artifacts }}"
           # Verify outputs are boolean strings
-          [[ "${{ steps.modes.outputs.dry_run }}" =~ ^(true|false)$ ]]
-          [[ "${{ steps.modes.outputs.should_publish }}" =~ ^(true|false)$ ]]
-          [[ "${{ steps.modes.outputs.should_upload_workflow_artifacts }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.dry-run }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should-upload-workflow-artifacts }}" =~ ^(true|false)$ ]]

@@ -26,6 +26,37 @@ def artifact_dir(tmp_path: Path) -> Path:
     return tmp_path / "act-artifacts"
 
 
+def _run_act_and_get_logs(
+    workflow: str, event: str, job: str, artifact_dir: Path
+) -> str:
+    """Run act and assert success, returning logs for further assertions.
+
+    Parameters
+    ----------
+    workflow
+        Path to the workflow file relative to .github/workflows/.
+    event
+        GitHub event type (push, pull_request, workflow_call, etc.).
+    job
+        Job name to run.
+    artifact_dir
+        Directory to store artefacts.
+
+    Returns
+    -------
+    str
+        Combined stdout/stderr logs from the act run.
+    """
+    code, logs = run_act(
+        workflow=workflow,
+        event=event,
+        job=job,
+        artifact_dir=artifact_dir,
+    )
+    assert code == 0, f"act failed:\n{logs}"
+    return logs
+
+
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestDetermineReleaseModes:
@@ -33,39 +64,36 @@ class TestDetermineReleaseModes:
 
     def test_workflow_call_dry_run(self, artifact_dir: Path) -> None:
         """Workflow call with dry-run input produces expected outputs."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-determine-release-modes.yml",
             event="workflow_call",
             job="test-determine-modes",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         assert "dry_run=true" in logs or '"dry_run":"true"' in logs
 
     def test_push_tag_event(self, artifact_dir: Path) -> None:
         """Push tag event enables publishing."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-determine-release-modes.yml",
             event="push",
             job="test-determine-modes",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         # On push, should_publish should be true
         assert "should_publish=true" in logs or '"should_publish":"true"' in logs
 
     def test_pull_request_defaults_to_dry_run(self, artifact_dir: Path) -> None:
         """Pull request event defaults to dry-run mode."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-determine-release-modes.yml",
             event="pull_request",
             job="test-determine-modes",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         assert "dry_run=true" in logs or '"dry_run":"true"' in logs
 
 
@@ -76,14 +104,13 @@ class TestExportCargoMetadata:
 
     def test_exports_cargo_metadata(self, artifact_dir: Path) -> None:
         """Action exports name and version from Cargo.toml."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-export-cargo-metadata.yml",
             event="pull_request",
             job="test-export-metadata",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         # Verify metadata was exported (check for output patterns in logs)
         assert "name=" in logs
         assert "version=" in logs
@@ -96,14 +123,13 @@ class TestStageReleaseArtefacts:
 
     def test_stages_artefacts(self, artifact_dir: Path) -> None:
         """Action stages artefacts and creates checksum sidecars."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-stage-release-artefacts.yml",
             event="pull_request",
             job="test-stage-artefacts",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         # Verify staging completed
         assert "artifact_dir=" in logs or "artifact-dir=" in logs
         assert "staged_files=" in logs or "staged-files=" in logs
@@ -116,14 +142,13 @@ class TestUploadReleaseAssets:
 
     def test_dry_run_validates_assets(self, artifact_dir: Path) -> None:
         """Dry-run mode validates assets without uploading."""
-        code, logs = run_act(
+        logs = _run_act_and_get_logs(
             workflow="test-upload-release-assets.yml",
             event="pull_request",
             job="test-upload-assets-dry-run",
             artifact_dir=artifact_dir,
         )
 
-        assert code == 0, f"act failed:\n{logs}"
         # Verify dry-run processed assets
         assert "uploaded_count=" in logs
         assert "upload_error=false" in logs or '"upload_error":"false"' in logs

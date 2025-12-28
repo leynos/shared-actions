@@ -14,7 +14,7 @@ import typing as typ
 
 import pytest
 
-from .conftest import run_act, skip_unless_act, skip_unless_workflow_tests
+from .conftest import ActConfig, run_act, skip_unless_act, skip_unless_workflow_tests
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -47,12 +47,8 @@ def _run_act_and_get_logs(
     str
         Combined stdout/stderr logs from the act run.
     """
-    code, logs = run_act(
-        workflow=workflow,
-        event=event,
-        job=job,
-        artifact_dir=artifact_dir,
-    )
+    config = ActConfig(artifact_dir=artifact_dir)
+    code, logs = run_act(workflow, event, job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
 

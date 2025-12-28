@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import shutil
 import typing as typ
@@ -52,15 +53,21 @@ skip_unless_workflow_tests = pytest.mark.skipif(
 )
 
 
+@dataclasses.dataclass(slots=True)
+class ActConfig:
+    """Configuration for running act against a workflow."""
+
+    artifact_dir: Path
+    event_path: Path | None = None
+    env: dict[str, str] | None = None
+    timeout: int = 300
+
+
 def run_act(
     workflow: str,
     event: str,
     job: str,
-    *,
-    artifact_dir: Path,
-    event_path: Path | None = None,
-    env: dict[str, str] | None = None,
-    timeout: int = 300,
+    config: ActConfig,
 ) -> tuple[int, str]:
     """Run act against a workflow and return the exit code and logs.
 
@@ -72,22 +79,18 @@ def run_act(
         GitHub event type (push, pull_request, workflow_call, etc.).
     job
         Job name to run.
-    artifact_dir
-        Directory to store artefacts.
-    event_path
-        Path to the event JSON file. If None, uses default fixture.
-    env
-        Additional environment variables to pass to act.
-    timeout
-        Maximum time in seconds to wait for act to complete.
+    config
+        Execution configuration including artifact directory, event path,
+        environment variables, and timeout.
 
     Returns
     -------
     tuple[int, str]
         Exit code and combined stdout/stderr logs.
     """
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    config.artifact_dir.mkdir(parents=True, exist_ok=True)
 
+    event_path = config.event_path
     if event_path is None:
         event_path = FIXTURES_DIR / f"{event}.event.json"
 
@@ -103,19 +106,21 @@ def run_act(
         "-P",
         "ubuntu-latest=catthehacker/ubuntu:act-latest",
         "--artifact-server-path",
-        str(artifact_dir),
+        str(config.artifact_dir),
         "--json",
         "-b",
     ]
 
     run_env = os.environ.copy()
-    if env:
-        run_env.update(env)
+    if config.env:
+        run_env.update(config.env)
 
     try:
-        retcode, stdout, stderr = cmd.run(timeout=timeout, env=run_env, retcode=None)
+        retcode, stdout, stderr = cmd.run(
+            timeout=config.timeout, env=run_env, retcode=None
+        )
         return retcode, stdout + "\n" + stderr
     except ProcessTimedOut:
-        return 1, f"act timed out after {timeout}s"
+        return 1, f"act timed out after {config.timeout}s"
     except ProcessExecutionError as exc:
         return exc.retcode, exc.stdout + "\n" + exc.stderr

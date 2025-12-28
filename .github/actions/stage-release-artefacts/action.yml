@@ -36,7 +36,7 @@ outputs:
     description: Absolute path to the staged manual page artefact, when available
     value: ${{ steps.run-stage.outputs.man_path }}
   license-path:
-    description: Absolute path to the staged license artefact, when available
+    description: Absolute path to the staged licence artefact, when available
     value: ${{ steps.run-stage.outputs.license_path }}
 
 runs:

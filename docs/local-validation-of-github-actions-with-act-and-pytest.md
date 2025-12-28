@@ -22,7 +22,7 @@ command interception is intentionally avoided; containers execute in isolation.
 - When developing inside a sandbox (for example, this Codex CLI), ensure the
   container runtime socket is reachable. On Fedora/Podman that normally means:
   1. `systemctl --user status podman.socket` reports `active (listening)`.
-  2. Commands that talk to the socket (such as `podman info`, `act ...`, or the
+  2. Commands that talk to the socket (such as `podman info`, `act …`, or the
      pytest harness) run with escalated permissions. In this repo, use
      `ACT_WORKFLOW_TESTS=1 sudo -E make test` to exercise the workflow harness.
   3. The release workflow now redirects `uv` caches and the project virtualenv

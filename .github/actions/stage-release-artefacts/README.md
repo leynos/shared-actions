@@ -26,7 +26,7 @@ glob patterns, template variables, and optional artefacts.
 | `checksum-map` | JSON map of relative paths to checksum digests |
 | `binary-path` | Absolute path to the staged binary (when configured) |
 | `man-path` | Absolute path to the staged man page (when configured) |
-| `license-path` | Absolute path to the staged license file (when configured) |
+| `license-path` | Absolute path to the staged licence file (when configured) |
 
 ## Usage
 

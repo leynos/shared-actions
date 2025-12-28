@@ -1,0 +1,13 @@
+{
+  "inputs": {
+    "dry-run": "true",
+    "publish": "false"
+  },
+  "repository": {
+    "full_name": "test/repo",
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "tester"
+  }
+}

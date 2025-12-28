@@ -1,0 +1,34 @@
+name: Test determine-release-modes
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        type: boolean
+        default: true
+      publish:
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+  pull_request:
+
+jobs:
+  test-determine-modes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine release modes
+        id: modes
+        uses: ./.github/actions/determine-release-modes
+
+      - name: Verify outputs
+        run: |
+          echo "dry_run=${{ steps.modes.outputs.dry_run }}"
+          echo "should_publish=${{ steps.modes.outputs.should_publish }}"
+          echo "should_upload_workflow_artifacts=${{ steps.modes.outputs.should_upload_workflow_artifacts }}"
+          # Verify outputs are boolean strings
+          [[ "${{ steps.modes.outputs.dry_run }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should_publish }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should_upload_workflow_artifacts }}" =~ ^(true|false)$ ]]

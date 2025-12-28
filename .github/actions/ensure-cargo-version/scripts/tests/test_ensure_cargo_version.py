@@ -251,3 +251,27 @@ def test_main_aborts_when_crate_name_missing_or_blank(
     error_titles = {title for title, _, _ in recorded_errors}
     assert "Cargo.toml parse failure" in error_titles
     assert any("package.name" in message for _, message, _ in recorded_errors)
+
+
+def test_main_creates_parent_directories_for_github_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GITHUB_OUTPUT parent directories are created if they don't exist."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "1.0.0", name="parent-dir-test")
+
+    # Point GITHUB_OUTPUT to a file inside a non-existent directory tree
+    nested_output_dir = workspace / "deeply" / "nested" / "dir"
+    output_file = nested_output_dir / "outputs"
+    assert not nested_output_dir.exists()
+
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+
+    ensure.main(manifests=[Path("Cargo.toml")], check_tag="false")
+
+    assert output_file.exists()
+    contents = output_file.read_text(encoding="utf-8")
+    assert "crate-version=1.0.0" in contents

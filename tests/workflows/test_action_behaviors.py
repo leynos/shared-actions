@@ -183,10 +183,17 @@ class TestUploadReleaseAssets:
             artifact_dir=artifact_dir,
         )
 
-        # Verify dry-run processed assets with specific values
-        uploaded_match = re.search(r'uploaded[-_]count["\s]*[:=]["\s]*(\d+)', logs)
-        error_match = re.search(
-            r'upload[-_]error["\s]*[:=]["\s]*false', logs, re.IGNORECASE
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
+                    "uploaded-count not found in logs",
+                ),
+                (
+                    r'upload[-_]error["\s]*[:=]["\s]*false',
+                    "upload-error=false not found in logs",
+                ),
+            ],
+            flags=re.IGNORECASE,
         )
-        assert uploaded_match, "uploaded-count not found in logs"
-        assert error_match, "upload-error=false not found in logs"

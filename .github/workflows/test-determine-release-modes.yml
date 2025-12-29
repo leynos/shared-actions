@@ -37,3 +37,25 @@ jobs:
           [[ "${{ steps.modes.outputs.dry-run }}" =~ ^(true|false)$ ]]
           [[ "${{ steps.modes.outputs.should-publish }}" =~ ^(true|false)$ ]]
           [[ "${{ steps.modes.outputs.should-upload-workflow-artifacts }}" =~ ^(true|false)$ ]]
+
+      # Event-specific value assertions to catch regressions in event-normalisation logic
+      - name: Verify pull_request event outputs
+        if: github.event_name == 'pull_request'
+        run: |
+          # Pull requests should enable dry-run and disable publishing
+          [[ "${{ steps.modes.outputs.dry-run }}" == "true" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "false" ]]
+
+      - name: Verify push tag event outputs
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Push to version tags should disable dry-run and enable publishing
+          [[ "${{ steps.modes.outputs.dry-run }}" == "false" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "true" ]]
+
+      - name: Verify workflow_call event outputs
+        if: github.event_name == 'workflow_call'
+        run: |
+          # Workflow call should respect the provided input values
+          [[ "${{ steps.modes.outputs.dry-run }}" == "${{ inputs.dry-run }}" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "${{ inputs.publish }}" ]]

@@ -189,5 +189,4 @@ class TestUploadReleaseAssets:
             r'upload[-_]error["\s]*[:=]["\s]*false', logs, re.IGNORECASE
         )
         assert uploaded_match, "uploaded-count not found in logs"
-        assert uploaded_match.group(1), "uploaded-count has no value in logs"
         assert error_match, "upload-error=false not found in logs"

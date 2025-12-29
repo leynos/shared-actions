@@ -78,16 +78,29 @@ class TestDetermineReleaseModes:
     """Behavioural tests for the determine-release-modes action."""
 
     @pytest.mark.parametrize(
-        ("event", "description"),
+        ("event", "pattern", "description"),
         [
-            ("workflow_call", "Workflow call with dry-run input"),
-            ("pull_request", "Pull request event defaults to dry-run mode"),
+            (
+                "workflow_call",
+                r'dry[-_]run["\s]*[:=]["\s]*true',
+                "Workflow call with dry-run input",
+            ),
+            (
+                "pull_request",
+                r'dry[-_]run["\s]*[:=]["\s]*true',
+                "Pull request event defaults to dry-run mode",
+            ),
+            (
+                "push",
+                r'should[-_]publish["\s]*[:=]["\s]*true',
+                "Push tag event enables publishing",
+            ),
         ],
     )
-    def test_dry_run_mode(
-        self, artifact_dir: Path, event: str, description: str
+    def test_release_mode_detection(
+        self, artifact_dir: Path, event: str, pattern: str, description: str
     ) -> None:
-        """Verify dry-run mode is enabled for specific events."""
+        """Verify release mode outputs for different event types."""
         logs = _run_act_and_get_logs(
             workflow="test-determine-release-modes.yml",
             event=event,
@@ -97,32 +110,7 @@ class TestDetermineReleaseModes:
 
         _assert_log_patterns(
             logs,
-            [
-                (
-                    r'dry[-_]run["\s]*[:=]["\s]*true',
-                    f"{description}: dry-run=true not found in logs",
-                ),
-            ],
-            flags=re.IGNORECASE,
-        )
-
-    def test_push_tag_event(self, artifact_dir: Path) -> None:
-        """Push tag event enables publishing."""
-        logs = _run_act_and_get_logs(
-            workflow="test-determine-release-modes.yml",
-            event="push",
-            job="test-determine-modes",
-            artifact_dir=artifact_dir,
-        )
-
-        _assert_log_patterns(
-            logs,
-            [
-                (
-                    r'should[-_]publish["\s]*[:=]["\s]*true',
-                    "Push tag event: should-publish=true not found in logs",
-                ),
-            ],
+            [(pattern, f"{description}: expected pattern not found in logs")],
             flags=re.IGNORECASE,
         )
 

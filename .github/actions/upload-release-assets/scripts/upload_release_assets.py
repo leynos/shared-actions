@@ -71,11 +71,13 @@ app: App = App(config=cyclopts.config.Env("INPUT_", command=False))
 def _is_candidate(path: Path, bin_name: str) -> bool:
     """Return True if the file is a release artefact candidate."""
     name = path.name
-    if name in {bin_name, f"{bin_name}.exe", f"{bin_name}.1"}:
-        return True
-    if name.endswith(".sha256"):
-        return True
-    return path.suffix in {".deb", ".rpm", ".pkg", ".msi"}
+    match name:
+        case _ if name in {bin_name, f"{bin_name}.exe", f"{bin_name}.1"}:
+            return True
+        case _ if name.endswith(".sha256"):
+            return True
+        case _:
+            return path.suffix in {".deb", ".rpm", ".pkg", ".msi"}
 
 
 def _resolve_asset_name(path: Path, *, dist_dir: Path) -> str:

@@ -24,6 +24,9 @@ jobs:
       - name: Determine release modes
         id: modes
         uses: ./.github/actions/determine-release-modes
+        with:
+          dry-run: ${{ inputs.dry-run }}
+          publish: ${{ inputs.publish }}
 
       - name: Verify outputs
         run: |

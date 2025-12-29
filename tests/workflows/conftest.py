@@ -27,11 +27,12 @@ def _container_runtime_available() -> bool:
             continue
         try:
             cmd = local[runtime]
-            cmd["info"].run(timeout=10, retcode=None)
+            retcode, _, _ = cmd["info"].run(timeout=10, retcode=None)
         except (ProcessTimedOut, CommandNotFound, OSError):
             continue
         else:
-            return True
+            if retcode == 0:
+                return True
     return False
 
 

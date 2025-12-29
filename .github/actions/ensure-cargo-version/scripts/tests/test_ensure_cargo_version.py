@@ -6,12 +6,11 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from syspath_hack import prepend_to_syspath
 
 MODULE_PATH = Path(__file__).resolve().parent.parent / "ensure_cargo_version.py"
 SCRIPT_DIR = MODULE_PATH.parent
-SCRIPT_DIR_STR = str(SCRIPT_DIR)
-if SCRIPT_DIR_STR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR_STR)
+prepend_to_syspath(SCRIPT_DIR)
 
 spec = importlib.util.spec_from_file_location(
     "ensure_cargo_version_module", MODULE_PATH
@@ -26,39 +25,6 @@ if not isinstance(module, ModuleType):  # pragma: no cover - importlib contract
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)  # type: ignore[misc]
 ensure = module
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        (True, True),
-        (False, False),
-        ("true", True),
-        ("TRUE", True),
-        ("On", True),
-        ("1", True),
-        ("yes", True),
-        ("false", False),
-        ("FALSE", False),
-        ("No", False),
-        ("0", False),
-        ("off", False),
-        ("OFF", False),
-        ("", False),
-    ],
-)
-def test_coerce_bool_accepts_expected_inputs(
-    case: tuple[bool | str, bool],
-) -> None:
-    """Ensure ``_coerce_bool`` recognises accepted truthy and falsey values."""
-    value, expected = case
-    assert ensure._coerce_bool(value=value, parameter="check-tag") is expected
-
-
-def test_coerce_bool_rejects_invalid_values() -> None:
-    """Invalid values should raise an informative ``ValueError``."""
-    with pytest.raises(ValueError, match="boolean-like"):
-        ensure._coerce_bool(value="not-a-boolean", parameter="check-tag")
 
 
 def _write_manifest(path: Path, version: str, *, name: str = "demo") -> None:
@@ -285,3 +251,29 @@ def test_main_aborts_when_crate_name_missing_or_blank(
     error_titles = {title for title, _, _ in recorded_errors}
     assert "Cargo.toml parse failure" in error_titles
     assert any("package.name" in message for _, message, _ in recorded_errors)
+
+
+def test_main_creates_parent_directories_for_github_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """GITHUB_OUTPUT parent directories are created if they don't exist."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "1.0.0", name="parent-dir-test")
+
+    # Point GITHUB_OUTPUT to a file inside a non-existent directory tree
+    nested_output_dir = workspace / "deeply" / "nested" / "dir"
+    output_file = nested_output_dir / "outputs"
+    assert not nested_output_dir.exists()
+
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+
+    ensure.main(manifests=[Path("Cargo.toml")], check_tag="false")
+
+    # Verify parent directories were created
+    assert nested_output_dir.exists(), "Parent directories were not created"
+    assert output_file.exists()
+    contents = output_file.read_text(encoding="utf-8")
+    assert "crate-version=1.0.0" in contents

@@ -1,0 +1,36 @@
+name: Test upload-release-assets
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  test-upload-assets-dry-run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Create test dist directory
+        run: |
+          mkdir -p dist/test-app_linux_x86_64
+          echo "test binary" > dist/test-app_linux_x86_64/test-app
+          echo "abc123  test-app" > dist/test-app_linux_x86_64/test-app.sha256
+          chmod +x dist/test-app_linux_x86_64/test-app
+
+      - name: Upload release assets (dry-run)
+        id: upload
+        uses: ./.github/actions/upload-release-assets
+        with:
+          release-tag: v1.0.0
+          bin-name: test-app
+          dist-dir: dist
+          dry-run: "true"
+
+      - name: Verify outputs
+        run: |
+          echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
+          echo "upload-error=${{ steps.upload.outputs.upload-error }}"
+          # Verify dry-run processed assets
+          [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
+          [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]

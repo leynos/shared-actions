@@ -1,0 +1,54 @@
+name: Upload Release Assets
+description: Upload staged artefacts to a GitHub release or validate them in dry-run mode
+
+inputs:
+  release-tag:
+    description: Git tag identifying the release to publish to
+    required: true
+  bin-name:
+    description: Binary name used to derive artefact names
+    required: true
+  dist-dir:
+    description: Directory containing staged artefacts
+    required: false
+    default: "dist"
+  dry-run:
+    description: When true, only validate artefacts and print the upload plan
+    required: false
+    default: "false"
+  clobber:
+    description: Overwrite existing assets with the same name
+    required: false
+    default: "true"
+
+outputs:
+  uploaded-count:
+    description: Number of assets uploaded (or validated in dry-run mode)
+    value: ${{ steps.invoke.outputs.uploaded_count }}
+  upload-error:
+    description: Whether the invocation detected an error
+    value: ${{ steps.invoke.outputs.upload_error }}
+  error-message:
+    description: Summary of the error when upload-error is true
+    value: ${{ steps.invoke.outputs.error_message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      with:
+        enable-cache: false
+
+    - name: Upload release assets
+      id: invoke
+      shell: bash
+      env:
+        INPUT_RELEASE_TAG: ${{ inputs.release-tag }}
+        INPUT_BIN_NAME: ${{ inputs.bin-name }}
+        INPUT_DIST_DIR: ${{ inputs.dist-dir }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_CLOBBER: ${{ inputs.clobber }}
+      run: |
+        set -euo pipefail
+        uv run "${{ github.action_path }}/scripts/upload_release_assets.py"

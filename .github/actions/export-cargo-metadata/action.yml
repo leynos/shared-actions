@@ -1,0 +1,49 @@
+name: Export Cargo Metadata
+description: Extract metadata from Cargo.toml and export as outputs and environment variables
+
+inputs:
+  manifest-path:
+    description: Path to Cargo.toml (default searches current directory)
+    required: false
+    default: "Cargo.toml"
+  fields:
+    description: Comma-separated list of fields to extract (name, version, description)
+    required: false
+    default: "name,version"
+  export-to-env:
+    description: Also export fields to GITHUB_ENV for subsequent steps
+    required: false
+    default: "true"
+
+outputs:
+  name:
+    description: Package name from [package].name
+    value: ${{ steps.export.outputs.name }}
+  version:
+    description: Package version from [package].version (resolves workspace inheritance)
+    value: ${{ steps.export.outputs.version }}
+  bin-name:
+    description: Binary name from first [[bin]].name or [package].name
+    value: ${{ steps.export.outputs.bin-name }}
+  description:
+    description: Package description from [package].description
+    value: ${{ steps.export.outputs.description }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      with:
+        enable-cache: false
+
+    - name: Export Cargo metadata
+      id: export
+      shell: bash
+      env:
+        INPUT_MANIFEST_PATH: ${{ inputs.manifest-path }}
+        INPUT_FIELDS: ${{ inputs.fields }}
+        INPUT_EXPORT_TO_ENV: ${{ inputs.export-to-env }}
+      run: |
+        set -euo pipefail
+        uv run "${{ github.action_path }}/scripts/read_manifest.py"

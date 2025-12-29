@@ -1,0 +1,41 @@
+name: Determine Release Modes
+description: Normalize GitHub Actions event payloads into release workflow decision flags
+
+inputs:
+  dry-run:
+    description: Override dry-run mode (auto-detected from event when not set)
+    required: false
+    default: ""
+  publish:
+    description: Override publish flag (auto-detected from event when not set)
+    required: false
+    default: ""
+
+outputs:
+  dry-run:
+    description: '"true" or "false" indicating dry-run mode'
+    value: ${{ steps.determine.outputs.dry_run }}
+  should-publish:
+    description: '"true" or "false" indicating whether to publish to a release'
+    value: ${{ steps.determine.outputs.should_publish }}
+  should-upload-workflow-artifacts:
+    description: '"true" or "false" indicating whether to upload workflow artifacts'
+    value: ${{ steps.determine.outputs.should_upload_workflow_artifacts }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      with:
+        enable-cache: false
+
+    - name: Determine release modes
+      id: determine
+      shell: bash
+      env:
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_PUBLISH: ${{ inputs.publish }}
+      run: |
+        set -euo pipefail
+        uv run "${{ github.action_path }}/scripts/determine_release_modes.py"

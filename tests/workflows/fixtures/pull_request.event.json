@@ -1,0 +1,15 @@
+{
+  "pull_request": {
+    "number": 1,
+    "head": {
+      "ref": "test-branch"
+    }
+  },
+  "repository": {
+    "full_name": "test/repo",
+    "default_branch": "main"
+  },
+  "sender": {
+    "login": "tester"
+  }
+}

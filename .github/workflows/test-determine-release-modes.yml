@@ -1,0 +1,61 @@
+name: Test determine-release-modes
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        type: boolean
+        default: true
+      publish:
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+  pull_request:
+
+jobs:
+  test-determine-modes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Determine release modes
+        id: modes
+        uses: ./.github/actions/determine-release-modes
+        with:
+          dry-run: ${{ inputs.dry-run }}
+          publish: ${{ inputs.publish }}
+
+      - name: Verify outputs
+        run: |
+          echo "dry-run=${{ steps.modes.outputs.dry-run }}"
+          echo "should-publish=${{ steps.modes.outputs.should-publish }}"
+          echo "should-upload-workflow-artifacts=${{ steps.modes.outputs.should-upload-workflow-artifacts }}"
+          # Verify outputs are boolean strings
+          [[ "${{ steps.modes.outputs.dry-run }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" =~ ^(true|false)$ ]]
+          [[ "${{ steps.modes.outputs.should-upload-workflow-artifacts }}" =~ ^(true|false)$ ]]
+
+      # Event-specific value assertions to catch regressions in event-normalisation logic
+      - name: Verify pull_request event outputs
+        if: github.event_name == 'pull_request'
+        run: |
+          # Pull requests should enable dry-run and disable publishing
+          [[ "${{ steps.modes.outputs.dry-run }}" == "true" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "false" ]]
+
+      - name: Verify push tag event outputs
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Push to version tags should disable dry-run and enable publishing
+          [[ "${{ steps.modes.outputs.dry-run }}" == "false" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "true" ]]
+
+      - name: Verify workflow_call event outputs
+        if: github.event_name == 'workflow_call'
+        run: |
+          # Workflow call should respect the provided input values
+          [[ "${{ steps.modes.outputs.dry-run }}" == "${{ inputs.dry-run }}" ]]
+          [[ "${{ steps.modes.outputs.should-publish }}" == "${{ inputs.publish }}" ]]

@@ -308,8 +308,8 @@ def cli(
     release_tag: typ.Annotated[str, Parameter(required=True)],
     bin_name: typ.Annotated[str, Parameter(required=True)],
     dist_dir: Path = Path("dist"),
-    dry_run: bool | str = False,
-    clobber: bool | str = True,
+    dry_run: str = "false",
+    clobber: str = "true",
 ) -> None:
     """Upload staged artefacts to a GitHub release.
 

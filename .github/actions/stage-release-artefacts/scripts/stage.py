@@ -4,6 +4,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
+#   "syspath-hack>=0.3.0,<0.4.0",
 # ]
 # ///
 # fmt: on
@@ -52,7 +53,7 @@ def main(
     config_file: str,
     target: str,
     *,
-    normalize_windows_paths: bool | str = False,
+    normalize_windows_paths: str = "false",
 ) -> None:
     """Stage artefacts for ``target`` using ``config_file``.
 

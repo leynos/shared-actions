@@ -4,6 +4,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
+#   "syspath-hack>=0.3.0,<0.4.0",
 # ]
 # ///
 # fmt: on
@@ -183,7 +184,7 @@ def main(
     *,
     manifest_path: typ.Annotated[str, Parameter()] = "Cargo.toml",
     fields: typ.Annotated[str, Parameter()] = "name,version",
-    export_to_env: typ.Annotated[bool | str, Parameter()] = True,
+    export_to_env: typ.Annotated[str, Parameter()] = "true",
 ) -> None:
     """Extract and export Cargo manifest metadata."""
     resolved_path = _resolve_manifest_path(manifest_path)

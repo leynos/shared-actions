@@ -54,6 +54,24 @@ def _run_act_and_get_logs(
     return logs
 
 
+def _assert_log_patterns(
+    logs: str, patterns: list[tuple[str, str]], *, flags: int = 0
+) -> None:
+    """Assert that all regex patterns are found in logs.
+
+    Parameters
+    ----------
+    logs
+        Combined stdout/stderr from act execution.
+    patterns
+        List of (regex_pattern, error_message) tuples to assert.
+    flags
+        Optional regex flags (e.g., re.IGNORECASE).
+    """
+    for pattern, error_message in patterns:
+        assert re.search(pattern, logs, flags), error_message
+
+
 @skip_unless_act
 @skip_unless_workflow_tests
 class TestDetermineReleaseModes:
@@ -77,8 +95,15 @@ class TestDetermineReleaseModes:
             artifact_dir=artifact_dir,
         )
 
-        assert re.search(r'dry[-_]run["\s]*[:=]["\s]*true', logs, re.IGNORECASE), (
-            f"{description}: dry-run=true not found in logs"
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'dry[-_]run["\s]*[:=]["\s]*true',
+                    f"{description}: dry-run=true not found in logs",
+                ),
+            ],
+            flags=re.IGNORECASE,
         )
 
     def test_push_tag_event(self, artifact_dir: Path) -> None:
@@ -90,9 +115,16 @@ class TestDetermineReleaseModes:
             artifact_dir=artifact_dir,
         )
 
-        assert re.search(
-            r'should[-_]publish["\s]*[:=]["\s]*true', logs, re.IGNORECASE
-        ), "Push tag event: should-publish=true not found in logs"
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'should[-_]publish["\s]*[:=]["\s]*true',
+                    "Push tag event: should-publish=true not found in logs",
+                ),
+            ],
+            flags=re.IGNORECASE,
+        )
 
 
 @skip_unless_act
@@ -110,11 +142,12 @@ class TestExportCargoMetadata:
         )
 
         # Verify metadata was exported with non-empty values
-        assert re.search(r'name["\s]*[:=]["\s]*\S+', logs), (
-            "name= not found or empty in logs"
-        )
-        assert re.search(r'version["\s]*[:=]["\s]*\S+', logs), (
-            "version= not found or empty in logs"
+        _assert_log_patterns(
+            logs,
+            [
+                (r'name["\s]*[:=]["\s]*\S+', "name= not found or empty in logs"),
+                (r'version["\s]*[:=]["\s]*\S+', "version= not found or empty in logs"),
+            ],
         )
 
 
@@ -133,11 +166,18 @@ class TestStageReleaseArtefacts:
         )
 
         # Verify staging completed with actual values
-        assert re.search(r'artifact[-_]dir["\s]*[:=]["\s]*\S+', logs), (
-            "artifact-dir not found or empty in logs"
-        )
-        assert re.search(r'staged[-_]files["\s]*[:=]["\s]*\S+', logs), (
-            "staged-files not found or empty in logs"
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
+                    "artifact-dir not found or empty in logs",
+                ),
+                (
+                    r'staged[-_]files["\s]*[:=]["\s]*\S+',
+                    "staged-files not found or empty in logs",
+                ),
+            ],
         )
 
 

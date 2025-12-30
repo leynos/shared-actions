@@ -43,12 +43,11 @@ runs:
     - name: Upload release assets
       id: invoke
       shell: bash
-      env:
-        INPUT_RELEASE_TAG: ${{ inputs.release-tag }}
-        INPUT_BIN_NAME: ${{ inputs.bin-name }}
-        INPUT_DIST_DIR: ${{ inputs.dist-dir }}
-        INPUT_DRY_RUN: ${{ inputs.dry-run }}
-        INPUT_CLOBBER: ${{ inputs.clobber }}
       run: |
         set -euo pipefail
+        export INPUT_RELEASE_TAG="${INPUT_RELEASE_TAG:-${{ inputs.release-tag }}}"
+        export INPUT_BIN_NAME="${INPUT_BIN_NAME:-${{ inputs.bin-name }}}"
+        export INPUT_DIST_DIR="${INPUT_DIST_DIR:-${{ inputs.dist-dir }}}"
+        export INPUT_DRY_RUN="${INPUT_DRY_RUN:-${{ inputs.dry-run }}}"
+        export INPUT_CLOBBER="${INPUT_CLOBBER:-${{ inputs.clobber }}}"
         uv run "${{ github.action_path }}/scripts/upload_release_assets.py"

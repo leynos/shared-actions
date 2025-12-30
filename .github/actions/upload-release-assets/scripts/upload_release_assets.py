@@ -5,7 +5,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
-#   "syspath-hack>=0.3.0,<0.4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 # fmt: on
@@ -46,8 +46,10 @@ from syspath_hack import prepend_project_root
 if typ.TYPE_CHECKING:
     from plumbum.commands.base import BoundCommand
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
 # Add project root for bool_utils import
-prepend_project_root()
+prepend_project_root(start=_SCRIPT_DIR)
 
 from bool_utils import coerce_bool
 

@@ -3,7 +3,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#   "syspath-hack>=0.3.0,<0.4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 # fmt: on
@@ -41,8 +41,10 @@ from pathlib import Path
 
 from syspath_hack import prepend_project_root
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
 # Add project root for bool_utils import
-prepend_project_root()
+prepend_project_root(start=_SCRIPT_DIR)
 
 from bool_utils import coerce_bool
 

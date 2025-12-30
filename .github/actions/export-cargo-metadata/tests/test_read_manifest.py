@@ -16,7 +16,7 @@ SCRIPT_DIR = MODULE_PATH.parent
 prepend_to_syspath(SCRIPT_DIR)
 
 # Add repository root for cargo_utils and bool_utils imports
-prepend_project_root()
+prepend_project_root(start=SCRIPT_DIR)
 
 spec = importlib.util.spec_from_file_location("read_manifest_module", MODULE_PATH)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard

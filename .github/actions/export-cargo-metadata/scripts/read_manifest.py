@@ -53,6 +53,25 @@ from cargo_utils import (
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
 
+def _normalize_input_env(prefix: str = "INPUT_") -> None:
+    """Normalize INPUT_ env vars to avoid duplicate keys like FOO-BAR/FOO_BAR."""
+    updates: dict[str, str] = {}
+    removals: list[str] = []
+    for key, value in os.environ.items():
+        if not key.startswith(prefix):
+            continue
+        normalized = key.replace("-", "_")
+        if normalized == key:
+            continue
+        if not os.environ.get(normalized):
+            updates[normalized] = value
+        removals.append(key)
+    for key, value in updates.items():
+        os.environ[key] = value
+    for key in removals:
+        os.environ.pop(key, None)
+
+
 def _write_output(name: str, value: str) -> None:
     """Append an output variable for downstream steps."""
     output_path = os.environ.get("GITHUB_OUTPUT")
@@ -213,4 +232,5 @@ def main(
 
 
 if __name__ == "__main__":
+    _normalize_input_env()
     app()

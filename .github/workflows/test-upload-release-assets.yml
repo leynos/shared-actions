@@ -13,10 +13,12 @@ jobs:
 
       - name: Create test dist directory
         run: |
-          mkdir -p dist/test-app_linux_x86_64
-          echo "test binary" > dist/test-app_linux_x86_64/test-app
-          echo "abc123  test-app" > dist/test-app_linux_x86_64/test-app.sha256
-          chmod +x dist/test-app_linux_x86_64/test-app
+          dist_dir="${RUNNER_TEMP}/release-assets-dist"
+          mkdir -p "${dist_dir}/test-app_linux_x86_64"
+          echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
+          echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
+          chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
+          echo "TEST_DIST_DIR=${dist_dir}" >> "$GITHUB_ENV"
 
       - name: Upload release assets (dry-run)
         id: upload
@@ -24,7 +26,7 @@ jobs:
         with:
           release-tag: v1.0.0
           bin-name: test-app
-          dist-dir: dist
+          dist-dir: ${{ env.TEST_DIST_DIR }}
           dry-run: "true"
 
       - name: Verify outputs

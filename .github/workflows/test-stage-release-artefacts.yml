@@ -13,14 +13,16 @@ jobs:
 
       - name: Create test artefacts
         run: |
-          mkdir -p target/release
-          echo "test binary content" > target/release/test-app
-          chmod +x target/release/test-app
-          echo "test man page" > target/release/test-app.1
+          workspace="${RUNNER_TEMP}/stage-workspace"
+          mkdir -p "${workspace}/target/release"
+          echo "test binary content" > "${workspace}/target/release/test-app"
+          chmod +x "${workspace}/target/release/test-app"
+          echo "test man page" > "${workspace}/target/release/test-app.1"
+          echo "TEST_WORKSPACE=${workspace}" >> "$GITHUB_ENV"
 
       - name: Create staging config
         run: |
-          cat > .github/test-staging.toml << 'EOF'
+          cat > "${TEST_WORKSPACE}/test-staging.toml" << 'EOF'
           [common]
           bin_name = "test-app"
           dist_dir = "dist"
@@ -44,8 +46,10 @@ jobs:
       - name: Stage release artefacts
         id: stage
         uses: ./.github/actions/stage-release-artefacts
+        env:
+          GITHUB_WORKSPACE: ${{ env.TEST_WORKSPACE }}
         with:
-          config-file: .github/test-staging.toml
+          config-file: ${{ env.TEST_WORKSPACE }}/test-staging.toml
           target: linux-x86_64
 
       - name: Verify outputs

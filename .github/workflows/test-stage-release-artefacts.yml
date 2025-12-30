@@ -13,7 +13,11 @@ jobs:
 
       - name: Create test artefacts
         run: |
-          workspace="${RUNNER_TEMP}/stage-workspace"
+          if [[ "${ACT:-}" == "true" ]]; then
+            workspace="${RUNNER_TEMP}/stage-workspace"
+          else
+            workspace="${GITHUB_WORKSPACE}"
+          fi
           mkdir -p "${workspace}/target/release"
           echo "test binary content" > "${workspace}/target/release/test-app"
           chmod +x "${workspace}/target/release/test-app"

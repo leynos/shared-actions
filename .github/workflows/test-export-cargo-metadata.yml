@@ -36,17 +36,19 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Configure env overrides
+        id: config
         run: |
-          if [[ "${ACT:-}" != "true" ]]; then
-            echo "INPUT_FIELDS=name" >> "$GITHUB_ENV"
-          fi
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
+          {
+            echo "fields=${INPUT_FIELDS:-name}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Export Cargo metadata with env overrides
         id: metadata
         uses: ./.github/actions/export-cargo-metadata
         with:
           manifest-path: rust-toy-app/Cargo.toml
-          fields: name,version
+          fields: ${{ steps.config.outputs.fields }}
 
       - name: Verify outputs
         run: |

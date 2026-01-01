@@ -13,8 +13,8 @@ from pathlib import Path
 
 from syspath_hack import find_project_root, prepend_to_syspath
 
-# The bootstrap walks upward from this module to locate key directories instead of
-# relying on hard-coded parent counts.
+# The bootstrap walks upward from this module's parent directory to locate key
+# directories instead of relying on hard-coded parent counts.
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
 
 

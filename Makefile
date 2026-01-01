@@ -20,7 +20,8 @@ RUFF_FIX_RULES ?= D202,I001
 
 test: .venv ## Run tests
 	uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
-ifneq ($(strip $(filter 1 true TRUE yes YES,$(ACT_WORKFLOW_TESTS))),)
+# Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
+ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
 	ACT_WORKFLOW_TESTS=1 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
 endif
 

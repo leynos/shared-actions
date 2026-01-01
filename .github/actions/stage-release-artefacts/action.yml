@@ -50,12 +50,13 @@ runs:
     - name: Stage artefacts
       id: run-stage
       shell: bash
+      env:
+        INPUT_CONFIG_FILE: ${{ inputs.config-file }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_NORMALIZE_WINDOWS_PATHS: ${{ inputs.normalize-windows-paths }}
       run: |
         set -euo pipefail
         if [[ -n "${TEST_WORKSPACE:-}" ]]; then
           export GITHUB_WORKSPACE="${TEST_WORKSPACE}"
         fi
-        export INPUT_CONFIG_FILE="${INPUT_CONFIG_FILE:-${{ inputs.config-file }}}"
-        export INPUT_TARGET="${INPUT_TARGET:-${{ inputs.target }}}"
-        export INPUT_NORMALIZE_WINDOWS_PATHS="${INPUT_NORMALIZE_WINDOWS_PATHS:-${{ inputs.normalize-windows-paths }}}"
         uv run "${{ github.action_path }}/scripts/stage.py"

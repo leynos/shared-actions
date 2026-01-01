@@ -12,7 +12,7 @@ def _is_dashed_input_key(key: str, prefix: str, alt_prefix: str) -> bool:
     return "-" in key
 
 
-def _should_update_normalized(normalized: str, prefer_dashed: bool) -> bool:
+def _should_update_normalized(normalized: str, *, prefer_dashed: bool) -> bool:
     """Return True if the normalized key should be updated."""
     return prefer_dashed or normalized not in os.environ
 
@@ -30,7 +30,7 @@ def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) 
         if not _is_dashed_input_key(key, prefix, alt_prefix):
             continue
         normalized = key.replace("-", "_")
-        if _should_update_normalized(normalized, prefer_dashed):
+        if _should_update_normalized(normalized, prefer_dashed=prefer_dashed):
             updates[normalized] = value
         removals.append(key)
 

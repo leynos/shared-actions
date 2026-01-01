@@ -65,7 +65,7 @@ def _load_action_setup_from_layout(
         raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setattr(sys, "path", [str(src_dir), *sys.path])
-    sys.modules[module_name] = module
+    monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)  # type: ignore[misc]
     return module, repo_root, action_dir
 

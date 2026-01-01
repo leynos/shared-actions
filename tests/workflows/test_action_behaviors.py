@@ -19,7 +19,10 @@ import pytest
 
 from .conftest import ActConfig, run_act, skip_unless_act, skip_unless_workflow_tests
 
-_TEMP_DIR = Path(tempfile.gettempdir())
+
+def _get_temp_dir() -> Path:
+    """Return the system temporary directory path."""
+    return Path(tempfile.gettempdir())
 
 
 @dataclasses.dataclass(slots=True)
@@ -154,7 +157,7 @@ class TestExportCargoMetadata:
         )
 
     def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
-        """Env overrides take precedence and duplicate keys do not break parsing."""
+        """Container env vars override default workflow values via step outputs."""
         logs = _run_act_and_get_logs(
             run=WorkflowRun(
                 workflow="test-export-cargo-metadata.yml",
@@ -162,7 +165,7 @@ class TestExportCargoMetadata:
                 job="test-export-metadata-env-overrides",
             ),
             artifact_dir=artifact_dir,
-            container_env={"INPUT-FIELDS": "name"},
+            container_env={"INPUT_FIELDS": "name"},
         )
 
         _assert_log_patterns(
@@ -216,7 +219,7 @@ class TestStageReleaseArtefacts:
             artifact_dir=artifact_dir,
             container_env={
                 "INPUT_CONFIG_FILE": str(
-                    _TEMP_DIR / "stage-workspace" / "test-staging.toml"
+                    _get_temp_dir() / "stage-workspace" / "test-staging.toml"
                 ),
                 "INPUT_TARGET": "linux-x86_64",
             },
@@ -280,7 +283,7 @@ class TestUploadReleaseAssets:
             container_env={
                 "INPUT_RELEASE_TAG": "v9.9.9",
                 "INPUT_BIN_NAME": "test-app",
-                "INPUT_DIST_DIR": str(_TEMP_DIR / "release-assets-dist"),
+                "INPUT_DIST_DIR": str(_get_temp_dir() / "release-assets-dist"),
                 "INPUT_DRY_RUN": "true",
             },
         )

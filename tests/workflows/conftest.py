@@ -63,6 +63,18 @@ class ActConfig:
     timeout: int = 300
 
 
+@dataclasses.dataclass(slots=True)
+class ActInvocation:
+    """Parameters for a single act invocation."""
+
+    workflow: str
+    event: str
+    job: str
+    event_path: Path
+    artifact_dir: Path
+    container_env: dict[str, str]
+
+
 def _resolve_event_path(config: ActConfig, event: str) -> Path:
     """Resolve the event path from config or default fixture."""
     if config.event_path is not None:
@@ -82,31 +94,24 @@ def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str
     return container_env
 
 
-def _build_act_args(
-    workflow: str,
-    event: str,
-    job: str,
-    event_path: Path,
-    artifact_dir: Path,
-    container_env: dict[str, str],
-) -> list[str]:
+def _build_act_args(invocation: ActInvocation) -> list[str]:
     """Build the list of arguments for the act command."""
     args = [
-        event,
+        invocation.event,
         "-W",
-        f".github/workflows/{workflow}",
+        f".github/workflows/{invocation.workflow}",
         "-j",
-        job,
+        invocation.job,
         "-e",
-        str(event_path),
+        str(invocation.event_path),
         "-P",
         "ubuntu-latest=catthehacker/ubuntu:act-latest",
         "--artifact-server-path",
-        str(artifact_dir),
+        str(invocation.artifact_dir),
         "--json",
         "-b",
     ]
-    for key, value in container_env.items():
+    for key, value in invocation.container_env.items():
         args.extend(["--env", f"{key}={value}"])
     return args
 
@@ -145,7 +150,15 @@ def run_act(
         run_env.update(config.env)
 
     container_env = _build_container_env(config, run_env)
-    args = _build_act_args(workflow, event, job, event_path, config.artifact_dir, container_env)
+    invocation = ActInvocation(
+        workflow=workflow,
+        event=event,
+        job=job,
+        event_path=event_path,
+        artifact_dir=config.artifact_dir,
+        container_env=container_env,
+    )
+    args = _build_act_args(invocation)
 
     act = local["act"]
     cmd = act

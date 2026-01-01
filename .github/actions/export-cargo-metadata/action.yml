@@ -40,9 +40,10 @@ runs:
     - name: Export Cargo metadata
       id: export
       shell: bash
+      env:
+        INPUT_MANIFEST_PATH: ${{ inputs.manifest-path }}
+        INPUT_FIELDS: ${{ inputs.fields }}
+        INPUT_EXPORT_TO_ENV: ${{ inputs.export-to-env }}
       run: |
         set -euo pipefail
-        export INPUT_MANIFEST_PATH="${INPUT_MANIFEST_PATH:-${{ inputs.manifest-path }}}"
-        export INPUT_FIELDS="${INPUT_FIELDS:-${{ inputs.fields }}}"
-        export INPUT_EXPORT_TO_ENV="${INPUT_EXPORT_TO_ENV:-${{ inputs.export-to-env }}}"
         uv run "${{ github.action_path }}/scripts/read_manifest.py"

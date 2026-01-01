@@ -84,14 +84,14 @@ def _resolve_event_path(config: ActConfig, event: str) -> Path:
 
 def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str, str]:
     """Build the container environment dict with UV forwarding."""
-    container_env: dict[str, str] = {}
+    merged_container_env: dict[str, str] = {}
     if config.container_env:
-        container_env.update(config.container_env)
+        merged_container_env.update(config.container_env)
     # Forward uv's project environment override into the act container.
     uv_env_key = "UV_PROJECT_ENVIRONMENT"
-    if uv_env_key in run_env and uv_env_key not in container_env:
-        container_env[uv_env_key] = run_env[uv_env_key]
-    return container_env
+    if uv_env_key in run_env and uv_env_key not in merged_container_env:
+        merged_container_env[uv_env_key] = run_env[uv_env_key]
+    return merged_container_env
 
 
 def _build_act_args(invocation: ActInvocation) -> list[str]:

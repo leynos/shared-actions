@@ -62,7 +62,7 @@ jobs:
           echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
           echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
           chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
-          # Use container env if set, otherwise use defaults
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
           {
             echo "TEST_DIST_DIR=${dist_dir}"
           } >> "$GITHUB_ENV"

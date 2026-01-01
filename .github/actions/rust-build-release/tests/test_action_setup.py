@@ -186,6 +186,8 @@ def test_bootstrap_prefers_nearest_action_marker(
         tmp_path, monkeypatch, add_root_marker=True
     )
 
+    module.bootstrap_environment()
+
     assert action_dir == module._ACTION_PATH
     assert repo_root == module._REPO_ROOT
     assert os.environ["GITHUB_ACTION_PATH"] == str(action_dir)

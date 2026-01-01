@@ -63,6 +63,54 @@ class ActConfig:
     timeout: int = 300
 
 
+def _resolve_event_path(config: ActConfig, event: str) -> Path:
+    """Resolve the event path from config or default fixture."""
+    if config.event_path is not None:
+        return config.event_path
+    return FIXTURES_DIR / f"{event}.event.json"
+
+
+def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str, str]:
+    """Build the container environment dict with UV forwarding."""
+    container_env: dict[str, str] = {}
+    if config.container_env:
+        container_env.update(config.container_env)
+    # Forward uv's project environment override into the act container.
+    uv_env_key = "UV_PROJECT_ENVIRONMENT"
+    if uv_env_key in run_env and uv_env_key not in container_env:
+        container_env[uv_env_key] = run_env[uv_env_key]
+    return container_env
+
+
+def _build_act_args(
+    workflow: str,
+    event: str,
+    job: str,
+    event_path: Path,
+    artifact_dir: Path,
+    container_env: dict[str, str],
+) -> list[str]:
+    """Build the list of arguments for the act command."""
+    args = [
+        event,
+        "-W",
+        f".github/workflows/{workflow}",
+        "-j",
+        job,
+        "-e",
+        str(event_path),
+        "-P",
+        "ubuntu-latest=catthehacker/ubuntu:act-latest",
+        "--artifact-server-path",
+        str(artifact_dir),
+        "--json",
+        "-b",
+    ]
+    for key, value in container_env.items():
+        args.extend(["--env", f"{key}={value}"])
+    return args
+
+
 def run_act(
     workflow: str,
     event: str,
@@ -90,43 +138,16 @@ def run_act(
     """
     config.artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    event_path = config.event_path
-    if event_path is None:
-        event_path = FIXTURES_DIR / f"{event}.event.json"
+    event_path = _resolve_event_path(config, event)
 
-    act = local["act"]
     run_env = os.environ.copy()
     if config.env:
         run_env.update(config.env)
 
-    container_env: dict[str, str] = {}
-    if config.container_env:
-        container_env.update(config.container_env)
-    if (
-        "UV_PROJECT_ENVIRONMENT" in run_env
-        and "UV_PROJECT_ENVIRONMENT" not in container_env
-    ):
-        # Forward uv's project environment override into the act container.
-        container_env["UV_PROJECT_ENVIRONMENT"] = run_env["UV_PROJECT_ENVIRONMENT"]
+    container_env = _build_container_env(config, run_env)
+    args = _build_act_args(workflow, event, job, event_path, config.artifact_dir, container_env)
 
-    args = [
-        event,
-        "-W",
-        f".github/workflows/{workflow}",
-        "-j",
-        job,
-        "-e",
-        str(event_path),
-        "-P",
-        "ubuntu-latest=catthehacker/ubuntu:act-latest",
-        "--artifact-server-path",
-        str(config.artifact_dir),
-        "--json",
-        "-b",
-    ]
-    for key, value in container_env.items():
-        args.extend(["--env", f"{key}={value}"])
-
+    act = local["act"]
     cmd = act
     for arg in args:
         cmd = cmd[arg]

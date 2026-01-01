@@ -43,8 +43,6 @@ prepend_project_root(start=_SCRIPT_DIR)
 from actions_common import normalize_input_env
 from bool_utils import coerce_bool
 
-normalize_input_env(prefer_dashed=True)
-
 app: App = App(
     help="Stage release artefacts using a TOML configuration file.",
     config=cyclopts.config.Env("INPUT_", command=False),
@@ -96,4 +94,5 @@ def main(
 
 
 if __name__ == "__main__":
+    normalize_input_env(prefer_dashed=True)
     app()

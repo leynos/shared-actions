@@ -51,8 +51,6 @@ from cargo_utils import (
     resolve_version,
 )
 
-normalize_input_env(prefer_dashed=True)
-
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
 
@@ -216,4 +214,5 @@ def main(
 
 
 if __name__ == "__main__":
+    normalize_input_env(prefer_dashed=True)
     app()

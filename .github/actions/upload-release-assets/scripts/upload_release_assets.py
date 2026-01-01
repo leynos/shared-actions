@@ -68,8 +68,6 @@ class ReleaseAsset:
     size: int
 
 
-normalize_input_env(prefer_dashed=True)
-
 app: App = App(config=cyclopts.config.Env("INPUT_", command=False))
 
 
@@ -332,4 +330,5 @@ def cli(
 
 
 if __name__ == "__main__":
+    normalize_input_env(prefer_dashed=True)
     app()

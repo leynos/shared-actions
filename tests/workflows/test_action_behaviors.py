@@ -10,6 +10,7 @@ Run with:
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import tempfile
 from pathlib import Path
@@ -21,6 +22,15 @@ from .conftest import ActConfig, run_act, skip_unless_act, skip_unless_workflow_
 _TEMP_DIR = Path(tempfile.gettempdir())
 
 
+@dataclasses.dataclass(slots=True)
+class WorkflowRun:
+    """Specification for a workflow run."""
+
+    workflow: str
+    event: str
+    job: str
+
+
 @pytest.fixture
 def artifact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
@@ -28,25 +38,21 @@ def artifact_dir(tmp_path: Path) -> Path:
 
 
 def _run_act_and_get_logs(
-    workflow: str,
-    event: str,
-    job: str,
+    run: WorkflowRun,
     artifact_dir: Path,
     *,
     container_env: dict[str, str] | None = None,
 ) -> str:
-    """Run act and assert success, returning logs for further assertions.
+    """Run act with the given workflow specification and return logs.
 
     Parameters
     ----------
-    workflow
-        Path to the workflow file relative to .github/workflows/.
-    event
-        GitHub event type (push, pull_request, workflow_call, etc.).
-    job
-        Job name to run.
+    run
+        Workflow, event, and job specification.
     artifact_dir
         Directory to store artefacts.
+    container_env
+        Optional environment variables to pass into the act container.
 
     Returns
     -------
@@ -54,7 +60,7 @@ def _run_act_and_get_logs(
         Combined stdout/stderr logs from the act run.
     """
     config = ActConfig(artifact_dir=artifact_dir, container_env=container_env)
-    code, logs = run_act(workflow, event, job, config)
+    code, logs = run_act(run.workflow, run.event, run.job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
 
@@ -107,9 +113,11 @@ class TestDetermineReleaseModes:
     ) -> None:
         """Verify release mode outputs for different event types."""
         logs = _run_act_and_get_logs(
-            workflow="test-determine-release-modes.yml",
-            event=event,
-            job="test-determine-modes",
+            run=WorkflowRun(
+                workflow="test-determine-release-modes.yml",
+                event=event,
+                job="test-determine-modes",
+            ),
             artifact_dir=artifact_dir,
         )
 
@@ -128,9 +136,11 @@ class TestExportCargoMetadata:
     def test_exports_cargo_metadata(self, artifact_dir: Path) -> None:
         """Action exports name and version from Cargo.toml."""
         logs = _run_act_and_get_logs(
-            workflow="test-export-cargo-metadata.yml",
-            event="pull_request",
-            job="test-export-metadata",
+            run=WorkflowRun(
+                workflow="test-export-cargo-metadata.yml",
+                event="pull_request",
+                job="test-export-metadata",
+            ),
             artifact_dir=artifact_dir,
         )
 
@@ -146,9 +156,11 @@ class TestExportCargoMetadata:
     def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
         """Env overrides take precedence and duplicate keys do not break parsing."""
         logs = _run_act_and_get_logs(
-            workflow="test-export-cargo-metadata.yml",
-            event="pull_request",
-            job="test-export-metadata-env-overrides",
+            run=WorkflowRun(
+                workflow="test-export-cargo-metadata.yml",
+                event="pull_request",
+                job="test-export-metadata-env-overrides",
+            ),
             artifact_dir=artifact_dir,
             container_env={"INPUT-FIELDS": "name"},
         )
@@ -170,9 +182,11 @@ class TestStageReleaseArtefacts:
     def test_stages_artefacts(self, artifact_dir: Path) -> None:
         """Action stages artefacts and creates checksum sidecars."""
         logs = _run_act_and_get_logs(
-            workflow="test-stage-release-artefacts.yml",
-            event="pull_request",
-            job="test-stage-artefacts",
+            run=WorkflowRun(
+                workflow="test-stage-release-artefacts.yml",
+                event="pull_request",
+                job="test-stage-artefacts",
+            ),
             artifact_dir=artifact_dir,
         )
 
@@ -194,9 +208,11 @@ class TestStageReleaseArtefacts:
     def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
         """Container env vars override default workflow values via step outputs."""
         logs = _run_act_and_get_logs(
-            workflow="test-stage-release-artefacts.yml",
-            event="pull_request",
-            job="test-stage-artefacts-env-overrides",
+            run=WorkflowRun(
+                workflow="test-stage-release-artefacts.yml",
+                event="pull_request",
+                job="test-stage-artefacts-env-overrides",
+            ),
             artifact_dir=artifact_dir,
             container_env={
                 "INPUT_CONFIG_FILE": str(
@@ -229,9 +245,11 @@ class TestUploadReleaseAssets:
     def test_dry_run_validates_assets(self, artifact_dir: Path) -> None:
         """Dry-run mode validates assets without uploading."""
         logs = _run_act_and_get_logs(
-            workflow="test-upload-release-assets.yml",
-            event="pull_request",
-            job="test-upload-assets-dry-run",
+            run=WorkflowRun(
+                workflow="test-upload-release-assets.yml",
+                event="pull_request",
+                job="test-upload-assets-dry-run",
+            ),
             artifact_dir=artifact_dir,
         )
 
@@ -253,9 +271,11 @@ class TestUploadReleaseAssets:
     def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
         """Container env vars override default workflow values via step outputs."""
         logs = _run_act_and_get_logs(
-            workflow="test-upload-release-assets.yml",
-            event="pull_request",
-            job="test-upload-assets-env-overrides",
+            run=WorkflowRun(
+                workflow="test-upload-release-assets.yml",
+                event="pull_request",
+                job="test-upload-assets-env-overrides",
+            ),
             artifact_dir=artifact_dir,
             container_env={
                 "INPUT_RELEASE_TAG": "v9.9.9",
@@ -288,9 +308,26 @@ class TestRustBuildReleaseRootDiscovery:
 
     def test_action_setup_root_discovery(self, artifact_dir: Path) -> None:
         """Action setup locates action.yml and repo root from a subdirectory."""
-        _run_act_and_get_logs(
-            workflow="test-rust-build-release-root-discovery.yml",
-            event="pull_request",
-            job="test-action-setup-root",
+        logs = _run_act_and_get_logs(
+            run=WorkflowRun(
+                workflow="test-rust-build-release-root-discovery.yml",
+                event="pull_request",
+                job="test-action-setup-root",
+            ),
             artifact_dir=artifact_dir,
+        )
+
+        # Verify root discovery completed successfully
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'ACTION_PATH["\s]*[:=]["\s]*\S+',
+                    "ACTION_PATH not found in logs",
+                ),
+                (
+                    r'REPO_ROOT["\s]*[:=]["\s]*\S+',
+                    "REPO_ROOT not found in logs",
+                ),
+            ],
         )

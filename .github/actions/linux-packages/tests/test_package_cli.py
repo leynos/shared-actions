@@ -520,8 +520,7 @@ def test_ensure_nfpm_raises_when_checksum_download_fails(
         _make_fake_run_cmd(fail_checksums=True),
     )
     checks_url = (
-        "https://github.com/goreleaser/nfpm/releases/download/"
-        "v2.44.1/checksums.txt"
+        "https://github.com/goreleaser/nfpm/releases/download/v2.44.1/checksums.txt"
     )
 
     with pytest.raises(RuntimeError) as excinfo, pkg_utils.ensure_nfpm(tmp_path):

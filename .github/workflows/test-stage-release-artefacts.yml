@@ -122,7 +122,7 @@ jobs:
           arch = "x86_64"
           target = "x86_64-unknown-linux-gnu"
           EOF
-          # Use container env if set, otherwise use workspace path
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
           config_file="${INPUT_CONFIG_FILE:-${TEST_WORKSPACE}/test-staging.toml}"
           target="${INPUT_TARGET:-linux-x86_64}"
           {

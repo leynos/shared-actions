@@ -1,0 +1,43 @@
+name: Test rust-build-release root discovery
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  test-action-setup-root:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: false
+
+      - name: Validate action setup root discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GITHUB_ACTION_PATH
+          cd rust-toy-app
+          output_file="$(mktemp)"
+          uv run --with plumbum --with syspath-hack --with typer python - <<'PY' > "${output_file}"
+          import importlib.util
+          import sys
+          from pathlib import Path
+
+          module_path = Path("../.github/actions/rust-build-release/src/action_setup.py").resolve()
+          sys.path.insert(0, str(module_path.parent))
+          spec = importlib.util.spec_from_file_location("action_setup_test", module_path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)  # type: ignore[misc]
+          print(f"action_path={module._ACTION_PATH}")
+          print(f"repo_root={module._REPO_ROOT}")
+          PY
+          cat "${output_file}"
+          repo_root="$(cd .. && pwd)"
+          expected_action_path="${repo_root}/.github/actions/rust-build-release"
+          grep -F "action_path=${expected_action_path}" "${output_file}"
+          grep -F "repo_root=${repo_root}" "${output_file}"

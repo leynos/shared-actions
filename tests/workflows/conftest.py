@@ -59,6 +59,7 @@ class ActConfig:
     artifact_dir: Path
     event_path: Path | None = None
     env: dict[str, str] | None = None
+    container_env: dict[str, str] | None = None
     timeout: int = 300
 
 
@@ -94,7 +95,21 @@ def run_act(
         event_path = FIXTURES_DIR / f"{event}.event.json"
 
     act = local["act"]
-    cmd = act[
+    run_env = os.environ.copy()
+    if config.env:
+        run_env.update(config.env)
+
+    container_env: dict[str, str] = {}
+    if config.container_env:
+        container_env.update(config.container_env)
+    if (
+        "UV_PROJECT_ENVIRONMENT" in run_env
+        and "UV_PROJECT_ENVIRONMENT" not in container_env
+    ):
+        # Forward uv's project environment override into the act container.
+        container_env["UV_PROJECT_ENVIRONMENT"] = run_env["UV_PROJECT_ENVIRONMENT"]
+
+    args = [
         event,
         "-W",
         f".github/workflows/{workflow}",
@@ -109,10 +124,12 @@ def run_act(
         "--json",
         "-b",
     ]
+    for key, value in container_env.items():
+        args.extend(["--env", f"{key}={value}"])
 
-    run_env = os.environ.copy()
-    if config.env:
-        run_env.update(config.env)
+    cmd = act
+    for arg in args:
+        cmd = cmd[arg]
 
     try:
         retcode, stdout, stderr = cmd.run(

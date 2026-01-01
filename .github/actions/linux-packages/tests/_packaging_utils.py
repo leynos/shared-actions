@@ -115,7 +115,12 @@ def clone_packaging_project(
 ) -> PackagingProject:
     """Copy *project* into *tmp_path* and return an updated descriptor."""
     destination = tmp_path / project.project_dir.name
-    shutil.copytree(project.project_dir, destination, dirs_exist_ok=True)
+    shutil.copytree(
+        project.project_dir,
+        destination,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(".cache", ".uv-cache"),
+    )
     for leftover in ("target", "dist"):
         stale_path = destination / leftover
         if not stale_path.exists():
@@ -327,7 +332,7 @@ def polythene_rootfs(polythene: Command, image: str) -> typ.Iterator[PolytheneRo
 
 
 @contextlib.contextmanager
-def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Path]:
+def ensure_nfpm(project_dir: Path, version: str = "v2.44.1") -> typ.Iterator[Path]:
     """Ensure ``nfpm`` is available on ``PATH`` for the duration of the context."""
     existing = shutil.which("nfpm")
     if existing is not None:
@@ -364,7 +369,7 @@ def ensure_nfpm(project_dir: Path, version: str = "v2.39.0") -> typ.Iterator[Pat
                     tarball,
                 ]
             )
-            checks_url = f"{base_url}{version}/nfpm_{version[1:]}_checksums.txt"
+            checks_url = f"{base_url}{version}/checksums.txt"
             sums_path = Path(td) / "checksums.txt"
             sums_text = ""
             try:

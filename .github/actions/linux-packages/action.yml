@@ -114,6 +114,7 @@ runs:
         if command -v rsync >/dev/null 2>&1; then
           rsync -a --delete \
             --exclude='.git/' \
+            --exclude='.venv/' \
             --exclude='__pycache__/' \
             --exclude='*.pyc' \
             --exclude='target/' \
@@ -122,6 +123,7 @@ runs:
         else
           tar cf - \
             --exclude='./.git' \
+            --exclude='./.venv' \
             --exclude='./__pycache__' \
             --exclude='*.pyc' \
             --exclude='./target' \

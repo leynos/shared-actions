@@ -52,6 +52,39 @@ def _load_and_extract(
     return read_manifest_mod._extract_field(manifest, manifest_path, field)
 
 
+def test_prepend_project_root_works_outside_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: PathType
+) -> None:
+    """prepend_project_root(start=...) resolves repo root outside current cwd."""
+    repo_root = Path(__file__).resolve().parents[4]
+    original_modules = {
+        name: sys.modules.get(name) for name in ("cargo_utils", "bool_utils")
+    }
+    for name in original_modules:
+        sys.modules.pop(name, None)
+
+    trimmed_path = [entry for entry in sys.path if Path(entry).resolve() != repo_root]
+    monkeypatch.setattr(sys, "path", trimmed_path)
+    monkeypatch.chdir(tmp_path)
+
+    prepend_project_root(start=SCRIPT_DIR)
+
+    import importlib
+
+    cargo_utils = importlib.import_module("cargo_utils")
+    bool_utils = importlib.import_module("bool_utils")
+
+    assert Path(cargo_utils.__file__).resolve().is_relative_to(repo_root)
+    assert Path(bool_utils.__file__).resolve().is_relative_to(repo_root)
+    assert any(Path(entry).resolve() == repo_root for entry in sys.path)
+
+    for name, mod in original_modules.items():
+        if mod is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = mod
+
+
 @pytest.mark.parametrize(
     ("manifest_content", "field", "expected"),
     [

@@ -11,14 +11,14 @@ Run with:
 from __future__ import annotations
 
 import re
-import typing as typ
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from .conftest import ActConfig, run_act, skip_unless_act, skip_unless_workflow_tests
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+_TEMP_DIR = Path(tempfile.gettempdir())
 
 
 @pytest.fixture
@@ -28,7 +28,12 @@ def artifact_dir(tmp_path: Path) -> Path:
 
 
 def _run_act_and_get_logs(
-    workflow: str, event: str, job: str, artifact_dir: Path
+    workflow: str,
+    event: str,
+    job: str,
+    artifact_dir: Path,
+    *,
+    container_env: dict[str, str] | None = None,
 ) -> str:
     """Run act and assert success, returning logs for further assertions.
 
@@ -48,7 +53,7 @@ def _run_act_and_get_logs(
     str
         Combined stdout/stderr logs from the act run.
     """
-    config = ActConfig(artifact_dir=artifact_dir)
+    config = ActConfig(artifact_dir=artifact_dir, container_env=container_env)
     code, logs = run_act(workflow, event, job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
@@ -138,6 +143,24 @@ class TestExportCargoMetadata:
             ],
         )
 
+    def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
+        """Env overrides take precedence and duplicate keys do not break parsing."""
+        logs = _run_act_and_get_logs(
+            workflow="test-export-cargo-metadata.yml",
+            event="pull_request",
+            job="test-export-metadata-env-overrides",
+            artifact_dir=artifact_dir,
+            container_env={"INPUT-FIELDS": "name"},
+        )
+
+        _assert_log_patterns(
+            logs,
+            [
+                (r'name["\s]*[:=]["\s]*\S+', "name= not found in logs"),
+                (r'version["\s]*[:=]', "version= not found in logs"),
+            ],
+        )
+
 
 @skip_unless_act
 @skip_unless_workflow_tests
@@ -154,6 +177,35 @@ class TestStageReleaseArtefacts:
         )
 
         # Verify staging completed with actual values
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
+                    "artifact-dir not found or empty in logs",
+                ),
+                (
+                    r'staged[-_]files["\s]*[:=]["\s]*\S+',
+                    "staged-files not found or empty in logs",
+                ),
+            ],
+        )
+
+    def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
+        """Container env vars override default workflow values via step outputs."""
+        logs = _run_act_and_get_logs(
+            workflow="test-stage-release-artefacts.yml",
+            event="pull_request",
+            job="test-stage-artefacts-env-overrides",
+            artifact_dir=artifact_dir,
+            container_env={
+                "INPUT_CONFIG_FILE": str(
+                    _TEMP_DIR / "stage-workspace" / "test-staging.toml"
+                ),
+                "INPUT_TARGET": "linux-x86_64",
+            },
+        )
+
         _assert_log_patterns(
             logs,
             [
@@ -196,4 +248,49 @@ class TestUploadReleaseAssets:
                 ),
             ],
             flags=re.IGNORECASE,
+        )
+
+    def test_env_overrides_normalize_inputs(self, artifact_dir: Path) -> None:
+        """Container env vars override default workflow values via step outputs."""
+        logs = _run_act_and_get_logs(
+            workflow="test-upload-release-assets.yml",
+            event="pull_request",
+            job="test-upload-assets-env-overrides",
+            artifact_dir=artifact_dir,
+            container_env={
+                "INPUT_RELEASE_TAG": "v9.9.9",
+                "INPUT_BIN_NAME": "test-app",
+                "INPUT_DIST_DIR": str(_TEMP_DIR / "release-assets-dist"),
+                "INPUT_DRY_RUN": "true",
+            },
+        )
+
+        _assert_log_patterns(
+            logs,
+            [
+                (
+                    r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
+                    "uploaded-count not found in logs",
+                ),
+                (
+                    r'upload[-_]error["\s]*[:=]["\s]*false',
+                    "upload-error=false not found in logs",
+                ),
+            ],
+            flags=re.IGNORECASE,
+        )
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
+class TestRustBuildReleaseRootDiscovery:
+    """Behavioural tests for rust-build-release root discovery."""
+
+    def test_action_setup_root_discovery(self, artifact_dir: Path) -> None:
+        """Action setup locates action.yml and repo root from a subdirectory."""
+        _run_act_and_get_logs(
+            workflow="test-rust-build-release-root-discovery.yml",
+            event="pull_request",
+            job="test-action-setup-root",
+            artifact_dir=artifact_dir,
         )

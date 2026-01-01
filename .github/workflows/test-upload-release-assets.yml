@@ -13,12 +13,18 @@ jobs:
 
       - name: Create test dist directory
         run: |
-          dist_dir="${RUNNER_TEMP}/release-assets-dist"
+          if [[ "${ACT:-}" == "true" ]]; then
+            dist_dir="/tmp/release-assets-dist"
+          else
+            dist_dir="${RUNNER_TEMP}/release-assets-dist"
+          fi
           mkdir -p "${dist_dir}/test-app_linux_x86_64"
           echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
           echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
           chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
-          echo "TEST_DIST_DIR=${dist_dir}" >> "$GITHUB_ENV"
+          {
+            echo "TEST_DIST_DIR=${dist_dir}"
+          } >> "$GITHUB_ENV"
 
       - name: Upload release assets (dry-run)
         id: upload
@@ -34,5 +40,51 @@ jobs:
           echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
           echo "upload-error=${{ steps.upload.outputs.upload-error }}"
           # Verify dry-run processed assets
+          [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
+          [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]
+
+  test-upload-assets-env-overrides:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Create test dist directory
+        id: setup
+        run: |
+          if [[ "${ACT:-}" == "true" ]]; then
+            dist_dir="/tmp/release-assets-dist"
+          else
+            dist_dir="${RUNNER_TEMP}/release-assets-dist"
+          fi
+          mkdir -p "${dist_dir}/test-app_linux_x86_64"
+          echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
+          echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
+          chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
+          # Use container env if set, otherwise use defaults
+          {
+            echo "TEST_DIST_DIR=${dist_dir}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "release_tag=${INPUT_RELEASE_TAG:-v9.9.9}"
+            echo "bin_name=${INPUT_BIN_NAME:-test-app}"
+            echo "dist_dir=${INPUT_DIST_DIR:-${dist_dir}}"
+            echo "dry_run=${INPUT_DRY_RUN:-true}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release assets with env overrides (dry-run)
+        id: upload
+        uses: ./.github/actions/upload-release-assets
+        with:
+          release-tag: ${{ steps.setup.outputs.release_tag }}
+          bin-name: ${{ steps.setup.outputs.bin_name }}
+          dist-dir: ${{ steps.setup.outputs.dist_dir }}
+          dry-run: ${{ steps.setup.outputs.dry_run }}
+
+      - name: Verify outputs
+        run: |
+          echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
+          echo "upload-error=${{ steps.upload.outputs.upload-error }}"
           [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
           [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]

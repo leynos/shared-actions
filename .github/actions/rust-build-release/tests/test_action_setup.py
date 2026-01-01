@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import shutil
 import sys
 import typing as typ
+import uuid
 from pathlib import Path
 
 import pytest
@@ -21,6 +24,50 @@ if typ.TYPE_CHECKING:
 runner = CliRunner()
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "src" / "action_setup.py"
+TOOLCHAIN_PATH = Path(__file__).resolve().parents[1] / "src" / "toolchain.py"
+
+
+def _load_action_setup_from_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, add_root_marker: bool
+) -> tuple[ModuleType, Path, Path]:
+    """Load action_setup.py from a temporary repository layout."""
+    repo_root = tmp_path / "repo"
+    action_dir = repo_root / ".github" / "actions" / "rust-build-release"
+    src_dir = action_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy(SCRIPT_PATH, src_dir / "action_setup.py")
+    shutil.copy(TOOLCHAIN_PATH, src_dir / "toolchain.py")
+    (repo_root / "cmd_utils_importer.py").write_text(
+        "def ensure_cmd_utils_imported():\n    return None\n",
+        encoding="utf-8",
+    )
+    (repo_root / "pyproject.toml").write_text(
+        '[project]\nname = "dummy"\nversion = "0.0.0"\n',
+        encoding="utf-8",
+    )
+    (action_dir / "action.yml").write_text(
+        "name: Rust Build Release\nruns:\n  using: composite\n  steps: []\n",
+        encoding="utf-8",
+    )
+    if add_root_marker:
+        (repo_root / "action.yml").write_text(
+            "name: Root Action\nruns:\n  using: composite\n  steps: []\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.delenv("GITHUB_ACTION_PATH", raising=False)
+    module_name = f"rbr_action_setup_{uuid.uuid4().hex}"
+    module_path = src_dir / "action_setup.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:  # pragma: no cover - import guard
+        message = f"Failed to load {module_path}"
+        raise RuntimeError(message)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setattr(sys, "path", [str(src_dir), *sys.path])
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)  # type: ignore[misc]
+    return module, repo_root, action_dir
 
 
 def _reset_bootstrap_cache(module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,6 +159,36 @@ def test_bootstrap_dedupes_existing_repo_root(
     assert sys.path.count(repo_root_str) == 1
     expected_tail = [entry for entry in resolved_paths if entry != repo_root_str]
     assert sys.path[1:] == expected_tail
+
+
+def test_bootstrap_discovers_action_and_repo_root_from_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bootstrap finds action.yml and pyproject.toml markers in custom layouts."""
+    module, repo_root, action_dir = _load_action_setup_from_layout(
+        tmp_path, monkeypatch, add_root_marker=False
+    )
+
+    action_path, repo_root_found = module.bootstrap_environment()
+
+    assert action_path == action_dir
+    assert repo_root_found == repo_root
+    assert action_dir == module._ACTION_PATH
+    assert repo_root == module._REPO_ROOT
+    assert os.environ["GITHUB_ACTION_PATH"] == str(action_dir)
+
+
+def test_bootstrap_prefers_nearest_action_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nearest action.yml wins when multiple markers exist."""
+    module, repo_root, action_dir = _load_action_setup_from_layout(
+        tmp_path, monkeypatch, add_root_marker=True
+    )
+
+    assert action_dir == module._ACTION_PATH
+    assert repo_root == module._REPO_ROOT
+    assert os.environ["GITHUB_ACTION_PATH"] == str(action_dir)
 
 
 def test_validate_target_accepts_valid(action_setup_module: ModuleType) -> None:

@@ -521,7 +521,7 @@ def test_ensure_nfpm_raises_when_checksum_download_fails(
     )
     checks_url = (
         "https://github.com/goreleaser/nfpm/releases/download/"
-        "v2.39.0/nfpm_2.39.0_checksums.txt"
+        "v2.44.1/checksums.txt"
     )
 
     with pytest.raises(RuntimeError) as excinfo, pkg_utils.ensure_nfpm(tmp_path):
@@ -548,7 +548,7 @@ def test_ensure_nfpm_errors_when_checksum_entry_missing(
 
     message = str(excinfo.value)
     assert "missing entry" in message
-    assert "nfpm_2.39.0_Linux_x86_64.tar.gz" in message
+    assert "nfpm_2.44.1_Linux_x86_64.tar.gz" in message
 
 
 @pytest.mark.usefixtures("uncapture_if_verbose")

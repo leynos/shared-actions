@@ -46,8 +46,10 @@ runs:
         chmod +x "${workspace}/target/release/test-app"
         echo "test man page" > "${workspace}/target/release/test-app.1"
         if [[ "${ACT:-}" == "true" ]]; then
-          # Grant owner full access and group read/execute for container compatibility.
-          # Avoid world-writable (a+w) to limit exposure in shared environments.
+          # Act containers run as non-root users that may share the workspace via
+          # group membership (e.g., runner:docker). Grant group read/execute so
+          # these processes can traverse directories and read files. World-writable
+          # permissions (a+w) are intentionally avoided to limit exposure.
           chmod -R u+rwX,g+rX "${workspace}"
         fi
         {

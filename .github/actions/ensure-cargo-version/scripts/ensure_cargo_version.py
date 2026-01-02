@@ -1,9 +1,9 @@
 #!/usr/bin/env -S uv run python
-# fmt: off
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 # fmt: on

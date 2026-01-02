@@ -328,4 +328,5 @@ class TestExportCargoMetadata:
                 (r'name["\s]*[:=]["\s]*\S+', "name= not found or empty in logs"),
                 (r'version["\s]*[:=]["\s]*\S+', "version= not found or empty in logs"),
             ],
+            flags=re.IGNORECASE,
         )

@@ -1,0 +1,58 @@
+name: Create test artefacts
+description: |
+  Create test artefacts for staging workflow tests.
+
+  Safety assumptions:
+  - When ACT=true, creates an isolated temp workspace (/tmp/stage-workspace)
+    that is removed and recreated on each run
+  - Permission changes only apply to the ACT-only temp workspace, never to
+    GITHUB_WORKSPACE in production CI
+  - Permissions grant owner full access and group read/execute for container
+    compatibility without world-writable access
+
+inputs:
+  workspace-suffix:
+    description: Optional suffix to differentiate workspace paths
+    required: false
+    default: ""
+
+outputs:
+  workspace:
+    description: The TEST_WORKSPACE path created
+    value: ${{ steps.create.outputs.workspace }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create test artefacts
+      id: create
+      shell: bash
+      run: |
+        set -euo pipefail
+        suffix="${{ inputs.workspace-suffix }}"
+        if [[ "${ACT:-}" == "true" ]]; then
+          if [[ -n "${suffix}" ]]; then
+            workspace="/tmp/stage-workspace-${suffix}"
+          else
+            workspace="/tmp/stage-workspace"
+          fi
+          rm -rf "${workspace}"
+          mkdir -p "${workspace}"
+        else
+          workspace="${GITHUB_WORKSPACE}"
+        fi
+        mkdir -p "${workspace}/target/release"
+        echo "test binary content" > "${workspace}/target/release/test-app"
+        chmod +x "${workspace}/target/release/test-app"
+        echo "test man page" > "${workspace}/target/release/test-app.1"
+        if [[ "${ACT:-}" == "true" ]]; then
+          # Act containers run as non-root users that may share the workspace via
+          # group membership (e.g., runner:docker). Grant group read/execute so
+          # these processes can traverse directories and read files. World-writable
+          # permissions (a+w) are intentionally avoided to limit exposure.
+          chmod -R u+rwX,g+rX "${workspace}"
+        fi
+        {
+          echo "TEST_WORKSPACE=${workspace}"
+        } >> "$GITHUB_ENV"
+        echo "workspace=${workspace}" >> "$GITHUB_OUTPUT"

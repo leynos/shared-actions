@@ -4,7 +4,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
-#   "syspath-hack>=0.3.0,<0.4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 # fmt: on
@@ -36,9 +36,12 @@ import cyclopts
 from cyclopts import App, Parameter
 from syspath_hack import prepend_project_root
 
-# Add repository root to path for cargo_utils and bool_utils imports
-prepend_project_root()
+_SCRIPT_DIR = Path(__file__).resolve().parent
 
+# Add repository root to path for cargo_utils and bool_utils imports
+prepend_project_root(start=_SCRIPT_DIR)
+
+from actions_common import normalize_input_env
 from bool_utils import coerce_bool_strict
 from cargo_utils import (
     ManifestError,
@@ -211,4 +214,5 @@ def main(
 
 
 if __name__ == "__main__":
+    normalize_input_env(prefer_dashed=True)
     app()

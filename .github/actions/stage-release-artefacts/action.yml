@@ -56,4 +56,8 @@ runs:
         INPUT_NORMALIZE_WINDOWS_PATHS: ${{ inputs.normalize-windows-paths }}
       run: |
         set -euo pipefail
+        # Allow test runners (e.g. act) to override GITHUB_WORKSPACE with a temp dir.
+        if [[ -n "${TEST_WORKSPACE:-}" ]]; then
+          export GITHUB_WORKSPACE="${TEST_WORKSPACE}"
+        fi
         uv run "${{ github.action_path }}/scripts/stage.py"

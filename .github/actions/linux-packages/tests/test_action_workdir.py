@@ -86,7 +86,14 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
         repo_root,
         checkout_path,
         ignore=shutil.ignore_patterns(
-            ".git", "__pycache__", "*.pyc", "target", "_self"
+            ".git",
+            ".venv",
+            "__pycache__",
+            "*.pyc",
+            "target",
+            "_self",
+            ".cache",
+            ".uv-cache",
         ),
     )
     install_path = workspace / install_step["uses"]

@@ -27,3 +27,32 @@ jobs:
           [[ -n "${{ steps.metadata.outputs.name }}" ]]
           # Verify version matches semver pattern
           [[ "${{ steps.metadata.outputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
+
+  test-export-metadata-env-overrides:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Configure env overrides
+        id: config
+        run: |
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
+          {
+            echo "fields=${INPUT_FIELDS:-name}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Export Cargo metadata with env overrides
+        id: metadata
+        uses: ./.github/actions/export-cargo-metadata
+        with:
+          manifest-path: rust-toy-app/Cargo.toml
+          fields: ${{ steps.config.outputs.fields }}
+
+      - name: Verify outputs
+        run: |
+          echo "name=${{ steps.metadata.outputs.name }}"
+          echo "version=${{ steps.metadata.outputs.version }}"
+          [[ -n "${{ steps.metadata.outputs.name }}" ]]
+          [[ -z "${{ steps.metadata.outputs.version }}" ]]

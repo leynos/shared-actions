@@ -51,21 +51,25 @@ a manual prepend or append.
 
 ## Finding the project root
 
-- `find_project_root(sigil="pyproject.toml")` walks up from the current
-  working directory until it finds a file named `sigil`. The search stops at
-  the user's home directory (exclusive) and raises `ProjectRootNotFoundError`
-  when no marker is found before reaching home or the filesystem root.
-- `add_project_root(sigil="pyproject.toml", *, extra_paths=None)` combines
+- `find_project_root(sigil=None, *, start=None)` walks up from `start` (or the
+  current working directory when `start` is `None`) until it finds a file named
+  `sigil`. When `sigil` is `None`, the default marker is `pyproject.toml`. The
+  search stops at the user's home directory (exclusive) and raises
+  `ProjectRootNotFoundError` when no marker is found before reaching home or
+  the filesystem root.
+- `add_project_root(sigil=None, *, extra_paths=None, start=None)` combines
   discovery and path mutation by adding the located directory to `sys.path`.
   When `extra_paths` is provided, each existing relative or absolute path is
-  added after the root.
-- `prepend_project_root(sigil="pyproject.toml", *, extra_paths=None)` performs
+  added after the root. Pass `start` to search from a specific directory.
+- `prepend_project_root(sigil=None, *, extra_paths=None, start=None)` performs
   the same search but moves the located project root to the front of
   `sys.path`. Any existing `extra_paths` are prepended just behind the root so
-  it retains the highest precedence.
-- `append_action_root()` / `prepend_action_root()` are shortcuts that search
-  for `action.yml` (GitHub Actions) and automatically include `scripts` and
-  `src` when those directories exist.
+  it retains the highest precedence. Pass `start` to search from a specific
+  directory.
+- `append_action_root(*, start=None)` / `prepend_action_root(*, start=None)`
+  are shortcuts that search for `action.yml` (GitHub Actions) starting from
+  `start` when provided and automatically include `scripts` and `src` when
+  those directories exist.
 
 Example:
 
@@ -76,7 +80,9 @@ add_project_root()  # Ensures the directory with pyproject.toml is on sys.path.
 ```
 
 The helper returns `None`; it mutates `sys.path` in place so import statements
-can resolve modules relative to the project root immediately afterwards.
+can resolve modules relative to the project root immediately afterwards. Use
+the optional `start` parameter to search from a directory other than the
+current working directory.
 
 ## Choosing how paths are added
 

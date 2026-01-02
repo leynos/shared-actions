@@ -12,11 +12,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test dist directory
-        run: |
-          mkdir -p dist/test-app_linux_x86_64
-          echo "test binary" > dist/test-app_linux_x86_64/test-app
-          echo "abc123  test-app" > dist/test-app_linux_x86_64/test-app.sha256
-          chmod +x dist/test-app_linux_x86_64/test-app
+        id: create-dist
+        uses: ./.github/actions/create-test-dist
+
+      - name: Export TEST_DIST_DIR
+        run: echo "TEST_DIST_DIR=${{ steps.create-dist.outputs.dist-dir }}" >> "$GITHUB_ENV"
 
       - name: Upload release assets (dry-run)
         id: upload
@@ -24,7 +24,7 @@ jobs:
         with:
           release-tag: v1.0.0
           bin-name: test-app
-          dist-dir: dist
+          dist-dir: ${{ env.TEST_DIST_DIR }}
           dry-run: "true"
 
       - name: Verify outputs
@@ -32,5 +32,47 @@ jobs:
           echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
           echo "upload-error=${{ steps.upload.outputs.upload-error }}"
           # Verify dry-run processed assets
+          [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
+          [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]
+
+  test-upload-assets-env-overrides:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Create test dist directory
+        id: create-dist
+        uses: ./.github/actions/create-test-dist
+
+      - name: Configure env overrides
+        id: setup
+        run: |
+          dist_dir="${{ steps.create-dist.outputs.dist-dir }}"
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
+          {
+            echo "TEST_DIST_DIR=${dist_dir}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "release_tag=${INPUT_RELEASE_TAG:-v9.9.9}"
+            echo "bin_name=${INPUT_BIN_NAME:-test-app}"
+            echo "dist_dir=${INPUT_DIST_DIR:-${dist_dir}}"
+            echo "dry_run=${INPUT_DRY_RUN:-true}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload release assets with env overrides (dry-run)
+        id: upload
+        uses: ./.github/actions/upload-release-assets
+        with:
+          release-tag: ${{ steps.setup.outputs.release_tag }}
+          bin-name: ${{ steps.setup.outputs.bin_name }}
+          dist-dir: ${{ steps.setup.outputs.dist_dir }}
+          dry-run: ${{ steps.setup.outputs.dry_run }}
+
+      - name: Verify outputs
+        run: |
+          echo "uploaded-count=${{ steps.upload.outputs.uploaded-count }}"
+          echo "upload-error=${{ steps.upload.outputs.upload-error }}"
           [[ "${{ steps.upload.outputs.uploaded-count }}" -gt 0 ]]
           [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]

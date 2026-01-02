@@ -4,7 +4,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
-#   "syspath-hack>=0.3.0,<0.4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 # fmt: on
@@ -38,8 +38,9 @@ prepend_to_syspath(_SCRIPT_DIR)
 from stage_common import StageError, load_config, require_env_path, stage_artefacts
 
 # Add project root for bool_utils import
-prepend_project_root()
+prepend_project_root(start=_SCRIPT_DIR)
 
+from actions_common import normalize_input_env
 from bool_utils import coerce_bool
 
 app: App = App(
@@ -93,4 +94,5 @@ def main(
 
 
 if __name__ == "__main__":
+    normalize_input_env(prefer_dashed=True)
     app()

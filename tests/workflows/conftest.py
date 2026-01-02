@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,12 @@ skip_unless_workflow_tests = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def temp_base_dir() -> Path:
+    """Return the system temporary directory as a Path."""
+    return Path(tempfile.gettempdir())
+
+
 @dataclasses.dataclass(slots=True)
 class ActConfig:
     """Configuration for running act against a workflow."""
@@ -59,7 +66,61 @@ class ActConfig:
     artifact_dir: Path
     event_path: Path | None = None
     env: dict[str, str] | None = None
+    container_env: dict[str, str] | None = None
     timeout: int = 300
+
+
+@dataclasses.dataclass(slots=True)
+class ActInvocation:
+    """Parameters for a single act invocation."""
+
+    workflow: str
+    event: str
+    job: str
+    event_path: Path
+    artifact_dir: Path
+    container_env: dict[str, str]
+
+
+def _resolve_event_path(config: ActConfig, event: str) -> Path:
+    """Resolve the event path from config or default fixture."""
+    if config.event_path is not None:
+        return config.event_path
+    return FIXTURES_DIR / f"{event}.event.json"
+
+
+def _build_container_env(config: ActConfig, run_env: dict[str, str]) -> dict[str, str]:
+    """Build the container environment dict with UV forwarding."""
+    merged_container_env: dict[str, str] = {}
+    if config.container_env:
+        merged_container_env.update(config.container_env)
+    # Forward uv's project environment override into the act container.
+    uv_env_key = "UV_PROJECT_ENVIRONMENT"
+    if uv_env_key in run_env and uv_env_key not in merged_container_env:
+        merged_container_env[uv_env_key] = run_env[uv_env_key]
+    return merged_container_env
+
+
+def _build_act_args(invocation: ActInvocation) -> list[str]:
+    """Build the list of arguments for the act command."""
+    args = [
+        invocation.event,
+        "-W",
+        f".github/workflows/{invocation.workflow}",
+        "-j",
+        invocation.job,
+        "-e",
+        str(invocation.event_path),
+        "-P",
+        "ubuntu-latest=catthehacker/ubuntu:act-latest",
+        "--artifact-server-path",
+        str(invocation.artifact_dir),
+        "--json",
+        "-b",
+    ]
+    for key, value in invocation.container_env.items():
+        args.extend(["--env", f"{key}={value}"])
+    return args
 
 
 def run_act(
@@ -89,30 +150,27 @@ def run_act(
     """
     config.artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    event_path = config.event_path
-    if event_path is None:
-        event_path = FIXTURES_DIR / f"{event}.event.json"
-
-    act = local["act"]
-    cmd = act[
-        event,
-        "-W",
-        f".github/workflows/{workflow}",
-        "-j",
-        job,
-        "-e",
-        str(event_path),
-        "-P",
-        "ubuntu-latest=catthehacker/ubuntu:act-latest",
-        "--artifact-server-path",
-        str(config.artifact_dir),
-        "--json",
-        "-b",
-    ]
+    event_path = _resolve_event_path(config, event)
 
     run_env = os.environ.copy()
     if config.env:
         run_env.update(config.env)
+
+    container_env = _build_container_env(config, run_env)
+    invocation = ActInvocation(
+        workflow=workflow,
+        event=event,
+        job=job,
+        event_path=event_path,
+        artifact_dir=config.artifact_dir,
+        container_env=container_env,
+    )
+    args = _build_act_args(invocation)
+
+    act = local["act"]
+    cmd = act
+    for arg in args:
+        cmd = cmd[arg]
 
     try:
         retcode, stdout, stderr = cmd.run(

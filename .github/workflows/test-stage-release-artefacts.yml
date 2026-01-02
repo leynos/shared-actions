@@ -12,15 +12,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test artefacts
-        run: |
-          mkdir -p target/release
-          echo "test binary content" > target/release/test-app
-          chmod +x target/release/test-app
-          echo "test man page" > target/release/test-app.1
+        uses: ./.github/actions/create-test-artefacts
 
       - name: Create staging config
         run: |
-          cat > .github/test-staging.toml << 'EOF'
+          cat > "${TEST_WORKSPACE}/test-staging.toml" << 'EOF'
           [common]
           bin_name = "test-app"
           dist_dir = "dist"
@@ -45,7 +41,7 @@ jobs:
         id: stage
         uses: ./.github/actions/stage-release-artefacts
         with:
-          config-file: .github/test-staging.toml
+          config-file: ${{ env.TEST_WORKSPACE }}/test-staging.toml
           target: linux-x86_64
 
       - name: Verify outputs
@@ -57,4 +53,60 @@ jobs:
           # Verify binary was staged
           [[ -f "${{ steps.stage.outputs.binary-path }}" ]]
           # Verify checksum sidecar was created
+          [[ -f "${{ steps.stage.outputs.binary-path }}.sha256" ]]
+
+  test-stage-artefacts-env-overrides:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Create test artefacts
+        uses: ./.github/actions/create-test-artefacts
+
+      - name: Create staging config
+        id: config
+        run: |
+          cat > "${TEST_WORKSPACE}/test-staging.toml" << 'EOF'
+          [common]
+          bin_name = "test-app"
+          dist_dir = "dist"
+          checksum_algorithm = "sha256"
+
+          [[common.artefacts]]
+          source = "target/release/{bin_name}"
+          output = "binary_path"
+
+          [[common.artefacts]]
+          source = "target/release/{bin_name}.1"
+          output = "man_path"
+          required = false
+
+          [targets.linux-x86_64]
+          platform = "linux"
+          arch = "x86_64"
+          target = "x86_64-unknown-linux-gnu"
+          EOF
+          # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
+          config_file="${INPUT_CONFIG_FILE:-${TEST_WORKSPACE}/test-staging.toml}"
+          target="${INPUT_TARGET:-linux-x86_64}"
+          {
+            echo "config_file=${config_file}"
+            echo "target=${target}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stage release artefacts with env overrides
+        id: stage
+        uses: ./.github/actions/stage-release-artefacts
+        with:
+          config-file: ${{ steps.config.outputs.config_file }}
+          target: ${{ steps.config.outputs.target }}
+
+      - name: Verify outputs
+        run: |
+          echo "artifact-dir=${{ steps.stage.outputs.artifact-dir }}"
+          echo "staged-files=${{ steps.stage.outputs.staged-files }}"
+          [[ -d "${{ steps.stage.outputs.artifact-dir }}" ]]
+          [[ -f "${{ steps.stage.outputs.binary-path }}" ]]
           [[ -f "${{ steps.stage.outputs.binary-path }}.sha256" ]]

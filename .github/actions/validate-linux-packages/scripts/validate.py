@@ -4,7 +4,7 @@
 # dependencies = [
 #   "cyclopts>=3.24,<4.0",
 #   "plumbum>=1.8,<2.0",
-#   "syspath-hack>=0.3.0,<0.4.0",
+#   "syspath-hack>=0.4.0,<0.5.0",
 # ]
 # ///
 

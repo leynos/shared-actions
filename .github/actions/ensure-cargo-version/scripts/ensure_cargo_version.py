@@ -22,8 +22,10 @@ import cyclopts
 from cyclopts import App, Parameter
 from syspath_hack import prepend_project_root
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
 # Add repository root to path for cargo_utils and bool_utils imports
-prepend_project_root()
+prepend_project_root(start=_SCRIPT_DIR)
 
 from bool_utils import coerce_bool_strict
 from cargo_utils import (

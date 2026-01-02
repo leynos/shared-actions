@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["packaging", "plumbum", "syspath-hack>=0.3.0,<0.4.0", "typer"]
+# dependencies = ["packaging", "plumbum", "syspath-hack>=0.4.0,<0.5.0", "typer"]
 # ///
 """Build a Rust project in release mode for a target triple."""
 
@@ -14,12 +14,10 @@ import sys
 import typing as typ
 from pathlib import Path
 
-from syspath_hack import add_to_syspath, prepend_project_root
+from syspath_hack import prepend_project_root
 
-try:
-    prepend_project_root(sigil="cmd_utils_importer.py")
-except (OSError, RuntimeError):  # pragma: no cover - fallback
-    add_to_syspath(Path(__file__).resolve().parents[4])
+_SCRIPT_DIR = Path(__file__).resolve().parent
+prepend_project_root(sigil="cmd_utils_importer.py", start=_SCRIPT_DIR)
 
 import typer
 from cross_manager import ensure_cross

@@ -7,7 +7,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        ver="v2.39.0"
+        ver="v2.44.1"
         uname_s="$(uname -s)"
         uname_m="$(uname -m)"
         case "$uname_s" in

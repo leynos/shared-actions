@@ -1,0 +1,26 @@
+name: Create test dist directory
+description: Create a test distribution directory for upload-release-assets tests
+
+outputs:
+  dist-dir:
+    description: The created distribution directory path
+    value: ${{ steps.create.outputs.dist-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create test dist directory
+      id: create
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "${ACT:-}" == "true" ]]; then
+          dist_dir="/tmp/release-assets-dist"
+        else
+          dist_dir="${RUNNER_TEMP}/release-assets-dist"
+        fi
+        mkdir -p "${dist_dir}/test-app_linux_x86_64"
+        echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
+        echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
+        chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
+        echo "dist-dir=${dist_dir}" >> "$GITHUB_OUTPUT"

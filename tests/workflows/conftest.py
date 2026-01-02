@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,12 @@ skip_unless_workflow_tests = pytest.mark.skipif(
     not _workflow_tests_enabled(),
     reason="ACT_WORKFLOW_TESTS not set (opt-in required)",
 )
+
+
+@pytest.fixture
+def temp_base_dir() -> Path:
+    """Return the system temporary directory as a Path."""
+    return Path(tempfile.gettempdir())
 
 
 @dataclasses.dataclass(slots=True)

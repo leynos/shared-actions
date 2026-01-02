@@ -12,12 +12,17 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import tempfile
-from pathlib import Path
+import typing as typ
 
 import pytest
 
+if typ.TYPE_CHECKING:
+    from pathlib import Path
+
 from .conftest import ActConfig, run_act, skip_unless_act, skip_unless_workflow_tests
+
+# Sentinel prefix indicating a path relative to the temp base directory.
+_TEMP_PATH_PREFIX = "@temp:"
 
 
 @dataclasses.dataclass(slots=True)
@@ -81,10 +86,24 @@ def _assert_log_patterns(
         assert re.search(pattern, logs, flags), error_message
 
 
+def _resolve_container_env(
+    template: dict[str, str], temp_base_dir: Path
+) -> dict[str, str]:
+    """Resolve container env template, expanding @temp: prefixed paths."""
+    resolved: dict[str, str] = {}
+    for key, value in template.items():
+        if value.startswith(_TEMP_PATH_PREFIX):
+            relative_path = value[len(_TEMP_PATH_PREFIX) :]
+            resolved[key] = str(temp_base_dir / relative_path)
+        else:
+            resolved[key] = value
+    return resolved
+
+
 @skip_unless_act
 @skip_unless_workflow_tests
 @pytest.mark.parametrize(
-    ("workflow", "job", "container_env", "expected_patterns"),
+    ("workflow", "job", "container_env_template", "expected_patterns"),
     [
         pytest.param(
             "test-export-cargo-metadata.yml",
@@ -100,11 +119,7 @@ def _assert_log_patterns(
             "test-stage-release-artefacts.yml",
             "test-stage-artefacts-env-overrides",
             {
-                "INPUT_CONFIG_FILE": str(
-                    Path(tempfile.gettempdir())
-                    / "stage-workspace"
-                    / "test-staging.toml"
-                ),
+                "INPUT_CONFIG_FILE": "@temp:stage-workspace/test-staging.toml",
                 "INPUT_TARGET": "linux-x86_64",
             },
             [
@@ -125,9 +140,7 @@ def _assert_log_patterns(
             {
                 "INPUT_RELEASE_TAG": "v9.9.9",
                 "INPUT_BIN_NAME": "test-app",
-                "INPUT_DIST_DIR": str(
-                    Path(tempfile.gettempdir()) / "release-assets-dist"
-                ),
+                "INPUT_DIST_DIR": "@temp:release-assets-dist",
                 "INPUT_DRY_RUN": "true",
             },
             [
@@ -146,12 +159,14 @@ def _assert_log_patterns(
 )
 def test_env_overrides_normalize_inputs(
     artifact_dir: Path,
+    temp_base_dir: Path,
     workflow: str,
     job: str,
-    container_env: dict[str, str],
+    container_env_template: dict[str, str],
     expected_patterns: list[tuple[str, str]],
 ) -> None:
     """Container env vars override default workflow values via step outputs."""
+    container_env = _resolve_container_env(container_env_template, temp_base_dir)
     logs = _run_act_and_get_logs(
         run=WorkflowRun(workflow=workflow, event="pull_request", job=job),
         artifact_dir=artifact_dir,

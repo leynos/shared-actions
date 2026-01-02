@@ -12,19 +12,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test dist directory
-        run: |
-          if [[ "${ACT:-}" == "true" ]]; then
-            dist_dir="/tmp/release-assets-dist"
-          else
-            dist_dir="${RUNNER_TEMP}/release-assets-dist"
-          fi
-          mkdir -p "${dist_dir}/test-app_linux_x86_64"
-          echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
-          echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
-          chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
-          {
-            echo "TEST_DIST_DIR=${dist_dir}"
-          } >> "$GITHUB_ENV"
+        id: create-dist
+        uses: ./.github/actions/create-test-dist
+
+      - name: Export TEST_DIST_DIR
+        run: echo "TEST_DIST_DIR=${{ steps.create-dist.outputs.dist-dir }}" >> "$GITHUB_ENV"
 
       - name: Upload release assets (dry-run)
         id: upload
@@ -51,17 +43,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test dist directory
+        id: create-dist
+        uses: ./.github/actions/create-test-dist
+
+      - name: Configure env overrides
         id: setup
         run: |
-          if [[ "${ACT:-}" == "true" ]]; then
-            dist_dir="/tmp/release-assets-dist"
-          else
-            dist_dir="${RUNNER_TEMP}/release-assets-dist"
-          fi
-          mkdir -p "${dist_dir}/test-app_linux_x86_64"
-          echo "test binary" > "${dist_dir}/test-app_linux_x86_64/test-app"
-          echo "abc123  test-app" > "${dist_dir}/test-app_linux_x86_64/test-app.sha256"
-          chmod +x "${dist_dir}/test-app_linux_x86_64/test-app"
+          dist_dir="${{ steps.create-dist.outputs.dist-dir }}"
           # Use INPUT_* env vars (set by act or external runner) if provided, otherwise defaults
           {
             echo "TEST_DIST_DIR=${dist_dir}"

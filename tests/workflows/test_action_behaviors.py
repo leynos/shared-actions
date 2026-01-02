@@ -103,7 +103,7 @@ def _resolve_container_env(
     resolved: dict[str, str] = {}
     for key, value in template.items():
         if value.startswith(_TEMP_PATH_PREFIX):
-            relative_path = value[len(_TEMP_PATH_PREFIX) :]
+            relative_path = value.removeprefix(_TEMP_PATH_PREFIX)
             resolved[key] = str(temp_base_dir / relative_path)
         else:
             resolved[key] = value

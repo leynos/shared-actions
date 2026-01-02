@@ -12,24 +12,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test artefacts
-        run: |
-          if [[ "${ACT:-}" == "true" ]]; then
-            workspace="/tmp/stage-workspace"
-            rm -rf "${workspace}"
-            mkdir -p "${workspace}"
-          else
-            workspace="${GITHUB_WORKSPACE}"
-          fi
-          mkdir -p "${workspace}/target/release"
-          echo "test binary content" > "${workspace}/target/release/test-app"
-          chmod +x "${workspace}/target/release/test-app"
-          echo "test man page" > "${workspace}/target/release/test-app.1"
-          if [[ "${ACT:-}" == "true" ]]; then
-            chmod -R a+rwX "${workspace}"
-          fi
-          {
-            echo "TEST_WORKSPACE=${workspace}"
-          } >> "$GITHUB_ENV"
+        uses: ./.github/actions/create-test-artefacts
 
       - name: Create staging config
         run: |
@@ -80,24 +63,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Create test artefacts
-        run: |
-          if [[ "${ACT:-}" == "true" ]]; then
-            workspace="/tmp/stage-workspace"
-            rm -rf "${workspace}"
-            mkdir -p "${workspace}"
-          else
-            workspace="${GITHUB_WORKSPACE}"
-          fi
-          mkdir -p "${workspace}/target/release"
-          echo "test binary content" > "${workspace}/target/release/test-app"
-          chmod +x "${workspace}/target/release/test-app"
-          echo "test man page" > "${workspace}/target/release/test-app.1"
-          if [[ "${ACT:-}" == "true" ]]; then
-            chmod -R a+rwX "${workspace}"
-          fi
-          {
-            echo "TEST_WORKSPACE=${workspace}"
-          } >> "$GITHUB_ENV"
+        uses: ./.github/actions/create-test-artefacts
 
       - name: Create staging config
         id: config

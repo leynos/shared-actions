@@ -1,0 +1,45 @@
+name: Create test artefacts
+description: Create test artefacts for staging workflow tests
+
+inputs:
+  workspace-suffix:
+    description: Optional suffix to differentiate workspace paths
+    required: false
+    default: ""
+
+outputs:
+  workspace:
+    description: The TEST_WORKSPACE path created
+    value: ${{ steps.create.outputs.workspace }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create test artefacts
+      id: create
+      shell: bash
+      run: |
+        set -euo pipefail
+        suffix="${{ inputs.workspace-suffix }}"
+        if [[ "${ACT:-}" == "true" ]]; then
+          if [[ -n "${suffix}" ]]; then
+            workspace="/tmp/stage-workspace-${suffix}"
+          else
+            workspace="/tmp/stage-workspace"
+          fi
+          rm -rf "${workspace}"
+          mkdir -p "${workspace}"
+        else
+          workspace="${GITHUB_WORKSPACE}"
+        fi
+        mkdir -p "${workspace}/target/release"
+        echo "test binary content" > "${workspace}/target/release/test-app"
+        chmod +x "${workspace}/target/release/test-app"
+        echo "test man page" > "${workspace}/target/release/test-app.1"
+        if [[ "${ACT:-}" == "true" ]]; then
+          chmod -R a+rwX "${workspace}"
+        fi
+        {
+          echo "TEST_WORKSPACE=${workspace}"
+        } >> "$GITHUB_ENV"
+        echo "workspace=${workspace}" >> "$GITHUB_OUTPUT"

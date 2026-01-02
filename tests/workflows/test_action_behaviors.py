@@ -34,6 +34,16 @@ class WorkflowRun:
     job: str
 
 
+@dataclasses.dataclass(slots=True)
+class EnvOverrideTestCase:
+    """Test case specification for environment override tests."""
+
+    workflow: str
+    job: str
+    container_env_template: dict[str, str]
+    expected_patterns: list[tuple[str, str]]
+
+
 @pytest.fixture
 def artifact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
@@ -103,56 +113,62 @@ def _resolve_container_env(
 @skip_unless_act
 @skip_unless_workflow_tests
 @pytest.mark.parametrize(
-    ("workflow", "job", "container_env_template", "expected_patterns"),
+    "test_case",
     [
         pytest.param(
-            "test-export-cargo-metadata.yml",
-            "test-export-metadata-env-overrides",
-            {"INPUT_FIELDS": "name"},
-            [
-                (r'name["\s]*[:=]["\s]*\S+', "name= not found in logs"),
-                (r'version["\s]*[:=]', "version= not found in logs"),
-            ],
+            EnvOverrideTestCase(
+                workflow="test-export-cargo-metadata.yml",
+                job="test-export-metadata-env-overrides",
+                container_env_template={"INPUT_FIELDS": "name"},
+                expected_patterns=[
+                    (r'name["\s]*[:=]["\s]*\S+', "name= not found in logs"),
+                    (r'version["\s]*[:=]', "version= not found in logs"),
+                ],
+            ),
             id="export-cargo-metadata",
         ),
         pytest.param(
-            "test-stage-release-artefacts.yml",
-            "test-stage-artefacts-env-overrides",
-            {
-                "INPUT_CONFIG_FILE": "@temp:stage-workspace/test-staging.toml",
-                "INPUT_TARGET": "linux-x86_64",
-            },
-            [
-                (
-                    r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
-                    "artifact-dir not found or empty in logs",
-                ),
-                (
-                    r'staged[-_]files["\s]*[:=]["\s]*\S+',
-                    "staged-files not found or empty in logs",
-                ),
-            ],
+            EnvOverrideTestCase(
+                workflow="test-stage-release-artefacts.yml",
+                job="test-stage-artefacts-env-overrides",
+                container_env_template={
+                    "INPUT_CONFIG_FILE": "@temp:stage-workspace/test-staging.toml",
+                    "INPUT_TARGET": "linux-x86_64",
+                },
+                expected_patterns=[
+                    (
+                        r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
+                        "artifact-dir not found or empty in logs",
+                    ),
+                    (
+                        r'staged[-_]files["\s]*[:=]["\s]*\S+',
+                        "staged-files not found or empty in logs",
+                    ),
+                ],
+            ),
             id="stage-release-artefacts",
         ),
         pytest.param(
-            "test-upload-release-assets.yml",
-            "test-upload-assets-env-overrides",
-            {
-                "INPUT_RELEASE_TAG": "v9.9.9",
-                "INPUT_BIN_NAME": "test-app",
-                "INPUT_DIST_DIR": "@temp:release-assets-dist",
-                "INPUT_DRY_RUN": "true",
-            },
-            [
-                (
-                    r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
-                    "uploaded-count not found in logs",
-                ),
-                (
-                    r'upload[-_]error["\s]*[:=]["\s]*false',
-                    "upload-error=false not found in logs",
-                ),
-            ],
+            EnvOverrideTestCase(
+                workflow="test-upload-release-assets.yml",
+                job="test-upload-assets-env-overrides",
+                container_env_template={
+                    "INPUT_RELEASE_TAG": "v9.9.9",
+                    "INPUT_BIN_NAME": "test-app",
+                    "INPUT_DIST_DIR": "@temp:release-assets-dist",
+                    "INPUT_DRY_RUN": "true",
+                },
+                expected_patterns=[
+                    (
+                        r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
+                        "uploaded-count not found in logs",
+                    ),
+                    (
+                        r'upload[-_]error["\s]*[:=]["\s]*false',
+                        "upload-error=false not found in logs",
+                    ),
+                ],
+            ),
             id="upload-release-assets",
         ),
     ],
@@ -160,20 +176,21 @@ def _resolve_container_env(
 def test_env_overrides_normalize_inputs(
     artifact_dir: Path,
     temp_base_dir: Path,
-    workflow: str,
-    job: str,
-    container_env_template: dict[str, str],
-    expected_patterns: list[tuple[str, str]],
+    test_case: EnvOverrideTestCase,
 ) -> None:
     """Container env vars override default workflow values via step outputs."""
-    container_env = _resolve_container_env(container_env_template, temp_base_dir)
+    container_env = _resolve_container_env(
+        test_case.container_env_template, temp_base_dir
+    )
     logs = _run_act_and_get_logs(
-        run=WorkflowRun(workflow=workflow, event="pull_request", job=job),
+        run=WorkflowRun(
+            workflow=test_case.workflow, event="pull_request", job=test_case.job
+        ),
         artifact_dir=artifact_dir,
         container_env=container_env,
     )
 
-    _assert_log_patterns(logs, expected_patterns, flags=re.IGNORECASE)
+    _assert_log_patterns(logs, test_case.expected_patterns, flags=re.IGNORECASE)
 
 
 @skip_unless_act

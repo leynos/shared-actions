@@ -17,12 +17,14 @@ def _should_update_normalized(normalized: str, *, prefer_dashed: bool) -> bool:
     return prefer_dashed or normalized not in os.environ
 
 
-def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) -> None:
-    """Normalize INPUT_ env vars to avoid duplicate keys like FOO-BAR/FOO_BAR.
+def _collect_normalization_updates(
+    prefix: str, alt_prefix: str, *, prefer_dashed: bool
+) -> tuple[dict[str, str], list[str]]:
+    """Scan os.environ for dashed input keys and collect normalization updates.
 
-    When *prefer_dashed* is true, dashed variants override underscore keys.
+    Returns a tuple of (updates, removals) where updates is a dict of normalized
+    keys to values, and removals is a list of original dashed keys to remove.
     """
-    alt_prefix = prefix.replace("_", "-")
     updates: dict[str, str] = {}
     removals: list[str] = []
 
@@ -34,7 +36,24 @@ def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) 
             updates[normalized] = value
         removals.append(key)
 
+    return updates, removals
+
+
+def _apply_normalization_updates(updates: dict[str, str], removals: list[str]) -> None:
+    """Apply normalization updates to os.environ."""
     for key, value in updates.items():
         os.environ[key] = value
     for key in removals:
         os.environ.pop(key, None)
+
+
+def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) -> None:
+    """Normalize INPUT_ env vars to avoid duplicate keys like FOO-BAR/FOO_BAR.
+
+    When *prefer_dashed* is true, dashed variants override underscore keys.
+    """
+    alt_prefix = prefix.replace("_", "-")
+    updates, removals = _collect_normalization_updates(
+        prefix, alt_prefix, prefer_dashed=prefer_dashed
+    )
+    _apply_normalization_updates(updates, removals)

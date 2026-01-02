@@ -178,6 +178,73 @@ def test_env_overrides_normalize_inputs(
 
 @skip_unless_act
 @skip_unless_workflow_tests
+@pytest.mark.parametrize(
+    ("workflow", "job", "expected_patterns"),
+    [
+        pytest.param(
+            "test-stage-release-artefacts.yml",
+            "test-stage-artefacts",
+            [
+                (
+                    r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
+                    "artifact-dir not found or empty in logs",
+                ),
+                (
+                    r'staged[-_]files["\s]*[:=]["\s]*\S+',
+                    "staged-files not found or empty in logs",
+                ),
+            ],
+            id="stage-release-artefacts",
+        ),
+        pytest.param(
+            "test-upload-release-assets.yml",
+            "test-upload-assets-dry-run",
+            [
+                (
+                    r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
+                    "uploaded-count not found in logs",
+                ),
+                (
+                    r'upload[-_]error["\s]*[:=]["\s]*false',
+                    "upload-error=false not found in logs",
+                ),
+            ],
+            id="upload-release-assets-dry-run",
+        ),
+        pytest.param(
+            "test-rust-build-release-root-discovery.yml",
+            "test-action-setup-root",
+            [
+                (
+                    r'ACTION_PATH["\s]*[:=]["\s]*\S+',
+                    "ACTION_PATH not found in logs",
+                ),
+                (
+                    r'REPO_ROOT["\s]*[:=]["\s]*\S+',
+                    "REPO_ROOT not found in logs",
+                ),
+            ],
+            id="rust-build-release-root-discovery",
+        ),
+    ],
+)
+def test_simple_workflow_validation(
+    artifact_dir: Path,
+    workflow: str,
+    job: str,
+    expected_patterns: list[tuple[str, str]],
+) -> None:
+    """Validate workflow outputs match expected patterns."""
+    logs = _run_act_and_get_logs(
+        run=WorkflowRun(workflow=workflow, event="pull_request", job=job),
+        artifact_dir=artifact_dir,
+    )
+
+    _assert_log_patterns(logs, expected_patterns, flags=re.IGNORECASE)
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
 class TestDetermineReleaseModes:
     """Behavioural tests for the determine-release-modes action."""
 
@@ -243,101 +310,5 @@ class TestExportCargoMetadata:
             [
                 (r'name["\s]*[:=]["\s]*\S+', "name= not found or empty in logs"),
                 (r'version["\s]*[:=]["\s]*\S+', "version= not found or empty in logs"),
-            ],
-        )
-
-
-@skip_unless_act
-@skip_unless_workflow_tests
-class TestStageReleaseArtefacts:
-    """Behavioural tests for the stage-release-artefacts action."""
-
-    def test_stages_artefacts(self, artifact_dir: Path) -> None:
-        """Action stages artefacts and creates checksum sidecars."""
-        logs = _run_act_and_get_logs(
-            run=WorkflowRun(
-                workflow="test-stage-release-artefacts.yml",
-                event="pull_request",
-                job="test-stage-artefacts",
-            ),
-            artifact_dir=artifact_dir,
-        )
-
-        # Verify staging completed with actual values
-        _assert_log_patterns(
-            logs,
-            [
-                (
-                    r'artifact[-_]dir["\s]*[:=]["\s]*\S+',
-                    "artifact-dir not found or empty in logs",
-                ),
-                (
-                    r'staged[-_]files["\s]*[:=]["\s]*\S+',
-                    "staged-files not found or empty in logs",
-                ),
-            ],
-        )
-
-
-@skip_unless_act
-@skip_unless_workflow_tests
-class TestUploadReleaseAssets:
-    """Behavioural tests for the upload-release-assets action."""
-
-    def test_dry_run_validates_assets(self, artifact_dir: Path) -> None:
-        """Dry-run mode validates assets without uploading."""
-        logs = _run_act_and_get_logs(
-            run=WorkflowRun(
-                workflow="test-upload-release-assets.yml",
-                event="pull_request",
-                job="test-upload-assets-dry-run",
-            ),
-            artifact_dir=artifact_dir,
-        )
-
-        _assert_log_patterns(
-            logs,
-            [
-                (
-                    r'uploaded[-_]count["\s]*[:=]["\s]*\d+',
-                    "uploaded-count not found in logs",
-                ),
-                (
-                    r'upload[-_]error["\s]*[:=]["\s]*false',
-                    "upload-error=false not found in logs",
-                ),
-            ],
-            flags=re.IGNORECASE,
-        )
-
-
-@skip_unless_act
-@skip_unless_workflow_tests
-class TestRustBuildReleaseRootDiscovery:
-    """Behavioural tests for rust-build-release root discovery."""
-
-    def test_action_setup_root_discovery(self, artifact_dir: Path) -> None:
-        """Action setup locates action.yml and repo root from a subdirectory."""
-        logs = _run_act_and_get_logs(
-            run=WorkflowRun(
-                workflow="test-rust-build-release-root-discovery.yml",
-                event="pull_request",
-                job="test-action-setup-root",
-            ),
-            artifact_dir=artifact_dir,
-        )
-
-        # Verify root discovery completed successfully
-        _assert_log_patterns(
-            logs,
-            [
-                (
-                    r'ACTION_PATH["\s]*[:=]["\s]*\S+',
-                    "ACTION_PATH not found in logs",
-                ),
-                (
-                    r'REPO_ROOT["\s]*[:=]["\s]*\S+',
-                    "REPO_ROOT not found in logs",
-                ),
             ],
         )

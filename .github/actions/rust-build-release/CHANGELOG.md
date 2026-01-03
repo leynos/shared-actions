@@ -16,6 +16,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Require containerized `cross` builds for FreeBSD targets on non-FreeBSD hosts to enable `x86_64-unknown-freebsd` cross-compilation.
 - Automatically export `CROSS_CONTAINER_ENGINE` for the detected container runtime when running FreeBSD builds with `cross`.
 
+### Fixed
+
+- Use the published `setup-rust` action so `rust-build-release` works when invoked from external repositories.
+
 ## [0.1.0] - 2025-09-10
 
 ### Added (0.1.0)

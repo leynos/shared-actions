@@ -158,7 +158,7 @@ def main(
     *,
     manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
     tag_prefix: typ.Annotated[str, Parameter()] = "v",
-    check_tag: typ.Annotated[bool | str, Parameter()] = True,
+    check_tag: typ.Annotated[str, Parameter()] = "true",
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
     manifest_args = manifests if manifests else [Path("Cargo.toml")]

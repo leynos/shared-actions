@@ -42,6 +42,62 @@ def _write_raw_manifest(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
 
 
+def test_app_parses_check_tag_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Cyclopts environment parsing should accept string check_tag values."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "1.2.3")
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+    monkeypatch.setenv("INPUT_MANIFESTS", "Cargo.toml")
+    monkeypatch.setenv("INPUT_CHECK_TAG", "false")
+
+    ensure.app([])
+
+    contents = output_file.read_text(encoding="utf-8").splitlines()
+    assert "crate-version=1.2.3" in contents
+    assert "crate-name=demo" in contents
+    assert not any(line.startswith("version=") for line in contents)
+
+    captured = capsys.readouterr()
+    assert "Tag comparison disabled" in captured.out
+
+
+def test_app_defaults_check_tag_true(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The default check_tag value should run tag comparisons."""
+    workspace = tmp_path
+    manifest_path = workspace / "Cargo.toml"
+    _write_manifest(manifest_path, "2.3.4")
+
+    output_file = workspace / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_REF_NAME", "v2.3.4")
+    monkeypatch.delenv("INPUT_CHECK_TAG", raising=False)
+    monkeypatch.setenv("INPUT_MANIFESTS", "Cargo.toml")
+
+    ensure.app([])
+
+    contents = output_file.read_text(encoding="utf-8").splitlines()
+    assert "crate-version=2.3.4" in contents
+    assert "crate-name=demo" in contents
+    assert "version=2.3.4" in contents
+
+    captured = capsys.readouterr()
+    assert "Release tag 2.3.4 matches" in captured.out
+
+
 @pytest.mark.parametrize(
     "manifest_contents",
     [

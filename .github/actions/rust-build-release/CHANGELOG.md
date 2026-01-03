@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Pin `setup-rust` to a known-good commit so toolchain inputs and OS guards apply when invoked from external repositories.
+- Pin `setup-rust` to the mutable `setup-rust-v1` tag so toolchain inputs and OS guards apply when invoked from external repositories.
 
 ## [0.1.0] - 2025-09-10
 

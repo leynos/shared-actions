@@ -8,7 +8,6 @@ from pathlib import Path
 import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
-SETUP_RUST_SHA = "35b0092c30d18ba2669db3e8c7c37412db952437"
 
 
 def _load_setup_rust_step() -> dict[str, object]:
@@ -26,8 +25,13 @@ def test_setup_rust_step_uses_tagged_reference() -> None:
     step = _load_setup_rust_step()
     uses = step.get("uses")
     assert isinstance(uses, str)
-    assert uses == f"leynos/shared-actions/.github/actions/setup-rust@{SETUP_RUST_SHA}"
-    assert re.fullmatch(r"[0-9a-f]{40}", SETUP_RUST_SHA) is not None
+    expected_pattern = (
+        r"leynos/shared-actions/\.github/actions/setup-rust@([0-9a-f]{40})"
+    )
+    match = re.fullmatch(expected_pattern, uses)
+    assert match is not None, f"Expected SHA-pinned reference, got: {uses}"
+    sha = match.group(1)
+    assert len(sha) == 40, f"SHA must be exactly 40 hex characters, got: {sha}"
 
 
 def test_setup_rust_step_includes_tag_comment() -> None:

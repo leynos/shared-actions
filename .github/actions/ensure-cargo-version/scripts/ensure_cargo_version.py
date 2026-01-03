@@ -153,6 +153,11 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _parse_check_tag(value: bool | str) -> bool:  # noqa: FBT001
+    """Normalize the check-tag input to a boolean."""
+    return coerce_bool_strict(value, parameter="check-tag")
+
+
 @app.default
 def main(
     *,
@@ -165,7 +170,7 @@ def main(
     resolved = _resolve_paths(manifest_args)
 
     try:
-        should_check_tag = coerce_bool_strict(check_tag, parameter="check-tag")
+        should_check_tag = _parse_check_tag(check_tag)
     except ValueError as exc:
         _emit_error("Invalid input", str(exc))
         raise SystemExit(1) from exc

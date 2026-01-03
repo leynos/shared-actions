@@ -35,7 +35,11 @@ runs:
           --runner-arch "${{ runner.arch }}")"
         echo "RBR_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
     - name: Setup Rust toolchain
-      uses: ./.github/actions/setup-rust
+      # setup-rust-v1
+      # Update this SHA when setup-rust publishes a new release: run
+      # `git ls-remote https://github.com/leynos/shared-actions.git refs/tags/setup-rust-v1`
+      # and replace the SHA with the resolved commit (verify compatibility and run CI).
+      uses: leynos/shared-actions/.github/actions/setup-rust@35b0092c30d18ba2669db3e8c7c37412db952437
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
     - name: Configure gnullvm target on Windows

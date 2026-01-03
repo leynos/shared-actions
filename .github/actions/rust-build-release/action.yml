@@ -35,7 +35,8 @@ runs:
           --runner-arch "${{ runner.arch }}")"
         echo "RBR_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
     - name: Setup Rust toolchain
-      uses: leynos/shared-actions/.github/actions/setup-rust@v1
+      # Pinned to shared-actions commit with toolchain input + OS guards.
+      uses: leynos/shared-actions/.github/actions/setup-rust@1e80300db7c46478d398deae4f48c3d0e61ac571
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
     - name: Configure gnullvm target on Windows

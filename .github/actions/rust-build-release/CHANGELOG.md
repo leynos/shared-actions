@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Use the published `setup-rust` action so `rust-build-release` works when invoked from external repositories.
+- Pin `setup-rust` to a known-good commit so toolchain inputs and OS guards apply when invoked from external repositories.
 
 ## [0.1.0] - 2025-09-10
 

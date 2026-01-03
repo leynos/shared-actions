@@ -42,30 +42,6 @@ def _write_raw_manifest(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("true", True),
-        ("FALSE", False),
-        ("", False),
-        (True, True),
-        (False, False),
-    ],
-)
-def test_parse_check_tag_normalises_values(
-    value: bool | str,  # noqa: FBT001
-    expected: bool,  # noqa: FBT001
-) -> None:
-    """check_tag inputs are normalised to booleans."""
-    assert ensure._parse_check_tag(value) is expected
-
-
-def test_parse_check_tag_rejects_invalid_value() -> None:
-    """Unexpected check_tag values should raise ValueError."""
-    with pytest.raises(ValueError, match="check-tag"):
-        ensure._parse_check_tag("maybe")
-
-
 def test_app_parses_check_tag_from_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

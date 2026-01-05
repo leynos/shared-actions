@@ -38,11 +38,11 @@ jobs:
       - name: Setup Bun
         if: matrix.os == 'ubuntu-latest'
         # v2.0.2
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        uses: oven-sh/setup-bun@b7a1c7ccf290d58743029c4f6903da283811b979
       - name: Setup Bun (macOS)
         if: matrix.os == 'macos-15'
         # v2.0.2
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        uses: oven-sh/setup-bun@b7a1c7ccf290d58743029c4f6903da283811b979
       - name: Install action-validator
         run: bun install -g @action-validator/core @action-validator/cli
       - name: Check formatting

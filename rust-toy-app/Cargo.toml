@@ -6,6 +6,10 @@ rust-version = "1.89"
 publish = false
 license = "ISC"
 
+[features]
+# Test feature for validating the rust-build-release features input
+verbose = []
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 

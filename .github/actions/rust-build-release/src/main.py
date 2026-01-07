@@ -533,7 +533,7 @@ def _restore_container_engine(
 
 
 def _build_cross_command(
-    decision: _CrossDecision, target_to_build: str, manifest_path: Path
+    decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
@@ -546,13 +546,15 @@ def _build_cross_command(
         "--target",
         target_to_build,
     ]
+    if features:
+        build_cmd = build_cmd["--features", features]
     if decision.cross_path:
         build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     return build_cmd
 
 
 def _build_cargo_command(
-    cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path
+    cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
     executor = local["cargo"]
     build_cmd = executor[
@@ -564,6 +566,8 @@ def _build_cargo_command(
         "--target",
         target_to_build,
     ]
+    if features:
+        build_cmd = build_cmd["--features", features]
     return _CommandWrapper(build_cmd, "cargo")
 
 
@@ -572,6 +576,7 @@ def _handle_cross_container_error(
     decision: _CrossDecision,
     target_to_build: str,
     manifest_path: Path,
+    features: str,
 ) -> None:
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
@@ -591,6 +596,7 @@ def _handle_cross_container_error(
             decision.cargo_toolchain_spec,
             target_to_build,
             manifest_path,
+            features,
         )
         run_cmd(fallback_cmd)
         return
@@ -636,6 +642,11 @@ def main(
         DEFAULT_TOOLCHAIN,
         envvar="RBR_TOOLCHAIN",
         help="Rust toolchain version",
+    ),
+    features: str = typer.Option(
+        "",
+        envvar="RBR_FEATURES",
+        help="Comma-separated list of Cargo features to enable",
     ),
 ) -> None:
     """Build the project for *target* using *toolchain*."""
@@ -699,15 +710,19 @@ def main(
     manifest_path = _resolve_manifest_path()
     manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
-        build_cmd = _build_cross_command(decision, target_to_build, manifest_argument)
+        build_cmd = _build_cross_command(
+            decision, target_to_build, manifest_argument, features
+        )
     else:
         build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
         )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        _handle_cross_container_error(exc, decision, target_to_build, manifest_argument)
+        _handle_cross_container_error(
+            exc, decision, target_to_build, manifest_argument, features
+        )
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)
 

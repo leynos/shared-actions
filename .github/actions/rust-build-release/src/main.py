@@ -466,6 +466,40 @@ def _decide_cross_usage(
     )
 
 
+def _validate_cross_requirements(
+    decision: _CrossDecision, target_to_build: str, host_target: str
+) -> None:
+    """Validate cross-container requirements and exit if unsatisfied."""
+    if not decision.requires_cross_container:
+        return
+
+    if decision.use_cross_local_backend:
+        typer.echo(
+            "::error:: target "
+            f"'{target_to_build}' requires cross with a container runtime "
+            f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
+            "a container runtime is required",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not decision.use_cross:
+        details: list[str] = []
+        if decision.cross_path is None:
+            details.append("cross is not installed")
+        if not decision.has_container:
+            details.append("no container runtime detected")
+        detail_suffix = f", {', '.join(details)}" if details else ""
+        typer.echo(
+            "::error:: target "
+            f"'{target_to_build}' requires cross with a container runtime "
+            f"on host '{host_target}'"
+            f"{detail_suffix}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
 def _announce_build_mode(decision: _CrossDecision) -> None:
     """Print how the build will proceed."""
     if decision.use_cross:
@@ -666,32 +700,7 @@ def main(
         toolchain_name, installed_names, rustup_exec, target_to_build, host_target
     )
 
-    if decision.requires_cross_container:
-        if decision.use_cross_local_backend:
-            typer.echo(
-                "::error:: target "
-                f"'{target_to_build}' requires cross with a container runtime "
-                f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
-                "a container runtime is required",
-                err=True,
-            )
-            raise typer.Exit(1)
-
-        if not decision.use_cross:
-            details: list[str] = []
-            if decision.cross_path is None:
-                details.append("cross is not installed")
-            if not decision.has_container:
-                details.append("no container runtime detected")
-            detail_suffix = f", {', '.join(details)}" if details else ""
-            typer.echo(
-                "::error:: target "
-                f"'{target_to_build}' requires cross with a container runtime "
-                f"on host '{host_target}'"
-                f"{detail_suffix}",
-                err=True,
-            )
-            raise typer.Exit(1)
+    _validate_cross_requirements(decision, target_to_build, host_target)
 
     if not target_installed and (
         not decision.use_cross or decision.use_cross_local_backend

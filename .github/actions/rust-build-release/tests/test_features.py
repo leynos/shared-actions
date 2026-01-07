@@ -80,169 +80,149 @@ def patch_common_main_deps(
 class TestBuildCargoCommand:
     """Tests for the _build_cargo_command helper with features."""
 
-    def test_cargo_command_without_features(
-        self, main_module: ModuleType, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("features", "expected_in_parts", "expected_value"),
+        [
+            pytest.param("", False, None, id="without_features"),
+            pytest.param("verbose", True, "verbose", id="single_feature"),
+            pytest.param(
+                "verbose,experimental",
+                True,
+                "verbose,experimental",
+                id="multiple_features",
+            ),
+        ],
+    )
+    def test_cargo_command_features(
+        self,
+        main_module: ModuleType,
+        tmp_path: Path,
+        features: str,
+        expected_in_parts: bool,  # noqa: FBT001
+        expected_value: str | None,
     ) -> None:
-        """Cargo command omits --features when features is empty."""
+        """Cargo command handles --features flag based on features input."""
         manifest = tmp_path / "Cargo.toml"
         target = "x86_64-unknown-linux-gnu"
 
-        cmd = main_module._build_cargo_command("+stable", target, manifest, "")
+        cmd = main_module._build_cargo_command("+stable", target, manifest, features)
         parts = list(cmd.formulate())
 
-        assert "--features" not in parts
-
-    def test_cargo_command_with_single_feature(
-        self, main_module: ModuleType, tmp_path: Path
-    ) -> None:
-        """Cargo command includes --features when a feature is specified."""
-        manifest = tmp_path / "Cargo.toml"
-        target = "x86_64-unknown-linux-gnu"
-
-        cmd = main_module._build_cargo_command("+stable", target, manifest, "verbose")
-        parts = list(cmd.formulate())
-
-        assert "--features" in parts
-        idx = parts.index("--features")
-        assert parts[idx + 1] == "verbose"
-
-    def test_cargo_command_with_multiple_features(
-        self, main_module: ModuleType, tmp_path: Path
-    ) -> None:
-        """Cargo command passes comma-separated features correctly."""
-        manifest = tmp_path / "Cargo.toml"
-        target = "x86_64-unknown-linux-gnu"
-
-        cmd = main_module._build_cargo_command(
-            "+stable", target, manifest, "verbose,experimental"
-        )
-        parts = list(cmd.formulate())
-
-        assert "--features" in parts
-        idx = parts.index("--features")
-        assert parts[idx + 1] == "verbose,experimental"
+        if expected_in_parts:
+            assert "--features" in parts
+            idx = parts.index("--features")
+            assert parts[idx + 1] == expected_value
+        else:
+            assert "--features" not in parts
 
 
 class TestBuildCrossCommand:
     """Tests for the _build_cross_command helper with features."""
 
-    def test_cross_command_without_features(
-        self, main_module: ModuleType, tmp_path: Path
+    @pytest.mark.parametrize(
+        ("features", "expected_in_parts", "expected_value"),
+        [
+            pytest.param("", False, None, id="without_features"),
+            pytest.param("verbose", True, "verbose", id="with_features"),
+        ],
+    )
+    def test_cross_command_features(
+        self,
+        main_module: ModuleType,
+        tmp_path: Path,
+        features: str,
+        expected_in_parts: bool,  # noqa: FBT001
+        expected_value: str | None,
     ) -> None:
-        """Cross command omits --features when features is empty."""
+        """Cross command handles --features flag based on features input."""
         manifest = tmp_path / "Cargo.toml"
         target = "aarch64-unknown-linux-gnu"
         decision = _cross_decision(main_module, use_cross=True)
 
-        cmd = main_module._build_cross_command(decision, target, manifest, "")
+        cmd = main_module._build_cross_command(decision, target, manifest, features)
         parts = list(cmd.formulate())
 
-        assert "--features" not in parts
-
-    def test_cross_command_with_features(
-        self, main_module: ModuleType, tmp_path: Path
-    ) -> None:
-        """Cross command includes --features when features are specified."""
-        manifest = tmp_path / "Cargo.toml"
-        target = "aarch64-unknown-linux-gnu"
-        decision = _cross_decision(main_module, use_cross=True)
-
-        cmd = main_module._build_cross_command(decision, target, manifest, "verbose")
-        parts = list(cmd.formulate())
-
-        assert "--features" in parts
-        idx = parts.index("--features")
-        assert parts[idx + 1] == "verbose"
+        if expected_in_parts:
+            assert "--features" in parts
+            idx = parts.index("--features")
+            assert parts[idx + 1] == expected_value
+        else:
+            assert "--features" not in parts
 
 
 class TestMainFeaturesIntegration:
     """Tests for features parameter integration in main()."""
 
-    def test_main_passes_features_to_cargo(
+    @pytest.mark.parametrize(
+        ("use_cross", "features", "target"),
+        [
+            pytest.param(
+                False,
+                "verbose,test",
+                "x86_64-unknown-linux-gnu",
+                id="cargo_with_features",
+            ),
+            pytest.param(
+                True,
+                "experimental",
+                "aarch64-unknown-linux-gnu",
+                id="cross_with_features",
+            ),
+            pytest.param(
+                False, "", "x86_64-unknown-linux-gnu", id="cargo_without_features"
+            ),
+        ],
+    )
+    def test_main_passes_features(
         self,
         main_module: ModuleType,
         patch_common_main_deps: Harness,
         setup_manifest: Path,
+        use_cross: bool,  # noqa: FBT001
+        features: str,
+        target: str,
     ) -> None:
-        """main() correctly passes features to cargo build."""
+        """main() correctly passes features to the appropriate build command."""
         harness = patch_common_main_deps
         captured: dict[str, object] = {}
-        target = "x86_64-unknown-linux-gnu"
 
-        decision = _cross_decision(main_module, use_cross=False)
+        decision = _cross_decision(main_module, use_cross=use_cross)
         harness.patch_attr("_resolve_target_argument", lambda _value: target)
         harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-        def fake_cargo(
-            _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
-        ) -> _DummyCommand:
-            captured["target"] = target_arg
-            captured["manifest"] = manifest_arg
-            captured["features"] = features_arg
-            return _DummyCommand("cargo-build")
+        if use_cross:
 
-        harness.patch_attr("_build_cargo_command", fake_cargo)
+            def fake_cross(
+                decision_arg: object,
+                target_arg: str,
+                manifest_arg: Path,
+                features_arg: str,
+            ) -> _DummyCommand:
+                captured["decision"] = decision_arg
+                captured["target"] = target_arg
+                captured["manifest"] = manifest_arg
+                captured["features"] = features_arg
+                return _DummyCommand("cross-build")
 
-        main_module.main(target, toolchain="stable", features="verbose,test")
+            harness.patch_attr("_build_cross_command", fake_cross)
+        else:
 
-        assert captured["features"] == "verbose,test"
+            def fake_cargo(
+                _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
+            ) -> _DummyCommand:
+                captured["target"] = target_arg
+                captured["manifest"] = manifest_arg
+                captured["features"] = features_arg
+                return _DummyCommand("cargo-build")
 
-    def test_main_passes_features_to_cross(
-        self,
-        main_module: ModuleType,
-        patch_common_main_deps: Harness,
-        setup_manifest: Path,
-    ) -> None:
-        """main() correctly passes features to cross build."""
-        harness = patch_common_main_deps
-        captured: dict[str, object] = {}
-        target = "aarch64-unknown-linux-gnu"
+            harness.patch_attr("_build_cargo_command", fake_cargo)
 
-        decision = _cross_decision(main_module, use_cross=True)
-        harness.patch_attr("_resolve_target_argument", lambda _value: target)
-        harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+        if features:
+            main_module.main(target, toolchain="stable", features=features)
+        else:
+            main_module.main(target, toolchain="stable")
 
-        def fake_cross(
-            decision_arg: object, target_arg: str, manifest_arg: Path, features_arg: str
-        ) -> _DummyCommand:
-            captured["decision"] = decision_arg
-            captured["target"] = target_arg
-            captured["manifest"] = manifest_arg
-            captured["features"] = features_arg
-            return _DummyCommand("cross-build")
-
-        harness.patch_attr("_build_cross_command", fake_cross)
-
-        main_module.main(target, toolchain="stable", features="experimental")
-
-        assert captured["features"] == "experimental"
-
-    def test_main_passes_empty_features_when_not_specified(
-        self,
-        main_module: ModuleType,
-        patch_common_main_deps: Harness,
-        setup_manifest: Path,
-    ) -> None:
-        """main() passes empty string when features is not specified."""
-        harness = patch_common_main_deps
-        captured: dict[str, object] = {}
-        target = "x86_64-unknown-linux-gnu"
-
-        decision = _cross_decision(main_module, use_cross=False)
-        harness.patch_attr("_resolve_target_argument", lambda _value: target)
-        harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
-
-        def fake_cargo(
-            _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
-        ) -> _DummyCommand:
-            captured["features"] = features_arg
-            return _DummyCommand("cargo-build")
-
-        harness.patch_attr("_build_cargo_command", fake_cargo)
-
-        main_module.main(target, toolchain="stable")
-
-        assert captured["features"] == ""
+        assert captured["features"] == features
 
 
 class TestFeaturesEnvVar:

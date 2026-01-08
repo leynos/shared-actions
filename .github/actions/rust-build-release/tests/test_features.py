@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections.abc as cabc
+import dataclasses
 import typing as typ
 from types import ModuleType
 
@@ -11,6 +12,33 @@ from plumbum.commands.processes import ProcessExecutionError
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+
+@dataclasses.dataclass(frozen=True)
+class FeaturesTestCase:
+    """Test case for features parameter in build commands."""
+
+    features: str
+    expected_in_parts: bool
+    expected_value: str | None
+
+    @property
+    def test_id(self) -> str:
+        """Return a descriptive test ID based on features."""
+        if not self.features:
+            return "without_features"
+        if "," in self.features:
+            return "multiple_features"
+        return "single_feature"
+
+
+@dataclasses.dataclass(frozen=True)
+class MainFeaturesTestCase:
+    """Test case for main() features integration."""
+
+    use_cross: bool
+    features: str
+    target: str
 
 
 class Harness(typ.Protocol):
@@ -52,6 +80,20 @@ def _cross_decision(main_module: ModuleType, *, use_cross: bool) -> object:
     )
 
 
+def _assert_features_in_command_parts(
+    parts: list[str],
+    expected_in_parts: bool,  # noqa: FBT001
+    expected_value: str | None,
+) -> None:
+    """Assert that --features flag is present/absent with the correct value."""
+    if expected_in_parts:
+        assert "--features" in parts
+        idx = parts.index("--features")
+        assert parts[idx + 1] == expected_value
+    else:
+        assert "--features" not in parts
+
+
 @pytest.fixture
 def setup_manifest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """Create a temporary Cargo manifest and switch into its directory."""
@@ -81,116 +123,114 @@ class TestBuildCargoCommand:
     """Tests for the _build_cargo_command helper with features."""
 
     @pytest.mark.parametrize(
-        ("features", "expected_in_parts", "expected_value"),
+        "test_case",
         [
-            pytest.param("", False, None, id="without_features"),
-            pytest.param("verbose", True, "verbose", id="single_feature"),
-            pytest.param(
-                "verbose,experimental",
-                True,
-                "verbose,experimental",
-                id="multiple_features",
+            FeaturesTestCase(features="", expected_in_parts=False, expected_value=None),
+            FeaturesTestCase(
+                features="verbose", expected_in_parts=True, expected_value="verbose"
+            ),
+            FeaturesTestCase(
+                features="verbose,experimental",
+                expected_in_parts=True,
+                expected_value="verbose,experimental",
             ),
         ],
+        ids=lambda tc: tc.test_id,
     )
     def test_cargo_command_features(
         self,
         main_module: ModuleType,
         tmp_path: Path,
-        features: str,
-        expected_in_parts: bool,  # noqa: FBT001
-        expected_value: str | None,
+        test_case: FeaturesTestCase,
     ) -> None:
         """Cargo command handles --features flag based on features input."""
         manifest = tmp_path / "Cargo.toml"
         target = "x86_64-unknown-linux-gnu"
 
-        cmd = main_module._build_cargo_command("+stable", target, manifest, features)
+        cmd = main_module._build_cargo_command(
+            "+stable", target, manifest, test_case.features
+        )
         parts = list(cmd.formulate())
 
-        if expected_in_parts:
-            assert "--features" in parts
-            idx = parts.index("--features")
-            assert parts[idx + 1] == expected_value
-        else:
-            assert "--features" not in parts
+        _assert_features_in_command_parts(
+            parts, test_case.expected_in_parts, test_case.expected_value
+        )
 
 
 class TestBuildCrossCommand:
     """Tests for the _build_cross_command helper with features."""
 
     @pytest.mark.parametrize(
-        ("features", "expected_in_parts", "expected_value"),
+        "test_case",
         [
-            pytest.param("", False, None, id="without_features"),
-            pytest.param("verbose", True, "verbose", id="with_features"),
+            FeaturesTestCase(features="", expected_in_parts=False, expected_value=None),
+            FeaturesTestCase(
+                features="verbose", expected_in_parts=True, expected_value="verbose"
+            ),
         ],
+        ids=lambda tc: tc.test_id if not tc.features else "with_features",
     )
     def test_cross_command_features(
         self,
         main_module: ModuleType,
         tmp_path: Path,
-        features: str,
-        expected_in_parts: bool,  # noqa: FBT001
-        expected_value: str | None,
+        test_case: FeaturesTestCase,
     ) -> None:
         """Cross command handles --features flag based on features input."""
         manifest = tmp_path / "Cargo.toml"
         target = "aarch64-unknown-linux-gnu"
         decision = _cross_decision(main_module, use_cross=True)
 
-        cmd = main_module._build_cross_command(decision, target, manifest, features)
+        cmd = main_module._build_cross_command(
+            decision, target, manifest, test_case.features
+        )
         parts = list(cmd.formulate())
 
-        if expected_in_parts:
-            assert "--features" in parts
-            idx = parts.index("--features")
-            assert parts[idx + 1] == expected_value
-        else:
-            assert "--features" not in parts
+        _assert_features_in_command_parts(
+            parts, test_case.expected_in_parts, test_case.expected_value
+        )
 
 
 class TestMainFeaturesIntegration:
     """Tests for features parameter integration in main()."""
 
     @pytest.mark.parametrize(
-        ("use_cross", "features", "target"),
+        "test_case",
         [
-            pytest.param(
-                False,
-                "verbose,test",
-                "x86_64-unknown-linux-gnu",
-                id="cargo_with_features",
+            MainFeaturesTestCase(
+                use_cross=False,
+                features="verbose,test",
+                target="x86_64-unknown-linux-gnu",
             ),
-            pytest.param(
-                True,
-                "experimental",
-                "aarch64-unknown-linux-gnu",
-                id="cross_with_features",
+            MainFeaturesTestCase(
+                use_cross=True,
+                features="experimental",
+                target="aarch64-unknown-linux-gnu",
             ),
-            pytest.param(
-                False, "", "x86_64-unknown-linux-gnu", id="cargo_without_features"
+            MainFeaturesTestCase(
+                use_cross=False,
+                features="",
+                target="x86_64-unknown-linux-gnu",
             ),
         ],
+        ids=["cargo_with_features", "cross_with_features", "cargo_without_features"],
     )
     def test_main_passes_features(
         self,
         main_module: ModuleType,
         patch_common_main_deps: Harness,
         setup_manifest: Path,
-        use_cross: bool,  # noqa: FBT001
-        features: str,
-        target: str,
+        test_case: MainFeaturesTestCase,
     ) -> None:
         """main() correctly passes features to the appropriate build command."""
         harness = patch_common_main_deps
         captured: dict[str, object] = {}
 
-        decision = _cross_decision(main_module, use_cross=use_cross)
-        harness.patch_attr("_resolve_target_argument", lambda _value: target)
+        decision = _cross_decision(main_module, use_cross=test_case.use_cross)
+        harness.patch_attr("_resolve_target_argument", lambda _value: test_case.target)
         harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-        if use_cross:
+        if test_case.use_cross:
 
             def fake_cross(
                 decision_arg: object,
@@ -217,12 +257,14 @@ class TestMainFeaturesIntegration:
 
             harness.patch_attr("_build_cargo_command", fake_cargo)
 
-        if features:
-            main_module.main(target, toolchain="stable", features=features)
+        if test_case.features:
+            main_module.main(
+                test_case.target, toolchain="stable", features=test_case.features
+            )
         else:
-            main_module.main(target, toolchain="stable")
+            main_module.main(test_case.target, toolchain="stable")
 
-        assert captured["features"] == features
+        assert captured["features"] == test_case.features
 
 
 class TestFeaturesEnvVar:

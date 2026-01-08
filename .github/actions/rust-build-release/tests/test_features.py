@@ -119,71 +119,75 @@ def patch_common_main_deps(
     return harness
 
 
-class TestBuildCargoCommand:
-    """Tests for the _build_cargo_command helper with features."""
+class TestBuildCommandFeatures:
+    """Tests for build command features handling."""
 
     @pytest.mark.parametrize(
-        "test_case",
+        ("builder_type", "test_case"),
         [
-            FeaturesTestCase(features="", expected_in_parts=False, expected_value=None),
-            FeaturesTestCase(
-                features="verbose", expected_in_parts=True, expected_value="verbose"
+            (
+                "cargo",
+                FeaturesTestCase(
+                    features="", expected_in_parts=False, expected_value=None
+                ),
             ),
-            FeaturesTestCase(
-                features="verbose,experimental",
-                expected_in_parts=True,
-                expected_value="verbose,experimental",
+            (
+                "cargo",
+                FeaturesTestCase(
+                    features="verbose", expected_in_parts=True, expected_value="verbose"
+                ),
+            ),
+            (
+                "cargo",
+                FeaturesTestCase(
+                    features="verbose,experimental",
+                    expected_in_parts=True,
+                    expected_value="verbose,experimental",
+                ),
+            ),
+            (
+                "cross",
+                FeaturesTestCase(
+                    features="", expected_in_parts=False, expected_value=None
+                ),
+            ),
+            (
+                "cross",
+                FeaturesTestCase(
+                    features="verbose", expected_in_parts=True, expected_value="verbose"
+                ),
             ),
         ],
-        ids=lambda tc: tc.test_id,
+        ids=[
+            "cargo_without_features",
+            "cargo_single_feature",
+            "cargo_multiple_features",
+            "cross_without_features",
+            "cross_with_features",
+        ],
     )
-    def test_cargo_command_features(
+    def test_command_features(
         self,
         main_module: ModuleType,
         tmp_path: Path,
+        builder_type: str,
         test_case: FeaturesTestCase,
     ) -> None:
-        """Cargo command handles --features flag based on features input."""
+        """Build commands handle --features flag correctly for cargo and cross."""
         manifest = tmp_path / "Cargo.toml"
-        target = "x86_64-unknown-linux-gnu"
 
-        cmd = main_module._build_cargo_command(
-            "+stable", target, manifest, test_case.features
-        )
-        parts = list(cmd.formulate())
+        if builder_type == "cargo":
+            target = "x86_64-unknown-linux-gnu"
+            cmd = main_module._build_cargo_command(
+                "+stable", target, manifest, test_case.features
+            )
+        else:
+            target = "aarch64-unknown-linux-gnu"
+            decision = _cross_decision(main_module, use_cross=True)
+            cmd = main_module._build_cross_command(
+                decision, target, manifest, test_case.features
+            )
 
-        _assert_features_in_command_parts(
-            parts, test_case.expected_in_parts, test_case.expected_value
-        )
-
-
-class TestBuildCrossCommand:
-    """Tests for the _build_cross_command helper with features."""
-
-    @pytest.mark.parametrize(
-        "test_case",
-        [
-            FeaturesTestCase(features="", expected_in_parts=False, expected_value=None),
-            FeaturesTestCase(
-                features="verbose", expected_in_parts=True, expected_value="verbose"
-            ),
-        ],
-        ids=lambda tc: tc.test_id if not tc.features else "with_features",
-    )
-    def test_cross_command_features(
-        self,
-        main_module: ModuleType,
-        tmp_path: Path,
-        test_case: FeaturesTestCase,
-    ) -> None:
-        """Cross command handles --features flag based on features input."""
-        manifest = tmp_path / "Cargo.toml"
-        target = "aarch64-unknown-linux-gnu"
-        decision = _cross_decision(main_module, use_cross=True)
-
-        cmd = main_module._build_cross_command(
-            decision, target, manifest, test_case.features
-        )
         parts = list(cmd.formulate())
 
         _assert_features_in_command_parts(

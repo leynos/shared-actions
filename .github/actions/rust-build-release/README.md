@@ -25,11 +25,12 @@ script.
 
 ## Inputs
 
-| Name        | Type   | Default                    | Description                           | Required |
-| ----------- | ------ | -------------------------- | ------------------------------------- | -------- |
-| target      | string | `x86_64-unknown-linux-gnu` | Target triple to build                | no       |
-| project-dir | string | `.`                        | Path to the Rust project to build     | no       |
-| bin-name    | string | `rust-toy-app`             | Binary name produced by the build     | no       |
+| Name          | Type   | Default                    | Description                                                    | Required |
+| ------------- | ------ | -------------------------- | -------------------------------------------------------------- | -------- |
+| target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                         | no       |
+| project-dir   | string | `.`                        | Path to the Rust project to build                              | no       |
+| manifest-path | string | `Cargo.toml`               | Path to the Cargo manifest (relative to `project-dir` or absolute) | no       |
+| bin-name      | string | `rust-toy-app`             | Binary name produced by the build                              | no       |
 
 ## Outputs
 
@@ -43,6 +44,7 @@ None.
   with:
     target: x86_64-unknown-linux-gnu
     project-dir: rust-toy-app
+    manifest-path: Cargo.toml
     bin-name: rust-toy-app
 
 # Remote usage (after tagging this repo with v1)
@@ -50,6 +52,7 @@ None.
   with:
     target: x86_64-unknown-linux-gnu
     project-dir: rust-toy-app
+    manifest-path: Cargo.toml
     bin-name: rust-toy-app
 ```
 

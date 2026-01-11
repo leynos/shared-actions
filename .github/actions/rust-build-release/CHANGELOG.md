@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Support staging and packaging for `unknown-linux-musl` targets alongside GNU triples for x86_64, aarch64, i686, arm*, and riscv64 builds.
 - Require containerized `cross` builds for FreeBSD targets on non-FreeBSD hosts to enable `x86_64-unknown-freebsd` cross-compilation.
 - Automatically export `CROSS_CONTAINER_ENGINE` for the detected container runtime when running FreeBSD builds with `cross`.
+- Add a `manifest-path` input for selecting an alternate Cargo manifest.
 
 ### Fixed
 

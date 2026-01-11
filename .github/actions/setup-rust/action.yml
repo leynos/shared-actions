@@ -60,6 +60,12 @@ runs:
         toolchain: stable
         components: rustfmt, clippy, llvm-tools-preview
         cache: false
+    - name: Install cargo-binstall
+      run: |
+        curl -L --proto '=https' --tlsv1.2 -sSf \
+          https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+          | bash
+      shell: bash
     - name: Install uv
       # v6.4.3
       uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc

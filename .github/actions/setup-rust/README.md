@@ -1,8 +1,8 @@
 # Setup Rust
 
-Install the Rust toolchain and cache your build dependencies. Optionally
-install PostgreSQL and SQLite system libraries for crates that require them,
-and set up macOS or OpenBSD cross-compilers.
+Install the Rust toolchain, cargo-binstall, and cache your build dependencies.
+Optionally install PostgreSQL and SQLite system libraries for crates that
+require them, and set up macOS or OpenBSD cross-compilers.
 
 ## Inputs
 

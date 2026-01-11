@@ -74,7 +74,7 @@ runs:
           echo "cargo-binstall installer download failed or empty" >&2
           exit 1
         fi
-        ACTUAL_SHA256="$(python - "$INSTALLER_PATH" <<'PY'\nimport hashlib\nimport sys\npath = sys.argv[1]\nsha256 = hashlib.sha256()\nwith open(path, 'rb') as handle:\n    for chunk in iter(lambda: handle.read(8192), b''):\n        sha256.update(chunk)\nprint(sha256.hexdigest())\nPY\n)"
+        ACTUAL_SHA256="$(sha256sum "$INSTALLER_PATH" | awk '{print $1}')"
         if [ "$ACTUAL_SHA256" != "$BINSTALL_SHA256" ]; then
           echo "cargo-binstall install script checksum mismatch: $ACTUAL_SHA256" >&2
           exit 1

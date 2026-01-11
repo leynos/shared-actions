@@ -129,16 +129,20 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         raise typer.Exit(1) from exc
 
     try:
-        total = int(root.xpath("count(//class/lines/line)"))
-        covered = int(root.xpath("count(//class/lines/line[@hits>0])"))
+        total = int(typ.cast("float", root.xpath("count(//class/lines/line)")))
+        covered = int(
+            typ.cast("float", root.xpath("count(//class/lines/line[@hits>0])"))
+        )
     except etree.XPathError as exc:
         typer.echo(f"Malformed Cobertura data: {exc}", err=True)
         raise typer.Exit(1) from exc
 
     if total == 0:
         try:
-            covered = int(root.xpath("number(/coverage/@lines-covered)"))
-            total = int(root.xpath("number(/coverage/@lines-valid)"))
+            covered = int(
+                typ.cast("float", root.xpath("number(/coverage/@lines-covered)"))
+            )
+            total = int(typ.cast("float", root.xpath("number(/coverage/@lines-valid)")))
         except etree.XPathError as exc:
             typer.echo(f"Cobertura summary missing: {exc}", err=True)
             raise typer.Exit(1) from exc
@@ -253,9 +257,10 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
 
         while sel.get_map():
             for key, _ in sel.select():
-                line = key.fileobj.readline()
+                stream = typ.cast("typ.TextIO", key.fileobj)
+                line = stream.readline()
                 if not line:
-                    sel.unregister(key.fileobj)
+                    sel.unregister(stream)
                     continue
                 if key.data == "stdout":
                     typer.echo(line, nl=False)

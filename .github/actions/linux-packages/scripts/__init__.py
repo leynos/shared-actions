@@ -26,7 +26,7 @@ def load_sibling(module: str) -> ModuleType:
     full_name = f"{_PACKAGE_NAME}.{module}"
     if _PACKAGE_NAME not in sys.modules:
         pkg = ModuleType(_PACKAGE_NAME)
-        pkg.__path__ = [str(_PACKAGE_PATH)]  # type: ignore[attr-defined]
+        pkg.__path__ = [str(_PACKAGE_PATH)]
         sys.modules[_PACKAGE_NAME] = pkg
     spec = util.spec_from_file_location(full_name, _PACKAGE_PATH / f"{module}.py")
     if spec is None or spec.loader is None:  # pragma: no cover - defensive

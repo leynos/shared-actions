@@ -16,6 +16,8 @@ from utils import UnexpectedExecutableError, ensure_allowed_executable, run_vali
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
+    from cmd_utils import RunResult
+
 CROSS_CONTAINER_ERROR_CODES = {125, 126, 127}
 
 _ARCH_TO_WINDOWS_DEFAULT = {
@@ -144,24 +146,17 @@ def _run_probe(
     args: list[str],
     *,
     cwd: str | Path | None = None,
-    **kwargs: object,
-) -> tuple[int, str, str] | None:
+) -> RunResult | None:
     """Execute a runtime probe and handle common failure modes."""
     allowed_names: tuple[str, ...] = (name, f"{name}.exe")
-    run_options: dict[str, object] = dict(kwargs)
-    if cwd is not None:
-        run_options["cwd"] = cwd
-    run_options.setdefault("timeout", PROBE_TIMEOUT)
     try:
-        return typ.cast(
-            "tuple[int, str, str]",
-            run_validated(
-                exec_path,
-                args,
-                allowed_names=allowed_names,
-                method="run",
-                **run_options,
-            ),
+        return run_validated(
+            exec_path,
+            args,
+            allowed_names=allowed_names,
+            method="run",
+            cwd=cwd,
+            timeout=PROBE_TIMEOUT,
         )
     except ProcessTimedOut:
         typer.echo(
@@ -283,15 +278,12 @@ def detect_host_target(
     except UnexpectedExecutableError:
         return default
     try:
-        _, stdout, _ = typ.cast(
-            "tuple[int, str, str]",
-            run_validated(
-                exec_path,
-                ["-vV"],
-                allowed_names=("rustc", "rustc.exe"),
-                timeout=PROBE_TIMEOUT,
-                method="run",
-            ),
+        result = run_validated(
+            exec_path,
+            ["-vV"],
+            allowed_names=("rustc", "rustc.exe"),
+            timeout=PROBE_TIMEOUT,
+            method="run",
         )
     except (ProcessExecutionError, ProcessTimedOut, OSError):
         return default
@@ -299,7 +291,7 @@ def detect_host_target(
     triple = next(
         (
             line.partition(":")[2].strip()
-            for line in (stdout or "").splitlines()
+            for line in (result.stdout or "").splitlines()
             if line.startswith("host:")
         ),
         "",

@@ -60,7 +60,7 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
     def num_or_zero(expr: str) -> int:
         try:
-            n = root.xpath(f"number({expr})")
+            n = typ.cast("float", root.xpath(f"number({expr})"))
         except Exception:  # noqa: BLE001 - defensive
             return 0
         else:
@@ -68,8 +68,13 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
 
     def lines_from_detail() -> tuple[int, int]:
         try:
-            total = int(root.xpath("count(//class/lines/line)"))
-            covered = int(root.xpath("count(//class/lines/line[number(@hits) > 0])"))
+            total = int(typ.cast("float", root.xpath("count(//class/lines/line)")))
+            covered = int(
+                typ.cast(
+                    "float",
+                    root.xpath("count(//class/lines/line[number(@hits) > 0])"),
+                )
+            )
         except Exception:  # noqa: BLE001 - defensive
             return 0, 0
         else:

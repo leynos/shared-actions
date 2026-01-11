@@ -148,7 +148,7 @@ def coerce_run_result(
     if isinstance(result, RunResult):
         return result
     try:
-        returncode_obj, stdout_obj, stderr_obj = result  # type: ignore[misc]
+        returncode_obj, stdout_obj, stderr_obj = result
     except ValueError as exc:  # pragma: no cover - defensive programming
         msg = "plumbum run() results must unpack into (returncode, stdout, stderr)"
         raise TypeError(msg) from exc
@@ -273,16 +273,12 @@ def _run_handler(
             normalized_timeout: float | None = float(timeout_value)
         else:
             normalized_timeout = None
-        stdout = _ensure_text(getattr(exc, "stdout", ""))
-        stderr = _ensure_text(getattr(exc, "stderr", ""))
         formatted = [str(part) for part in command.formulate()]
         timeout_message = str(exc) or "Command timed out"
         resolved_timeout = normalized_timeout if normalized_timeout is not None else 0.0
-        timed_out = ProcessTimedOut(  # type: ignore[unknown-argument]
+        timed_out = ProcessTimedOut(
             formatted,
             resolved_timeout,
-            stdout=stdout,  # type: ignore[unknown-argument]
-            stderr=stderr,  # type: ignore[unknown-argument]
         )
         timed_out.args = (timeout_message, *timed_out.args[1:])
         raise timed_out from exc

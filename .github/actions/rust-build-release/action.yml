@@ -8,6 +8,10 @@ inputs:
     description: Path to the Rust project to build
     required: false
     default: .
+  manifest-path:
+    description: Path to the Cargo.toml manifest (relative to project-dir or absolute)
+    required: false
+    default: Cargo.toml
   bin-name:
     description: Name of the binary produced by the build
     required: false
@@ -54,6 +58,7 @@ runs:
       env:
         RBR_TARGET: ${{ inputs.target }}
         RBR_TOOLCHAIN: ${{ env.RBR_TOOLCHAIN }}
+        RBR_MANIFEST_PATH: ${{ inputs.manifest-path }}
       working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail

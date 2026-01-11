@@ -23,7 +23,7 @@ run_rust_module = importlib.util.module_from_spec(spec)
 if not isinstance(run_rust_module, ModuleType):  # pragma: no cover - importlib contract
     type_error_message = "module_from_spec did not return a ModuleType"
     raise TypeError(type_error_message)
-spec.loader.exec_module(run_rust_module)  # type: ignore[misc]
+spec.loader.exec_module(run_rust_module)
 run_rust = run_rust_module
 
 

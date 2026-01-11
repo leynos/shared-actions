@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 import shlex
-import typing as typ
 from pathlib import Path  # noqa: TC003 - used at runtime
 
 import typer
@@ -48,7 +47,7 @@ def main(
     except ProcessExecutionError as exc:  # Should not happen but guard anyway
         result = cmd_utils.process_error_to_run_result(exc)
     else:
-        result = typ.cast("cmd_utils.RunResult", outcome)
+        result = cmd_utils.coerce_run_result(outcome)
     if result.returncode != 0:
         typer.echo(
             f"cargo llvm-cov failed with code {result.returncode}: {result.stderr}",

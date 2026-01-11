@@ -62,9 +62,20 @@ runs:
         cache: false
     - name: Install cargo-binstall
       run: |
-        curl -L --proto '=https' --tlsv1.2 -sSf \
-          https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
-          | bash
+        set -euo pipefail
+        # v1.16.6
+        BINSTALL_VERSION="v1.16.6"
+        BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+        INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
+        INSTALLER_PATH="$(mktemp)"
+        trap 'rm -f "$INSTALLER_PATH"' EXIT
+        curl -fsSL --proto '=https' --tlsv1.2 "$INSTALLER_URL" -o "$INSTALLER_PATH"
+        ACTUAL_SHA256="$(python - "$INSTALLER_PATH" <<'PY'\nimport hashlib\nimport sys\npath = sys.argv[1]\nsha256 = hashlib.sha256()\nwith open(path, 'rb') as handle:\n    for chunk in iter(lambda: handle.read(8192), b''):\n        sha256.update(chunk)\nprint(sha256.hexdigest())\nPY\n)"
+        if [ "$ACTUAL_SHA256" != "$BINSTALL_SHA256" ]; then
+          echo "cargo-binstall install script checksum mismatch: $ACTUAL_SHA256" >&2
+          exit 1
+        fi
+        bash "$INSTALLER_PATH"
       shell: bash
     - name: Install uv
       # v6.4.3

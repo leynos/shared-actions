@@ -27,7 +27,7 @@ def test_manifest_path_input_declared() -> None:
     inputs = manifest["inputs"]
     assert "manifest-path" in inputs
     manifest_input = inputs["manifest-path"]
-    assert manifest_input.get("required") is False
+    assert manifest_input.get("required", False) is False
     assert manifest_input.get("default") == "Cargo.toml"
 
 

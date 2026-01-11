@@ -278,15 +278,12 @@ def detect_host_target(
     except UnexpectedExecutableError:
         return default
     try:
-        _, stdout, _ = typ.cast(
-            "tuple[int, str, str]",
-            run_validated(
-                exec_path,
-                ["-vV"],
-                allowed_names=("rustc", "rustc.exe"),
-                timeout=PROBE_TIMEOUT,
-                method="run",
-            ),
+        result = run_validated(
+            exec_path,
+            ["-vV"],
+            allowed_names=("rustc", "rustc.exe"),
+            timeout=PROBE_TIMEOUT,
+            method="run",
         )
     except (ProcessExecutionError, ProcessTimedOut, OSError):
         return default
@@ -294,7 +291,7 @@ def detect_host_target(
     triple = next(
         (
             line.partition(":")[2].strip()
-            for line in (stdout or "").splitlines()
+            for line in (result.stdout or "").splitlines()
             if line.startswith("host:")
         ),
         "",

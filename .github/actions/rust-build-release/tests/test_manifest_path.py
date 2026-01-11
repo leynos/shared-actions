@@ -228,6 +228,7 @@ def test_main_passes_manifest_to_builder(
     main_module.main(config.target, toolchain=config.toolchain)
 
     assert captured["manifest"] == Path("Cargo.toml")
+    assert captured["features"] == ""
 
 
 def test_main_errors_when_manifest_missing(

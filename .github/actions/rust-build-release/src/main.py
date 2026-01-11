@@ -566,6 +566,11 @@ def _restore_container_engine(
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
+def _normalize_features(features: str) -> str:
+    """Strip whitespace from features to avoid invalid --features arguments."""
+    return features.strip()
+
+
 def _build_cross_command(
     decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
@@ -580,8 +585,9 @@ def _build_cross_command(
         "--target",
         target_to_build,
     ]
-    if features:
-        build_cmd = build_cmd["--features", features]
+    normalized_features = _normalize_features(features)
+    if normalized_features:
+        build_cmd = build_cmd["--features", normalized_features]
     if decision.cross_path:
         build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     return build_cmd
@@ -600,8 +606,9 @@ def _build_cargo_command(
         "--target",
         target_to_build,
     ]
-    if features:
-        build_cmd = build_cmd["--features", features]
+    normalized_features = _normalize_features(features)
+    if normalized_features:
+        build_cmd = build_cmd["--features", normalized_features]
     return _CommandWrapper(build_cmd, "cargo")
 
 

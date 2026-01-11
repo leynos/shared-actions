@@ -157,13 +157,22 @@ class TestBuildCommandFeatures:
                     features="verbose", expected_in_parts=True, expected_value="verbose"
                 ),
             ),
+            (
+                "cross",
+                FeaturesTestCase(
+                    features="verbose,experimental",
+                    expected_in_parts=True,
+                    expected_value="verbose,experimental",
+                ),
+            ),
         ],
         ids=[
             "cargo_without_features",
             "cargo_single_feature",
             "cargo_multiple_features",
             "cross_without_features",
-            "cross_with_features",
+            "cross_single_feature",
+            "cross_multiple_features",
         ],
     )
     def test_command_features(

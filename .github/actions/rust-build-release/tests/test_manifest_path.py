@@ -13,6 +13,7 @@ from plumbum.commands.processes import ProcessExecutionError
 
 if typ.TYPE_CHECKING:
     from .conftest import (
+        CrossDecision,
         CrossDecisionFactory,
         DummyCommandFactory,
         HarnessFactory,
@@ -128,7 +129,7 @@ class BuildCommandContext:
 
     main_module: ModuleType
     manifest: Path
-    cross_decision: object
+    cross_decision: CrossDecision
 
 
 @dc.dataclass(frozen=True)
@@ -138,7 +139,7 @@ class CrossFallbackContext:
     main_module: ModuleType
     harness: ModuleHarness
     manifest: Path
-    decision: object
+    decision: CrossDecision
     dummy_command_factory: DummyCommandFactory
 
 
@@ -335,5 +336,6 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
     )
 
     assert captured["manifest"] == context.manifest
+    assert captured["features"] == ""
     assert harness.calls
     assert harness.calls[0] == ["fallback"]

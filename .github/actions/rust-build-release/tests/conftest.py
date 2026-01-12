@@ -205,13 +205,29 @@ class _DummyCommand:
         return None
 
 
-CrossDecisionFactory = cabc.Callable[..., object]
+class CrossDecision(typ.Protocol):
+    """Typed view of the _CrossDecision fields used in tests."""
+
+    cross_path: str | None
+    cross_version: str | None
+    use_cross: bool
+    cross_toolchain_spec: str
+    cargo_toolchain_spec: str
+    use_cross_local_backend: bool
+    docker_present: bool
+    podman_present: bool
+    has_container: bool
+    container_engine: str | None
+    requires_cross_container: bool
+
+
+CrossDecisionFactory = cabc.Callable[..., CrossDecision]
 DummyCommandFactory = cabc.Callable[..., _DummyCommand]
 
 
 def _cross_decision(
     main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
-) -> object:
+) -> CrossDecision:
     return main_module._CrossDecision(  # type: ignore[attr-defined]
         cross_path="/usr/bin/cross" if use_cross else None,
         cross_version="0.2.5",
@@ -243,7 +259,7 @@ def cross_decision_factory() -> CrossDecisionFactory:
 
     def factory(
         main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
-    ) -> object:
+    ) -> CrossDecision:
         return _cross_decision(
             main_module, use_cross=use_cross, requires_container=requires_container
         )

@@ -1,0 +1,84 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_call:
+    inputs:
+      required-label:
+        type: string
+        default: dependencies
+      merge-method:
+        type: string
+        default: squash
+      dry-run:
+        type: boolean
+        default: false
+      pull-request-number:
+        type: number
+        required: false
+      repository:
+        type: string
+        required: false
+    secrets:
+      github-token:
+        required: false
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Resolve workflow source
+        id: workflow-source
+        shell: bash
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${WORKFLOW_REF}" ]]; then
+            repo="${WORKFLOW_REF%%/.github/workflows/*}"
+            ref="${WORKFLOW_REF##*@}"
+          else
+            repo="${REPO}"
+            ref="${REF}"
+          fi
+          echo "repo=${repo}" >> "${GITHUB_OUTPUT}"
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+      - name: Checkout workflow repository
+        # v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          repository: ${{ steps.workflow-source.outputs.repo }}
+          ref: ${{ steps.workflow-source.outputs.ref }}
+          path: workflow-src
+          fetch-depth: 1
+      - name: Setup uv
+        # v6.4.3
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/workflow_scripts/*.py
+      - name: Run Dependabot auto-merge
+        shell: bash
+        env:
+          INPUT_GITHUB_TOKEN: ${{ secrets.github-token || github.token }}
+          INPUT_REQUIRED_LABEL: ${{ inputs.required-label }}
+          INPUT_MERGE_METHOD: ${{ inputs.merge-method }}
+          INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ inputs.pull-request-number }}" ]]; then
+            export INPUT_PULL_REQUEST_NUMBER="${{ inputs.pull-request-number }}"
+          fi
+          if [[ -n "${{ inputs.repository }}" ]]; then
+            export INPUT_REPOSITORY="${{ inputs.repository }}"
+          fi
+          uv run workflow-src/workflow_scripts/dependabot_automerge.py

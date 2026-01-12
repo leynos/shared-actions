@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 PLANS.md: none found in this repo.
 
@@ -68,16 +68,29 @@ local validation path via `pytest` + `act`.
 ## Progress
 
 - [x] (2026-01-12 00:00Z) Drafted initial ExecPlan.
-- [ ] Implement reusable workflow and helper script.
-- [ ] Add unit tests for the helper script.
-- [ ] Add workflow integration test via `act` harness.
-- [ ] Update documentation with usage guidance.
+- [x] (2026-01-12 00:00Z) Received approval to proceed with implementation.
+- [x] (2026-01-12 00:00Z) Implement reusable workflow and helper script.
+- [x] (2026-01-12 00:00Z) Add unit tests for the helper script.
+- [x] (2026-01-12 00:00Z) Add workflow integration test via `act` harness.
+- [x] (2026-01-12 00:00Z) Update documentation with usage guidance.
+- [x] (2026-01-12 00:00Z) Reordered dry-run validation to require event payload before PR number resolution.
+- [x] (2026-01-12 00:00Z) Adjusted linux-packages worktree repo-root test to accept `.git` files.
+- [x] (2026-01-12 00:00Z) Ran format, lint, typecheck, and test gates.
 
 ## Surprises & Discoveries
 
-- Observation: none yet.
-  Evidence: n/a.
-  Impact: n/a.
+- Observation: Creating a top-level `scripts/` package conflicts with action
+  test imports that rely on the `scripts` module name.
+  Evidence: `make test` errors in release-to-pypi-uv and validate-linux-packages
+  when `scripts` resolved to the new root package.
+  Impact: Move the helper script to a distinct `workflow_scripts/` package.
+
+- Observation: Worktree checkouts use a `.git` file instead of a `.git` directory,
+  causing repo-root detection to fail in linux-packages tests.
+  Evidence: `make test` failure in
+  `.github/actions/linux-packages/tests/test_action_workdir.py` when `.git` was
+  a file.
+  Impact: Broaden repo-root detection to accept `.git` files.
 
 ## Decision Log
 
@@ -91,6 +104,29 @@ local validation path via `pytest` + `act`.
 - Decision: Provide a dry-run mode for tests and local validation.
   Rationale: avoids network dependency in `act`/pytest while still exercising
   workflow wiring and logic paths.
+  Date/Author: 2026-01-12 (assistant).
+
+- Decision: Checkout the reusable workflow repository at runtime using
+  `github.workflow_ref` so the job can execute the versioned helper script.
+  Rationale: the called workflow does not have the shared repo on disk by
+  default, so the job must fetch the matching ref to ensure script parity.
+  Date/Author: 2026-01-12 (assistant).
+
+- Decision: Store the helper script under `workflow_scripts/` instead of a
+  top-level `scripts/` package.
+  Rationale: avoids shadowing action-level `scripts` modules used in existing
+  tests and keeps action imports stable.
+  Date/Author: 2026-01-12 (assistant).
+
+- Decision: Add `workflow_scripts/tests` to pytest discovery.
+  Rationale: ensures the new helper script unit tests run under the default
+  `make test` target.
+  Date/Author: 2026-01-12 (assistant).
+
+- Decision: Treat a `.git` file as a valid repo-root indicator in worktree
+  environments.
+  Rationale: git worktrees store metadata in a file, and tests should pass in
+  that layout.
   Date/Author: 2026-01-12 (assistant).
 
 ## Outcomes & Retrospective
@@ -108,8 +144,8 @@ Relevant repository locations:
   `act` harness and how to test workflows locally.
 
 This change adds a new reusable workflow file under `.github/workflows/` and a
-new Python script under `scripts/` (new directory) to implement the auto-merge
-logic. Tests will be added under `scripts/tests/` for unit coverage and under
+new Python script under `workflow_scripts/` to implement the auto-merge logic.
+Tests will be added under `workflow_scripts/tests/` for unit coverage and under
 `tests/workflows/` for black-box workflow validation.
 
 Key terms used here:
@@ -132,11 +168,12 @@ Stage A: confirm requirements and align on interfaces (no code changes).
 
 Stage B: scaffold script and unit tests (small, verifiable diffs).
 
-- Add `scripts/dependabot_automerge.py` with a `uv` script block targeting
-  Python 3.13, using Cyclopts env-first config (`Env("INPUT_", command=False)`).
+- Add `workflow_scripts/dependabot_automerge.py` with a `uv` script block
+  targeting Python 3.13, using Cyclopts env-first config
+  (`Env("INPUT_", command=False)`).
 - Implement structured logging (JSON or key-value lines) so workflow tests can
   assert on logs.
-- Add unit tests in `scripts/tests/test_dependabot_automerge.py` using
+- Add unit tests in `workflow_scripts/tests/test_dependabot_automerge.py` using
   `cyclopts.testing.invoke` plus `monkeypatch`/`pytest-mock` to stub HTTP calls.
 - Ensure graceful error messages and exit codes as per scripting standards.
 
@@ -166,8 +203,8 @@ All commands run from repository root: `/data/leynos/Projects/shared-actions.wor
 
 1) Create the script and unit tests.
 
-    - Create `scripts/dependabot_automerge.py`.
-    - Create `scripts/tests/test_dependabot_automerge.py`.
+    - Create `workflow_scripts/dependabot_automerge.py`.
+    - Create `workflow_scripts/tests/test_dependabot_automerge.py`.
 
 2) Add workflows and fixtures.
 
@@ -233,7 +270,7 @@ Or for skips:
 
 ## Interfaces and Dependencies
 
-Script: `scripts/dependabot_automerge.py`
+Script: `workflow_scripts/dependabot_automerge.py`
 
 - CLI: Cyclopts app with env-first config (`Env("INPUT_", command=False)`).
 - Inputs (env or CLI):
@@ -258,3 +295,23 @@ Dependencies (script-level `uv` block):
 ## Revision note
 
 Initial plan created on 2026-01-12. No revisions yet.
+
+Revision 2026-01-12: Marked plan in progress, noted approval, and added the
+workflow repository checkout decision before implementation begins.
+
+Revision 2026-01-12: Recorded helper script completion and unit test progress.
+
+Revision 2026-01-12: Updated the helper script location to `workflow_scripts/`
+so it does not shadow existing action scripts.
+
+Revision 2026-01-12: Added the reusable workflow, test workflow, and act-based
+integration test coverage.
+
+Revision 2026-01-12: Updated repository documentation for the reusable
+workflow.
+
+Revision 2026-01-12: Added workflow_scripts tests to pytest discovery so helper
+unit tests run by default.
+
+Revision 2026-01-12: Fixed dry-run validation ordering and worktree repo-root
+handling; captured gate runs and decisions.

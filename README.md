@@ -23,6 +23,12 @@ GitHub Actions
 | Validate Linux packages   | `.github/actions/validate-linux-packages`   | v1           |
 | Windows package           | [`./.github/actions/windows-package`](./.github/actions/windows-package/README.md) | v0           |
 
+## Reusable workflows
+
+| Name                     | Path                                           |
+| ------------------------ | ---------------------------------------------- |
+| Dependabot auto-merge    | `.github/workflows/dependabot-automerge.yml`   |
+
 ## Development
 
 Format, validate and test the repository:

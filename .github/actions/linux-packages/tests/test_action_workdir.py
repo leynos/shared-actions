@@ -16,7 +16,8 @@ def _load_action() -> dict[str, object]:
 
 def _find_repo_root(start: Path) -> Path:
     for candidate in (start, *start.parents):
-        if (candidate / ".git").is_dir():
+        git_path = candidate / ".git"
+        if git_path.is_dir() or git_path.is_file():
             return candidate
     message = "Could not locate repository root from test file"
     raise AssertionError(message)

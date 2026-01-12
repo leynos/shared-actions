@@ -1,0 +1,11 @@
+{
+  "pull_request": {
+    "number": 42,
+    "draft": false,
+    "user": {"login": "dependabot[bot]"},
+    "labels": [{"name": "dependencies"}],
+    "head": {"sha": "deadbeef"}
+  },
+  "repository": {"full_name": "acme/example"},
+  "sender": {"login": "dependabot[bot]"}
+}

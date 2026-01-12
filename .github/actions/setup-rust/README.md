@@ -1,8 +1,8 @@
 # Setup Rust
 
-Install the Rust toolchain and cache your build dependencies. Optionally
-install PostgreSQL and SQLite system libraries for crates that require them,
-and set up macOS or OpenBSD cross-compilers.
+Install the Rust toolchain, cargo-binstall, and cache your build dependencies.
+Optionally install PostgreSQL and SQLite system libraries for crates that
+require them, and set up macOS or OpenBSD cross-compilers.
 
 ## Inputs
 
@@ -13,6 +13,7 @@ and set up macOS or OpenBSD cross-compilers.
 | workspaces            | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
 | install-sqlite-deps   | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
 | use-sccache           | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
+| install-binstall      | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
 | with-darwin           | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
 | darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
 | with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
@@ -33,6 +34,17 @@ uses: ./.github/actions/setup-rust@v1
     use-sccache: 'false'
     with-darwin: true
     with-openbsd: true
+```
+
+The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
+to skip this step. If you bump the pinned `cargo-binstall` version, update the
+corresponding SHA-256 in the action manifest at the same time. You can obtain
+the new checksum by replacing `VERSION` with the desired tag (for example,
+`v1.16.6`) and running:
+
+```bash
+curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \
+  | shasum -a 256 | awk '{print $1}'
 ```
 
 When `install-postgres-deps` is enabled, the action installs PostgreSQL client

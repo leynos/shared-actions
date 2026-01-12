@@ -48,10 +48,12 @@ files using MSYS2 on Windows.
 The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
 to skip this step. If you bump the pinned `cargo-binstall` version, update the
 corresponding SHA-256 in the action manifest at the same time. You can obtain
-the new checksum with:
+the new checksum by replacing `VERSION` with the desired tag (for example,
+`v1.16.6`) and running:
 
 ```bash
-curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
+curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \
+  | shasum -a 256 | awk '{print $1}'
 ```
 
 SQLite support on Windows is enabled by setting up an MSYS2 environment with

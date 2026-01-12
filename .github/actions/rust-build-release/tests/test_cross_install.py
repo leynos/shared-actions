@@ -378,6 +378,8 @@ def test_installs_cross_without_container_runtime(
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
+    cross_env.patch_run_cmd()
+    app_env.patch_run_cmd()
 
     cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
@@ -410,7 +412,7 @@ def test_falls_back_to_git_when_crates_io_unavailable(
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if len(harness.calls) == 1:
-            raise subprocess.CalledProcessError(1, cmd)
+            raise cross_module.ProcessExecutionError(cmd, 1, "", "")
         return
 
     def fake_which(name: str) -> str | None:

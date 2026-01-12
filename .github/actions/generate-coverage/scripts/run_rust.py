@@ -434,7 +434,7 @@ def run_cucumber_rs_coverage(
 @contextlib.contextmanager
 def ensure_nextest_config() -> typ.Iterator[Path]:
     """Ensure a temporary nextest config exists when none is present."""
-    config_path = NEXTEST_CONFIG_PATH
+    config_path = _resolve_nextest_config_path()
     if config_path.exists():
         yield config_path
         return
@@ -453,6 +453,24 @@ def ensure_nextest_config() -> typ.Iterator[Path]:
         if created_dir:
             with contextlib.suppress(OSError):
                 config_path.parent.rmdir()
+
+
+def _resolve_nextest_config_path() -> Path:
+    env_path = os.getenv("NEXTEST_CONFIG")
+    if env_path:
+        return Path(env_path).expanduser()
+
+    xdg_home = os.getenv("XDG_CONFIG_HOME")
+    if xdg_home:
+        candidate = Path(xdg_home).expanduser() / "nextest.toml"
+        if candidate.is_file():
+            return candidate
+
+    home_candidate = Path.home() / ".config" / "nextest.toml"
+    if home_candidate.is_file():
+        return home_candidate
+
+    return NEXTEST_CONFIG_PATH
 
 
 def main(

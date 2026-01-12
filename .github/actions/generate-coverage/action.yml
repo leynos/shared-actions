@@ -116,8 +116,16 @@ runs:
       if: (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed') && inputs.use-cargo-nextest == 'true'
       run: |
         set -euo pipefail
+        # NOTE: BINSTALL_SHA256 pins and validates only the installer script
+        # (install-from-binstall-release.sh), not the cargo-binstall binary that
+        # the script subsequently downloads and executes.
+        #
         # Keep BINSTALL_VERSION and BINSTALL_SHA256 in sync; update both together.
-        # To refresh the checksum: curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
+        # To refresh the installer checksum: curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
+        #
+        # If a stronger supply-chain posture is required (similar to cargo-nextest),
+        # extend this step to also verify the checksum of the downloaded cargo-binstall
+        # artefact before invoking it, assuming such checksums are available upstream.
         BINSTALL_VERSION="v1.16.6"
         BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
         INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"

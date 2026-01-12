@@ -83,6 +83,15 @@ def _find_nextest_binary() -> Path:
     raise typer.Exit(1)
 
 
+def _find_existing_nextest_binary() -> Path | None:
+    resolved = shutil.which("cargo-nextest")
+    if resolved:
+        return Path(resolved)
+    suffix = ".exe" if os.name == "nt" else ""
+    candidate = Path.home() / ".cargo" / "bin" / f"cargo-nextest{suffix}"
+    return candidate if candidate.is_file() else None
+
+
 def install_cargo_nextest() -> None:
     """Install cargo-nextest using cargo-binstall."""
     try:
@@ -118,8 +127,18 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> None:
 
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
-    install_cargo_nextest()
     expected_sha = _expected_sha_for_platform()
+    existing = _find_existing_nextest_binary()
+    if existing is not None:
+        try:
+            verify_nextest_binary(existing, expected_sha)
+        except typer.Exit:
+            pass
+        else:
+            typer.echo("cargo-nextest already installed and verified")
+            return
+
+    install_cargo_nextest()
     binary_path = _find_nextest_binary()
     verify_nextest_binary(binary_path, expected_sha)
     typer.echo("cargo-nextest installed and verified")

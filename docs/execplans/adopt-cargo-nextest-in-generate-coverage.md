@@ -1,6 +1,6 @@
 # Adopt cargo-nextest for generate-coverage
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+This Execution Plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -17,7 +17,7 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
 - Preserve the existing public interface of the action except for the new input `use-cargo-nextest` with default `true`.
 - Keep changes scoped to the generate-coverage action and its tests/docs unless a supporting change is required.
 - Do not loosen security posture: keep third-party action pins and validate downloaded binaries with a known SHA-256.
-- Avoid non-deterministic behavior (no network-dependent version selection at runtime without a pinned version and hash).
+- Avoid non-deterministic behaviour (no network-dependent version selection at runtime without a pinned version and hash).
 
 ## Tolerances (Exception Triggers)
 
@@ -29,7 +29,7 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
 
 ## Risks
 
-    - Risk: `cargo binstall` behavior differs across OS runners (path, install location, or hash verification flags).
+    - Risk: `cargo binstall` behaviour differs across operating system (OS) runners (path, install location, or hash verification flags).
       Severity: medium
       Likelihood: medium
       Mitigation: verify current install approach in existing action code; add tests that assert the expected command line and hash validation on all supported OS paths.
@@ -42,15 +42,15 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
     - Risk: `cargo llvm-cov nextest` requires additional environment or tooling vs `cargo llvm-cov` and may fail on some runners.
       Severity: medium
       Likelihood: medium
-      Mitigation: update behavioral tests to cover both paths and validate existing environments; document fallback behavior when `use-cargo-nextest=false`.
+      Mitigation: update behavioural tests to cover both paths and validate existing environments; document fallback behaviour when `use-cargo-nextest=false`.
 
 ## Progress
 
     - [x] (2026-01-12 00:00Z) Drafted initial ExecPlan.
     - [x] (2026-01-12 00:20Z) Located generate-coverage action implementation and tests.
     - [x] (2026-01-12 00:45Z) Defined and documented the new input and defaults.
-    - [x] (2026-01-12 01:30Z) Implemented nextest install/config/run behavior with cleanup.
-    - [x] (2026-01-12 01:45Z) Added unit/behavioral tests and updated docs.
+    - [x] (2026-01-12 01:30Z) Implemented nextest install/config/run behaviour with cleanup.
+    - [x] (2026-01-12 01:45Z) Added unit/behavioural tests and updated docs.
     - [x] (2026-01-12 02:30Z) Run required Makefile gateways and commit.
 
 ## Surprises & Discoveries
@@ -73,18 +73,18 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
 Delivered cargo-nextest support for the generate-coverage action with a new
 `use-cargo-nextest` input (default true), nextest installation and checksum
 verification, and temporary config handling when none is present. Added unit
-and behavioral tests covering nextest command selection, config creation, and
+and behavioural tests covering nextest command selection, config creation, and
 install verification. All required Makefile gateways completed successfully.
 
 ## Context and Orientation
 
-The generate-coverage action lives under `.github/actions/generate-coverage/` and should contain `action.yml`, `README.md`, `src/`, `tests/`, and `CHANGELOG.md`. The action likely invokes Python scripts in the repo root (for example, modules like `actions_common.py`, `cargo_utils.py`, or `cmd_utils.py`). This plan treats the action as a GitHub Action that may call Python helpers to assemble commands. A “nextest config” refers to `.config/nextest.toml`, a configuration file for `cargo nextest` that controls timeouts and execution behavior. The new input will allow callers to opt out of nextest and continue using the existing `cargo llvm-cov` path.
+The generate-coverage action lives under `.github/actions/generate-coverage/` and should contain `action.yml`, `README.md`, `src/`, `tests/`, and `CHANGELOG.md`. The action likely invokes Python scripts in the repo root (for example, modules like `actions_common.py`, `cargo_utils.py`, or `cmd_utils.py`). This plan treats the action as a GitHub Action that may call Python helpers to assemble commands. A “nextest config” refers to `.config/nextest.toml`, a configuration file for `cargo nextest` that controls timeouts and execution behaviour. The new input will allow callers to opt out of nextest and continue using the existing `cargo llvm-cov` path.
 
 ## Plan of Work
 
-Stage A: Understand current generate-coverage behavior. Find the action folder, inspect `action.yml`, README, and implementation scripts to see how Rust coverage is executed today. Identify where inputs are parsed and where `cargo llvm-cov` is invoked. Confirm existing test structure and how behavioral tests mock or assert commands. Do not modify code yet.
+Stage A: Understand current generate-coverage behaviour. Find the action folder, inspect `action.yml`, README, and implementation scripts to see how Rust coverage is executed today. Identify where inputs are parsed and where `cargo llvm-cov` is invoked. Confirm existing test structure and how behavioural tests mock or assert commands. Do not modify code yet.
 
-Stage B: Define the new input and tests. Add `use-cargo-nextest` to `action.yml` with default `true`, document it in the action README input table, and update any config schemas. Add unit tests for input parsing and behavior switches. Add behavioral tests that assert the correct command paths and that temp nextest config creation is conditional. Ensure tests fail before implementation and pass after.
+Stage B: Define the new input and tests. Add `use-cargo-nextest` to `action.yml` with default `true`, document it in the action README input table, and update any config schemas. Add unit tests for input parsing and behaviour switches. Add behavioural tests that assert the correct command paths and that temp nextest config creation is conditional. Ensure tests fail before implementation and pass after.
 
 Stage C: Implement nextest support. Add logic to install `cargo-nextest` when `use-cargo-nextest=true`, using `cargo binstall` and validating against a pinned SHA-256. Add a helper to detect `.config/nextest.toml` and, when missing, create a temporary config with the provided defaults; ensure the file is removed after use. Switch Rust coverage execution to `cargo llvm-cov nextest` when enabled. Preserve the existing `cargo llvm-cov` path when disabled.
 
@@ -106,7 +106,7 @@ Each stage ends with validation using the project’s Makefile targets and, wher
    - Update the README input table and usage examples.
    - If there is a root README table of actions, update it only if required by repo standards.
 
-3. Add tests first (unit and behavioral).
+3. Add tests first (unit and behavioural).
 
    - Add or update tests that cover:
      - default `use-cargo-nextest=true` path
@@ -124,7 +124,7 @@ Each stage ends with validation using the project’s Makefile targets and, wher
      - clean up the temporary config after the run
    - Add install step for `cargo-nextest` using `cargo binstall` with pinned version and SHA-256.
    - Switch coverage command to `cargo llvm-cov nextest` when `use-cargo-nextest=true`.
-   - Preserve the existing `cargo llvm-cov` behavior for `use-cargo-nextest=false`.
+   - Preserve the existing `cargo llvm-cov` behaviour for `use-cargo-nextest=false`.
 
 5. Update changelog and docs.
 
@@ -154,9 +154,9 @@ Acceptance is met when the following are true:
 
 Quality criteria:
 
-- Tests: all required Makefile gates pass, and new tests cover the behavior switch.
+- Tests: all required Makefile gates pass, and new tests cover the behaviour switch.
 - Lint/typecheck: no new warnings or failures.
-- Documentation: README and CHANGELOG reflect the new input and behavior.
+- Documentation: README and CHANGELOG reflect the new input and behaviour.
 
 ## Idempotence and Recovery
 
@@ -186,4 +186,4 @@ Test logs should be stored in `/tmp/shared-actions-*.log` and referenced when di
 
 ## Revision note
 
-Marked the plan complete after passing gateways and committing the changes.
+Updated the document wording to expand "Execution Plan (ExecPlan)", define operating system (OS), and align en-GB spellings with review guidance; no execution steps changed.

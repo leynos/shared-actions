@@ -273,7 +273,7 @@ def test_main_errors_when_manifest_missing(
     monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
 
     target = "x86_64-unknown-linux-gnu"
-    harness.patch_attr("_resolve_target_argument", lambda value: target)
+    harness.patch_attr("_resolve_target_argument", lambda _value: target)
     decision = context.cross_decision_factory(context.main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
     harness.patch_attr("_build_cargo_command", _unexpected("unexpected build"))

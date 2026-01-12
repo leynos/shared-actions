@@ -2,7 +2,7 @@
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 PLANS.md was not found in this repository when this plan was created.
 
@@ -51,7 +51,7 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
     - [x] (2026-01-12 00:45Z) Defined and documented the new input and defaults.
     - [x] (2026-01-12 01:30Z) Implemented nextest install/config/run behavior with cleanup.
     - [x] (2026-01-12 01:45Z) Added unit/behavioral tests and updated docs.
-    - [ ] (2026-01-12 02:15Z) Run required Makefile gateways and commit (completed: make check-fmt, typecheck, lint, test; remaining: git commit).
+    - [x] (2026-01-12 02:30Z) Run required Makefile gateways and commit.
 
 ## Surprises & Discoveries
 
@@ -70,7 +70,11 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
 
 ## Outcomes & Retrospective
 
-Work in progress; validation and commit remain.
+Delivered cargo-nextest support for the generate-coverage action with a new
+`use-cargo-nextest` input (default true), nextest installation and checksum
+verification, and temporary config handling when none is present. Added unit
+and behavioral tests covering nextest command selection, config creation, and
+install verification. All required Makefile gateways completed successfully.
 
 ## Context and Orientation
 
@@ -182,4 +186,4 @@ Test logs should be stored in `/tmp/shared-actions-*.log` and referenced when di
 
 ## Revision note
 
-Updated status to IN PROGRESS, marked completed steps, and recorded the pinned cargo-nextest version/checksums.
+Marked the plan complete after passing gateways and committing the changes.

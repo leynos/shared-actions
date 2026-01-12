@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import importlib.util
 import io
@@ -140,13 +141,20 @@ def _make_fake_cargo(
     return FakeCargo()
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class RustCoverageConfig:
+    """Configuration for rust coverage test runs."""
+
+    use_nextest: bool
+    features: str = ""
+    with_default_features: bool = True
+
+
 def _run_rust_coverage_test(
     tmp_path: Path,
     shell_stubs: StubManager,
+    config: RustCoverageConfig,
     *,
-    use_nextest: bool,
-    features: str = "",
-    with_default_features: bool = True,
     monkeypatch: pytest.MonkeyPatch | None = None,
 ) -> tuple[list[str], Path, Path]:
     """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
@@ -164,9 +172,11 @@ def _run_rust_coverage_test(
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
-        "INPUT_FEATURES": features,
-        "INPUT_WITH_DEFAULT_FEATURES": "true" if with_default_features else "false",
-        "INPUT_USE_CARGO_NEXTEST": "true" if use_nextest else "false",
+        "INPUT_FEATURES": config.features,
+        "INPUT_WITH_DEFAULT_FEATURES": (
+            "true" if config.with_default_features else "false"
+        ),
+        "INPUT_USE_CARGO_NEXTEST": "true" if config.use_nextest else "false",
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -189,9 +199,11 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     cargo_args, out, gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
-        use_nextest=False,
-        features="fast",
-        with_default_features=False,
+        RustCoverageConfig(
+            use_nextest=False,
+            features="fast",
+            with_default_features=False,
+        ),
     )
     expected_args = [
         "llvm-cov",
@@ -220,7 +232,7 @@ def test_run_rust_nextest_command(
     cargo_args, out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
-        use_nextest=True,
+        RustCoverageConfig(use_nextest=True),
         monkeypatch=monkeypatch,
     )
     expected_args = [

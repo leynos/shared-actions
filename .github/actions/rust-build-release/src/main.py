@@ -567,8 +567,10 @@ def _restore_container_engine(
 
 
 def _normalize_features(features: str) -> str:
-    """Strip whitespace from features to avoid invalid --features arguments."""
-    return features.strip()
+    """Normalize comma-separated feature lists for --features arguments."""
+    parts = [part.strip() for part in features.split(",")]
+    normalized = [part for part in parts if part]
+    return ",".join(normalized)
 
 
 def _build_cross_command(

@@ -89,6 +89,15 @@ class Decision:
     reason: str
 
 
+@dataclasses.dataclass(frozen=True)
+class AutomergeConfig:
+    """Configuration for emitting automerge decisions."""
+
+    merge_method: str
+    required_label: str | None
+    dry_run: bool
+
+
 def _log_value(value: object) -> str:
     if value is None:
         return ""
@@ -243,11 +252,9 @@ def _emit_decision(
     pr: PullRequestContext,
     decision: Decision,
     *,
-    merge_method: str,
-    required_label: str | None,
-    dry_run: bool,
+    config: AutomergeConfig,
 ) -> None:
-    if decision.status == "ready" and dry_run:
+    if decision.status == "ready" and config.dry_run:
         status = "dry-run"
         reason = decision.reason
     else:
@@ -255,8 +262,8 @@ def _emit_decision(
         reason = decision.reason
     _emit("automerge_status", status)
     _emit("automerge_reason", reason)
-    _emit("automerge_merge_method", merge_method)
-    _emit("automerge_required_label", required_label or "")
+    _emit("automerge_merge_method", config.merge_method)
+    _emit("automerge_required_label", config.required_label or "")
     _emit("automerge_repository", f"{pr.owner}/{pr.repo}")
     _emit("automerge_pr_number", pr.number)
     _emit("automerge_author", pr.author)
@@ -341,20 +348,17 @@ def _handle_dry_run(
     event: dict[str, typ.Any] | None,
     repo_full_name: str,
     *,
-    required_label: str | None,
-    merge_method: str,
+    config: AutomergeConfig,
 ) -> None:
     """Handle the dry-run execution path without API calls."""
     if event is None:
         _fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
     snapshot = _snapshot_from_event(event, repo_full_name)
-    decision = _evaluate(snapshot, required_label)
+    decision = _evaluate(snapshot, config.required_label)
     _emit_decision(
         snapshot,
         decision,
-        merge_method=merge_method,
-        required_label=required_label,
-        dry_run=True,
+        config=config,
     )
 
 
@@ -363,8 +367,7 @@ def _handle_live_execution(
     repo_full_name: str,
     event: dict[str, typ.Any] | None,
     *,
-    required_label: str | None,
-    merge_method: str,
+    config: AutomergeConfig,
     pull_request_number: int | None,
 ) -> None:
     """Handle the live execution path that talks to the GitHub API."""
@@ -372,14 +375,12 @@ def _handle_live_execution(
     pr_number = _resolve_pull_request_number(pull_request_number, event)
 
     pr = _fetch_pull_request(github_token, owner, repo, pr_number)
-    decision = _evaluate(pr, required_label)
+    decision = _evaluate(pr, config.required_label)
     if decision.status != "ready":
         _emit_decision(
             pr,
             decision,
-            merge_method=merge_method,
-            required_label=required_label,
-            dry_run=False,
+            config=config,
         )
         return
 
@@ -387,22 +388,18 @@ def _handle_live_execution(
         _emit_decision(
             pr,
             Decision(status="enabled", reason="already-enabled"),
-            merge_method=merge_method,
-            required_label=required_label,
-            dry_run=False,
+            config=config,
         )
         return
 
     if not pr.node_id:
         _fail("Pull request node ID missing from GitHub response.")
 
-    _enable_automerge(github_token, pr.node_id, merge_method)
+    _enable_automerge(github_token, pr.node_id, config.merge_method)
     _emit_decision(
         pr,
         Decision(status="enabled", reason="enabled"),
-        merge_method=merge_method,
-        required_label=required_label,
-        dry_run=False,
+        config=config,
     )
 
 
@@ -419,6 +416,11 @@ def main(
     """Evaluate a PR and enable auto-merge when policy allows."""
     normalized_label = _normalize_label(required_label)
     normalized_merge_method = _normalize_merge_method(merge_method)
+    config = AutomergeConfig(
+        merge_method=normalized_merge_method,
+        required_label=normalized_label,
+        dry_run=dry_run,
+    )
 
     event = _load_event()
     repo_full_name = _resolve_repository(repository, event)
@@ -427,16 +429,14 @@ def main(
         _handle_dry_run(
             event,
             repo_full_name,
-            required_label=normalized_label,
-            merge_method=normalized_merge_method,
+            config=config,
         )
         return
     _handle_live_execution(
         github_token,
         repo_full_name,
         event,
-        required_label=normalized_label,
-        merge_method=normalized_merge_method,
+        config=config,
         pull_request_number=pull_request_number,
     )
 

@@ -138,19 +138,24 @@ def _normalize_merge_method(merge_method: str) -> str:
     return MERGE_METHODS[normalized]
 
 
+def _get_repo_from_event(event: dict[str, typ.Any] | None) -> str:
+    """Return the repository full name from an event payload when available."""
+    if not event:
+        return ""
+    repo = event.get("repository", {}).get("full_name")
+    if isinstance(repo, str):
+        return repo.strip()
+    return ""
+
+
 def _resolve_repository(
     repository: str | None, event: dict[str, typ.Any] | None
 ) -> str:
-    if repository:
-        candidate = repository.strip()
-        if candidate:
-            return candidate
-    if event:
-        repo = event.get("repository", {}).get("full_name")
-        if isinstance(repo, str) and repo.strip():
-            return repo
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if repo:
+    if repository and (candidate := repository.strip()):
+        return candidate
+    if repo := _get_repo_from_event(event):
+        return repo
+    if repo := os.environ.get("GITHUB_REPOSITORY"):
         return repo
     _fail("Repository not provided. Set INPUT_REPOSITORY or GITHUB_REPOSITORY.")
 

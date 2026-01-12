@@ -18,6 +18,10 @@ inputs:
     description: Enable sccache for non-release runs
     required: false
     default: "true"
+  install-binstall:
+    description: Install cargo-binstall for faster binary crate installations
+    required: false
+    default: "true"
   with-darwin:
     description: Install macOS cross build toolchain
     required: false
@@ -61,6 +65,7 @@ runs:
         components: rustfmt, clippy, llvm-tools-preview
         cache: false
     - name: Install cargo-binstall
+      if: ${{ inputs.install-binstall == 'true' }}
       run: |
         set -euo pipefail
         # v1.16.6

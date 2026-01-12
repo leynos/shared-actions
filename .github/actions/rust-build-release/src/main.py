@@ -466,6 +466,40 @@ def _decide_cross_usage(
     )
 
 
+def _validate_cross_requirements(
+    decision: _CrossDecision, target_to_build: str, host_target: str
+) -> None:
+    """Validate cross-container requirements and exit if unsatisfied."""
+    if not decision.requires_cross_container:
+        return
+
+    if decision.use_cross_local_backend:
+        typer.echo(
+            "::error:: target "
+            f"'{target_to_build}' requires cross with a container runtime "
+            f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
+            "a container runtime is required",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not decision.use_cross:
+        details: list[str] = []
+        if decision.cross_path is None:
+            details.append("cross is not installed")
+        if not decision.has_container:
+            details.append("no container runtime detected")
+        detail_suffix = f", {', '.join(details)}" if details else ""
+        typer.echo(
+            "::error:: target "
+            f"'{target_to_build}' requires cross with a container runtime "
+            f"on host '{host_target}'"
+            f"{detail_suffix}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
 def _announce_build_mode(decision: _CrossDecision) -> None:
     """Print how the build will proceed."""
     if decision.use_cross:
@@ -532,8 +566,15 @@ def _restore_container_engine(
         os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
+def _normalize_features(features: str) -> str:
+    """Normalize comma-separated feature lists for --features arguments."""
+    parts = [part.strip() for part in features.split(",")]
+    normalized = [part for part in parts if part]
+    return ",".join(normalized)
+
+
 def _build_cross_command(
-    decision: _CrossDecision, target_to_build: str, manifest_path: Path
+    decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
@@ -546,13 +587,16 @@ def _build_cross_command(
         "--target",
         target_to_build,
     ]
+    normalized_features = _normalize_features(features)
+    if normalized_features:
+        build_cmd = build_cmd["--features", normalized_features]
     if decision.cross_path:
         build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     return build_cmd
 
 
 def _build_cargo_command(
-    cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path
+    cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
     executor = local["cargo"]
     build_cmd = executor[
@@ -564,6 +608,9 @@ def _build_cargo_command(
         "--target",
         target_to_build,
     ]
+    normalized_features = _normalize_features(features)
+    if normalized_features:
+        build_cmd = build_cmd["--features", normalized_features]
     return _CommandWrapper(build_cmd, "cargo")
 
 
@@ -572,6 +619,7 @@ def _handle_cross_container_error(
     decision: _CrossDecision,
     target_to_build: str,
     manifest_path: Path,
+    features: str,
 ) -> None:
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
@@ -591,6 +639,7 @@ def _handle_cross_container_error(
             decision.cargo_toolchain_spec,
             target_to_build,
             manifest_path,
+            features,
         )
         run_cmd(fallback_cmd)
         return
@@ -637,6 +686,11 @@ def main(
         envvar="RBR_TOOLCHAIN",
         help="Rust toolchain version",
     ),
+    features: str = typer.Option(
+        "",
+        envvar="RBR_FEATURES",
+        help="Comma-separated list of Cargo features to enable",
+    ),
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
@@ -655,32 +709,7 @@ def main(
         toolchain_name, installed_names, rustup_exec, target_to_build, host_target
     )
 
-    if decision.requires_cross_container:
-        if decision.use_cross_local_backend:
-            typer.echo(
-                "::error:: target "
-                f"'{target_to_build}' requires cross with a container runtime "
-                f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
-                "a container runtime is required",
-                err=True,
-            )
-            raise typer.Exit(1)
-
-        if not decision.use_cross:
-            details: list[str] = []
-            if decision.cross_path is None:
-                details.append("cross is not installed")
-            if not decision.has_container:
-                details.append("no container runtime detected")
-            detail_suffix = f", {', '.join(details)}" if details else ""
-            typer.echo(
-                "::error:: target "
-                f"'{target_to_build}' requires cross with a container runtime "
-                f"on host '{host_target}'"
-                f"{detail_suffix}",
-                err=True,
-            )
-            raise typer.Exit(1)
+    _validate_cross_requirements(decision, target_to_build, host_target)
 
     if not target_installed and (
         not decision.use_cross or decision.use_cross_local_backend
@@ -699,15 +728,19 @@ def main(
     manifest_path = _resolve_manifest_path()
     manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
-        build_cmd = _build_cross_command(decision, target_to_build, manifest_argument)
+        build_cmd = _build_cross_command(
+            decision, target_to_build, manifest_argument, features
+        )
     else:
         build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
         )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
-        _handle_cross_container_error(exc, decision, target_to_build, manifest_argument)
+        _handle_cross_container_error(
+            exc, decision, target_to_build, manifest_argument, features
+        )
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)
 

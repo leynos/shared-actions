@@ -36,7 +36,9 @@ if __name__ not in sys.modules:
 else:
     _SELF_MODULE = sys.modules[__name__]
 
-app = App(config=cyclopts.config.Env("INPUT_", command=False))
+app = App(
+    config=cyclopts.config.Env("INPUT_", command=False),  # type: ignore[unknown-argument]
+)
 
 
 @dataclasses.dataclass(frozen=True)

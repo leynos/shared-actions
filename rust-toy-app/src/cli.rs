@@ -14,6 +14,8 @@ impl Cli {
     #[must_use]
     pub fn run(&self) -> String {
         let name = self.name.as_deref().unwrap_or("world");
+        #[cfg(feature = "verbose")]
+        eprintln!("[verbose] Greeting: {name}");
         format!("Hello, {name}!")
     }
 }

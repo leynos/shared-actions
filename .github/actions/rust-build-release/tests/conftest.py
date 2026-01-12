@@ -194,6 +194,79 @@ class ModuleHarness:
 HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 
 
+class _DummyCommand:
+    def __init__(self, name: str = "dummy") -> None:
+        self._name = name
+
+    def formulate(self) -> list[str]:
+        return [self._name]
+
+    def __call__(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+class CrossDecision(typ.Protocol):
+    """Typed view of the _CrossDecision fields used in tests."""
+
+    cross_path: str | None
+    cross_version: str | None
+    use_cross: bool
+    cross_toolchain_spec: str
+    cargo_toolchain_spec: str
+    use_cross_local_backend: bool
+    docker_present: bool
+    podman_present: bool
+    has_container: bool
+    container_engine: str | None
+    requires_cross_container: bool
+
+
+CrossDecisionFactory = cabc.Callable[..., CrossDecision]
+DummyCommandFactory = cabc.Callable[..., _DummyCommand]
+
+
+def _cross_decision(
+    main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
+) -> CrossDecision:
+    return main_module._CrossDecision(  # type: ignore[attr-defined]
+        cross_path="/usr/bin/cross" if use_cross else None,
+        cross_version="0.2.5",
+        use_cross=use_cross,
+        cross_toolchain_spec="+stable",
+        cargo_toolchain_spec="+stable",
+        use_cross_local_backend=False,
+        docker_present=True,
+        podman_present=False,
+        has_container=True,
+        container_engine="docker" if use_cross else None,
+        requires_cross_container=requires_container,
+    )
+
+
+@pytest.fixture
+def dummy_command_factory() -> DummyCommandFactory:
+    """Return a factory that builds dummy command objects for tests."""
+
+    def factory(name: str = "dummy") -> _DummyCommand:
+        return _DummyCommand(name)
+
+    return factory
+
+
+@pytest.fixture
+def cross_decision_factory() -> CrossDecisionFactory:
+    """Return a factory that builds _CrossDecision values for tests."""
+
+    def factory(
+        main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
+    ) -> CrossDecision:
+        return _cross_decision(
+            main_module, use_cross=use_cross, requires_container=requires_container
+        )
+
+    return factory
+
+
 @pytest.fixture
 def echo_recorder(
     monkeypatch: pytest.MonkeyPatch,
@@ -223,6 +296,31 @@ def module_harness(monkeypatch: pytest.MonkeyPatch) -> HarnessFactory:
         return harness
 
     return factory
+
+
+@pytest.fixture
+def setup_manifest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Create a temporary Cargo manifest and switch into its directory."""
+    manifest = tmp_path / "Cargo.toml"
+    manifest.write_text("[package]\nname='demo'\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
+    return manifest
+
+
+@pytest.fixture
+def patch_common_main_deps(
+    main_module: ModuleType, module_harness: HarnessFactory
+) -> ModuleHarness:
+    """Provide a harness with the common main() dependencies patched."""
+    harness = module_harness(main_module)
+    harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
+    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
+    harness.patch_attr("_ensure_target_installed", lambda *_: True)
+    harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
+    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
+    harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
+    return harness
 
 
 @pytest.fixture

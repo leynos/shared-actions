@@ -25,12 +25,13 @@ script.
 
 ## Inputs
 
-| Name          | Type   | Default                    | Description                                                    | Required |
-| ------------- | ------ | -------------------------- | -------------------------------------------------------------- | -------- |
-| target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                         | no       |
-| project-dir   | string | `.`                        | Path to the Rust project to build                              | no       |
+| Name          | Type   | Default                    | Description                                                        | Required |
+| ------------- | ------ | -------------------------- | ------------------------------------------------------------------ | -------- |
+| target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                             | no       |
+| project-dir   | string | `.`                        | Path to the Rust project to build                                  | no       |
 | manifest-path | string | `Cargo.toml`               | Path to the Cargo manifest (relative to `project-dir` or absolute) | no       |
-| bin-name      | string | `rust-toy-app`             | Binary name produced by the build                              | no       |
+| bin-name      | string | `rust-toy-app`             | Binary name produced by the build                                  | no       |
+| features      | string | (empty)                    | Comma-separated list of Cargo features                             | no       |
 
 ## Outputs
 
@@ -54,6 +55,14 @@ None.
     project-dir: rust-toy-app
     manifest-path: Cargo.toml
     bin-name: rust-toy-app
+
+# Build with specific Cargo features enabled
+- uses: ./.github/actions/rust-build-release
+  with:
+    target: x86_64-unknown-linux-gnu
+    project-dir: rust-toy-app
+    bin-name: rust-toy-app
+    features: "verbose,experimental"
 ```
 
 ```yaml

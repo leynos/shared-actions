@@ -13,6 +13,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | workspaces            | Cargo workspace to target mappings for `Swatinem/rust-cache`. Each non-empty line must use the format `workspace -> target`; leave empty to cache the default `. -> target`. | no       | _(empty)_ (defaults to `. -> target`) |
 | install-sqlite-deps   | Install SQLite dev libraries (Windows)                                                                                                                                       | no       | `false`                               |
 | use-sccache           | Enable sccache for non-release runs                                                                                                                                          | no       | `true`                                |
+| install-binstall      | Install cargo-binstall for faster binary crate installations                                                                                                                 | no       | `true`                                |
 | with-darwin           | Install macOS cross build toolchain                                                                                                                                          | no       | `false`                               |
 | darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
 | with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
@@ -43,6 +44,15 @@ variables.
 
 When `install-sqlite-deps` is enabled, the action installs SQLite development
 files using MSYS2 on Windows.
+
+The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
+to skip this step. If you bump the pinned `cargo-binstall` version, update the
+corresponding SHA-256 in the action manifest at the same time. You can obtain
+the new checksum with:
+
+```bash
+curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
+```
 
 SQLite support on Windows is enabled by setting up an MSYS2 environment with
 the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package, so the static

@@ -93,6 +93,13 @@ local validation path via `pytest` + `act`.
   a file.
   Impact: Broaden repo-root detection to accept `.git` files.
 
+- Observation: `act` runs failed with `setup-uv` under Node 18 and with pip's
+  PEP 668 protections when installing uv.
+  Evidence: `ACT_WORKFLOW_TESTS=1 make test` failures in the reusable workflow
+  job during the `setup-uv` and `pip install uv` steps.
+  Impact: Use act-specific installation (pip with `--break-system-packages`),
+  and redirect uv's environment/cache to `/tmp` during act runs.
+
 ## Decision Log
 
 - Decision: Implement auto-merge enablement via GitHub GraphQL API
@@ -128,6 +135,12 @@ local validation path via `pytest` + `act`.
   environments.
   Rationale: git worktrees store metadata in a file, and tests should pass in
   that layout.
+  Date/Author: 2026-01-12 (assistant).
+
+- Decision: Add act-only workflow branches to skip `setup-uv`, install uv via
+  pip with `--break-system-packages`, and redirect uv paths to `/tmp`.
+  Rationale: act uses Node 18 and Debian PEP 668 defaults; this keeps workflow
+  tests green without affecting GitHub runner behavior.
   Date/Author: 2026-01-12 (assistant).
 
 ## Outcomes & Retrospective
@@ -325,3 +338,6 @@ Revision 2026-01-12: Fixed dry-run validation ordering and worktree repo-root
 handling; captured gate runs and decisions.
 
 Revision 2026-01-12: Marked plan complete and summarized outcomes.
+
+Revision 2026-01-12: Added act-only uv installation and cache redirection
+notes based on workflow test failures.

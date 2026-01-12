@@ -112,6 +112,92 @@ class BuildTestConfig:
     toolchain: str
 
 
+@dc.dataclass(frozen=True)
+class BuildMainContext:
+    """Bundled dependencies for main() manifest tests."""
+
+    main_module: ModuleType
+    harness: ModuleHarness
+    cross_decision_factory: CrossDecisionFactory
+    dummy_command_factory: DummyCommandFactory
+
+
+@dc.dataclass(frozen=True)
+class BuildCommandContext:
+    """Bundled dependencies for build command tests."""
+
+    main_module: ModuleType
+    manifest: Path
+    cross_decision: object
+
+
+@dc.dataclass(frozen=True)
+class CrossFallbackContext:
+    """Bundled dependencies for cross fallback tests."""
+
+    main_module: ModuleType
+    harness: ModuleHarness
+    manifest: Path
+    decision: object
+    dummy_command_factory: DummyCommandFactory
+
+
+@pytest.fixture
+def build_main_context(
+    main_module: ModuleType,
+    patch_common_main_deps: ModuleHarness,
+    cross_decision_factory: CrossDecisionFactory,
+    dummy_command_factory: DummyCommandFactory,
+) -> BuildMainContext:
+    """Build a context for main() manifest tests."""
+    return BuildMainContext(
+        main_module=main_module,
+        harness=patch_common_main_deps,
+        cross_decision_factory=cross_decision_factory,
+        dummy_command_factory=dummy_command_factory,
+    )
+
+
+@pytest.fixture
+def build_command_context(
+    main_module: ModuleType,
+    tmp_path: Path,
+    cross_decision_factory: CrossDecisionFactory,
+) -> BuildCommandContext:
+    """Build a context for manifest-aware command tests."""
+    return BuildCommandContext(
+        main_module=main_module,
+        manifest=(tmp_path / "Cargo.toml").resolve(),
+        cross_decision=cross_decision_factory(main_module, use_cross=True),
+    )
+
+
+@pytest.fixture
+def main_module_harness(
+    main_module: ModuleType, module_harness: HarnessFactory
+) -> ModuleHarness:
+    """Return a module harness for main.py tests."""
+    return module_harness(main_module)
+
+
+@pytest.fixture
+def cross_fallback_context(
+    main_module_harness: ModuleHarness,
+    tmp_path: Path,
+    cross_decision_factory: CrossDecisionFactory,
+    dummy_command_factory: DummyCommandFactory,
+) -> CrossFallbackContext:
+    """Build a context for cross container fallback tests."""
+    main_module = main_module_harness.module
+    return CrossFallbackContext(
+        main_module=main_module,
+        harness=main_module_harness,
+        manifest=(tmp_path / "Cargo.toml").resolve(),
+        decision=cross_decision_factory(main_module, use_cross=True),
+        dummy_command_factory=dummy_command_factory,
+    )
+
+
 @pytest.mark.parametrize(
     "config",
     [
@@ -120,16 +206,14 @@ class BuildTestConfig:
     ],
     ids=["cross", "cargo"],
 )
+@pytest.mark.usefixtures("setup_manifest")
 def test_main_passes_manifest_to_builder(
-    main_module: ModuleType,
-    patch_common_main_deps: ModuleHarness,
-    setup_manifest: Path,
+    build_main_context: BuildMainContext,
     config: BuildTestConfig,
-    cross_decision_factory: CrossDecisionFactory,
-    dummy_command_factory: DummyCommandFactory,
 ) -> None:
     """Ensure both build modes receive the manifest path."""
-    harness = patch_common_main_deps
+    context = build_main_context
+    harness = context.harness
     captured: dict[str, object] = {}
 
     if config.build_mode == "cross":
@@ -137,7 +221,7 @@ def test_main_passes_manifest_to_builder(
         harness.patch_attr(
             "_resolve_toolchain", lambda *_: (config.toolchain, [config.toolchain])
         )
-        decision = cross_decision_factory(main_module, use_cross=True)
+        decision = context.cross_decision_factory(context.main_module, use_cross=True)
 
         def fake_cross(
             decision_arg: object, target_arg: str, manifest_arg: Path, features_arg: str
@@ -146,7 +230,7 @@ def test_main_passes_manifest_to_builder(
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg
-            return dummy_command_factory("cross-build")
+            return context.dummy_command_factory("cross-build")
 
         harness.patch_attr("_build_cross_command", fake_cross)
         harness.patch_attr(
@@ -154,7 +238,7 @@ def test_main_passes_manifest_to_builder(
         )
     else:
         harness.patch_attr("_resolve_target_argument", lambda _value: _value)
-        decision = cross_decision_factory(main_module, use_cross=False)
+        decision = context.cross_decision_factory(context.main_module, use_cross=False)
 
         def fake_cargo(
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
@@ -162,7 +246,7 @@ def test_main_passes_manifest_to_builder(
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg
-            return dummy_command_factory("cargo-build")
+            return context.dummy_command_factory("cargo-build")
 
         harness.patch_attr("_build_cargo_command", fake_cargo)
         harness.patch_attr(
@@ -171,32 +255,31 @@ def test_main_passes_manifest_to_builder(
 
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-    main_module.main(config.target, toolchain=config.toolchain)
+    context.main_module.main(config.target, toolchain=config.toolchain)
 
     assert captured["manifest"] == Path("Cargo.toml")
     assert captured["features"] == ""
 
 
 def test_main_errors_when_manifest_missing(
-    main_module: ModuleType,
-    patch_common_main_deps: ModuleHarness,
+    build_main_context: BuildMainContext,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    cross_decision_factory: CrossDecisionFactory,
 ) -> None:
     """main() should fail fast without a manifest present."""
-    harness = patch_common_main_deps
+    context = build_main_context
+    harness = context.harness
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
 
     target = "x86_64-unknown-linux-gnu"
     harness.patch_attr("_resolve_target_argument", lambda value: target)
-    decision = cross_decision_factory(main_module, use_cross=False)
+    decision = context.cross_decision_factory(context.main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
     harness.patch_attr("_build_cargo_command", _unexpected("unexpected build"))
 
-    with pytest.raises(main_module.typer.Exit):
-        main_module.main(target, toolchain="stable")
+    with pytest.raises(context.main_module.typer.Exit):
+        context.main_module.main(target, toolchain="stable")
 
     assert harness.calls == []
 
@@ -209,33 +292,30 @@ def test_main_errors_when_manifest_missing(
     ],
 )
 def test_build_commands_include_manifest_path(
-    main_module: ModuleType,
-    tmp_path: Path,
+    build_command_context: BuildCommandContext,
     builder: str,
     target: str,
-    cross_decision_factory: CrossDecisionFactory,
 ) -> None:
     """Both builders must embed the manifest path flag."""
-    manifest = (tmp_path / "Cargo.toml").resolve()
+    context = build_command_context
     if builder == "cross":
-        decision = cross_decision_factory(main_module, use_cross=True)
-        cmd = main_module._build_cross_command(decision, target, manifest, "")
+        cmd = context.main_module._build_cross_command(
+            context.cross_decision, target, context.manifest, ""
+        )
     else:
-        cmd = main_module._build_cargo_command("+stable", target, manifest, "")
+        cmd = context.main_module._build_cargo_command(
+            "+stable", target, context.manifest, ""
+        )
 
-    assert_manifest_in_command(cmd, manifest)
+    assert_manifest_in_command(cmd, context.manifest)
 
 
 def test_handle_cross_container_error_passes_manifest_to_fallback(
-    main_module: ModuleType,
-    module_harness: HarnessFactory,
-    tmp_path: Path,
-    cross_decision_factory: CrossDecisionFactory,
-    dummy_command_factory: DummyCommandFactory,
+    cross_fallback_context: CrossFallbackContext,
 ) -> None:
     """Fallback cargo builds must see the manifest path as well."""
-    harness = module_harness(main_module)
-    manifest = (tmp_path / "Cargo.toml").resolve()
+    context = cross_fallback_context
+    harness = context.harness
     captured: dict[str, object] = {}
 
     def fake_cargo(
@@ -244,15 +324,16 @@ def test_handle_cross_container_error_passes_manifest_to_fallback(
         captured["target"] = target_arg
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg
-        return dummy_command_factory("fallback")
+        return context.dummy_command_factory("fallback")
 
     harness.patch_attr("_build_cargo_command", fake_cargo)
 
-    decision = cross_decision_factory(main_module, use_cross=True)
     exc = ProcessExecutionError(["cross"], 125, "", "")
 
-    main_module._handle_cross_container_error(exc, decision, "aarch64", manifest, "")
+    context.main_module._handle_cross_container_error(
+        exc, context.decision, "aarch64", context.manifest, ""
+    )
 
-    assert captured["manifest"] == manifest
+    assert captured["manifest"] == context.manifest
     assert harness.calls
     assert harness.calls[0] == ["fallback"]

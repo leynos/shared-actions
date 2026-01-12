@@ -140,8 +140,16 @@ def _make_fake_cargo(
     return FakeCargo()
 
 
-def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
-    """Happy path for ``run_rust.py``."""
+def _run_rust_coverage_test(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    *,
+    use_nextest: bool,
+    features: str = "",
+    with_default_features: bool = True,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> tuple[list[str], Path, Path]:
+    """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
 
@@ -156,11 +164,14 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
-        "INPUT_FEATURES": "fast",
-        "INPUT_WITH_DEFAULT_FEATURES": "false",
-        "INPUT_USE_CARGO_NEXTEST": "false",
+        "INPUT_FEATURES": features,
+        "INPUT_WITH_DEFAULT_FEATURES": "true" if with_default_features else "false",
+        "INPUT_USE_CARGO_NEXTEST": "true" if use_nextest else "false",
         "GITHUB_OUTPUT": str(gh),
     }
+
+    if monkeypatch is not None:
+        monkeypatch.chdir(tmp_path)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     returncode, stdout, _ = run_script(script, env)
@@ -169,6 +180,19 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1
+
+    return calls[0].argv, out, gh
+
+
+def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
+    """Happy path for ``run_rust.py``."""
+    cargo_args, out, gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        use_nextest=False,
+        features="fast",
+        with_default_features=False,
+    )
     expected_args = [
         "llvm-cov",
         "--workspace",
@@ -180,7 +204,7 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         "--output-path",
         str(out),
     ]
-    assert calls[0].argv == expected_args
+    assert cargo_args == expected_args
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
@@ -193,34 +217,12 @@ def test_run_rust_nextest_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_rust.py`` uses cargo llvm-cov nextest when enabled."""
-    out = tmp_path / "cov.lcov"
-    gh = tmp_path / "gh.txt"
-
-    out.write_text("LF:200\nLH:163\n")
-    shell_stubs.register(
-        "cargo",
-        default=DefaultResponse(stdout="Coverage: 81.5%\n"),
+    cargo_args, out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        use_nextest=True,
+        monkeypatch=monkeypatch,
     )
-
-    env = {
-        **shell_stubs.env,
-        "INPUT_OUTPUT_PATH": str(out),
-        "DETECTED_LANG": "rust",
-        "DETECTED_FMT": "lcov",
-        "INPUT_FEATURES": "",
-        "INPUT_WITH_DEFAULT_FEATURES": "true",
-        "INPUT_USE_CARGO_NEXTEST": "true",
-        "GITHUB_OUTPUT": str(gh),
-    }
-
-    monkeypatch.chdir(tmp_path)
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
-    returncode, stdout, _ = run_script(script, env)
-    assert returncode == 0
-    assert "Coverage" in stdout
-
-    calls = shell_stubs.calls_of("cargo")
-    assert len(calls) == 1
     expected_args = [
         "llvm-cov",
         "nextest",
@@ -230,7 +232,7 @@ def test_run_rust_nextest_command(
         "--output-path",
         str(out),
     ]
-    assert calls[0].argv == expected_args
+    assert cargo_args == expected_args
     assert not (tmp_path / ".config" / "nextest.toml").exists()
 
 

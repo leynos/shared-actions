@@ -36,15 +36,6 @@ uses: ./.github/actions/setup-rust@v1
     with-openbsd: true
 ```
 
-When `install-postgres-deps` is enabled, the action installs PostgreSQL client
-libraries via the package manager for the runner OS. On Linux, it uses `apt`
-(`libpq-dev`). On Windows, Chocolatey installs `postgresql17` and exposes its
-headers and import libraries through `PG_INCLUDE` and `PG_LIB` environment
-variables.
-
-When `install-sqlite-deps` is enabled, the action installs SQLite development
-files using MSYS2 on Windows.
-
 The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
 to skip this step. If you bump the pinned `cargo-binstall` version, update the
 corresponding SHA-256 in the action manifest at the same time. You can obtain
@@ -55,6 +46,15 @@ the new checksum by replacing `VERSION` with the desired tag (for example,
 curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \
   | shasum -a 256 | awk '{print $1}'
 ```
+
+When `install-postgres-deps` is enabled, the action installs PostgreSQL client
+libraries via the package manager for the runner OS. On Linux, it uses `apt`
+(`libpq-dev`). On Windows, Chocolatey installs `postgresql17` and exposes its
+headers and import libraries through `PG_INCLUDE` and `PG_LIB` environment
+variables.
+
+When `install-sqlite-deps` is enabled, the action installs SQLite development
+files using MSYS2 on Windows.
 
 SQLite support on Windows is enabled by setting up an MSYS2 environment with
 the MinGW toolchain and the `mingw-w64-x86_64-sqlite3` package, so the static

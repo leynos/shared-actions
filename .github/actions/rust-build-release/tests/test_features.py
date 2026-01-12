@@ -47,6 +47,92 @@ class MainFeaturesTestCase:
     target: str
 
 
+@dataclasses.dataclass(frozen=True)
+class CommandFeaturesContext:
+    """Bundled dependencies for command feature tests."""
+
+    main_module: ModuleType
+    manifest: Path
+    cross_decision: object
+
+
+@dataclasses.dataclass(frozen=True)
+class MainFeaturesContext:
+    """Bundled dependencies for main() feature tests."""
+
+    main_module: ModuleType
+    harness: ModuleHarness
+    cross_decision_factory: CrossDecisionFactory
+    dummy_command_factory: DummyCommandFactory
+
+
+@dataclasses.dataclass(frozen=True)
+class CrossContainerContext:
+    """Bundled dependencies for cross container fallback tests."""
+
+    main_module: ModuleType
+    harness: ModuleHarness
+    manifest: Path
+    decision: object
+    dummy_command_factory: DummyCommandFactory
+
+
+@pytest.fixture
+def command_features_context(
+    main_module: ModuleType,
+    tmp_path: Path,
+    cross_decision_factory: CrossDecisionFactory,
+) -> CommandFeaturesContext:
+    """Build a context for feature command tests."""
+    return CommandFeaturesContext(
+        main_module=main_module,
+        manifest=tmp_path / "Cargo.toml",
+        cross_decision=cross_decision_factory(main_module, use_cross=True),
+    )
+
+
+@pytest.fixture
+def main_features_context(
+    main_module: ModuleType,
+    patch_common_main_deps: ModuleHarness,
+    cross_decision_factory: CrossDecisionFactory,
+    dummy_command_factory: DummyCommandFactory,
+) -> MainFeaturesContext:
+    """Build a context for main() feature integration tests."""
+    return MainFeaturesContext(
+        main_module=main_module,
+        harness=patch_common_main_deps,
+        cross_decision_factory=cross_decision_factory,
+        dummy_command_factory=dummy_command_factory,
+    )
+
+
+@pytest.fixture
+def main_module_harness(
+    main_module: ModuleType, module_harness: HarnessFactory
+) -> ModuleHarness:
+    """Return a module harness for the main module."""
+    return module_harness(main_module)
+
+
+@pytest.fixture
+def cross_container_context(
+    main_module_harness: ModuleHarness,
+    tmp_path: Path,
+    cross_decision_factory: CrossDecisionFactory,
+    dummy_command_factory: DummyCommandFactory,
+) -> CrossContainerContext:
+    """Build a context for cross container fallback tests."""
+    main_module = main_module_harness.module
+    return CrossContainerContext(
+        main_module=main_module,
+        harness=main_module_harness,
+        manifest=(tmp_path / "Cargo.toml").resolve(),
+        decision=cross_decision_factory(main_module, use_cross=True),
+        dummy_command_factory=dummy_command_factory,
+    )
+
+
 def _assert_features_in_command_parts(
     parts: list[str],
     expected_in_parts: bool,  # noqa: FBT001
@@ -151,25 +237,22 @@ class TestBuildCommandFeatures:
     )
     def test_command_features(
         self,
-        main_module: ModuleType,
-        tmp_path: Path,
+        command_features_context: CommandFeaturesContext,
         builder_type: str,
         test_case: FeaturesTestCase,
-        cross_decision_factory: CrossDecisionFactory,
     ) -> None:
         """Build commands handle --features flag correctly for cargo and cross."""
-        manifest = tmp_path / "Cargo.toml"
+        context = command_features_context
 
         if builder_type == "cargo":
             target = "x86_64-unknown-linux-gnu"
-            cmd = main_module._build_cargo_command(
-                "+stable", target, manifest, test_case.features
+            cmd = context.main_module._build_cargo_command(
+                "+stable", target, context.manifest, test_case.features
             )
         else:
             target = "aarch64-unknown-linux-gnu"
-            decision = cross_decision_factory(main_module, use_cross=True)
-            cmd = main_module._build_cross_command(
-                decision, target, manifest, test_case.features
+            cmd = context.main_module._build_cross_command(
+                context.cross_decision, target, context.manifest, test_case.features
             )
 
         parts = list(cmd.formulate())
@@ -179,6 +262,7 @@ class TestBuildCommandFeatures:
         )
 
 
+@pytest.mark.usefixtures("setup_manifest")
 class TestMainFeaturesIntegration:
     """Tests for features parameter integration in main()."""
 
@@ -215,18 +299,17 @@ class TestMainFeaturesIntegration:
     )
     def test_main_passes_features(
         self,
-        main_module: ModuleType,
-        patch_common_main_deps: ModuleHarness,
-        setup_manifest: Path,
+        main_features_context: MainFeaturesContext,
         test_case: MainFeaturesTestCase,
-        cross_decision_factory: CrossDecisionFactory,
-        dummy_command_factory: DummyCommandFactory,
     ) -> None:
         """main() correctly passes features to the appropriate build command."""
-        harness = patch_common_main_deps
+        context = main_features_context
+        harness = context.harness
         captured: dict[str, object] = {}
 
-        decision = cross_decision_factory(main_module, use_cross=test_case.use_cross)
+        decision = context.cross_decision_factory(
+            context.main_module, use_cross=test_case.use_cross
+        )
         harness.patch_attr("_resolve_target_argument", lambda _value: test_case.target)
         harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
@@ -242,7 +325,7 @@ class TestMainFeaturesIntegration:
                 captured["target"] = target_arg
                 captured["manifest"] = manifest_arg
                 captured["features"] = features_arg
-                return dummy_command_factory("cross-build")
+                return context.dummy_command_factory("cross-build")
 
             harness.patch_attr("_build_cross_command", fake_cross)
         else:
@@ -253,37 +336,35 @@ class TestMainFeaturesIntegration:
                 captured["target"] = target_arg
                 captured["manifest"] = manifest_arg
                 captured["features"] = features_arg
-                return dummy_command_factory("cargo-build")
+                return context.dummy_command_factory("cargo-build")
 
             harness.patch_attr("_build_cargo_command", fake_cargo)
 
-        main_module.main(
+        context.main_module.main(
             test_case.target, toolchain="stable", features=test_case.features
         )
 
         assert captured["features"] == test_case.features
 
 
+@pytest.mark.usefixtures("setup_manifest")
 class TestFeaturesEnvVar:
     """Tests for the RBR_FEATURES environment variable."""
 
     def test_features_from_environment(
         self,
-        main_module: ModuleType,
-        patch_common_main_deps: ModuleHarness,
-        setup_manifest: Path,
+        main_features_context: MainFeaturesContext,
         monkeypatch: pytest.MonkeyPatch,
-        cross_decision_factory: CrossDecisionFactory,
-        dummy_command_factory: DummyCommandFactory,
     ) -> None:
         """Features can be set via RBR_FEATURES environment variable."""
-        harness = patch_common_main_deps
+        context = main_features_context
+        harness = context.harness
         captured: dict[str, object] = {}
         target = "x86_64-unknown-linux-gnu"
 
         monkeypatch.setenv("RBR_FEATURES", "env-feature")
 
-        decision = cross_decision_factory(main_module, use_cross=False)
+        decision = context.cross_decision_factory(context.main_module, use_cross=False)
         harness.patch_attr("_resolve_target_argument", lambda _value: target)
         harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
@@ -291,7 +372,7 @@ class TestFeaturesEnvVar:
             _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
         ) -> object:
             captured["features"] = features_arg
-            return dummy_command_factory("cargo-build")
+            return context.dummy_command_factory("cargo-build")
 
         harness.patch_attr("_build_cargo_command", fake_cargo)
 
@@ -299,7 +380,7 @@ class TestFeaturesEnvVar:
         from typer.testing import CliRunner
 
         runner = CliRunner()
-        runner.invoke(main_module.app, [target, "--toolchain", "stable"])
+        runner.invoke(context.main_module.app, [target, "--toolchain", "stable"])
 
         # The environment variable should be used - check captured value
         assert captured.get("features") == "env-feature"
@@ -310,15 +391,11 @@ class TestHandleCrossContainerErrorFeatures:
 
     def test_handle_cross_container_error_passes_features_to_fallback(
         self,
-        main_module: ModuleType,
-        module_harness: HarnessFactory,
-        tmp_path: Path,
-        cross_decision_factory: CrossDecisionFactory,
-        dummy_command_factory: DummyCommandFactory,
+        cross_container_context: CrossContainerContext,
     ) -> None:
         """Fallback cargo builds must see the features as well."""
-        harness = module_harness(main_module)
-        manifest = (tmp_path / "Cargo.toml").resolve()
+        context = cross_container_context
+        harness = context.harness
         captured: dict[str, object] = {}
 
         def fake_cargo(
@@ -327,15 +404,18 @@ class TestHandleCrossContainerErrorFeatures:
             captured["target"] = target_arg
             captured["manifest"] = manifest_arg
             captured["features"] = features_arg
-            return dummy_command_factory("fallback")
+            return context.dummy_command_factory("fallback")
 
         harness.patch_attr("_build_cargo_command", fake_cargo)
 
-        decision = cross_decision_factory(main_module, use_cross=True)
         exc = ProcessExecutionError(["cross"], 125, "", "")
 
-        main_module._handle_cross_container_error(
-            exc, decision, "aarch64", manifest, "verbose,test"
+        context.main_module._handle_cross_container_error(
+            exc,
+            context.decision,
+            "aarch64",
+            context.manifest,
+            "verbose,test",
         )
 
         assert captured["features"] == "verbose,test"

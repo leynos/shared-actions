@@ -172,18 +172,26 @@ def _resolve_pull_request_number(
 ) -> int:
     if pull_request_number is not None:
         return pull_request_number
-    if event:
-        pr = event.get("pull_request", {})
-        number = pr.get("number")
-        if number is not None:
-            try:
-                return int(number)
-            except (TypeError, ValueError):
-                pass
+    if event and (number := event.get("pull_request", {}).get("number")) is not None:
+        try:
+            return int(number)
+        except (TypeError, ValueError):
+            pass
     _fail(
         "Pull request number not provided. Set INPUT_PULL_REQUEST_NUMBER or include "
         "it in the event payload."
     )
+
+
+def _parse_pr_number(pr: dict[str, typ.Any]) -> int:
+    """Parse and validate the pull request number from event payload data."""
+    number = pr.get("number")
+    if number is None:
+        _fail("Event payload missing pull_request.number.")
+    try:
+        return int(number)
+    except (TypeError, ValueError):
+        _fail("Event payload pull_request.number is not an integer.")
 
 
 def _labels_from_event(event: dict[str, typ.Any]) -> tuple[str, ...]:
@@ -206,13 +214,7 @@ def _snapshot_from_event(
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         _fail("Event payload does not include pull_request data.")
-    number = pr.get("number")
-    if number is None:
-        _fail("Event payload missing pull_request.number.")
-    try:
-        pr_number = int(number)
-    except (TypeError, ValueError):
-        _fail("Event payload pull_request.number is not an integer.")
+    pr_number = _parse_pr_number(pr)
     author = pr.get("user", {}).get("login")
     author_login = author if isinstance(author, str) else ""
     is_draft = bool(pr.get("draft", False))
@@ -335,6 +337,75 @@ def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> No
     )
 
 
+def _handle_dry_run(
+    event: dict[str, typ.Any] | None,
+    repo_full_name: str,
+    *,
+    required_label: str | None,
+    merge_method: str,
+) -> None:
+    """Handle the dry-run execution path without API calls."""
+    if event is None:
+        _fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
+    snapshot = _snapshot_from_event(event, repo_full_name)
+    decision = _evaluate(snapshot, required_label)
+    _emit_decision(
+        snapshot,
+        decision,
+        merge_method=merge_method,
+        required_label=required_label,
+        dry_run=True,
+    )
+
+
+def _handle_live_execution(
+    github_token: str,
+    repo_full_name: str,
+    event: dict[str, typ.Any] | None,
+    *,
+    required_label: str | None,
+    merge_method: str,
+    pull_request_number: int | None,
+) -> None:
+    """Handle the live execution path that talks to the GitHub API."""
+    owner, repo = _split_repo(repo_full_name)
+    pr_number = _resolve_pull_request_number(pull_request_number, event)
+
+    pr = _fetch_pull_request(github_token, owner, repo, pr_number)
+    decision = _evaluate(pr, required_label)
+    if decision.status != "ready":
+        _emit_decision(
+            pr,
+            decision,
+            merge_method=merge_method,
+            required_label=required_label,
+            dry_run=False,
+        )
+        return
+
+    if pr.auto_merge_enabled:
+        _emit_decision(
+            pr,
+            Decision(status="enabled", reason="already-enabled"),
+            merge_method=merge_method,
+            required_label=required_label,
+            dry_run=False,
+        )
+        return
+
+    if not pr.node_id:
+        _fail("Pull request node ID missing from GitHub response.")
+
+    _enable_automerge(github_token, pr.node_id, merge_method)
+    _emit_decision(
+        pr,
+        Decision(status="enabled", reason="enabled"),
+        merge_method=merge_method,
+        required_label=required_label,
+        dry_run=False,
+    )
+
+
 @app.default
 def main(
     *,
@@ -353,54 +424,20 @@ def main(
     repo_full_name = _resolve_repository(repository, event)
 
     if dry_run:
-        if event is None:
-            _fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
-        snapshot = _snapshot_from_event(event, repo_full_name)
-        decision = _evaluate(snapshot, normalized_label)
-        _emit_decision(
-            snapshot,
-            decision,
-            merge_method=normalized_merge_method,
+        _handle_dry_run(
+            event,
+            repo_full_name,
             required_label=normalized_label,
-            dry_run=True,
+            merge_method=normalized_merge_method,
         )
         return
-
-    owner, repo = _split_repo(repo_full_name)
-    pr_number = _resolve_pull_request_number(pull_request_number, event)
-
-    pr = _fetch_pull_request(github_token, owner, repo, pr_number)
-    decision = _evaluate(pr, normalized_label)
-    if decision.status != "ready":
-        _emit_decision(
-            pr,
-            decision,
-            merge_method=normalized_merge_method,
-            required_label=normalized_label,
-            dry_run=False,
-        )
-        return
-
-    if pr.auto_merge_enabled:
-        _emit_decision(
-            pr,
-            Decision(status="enabled", reason="already-enabled"),
-            merge_method=normalized_merge_method,
-            required_label=normalized_label,
-            dry_run=False,
-        )
-        return
-
-    if not pr.node_id:
-        _fail("Pull request node ID missing from GitHub response.")
-
-    _enable_automerge(github_token, pr.node_id, normalized_merge_method)
-    _emit_decision(
-        pr,
-        Decision(status="enabled", reason="enabled"),
-        merge_method=normalized_merge_method,
+    _handle_live_execution(
+        github_token,
+        repo_full_name,
+        event,
         required_label=normalized_label,
-        dry_run=False,
+        merge_method=normalized_merge_method,
+        pull_request_number=pull_request_number,
     )
 
 

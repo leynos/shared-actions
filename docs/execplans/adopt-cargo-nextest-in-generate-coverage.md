@@ -14,7 +14,7 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
 
 - Follow repository policy in `AGENTS.md`, including using Makefile targets and running `make check-fmt`, `make typecheck`, `make lint`, and `make test` before each commit that touches GitHub Action logic.
 - Use `tee` to capture long command output into temporary log files for later review.
-- Preserve the existing public interface of the action except for the new input `use-cargo-nextest` with default `true`.
+- Preserve the existing public interface of the action, except for the new input `use-cargo-nextest` with default `true`.
 - Keep changes scoped to the generate-coverage action and its tests/docs unless a supporting change is required.
 - Do not loosen security posture: keep third-party action pins and validate downloaded binaries with a known SHA-256.
 - Avoid non-deterministic behaviour (no network-dependent version selection at runtime without a pinned version and hash).
@@ -78,7 +78,7 @@ install verification. All required Makefile gateways completed successfully.
 
 ## Context and Orientation
 
-The generate-coverage action lives under `.github/actions/generate-coverage/` and should contain `action.yml`, `README.md`, `src/`, `tests/`, and `CHANGELOG.md`. The action likely invokes Python scripts in the repo root (for example, modules like `actions_common.py`, `cargo_utils.py`, or `cmd_utils.py`). This plan treats the action as a GitHub Action that may call Python helpers to assemble commands. A “nextest config” refers to `.config/nextest.toml`, a configuration file for `cargo nextest` that controls timeouts and execution behaviour. The new input will allow callers to opt out of nextest and continue using the existing `cargo llvm-cov` path.
+The generate-coverage action lives under `.github/actions/generate-coverage/` and should contain `action.yml`, `README.md`, `src/`, `tests/`, and `CHANGELOG.md`. The action likely invokes Python scripts in the repo root (for example, modules like `actions_common.py`, `cargo_utils.py`, or `cmd_utils.py`). This plan treats the action as a GitHub Action that may call Python helpers to assemble commands. A “nextest config” refers to `.config/nextest.toml`, a configuration file for `cargo nextest` that controls timeouts and execution behaviour. The new input allows callers to opt out of nextest and continue using the existing `cargo llvm-cov` path.
 
 ## Plan of Work
 

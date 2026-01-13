@@ -456,6 +456,7 @@ def ensure_nextest_config() -> typ.Iterator[Path]:
 
 
 def _resolve_nextest_config_path() -> Path:
+    """Resolve the nextest config path, falling back to CWD-relative .config."""
     env_path = os.getenv("NEXTEST_CONFIG")
     if env_path:
         return Path(env_path).expanduser()

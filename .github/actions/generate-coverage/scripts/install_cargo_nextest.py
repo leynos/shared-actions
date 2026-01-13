@@ -133,6 +133,7 @@ def main() -> None:
         try:
             verify_nextest_binary(existing, expected_sha)
         except typer.Exit:
+            # Verification failed; fall through to reinstall.
             pass
         else:
             typer.echo("cargo-nextest already installed and verified")

@@ -70,16 +70,16 @@ def test_cross_install_failure_non_windows(
         return None if name == "cross" else "/usr/bin/rustup"
 
     def fail_install(cmd: list[str]) -> None:
-        raise subprocess.CalledProcessError(1, cmd, output="install failed")
+        raise cross_module.ProcessExecutionError(cmd, 1, "", "install failed")
 
     harness.patch_shutil_which(fake_which)
     harness.patch_run_cmd(fail_install)
 
-    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+    with pytest.raises(cross_module.ProcessExecutionError) as exc_info:
         cross_module.ensure_cross("0.2.5")
 
-    assert exc_info.value.returncode == 1
-    assert exc_info.value.output == "install failed"
+    assert exc_info.value.retcode == 1
+    assert exc_info.value.stderr == "install failed"
 
 
 @CMD_MOX_UNSUPPORTED

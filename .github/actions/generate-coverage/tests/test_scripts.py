@@ -248,56 +248,64 @@ def test_run_rust_nextest_command(
     assert not (tmp_path / ".config" / "nextest.toml").exists()
 
 
-def test_get_cargo_coverage_cmd_with_nextest(run_rust_module: ModuleType) -> None:
-    """``get_cargo_coverage_cmd`` includes nextest args when enabled."""
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            True,
+            "fast",
+            False,
+            [
+                "llvm-cov",
+                "nextest",
+                "--workspace",
+                "--summary-only",
+                "--no-default-features",
+                "--features",
+                "fast",
+                "--lcov",
+                "--output-path",
+            ],
+        ),
+        (
+            False,
+            "",
+            True,
+            [
+                "llvm-cov",
+                "--workspace",
+                "--summary-only",
+                "--lcov",
+                "--output-path",
+            ],
+        ),
+    ],
+)
+def test_get_cargo_coverage_cmd_variants(
+    run_rust_module: ModuleType,
+    case: tuple[bool, str, bool, list[str]],
+) -> None:
+    """``get_cargo_coverage_cmd`` varies arguments based on nextest usage."""
+    use_nextest, features, with_default, expected = case
     out = Path("cov.lcov")
     args = run_rust_module.get_cargo_coverage_cmd(
         "lcov",
         out,
-        "fast",
-        with_default=False,
-        use_nextest=True,
+        features,
+        with_default=with_default,
+        use_nextest=use_nextest,
     )
-    assert args == [
-        "llvm-cov",
-        "nextest",
-        "--workspace",
-        "--summary-only",
-        "--no-default-features",
-        "--features",
-        "fast",
-        "--lcov",
-        "--output-path",
-        str(out),
-    ]
+    assert args == [*expected, str(out)]
 
 
-def test_get_cargo_coverage_cmd_without_nextest(run_rust_module: ModuleType) -> None:
-    """``get_cargo_coverage_cmd`` preserves llvm-cov args without nextest."""
-    out = Path("cov.lcov")
-    args = run_rust_module.get_cargo_coverage_cmd(
-        "lcov",
-        out,
-        "",
-        with_default=True,
-        use_nextest=False,
-    )
-    assert args == [
-        "llvm-cov",
-        "--workspace",
-        "--summary-only",
-        "--lcov",
-        "--output-path",
-        str(out),
-    ]
-
-
-def test_run_rust_main_uses_nextest(
+def _run_rust_main_variant(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
-) -> None:
-    """``main`` uses nextest when enabled and writes outputs."""
+    *,
+    use_nextest: bool,
+) -> tuple[list[str], Path, Path]:
+    """Run ``main`` with the provided nextest flag and return captured data."""
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "cov.lcov"
     output.write_text("LF:10\nLH:10\n")
@@ -314,7 +322,7 @@ def test_run_rust_main_uses_nextest(
         output,
         "",
         with_default=True,
-        use_nextest=True,
+        use_nextest=use_nextest,
         lang="rust",
         fmt="lcov",
         github_output=github_output,
@@ -323,47 +331,33 @@ def test_run_rust_main_uses_nextest(
         with_cucumber_rs=False,
         baseline_file=None,
     )
-
-    assert recorded["args"][:2] == ["llvm-cov", "nextest"]
-    data = github_output.read_text().splitlines()
-    assert f"file={output}" in data
-    assert "percent=100.00" in data
+    return recorded["args"], github_output, output
 
 
-def test_run_rust_main_without_nextest(
+@pytest.mark.parametrize("use_nextest", [True, False])
+def test_run_rust_main_nextest_variants(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
+    *,
+    use_nextest: bool,
 ) -> None:
-    """``main`` preserves llvm-cov arguments when nextest is disabled."""
-    monkeypatch.chdir(tmp_path)
-    output = tmp_path / "cov.lcov"
-    output.write_text("LF:10\nLH:10\n")
-    github_output = tmp_path / "gh.txt"
-    recorded: dict[str, list[str]] = {}
-
-    def fake_run_cargo(args: list[str]) -> str:
-        recorded["args"] = args
-        return "Coverage: 100%"
-
-    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
-
-    run_rust_module.main(
-        output,
-        "",
-        with_default=True,
-        use_nextest=False,
-        lang="rust",
-        fmt="lcov",
-        github_output=github_output,
-        cucumber_rs_features="",
-        cucumber_rs_args="",
-        with_cucumber_rs=False,
-        baseline_file=None,
+    """``main`` toggles nextest usage based on configuration."""
+    args, github_output, output = _run_rust_main_variant(
+        tmp_path,
+        monkeypatch,
+        run_rust_module,
+        use_nextest=use_nextest,
     )
 
-    assert recorded["args"][0] == "llvm-cov"
-    assert "nextest" not in recorded["args"]
+    if use_nextest:
+        assert args[:2] == ["llvm-cov", "nextest"]
+        data = github_output.read_text().splitlines()
+        assert f"file={output}" in data
+        assert "percent=100.00" in data
+    else:
+        assert args[0] == "llvm-cov"
+        assert "nextest" not in args
 
 
 def test_nextest_config_is_temporary(
@@ -828,7 +822,7 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
 
 
 @pytest.mark.parametrize(
-    ("system", "machine", "expected"),
+    "case",
     [
         ("Linux", "x86_64", "linux-x86_64"),
         ("Linux", "aarch64", "linux-aarch64"),
@@ -838,13 +832,12 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     ],
 )
 def test_platform_key_variants(
-    system: str,
-    machine: str,
-    expected: str,
+    case: tuple[str, str, str],
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Platform key mapping normalises common OS/arch combinations."""
+    system, machine, expected = case
     monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
     monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
     assert install_nextest_module._platform_key() == expected
@@ -1015,7 +1008,6 @@ def test_install_nextest_invokes_binstall(
 
 
 def test_install_nextest_binstall_failure(
-    tmp_path: Path,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

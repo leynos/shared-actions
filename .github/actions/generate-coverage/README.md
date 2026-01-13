@@ -39,7 +39,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
-| use-cargo-nextest | Use cargo-nextest for Rust coverage runs | no | `true` |
+| use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |

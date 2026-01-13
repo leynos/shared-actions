@@ -71,25 +71,25 @@ def _sha256_path(path: Path) -> str:
     return hasher.hexdigest()
 
 
-def _find_nextest_binary() -> Path:
-    resolved = shutil.which("cargo-nextest")
-    if resolved:
-        return Path(resolved)
-    suffix = ".exe" if os.name == "nt" else ""
-    candidate = Path.home() / ".cargo" / "bin" / f"cargo-nextest{suffix}"
-    if candidate.is_file():
-        return candidate
-    typer.echo("cargo-nextest not found after installation", err=True)
-    raise typer.Exit(1)
-
-
-def _find_existing_nextest_binary() -> Path | None:
+def _resolve_nextest_binary() -> Path | None:
     resolved = shutil.which("cargo-nextest")
     if resolved:
         return Path(resolved)
     suffix = ".exe" if os.name == "nt" else ""
     candidate = Path.home() / ".cargo" / "bin" / f"cargo-nextest{suffix}"
     return candidate if candidate.is_file() else None
+
+
+def _find_nextest_binary() -> Path:
+    resolved = _resolve_nextest_binary()
+    if resolved is not None:
+        return resolved
+    typer.echo("cargo-nextest not found after installation", err=True)
+    raise typer.Exit(1)
+
+
+def _find_existing_nextest_binary() -> Path | None:
+    return _resolve_nextest_binary()
 
 
 def install_cargo_nextest() -> None:

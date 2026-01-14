@@ -88,10 +88,6 @@ def _find_nextest_binary() -> Path:
     raise typer.Exit(1)
 
 
-def _find_existing_nextest_binary() -> Path | None:
-    return _resolve_nextest_binary()
-
-
 def install_cargo_nextest() -> None:
     """Install cargo-nextest using cargo-binstall."""
     try:
@@ -113,7 +109,7 @@ def install_cargo_nextest() -> None:
         raise typer.Exit(code=exc.retcode or 1) from exc
 
 
-def verify_nextest_binary(path: Path, expected_sha: str) -> None:
+def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
     """Verify the cargo-nextest binary against the expected SHA-256."""
     actual_sha = _sha256_path(path)
     if actual_sha != expected_sha:
@@ -122,26 +118,22 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> None:
             f"expected {expected_sha}, got {actual_sha}",
             err=True,
         )
-        raise typer.Exit(1)
+        return False
+    return True
 
 
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
     expected_sha = _expected_sha_for_platform()
-    existing = _find_existing_nextest_binary()
-    if existing is not None:
-        try:
-            verify_nextest_binary(existing, expected_sha)
-        except typer.Exit:
-            # Verification failed; fall through to reinstall.
-            pass
-        else:
-            typer.echo("cargo-nextest already installed and verified")
-            return
+    existing = _resolve_nextest_binary()
+    if existing is not None and verify_nextest_binary(existing, expected_sha):
+        typer.echo("cargo-nextest already installed and verified")
+        return
 
     install_cargo_nextest()
     binary_path = _find_nextest_binary()
-    verify_nextest_binary(binary_path, expected_sha)
+    if not verify_nextest_binary(binary_path, expected_sha):
+        raise typer.Exit(1)
     typer.echo("cargo-nextest installed and verified")
 
 

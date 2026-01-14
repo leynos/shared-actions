@@ -925,7 +925,7 @@ def test_find_nextest_binary_missing_exits(
     assert _exit_code(excinfo.value) == 1
 
 
-def test_find_existing_nextest_binary_returns_none_when_missing(
+def test_resolve_nextest_binary_returns_none_when_missing(
     tmp_path: Path,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -933,7 +933,7 @@ def test_find_existing_nextest_binary_returns_none_when_missing(
     """Existing binary lookup returns None when not found."""
     monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
     monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-    assert install_nextest_module._find_existing_nextest_binary() is None
+    assert install_nextest_module._resolve_nextest_binary() is None
 
 
 def test_install_nextest_skips_when_verified(
@@ -947,10 +947,11 @@ def test_install_nextest_skips_when_verified(
     expected = hashlib.sha256(b"payload").hexdigest()
     called: dict[str, bool] = {"verify": False}
 
-    def fake_verify(path: Path, sha: str) -> None:
+    def fake_verify(path: Path, sha: str) -> bool:
         assert path == binary
         assert sha == expected
         called["verify"] = True
+        return True
 
     def fail_install() -> None:
         raise AssertionError
@@ -959,7 +960,7 @@ def test_install_nextest_skips_when_verified(
         install_nextest_module, "_expected_sha_for_platform", lambda: expected
     )
     monkeypatch.setattr(
-        install_nextest_module, "_find_existing_nextest_binary", lambda: binary
+        install_nextest_module, "_resolve_nextest_binary", lambda: binary
     )
     monkeypatch.setattr(install_nextest_module, "verify_nextest_binary", fake_verify)
     monkeypatch.setattr(install_nextest_module, "install_cargo_nextest", fail_install)
@@ -983,9 +984,7 @@ def test_install_nextest_invokes_binstall(
         recorded["cmd"] = cmd
 
     monkeypatch.setattr(install_nextest_module, "run_cmd", fake_run_cmd)
-    monkeypatch.setattr(
-        install_nextest_module, "_find_existing_nextest_binary", lambda: None
-    )
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
     monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
     monkeypatch.setattr(
         install_nextest_module, "_expected_sha_for_platform", lambda: expected
@@ -1025,9 +1024,7 @@ def test_install_nextest_binstall_failure(
         )
 
     monkeypatch.setattr(install_nextest_module, "run_cmd", fail_run_cmd)
-    monkeypatch.setattr(
-        install_nextest_module, "_find_existing_nextest_binary", lambda: None
-    )
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
     monkeypatch.setattr(
         install_nextest_module, "_expected_sha_for_platform", lambda: "deadbeef"
     )
@@ -1050,7 +1047,7 @@ def test_install_nextest_checksum_match(
     binary.write_bytes(payload)
     expected = hashlib.sha256(payload).hexdigest()
 
-    install_nextest_module.verify_nextest_binary(binary, expected)
+    assert install_nextest_module.verify_nextest_binary(binary, expected)
 
 
 def test_install_nextest_checksum_mismatch(
@@ -1061,10 +1058,7 @@ def test_install_nextest_checksum_mismatch(
     binary = tmp_path / "cargo-nextest"
     binary.write_bytes(b"payload")
 
-    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module.verify_nextest_binary(binary, "deadbeef")
-
-    assert _exit_code(excinfo.value) == 1
+    assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

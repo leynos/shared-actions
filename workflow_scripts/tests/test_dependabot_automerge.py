@@ -42,8 +42,10 @@ def test_dry_run_skips_non_dependabot(
 
     dependabot_automerge.main(
         github_token=TEST_TOKEN,
-        dry_run=True,
-        required_label="dependencies",
+        options=dependabot_automerge.AutomergeOptions(
+            dry_run=True,
+            required_label="dependencies",
+        ),
     )
 
     captured = capsys.readouterr()
@@ -61,8 +63,10 @@ def test_dry_run_requires_event_payload(
     with pytest.raises(SystemExit):
         dependabot_automerge.main(
             github_token=TEST_TOKEN,
-            dry_run=True,
-            required_label="dependencies",
+            options=dependabot_automerge.AutomergeOptions(
+                dry_run=True,
+                required_label="dependencies",
+            ),
         )
 
     captured = capsys.readouterr()
@@ -91,8 +95,10 @@ def test_dry_run_eligible_dependabot(
 
     dependabot_automerge.main(
         github_token=TEST_TOKEN,
-        dry_run=True,
-        required_label="dependencies",
+        options=dependabot_automerge.AutomergeOptions(
+            dry_run=True,
+            required_label="dependencies",
+        ),
     )
 
     captured = capsys.readouterr()
@@ -128,8 +134,10 @@ def test_enables_automerge_when_ready(
 
     dependabot_automerge.main(
         github_token=TEST_TOKEN,
-        repository="acme/example",
-        pull_request_number=12,
+        options=dependabot_automerge.AutomergeOptions(
+            repository="acme/example",
+            pull_request_number=12,
+        ),
     )
 
     captured = capsys.readouterr()

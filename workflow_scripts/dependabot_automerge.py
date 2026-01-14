@@ -403,29 +403,69 @@ def _handle_live_execution(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class AutomergeOptions:
+    """CLI options for automerge execution."""
+
+    merge_method: typ.Annotated[
+        str,
+        Parameter(
+            help="Merge method to use (squash, merge, rebase).",
+            env_var="INPUT_MERGE_METHOD",
+        ),
+    ] = "squash"
+    required_label: typ.Annotated[
+        str | None,
+        Parameter(
+            help="Required label on the pull request.",
+            env_var="INPUT_REQUIRED_LABEL",
+        ),
+    ] = "dependencies"
+    dry_run: typ.Annotated[
+        bool,
+        Parameter(
+            help="Emit decision output without API calls.",
+            env_var="INPUT_DRY_RUN",
+        ),
+    ] = False
+    pull_request_number: typ.Annotated[
+        int | None,
+        Parameter(
+            help="Pull request number override.",
+            env_var="INPUT_PULL_REQUEST_NUMBER",
+        ),
+    ] = None
+    repository: typ.Annotated[
+        str | None,
+        Parameter(
+            help="Repository override in owner/repo form.",
+            env_var="INPUT_REPOSITORY",
+        ),
+    ] = None
+
+
+DEFAULT_AUTOMERGE_OPTIONS = AutomergeOptions()
+
+
 @app.default
 def main(
     *,
     github_token: typ.Annotated[str, Parameter(required=True)],
-    merge_method: str = "squash",
-    required_label: str | None = "dependencies",
-    dry_run: bool = False,
-    pull_request_number: int | None = None,
-    repository: str | None = None,
+    options: AutomergeOptions = DEFAULT_AUTOMERGE_OPTIONS,
 ) -> None:
     """Evaluate a PR and enable auto-merge when policy allows."""
-    normalized_label = _normalize_label(required_label)
-    normalized_merge_method = _normalize_merge_method(merge_method)
+    normalized_label = _normalize_label(options.required_label)
+    normalized_merge_method = _normalize_merge_method(options.merge_method)
     config = AutomergeConfig(
         merge_method=normalized_merge_method,
         required_label=normalized_label,
-        dry_run=dry_run,
+        dry_run=options.dry_run,
     )
 
     event = _load_event()
-    repo_full_name = _resolve_repository(repository, event)
+    repo_full_name = _resolve_repository(options.repository, event)
 
-    if dry_run:
+    if options.dry_run:
         _handle_dry_run(
             event,
             repo_full_name,
@@ -437,7 +477,7 @@ def main(
         repo_full_name,
         event,
         config=config,
-        pull_request_number=pull_request_number,
+        pull_request_number=options.pull_request_number,
     )
 
 

@@ -8,6 +8,10 @@ inputs:
     description: Enable default features
     required: false
     default: "true"
+  use-cargo-nextest:
+    description: Use cargo-nextest for Rust coverage runs
+    required: false
+    default: "true"
   output-path:
     description: Output file path
     required: true
@@ -97,6 +101,7 @@ runs:
       with:
         path: |
           ~/.cargo/bin/cargo-llvm-cov
+          ~/.cargo/bin/cargo-nextest
           ~/.cargo/registry
           ~/.cargo/git
           target
@@ -106,6 +111,45 @@ runs:
     - name: Install cargo-llvm-cov
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
+      shell: bash
+    - name: Install cargo-binstall
+      if: (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed') && inputs.use-cargo-nextest == 'true'
+      run: |
+        set -euo pipefail
+        # NOTE: BINSTALL_SHA256 pins and validates only the installer script
+        # (install-from-binstall-release.sh), not the cargo-binstall binary that
+        # the script subsequently downloads and executes.
+        #
+        # Keep BINSTALL_VERSION and BINSTALL_SHA256 in sync; update both together.
+        # To refresh the installer checksum: curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
+        #
+        # If a stronger supply-chain posture is required (similar to cargo-nextest),
+        # extend this step to also verify the checksum of the downloaded cargo-binstall
+        # artefact before invoking it, assuming such checksums are available upstream.
+        BINSTALL_VERSION="v1.16.6"
+        BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+        INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
+        INSTALLER_PATH="$(mktemp)"
+        trap 'rm -f "$INSTALLER_PATH"' EXIT
+        curl -fsSL --proto '=https' --tlsv1.2 "$INSTALLER_URL" -o "$INSTALLER_PATH"
+        if [ ! -s "$INSTALLER_PATH" ]; then
+          echo "cargo-binstall installer download failed or empty" >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          ACTUAL_SHA256="$(sha256sum "$INSTALLER_PATH" | awk '{print $1}')"
+        else
+          ACTUAL_SHA256="$(shasum -a 256 "$INSTALLER_PATH" | awk '{print $1}')"
+        fi
+        if [ "$ACTUAL_SHA256" != "$BINSTALL_SHA256" ]; then
+          echo "cargo-binstall install script checksum mismatch: $ACTUAL_SHA256" >&2
+          exit 1
+        fi
+        bash "$INSTALLER_PATH"
+      shell: bash
+    - name: Install cargo-nextest
+      if: (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed') && inputs.use-cargo-nextest == 'true'
+      run: uv run --script "${{ github.action_path }}/scripts/install_cargo_nextest.py"
       shell: bash
     # This isn't how you install cucumber :'(
     #- name: Install cargo-cucumber
@@ -121,6 +165,7 @@ runs:
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         INPUT_FEATURES: ${{ inputs.features }}
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
+        INPUT_USE_CARGO_NEXTEST: ${{ inputs.use-cargo-nextest }}
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
         INPUT_CUCUMBER_RS_ARGS: ${{ inputs.cucumber-rs-args }}

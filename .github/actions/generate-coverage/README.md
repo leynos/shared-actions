@@ -3,14 +3,14 @@
 Run coverage for Rust, Python, or mixed Rust+Python projects.
 
 Run code coverage for Rust projects, Python projects, and mixed Rust + Python
-projects. The action uses `cargo llvm-cov` when a `Cargo.toml` is present and
-`slipcover` with `pytest` when a `pyproject.toml` is present. It installs
-`slipcover` and `pytest` automatically via `uv` before running the tests,
-leveraging ``uv run --with`` so no system-level Python installs are required.
-When
-Rust coverage is required, `cargo-llvm-cov` is installed automatically as well.
-If both configuration files are present, coverage is run for each language and
-the Cobertura reports are merged using `uvx merge-cobertura`.
+projects. The action uses `cargo llvm-cov` (with `cargo nextest` by default)
+when a `Cargo.toml` is present and `slipcover` with `pytest` when a
+`pyproject.toml` is present. It installs `slipcover` and `pytest` automatically
+via `uv` before running the tests, leveraging ``uv run --with`` so no
+system-level Python installs are required. When Rust coverage is required,
+`cargo-llvm-cov` and `cargo-nextest` are installed automatically. If both
+configuration files are present, coverage is run for each language and the
+Cobertura reports are merged using `uvx merge-cobertura`.
 
 ## Flow
 
@@ -24,7 +24,7 @@ flowchart TD
     C --> G{lang}
     D --> G
     E --> G
-    G -- rust --> H[Run cargo llvm-cov]
+    G -- rust --> H[Run cargo llvm-cov nextest]
     G -- python --> I[Run slipcover with pytest]
     G -- mixed --> J[Run both & merge]
     H --> K[Set outputs]
@@ -39,6 +39,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
+| use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |
@@ -116,6 +117,15 @@ Enable cucumber-rs:
     with-cucumber-rs: true
     cucumber-rs-features: tests/features
     cucumber-rs-args: "--tag @ui"
+```
+
+Disable cargo-nextest:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    use-cargo-nextest: false
 ```
 
 The action prints the current coverage percentage to the log. When

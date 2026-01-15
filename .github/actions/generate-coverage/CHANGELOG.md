@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.11 (2026-01-12)
+
+- Add `use-cargo-nextest` input (default true) and run Rust coverage via
+  `cargo llvm-cov nextest` when enabled.
+- Install `cargo-nextest` via cargo-binstall with pinned version and checksum
+  verification; create a temporary nextest config when none is present.
+
 ## v1.3.10 (2025-11-11)
 
 - Remove the step that attempted to ``uv pip install --system`` Python

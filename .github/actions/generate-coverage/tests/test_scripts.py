@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import hashlib
 import importlib.util
 import io
 import itertools
@@ -78,6 +80,12 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_rust")
 
 
+@pytest.fixture
+def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Return a freshly loaded ``install_cargo_nextest`` module for testing."""
+    return _load_module(monkeypatch, "install_cargo_nextest")
+
+
 def _make_fake_cargo(
     stdout: str | typ.TextIO | None,
     stderr: str | typ.TextIO | None,
@@ -133,8 +141,23 @@ def _make_fake_cargo(
     return FakeCargo()
 
 
-def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
-    """Happy path for ``run_rust.py``."""
+@dataclasses.dataclass(frozen=True, slots=True)
+class RustCoverageConfig:
+    """Configuration for rust coverage test runs."""
+
+    use_nextest: bool
+    features: str = ""
+    with_default_features: bool = True
+
+
+def _run_rust_coverage_test(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    config: RustCoverageConfig,
+    *,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> tuple[list[str], Path, Path]:
+    """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
 
@@ -149,10 +172,16 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
-        "INPUT_FEATURES": "fast",
-        "INPUT_WITH_DEFAULT_FEATURES": "false",
+        "INPUT_FEATURES": config.features,
+        "INPUT_WITH_DEFAULT_FEATURES": (
+            "true" if config.with_default_features else "false"
+        ),
+        "INPUT_USE_CARGO_NEXTEST": "true" if config.use_nextest else "false",
         "GITHUB_OUTPUT": str(gh),
     }
+
+    if monkeypatch is not None:
+        monkeypatch.chdir(tmp_path)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     returncode, stdout, _ = run_script(script, env)
@@ -161,6 +190,21 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1
+
+    return calls[0].argv, out, gh
+
+
+def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
+    """Happy path for ``run_rust.py``."""
+    cargo_args, out, gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(
+            use_nextest=False,
+            features="fast",
+            with_default_features=False,
+        ),
+    )
     expected_args = [
         "llvm-cov",
         "--workspace",
@@ -172,11 +216,225 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         "--output-path",
         str(out),
     ]
-    assert calls[0].argv == expected_args
+    assert cargo_args == expected_args
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
     assert "percent=81.50" in data
+
+
+def test_run_rust_nextest_command(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``run_rust.py`` uses cargo llvm-cov nextest when enabled."""
+    cargo_args, out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(use_nextest=True),
+        monkeypatch=monkeypatch,
+    )
+    expected_args = [
+        "llvm-cov",
+        "nextest",
+        "--workspace",
+        "--summary-only",
+        "--lcov",
+        "--output-path",
+        str(out),
+    ]
+    assert cargo_args == expected_args
+    assert not (tmp_path / ".config" / "nextest.toml").exists()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            True,
+            "fast",
+            False,
+            [
+                "llvm-cov",
+                "nextest",
+                "--workspace",
+                "--summary-only",
+                "--no-default-features",
+                "--features",
+                "fast",
+                "--lcov",
+                "--output-path",
+            ],
+        ),
+        (
+            False,
+            "",
+            True,
+            [
+                "llvm-cov",
+                "--workspace",
+                "--summary-only",
+                "--lcov",
+                "--output-path",
+            ],
+        ),
+    ],
+)
+def test_get_cargo_coverage_cmd_variants(
+    run_rust_module: ModuleType,
+    case: tuple[bool, str, bool, list[str]],
+) -> None:
+    """``get_cargo_coverage_cmd`` varies arguments based on nextest usage."""
+    use_nextest, features, with_default, expected = case
+    out = Path("cov.lcov")
+    args = run_rust_module.get_cargo_coverage_cmd(
+        "lcov",
+        out,
+        features,
+        with_default=with_default,
+        use_nextest=use_nextest,
+    )
+    assert args == [*expected, str(out)]
+
+
+def _run_rust_main_variant(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: ModuleType,
+    *,
+    use_nextest: bool,
+) -> tuple[list[str], Path, Path]:
+    """Run ``main`` with the provided nextest flag and return captured data."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n")
+    github_output = tmp_path / "gh.txt"
+    recorded: dict[str, list[str]] = {}
+
+    def fake_run_cargo(args: list[str]) -> str:
+        recorded["args"] = args
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+
+    run_rust_module.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=use_nextest,
+        lang="rust",
+        fmt="lcov",
+        github_output=github_output,
+        cucumber_rs_features="",
+        cucumber_rs_args="",
+        with_cucumber_rs=False,
+        baseline_file=None,
+    )
+    return recorded["args"], github_output, output
+
+
+@pytest.mark.parametrize("use_nextest", [True, False])
+def test_run_rust_main_nextest_variants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: ModuleType,
+    *,
+    use_nextest: bool,
+) -> None:
+    """``main`` toggles nextest usage based on configuration."""
+    args, github_output, output = _run_rust_main_variant(
+        tmp_path,
+        monkeypatch,
+        run_rust_module,
+        use_nextest=use_nextest,
+    )
+
+    if use_nextest:
+        assert args[:2] == ["llvm-cov", "nextest"]
+        data = github_output.read_text().splitlines()
+        assert f"file={output}" in data
+        assert "percent=100.00" in data
+    else:
+        assert args[0] == "llvm-cov"
+        assert "nextest" not in args
+
+
+def test_nextest_config_is_temporary(
+    tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Temporary nextest config is created and cleaned up when missing."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("NEXTEST_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / ".config" / "nextest.toml"
+    assert not config_path.exists()
+
+    with run_rust_module.ensure_nextest_config() as path:
+        assert path.resolve() == config_path
+        assert path.exists()
+        assert (
+            path.read_text(encoding="utf-8") == run_rust_module.NEXTEST_DEFAULT_CONFIG
+        )
+
+    assert not config_path.exists()
+    assert not config_path.parent.exists()
+
+
+def test_nextest_config_preserves_existing(
+    tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing nextest config stays untouched."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("NEXTEST_CONFIG", raising=False)
+    monkeypatch.chdir(tmp_path)
+    config_path = tmp_path / ".config" / "nextest.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("[profile.default]\n", encoding="utf-8")
+
+    with run_rust_module.ensure_nextest_config() as path:
+        assert path.resolve() == config_path
+        assert path.read_text(encoding="utf-8") == "[profile.default]\n"
+
+    assert config_path.exists()
+    assert config_path.read_text(encoding="utf-8") == "[profile.default]\n"
+
+
+def test_nextest_config_respects_env_path(
+    tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NEXTEST_CONFIG is respected when provided."""
+    config_path = tmp_path / "custom" / "nextest.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("[profile.default]\n", encoding="utf-8")
+    monkeypatch.setenv("NEXTEST_CONFIG", str(config_path))
+
+    with run_rust_module.ensure_nextest_config() as path:
+        assert path.resolve() == config_path
+        assert path.read_text(encoding="utf-8") == "[profile.default]\n"
+
+    assert config_path.exists()
+
+
+def test_nextest_config_prefers_xdg_when_present(
+    tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """XDG config is preferred when it exists and no env override is set."""
+    xdg_home = tmp_path / "xdg"
+    config_path = xdg_home / "nextest" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("[profile.default]\n", encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("NEXTEST_CONFIG", raising=False)
+
+    with run_rust_module.ensure_nextest_config() as path:
+        assert path.resolve() == config_path
+        assert path.read_text(encoding="utf-8") == "[profile.default]\n"
+
+    assert config_path.exists()
 
 
 def test_run_cargo_windows(
@@ -363,6 +621,7 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "DETECTED_FMT": "lcov",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_USE_CARGO_NEXTEST": "false",
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
@@ -398,6 +657,52 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
     assert not cuc_file.exists()
 
 
+def test_run_rust_with_cucumber_nextest(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cucumber coverage works when cargo-nextest is enabled."""
+    out = tmp_path / "cov.lcov"
+    gh = tmp_path / "gh.txt"
+
+    cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
+    out.write_text("TN:test\nend_of_record\n")
+    cuc_file.write_text("TN:cuke\nend_of_record\n")
+
+    shell_stubs.register(
+        "cargo",
+        default=DefaultResponse(stdout="Coverage: 100%\n"),
+    )
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "lcov",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_USE_CARGO_NEXTEST": "true",
+        "INPUT_WITH_CUCUMBER_RS": "true",
+        "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "GITHUB_OUTPUT": str(gh),
+    }
+
+    monkeypatch.chdir(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
+    returncode, _, _ = run_script(script, env)
+    assert returncode == 0
+
+    calls = shell_stubs.calls_of("cargo")
+    assert len(calls) == 2
+    assert "nextest" in calls[0].argv
+    assert "nextest" in calls[1].argv
+    assert out.read_text() == "TN:test\nend_of_record\nTN:cuke\nend_of_record\n"
+    assert not cuc_file.exists()
+    assert not (tmp_path / ".config" / "nextest.toml").exists()
+
+
 def test_run_rust_with_cucumber_cobertura(
     tmp_path: Path, shell_stubs: StubManager
 ) -> None:
@@ -430,6 +735,7 @@ def test_run_rust_with_cucumber_cobertura(
         "DETECTED_FMT": "cobertura",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_USE_CARGO_NEXTEST": "false",
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "",
@@ -480,6 +786,7 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
         "DETECTED_FMT": "cobertura",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_USE_CARGO_NEXTEST": "false",
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "",
@@ -504,6 +811,7 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
         "INPUT_OUTPUT_PATH": str(tmp_path / "out"),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
+        "INPUT_USE_CARGO_NEXTEST": "false",
         "GITHUB_OUTPUT": str(tmp_path / "gh.txt"),
     }
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
@@ -511,6 +819,246 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert returncode == 2
     assert "cargo llvm-cov" in stderr
     assert "failed with code 2" in stderr
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("Linux", "x86_64", "linux-x86_64"),
+        ("Linux", "aarch64", "linux-aarch64"),
+        ("Darwin", "arm64", "mac-universal"),
+        ("Windows", "AMD64", "windows-x86_64"),
+        ("Windows", "ARM64", "windows-aarch64"),
+    ],
+)
+def test_platform_key_variants(
+    case: tuple[str, str, str],
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Platform key mapping normalises common OS/arch combinations."""
+    system, machine, expected = case
+    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
+    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
+    assert install_nextest_module._platform_key() == expected
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "linux-x86_64",
+        "linux-aarch64",
+        "mac-universal",
+        "windows-x86_64",
+        "windows-aarch64",
+    ],
+)
+def test_expected_sha_for_supported_platforms(
+    key: str,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expected SHA lookup matches the platform mapping."""
+    monkeypatch.setattr(install_nextest_module, "_platform_key", lambda: key)
+    assert (
+        install_nextest_module._expected_sha_for_platform()
+        == install_nextest_module.CARGO_NEXTEST_SHA256[key]
+    )
+
+
+def test_expected_sha_for_unsupported_platform(
+    monkeypatch: pytest.MonkeyPatch,
+    install_nextest_module: ModuleType,
+) -> None:
+    """Unsupported platforms raise a Typer exit."""
+    monkeypatch.setattr(
+        install_nextest_module,
+        "_platform_key",
+        lambda: "unsupported-platform",
+    )
+
+    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
+        install_nextest_module._expected_sha_for_platform()
+
+    assert _exit_code(excinfo.value) == 1
+
+
+def test_find_nextest_binary_prefers_path(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Binary lookup prefers PATH via shutil.which."""
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: str(binary))
+    assert install_nextest_module._find_nextest_binary() == binary
+
+
+def test_find_nextest_binary_falls_back_to_home(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Binary lookup falls back to ~/.cargo/bin when PATH is empty."""
+    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
+    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
+    cargo_bin = tmp_path / ".cargo" / "bin"
+    cargo_bin.mkdir(parents=True, exist_ok=True)
+    binary = cargo_bin / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    assert install_nextest_module._find_nextest_binary() == binary
+
+
+def test_find_nextest_binary_missing_exits(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing cargo-nextest after install raises a Typer exit."""
+    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
+    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
+
+    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
+        install_nextest_module._find_nextest_binary()
+
+    assert _exit_code(excinfo.value) == 1
+
+
+def test_resolve_nextest_binary_returns_none_when_missing(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing binary lookup returns None when not found."""
+    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
+    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
+    assert install_nextest_module._resolve_nextest_binary() is None
+
+
+def test_install_nextest_skips_when_verified(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Installer skips binstall when an existing binary verifies."""
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    expected = hashlib.sha256(b"payload").hexdigest()
+    called: dict[str, bool] = {"verify": False}
+
+    def fake_verify(path: Path, sha: str) -> bool:
+        assert path == binary
+        assert sha == expected
+        called["verify"] = True
+        return True
+
+    def fail_install() -> None:
+        raise AssertionError
+
+    monkeypatch.setattr(
+        install_nextest_module, "_expected_sha_for_platform", lambda: expected
+    )
+    monkeypatch.setattr(
+        install_nextest_module, "_resolve_nextest_binary", lambda: binary
+    )
+    monkeypatch.setattr(install_nextest_module, "verify_nextest_binary", fake_verify)
+    monkeypatch.setattr(install_nextest_module, "install_cargo_nextest", fail_install)
+
+    install_nextest_module.main()
+    assert called["verify"] is True
+
+
+def test_install_nextest_invokes_binstall(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``install_cargo_nextest.py`` calls cargo binstall and verifies hash."""
+    recorded: dict[str, object] = {}
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    expected = hashlib.sha256(b"payload").hexdigest()
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded["cmd"] = cmd
+
+    monkeypatch.setattr(install_nextest_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
+    monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
+    monkeypatch.setattr(
+        install_nextest_module, "_expected_sha_for_platform", lambda: expected
+    )
+
+    install_nextest_module.main()
+
+    cmd = recorded.get("cmd")
+    assert cmd is not None
+    parts = list(cmd.formulate())
+    assert Path(parts[0]).name == "cargo"
+    assert parts[1:] == [
+        "binstall",
+        "cargo-nextest",
+        "--version",
+        install_nextest_module.CARGO_NEXTEST_VERSION,
+        "--no-confirm",
+        "--force",
+    ]
+
+
+def test_install_nextest_binstall_failure(
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Binstall failures cause a Typer exit with stderr content."""
+    retcode = 2
+    stderr_msg = "simulated cargo-binstall failure"
+
+    def fail_run_cmd(*_args: object, **_kwargs: object) -> None:
+        raise install_nextest_module.ProcessExecutionError(
+            ["cargo", "binstall", "cargo-nextest"],
+            retcode,
+            "",
+            stderr_msg,
+        )
+
+    monkeypatch.setattr(install_nextest_module, "run_cmd", fail_run_cmd)
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
+    monkeypatch.setattr(
+        install_nextest_module, "_expected_sha_for_platform", lambda: "deadbeef"
+    )
+
+    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
+        install_nextest_module.main()
+
+    assert _exit_code(excinfo.value) == retcode
+    captured = capsys.readouterr()
+    assert stderr_msg in captured.err
+
+
+def test_install_nextest_checksum_match(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """Matching checksums pass verification."""
+    binary = tmp_path / "cargo-nextest"
+    payload = b"payload"
+    binary.write_bytes(payload)
+    expected = hashlib.sha256(payload).hexdigest()
+
+    assert install_nextest_module.verify_nextest_binary(binary, expected)
+
+
+def test_install_nextest_checksum_mismatch(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """Checksum mismatches raise a Typer exit."""
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+
+    assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

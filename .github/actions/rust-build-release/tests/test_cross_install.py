@@ -70,16 +70,16 @@ def test_cross_install_failure_non_windows(
         return None if name == "cross" else "/usr/bin/rustup"
 
     def fail_install(cmd: list[str]) -> None:
-        raise subprocess.CalledProcessError(1, cmd, output="install failed")
+        raise cross_module.ProcessExecutionError(cmd, 1, "", "install failed")
 
     harness.patch_shutil_which(fake_which)
     harness.patch_run_cmd(fail_install)
 
-    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+    with pytest.raises(cross_module.ProcessExecutionError) as exc_info:
         cross_module.ensure_cross("0.2.5")
 
-    assert exc_info.value.returncode == 1
-    assert exc_info.value.output == "install failed"
+    assert exc_info.value.retcode == 1
+    assert exc_info.value.stderr == "install failed"
 
 
 @CMD_MOX_UNSUPPORTED
@@ -378,6 +378,8 @@ def test_installs_cross_without_container_runtime(
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
+    cross_env.patch_run_cmd()
+    app_env.patch_run_cmd()
 
     cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
@@ -410,7 +412,7 @@ def test_falls_back_to_git_when_crates_io_unavailable(
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if len(harness.calls) == 1:
-            raise subprocess.CalledProcessError(1, cmd)
+            raise cross_module.ProcessExecutionError(cmd, 1, "", "")
         return
 
     def fake_which(name: str) -> str | None:

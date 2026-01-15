@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer", "lxml"]
 # ///
-"""Run Rust coverage using ``cargo llvm-cov``."""
+"""Run Rust coverage using ``cargo llvm-cov`` and optional ``cargo nextest``."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import threading
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path  # noqa: TC003 - used at runtime
+from pathlib import Path
 
 import typer
 from cmd_utils_loader import run_cmd
@@ -77,6 +77,7 @@ if os.name == "nt":
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
 WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURES")
+USE_NEXTEST_OPT = typer.Option(default=True, envvar="INPUT_USE_CARGO_NEXTEST")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
@@ -85,12 +86,31 @@ CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
 WITH_CUCUMBER_RS_OPT = typer.Option(default=False, envvar="INPUT_WITH_CUCUMBER_RS")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_RUST_FILE")
 
+NEXTEST_CONFIG_PATH = Path(".config/nextest.toml")
+NEXTEST_DEFAULT_CONFIG = """[profile.default]
+# Default slow timeout is 180s; nextest sends SIGTERM after the period and
+# SIGKILL after the grace-period. The settings integration test binary
+# (tests/settings.rs) is capped at 30s.
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+# Put a hard ceiling on the whole run.
+global-timeout = "10m"
+"""
+
 
 def get_cargo_coverage_cmd(
-    fmt: str, out: Path, features: str, *, with_default: bool
+    fmt: str,
+    out: Path,
+    features: str,
+    *,
+    with_default: bool,
+    use_nextest: bool,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
-    args = ["llvm-cov", "--workspace", "--summary-only"]
+    args = ["llvm-cov"]
+    if use_nextest:
+        args.append("nextest")
+    args += ["--workspace", "--summary-only"]
     if not with_default:
         args.append("--no-default-features")
     if features:
@@ -363,6 +383,7 @@ def run_cucumber_rs_coverage(
     features: str,
     *,
     with_default: bool,
+    use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
 ) -> None:
@@ -373,6 +394,7 @@ def run_cucumber_rs_coverage(
         cucumber_file,
         features,
         with_default=with_default,
+        use_nextest=use_nextest,
     )
     c_args += [
         "--",
@@ -409,11 +431,60 @@ def run_cucumber_rs_coverage(
     cucumber_file.unlink()
 
 
+@contextlib.contextmanager
+def ensure_nextest_config() -> typ.Iterator[Path]:
+    """Ensure a temporary nextest config exists when none is present."""
+    config_path = _resolve_nextest_config_path()
+    if config_path.is_file():
+        yield config_path
+        return
+
+    created_dir = False
+    if not config_path.parent.exists():
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        created_dir = True
+
+    config_path.write_text(NEXTEST_DEFAULT_CONFIG, encoding="utf-8")
+    try:
+        yield config_path
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            config_path.unlink()
+        if created_dir:
+            with contextlib.suppress(OSError):
+                config_path.parent.rmdir()
+
+
+def _resolve_nextest_config_path() -> Path:
+    """Resolve config via NEXTEST_CONFIG, XDG/home, then CWD fallback.
+
+    Order: NEXTEST_CONFIG, XDG_CONFIG_HOME/nextest/config.toml,
+    ~/.config/nextest/config.toml, then CWD-relative NEXTEST_CONFIG_PATH
+    (.config/nextest.toml).
+    """
+    env_path = os.getenv("NEXTEST_CONFIG")
+    if env_path:
+        return Path(env_path).expanduser()
+
+    xdg_home = os.getenv("XDG_CONFIG_HOME")
+    if xdg_home:
+        candidate = Path(xdg_home).expanduser() / "nextest" / "config.toml"
+        if candidate.is_file():
+            return candidate
+
+    home_candidate = Path.home() / ".config" / "nextest" / "config.toml"
+    if home_candidate.is_file():
+        return home_candidate
+
+    return NEXTEST_CONFIG_PATH
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     features: str = FEATURES_OPT,
     *,
     with_default: bool = WITH_DEFAULT_OPT,
+    use_nextest: bool = USE_NEXTEST_OPT,
     lang: str = LANG_OPT,
     fmt: str = FMT_OPT,
     github_output: Path = GITHUB_OUTPUT_OPT,
@@ -428,18 +499,29 @@ def main(
         out = output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    args = get_cargo_coverage_cmd(fmt, out, features, with_default=with_default)
-    stdout = _run_cargo(args)
+    args = get_cargo_coverage_cmd(
+        fmt,
+        out,
+        features,
+        with_default=with_default,
+        use_nextest=use_nextest,
+    )
+    config_context = (
+        ensure_nextest_config() if use_nextest else contextlib.nullcontext()
+    )
+    with config_context:
+        stdout = _run_cargo(args)
 
-    if with_cucumber_rs and cucumber_rs_features:
-        run_cucumber_rs_coverage(
-            out,
-            fmt,
-            features,
-            with_default=with_default,
-            cucumber_rs_features=cucumber_rs_features,
-            cucumber_rs_args=cucumber_rs_args,
-        )
+        if with_cucumber_rs and cucumber_rs_features:
+            run_cucumber_rs_coverage(
+                out,
+                fmt,
+                features,
+                with_default=with_default,
+                use_nextest=use_nextest,
+                cucumber_rs_features=cucumber_rs_features,
+                cucumber_rs_args=cucumber_rs_args,
+            )
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)
     elif fmt == "cobertura":

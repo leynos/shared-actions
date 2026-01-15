@@ -15,7 +15,6 @@ import sys
 import typing as typ
 from pathlib import Path
 
-import cyclopts
 import httpx
 from cyclopts import App, Parameter
 
@@ -64,7 +63,7 @@ mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMeth
 }
 """
 
-app = App(config=cyclopts.config.Env("INPUT_", command=False))
+app = App()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -460,7 +459,9 @@ DEFAULT_AUTOMERGE_OPTIONS = AutomergeOptions()
 @app.default
 def main(
     *,
-    github_token: typ.Annotated[str, Parameter(required=True)],
+    github_token: typ.Annotated[
+        str, Parameter(required=True, env_var="INPUT_GITHUB_TOKEN")
+    ],
     options: AutomergeOptions = DEFAULT_AUTOMERGE_OPTIONS,
 ) -> None:
     """Evaluate a PR and enable auto-merge when policy allows."""

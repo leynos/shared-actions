@@ -140,7 +140,7 @@ local validation path via `pytest` + `act`.
 - Decision: Add act-only workflow branches to skip `setup-uv`, install uv via
   pip with `--break-system-packages`, and redirect uv paths to `/tmp`.
   Rationale: act uses Node 18 and Debian PEP 668 defaults; this keeps workflow
-  tests green without affecting GitHub runner behavior.
+  tests green without affecting GitHub runner behaviour.
   Date/Author: 2026-01-12 (assistant).
 
 ## Outcomes & Retrospective

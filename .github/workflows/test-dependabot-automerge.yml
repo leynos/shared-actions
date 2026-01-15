@@ -16,4 +16,5 @@ jobs:
       merge-method: squash
       dry-run: true
     secrets:
+      # Dummy token for dry-run testing only; not used in API calls
       github-token: test-token

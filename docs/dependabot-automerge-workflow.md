@@ -12,7 +12,7 @@ The helper script only enables auto-merge when all of the following are true:
 - The pull request is not marked as a draft.
 - The required label (default `dependencies`) is present.
 
-If any rule fails, the workflow logs a `automerge_status=skipped` entry with a
+If any rule fails, the workflow logs an `automerge_status=skipped` entry with a
 reason and exits successfully.
 
 ## Required permissions
@@ -43,7 +43,7 @@ jobs:
       pull-requests: write
       checks: read
       statuses: read
-    uses: your-org/shared-actions/.github/workflows/dependabot-automerge.yml@v1
+    uses: example-org/shared-actions/.github/workflows/dependabot-automerge.yml@v1
     with:
       required-label: dependencies
       merge-method: squash

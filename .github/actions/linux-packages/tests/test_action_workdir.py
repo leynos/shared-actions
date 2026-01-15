@@ -23,6 +23,22 @@ def _find_repo_root(start: Path) -> Path:
     raise AssertionError(message)
 
 
+def test_find_repo_root_with_git_file(tmp_path: Path) -> None:
+    """_find_repo_root should treat a .git file (worktree) as a repo root."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    # Simulate a git worktree where .git is a file pointing to another directory.
+    git_file = repo_root / ".git"
+    git_file.write_text("gitdir: /path/to/actual/git/dir\n")
+
+    # Start from a nested directory and ensure we still resolve to repo_root.
+    nested = repo_root / "subdir" / "deeper"
+    nested.mkdir(parents=True)
+
+    assert _find_repo_root(nested) == repo_root
+
+
 def test_action_uses_workdir() -> None:
     """Ensure packaging runs from project dir."""
     data = _load_action()

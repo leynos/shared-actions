@@ -112,7 +112,7 @@ def test_enables_automerge_when_ready(
     """Eligible PRs enable auto-merge via the GitHub API."""
 
     def fake_request(
-        token: str, query: str, variables: dict[str, object]
+        _token: str, query: str, _variables: dict[str, object]
     ) -> dict[str, object]:
         if "enablePullRequestAutoMerge" in query:
             return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 12}}}
@@ -143,3 +143,107 @@ def test_enables_automerge_when_ready(
     captured = capsys.readouterr()
     assert "automerge_status=enabled" in captured.out
     assert "automerge_reason=enabled" in captured.out
+
+
+def test_dry_run_skips_draft_pr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Draft pull requests are skipped in dry-run mode."""
+    event = {
+        "pull_request": {
+            "number": 8,
+            "draft": True,
+            "user": {"login": "dependabot[bot]"},
+            "labels": [{"name": "dependencies"}],
+        },
+        "repository": {"full_name": "acme/example"},
+    }
+    event_path = _write_event(tmp_path, event)
+
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+
+    dependabot_automerge.main(
+        github_token=TEST_TOKEN,
+        options=dependabot_automerge.AutomergeOptions(
+            dry_run=True,
+            required_label="dependencies",
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert "automerge_status=skipped" in captured.out
+    assert "automerge_reason=draft-pr" in captured.out
+
+
+def test_dry_run_skips_missing_label(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Pull requests missing the required label are skipped."""
+    event = {
+        "pull_request": {
+            "number": 10,
+            "draft": False,
+            "user": {"login": "dependabot[bot]"},
+            "labels": [{"name": "other-label"}],
+        },
+        "repository": {"full_name": "acme/example"},
+    }
+    event_path = _write_event(tmp_path, event)
+
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+
+    dependabot_automerge.main(
+        github_token=TEST_TOKEN,
+        options=dependabot_automerge.AutomergeOptions(
+            dry_run=True,
+            required_label="dependencies",
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert "automerge_status=skipped" in captured.out
+    assert "automerge_reason=missing-label:dependencies" in captured.out
+
+
+def test_already_enabled_automerge_detected(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PRs with auto-merge already enabled are detected."""
+
+    def fake_request(
+        _token: str, _query: str, _variables: dict[str, object]
+    ) -> dict[str, object]:
+        return {
+            "repository": {
+                "pullRequest": {
+                    "id": "PR_15",
+                    "number": 15,
+                    "isDraft": False,
+                    "author": {"login": "dependabot[bot]"},
+                    "labels": {"nodes": [{"name": "dependencies"}]},
+                    "autoMergeRequest": {
+                        "enabledAt": "2024-01-01T00:00:00Z",
+                        "mergeMethod": "SQUASH",
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(dependabot_automerge, "_request_graphql", fake_request)
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    dependabot_automerge.main(
+        github_token=TEST_TOKEN,
+        options=dependabot_automerge.AutomergeOptions(
+            repository="acme/example",
+            pull_request_number=15,
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert "automerge_status=enabled" in captured.out
+    assert "automerge_reason=already-enabled" in captured.out

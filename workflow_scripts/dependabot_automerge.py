@@ -12,6 +12,7 @@ import dataclasses
 import json
 import os
 import sys
+import time
 import typing as typ
 from pathlib import Path
 
@@ -66,7 +67,7 @@ mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMeth
 app = App()
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class PullRequestContext:
     """Snapshot of the pull request metadata used for gating."""
 
@@ -80,7 +81,7 @@ class PullRequestContext:
     auto_merge_enabled: bool = False
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Decision:
     """Decision describing whether auto-merge should proceed."""
 
@@ -88,7 +89,7 @@ class Decision:
     reason: str
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class AutomergeConfig:
     """Configuration for emitting automerge decisions."""
 
@@ -97,7 +98,7 @@ class AutomergeConfig:
     dry_run: bool
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class RuntimeContext:
     """Runtime context for PR evaluation."""
 
@@ -216,7 +217,7 @@ def _labels_from_event(event: dict[str, typ.Any]) -> tuple[str, ...]:
     if not isinstance(pr, dict):
         _fail("Event payload does not include pull_request data.")
     labels = []
-    for label in pr.get("labels", []) or []:
+    for label in pr.get("labels") or []:
         if not isinstance(label, dict):
             continue
         name = label.get("name")
@@ -286,31 +287,51 @@ def _request_graphql(
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
-    try:
-        with httpx.Client(timeout=30) as client:
-            response = client.post(
-                GRAPHQL_ENDPOINT,
-                json={"query": query, "variables": variables},
-                headers=headers,
-            )
-    except httpx.HTTPError as exc:
-        _fail(f"GitHub API request failed: {exc}")
 
-    if response.status_code >= 400:
-        _fail(f"GitHub API error {response.status_code}: {response.text}")
+    max_retries = 3
+    backoff_base_seconds = 1.0
 
-    try:
-        payload = response.json()
-    except json.JSONDecodeError as exc:
-        _fail(f"GitHub API response was not valid JSON: {exc}")
+    for attempt in range(max_retries + 1):
+        try:
+            with httpx.Client(timeout=30) as client:
+                response = client.post(
+                    GRAPHQL_ENDPOINT,
+                    json={"query": query, "variables": variables},
+                    headers=headers,
+                )
+        except httpx.HTTPError as exc:
+            if attempt < max_retries:
+                time.sleep(backoff_base_seconds * (2**attempt))
+                continue
+            _fail(f"GitHub API request failed after retries: {exc}")
 
-    errors = payload.get("errors")
-    if errors:
-        _fail(f"GitHub API GraphQL errors: {errors}")
-    data = payload.get("data")
-    if data is None:
-        _fail("GitHub API returned no data.")
-    return data
+        # Fast-fail on client errors (4xx)
+        if 400 <= response.status_code < 500:
+            _fail(f"GitHub API error {response.status_code}: {response.text}")
+
+        # Retry on server errors (5xx)
+        if response.status_code >= 500:
+            if attempt < max_retries:
+                time.sleep(backoff_base_seconds * (2**attempt))
+                continue
+            msg = f"GitHub API error {response.status_code} after retries"
+            _fail(f"{msg}: {response.text}")
+
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            _fail(f"GitHub API response was not valid JSON: {exc}")
+
+        errors = payload.get("errors")
+        if errors:
+            _fail(f"GitHub API GraphQL errors: {errors}")
+        data = payload.get("data")
+        if data is None:
+            _fail("GitHub API returned no data.")
+        return data
+
+    # Unreachable but satisfies type checker
+    _fail("GitHub API request failed unexpectedly.")
 
 
 def _fetch_pull_request(
@@ -412,7 +433,7 @@ def _handle_live_execution(
     )
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class AutomergeOptions:
     """CLI options for automerge execution."""
 

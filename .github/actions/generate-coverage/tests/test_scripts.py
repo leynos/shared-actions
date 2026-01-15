@@ -423,8 +423,8 @@ def test_nextest_config_prefers_xdg_when_present(
 ) -> None:
     """XDG config is preferred when it exists and no env override is set."""
     xdg_home = tmp_path / "xdg"
-    config_path = xdg_home / "nextest.toml"
-    xdg_home.mkdir(parents=True, exist_ok=True)
+    config_path = xdg_home / "nextest" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text("[profile.default]\n", encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_home))
     monkeypatch.setenv("HOME", str(tmp_path))

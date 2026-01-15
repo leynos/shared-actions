@@ -435,7 +435,7 @@ def run_cucumber_rs_coverage(
 def ensure_nextest_config() -> typ.Iterator[Path]:
     """Ensure a temporary nextest config exists when none is present."""
     config_path = _resolve_nextest_config_path()
-    if config_path.exists():
+    if config_path.is_file():
         yield config_path
         return
 

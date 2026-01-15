@@ -98,6 +98,15 @@ class AutomergeConfig:
     dry_run: bool
 
 
+@dataclasses.dataclass(frozen=True)
+class RuntimeContext:
+    """Runtime context for PR evaluation."""
+
+    repo_full_name: str
+    event: dict[str, typ.Any] | None
+    pull_request_number: int | None
+
+
 def _log_value(value: object) -> str:
     if value is None:
         return ""
@@ -364,15 +373,16 @@ def _handle_dry_run(
 
 def _handle_live_execution(
     github_token: str,
-    repo_full_name: str,
-    event: dict[str, typ.Any] | None,
+    context: RuntimeContext,
     *,
     config: AutomergeConfig,
-    pull_request_number: int | None,
 ) -> None:
     """Handle the live execution path that talks to the GitHub API."""
-    owner, repo = _split_repo(repo_full_name)
-    pr_number = _resolve_pull_request_number(pull_request_number, event)
+    owner, repo = _split_repo(context.repo_full_name)
+    pr_number = _resolve_pull_request_number(
+        context.pull_request_number,
+        context.event,
+    )
 
     pr = _fetch_pull_request(github_token, owner, repo, pr_number)
     decision = _evaluate(pr, config.required_label)
@@ -472,12 +482,15 @@ def main(
             config=config,
         )
         return
+    context = RuntimeContext(
+        repo_full_name=repo_full_name,
+        event=event,
+        pull_request_number=options.pull_request_number,
+    )
     _handle_live_execution(
         github_token,
-        repo_full_name,
-        event,
+        context,
         config=config,
-        pull_request_number=options.pull_request_number,
     )
 
 

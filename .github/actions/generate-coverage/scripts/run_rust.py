@@ -456,7 +456,11 @@ def ensure_nextest_config() -> typ.Iterator[Path]:
 
 
 def _resolve_nextest_config_path() -> Path:
-    """Resolve nextest config path via env/XDG/home before CWD-relative .config."""
+    """Resolve config via NEXTEST_CONFIG, XDG/home, then CWD fallback.
+
+    Order: NEXTEST_CONFIG, XDG_CONFIG_HOME/nextest.toml, ~/.config/nextest.toml,
+    then CWD-relative NEXTEST_CONFIG_PATH (.config/nextest.toml).
+    """
     env_path = os.getenv("NEXTEST_CONFIG")
     if env_path:
         return Path(env_path).expanduser()

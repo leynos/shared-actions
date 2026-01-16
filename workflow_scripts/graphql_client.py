@@ -116,5 +116,5 @@ def request_graphql(
         return _parse_graphql_response(processed_response)
 
     # Defensive: unreachable if retry logic works correctly, but satisfies type checker
-    fail("GitHub API request failed unexpectedly.")
-    raise AssertionError  # unreachable
+    fail("GitHub API request failed unexpectedly.")  # pragma: no cover
+    raise AssertionError  # pragma: no cover

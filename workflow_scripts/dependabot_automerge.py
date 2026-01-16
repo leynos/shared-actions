@@ -68,6 +68,9 @@ from pathlib import Path
 import httpx
 from cyclopts import App, Parameter
 
+# Type alias for JSON-compatible values (parsed from json.loads)
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
 DEPENDABOT_LOGIN = "dependabot[bot]"
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 
@@ -200,11 +203,12 @@ class RuntimeContext:
     """
 
     repo_full_name: str
-    event: dict[str, typ.Any] | None
+    event: dict[str, JsonValue] | None
     pull_request_number: int | None
 
 
 def _log_value(value: object) -> str:
+    """Format a value for key=value log output."""
     if value is None:
         return ""
     if isinstance(value, tuple):
@@ -215,17 +219,20 @@ def _log_value(value: object) -> str:
 
 
 def _emit(key: str, value: object, *, stream: typ.TextIO | None = None) -> None:
+    """Print a key=value pair to stdout or the specified stream."""
     target = stream if stream is not None else sys.stdout
     print(f"{key}={_log_value(value)}", file=target)
 
 
 def _fail(message: str) -> typ.NoReturn:
+    """Log an error and exit with status code 1."""
     _emit("automerge_status", "error", stream=sys.stderr)
     _emit("automerge_error", message, stream=sys.stderr)
     raise SystemExit(1)
 
 
-def _load_event() -> dict[str, typ.Any] | None:
+def _load_event() -> dict[str, JsonValue] | None:
+    """Load the GitHub event payload from GITHUB_EVENT_PATH if set."""
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if not event_path:
         return None
@@ -239,6 +246,7 @@ def _load_event() -> dict[str, typ.Any] | None:
 
 
 def _normalize_label(required_label: str | None) -> str | None:
+    """Strip whitespace from a label, returning None if empty."""
     if required_label is None:
         return None
     label = required_label.strip()
@@ -246,6 +254,7 @@ def _normalize_label(required_label: str | None) -> str | None:
 
 
 def _normalize_merge_method(merge_method: str) -> str:
+    """Validate and normalise a merge method to its GraphQL enum value."""
     normalized = merge_method.strip().lower()
     if normalized not in MERGE_METHODS:
         allowed = ", ".join(sorted(MERGE_METHODS))
@@ -253,7 +262,7 @@ def _normalize_merge_method(merge_method: str) -> str:
     return MERGE_METHODS[normalized]
 
 
-def _get_repo_from_event(event: dict[str, typ.Any] | None) -> str:
+def _get_repo_from_event(event: dict[str, JsonValue] | None) -> str:
     """Return the repository full name from an event payload when available."""
     if not event:
         return ""
@@ -264,8 +273,9 @@ def _get_repo_from_event(event: dict[str, typ.Any] | None) -> str:
 
 
 def _resolve_repository(
-    repository: str | None, event: dict[str, typ.Any] | None
+    repository: str | None, event: dict[str, JsonValue] | None
 ) -> str:
+    """Resolve the repository from input, event payload, or environment."""
     if repository and (candidate := repository.strip()):
         return candidate
     if repo := _get_repo_from_event(event):
@@ -276,6 +286,7 @@ def _resolve_repository(
 
 
 def _split_repo(full_name: str) -> tuple[str, str]:
+    """Split a full repository name into owner and repo components."""
     parts = full_name.split("/")
     if len(parts) != 2 or not all(parts):
         _fail(f"Repository '{full_name}' must be in owner/repo form.")
@@ -283,8 +294,9 @@ def _split_repo(full_name: str) -> tuple[str, str]:
 
 
 def _resolve_pull_request_number(
-    pull_request_number: int | None, event: dict[str, typ.Any] | None
+    pull_request_number: int | None, event: dict[str, JsonValue] | None
 ) -> int:
+    """Resolve the PR number from input or event payload."""
     if pull_request_number is not None:
         return pull_request_number
     if event and (number := event.get("pull_request", {}).get("number")) is not None:
@@ -298,7 +310,7 @@ def _resolve_pull_request_number(
     )
 
 
-def _parse_pr_number(pr: dict[str, typ.Any]) -> int:
+def _parse_pr_number(pr: dict[str, JsonValue]) -> int:
     """Parse and validate the pull request number from event payload data."""
     number = pr.get("number")
     if number is None:
@@ -309,7 +321,7 @@ def _parse_pr_number(pr: dict[str, typ.Any]) -> int:
         _fail("Event payload pull_request.number is not an integer.")
 
 
-def _labels_from_pr(pr: dict[str, typ.Any]) -> tuple[str, ...]:
+def _labels_from_pr(pr: dict[str, JsonValue]) -> tuple[str, ...]:
     """Extract label names from a validated pull_request dict."""
     labels = []
     for label in pr.get("labels") or []:
@@ -322,8 +334,9 @@ def _labels_from_pr(pr: dict[str, typ.Any]) -> tuple[str, ...]:
 
 
 def _snapshot_from_event(
-    event: dict[str, typ.Any], repo_full_name: str
+    event: dict[str, JsonValue], repo_full_name: str
 ) -> PullRequestContext:
+    """Build a PullRequestContext from a GitHub event payload."""
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         _fail("Event payload does not include pull_request data.")
@@ -343,6 +356,7 @@ def _snapshot_from_event(
 
 
 def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
+    """Evaluate a PR against eligibility rules and return a Decision."""
     if pr.author != DEPENDABOT_LOGIN:
         return Decision(status="skipped", reason="author-not-dependabot")
     if pr.is_draft:
@@ -358,6 +372,7 @@ def _emit_decision(
     *,
     config: AutomergeConfig,
 ) -> None:
+    """Emit structured decision output for the automerge workflow."""
     if decision.status == "ready" and config.dry_run:
         status = "dry-run"
         reason = decision.reason
@@ -376,10 +391,12 @@ def _emit_decision(
 
 
 def _should_retry(attempt: int, max_retries: int) -> bool:
+    """Return True if more retry attempts remain."""
     return attempt < max_retries
 
 
 def _backoff_sleep(attempt: int, base_seconds: float = 1.0) -> None:
+    """Sleep with exponential backoff based on attempt number."""
     time.sleep(base_seconds * (2**attempt))
 
 
@@ -390,7 +407,7 @@ def _attempt_retry_or_fail(attempt: int, max_retries: int, error_message: str) -
     _backoff_sleep(attempt)
 
 
-def _parse_graphql_response(response: httpx.Response) -> dict[str, typ.Any]:
+def _parse_graphql_response(response: httpx.Response) -> dict[str, JsonValue]:
     """Parse and validate a GraphQL response, returning the data payload."""
     try:
         payload = response.json()
@@ -408,7 +425,7 @@ def _parse_graphql_response(response: httpx.Response) -> dict[str, typ.Any]:
 
 
 def _execute_graphql_attempt(
-    token: str, query: str, variables: dict[str, typ.Any]
+    token: str, query: str, variables: dict[str, JsonValue]
 ) -> httpx.Response | None:
     """Execute a single GraphQL request attempt, returning None on connection error."""
     headers = {
@@ -450,8 +467,9 @@ def _handle_response_or_retry(
 
 
 def _request_graphql(
-    token: str, query: str, variables: dict[str, typ.Any]
-) -> dict[str, typ.Any]:
+    token: str, query: str, variables: dict[str, JsonValue]
+) -> dict[str, JsonValue]:
+    """Execute a GraphQL request with retry logic and return the data payload."""
     max_retries = 3
 
     for attempt in range(max_retries + 1):
@@ -467,22 +485,36 @@ def _request_graphql(
 def _fetch_pull_request(
     token: str, owner: str, repo: str, number: int
 ) -> PullRequestContext:
+    """Fetch PR metadata from the GitHub GraphQL API."""
     data = _request_graphql(
         token,
         PULL_REQUEST_QUERY,
         {"owner": owner, "name": repo, "number": number},
     )
-    pull_request = data.get("repository", {}).get("pullRequest")
-    if pull_request is None:
+    repository = data.get("repository")
+    if not isinstance(repository, dict):
         _fail(f"Pull request {owner}/{repo}#{number} was not found.")
-    author = pull_request.get("author", {}).get("login")
-    author_login = author if isinstance(author, str) else ""
-    labels = [
-        node.get("name")
-        for node in pull_request.get("labels", {}).get("nodes", [])
-        if isinstance(node, dict) and isinstance(node.get("name"), str)
-    ]
+    pull_request = repository.get("pullRequest")
+    if not isinstance(pull_request, dict):
+        _fail(f"Pull request {owner}/{repo}#{number} was not found.")
+    author_obj = pull_request.get("author")
+    author_login = ""
+    if isinstance(author_obj, dict):
+        login = author_obj.get("login")
+        if isinstance(login, str):
+            author_login = login
+    labels_obj = pull_request.get("labels")
+    labels: list[str] = []
+    if isinstance(labels_obj, dict):
+        nodes = labels_obj.get("nodes")
+        if isinstance(nodes, list):
+            for node in nodes:
+                if isinstance(node, dict):
+                    name = node.get("name")
+                    if isinstance(name, str):
+                        labels.append(name)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
+    node_id = pull_request.get("id")
     return PullRequestContext(
         number=number,
         owner=owner,
@@ -490,12 +522,13 @@ def _fetch_pull_request(
         author=author_login,
         is_draft=bool(pull_request.get("isDraft", False)),
         labels=tuple(labels),
-        node_id=pull_request.get("id"),
+        node_id=node_id if isinstance(node_id, str) else None,
         auto_merge_enabled=auto_merge_enabled,
     )
 
 
 def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> None:
+    """Enable auto-merge on a pull request via the GitHub GraphQL API."""
     _request_graphql(
         token,
         ENABLE_AUTOMERGE_MUTATION,
@@ -504,7 +537,7 @@ def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> No
 
 
 def _handle_dry_run(
-    event: dict[str, typ.Any] | None,
+    event: dict[str, JsonValue] | None,
     repo_full_name: str,
     *,
     config: AutomergeConfig,

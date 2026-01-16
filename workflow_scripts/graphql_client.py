@@ -79,6 +79,15 @@ def _execute_graphql_attempt(
         return None
 
 
+def _is_rate_limited(response: httpx.Response) -> bool:
+    """Check if response indicates rate limiting."""
+    if response.status_code not in (403, 429):
+        return False
+    if "retry-after" in response.headers:
+        return True
+    return response.headers.get("x-ratelimit-remaining") == "0"
+
+
 def _handle_response_or_retry(
     response: httpx.Response | None, attempt: int, max_retries: int
 ) -> httpx.Response | None:
@@ -89,6 +98,11 @@ def _handle_response_or_retry(
             max_retries,
             "GitHub API request failed after retries: connection error",
         )
+        return None
+
+    if _is_rate_limited(response):
+        msg = f"GitHub API rate limited ({response.status_code}) after retries"
+        _attempt_retry_or_fail(attempt, max_retries, f"{msg}: {response.text}")
         return None
 
     if 400 <= response.status_code < 500:

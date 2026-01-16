@@ -45,6 +45,8 @@ jobs:
       statuses: read
     uses: example-org/shared-actions/.github/workflows/dependabot-automerge.yml@v1
     with:
+      # Required: pass the PR number explicitly for workflow_call contexts
+      pull-request-number: ${{ github.event.pull_request.number }}
       required-label: dependencies
       merge-method: squash
     secrets:
@@ -58,8 +60,12 @@ jobs:
 - `merge-method` (string, default: `squash`): one of `squash`, `merge`, `rebase`.
 - `dry-run` (boolean, default: `false`): if `true`, no API calls are made; the
   workflow logs the decision and exits.
-- `pull-request-number` (number, optional): override the PR number if the event
-  payload is not a pull request.
+- `pull-request-number` (number, recommended): the pull request number. When
+  calling this workflow via `workflow_call`, the event context is the caller's
+  `workflow_call` payload, not the original `pull_request` event. Pass
+  `${{ github.event.pull_request.number }}` explicitly to ensure the PR number
+  is available. The fallback to event parsing is only reliable for direct
+  `pull_request` triggers.
 - `repository` (string, optional): override the `owner/repo` when the event
   payload or `GITHUB_REPOSITORY` are unavailable.
 

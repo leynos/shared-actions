@@ -212,10 +212,8 @@ def _parse_pr_number(pr: dict[str, typ.Any]) -> int:
         _fail("Event payload pull_request.number is not an integer.")
 
 
-def _labels_from_event(event: dict[str, typ.Any]) -> tuple[str, ...]:
-    pr = event.get("pull_request")
-    if not isinstance(pr, dict):
-        _fail("Event payload does not include pull_request data.")
+def _labels_from_pr(pr: dict[str, typ.Any]) -> tuple[str, ...]:
+    """Extract label names from a validated pull_request dict."""
     labels = []
     for label in pr.get("labels") or []:
         if not isinstance(label, dict):
@@ -243,7 +241,7 @@ def _snapshot_from_event(
         repo=repo,
         author=author_login,
         is_draft=is_draft,
-        labels=_labels_from_event(event),
+        labels=_labels_from_pr(pr),
     )
 
 
@@ -280,6 +278,31 @@ def _emit_decision(
     _emit("automerge_labels", pr.labels)
 
 
+def _should_retry(attempt: int, max_retries: int) -> bool:
+    return attempt < max_retries
+
+
+def _backoff_sleep(attempt: int, base_seconds: float = 1.0) -> None:
+    time.sleep(base_seconds * (2**attempt))
+
+
+def _parse_graphql_response(response: httpx.Response) -> dict[str, typ.Any]:
+    """Parse and validate a GraphQL response, returning the data payload."""
+    try:
+        payload = response.json()
+    except json.JSONDecodeError as exc:
+        _fail(f"GitHub API response was not valid JSON: {exc}")
+
+    errors = payload.get("errors")
+    if errors:
+        _fail(f"GitHub API GraphQL errors: {errors}")
+
+    data = payload.get("data")
+    if data is None:
+        _fail("GitHub API returned no data.")
+    return data
+
+
 def _request_graphql(
     token: str, query: str, variables: dict[str, typ.Any]
 ) -> dict[str, typ.Any]:
@@ -287,9 +310,7 @@ def _request_graphql(
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
-
     max_retries = 3
-    backoff_base_seconds = 1.0
 
     for attempt in range(max_retries + 1):
         try:
@@ -300,37 +321,23 @@ def _request_graphql(
                     headers=headers,
                 )
         except httpx.HTTPError as exc:
-            if attempt < max_retries:
-                time.sleep(backoff_base_seconds * (2**attempt))
+            if _should_retry(attempt, max_retries):
+                _backoff_sleep(attempt)
                 continue
             _fail(f"GitHub API request failed after retries: {exc}")
 
-        # Fast-fail on client errors (4xx)
         if 400 <= response.status_code < 500:
             _fail(f"GitHub API error {response.status_code}: {response.text}")
 
-        # Retry on server errors (5xx)
         if response.status_code >= 500:
-            if attempt < max_retries:
-                time.sleep(backoff_base_seconds * (2**attempt))
+            if _should_retry(attempt, max_retries):
+                _backoff_sleep(attempt)
                 continue
             msg = f"GitHub API error {response.status_code} after retries"
             _fail(f"{msg}: {response.text}")
 
-        try:
-            payload = response.json()
-        except json.JSONDecodeError as exc:
-            _fail(f"GitHub API response was not valid JSON: {exc}")
+        return _parse_graphql_response(response)
 
-        errors = payload.get("errors")
-        if errors:
-            _fail(f"GitHub API GraphQL errors: {errors}")
-        data = payload.get("data")
-        if data is None:
-            _fail("GitHub API returned no data.")
-        return data
-
-    # Unreachable but satisfies type checker
     _fail("GitHub API request failed unexpectedly.")
 
 

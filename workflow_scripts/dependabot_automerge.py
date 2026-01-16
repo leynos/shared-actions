@@ -303,40 +303,59 @@ def _parse_graphql_response(response: httpx.Response) -> dict[str, typ.Any]:
     return data
 
 
-def _request_graphql(
+def _execute_graphql_attempt(
     token: str, query: str, variables: dict[str, typ.Any]
-) -> dict[str, typ.Any]:
+) -> httpx.Response | None:
+    """Execute a single GraphQL request attempt, returning None on connection error."""
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
+    try:
+        with httpx.Client(timeout=30) as client:
+            return client.post(
+                GRAPHQL_ENDPOINT,
+                json={"query": query, "variables": variables},
+                headers=headers,
+            )
+    except httpx.HTTPError:
+        return None
+
+
+def _handle_response_or_retry(
+    response: httpx.Response | None, attempt: int, max_retries: int
+) -> httpx.Response | None:
+    """Process response or decide to retry. Returns None to signal retry."""
+    if response is None:
+        if _should_retry(attempt, max_retries):
+            _backoff_sleep(attempt)
+            return None
+        _fail("GitHub API request failed after retries: connection error")
+
+    if 400 <= response.status_code < 500:
+        _fail(f"GitHub API error {response.status_code}: {response.text}")
+
+    if response.status_code >= 500:
+        if _should_retry(attempt, max_retries):
+            _backoff_sleep(attempt)
+            return None
+        msg = f"GitHub API error {response.status_code} after retries"
+        _fail(f"{msg}: {response.text}")
+
+    return response
+
+
+def _request_graphql(
+    token: str, query: str, variables: dict[str, typ.Any]
+) -> dict[str, typ.Any]:
     max_retries = 3
 
     for attempt in range(max_retries + 1):
-        try:
-            with httpx.Client(timeout=30) as client:
-                response = client.post(
-                    GRAPHQL_ENDPOINT,
-                    json={"query": query, "variables": variables},
-                    headers=headers,
-                )
-        except httpx.HTTPError as exc:
-            if _should_retry(attempt, max_retries):
-                _backoff_sleep(attempt)
-                continue
-            _fail(f"GitHub API request failed after retries: {exc}")
-
-        if 400 <= response.status_code < 500:
-            _fail(f"GitHub API error {response.status_code}: {response.text}")
-
-        if response.status_code >= 500:
-            if _should_retry(attempt, max_retries):
-                _backoff_sleep(attempt)
-                continue
-            msg = f"GitHub API error {response.status_code} after retries"
-            _fail(f"{msg}: {response.text}")
-
-        return _parse_graphql_response(response)
+        response = _execute_graphql_attempt(token, query, variables)
+        processed_response = _handle_response_or_retry(response, attempt, max_retries)
+        if processed_response is None:
+            continue
+        return _parse_graphql_response(processed_response)
 
     _fail("GitHub API request failed unexpectedly.")
 

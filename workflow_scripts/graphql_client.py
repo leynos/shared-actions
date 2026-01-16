@@ -45,6 +45,9 @@ def _parse_graphql_response(response: httpx.Response) -> dict[str, JsonValue]:
     except json.JSONDecodeError as exc:
         fail(f"GitHub API response was not valid JSON: {exc}")
 
+    if not isinstance(payload, dict):
+        fail("GitHub API response was not a JSON object.")
+
     errors = payload.get("errors")
     if errors:
         fail(f"GitHub API GraphQL errors: {errors}")

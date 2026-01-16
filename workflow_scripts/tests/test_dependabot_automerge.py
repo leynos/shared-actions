@@ -18,7 +18,7 @@ if typ.TYPE_CHECKING:
 TEST_TOKEN = "test-token"  # noqa: S105
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class DryRunTestCase:
     """Test case parameters for dry-run skip scenarios."""
 
@@ -28,6 +28,20 @@ class DryRunTestCase:
 
 
 def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
+    """Write an event payload to a temporary JSON file.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        pytest temporary directory fixture.
+    payload : dict
+        The event payload to serialise.
+
+    Returns
+    -------
+    Path
+        Path to the created event.json file.
+    """
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps(payload), encoding="utf-8")
     return event_path

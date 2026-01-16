@@ -4,7 +4,56 @@
 # dependencies = ["cyclopts>=3.24,<4.0", "httpx>=0.28,<0.29"]
 # ///
 
-"""Enable GitHub auto-merge for eligible Dependabot pull requests."""
+"""Enable GitHub auto-merge for eligible Dependabot pull requests.
+
+This script evaluates pull requests against eligibility rules and enables
+GitHub's auto-merge feature for qualifying Dependabot PRs. It is designed
+to run in GitHub Actions workflows via `workflow_call`.
+
+Eligibility Rules
+-----------------
+Auto-merge is enabled only when all conditions are met:
+
+- The PR author is ``dependabot[bot]``
+- The PR is not a draft
+- The required label (default: ``dependencies``) is present
+
+Environment Variables
+---------------------
+INPUT_GITHUB_TOKEN : str
+    GitHub token with ``contents:write`` and ``pull-requests:write`` permissions.
+INPUT_MERGE_METHOD : str, optional
+    Merge method: ``squash``, ``merge``, or ``rebase``. Default: ``squash``.
+INPUT_REQUIRED_LABEL : str, optional
+    Label required on the PR. Default: ``dependencies``.
+INPUT_DRY_RUN : bool, optional
+    If ``true``, logs the decision without calling the GitHub API.
+INPUT_PULL_REQUEST_NUMBER : int, optional
+    PR number override for workflow_call contexts.
+INPUT_REPOSITORY : str, optional
+    Repository override in ``owner/repo`` form.
+
+Usage
+-----
+As a standalone script::
+
+    INPUT_GITHUB_TOKEN=ghp_... uv run dependabot_automerge.py
+
+In a GitHub Actions workflow::
+
+    - uses: ./.github/workflows/dependabot-automerge.yml
+      with:
+        pull-request-number: ${{ github.event.pull_request.number }}
+
+Side Effects
+------------
+When not in dry-run mode, this script calls the GitHub GraphQL API to enable
+auto-merge on the target pull request. This modifies the PR's auto-merge state.
+
+See Also
+--------
+main : The CLI entrypoint function.
+"""
 
 from __future__ import annotations
 
@@ -69,7 +118,27 @@ app = App()
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PullRequestContext:
-    """Snapshot of the pull request metadata used for gating."""
+    """Snapshot of the pull request metadata used for gating.
+
+    Attributes
+    ----------
+    number : int
+        The pull request number.
+    owner : str
+        The repository owner (organisation or user).
+    repo : str
+        The repository name.
+    author : str
+        The login of the pull request author.
+    is_draft : bool
+        Whether the pull request is a draft.
+    labels : tuple[str, ...]
+        Labels currently applied to the pull request.
+    node_id : str or None
+        The GraphQL node ID for mutations. None when created from event data.
+    auto_merge_enabled : bool
+        Whether auto-merge is already enabled on this PR.
+    """
 
     number: int
     owner: str
@@ -83,7 +152,15 @@ class PullRequestContext:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Decision:
-    """Decision describing whether auto-merge should proceed."""
+    """Decision describing whether auto-merge should proceed.
+
+    Attributes
+    ----------
+    status : str
+        The decision status: ``skipped``, ``ready``, ``enabled``, or ``error``.
+    reason : str
+        Human-readable reason for the decision, e.g. ``author-not-dependabot``.
+    """
 
     status: str
     reason: str
@@ -91,7 +168,17 @@ class Decision:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class AutomergeConfig:
-    """Configuration for emitting automerge decisions."""
+    """Configuration for emitting automerge decisions.
+
+    Attributes
+    ----------
+    merge_method : str
+        The normalised merge method (``SQUASH``, ``MERGE``, or ``REBASE``).
+    required_label : str or None
+        Label that must be present on the PR, or None to skip label checks.
+    dry_run : bool
+        If True, decisions are logged without calling the GitHub API.
+    """
 
     merge_method: str
     required_label: str | None
@@ -100,7 +187,17 @@ class AutomergeConfig:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class RuntimeContext:
-    """Runtime context for PR evaluation."""
+    """Runtime context for PR evaluation.
+
+    Attributes
+    ----------
+    repo_full_name : str
+        The full repository name in ``owner/repo`` format.
+    event : dict or None
+        The parsed GitHub event payload, or None if unavailable.
+    pull_request_number : int or None
+        Explicit PR number override, or None to resolve from event.
+    """
 
     repo_full_name: str
     event: dict[str, typ.Any] | None
@@ -511,7 +608,27 @@ def main(
     ],
     options: AutomergeOptions = DEFAULT_AUTOMERGE_OPTIONS,
 ) -> None:
-    """Evaluate a PR and enable auto-merge when policy allows."""
+    """Evaluate a PR and enable auto-merge when policy allows.
+
+    This is the CLI entrypoint. It loads configuration from environment
+    variables and CLI arguments, evaluates the pull request against
+    eligibility rules, and enables auto-merge if all criteria are met.
+
+    Parameters
+    ----------
+    github_token : str
+        GitHub token with ``contents:write`` and ``pull-requests:write``
+        permissions. Read from ``INPUT_GITHUB_TOKEN`` environment variable.
+    options : AutomergeOptions
+        Configuration options including merge method, required label,
+        dry-run mode, and optional repository/PR number overrides.
+
+    Raises
+    ------
+    SystemExit
+        Exits with code 1 on validation errors, missing configuration,
+        or GitHub API failures. Error details are logged to stderr.
+    """
     normalized_label = _normalize_label(options.required_label)
     normalized_merge_method = _normalize_merge_method(options.merge_method)
     config = AutomergeConfig(

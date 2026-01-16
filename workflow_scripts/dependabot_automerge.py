@@ -60,13 +60,13 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-import sys
 import typing as typ
 from pathlib import Path
 
 from cyclopts import App, Parameter
 
-from workflow_scripts.graphql_client import JsonValue, request_graphql
+from .graphql_client import JsonValue, request_graphql
+from .output import emit, fail
 
 DEPENDABOT_LOGIN = "dependabot[bot]"
 
@@ -203,30 +203,6 @@ class RuntimeContext:
     pull_request_number: int | None
 
 
-def _log_value(value: object) -> str:
-    """Format a value for key=value log output."""
-    if value is None:
-        return ""
-    if isinstance(value, tuple):
-        value = list(value)
-    if isinstance(value, (list, dict)):
-        return json.dumps(value, sort_keys=True)
-    return str(value)
-
-
-def _emit(key: str, value: object, *, stream: typ.TextIO | None = None) -> None:
-    """Print a key=value pair to stdout or the specified stream."""
-    target = stream if stream is not None else sys.stdout
-    print(f"{key}={_log_value(value)}", file=target)
-
-
-def _fail(message: str) -> typ.NoReturn:
-    """Log an error and exit with status code 1."""
-    _emit("automerge_status", "error", stream=sys.stderr)
-    _emit("automerge_error", message, stream=sys.stderr)
-    raise SystemExit(1)
-
-
 def _load_event() -> dict[str, JsonValue] | None:
     """Load the GitHub event payload from GITHUB_EVENT_PATH if set."""
     event_path = os.environ.get("GITHUB_EVENT_PATH")
@@ -238,7 +214,7 @@ def _load_event() -> dict[str, JsonValue] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        _fail(f"Failed to parse event payload: {exc}")
+        fail(f"Failed to parse event payload: {exc}")
 
 
 def _normalize_label(required_label: str | None) -> str | None:
@@ -254,7 +230,7 @@ def _normalize_merge_method(merge_method: str) -> str:
     normalized = merge_method.strip().lower()
     if normalized not in MERGE_METHODS:
         allowed = ", ".join(sorted(MERGE_METHODS))
-        _fail(f"Invalid merge_method '{merge_method}'. Allowed: {allowed}.")
+        fail(f"Invalid merge_method '{merge_method}'. Allowed: {allowed}.")
     return MERGE_METHODS[normalized]
 
 
@@ -281,14 +257,15 @@ def _resolve_repository(
         return repo
     if repo := os.environ.get("GITHUB_REPOSITORY"):
         return repo
-    _fail("Repository not provided. Set INPUT_REPOSITORY or GITHUB_REPOSITORY.")
+    fail("Repository not provided. Set INPUT_REPOSITORY or GITHUB_REPOSITORY.")
+    raise AssertionError  # unreachable
 
 
 def _split_repo(full_name: str) -> tuple[str, str]:
     """Split a full repository name into owner and repo components."""
     parts = full_name.split("/")
     if len(parts) != 2 or not all(parts):
-        _fail(f"Repository '{full_name}' must be in owner/repo form.")
+        fail(f"Repository '{full_name}' must be in owner/repo form.")
     return parts[0], parts[1]
 
 
@@ -303,21 +280,22 @@ def _resolve_pull_request_number(
             return int(number)
         except (TypeError, ValueError):
             pass
-    _fail(
+    fail(
         "Pull request number not provided. Set INPUT_PULL_REQUEST_NUMBER or include "
         "it in the event payload."
     )
+    raise AssertionError  # unreachable
 
 
 def _parse_pr_number(pr: dict[str, JsonValue]) -> int:
     """Parse and validate the pull request number from event payload data."""
     number = pr.get("number")
     if number is None:
-        _fail("Event payload missing pull_request.number.")
+        fail("Event payload missing pull_request.number.")
     try:
         return int(number)
     except (TypeError, ValueError):
-        _fail("Event payload pull_request.number is not an integer.")
+        fail("Event payload pull_request.number is not an integer.")
 
 
 def _labels_from_pr(pr: dict[str, JsonValue]) -> tuple[str, ...]:
@@ -338,7 +316,7 @@ def _snapshot_from_event(
     """Build a PullRequestContext from a GitHub event payload."""
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
-        _fail("Event payload does not include pull_request data.")
+        fail("Event payload does not include pull_request data.")
     pr_number = _parse_pr_number(pr)
     author = pr.get("user", {}).get("login")
     author_login = author if isinstance(author, str) else ""
@@ -377,15 +355,15 @@ def _emit_decision(
         status = "dry-run"
     else:
         status = decision.status
-    _emit("automerge_status", status)
-    _emit("automerge_reason", reason)
-    _emit("automerge_merge_method", config.merge_method)
-    _emit("automerge_required_label", config.required_label or "")
-    _emit("automerge_repository", f"{pr.owner}/{pr.repo}")
-    _emit("automerge_pr_number", pr.number)
-    _emit("automerge_author", pr.author)
-    _emit("automerge_draft", str(pr.is_draft).lower())
-    _emit("automerge_labels", pr.labels)
+    emit("automerge_status", status)
+    emit("automerge_reason", reason)
+    emit("automerge_merge_method", config.merge_method)
+    emit("automerge_required_label", config.required_label or "")
+    emit("automerge_repository", f"{pr.owner}/{pr.repo}")
+    emit("automerge_pr_number", pr.number)
+    emit("automerge_author", pr.author)
+    emit("automerge_draft", str(pr.is_draft).lower())
+    emit("automerge_labels", pr.labels)
 
 
 def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
@@ -428,10 +406,10 @@ def _fetch_pull_request(
     )
     repository = data.get("repository")
     if not isinstance(repository, dict):
-        _fail(f"Pull request {owner}/{repo}#{number} was not found.")
+        fail(f"Pull request {owner}/{repo}#{number} was not found.")
     pull_request = repository.get("pullRequest")
     if not isinstance(pull_request, dict):
-        _fail(f"Pull request {owner}/{repo}#{number} was not found.")
+        fail(f"Pull request {owner}/{repo}#{number} was not found.")
     author_login = _extract_author_login(pull_request)
     labels = _extract_labels(pull_request)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
@@ -465,7 +443,7 @@ def _handle_dry_run(
 ) -> None:
     """Handle the dry-run execution path without API calls."""
     if event is None:
-        _fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
+        fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
     snapshot = _snapshot_from_event(event, repo_full_name)
     decision = _evaluate(snapshot, config.required_label)
     _emit_decision(
@@ -507,7 +485,7 @@ def _handle_live_execution(
         return
 
     if not pr.node_id:
-        _fail("Pull request node ID missing from GitHub response.")
+        fail("Pull request node ID missing from GitHub response.")
 
     _enable_automerge(github_token, pr.node_id, config.merge_method)
     _emit_decision(

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import time
-import typing as typ
 
 import httpx
+
+from .output import fail
 
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 
@@ -18,15 +19,6 @@ GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 type JsonValue = (
     str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 )
-
-
-def _fail(message: str) -> typ.NoReturn:
-    """Log an error and exit with status code 1."""
-    import sys
-
-    print("automerge_status=error", file=sys.stderr)
-    print(f"automerge_error={message}", file=sys.stderr)
-    raise SystemExit(1)
 
 
 def _should_retry(attempt: int, max_retries: int) -> bool:
@@ -42,7 +34,7 @@ def _backoff_sleep(attempt: int, base_seconds: float = 1.0) -> None:
 def _attempt_retry_or_fail(attempt: int, max_retries: int, error_message: str) -> None:
     """Sleep for backoff if retries remain, otherwise fail with the given message."""
     if not _should_retry(attempt, max_retries):
-        _fail(error_message)
+        fail(error_message)
     _backoff_sleep(attempt)
 
 
@@ -51,15 +43,15 @@ def _parse_graphql_response(response: httpx.Response) -> dict[str, JsonValue]:
     try:
         payload = response.json()
     except json.JSONDecodeError as exc:
-        _fail(f"GitHub API response was not valid JSON: {exc}")
+        fail(f"GitHub API response was not valid JSON: {exc}")
 
     errors = payload.get("errors")
     if errors:
-        _fail(f"GitHub API GraphQL errors: {errors}")
+        fail(f"GitHub API GraphQL errors: {errors}")
 
     data = payload.get("data")
     if data is None:
-        _fail("GitHub API returned no data.")
+        fail("GitHub API returned no data.")
     return data
 
 
@@ -95,7 +87,7 @@ def _handle_response_or_retry(
         return None
 
     if 400 <= response.status_code < 500:
-        _fail(f"GitHub API error {response.status_code}: {response.text}")
+        fail(f"GitHub API error {response.status_code}: {response.text}")
 
     if response.status_code >= 500:
         msg = f"GitHub API error {response.status_code} after retries"
@@ -118,4 +110,6 @@ def request_graphql(
             continue
         return _parse_graphql_response(processed_response)
 
-    _fail("GitHub API request failed unexpectedly.")
+    # Defensive: unreachable if retry logic works correctly, but satisfies type checker
+    fail("GitHub API request failed unexpectedly.")
+    raise AssertionError  # unreachable

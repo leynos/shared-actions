@@ -47,7 +47,7 @@ runs:
       # Update this SHA when setup-rust publishes a new release: run
       # `git ls-remote https://github.com/leynos/shared-actions.git refs/tags/setup-rust-v1`
       # and replace the SHA with the resolved commit (verify compatibility and run CI).
-      uses: leynos/shared-actions/.github/actions/setup-rust@35b0092c30d18ba2669db3e8c7c37412db952437
+      uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
     - name: Configure gnullvm target on Windows

@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.14 - 2026-01-16
+
+- Pin sccache to v0.12.0 on macOS x86_64 runners (x86_64-apple-darwin binaries
+  were dropped in v0.13.0).
+
 ## v1.0.13 - 2025-07-26
 
 - Add `workspaces` input and forward it to `Swatinem/rust-cache`.

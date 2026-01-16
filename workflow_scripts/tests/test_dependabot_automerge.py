@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import typing as typ
 
@@ -15,6 +16,15 @@ if typ.TYPE_CHECKING:
 
 # Test-only constant (not a real credential)
 TEST_TOKEN = "test-token"  # noqa: S105
+
+
+@dataclasses.dataclass(frozen=True)
+class DryRunTestCase:
+    """Test case parameters for dry-run skip scenarios."""
+
+    event_data: dict[str, object]
+    expected_reason: str
+    test_id: str
 
 
 def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
@@ -201,10 +211,10 @@ class TestRequestGraphql:
 
 
 @pytest.mark.parametrize(
-    ("event_data", "expected_reason", "test_id"),
+    "test_case",
     [
-        pytest.param(
-            {
+        DryRunTestCase(
+            event_data={
                 "pull_request": {
                     "number": 7,
                     "draft": False,
@@ -213,12 +223,11 @@ class TestRequestGraphql:
                 },
                 "repository": {"full_name": "acme/example"},
             },
-            "author-not-dependabot",
-            "non_dependabot_author",
-            id="non_dependabot_author",
+            expected_reason="author-not-dependabot",
+            test_id="non_dependabot_author",
         ),
-        pytest.param(
-            {
+        DryRunTestCase(
+            event_data={
                 "pull_request": {
                     "number": 8,
                     "draft": True,
@@ -227,12 +236,11 @@ class TestRequestGraphql:
                 },
                 "repository": {"full_name": "acme/example"},
             },
-            "draft-pr",
-            "draft_pr",
-            id="draft_pr",
+            expected_reason="draft-pr",
+            test_id="draft_pr",
         ),
-        pytest.param(
-            {
+        DryRunTestCase(
+            event_data={
                 "pull_request": {
                     "number": 10,
                     "draft": False,
@@ -241,22 +249,20 @@ class TestRequestGraphql:
                 },
                 "repository": {"full_name": "acme/example"},
             },
-            "missing-label:dependencies",
-            "missing_label",
-            id="missing_label",
+            expected_reason="missing-label:dependencies",
+            test_id="missing_label",
         ),
     ],
+    ids=lambda tc: tc.test_id,
 )
 def test_dry_run_skips(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    event_data: dict[str, object],
-    expected_reason: str,
-    test_id: str,
+    test_case: DryRunTestCase,
 ) -> None:
     """Dry-run mode skips PRs that don't meet eligibility criteria."""
-    event_path = _write_event(tmp_path, event_data)
+    event_path = _write_event(tmp_path, test_case.event_data)
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
 
     dependabot_automerge.main(
@@ -269,10 +275,10 @@ def test_dry_run_skips(
 
     captured = capsys.readouterr()
     assert "automerge_status=skipped" in captured.out, (
-        f"[{test_id}] Expected skipped status"
+        f"[{test_case.test_id}] Expected skipped status"
     )
-    assert f"automerge_reason={expected_reason}" in captured.out, (
-        f"[{test_id}] Expected reason {expected_reason}"
+    assert f"automerge_reason={test_case.expected_reason}" in captured.out, (
+        f"[{test_case.test_id}] Expected reason {test_case.expected_reason}"
     )
 
 

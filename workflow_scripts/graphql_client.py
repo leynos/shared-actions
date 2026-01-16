@@ -55,6 +55,8 @@ def _parse_graphql_response(response: httpx.Response) -> dict[str, JsonValue]:
     data = payload.get("data")
     if data is None:
         fail("GitHub API returned no data.")
+    if not isinstance(data, dict):
+        fail("GitHub API returned invalid data payload.")
     return data
 
 

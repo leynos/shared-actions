@@ -383,6 +383,13 @@ def _backoff_sleep(attempt: int, base_seconds: float = 1.0) -> None:
     time.sleep(base_seconds * (2**attempt))
 
 
+def _attempt_retry_or_fail(attempt: int, max_retries: int, error_message: str) -> None:
+    """Sleep for backoff if retries remain, otherwise fail with the given message."""
+    if not _should_retry(attempt, max_retries):
+        _fail(error_message)
+    _backoff_sleep(attempt)
+
+
 def _parse_graphql_response(response: httpx.Response) -> dict[str, typ.Any]:
     """Parse and validate a GraphQL response, returning the data payload."""
     try:
@@ -424,20 +431,20 @@ def _handle_response_or_retry(
 ) -> httpx.Response | None:
     """Process response or decide to retry. Returns None to signal retry."""
     if response is None:
-        if _should_retry(attempt, max_retries):
-            _backoff_sleep(attempt)
-            return None
-        _fail("GitHub API request failed after retries: connection error")
+        _attempt_retry_or_fail(
+            attempt,
+            max_retries,
+            "GitHub API request failed after retries: connection error",
+        )
+        return None
 
     if 400 <= response.status_code < 500:
         _fail(f"GitHub API error {response.status_code}: {response.text}")
 
     if response.status_code >= 500:
-        if _should_retry(attempt, max_retries):
-            _backoff_sleep(attempt)
-            return None
         msg = f"GitHub API error {response.status_code} after retries"
-        _fail(f"{msg}: {response.text}")
+        _attempt_retry_or_fail(attempt, max_retries, f"{msg}: {response.text}")
+        return None
 
     return response
 

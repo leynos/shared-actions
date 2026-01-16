@@ -9,7 +9,7 @@ import typing as typ
 import httpx
 import pytest
 
-from workflow_scripts import dependabot_automerge
+from workflow_scripts import dependabot_automerge, graphql_client
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -163,7 +163,7 @@ class TestResolvePullRequestNumber:
 
 
 class TestRequestGraphql:
-    """Tests for _request_graphql error handling."""
+    """Tests for request_graphql error handling."""
 
     def test_http_error_after_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """HTTP errors are retried and then fail."""
@@ -173,10 +173,10 @@ class TestRequestGraphql:
             raise connect_error
 
         monkeypatch.setattr(httpx.Client, "post", raise_error)
-        monkeypatch.setattr(dependabot_automerge, "_backoff_sleep", lambda *_: None)
+        monkeypatch.setattr(graphql_client, "_backoff_sleep", lambda *_: None)
 
         with pytest.raises(SystemExit, match="1"):
-            dependabot_automerge._request_graphql(TEST_TOKEN, "query {}", {})
+            graphql_client.request_graphql(TEST_TOKEN, "query {}", {})
 
     def test_client_error_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """4xx errors fail immediately without retry."""
@@ -190,7 +190,7 @@ class TestRequestGraphql:
         monkeypatch.setattr(httpx.Client, "post", mock_post)
 
         with pytest.raises(SystemExit, match="1"):
-            dependabot_automerge._request_graphql(TEST_TOKEN, "query {}", {})
+            graphql_client.request_graphql(TEST_TOKEN, "query {}", {})
 
         assert call_count == 1, "4xx errors should not be retried"
 
@@ -203,7 +203,7 @@ class TestRequestGraphql:
         monkeypatch.setattr(httpx.Client, "post", mock_post)
 
         with pytest.raises(SystemExit, match="1"):
-            dependabot_automerge._request_graphql(TEST_TOKEN, "query {}", {})
+            graphql_client.request_graphql(TEST_TOKEN, "query {}", {})
 
     def test_graphql_errors_fail(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GraphQL errors in response cause a failure."""
@@ -216,7 +216,7 @@ class TestRequestGraphql:
         monkeypatch.setattr(httpx.Client, "post", mock_post)
 
         with pytest.raises(SystemExit, match="1"):
-            dependabot_automerge._request_graphql(TEST_TOKEN, "query {}", {})
+            graphql_client.request_graphql(TEST_TOKEN, "query {}", {})
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +379,7 @@ def test_enables_automerge_when_ready(
             }
         }
 
-    monkeypatch.setattr(dependabot_automerge, "_request_graphql", fake_request)
+    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
 
     dependabot_automerge.main(
@@ -419,7 +419,7 @@ def test_already_enabled_automerge_detected(
             }
         }
 
-    monkeypatch.setattr(dependabot_automerge, "_request_graphql", fake_request)
+    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
 
     dependabot_automerge.main(

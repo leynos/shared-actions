@@ -482,6 +482,35 @@ def _request_graphql(
     _fail("GitHub API request failed unexpectedly.")
 
 
+def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
+    """Extract author login from PR data, returning empty string if unavailable."""
+    author_obj = pull_request.get("author")
+    if not isinstance(author_obj, dict):
+        return ""
+    login = author_obj.get("login")
+    if not isinstance(login, str):
+        return ""
+    return login
+
+
+def _extract_labels(pull_request: dict[str, JsonValue]) -> tuple[str, ...]:
+    """Extract label names from PR data, returning empty tuple if unavailable."""
+    labels_obj = pull_request.get("labels")
+    if not isinstance(labels_obj, dict):
+        return ()
+    nodes = labels_obj.get("nodes")
+    if not isinstance(nodes, list):
+        return ()
+    labels: list[str] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        name = node.get("name")
+        if isinstance(name, str):
+            labels.append(name)
+    return tuple(labels)
+
+
 def _fetch_pull_request(
     token: str, owner: str, repo: str, number: int
 ) -> PullRequestContext:
@@ -497,22 +526,8 @@ def _fetch_pull_request(
     pull_request = repository.get("pullRequest")
     if not isinstance(pull_request, dict):
         _fail(f"Pull request {owner}/{repo}#{number} was not found.")
-    author_obj = pull_request.get("author")
-    author_login = ""
-    if isinstance(author_obj, dict):
-        login = author_obj.get("login")
-        if isinstance(login, str):
-            author_login = login
-    labels_obj = pull_request.get("labels")
-    labels: list[str] = []
-    if isinstance(labels_obj, dict):
-        nodes = labels_obj.get("nodes")
-        if isinstance(nodes, list):
-            for node in nodes:
-                if isinstance(node, dict):
-                    name = node.get("name")
-                    if isinstance(name, str):
-                        labels.append(name)
+    author_login = _extract_author_login(pull_request)
+    labels = _extract_labels(pull_request)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
     node_id = pull_request.get("id")
     return PullRequestContext(
@@ -521,7 +536,7 @@ def _fetch_pull_request(
         repo=repo,
         author=author_login,
         is_draft=bool(pull_request.get("isDraft", False)),
-        labels=tuple(labels),
+        labels=labels,
         node_id=node_id if isinstance(node_id, str) else None,
         auto_merge_enabled=auto_merge_enabled,
     )

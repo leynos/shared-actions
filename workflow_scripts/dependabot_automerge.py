@@ -65,10 +65,10 @@ from pathlib import Path
 
 from cyclopts import App, Parameter
 
-try:
+if __package__:
     from .graphql_client import JsonValue, request_graphql
     from .output import emit, fail
-except ImportError:
+else:
     from graphql_client import (  # type: ignore[import-not-found,no-redef]
         JsonValue,
         request_graphql,

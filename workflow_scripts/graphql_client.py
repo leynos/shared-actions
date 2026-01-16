@@ -11,7 +11,10 @@ import time
 
 import httpx
 
-from .output import fail
+if __package__:
+    from .output import fail
+else:
+    from output import fail  # type: ignore[import-not-found,no-redef]
 
 GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 

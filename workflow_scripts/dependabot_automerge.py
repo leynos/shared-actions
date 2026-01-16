@@ -65,8 +65,15 @@ from pathlib import Path
 
 from cyclopts import App, Parameter
 
-from .graphql_client import JsonValue, request_graphql
-from .output import emit, fail
+try:
+    from .graphql_client import JsonValue, request_graphql
+    from .output import emit, fail
+except ImportError:
+    from graphql_client import (  # type: ignore[import-not-found,no-redef]
+        JsonValue,
+        request_graphql,
+    )
+    from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
 DEPENDABOT_LOGIN = "dependabot[bot]"
 

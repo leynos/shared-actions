@@ -260,7 +260,7 @@ def test_builds_freebsd_target_with_cross_and_container(
     assert Path(commands[-1][0]).name == "cross"
     captured = capsys.readouterr()
     _assert_no_timeout_trace(captured.err)
-    assert "::warning:: failed to set display override" in captured.err
+    assert "::warning:: failed to set display override" not in captured.err
 
 
 @CMD_MOX_UNSUPPORTED

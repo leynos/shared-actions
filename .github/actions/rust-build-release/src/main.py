@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003
 import os
+import shlex
 import shutil
 import sys
 import typing as typ
@@ -120,23 +121,6 @@ class _CommandWrapper:
             raise TypeError(message)
         self._command: typ.Any = command
         self._display_name = display_name
-        self._override_formulate: typ.Callable[[], cabc.Sequence[str]] | None = None
-
-        def _override() -> list[str]:
-            parts = list(formulate_callable())
-            if parts:
-                parts[0] = display_name
-            return parts
-
-        try:
-            command.formulate = _override  # type: ignore[attr-defined]
-            self._override_formulate = _override
-        except (AttributeError, TypeError) as exc:
-            typer.echo(
-                f"::warning:: failed to set display override for {command!r}: {exc}",
-                err=True,
-            )
-            self._override_formulate = None
 
     def formulate(self) -> cabc.Sequence[str]:
         formulate_callable = getattr(self._command, "formulate", None)
@@ -159,6 +143,10 @@ class _CommandWrapper:
         if parts:
             parts[0] = self._display_name
         return parts
+
+    def __str__(self) -> str:
+        parts = [str(part) for part in self.formulate()]
+        return shlex.join(parts)
 
     def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
         return self._command(*args, **kwargs)

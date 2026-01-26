@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections.abc as cabc  # noqa: TC003
 import os
 import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -39,8 +40,6 @@ from utils import (
 )
 
 if typ.TYPE_CHECKING:
-    import subprocess
-
     from cmd_utils import SupportsFormulate
 from cmd_utils_importer import import_cmd_utils
 
@@ -194,9 +193,9 @@ def _target_is_windows(target: str) -> bool:
 
 def should_probe_container(host_platform: str, target: str) -> bool:
     """Determine whether container runtimes should be probed."""
-    if host_platform != "win32":
-        return True
-    return not _target_is_windows(target)
+    if host_platform == "win32":
+        return not _target_is_windows(target)
+    return target.strip().lower() != DEFAULT_HOST_TARGET.strip().lower()
 
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
@@ -250,7 +249,7 @@ def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
         return runtime_available(name)
-    except ProcessTimedOut as exc:
+    except (ProcessTimedOut, subprocess.TimeoutExpired) as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
         message = (
@@ -525,27 +524,33 @@ def _announce_build_mode(decision: _CrossDecision) -> None:
         )
 
 
+_UNSET_ENGINE = object()
+
+
 def _configure_cross_container_engine(
     decision: _CrossDecision,
+    *,
+    previous_engine: str | None | object = _UNSET_ENGINE,
 ) -> tuple[str | None, str | None]:
     """Ensure CROSS_CONTAINER_ENGINE matches the active cross backend."""
-    previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
+    if previous_engine is _UNSET_ENGINE:
+        previous_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
 
     if not decision.use_cross:
-        return previous_engine, None
+        return typ.cast("str | None", previous_engine), None
 
     if decision.use_cross_local_backend:
-        return previous_engine, None
+        return typ.cast("str | None", previous_engine), None
 
     if previous_engine is not None:
-        return previous_engine, None
+        return typ.cast("str | None", previous_engine), None
 
     engine = decision.container_engine
     if engine is None:
-        return previous_engine, None
+        return typ.cast("str | None", previous_engine), None
 
     os.environ["CROSS_CONTAINER_ENGINE"] = engine
-    return previous_engine, engine
+    return typ.cast("str | None", previous_engine), engine
 
 
 def _restore_container_engine(
@@ -693,6 +698,9 @@ def main(
     ),
 ) -> None:
     """Build the project for *target* using *toolchain*."""
+    if isinstance(features, typer.models.OptionInfo):
+        features = ""
+    initial_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
     target_to_build = _resolve_target_argument(target)
     rustup_exec = _ensure_rustup_exec()
     toolchain_name, installed_names = _resolve_toolchain(
@@ -723,7 +731,9 @@ def main(
 
     _announce_build_mode(decision)
 
-    previous_engine, applied_engine = _configure_cross_container_engine(decision)
+    previous_engine, applied_engine = _configure_cross_container_engine(
+        decision, previous_engine=initial_engine
+    )
 
     manifest_path = _resolve_manifest_path()
     manifest_argument = _manifest_argument(manifest_path)

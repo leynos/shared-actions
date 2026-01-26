@@ -37,7 +37,7 @@ else:
     _SELF_MODULE = sys.modules[__name__]
 
 app = App(
-    config=cyclopts.config.Env("INPUT_", command=False),  # type: ignore[unknown-argument]
+    config=cyclopts.config.Env("INPUT_", command=False),
 )
 
 

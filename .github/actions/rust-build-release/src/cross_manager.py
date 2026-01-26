@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -214,7 +215,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                         required_cross_version,
                     ]
                 )
-            except ProcessExecutionError:
+            except (ProcessExecutionError, subprocess.CalledProcessError):
                 try:
                     run_cmd(
                         local["cargo"][
@@ -227,7 +228,7 @@ def ensure_cross(required_cross_version: str) -> tuple[str | None, str | None]:
                             f"v{required_cross_version}",
                         ]
                     )
-                except ProcessExecutionError:
+                except (ProcessExecutionError, subprocess.CalledProcessError):
                     if sys.platform == "win32":
                         typer.echo(
                             "::warning:: cross install failed; continuing without "

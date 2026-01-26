@@ -318,7 +318,9 @@ def patch_common_main_deps(
     harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
     harness.patch_attr("_ensure_target_installed", lambda *_: True)
     harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
-    harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))
+    harness.patch_attr(
+        "_configure_cross_container_engine", lambda *_args, **_kwargs: (None, None)
+    )
     harness.patch_attr("_restore_container_engine", lambda *_, **__: None)
     return harness
 

@@ -2,7 +2,7 @@
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprizes & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md was not found in this repository when this plan was created.
 
@@ -47,11 +47,12 @@ Add a default UUIDv7 generator for correlation IDs so callers can obtain RFC 412
 ## Progress
 
 - [x] (2026-01-26 00:00Z) Drafted initial ExecPlan based on the roadmap item provided in the request.
-- [ ] Locate or create the referenced roadmap and design/user-guide docs.
-- [ ] Add tests (unit + pytest-bdd) for the UUIDv7 generator.
-- [ ] Implement the default UUIDv7 generator and any helper validation.
-- [ ] Update documentation and mark roadmap item complete.
-- [ ] Run required Makefile gates and capture logs.
+- [x] (2026-01-26 01:10Z) Began implementation; confirmed referenced roadmap/design/user-guide docs are missing and require creation.
+- [x] (2026-01-26 01:40Z) Created roadmap/design/users-guide/complexity docs to satisfy references.
+- [x] (2026-01-26 01:55Z) Added pytest unit tests and pytest-bdd scenarios for UUIDv7 generation.
+- [x] (2026-01-26 02:10Z) Implemented the default UUIDv7 generator with `uuid-utils`.
+- [x] (2026-01-26 02:20Z) Updated documentation and marked the roadmap item complete.
+- [x] (2026-01-26 02:45Z) Ran required Makefile gates with `tee` logging.
 
 ## Surprizes & discoveries
 
@@ -59,15 +60,33 @@ Add a default UUIDv7 generator for correlation IDs so callers can obtain RFC 412
   Evidence: `rg --files -g 'roadmap.md'` and `rg -n 'falcon-correlation-id-middleware-design'` returned no matches.
   Impact: The plan includes a discovery step to locate or create these documents before implementation.
 
+- Observation: `pytest.ini` limits `testpaths` to `.github/actions` and `workflow_scripts/tests`.
+  Evidence: `pytest.ini` lists only those two directories under `testpaths`.
+  Impact: New unit and BDD tests were added under `.github/actions/tests` to ensure they run with `make test`.
+
 ## Decision log
 
 - Decision: Defer the exact file/module location for `default_uuid7_generator()` until discovery confirms the intended package layout for correlation ID lifecycle code.
   Rationale: The repo currently contains only top-level Python modules and no correlation ID code; choosing a location prematurely risks misplacement.
   Date/Author: 2026-01-26 (Codex)
 
+- Decision: Create the missing roadmap, design, complexity guidance, and users guide documents referenced by the request.
+  Rationale: The referenced documents are absent from the repository; creating them is required to record decisions and update user-facing guidance as specified.
+  Date/Author: 2026-01-26 (Codex)
+
+- Decision: Use `uuid-utils` for UUIDv7 generation.
+  Rationale: Python 3.12 does not include a stdlib UUIDv7 API, and `uuid-utils` provides RFC 4122 compliant UUIDv7 values with millisecond precision.
+  Date/Author: 2026-01-26 (Codex)
+
+- Decision: Place new unit and BDD tests under `.github/actions/tests` to align with pytest discovery.
+  Rationale: The default pytest configuration does not collect from `tests/`, so placing tests under `.github/actions/tests` ensures `make test` runs them.
+  Date/Author: 2026-01-26 (Codex)
+
 ## Outcomes & retrospective
 
-To be completed after implementation.
+- Delivered `default_uuid7_generator()` returning RFC 4122-compliant UUIDv7 hex strings with millisecond precision and ensured uniqueness/format validation via unit + BDD tests.
+- Recorded design decisions in `docs/falcon-correlation-id-middleware-design.md` and documented public behaviour in `docs/users-guide.md`.
+- Gates passed; `make typecheck` emits a pre-existing unused-ignore warning in `.github/actions/windows-package/scripts/generate_wxs.py` (not introduced by this work).
 
 ## Context and orientation
 
@@ -163,7 +182,7 @@ Expected evidence examples (to update during execution):
 
     - Unit test output showing new test module passing.
     - BDD scenario output for UUIDv7 generation.
-    - Log files: /tmp/shared-actions-check-fmt.log, /tmp/shared-actions-typecheck.log, /tmp/shared-actions-lint.log, /tmp/shared-actions-test.log
+    - Log files: /tmp/make-check-fmt.log, /tmp/make-typecheck.log, /tmp/make-lint.log, /tmp/make-test.log
 
 ## Interfaces and dependencies
 
@@ -178,3 +197,7 @@ Expected evidence examples (to update during execution):
 ## Revision note
 
 Initial draft created to cover roadmap item 2.2.1 for a default UUIDv7 generator, with explicit steps for discovery, tests, implementation, documentation, and validation.
+
+Updated status to COMPLETE after running Makefile validation gates and capturing logs; noted pre-existing typecheck warning and documented outcomes.
+
+Recorded the pytest discovery constraint and documented the decision to place new tests under `.github/actions/tests` so `make test` exercises them.

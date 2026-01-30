@@ -36,6 +36,7 @@ jobs:
         shell: bash
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
           REPO: ${{ github.repository }}
           REF: ${{ github.ref }}
         run: |
@@ -48,7 +49,10 @@ jobs:
             echo "ref=" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          if [[ -n "${WORKFLOW_REF}" ]]; then
+          if [[ -n "${WORKFLOW_SHA}" ]]; then
+            repo="${WORKFLOW_REF%%/.github/workflows/*}"
+            ref="${WORKFLOW_SHA}"
+          elif [[ -n "${WORKFLOW_REF}" ]]; then
             repo="${WORKFLOW_REF%%/.github/workflows/*}"
             ref="${WORKFLOW_REF##*@}"
           else
@@ -59,6 +63,13 @@ jobs:
           echo "workflow_dir=${workspace}/workflow-src" >> "${GITHUB_OUTPUT}"
           echo "repo=${repo}" >> "${GITHUB_OUTPUT}"
           echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+      - name: Debug workflow source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "workflow repo: ${{ steps.workflow-source.outputs.repo }}"
+          echo "workflow ref: ${{ steps.workflow-source.outputs.ref }}"
+          echo "workflow dir: ${{ steps.workflow-source.outputs.workflow_dir }}"
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
         # v4
@@ -67,7 +78,19 @@ jobs:
           repository: ${{ steps.workflow-source.outputs.repo }}
           ref: ${{ steps.workflow-source.outputs.ref }}
           path: workflow-src
-          fetch-depth: 1
+          fetch-depth: 0
+      - name: Verify workflow checkout
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          script_path="workflow-src/workflow_scripts/dependabot_automerge.py"
+          if [[ ! -f "${script_path}" ]]; then
+            echo "Missing ${script_path} after checkout."
+            echo "workflow-src contents:"
+            ls -la workflow-src
+            exit 1
+          fi
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
         shell: bash

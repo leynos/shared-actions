@@ -84,11 +84,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          script_path="workflow-src/workflow_scripts/dependabot_automerge.py"
+          workflow_dir="${{ steps.workflow-source.outputs.workflow_dir }}"
+          script_path="${workflow_dir}/workflow_scripts/dependabot_automerge.py"
           if [[ ! -f "${script_path}" ]]; then
             echo "Missing ${script_path} after checkout."
-            echo "workflow-src contents:"
-            ls -la workflow-src
+            echo "Checked-out commit:"
+            git -C "${workflow_dir}" rev-parse HEAD
+            echo "Workflow directory contents:"
+            ls -la "${workflow_dir}"
             exit 1
           fi
       - name: Install uv (act)

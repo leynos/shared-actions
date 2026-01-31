@@ -8,6 +8,7 @@ import importlib.util
 import shutil
 import sys
 import typing as typ
+from dataclasses import dataclass  # noqa: ICN003
 from pathlib import Path
 
 import pytest
@@ -367,24 +368,32 @@ def _get_installed_toolchains(
     return [line.split()[0] for line in stdout.splitlines() if line.strip()]
 
 
+@dataclass(frozen=True)
+class ToolchainSpec:
+    """Specification for a Rust toolchain installation."""
+
+    version: str
+    host_target: str
+
+
 def _install_toolchain_if_needed(
     *,
     rustup_path: str,
     rustup_env: dict[str, str],
-    toolchain_version: str,
-    host_target: str,
+    toolchain_spec: ToolchainSpec,
     installed_names: cabc.Sequence[str],
 ) -> None:
     """Install the requested toolchain when it is missing."""
     expected = {
-        toolchain_version,
-        f"{toolchain_version}-{host_target}",
+        toolchain_spec.version,
+        f"{toolchain_spec.version}-{toolchain_spec.host_target}",
     }
     if all(name not in expected for name in installed_names):
         install_spec = (
-            f"{toolchain_version}-{host_target}"
-            if sys.platform == "win32" and host_target.endswith("-pc-windows-gnu")
-            else toolchain_version
+            f"{toolchain_spec.version}-{toolchain_spec.host_target}"
+            if sys.platform == "win32"
+            and toolchain_spec.host_target.endswith("-pc-windows-gnu")
+            else toolchain_spec.version
         )
         run_cmd(
             local[rustup_path][
@@ -410,8 +419,10 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         _install_toolchain_if_needed(
             rustup_path=rustup_bin.as_posix(),
             rustup_env=rustup_env,
-            toolchain_version=toolchain_version,
-            host_target=host_target,
+            toolchain_spec=ToolchainSpec(
+                version=toolchain_version,
+                host_target=host_target,
+            ),
             installed_names=installed_names,
         )
 

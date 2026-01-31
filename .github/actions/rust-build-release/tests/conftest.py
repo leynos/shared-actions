@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections.abc as cabc
+import dataclasses
 import importlib
 import importlib.util
 import shutil
@@ -323,48 +324,107 @@ def patch_common_main_deps(
     return harness
 
 
+def _validate_rustup_binary(rustup_path: str | None) -> Path:
+    """Validate and return the resolved rustup binary path."""
+    if rustup_path is None:  # pragma: no cover - guarded by caller checks
+        pytest.skip("rustup not installed")
+    if not Path(rustup_path).is_file():
+        pytest.skip(f"rustup missing at resolved path: {rustup_path}")
+    rustup_bin = Path(rustup_path).resolve()
+    if len(rustup_bin.parents) < 2:
+        pytest.skip(f"rustup path lacks expected parents: {rustup_bin}")
+    return rustup_bin
+
+
+def _setup_rust_environment(rustup_bin: Path) -> dict[str, str]:
+    """Return a runtime environment mapping for rustup."""
+    cargo_home = rustup_bin.parents[1]
+    if not cargo_home.is_dir():
+        pytest.skip(f"cargo home missing for rustup: {cargo_home}")
+    rustup_home = cargo_home.parent / ".rustup"
+    if not rustup_home.is_dir():
+        pytest.skip(f"rustup home missing for rustup: {rustup_home}")
+    return {
+        "CARGO_HOME": str(cargo_home),
+        "RUSTUP_HOME": str(rustup_home),
+    }
+
+
+def _get_installed_toolchains(
+    rustup_path: str, rustup_env: dict[str, str]
+) -> list[str]:
+    """Return installed toolchain names from rustup."""
+    try:
+        _, stdout, _ = typ.cast(
+            "tuple[int, str, str]",
+            run_cmd(
+                local[rustup_path]["toolchain", "list"],
+                method="run",
+                env=rustup_env,
+            ),
+        )
+    except (OSError, ProcessExecutionError) as exc:  # pragma: no cover - env guard
+        pytest.skip(f"rustup unavailable on runner: {exc}")
+    return [line.split()[0] for line in stdout.splitlines() if line.strip()]
+
+
+@dataclasses.dataclass(frozen=True)
+class ToolchainSpec:
+    """Specification for a Rust toolchain installation."""
+
+    version: str
+    host_target: str
+
+
+def _install_toolchain_if_needed(
+    *,
+    rustup_path: str,
+    rustup_env: dict[str, str],
+    toolchain_spec: ToolchainSpec,
+    installed_names: cabc.Sequence[str],
+) -> None:
+    """Install the requested toolchain when it is missing."""
+    expected = {
+        toolchain_spec.version,
+        f"{toolchain_spec.version}-{toolchain_spec.host_target}",
+    }
+    if all(name not in expected for name in installed_names):
+        install_spec = (
+            f"{toolchain_spec.version}-{toolchain_spec.host_target}"
+            if sys.platform == "win32"
+            and toolchain_spec.host_target.endswith("-pc-windows-gnu")
+            else toolchain_spec.version
+        )
+        run_cmd(
+            local[rustup_path][
+                "toolchain",
+                "install",
+                install_spec,
+                "--profile",
+                "minimal",
+            ],
+            env=rustup_env,
+        )
+
+
 @pytest.fixture
 def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
     """Return a helper that ensures the requested toolchain is installed."""
 
     def _ensure(toolchain_version: str, host_target: str) -> None:
         rustup_path = shutil.which("rustup")
-        if rustup_path is None:  # pragma: no cover - guarded by caller checks
-            pytest.skip("rustup not installed")
-        if not Path(rustup_path).is_file():
-            pytest.skip(f"rustup missing at resolved path: {rustup_path}")
-        try:
-            _, stdout, _ = typ.cast(
-                "tuple[int, str, str]",
-                run_cmd(
-                    local[rustup_path]["toolchain", "list"],
-                    method="run",
-                ),
-            )
-        except (OSError, ProcessExecutionError) as exc:  # pragma: no cover - env guard
-            pytest.skip(f"rustup unavailable on runner: {exc}")
-        installed_names = [
-            line.split()[0] for line in stdout.splitlines() if line.strip()
-        ]
-        expected = {
-            toolchain_version,
-            f"{toolchain_version}-{host_target}",
-        }
-        if all(name not in expected for name in installed_names):
-            install_spec = (
-                f"{toolchain_version}-{host_target}"
-                if sys.platform == "win32" and host_target.endswith("-pc-windows-gnu")
-                else toolchain_version
-            )
-            run_cmd(
-                local[rustup_path][
-                    "toolchain",
-                    "install",
-                    install_spec,
-                    "--profile",
-                    "minimal",
-                ]
-            )
+        rustup_bin = _validate_rustup_binary(rustup_path)
+        rustup_env = _setup_rust_environment(rustup_bin)
+        installed_names = _get_installed_toolchains(rustup_bin.as_posix(), rustup_env)
+        _install_toolchain_if_needed(
+            rustup_path=rustup_bin.as_posix(),
+            rustup_env=rustup_env,
+            toolchain_spec=ToolchainSpec(
+                version=toolchain_version,
+                host_target=host_target,
+            ),
+            installed_names=installed_names,
+        )
 
     return _ensure
 

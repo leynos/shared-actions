@@ -335,19 +335,18 @@ def _validate_rustup_binary(rustup_path: str | None) -> Path:
     return rustup_bin
 
 
-def _setup_rust_environment(rustup_bin: Path) -> tuple[Path, Path, dict[str, str]]:
-    """Return cargo/rustup paths and a runtime environment mapping."""
+def _setup_rust_environment(rustup_bin: Path) -> dict[str, str]:
+    """Return a runtime environment mapping for rustup."""
     cargo_home = rustup_bin.parents[1]
     if not cargo_home.is_dir():
         pytest.skip(f"cargo home missing for rustup: {cargo_home}")
     rustup_home = cargo_home.parent / ".rustup"
     if not rustup_home.is_dir():
         pytest.skip(f"rustup home missing for rustup: {rustup_home}")
-    rustup_env = {
+    return {
         "CARGO_HOME": str(cargo_home),
         "RUSTUP_HOME": str(rustup_home),
     }
-    return cargo_home, rustup_home, rustup_env
 
 
 def _get_installed_toolchains(
@@ -406,7 +405,7 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
     def _ensure(toolchain_version: str, host_target: str) -> None:
         rustup_path = shutil.which("rustup")
         rustup_bin = _validate_rustup_binary(rustup_path)
-        _, _, rustup_env = _setup_rust_environment(rustup_bin)
+        rustup_env = _setup_rust_environment(rustup_bin)
         installed_names = _get_installed_toolchains(rustup_bin.as_posix(), rustup_env)
         _install_toolchain_if_needed(
             rustup_path=rustup_bin.as_posix(),

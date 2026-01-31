@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import collections.abc as cabc
+import dataclasses
 import importlib
 import importlib.util
 import shutil
 import sys
 import typing as typ
-from dataclasses import dataclass  # noqa: ICN003
 from pathlib import Path
 
 import pytest
@@ -368,7 +368,7 @@ def _get_installed_toolchains(
     return [line.split()[0] for line in stdout.splitlines() if line.strip()]
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ToolchainSpec:
     """Specification for a Rust toolchain installation."""
 

@@ -50,7 +50,13 @@ jobs:
             exit 0
           fi
           if [[ -n "${WORKFLOW_SHA}" ]]; then
-            repo="${WORKFLOW_REF%%/.github/workflows/*}"
+            repo="${REPO}"
+            if [[ -n "${WORKFLOW_REF}" && "${WORKFLOW_REF}" == */.github/workflows/*@* ]]; then
+              parsed_repo="${WORKFLOW_REF%%/.github/workflows/*}"
+              if [[ -n "${parsed_repo}" ]]; then
+                repo="${parsed_repo}"
+              fi
+            fi
             ref="${WORKFLOW_SHA}"
           elif [[ -n "${WORKFLOW_REF}" ]]; then
             repo="${WORKFLOW_REF%%/.github/workflows/*}"
@@ -78,7 +84,7 @@ jobs:
           repository: ${{ steps.workflow-source.outputs.repo }}
           ref: ${{ steps.workflow-source.outputs.ref }}
           path: workflow-src
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Verify workflow checkout
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
         shell: bash

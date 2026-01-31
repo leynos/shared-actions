@@ -333,12 +333,22 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
             pytest.skip("rustup not installed")
         if not Path(rustup_path).is_file():
             pytest.skip(f"rustup missing at resolved path: {rustup_path}")
+        rustup_bin = Path(rustup_path).resolve()
+        cargo_home = rustup_bin.parents[1]
+        if not cargo_home.is_dir():
+            pytest.skip(f"cargo home missing for rustup: {cargo_home}")
+        rustup_home = cargo_home.parent / ".rustup"
+        rustup_env = {
+            "CARGO_HOME": str(cargo_home),
+            "RUSTUP_HOME": str(rustup_home),
+        }
         try:
             _, stdout, _ = typ.cast(
                 "tuple[int, str, str]",
                 run_cmd(
                     local[rustup_path]["toolchain", "list"],
                     method="run",
+                    env=rustup_env,
                 ),
             )
         except (OSError, ProcessExecutionError) as exc:  # pragma: no cover - env guard
@@ -363,7 +373,8 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
                     install_spec,
                     "--profile",
                     "minimal",
-                ]
+                ],
+                env=rustup_env,
             )
 
     return _ensure

@@ -98,6 +98,11 @@ jobs:
             git -C "${workflow_dir}" rev-parse HEAD
             echo "Workflow directory contents:"
             ls -la "${workflow_dir}"
+            workflow_scripts_dir="${workflow_dir}/workflow_scripts"
+            if [[ -d "${workflow_scripts_dir}" ]]; then
+              echo "Workflow scripts contents:"
+              ls -la "${workflow_scripts_dir}"
+            fi
             exit 1
           fi
       - name: Install uv (act)

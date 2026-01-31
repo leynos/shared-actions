@@ -334,10 +334,14 @@ def ensure_toolchain_ready() -> cabc.Callable[[str, str], None]:
         if not Path(rustup_path).is_file():
             pytest.skip(f"rustup missing at resolved path: {rustup_path}")
         rustup_bin = Path(rustup_path).resolve()
+        if len(rustup_bin.parents) < 2:
+            pytest.skip(f"rustup path lacks expected parents: {rustup_bin}")
         cargo_home = rustup_bin.parents[1]
         if not cargo_home.is_dir():
             pytest.skip(f"cargo home missing for rustup: {cargo_home}")
         rustup_home = cargo_home.parent / ".rustup"
+        if not rustup_home.is_dir():
+            pytest.skip(f"rustup home missing for rustup: {rustup_home}")
         rustup_env = {
             "CARGO_HOME": str(cargo_home),
             "RUSTUP_HOME": str(rustup_home),

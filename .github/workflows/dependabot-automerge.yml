@@ -79,7 +79,7 @@ jobs:
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
         # v4
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: ${{ steps.workflow-source.outputs.repo }}
           ref: ${{ steps.workflow-source.outputs.ref }}

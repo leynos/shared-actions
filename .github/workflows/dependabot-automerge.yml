@@ -50,21 +50,26 @@ jobs:
           fi
 
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "OIDC env vars not available. Ensure job permissions include: id-token: write" >&2
+            echo "OpenID Connect (OIDC) env vars not available. Ensure job permissions include: id-token: write" >&2
             exit 1
           fi
 
           oidc_json="$(
             curl -sSf \
+              --connect-timeout 10 \
+              --max-time 60 \
+              --retry 3 \
+              --retry-delay 2 \
+              --retry-all-errors \
               -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
               "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=github"
           )"
 
           read -r repo ref <<<"$(
-            python3 - <<'PY'
-import base64, json, sys
+            OIDC_JSON="${oidc_json}" python3 - <<'PY'
+import base64, json, os
 
-d = json.load(sys.stdin)
+d = json.loads(os.environ["OIDC_JSON"])
 jwt = d["value"]
 
 payload = jwt.split(".", 2)[1]
@@ -82,7 +87,6 @@ if not job_ref or not job_sha:
 repo = job_ref.split("/.github/workflows/")[0]
 print(repo, job_sha)
 PY
-          <<<"${oidc_json}"
           )"
 
           echo "checkout=true" >> "${GITHUB_OUTPUT}"

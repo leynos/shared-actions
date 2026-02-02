@@ -23,7 +23,8 @@ The calling workflow must grant at least:
 - `pull-requests: write`
 - `checks: read`
 - `statuses: read`
-- `id-token: write` (required for reusable workflow introspection)
+- `id-token: write` (required for GitHub OpenID Connect (OIDC) reusable workflow
+  introspection)
 
 Job-level permissions in the caller are authoritative and cannot be elevated by
 this reusable workflow.
@@ -54,7 +55,7 @@ jobs:
       pull-requests: write
       checks: read
       statuses: read
-      # Needed for reusable workflow introspection via GitHub OIDC:
+      # Needed for reusable workflow introspection via GitHub OpenID Connect (OIDC):
       # the called workflow uses an OIDC token to read `job_workflow_ref`/`job_workflow_sha`,
       # so it can checkout the *reusable workflow repo* (leynos/shared-actions) at the exact
       # pinned commit, rather than accidentally resolving to the caller repo via `github.workflow_*`.

@@ -30,18 +30,17 @@ jobs:
       pull-requests: write
       checks: read
       statuses: read
+      id-token: write  # <-- add this (caller must also allow it)
     steps:
       - name: Resolve workflow source
         id: workflow-source
         shell: bash
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-          WORKFLOW_SHA: ${{ github.workflow_sha }}
           REPO: ${{ github.repository }}
-          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           workspace="${GITHUB_WORKSPACE:-$PWD}"
+
           if [[ "${ACT:-}" == "true" ]]; then
             echo "checkout=false" >> "${GITHUB_OUTPUT}"
             echo "workflow_dir=${workspace}" >> "${GITHUB_OUTPUT}"
@@ -49,26 +48,48 @@ jobs:
             echo "ref=" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          if [[ -n "${WORKFLOW_SHA}" ]]; then
-            repo="${REPO}"
-            if [[ -n "${WORKFLOW_REF}" && "${WORKFLOW_REF}" == */.github/workflows/*@* ]]; then
-              parsed_repo="${WORKFLOW_REF%%/.github/workflows/*}"
-              if [[ -n "${parsed_repo}" ]]; then
-                repo="${parsed_repo}"
-              fi
-            fi
-            ref="${WORKFLOW_SHA}"
-          elif [[ -n "${WORKFLOW_REF}" ]]; then
-            repo="${WORKFLOW_REF%%/.github/workflows/*}"
-            ref="${WORKFLOW_REF##*@}"
-          else
-            repo="${REPO}"
-            ref="${REF}"
+
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "OIDC env vars not available. Ensure job permissions include: id-token: write" >&2
+            exit 1
           fi
+
+          oidc_json="$(
+            curl -sSf \
+              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=github"
+          )"
+
+          read -r repo ref <<<"$(
+            python3 - <<'PY'
+import base64, json, sys
+
+d = json.load(sys.stdin)
+jwt = d["value"]
+
+payload = jwt.split(".", 2)[1]
+payload += "=" * (-len(payload) % 4)
+claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+
+job_ref = claims.get("job_workflow_ref")
+job_sha = claims.get("job_workflow_sha")
+if not job_ref or not job_sha:
+    raise SystemExit(
+        f"Missing job_workflow_ref/job_workflow_sha in OIDC claims "
+        f"(job_workflow_ref={bool(job_ref)}, job_workflow_sha={bool(job_sha)})"
+    )
+
+repo = job_ref.split("/.github/workflows/")[0]
+print(repo, job_sha)
+PY
+          <<<"${oidc_json}"
+          )"
+
           echo "checkout=true" >> "${GITHUB_OUTPUT}"
           echo "workflow_dir=${workspace}/workflow-src" >> "${GITHUB_OUTPUT}"
           echo "repo=${repo}" >> "${GITHUB_OUTPUT}"
           echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+
       - name: Debug workflow source
         shell: bash
         run: |
@@ -76,15 +97,16 @@ jobs:
           echo "workflow repo: ${{ steps.workflow-source.outputs.repo }}"
           echo "workflow ref: ${{ steps.workflow-source.outputs.ref }}"
           echo "workflow dir: ${{ steps.workflow-source.outputs.workflow_dir }}"
+
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
-        # v4
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           repository: ${{ steps.workflow-source.outputs.repo }}
           ref: ${{ steps.workflow-source.outputs.ref }}
           path: workflow-src
           fetch-depth: 1
+
       - name: Verify workflow checkout
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
         shell: bash
@@ -105,15 +127,16 @@ jobs:
             fi
             exit 1
           fi
+
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
           python3 -m pip install --upgrade --break-system-packages uv
+
       - name: Setup uv
         if: ${{ env.ACT != 'true' }}
-        # v6.4.3
         uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
         with:
           python-version: '3.13'
@@ -121,6 +144,7 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/workflow_scripts/*.py
+
       - name: Run Dependabot auto-merge
         shell: bash
         env:

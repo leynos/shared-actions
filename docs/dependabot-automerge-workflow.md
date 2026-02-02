@@ -23,6 +23,7 @@ The calling workflow must grant at least:
 - `pull-requests: write`
 - `checks: read`
 - `statuses: read`
+- `id-token: write` (required for reusable workflow introspection)
 
 Job-level permissions in the caller are authoritative and cannot be elevated by
 this reusable workflow.
@@ -30,11 +31,21 @@ this reusable workflow.
 ## Usage
 
 ```yaml
-name: Auto-merge Dependabot PRs
+name: dependabot-automerge
+
+# Uses pull_request_target to enable auto-merge with write permissions.
+# Safe because the reusable workflow never checks out or executes PR code;
+# it only reads event metadata and makes GitHub API calls.
 
 on:
-  pull_request:
+  pull_request_target:
+    branches: [main]
     types: [opened, reopened, synchronize, labeled, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull-request-number:
+        type: number
+        required: true
 
 jobs:
   automerge:
@@ -43,14 +54,16 @@ jobs:
       pull-requests: write
       checks: read
       statuses: read
-    uses: example-org/shared-actions/.github/workflows/dependabot-automerge.yml@v1
+      # Needed for reusable workflow introspection via GitHub OIDC:
+      # the called workflow uses an OIDC token to read `job_workflow_ref`/`job_workflow_sha`,
+      # so it can checkout the *reusable workflow repo* (leynos/shared-actions) at the exact
+      # pinned commit, rather than accidentally resolving to the caller repo via `github.workflow_*`.
+      # The token is not used for any external cloud auth.
+      id-token: write
+    if: ${{ github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' }}
+    uses: leynos/shared-actions/.github/workflows/dependabot-automerge.yml@9d4c046f2788decc264847622b830e2a4d35b91f
     with:
-      # Required: pass the PR number explicitly for workflow_call contexts
-      pull-request-number: ${{ github.event.pull_request.number }}
-      required-label: dependencies
-      merge-method: squash
-    secrets:
-      github-token: ${{ secrets.DEPENDABOT_AUTOMERGE_TOKEN }}
+      pull-request-number: ${{ inputs.pull-request-number || github.event.pull_request.number }}
 ```
 
 ## Inputs

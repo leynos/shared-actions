@@ -157,7 +157,7 @@ if __name__ == "__main__":
         for value in values:
             if value.startswith("--version="):
                 candidate = value.split("=", 1)[1]
-                return candidate if candidate else None
+                return candidate or None
         return None
 
     def _extract_version_from_flag_arg(values: list[str]) -> str | None:
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         for index, value in enumerate(values):
             if value == "--version" and index + 1 < len(values):
                 candidate = values[index + 1]
-                return candidate if candidate else None
+                return candidate or None
         return None
 
     def _extract_version_argument(values: list[str]) -> str | None:

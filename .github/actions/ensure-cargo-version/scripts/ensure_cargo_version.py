@@ -153,17 +153,8 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-@app.default
-def main(
-    *,
-    manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
-    tag_prefix: typ.Annotated[str, Parameter()] = "v",
-    check_tag: typ.Annotated[str, Parameter()] = "true",
-) -> None:
-    """Validate that each manifest matches the tag-derived version."""
-    manifest_args = manifests if manifests else [Path("Cargo.toml")]
-    resolved = _resolve_paths(manifest_args)
-
+def _resolve_tag_version(tag_prefix: str, check_tag: str) -> tuple[str | None, bool]:
+    """Resolve the tag version and whether tag validation should occur."""
     try:
         should_check_tag = coerce_bool_strict(check_tag, parameter="check-tag")
     except ValueError as exc:
@@ -182,10 +173,17 @@ def main(
         if os.environ.get("GITHUB_REF_NAME"):
             tag_version = _tag_from_ref(tag_prefix)
 
+    return tag_version, should_check_tag
+
+
+def _validate_manifests(
+    resolved_paths: list[Path],
+) -> tuple[list[ManifestVersion], list[tuple[str, str, Path | None]]]:
+    """Read and validate manifest versions, returning metadata and errors."""
     manifest_versions: list[ManifestVersion] = []
     errors: list[tuple[str, str, Path | None]] = []
 
-    for manifest_path in resolved:
+    for manifest_path in resolved_paths:
         try:
             manifest_versions.append(_read_manifest_version(manifest_path))
         except ManifestError as exc:
@@ -197,28 +195,54 @@ def main(
                 )
             )
 
+    return manifest_versions, errors
+
+
+def _check_version_matches(
+    manifest_versions: list[ManifestVersion],
+    expected_tag: str,
+) -> list[tuple[str, str, Path | None]]:
+    """Compare manifest versions against the expected tag."""
+    return [
+        (
+            "Tag/Cargo.toml mismatch",
+            (
+                f"Tag version {expected_tag} does not match Cargo.toml version "
+                f"{manifest_version.version}"
+                f" for {_display_path(manifest_version.path)}"
+            ),
+            manifest_version.path,
+        )
+        for manifest_version in manifest_versions
+        if manifest_version.version != expected_tag
+    ]
+
+
+@app.default
+def main(
+    *,
+    manifests: typ.Annotated[list[Path] | None, Parameter()] = None,
+    tag_prefix: typ.Annotated[str, Parameter()] = "v",
+    check_tag: typ.Annotated[str, Parameter()] = "true",
+) -> None:
+    """Validate that each manifest matches the tag-derived version."""
+    manifest_args = manifests or [Path("Cargo.toml")]
+    resolved = _resolve_paths(manifest_args)
+
+    tag_version, should_check_tag = _resolve_tag_version(tag_prefix, check_tag)
+
+    manifest_versions, errors = _validate_manifests(resolved)
+
     crate_version = manifest_versions[0].version if manifest_versions else ""
     crate_name = manifest_versions[0].name if manifest_versions else ""
 
+    expected_tag = ""
     if should_check_tag:
         if tag_version is None:  # pragma: no cover - defensive guard
             message = "Tag comparison requested but no tag version was derived."
             raise RuntimeError(message)
         expected_tag = tag_version
-        mismatch_errors = [
-            (
-                "Tag/Cargo.toml mismatch",
-                (
-                    f"Tag version {expected_tag} does not match Cargo.toml version "
-                    f"{manifest_version.version}"
-                    f" for {_display_path(manifest_version.path)}"
-                ),
-                manifest_version.path,
-            )
-            for manifest_version in manifest_versions
-            if manifest_version.version != expected_tag
-        ]
-        errors.extend(mismatch_errors)
+        errors.extend(_check_version_matches(manifest_versions, expected_tag))
 
     if errors:
         for title, message, path in errors:

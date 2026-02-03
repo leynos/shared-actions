@@ -160,7 +160,7 @@ jobs:
           _REPOSITORY: ${{ inputs.repository }}
         run: |
           set -euo pipefail
-          if [[ -n "${_PR_NUMBER}" ]]; then
+          if [[ -n "${_PR_NUMBER}" && "${_PR_NUMBER}" != "0" ]]; then
             export INPUT_PULL_REQUEST_NUMBER="${_PR_NUMBER}"
           fi
           if [[ -n "${_REPOSITORY}" ]]; then

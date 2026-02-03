@@ -161,7 +161,7 @@ def main(
     check_tag: typ.Annotated[str, Parameter()] = "true",
 ) -> None:
     """Validate that each manifest matches the tag-derived version."""
-    manifest_args = manifests if manifests else [Path("Cargo.toml")]
+    manifest_args = manifests or [Path("Cargo.toml")]
     resolved = _resolve_paths(manifest_args)
 
     try:

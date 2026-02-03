@@ -66,27 +66,27 @@ jobs:
           )"
 
           read -r repo ref <<<"$(
-            OIDC_JSON="${oidc_json}" python3 - <<'PY'
-import base64, json, os
+          OIDC_JSON="${oidc_json}" python3 - <<'PY'
+          import base64, json, os
 
-d = json.loads(os.environ["OIDC_JSON"])
-jwt = d["value"]
+          d = json.loads(os.environ["OIDC_JSON"])
+          jwt = d["value"]
 
-payload = jwt.split(".", 2)[1]
-payload += "=" * (-len(payload) % 4)
-claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+          payload = jwt.split(".", 2)[1]
+          payload += "=" * (-len(payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
 
-job_ref = claims.get("job_workflow_ref")
-job_sha = claims.get("job_workflow_sha")
-if not job_ref or not job_sha:
-    raise SystemExit(
-        f"Missing job_workflow_ref/job_workflow_sha in OIDC claims "
-        f"(job_workflow_ref={bool(job_ref)}, job_workflow_sha={bool(job_sha)})"
-    )
+          job_ref = claims.get("job_workflow_ref")
+          job_sha = claims.get("job_workflow_sha")
+          if not job_ref or not job_sha:
+              raise SystemExit(
+                  f"Missing job_workflow_ref/job_workflow_sha in OIDC claims "
+                  f"(job_workflow_ref={bool(job_ref)}, job_workflow_sha={bool(job_sha)})"
+              )
 
-repo = job_ref.split("/.github/workflows/")[0]
-print(repo, job_sha)
-PY
+          repo = job_ref.split("/.github/workflows/")[0]
+          print(repo, job_sha)
+          PY
           )"
 
           echo "checkout=true" >> "${GITHUB_OUTPUT}"

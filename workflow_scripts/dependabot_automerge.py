@@ -14,7 +14,7 @@ Eligibility Rules
 -----------------
 Auto-merge is enabled only when all conditions are met:
 
-- The PR author is ``dependabot[bot]``
+- The PR author is ``dependabot[bot]`` or ``dependabot``
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
 
@@ -75,7 +75,7 @@ else:
     )
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
-DEPENDABOT_LOGIN = "dependabot[bot]"
+DEPENDABOT_LOGINS = {"dependabot[bot]", "dependabot"}
 
 MERGE_METHODS = {
     "merge": "MERGE",
@@ -341,7 +341,7 @@ def _snapshot_from_event(
 
 def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     """Evaluate a PR against eligibility rules and return a Decision."""
-    if pr.author != DEPENDABOT_LOGIN:
+    if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")
     if pr.is_draft:
         return Decision(status="skipped", reason="draft-pr")

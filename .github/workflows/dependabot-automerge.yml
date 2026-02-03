@@ -141,7 +141,7 @@ jobs:
 
       - name: Setup uv
         if: ${{ env.ACT != 'true' }}
-        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41
         with:
           python-version: '3.13'
           cache-dependency-glob: |

@@ -156,13 +156,15 @@ PY
           INPUT_REQUIRED_LABEL: ${{ inputs.required-label }}
           INPUT_MERGE_METHOD: ${{ inputs.merge-method }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
+          _PR_NUMBER: ${{ inputs.pull-request-number }}
+          _REPOSITORY: ${{ inputs.repository }}
         run: |
           set -euo pipefail
-          if [[ -n "${{ inputs.pull-request-number }}" ]]; then
-            export INPUT_PULL_REQUEST_NUMBER="${{ inputs.pull-request-number }}"
+          if [[ -n "${_PR_NUMBER}" ]]; then
+            export INPUT_PULL_REQUEST_NUMBER="${_PR_NUMBER}"
           fi
-          if [[ -n "${{ inputs.repository }}" ]]; then
-            export INPUT_REPOSITORY="${{ inputs.repository }}"
+          if [[ -n "${_REPOSITORY}" ]]; then
+            export INPUT_REPOSITORY="${_REPOSITORY}"
           fi
           if [[ "${ACT:-}" == "true" ]]; then
             export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"

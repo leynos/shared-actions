@@ -14,7 +14,7 @@ Eligibility Rules
 -----------------
 Auto-merge is enabled only when all conditions are met:
 
-- The PR author is ``dependabot[bot]``
+- The PR author is ``dependabot[bot]`` or ``dependabot``
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
 
@@ -58,6 +58,7 @@ main : The CLI entrypoint function.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import json
 import os
 import typing as typ
@@ -75,7 +76,23 @@ else:
     )
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
-DEPENDABOT_LOGIN = "dependabot[bot]"
+
+class DependabotLogin(enum.StrEnum):
+    """Supported Dependabot author login variants.
+
+    Attributes
+    ----------
+    BOT : DependabotLogin
+        The canonical Dependabot bot login (``dependabot[bot]``).
+    LEGACY : DependabotLogin
+        The legacy Dependabot login (``dependabot``).
+    """
+
+    BOT = "dependabot[bot]"
+    LEGACY = "dependabot"
+
+
+DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in DependabotLogin)
 
 MERGE_METHODS = {
     "merge": "MERGE",
@@ -340,8 +357,31 @@ def _snapshot_from_event(
 
 
 def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
-    """Evaluate a PR against eligibility rules and return a Decision."""
-    if pr.author != DEPENDABOT_LOGIN:
+    """Evaluate a PR against eligibility rules and return a Decision.
+
+    Dependabot eligibility accepts authors ``dependabot[bot]`` and
+    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`, which includes both
+    author variants.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        Snapshot of pull request metadata used for eligibility checks.
+    required_label : str or None
+        Label that must be present on the PR, or None to skip label checks.
+
+    Returns
+    -------
+    Decision
+        Outcome indicating whether auto-merge should proceed.
+
+    Notes
+    -----
+    :data:`DEPENDABOT_LOGINS` is the canonical source of eligible Dependabot
+    author logins used by this evaluation.
+
+    """
+    if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")
     if pr.is_draft:
         return Decision(status="skipped", reason="draft-pr")

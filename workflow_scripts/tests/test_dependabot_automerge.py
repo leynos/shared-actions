@@ -324,17 +324,19 @@ def test_dry_run_requires_event_payload(
     )
 
 
+@pytest.mark.parametrize("login", ["dependabot[bot]", "dependabot"])
 def test_dry_run_eligible_dependabot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    login: str,
 ) -> None:
     """Eligible Dependabot PRs log dry-run readiness."""
     event = {
         "pull_request": {
             "number": 9,
             "draft": False,
-            "user": {"login": "dependabot[bot]"},
+            "user": {"login": login},
             "labels": [{"name": "dependencies"}],
         },
         "repository": {"full_name": "acme/example"},

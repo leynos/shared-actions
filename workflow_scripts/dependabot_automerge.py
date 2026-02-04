@@ -58,6 +58,7 @@ main : The CLI entrypoint function.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import json
 import os
 import typing as typ
@@ -75,7 +76,15 @@ else:
     )
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
-DEPENDABOT_LOGINS = {"dependabot[bot]", "dependabot"}
+
+class DependabotLogin(enum.StrEnum):
+    """Supported Dependabot author login variants."""
+
+    BOT = "dependabot[bot]"
+    LEGACY = "dependabot"
+
+
+DEPENDABOT_LOGINS = frozenset(login.value for login in DependabotLogin)
 
 MERGE_METHODS = {
     "merge": "MERGE",
@@ -340,7 +349,14 @@ def _snapshot_from_event(
 
 
 def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
-    """Evaluate a PR against eligibility rules and return a Decision."""
+    """Evaluate a PR against eligibility rules and return a Decision.
+
+    Dependabot eligibility accepts authors ``dependabot[bot]`` and
+    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`.
+
+    Update checklist:
+        - [x] Document the Dependabot author variants and DEPENDABOT_LOGINS.
+    """
     if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")
     if pr.is_draft:

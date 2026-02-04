@@ -8,12 +8,16 @@ uses a Cyclopts-based Python helper that reads `INPUT_*` environment variables.
 
 The helper script only enables auto-merge when all of the following are true:
 
-- The pull request author is `dependabot[bot]`.
+- The pull request author is `dependabot[bot]` or `dependabot`.
 - The pull request is not marked as a draft.
 - The required label (default `dependencies`) is present.
 
 If any rule fails, the workflow logs an `automerge_status=skipped` entry with a
 reason and exits successfully.
+
+Note: The helper reads `DEPENDABOT_LOGINS` (defined in
+`workflow_scripts/dependabot_automerge.py`) to support both author login variants
+across platforms.
 
 ## Required permissions
 
@@ -61,6 +65,8 @@ jobs:
       # pinned commit, rather than accidentally resolving to the caller repo via `github.workflow_*`.
       # The token is not used for any external cloud auth.
       id-token: write
+    # The caller can filter on dependabot[bot] to reduce noise; the reusable
+    # workflow still validates eligibility via DEPENDABOT_LOGINS.
     if: ${{ github.event_name == 'workflow_dispatch' || github.actor == 'dependabot[bot]' }}
     uses: leynos/shared-actions/.github/workflows/dependabot-automerge.yml@9d4c046f2788decc264847622b830e2a4d35b91f
     with:

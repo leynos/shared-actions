@@ -380,9 +380,6 @@ def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     :data:`DEPENDABOT_LOGINS` is the canonical source of eligible Dependabot
     author logins used by this evaluation.
 
-    Update checklist
-    ---------------
-    - [x] Document the Dependabot author variants and DEPENDABOT_LOGINS.
     """
     if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")

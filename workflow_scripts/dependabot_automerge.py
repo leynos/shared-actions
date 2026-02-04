@@ -360,10 +360,29 @@ def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     """Evaluate a PR against eligibility rules and return a Decision.
 
     Dependabot eligibility accepts authors ``dependabot[bot]`` and
-    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`.
+    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`, which includes both
+    author variants.
 
-    Update checklist:
-        - [x] Document the Dependabot author variants and DEPENDABOT_LOGINS.
+    Parameters
+    ----------
+    pr : PullRequestContext
+        Snapshot of pull request metadata used for eligibility checks.
+    required_label : str or None
+        Label that must be present on the PR, or None to skip label checks.
+
+    Returns
+    -------
+    Decision
+        Outcome indicating whether auto-merge should proceed.
+
+    Notes
+    -----
+    :data:`DEPENDABOT_LOGINS` is the canonical source of eligible Dependabot
+    author logins used by this evaluation.
+
+    Update checklist
+    ---------------
+    - [x] Document the Dependabot author variants and DEPENDABOT_LOGINS.
     """
     if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")

@@ -78,13 +78,21 @@ else:
 
 
 class DependabotLogin(enum.StrEnum):
-    """Supported Dependabot author login variants."""
+    """Supported Dependabot author login variants.
+
+    Attributes
+    ----------
+    BOT : DependabotLogin
+        The canonical Dependabot bot login (``dependabot[bot]``).
+    LEGACY : DependabotLogin
+        The legacy Dependabot login (``dependabot``).
+    """
 
     BOT = "dependabot[bot]"
     LEGACY = "dependabot"
 
 
-DEPENDABOT_LOGINS = frozenset(login.value for login in DependabotLogin)
+DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in DependabotLogin)
 
 MERGE_METHODS = {
     "merge": "MERGE",

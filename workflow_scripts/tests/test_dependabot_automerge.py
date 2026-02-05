@@ -27,6 +27,20 @@ class DryRunTestCase:
     test_id: str
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class LiveExecutionTestCase:
+    """Test case parameters for live execution scenarios."""
+
+    pr_number: int
+    merge_state_status: str | None
+    mergeable: str | None
+    auto_merge_request: dict[str, object] | None
+    should_enable: bool
+    expected_status: str
+    expected_reason: str
+    test_id: str
+
+
 def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
     """Write an event payload to a temporary JSON file.
 
@@ -45,6 +59,41 @@ def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps(payload), encoding="utf-8")
     return event_path
+
+
+def _build_live_execution_mock(
+    test_case: LiveExecutionTestCase,
+) -> typ.Callable[[str, str, dict[str, object]], dict[str, object]]:
+    """Build a mock GraphQL handler for live execution tests."""
+    calls = {"enable": 0}
+
+    def handler(
+        _token: str, query: str, _variables: dict[str, object]
+    ) -> dict[str, object]:
+        if "enablePullRequestAutoMerge" in query:
+            calls["enable"] += 1
+            return {
+                "enablePullRequestAutoMerge": {
+                    "pullRequest": {"number": test_case.pr_number}
+                }
+            }
+        return {
+            "repository": {
+                "pullRequest": {
+                    "id": f"PR_{test_case.pr_number}",
+                    "number": test_case.pr_number,
+                    "isDraft": False,
+                    "mergeStateStatus": test_case.merge_state_status,
+                    "mergeable": test_case.mergeable,
+                    "author": {"login": "dependabot[bot]"},
+                    "labels": {"nodes": [{"name": "dependencies"}]},
+                    "autoMergeRequest": test_case.auto_merge_request,
+                }
+            }
+        }
+
+    handler.calls = calls  # type: ignore[attr-defined]
+    return handler
 
 
 # ---------------------------------------------------------------------------
@@ -358,45 +407,85 @@ def test_dry_run_eligible_dependabot(
     assert "automerge_reason=eligible" in captured.out, "Expected eligible reason"
 
 
-def test_enables_automerge_when_ready(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        LiveExecutionTestCase(
+            pr_number=12,
+            merge_state_status="HAS_HOOKS",
+            mergeable="MERGEABLE",
+            auto_merge_request=None,
+            should_enable=True,
+            expected_status="enabled",
+            expected_reason="enabled",
+            test_id="eligible_enables",
+        ),
+        LiveExecutionTestCase(
+            pr_number=22,
+            merge_state_status="UNSTABLE",
+            mergeable="MERGEABLE",
+            auto_merge_request=None,
+            should_enable=False,
+            expected_status="skipped",
+            expected_reason="merge-state-unstable",
+            test_id="merge_state_unstable_skips",
+        ),
+        LiveExecutionTestCase(
+            pr_number=23,
+            merge_state_status="DIRTY",
+            mergeable="CONFLICTING",
+            auto_merge_request=None,
+            should_enable=False,
+            expected_status="skipped",
+            expected_reason="mergeable-conflicting",
+            test_id="mergeable_conflicting_skips",
+        ),
+        LiveExecutionTestCase(
+            pr_number=15,
+            merge_state_status="CLEAN",
+            mergeable="MERGEABLE",
+            auto_merge_request={
+                "enabledAt": "2024-01-01T00:00:00Z",
+                "mergeMethod": "SQUASH",
+            },
+            should_enable=False,
+            expected_status="enabled",
+            expected_reason="already-enabled",
+            test_id="already_enabled_detected",
+        ),
+    ],
+    ids=lambda tc: tc.test_id,
+)
+def test_live_execution_scenarios(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    test_case: LiveExecutionTestCase,
 ) -> None:
-    """Eligible PRs enable auto-merge via the GitHub API."""
-
-    def fake_request(
-        _token: str, query: str, _variables: dict[str, object]
-    ) -> dict[str, object]:
-        if "enablePullRequestAutoMerge" in query:
-            return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 12}}}
-        return {
-            "repository": {
-                "pullRequest": {
-                    "id": "PR_12",
-                    "number": 12,
-                    "isDraft": False,
-                    "mergeStateStatus": "HAS_HOOKS",
-                    "mergeable": "MERGEABLE",
-                    "author": {"login": "dependabot[bot]"},
-                    "labels": {"nodes": [{"name": "dependencies"}]},
-                    "autoMergeRequest": None,
-                }
-            }
-        }
-
-    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
+    """Live execution scenarios share common GraphQL mock wiring."""
+    handler = _build_live_execution_mock(test_case)
+    monkeypatch.setattr(dependabot_automerge, "request_graphql", handler)
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
 
     dependabot_automerge.main(
         github_token=TEST_TOKEN,
         options=dependabot_automerge.AutomergeOptions(
             repository="acme/example",
-            pull_request_number=12,
+            pull_request_number=test_case.pr_number,
         ),
     )
 
     captured = capsys.readouterr()
-    assert "automerge_status=enabled" in captured.out, "Expected enabled status"
-    assert "automerge_reason=enabled" in captured.out, "Expected enabled reason"
+    assert f"automerge_status={test_case.expected_status}" in captured.out, (
+        f"[{test_case.test_id}] Expected {test_case.expected_status} status"
+    )
+    assert f"automerge_reason={test_case.expected_reason}" in captured.out, (
+        f"[{test_case.test_id}] Expected reason {test_case.expected_reason}"
+    )
+    enable_calls = handler.calls["enable"]  # type: ignore[attr-defined]
+    expected_calls = 1 if test_case.should_enable else 0
+    assert enable_calls == expected_calls, (
+        f"[{test_case.test_id}] Expected enable calls to be {expected_calls}"
+    )
 
 
 def test_retries_until_merge_state_known(
@@ -443,129 +532,3 @@ def test_retries_until_merge_state_known(
     captured = capsys.readouterr()
     assert calls["fetch"] >= 2, "Expected merge state to be refreshed"
     assert "automerge_status=enabled" in captured.out, "Expected enabled status"
-
-
-def test_skips_when_merge_state_unstable(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Unstable merge state skips auto-merge enablement."""
-
-    def fake_request(
-        _token: str, _query: str, _variables: dict[str, object]
-    ) -> dict[str, object]:
-        return {
-            "repository": {
-                "pullRequest": {
-                    "id": "PR_22",
-                    "number": 22,
-                    "isDraft": False,
-                    "mergeStateStatus": "UNSTABLE",
-                    "mergeable": "MERGEABLE",
-                    "author": {"login": "dependabot[bot]"},
-                    "labels": {"nodes": [{"name": "dependencies"}]},
-                    "autoMergeRequest": None,
-                }
-            }
-        }
-
-    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
-    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-
-    dependabot_automerge.main(
-        github_token=TEST_TOKEN,
-        options=dependabot_automerge.AutomergeOptions(
-            repository="acme/example",
-            pull_request_number=22,
-        ),
-    )
-
-    captured = capsys.readouterr()
-    assert "automerge_status=skipped" in captured.out, "Expected skipped status"
-    assert "automerge_reason=merge-state-unstable" in captured.out, (
-        "Expected unstable merge-state reason"
-    )
-
-
-def test_skips_when_mergeable_conflicting(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Conflicting mergeable state skips auto-merge enablement."""
-
-    def fake_request(
-        _token: str, _query: str, _variables: dict[str, object]
-    ) -> dict[str, object]:
-        return {
-            "repository": {
-                "pullRequest": {
-                    "id": "PR_23",
-                    "number": 23,
-                    "isDraft": False,
-                    "mergeStateStatus": "DIRTY",
-                    "mergeable": "CONFLICTING",
-                    "author": {"login": "dependabot[bot]"},
-                    "labels": {"nodes": [{"name": "dependencies"}]},
-                    "autoMergeRequest": None,
-                }
-            }
-        }
-
-    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
-    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-
-    dependabot_automerge.main(
-        github_token=TEST_TOKEN,
-        options=dependabot_automerge.AutomergeOptions(
-            repository="acme/example",
-            pull_request_number=23,
-        ),
-    )
-
-    captured = capsys.readouterr()
-    assert "automerge_status=skipped" in captured.out, "Expected skipped status"
-    assert "automerge_reason=mergeable-conflicting" in captured.out, (
-        "Expected conflicting mergeable reason"
-    )
-
-
-def test_already_enabled_automerge_detected(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """PRs with auto-merge already enabled are detected."""
-
-    def fake_request(
-        _token: str, _query: str, _variables: dict[str, object]
-    ) -> dict[str, object]:
-        return {
-            "repository": {
-                "pullRequest": {
-                    "id": "PR_15",
-                    "number": 15,
-                    "isDraft": False,
-                    "mergeStateStatus": "CLEAN",
-                    "mergeable": "MERGEABLE",
-                    "author": {"login": "dependabot[bot]"},
-                    "labels": {"nodes": [{"name": "dependencies"}]},
-                    "autoMergeRequest": {
-                        "enabledAt": "2024-01-01T00:00:00Z",
-                        "mergeMethod": "SQUASH",
-                    },
-                }
-            }
-        }
-
-    monkeypatch.setattr(dependabot_automerge, "request_graphql", fake_request)
-    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
-
-    dependabot_automerge.main(
-        github_token=TEST_TOKEN,
-        options=dependabot_automerge.AutomergeOptions(
-            repository="acme/example",
-            pull_request_number=15,
-        ),
-    )
-
-    captured = capsys.readouterr()
-    assert "automerge_status=enabled" in captured.out, "Expected enabled status"
-    assert "automerge_reason=already-enabled" in captured.out, (
-        "Expected already-enabled reason"
-    )

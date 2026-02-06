@@ -64,6 +64,7 @@ import os
 import time
 import typing as typ
 from pathlib import Path
+from types import MappingProxyType
 
 from cyclopts import App, Parameter
 
@@ -182,15 +183,19 @@ class PullRequestContext:
     mergeable_state: str = "UNKNOWN"
 
 
-MERGE_STATE_SKIP_REASONS: dict[str, str] = {
-    "UNSTABLE": "merge-state-unstable",
-    "DIRTY": "merge-state-dirty",
-    "BLOCKED": "merge-state-blocked",
-    "BEHIND": "merge-state-behind",
-}
-MERGEABLE_SKIP_REASONS: dict[str, str] = {
-    "CONFLICTING": "mergeable-conflicting",
-}
+MERGE_STATE_SKIP_REASONS: typ.Mapping[str, str] = MappingProxyType(
+    {
+        "UNSTABLE": "merge-state-unstable",
+        "DIRTY": "merge-state-dirty",
+        "BLOCKED": "merge-state-blocked",
+        "BEHIND": "merge-state-behind",
+    }
+)
+MERGEABLE_SKIP_REASONS: typ.Mapping[str, str] = MappingProxyType(
+    {
+        "CONFLICTING": "mergeable-conflicting",
+    }
+)
 MERGE_STATE_RETRYABLE = {"UNKNOWN"}
 MERGEABLE_RETRYABLE = {"UNKNOWN"}
 MERGE_STATE_MAX_ATTEMPTS_DEFAULT = 3

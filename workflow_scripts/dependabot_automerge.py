@@ -60,6 +60,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import json
+import math
 import os
 import time
 import typing as typ
@@ -196,12 +197,16 @@ MERGEABLE_SKIP_REASONS: typ.Mapping[str, str] = MappingProxyType(
         "CONFLICTING": "mergeable-conflicting",
     }
 )
-MERGE_STATE_RETRYABLE = {"UNKNOWN"}
-MERGEABLE_RETRYABLE = {"UNKNOWN"}
+MERGE_STATE_RETRYABLE: frozenset[str] = frozenset({"UNKNOWN"})
+MERGEABLE_RETRYABLE: frozenset[str] = frozenset({"UNKNOWN"})
 MERGE_STATE_MAX_ATTEMPTS_DEFAULT = 3
 MERGE_STATE_BASE_SLEEP_DEFAULT = 2.0
+MERGE_STATE_MAX_SLEEP_DEFAULT = 30.0
 MERGE_STATE_MAX_ATTEMPTS_ENV = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
 MERGE_STATE_BASE_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
+MERGE_STATE_MAX_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
+
+MergeStateClassification = typ.Literal["ok", "skip", "retry"]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -528,7 +533,7 @@ def _fetch_pull_request(
 
 def _classify_merge_state(
     merge_state: str, mergeable_state: str
-) -> tuple[str, str | None]:
+) -> tuple[MergeStateClassification, str | None]:
     """Classify merge state as ok, skip, or retry with a reason."""
     if mergeable_state in MERGEABLE_SKIP_REASONS:
         return "skip", MERGEABLE_SKIP_REASONS[mergeable_state]
@@ -562,12 +567,14 @@ def _parse_env_float(name: str, default: float) -> float:
         parsed = float(value)
     except ValueError:
         fail(f"Invalid value for {name}: {value!r}. Expected a number.")
+    if not math.isfinite(parsed):
+        fail(f"Invalid value for {name}: {value!r}. Expected a finite number.")
     if parsed < 0:
         fail(f"Invalid value for {name}: {value!r}. Expected a non-negative number.")
     return parsed
 
 
-def _merge_state_retry_config() -> tuple[int, float]:
+def _merge_state_retry_config() -> tuple[int, float, float]:
     """Return retry configuration for merge state refresh."""
     max_attempts = _parse_env_int(
         MERGE_STATE_MAX_ATTEMPTS_ENV, MERGE_STATE_MAX_ATTEMPTS_DEFAULT
@@ -575,7 +582,10 @@ def _merge_state_retry_config() -> tuple[int, float]:
     base_sleep = _parse_env_float(
         MERGE_STATE_BASE_SLEEP_ENV, MERGE_STATE_BASE_SLEEP_DEFAULT
     )
-    return max_attempts, base_sleep
+    max_sleep = _parse_env_float(
+        MERGE_STATE_MAX_SLEEP_ENV, MERGE_STATE_MAX_SLEEP_DEFAULT
+    )
+    return max_attempts, base_sleep, max_sleep
 
 
 def _refresh_merge_state(
@@ -584,12 +594,16 @@ def _refresh_merge_state(
     *,
     max_attempts: int | None = None,
     base_sleep: float | None = None,
+    max_sleep: float | None = None,
 ) -> PullRequestContext:
     """Refresh PR merge state, retrying while mergeability is unknown."""
     current = pr
-    configured_attempts, configured_sleep = _merge_state_retry_config()
+    configured_attempts, configured_sleep, configured_max_sleep = (
+        _merge_state_retry_config()
+    )
     attempts = configured_attempts if max_attempts is None else max_attempts
     sleep_base = configured_sleep if base_sleep is None else base_sleep
+    sleep_cap = configured_max_sleep if max_sleep is None else max_sleep
     for attempt in range(attempts):
         state, _reason = _classify_merge_state(
             current.merge_state_status,
@@ -597,7 +611,8 @@ def _refresh_merge_state(
         )
         if state != "retry":
             return current
-        time.sleep(sleep_base * (2**attempt))
+        sleep_seconds = min(sleep_base * (2**attempt), sleep_cap)
+        time.sleep(sleep_seconds)
         current = _fetch_pull_request(
             token, current.owner, current.repo, current.number
         )

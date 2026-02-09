@@ -513,28 +513,45 @@ def _normalize_enum(value: JsonValue | None) -> str | None:
     return None
 
 
+EnumT = typ.TypeVar("EnumT")
+
+
+def _extract_enum(
+    data: dict[str, JsonValue],
+    field: str,
+    enum_type: type[EnumT],
+    default: EnumT,
+) -> EnumT:
+    """Extract and validate an enum field from GraphQL data."""
+    normalized = _normalize_enum(data.get(field))
+    if normalized is None:
+        return default
+    try:
+        return enum_type(normalized)
+    except ValueError:
+        return default
+
+
 def _extract_merge_state_status(
     pull_request: dict[str, JsonValue],
 ) -> MergeStateStatus:
-    """Extract mergeStateStatus from PR data, normalized, or UNKNOWN."""
-    normalized = _normalize_enum(pull_request.get("mergeStateStatus"))
-    if normalized is None:
-        return MergeStateStatus.UNKNOWN
-    try:
-        return MergeStateStatus(normalized)
-    except ValueError:
-        return MergeStateStatus.UNKNOWN
+    """Extract mergeStateStatus from PR data, normalised."""
+    return _extract_enum(
+        pull_request,
+        "mergeStateStatus",
+        MergeStateStatus,
+        MergeStateStatus.UNKNOWN,
+    )
 
 
 def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
-    """Extract mergeable state from PR data, normalized, or UNKNOWN."""
-    normalized = _normalize_enum(pull_request.get("mergeable"))
-    if normalized is None:
-        return MergeableState.UNKNOWN
-    try:
-        return MergeableState(normalized)
-    except ValueError:
-        return MergeableState.UNKNOWN
+    """Extract mergeable state from PR data, normalised."""
+    return _extract_enum(
+        pull_request,
+        "mergeable",
+        MergeableState,
+        MergeableState.UNKNOWN,
+    )
 
 
 def _fetch_pull_request(

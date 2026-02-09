@@ -206,7 +206,7 @@ MERGE_STATE_MAX_ATTEMPTS_ENV = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
 MERGE_STATE_BASE_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
 MERGE_STATE_MAX_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
 
-MergeStateClassification = typ.Literal["ok", "skip", "retry"]
+type MergeStateClassification = typ.Literal["ok", "skip", "retry"]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

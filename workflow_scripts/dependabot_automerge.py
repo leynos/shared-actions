@@ -97,6 +97,29 @@ class DependabotLogin(enum.StrEnum):
 
 DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in DependabotLogin)
 
+
+class MergeStateStatus(enum.StrEnum):
+    """Supported merge state statuses from GitHub GraphQL."""
+
+    BEHIND = "BEHIND"
+    BLOCKED = "BLOCKED"
+    CLEAN = "CLEAN"
+    DIRTY = "DIRTY"
+    DRAFT = "DRAFT"
+    HAS_HOOKS = "HAS_HOOKS"
+    MERGED = "MERGED"
+    UNKNOWN = "UNKNOWN"
+    UNSTABLE = "UNSTABLE"
+
+
+class MergeableState(enum.StrEnum):
+    """Supported mergeable states from GitHub GraphQL."""
+
+    CONFLICTING = "CONFLICTING"
+    MERGEABLE = "MERGEABLE"
+    UNKNOWN = "UNKNOWN"
+
+
 MERGE_METHODS = {
     "merge": "MERGE",
     "rebase": "REBASE",
@@ -166,9 +189,9 @@ class PullRequestContext:
         The GraphQL node ID for mutations. None when created from event data.
     auto_merge_enabled : bool
         Whether auto-merge is already enabled on this PR.
-    merge_state_status : str
+    merge_state_status : MergeStateStatus
         The PR merge state status (e.g. CLEAN, UNSTABLE), or ``UNKNOWN``.
-    mergeable_state : str
+    mergeable_state : MergeableState
         The PR mergeable state (e.g. MERGEABLE, CONFLICTING), or ``UNKNOWN``.
     """
 
@@ -180,31 +203,33 @@ class PullRequestContext:
     labels: tuple[str, ...]
     node_id: str | None = None
     auto_merge_enabled: bool = False
-    merge_state_status: str = "UNKNOWN"
-    mergeable_state: str = "UNKNOWN"
+    merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
+    mergeable_state: MergeableState = MergeableState.UNKNOWN
 
 
-MERGE_STATE_SKIP_REASONS: typ.Mapping[str, str] = MappingProxyType(
+MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
     {
-        "UNSTABLE": "merge-state-unstable",
-        "DIRTY": "merge-state-dirty",
-        "BLOCKED": "merge-state-blocked",
-        "BEHIND": "merge-state-behind",
+        MergeStateStatus.UNSTABLE: "merge-state-unstable",
+        MergeStateStatus.DIRTY: "merge-state-dirty",
+        MergeStateStatus.BLOCKED: "merge-state-blocked",
+        MergeStateStatus.BEHIND: "merge-state-behind",
     }
 )
-MERGEABLE_SKIP_REASONS: typ.Mapping[str, str] = MappingProxyType(
+MERGEABLE_SKIP_REASONS: typ.Mapping[MergeableState, str] = MappingProxyType(
     {
-        "CONFLICTING": "mergeable-conflicting",
+        MergeableState.CONFLICTING: "mergeable-conflicting",
     }
 )
-MERGE_STATE_RETRYABLE: frozenset[str] = frozenset({"UNKNOWN"})
-MERGEABLE_RETRYABLE: frozenset[str] = frozenset({"UNKNOWN"})
-MERGE_STATE_MAX_ATTEMPTS_DEFAULT = 3
-MERGE_STATE_BASE_SLEEP_DEFAULT = 2.0
-MERGE_STATE_MAX_SLEEP_DEFAULT = 30.0
-MERGE_STATE_MAX_ATTEMPTS_ENV = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
-MERGE_STATE_BASE_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
-MERGE_STATE_MAX_SLEEP_ENV = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
+MERGE_STATE_RETRYABLE: frozenset[MergeStateStatus] = frozenset(
+    {MergeStateStatus.UNKNOWN}
+)
+MERGEABLE_RETRYABLE: frozenset[MergeableState] = frozenset({MergeableState.UNKNOWN})
+MERGE_STATE_MAX_ATTEMPTS_DEFAULT: int = 3
+MERGE_STATE_BASE_SLEEP_DEFAULT: float = 2.0
+MERGE_STATE_MAX_SLEEP_DEFAULT: float = 30.0
+MERGE_STATE_MAX_ATTEMPTS_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
+MERGE_STATE_BASE_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
+MERGE_STATE_MAX_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
 
 type MergeStateClassification = typ.Literal["ok", "skip", "retry"]
 
@@ -447,8 +472,8 @@ def _emit_decision(
     emit("automerge_author", pr.author)
     emit("automerge_draft", str(pr.is_draft).lower())
     emit("automerge_labels", pr.labels)
-    emit("automerge_merge_state", pr.merge_state_status)
-    emit("automerge_mergeable_state", pr.mergeable_state)
+    emit("automerge_merge_state", pr.merge_state_status.value)
+    emit("automerge_mergeable_state", pr.mergeable_state.value)
 
 
 def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
@@ -488,14 +513,28 @@ def _normalize_enum(value: JsonValue | None) -> str | None:
     return None
 
 
-def _extract_merge_state_status(pull_request: dict[str, JsonValue]) -> str:
+def _extract_merge_state_status(
+    pull_request: dict[str, JsonValue],
+) -> MergeStateStatus:
     """Extract mergeStateStatus from PR data, normalized, or UNKNOWN."""
-    return _normalize_enum(pull_request.get("mergeStateStatus")) or "UNKNOWN"
+    normalized = _normalize_enum(pull_request.get("mergeStateStatus"))
+    if normalized is None:
+        return MergeStateStatus.UNKNOWN
+    try:
+        return MergeStateStatus(normalized)
+    except ValueError:
+        return MergeStateStatus.UNKNOWN
 
 
-def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> str:
+def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
     """Extract mergeable state from PR data, normalized, or UNKNOWN."""
-    return _normalize_enum(pull_request.get("mergeable")) or "UNKNOWN"
+    normalized = _normalize_enum(pull_request.get("mergeable"))
+    if normalized is None:
+        return MergeableState.UNKNOWN
+    try:
+        return MergeableState(normalized)
+    except ValueError:
+        return MergeableState.UNKNOWN
 
 
 def _fetch_pull_request(
@@ -532,7 +571,7 @@ def _fetch_pull_request(
 
 
 def _classify_merge_state(
-    merge_state: str, mergeable_state: str
+    merge_state: MergeStateStatus, mergeable_state: MergeableState
 ) -> tuple[MergeStateClassification, str | None]:
     """Classify merge state as ok, skip, or retry with a reason."""
     if mergeable_state in MERGEABLE_SKIP_REASONS:
@@ -574,7 +613,16 @@ def _parse_env_float(name: str, default: float) -> float:
     return parsed
 
 
-def _merge_state_retry_config() -> tuple[int, float, float]:
+@dataclasses.dataclass(frozen=True, slots=True)
+class MergeStateRetryConfig:
+    """Configuration for merge state refresh retry behaviour."""
+
+    max_attempts: int
+    base_sleep: float
+    max_sleep: float
+
+
+def _merge_state_retry_config() -> MergeStateRetryConfig:
     """Return retry configuration for merge state refresh."""
     max_attempts = _parse_env_int(
         MERGE_STATE_MAX_ATTEMPTS_ENV, MERGE_STATE_MAX_ATTEMPTS_DEFAULT
@@ -585,33 +633,33 @@ def _merge_state_retry_config() -> tuple[int, float, float]:
     max_sleep = _parse_env_float(
         MERGE_STATE_MAX_SLEEP_ENV, MERGE_STATE_MAX_SLEEP_DEFAULT
     )
-    return max_attempts, base_sleep, max_sleep
+    return MergeStateRetryConfig(
+        max_attempts=max_attempts,
+        base_sleep=base_sleep,
+        max_sleep=max_sleep,
+    )
 
 
 def _refresh_merge_state(
     token: str,
     pr: PullRequestContext,
     *,
-    max_attempts: int | None = None,
-    base_sleep: float | None = None,
-    max_sleep: float | None = None,
+    config: MergeStateRetryConfig | None = None,
 ) -> PullRequestContext:
     """Refresh PR merge state, retrying while mergeability is unknown."""
     current = pr
-    configured_attempts, configured_sleep, configured_max_sleep = (
-        _merge_state_retry_config()
-    )
-    attempts = configured_attempts if max_attempts is None else max_attempts
-    sleep_base = configured_sleep if base_sleep is None else base_sleep
-    sleep_cap = configured_max_sleep if max_sleep is None else max_sleep
-    for attempt in range(attempts):
+    retry_config = config if config is not None else _merge_state_retry_config()
+    for attempt in range(retry_config.max_attempts):
         state, _reason = _classify_merge_state(
             current.merge_state_status,
             current.mergeable_state,
         )
         if state != "retry":
             return current
-        sleep_seconds = min(sleep_base * (2**attempt), sleep_cap)
+        sleep_seconds = min(
+            retry_config.base_sleep * (2**attempt),
+            retry_config.max_sleep,
+        )
         time.sleep(sleep_seconds)
         current = _fetch_pull_request(
             token, current.owner, current.repo, current.number

@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md: none found in this repository.
 
@@ -78,12 +78,17 @@ silently broadening scope.
       and identified `UNSTABLE` hard-skip path.
 - [x] (2026-02-12 00:00Z) Drafted ExecPlan in
       `docs/execplans/auto-merge-on-unstable.md`.
-- [ ] Implement merge-state classification change to allow `UNSTABLE`.
-- [ ] Update unit tests to assert enabling on `UNSTABLE` state.
-- [ ] Update workflow documentation to describe new `UNSTABLE` handling.
-- [ ] Run quality gates (`make check-fmt`, `make typecheck`, `make lint`,
-      `make test`) with `tee` logs and `pipefail`.
-- [ ] Finalize Outcomes & Retrospective with command evidence.
+- [x] (2026-02-12 00:00Z) Began implementation of planned changes.
+- [x] (2026-02-12 00:00Z) Implemented merge-state classification change to allow
+      `UNSTABLE`.
+- [x] (2026-02-12 00:00Z) Updated unit tests to assert enabling on `UNSTABLE`
+      state.
+- [x] (2026-02-12 00:00Z) Updated workflow documentation to describe new
+      `UNSTABLE` handling.
+- [x] (2026-02-12 00:00Z) Ran quality gates (`make check-fmt`,
+      `make typecheck`, `make lint`, `make test`) with `tee` logs and
+      `pipefail`.
+- [x] (2026-02-12 00:00Z) Finalized outcomes and retrospective evidence.
 
 ## Surprises & Discoveries
 
@@ -95,6 +100,9 @@ silently broadening scope.
 - Discovery: The existing unit suite already has a dedicated test asserting
   `UNSTABLE` is skipped (`merge_state_unstable_skips`), which will need to be
   inverted rather than adding entirely new harness plumbing.
+- Discovery: `make typecheck` emits an existing non-fatal warning in
+  `.github/actions/windows-package/scripts/generate_wxs.py` about an unused
+  `type: ignore`; this warning does not fail the gate.
 
 ## Decision Log
 
@@ -126,9 +134,9 @@ Primary implementation files:
 - `docs/dependabot-automerge-workflow.md`: reusable workflow behavior and policy
   documentation.
 
-Relevant current behaviour:
+Relevant pre-change behaviour (captured during planning):
 
-- `MERGE_STATE_SKIP_REASONS` includes `MergeStateStatus.UNSTABLE`, producing
+- `MERGE_STATE_SKIP_REASONS` included `MergeStateStatus.UNSTABLE`, producing
   reason `merge-state-unstable`.
 - `_classify_merge_state()` returns `skip` for any merge state in that map.
 - `_handle_live_execution()` emits a `skipped` decision for any `skip`
@@ -204,8 +212,28 @@ Execution acceptance criteria:
 
 ## Outcomes & Retrospective
 
-Not started. This section must be completed during implementation with:
+Implemented exactly the planned `UNSTABLE` policy change with no scope expansion.
 
-- Actual files changed.
-- Gate results with references to `/tmp/*.log`.
-- Any deviations from the planned approach and rationale.
+Actual files changed:
+
+- `workflow_scripts/dependabot_automerge.py`
+- `workflow_scripts/tests/test_dependabot_automerge.py`
+- `docs/dependabot-automerge-workflow.md`
+- `docs/execplans/auto-merge-on-unstable.md`
+
+Validation evidence:
+
+- `set -o pipefail; make check-fmt 2>&1 | tee /tmp/check-fmt.log` passed.
+- `set -o pipefail; make typecheck 2>&1 | tee /tmp/typecheck.log` passed
+  (existing warning only).
+- `set -o pipefail; make lint 2>&1 | tee /tmp/lint.log` passed.
+- `set -o pipefail; make test 2>&1 | tee /tmp/test.log` passed
+  (`635 passed, 86 skipped`).
+
+Retrospective:
+
+- The change was low-risk because merge-state behavior is centralized in
+  `MERGE_STATE_SKIP_REASONS`; removing one enum key cleanly changed policy.
+- Existing parametrized tests made the behavior flip explicit with a one-case
+  expectation update.
+- No deviations from plan were required.

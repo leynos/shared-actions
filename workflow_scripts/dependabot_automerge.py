@@ -209,7 +209,6 @@ class PullRequestContext:
 
 MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
     {
-        MergeStateStatus.UNSTABLE: "merge-state-unstable",
         MergeStateStatus.DIRTY: "merge-state-dirty",
         MergeStateStatus.BLOCKED: "merge-state-blocked",
         MergeStateStatus.BEHIND: "merge-state-behind",

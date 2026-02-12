@@ -30,6 +30,38 @@ REQUIRES_UV = pytest.mark.usefixtures("require_uv")
 sys.modules.setdefault("shared_actions_conftest", sys.modules[__name__])
 
 
+def _enable_cmd_mox_replay_idempotence() -> None:
+    """Make cmd-mox ``replay()`` a no-op when already in replay phase.
+
+    cmd-mox v0.2.x exposes controller phase state and can raise if ``replay()``
+    is called more than once. This repository has existing tests/helpers that
+    may invoke ``replay()`` repeatedly, so normalize this edge to preserve
+    historical test semantics while keeping other lifecycle checks intact.
+    """
+    if sys.platform == "win32":  # pragma: no cover - cmd-mox unavailable
+        return
+    try:
+        from cmd_mox.controller import CmdMox as CmdMoxController
+        from cmd_mox.controller import Phase
+    except ModuleNotFoundError:  # pragma: no cover - defensive import guard
+        return
+
+    original_replay = CmdMoxController.replay
+    if getattr(original_replay, "__name__", "") == "_replay_with_phase_guard":
+        return
+
+    def _replay_with_phase_guard(self: CmdMoxController) -> None:
+        phase = getattr(self, "phase", None)
+        if phase == Phase.REPLAY:
+            return
+        original_replay(self)
+
+    CmdMoxController.replay = _replay_with_phase_guard
+
+
+_enable_cmd_mox_replay_idempotence()
+
+
 class CmdDouble(typ.Protocol):
     """Contract for cmd-mox doubles that record expectations and behaviour."""
 

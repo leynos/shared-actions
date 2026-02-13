@@ -19,7 +19,7 @@ Note: The helper reads `DEPENDABOT_LOGINS` (defined in
 `workflow_scripts/dependabot_automerge.py`) to support both author login variants
 across platforms.
 
-## Merge-state behavior
+## Merge-state behaviour
 
 After author/draft/label checks pass, the helper evaluates GitHub merge state:
 

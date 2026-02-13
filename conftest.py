@@ -46,9 +46,10 @@ def _enable_cmd_mox_replay_idempotence() -> None:
     except ModuleNotFoundError:  # pragma: no cover - defensive import guard
         return
 
-    original_replay = CmdMoxController.replay
-    if getattr(original_replay, "__name__", "") == "_replay_with_phase_guard":
+    if getattr(CmdMoxController.replay, "__cmd_mox_replay_guard__", False):
         return
+
+    original_replay = CmdMoxController.replay
 
     def _replay_with_phase_guard(self: CmdMoxController) -> None:
         phase = getattr(self, "phase", None)
@@ -56,10 +57,14 @@ def _enable_cmd_mox_replay_idempotence() -> None:
             return
         original_replay(self)
 
+    _replay_with_phase_guard.__cmd_mox_replay_guard__ = True
     CmdMoxController.replay = _replay_with_phase_guard
 
 
-_enable_cmd_mox_replay_idempotence()
+@pytest.fixture(autouse=True, scope="session")
+def _cmd_mox_replay_idempotence() -> None:
+    """Apply cmd-mox replay compatibility patch once per test session."""
+    _enable_cmd_mox_replay_idempotence()
 
 
 class CmdDouble(typ.Protocol):

@@ -1,6 +1,6 @@
 # Enable Dependabot Auto-Merge When Merge State Is UNSTABLE
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
+This execution plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -16,7 +16,7 @@ the workflow enables GitHub auto-merge earlier (while checks are pending or not
 yet green), and GitHub then performs the final merge only after branch protection
 and required checks are satisfied.
 
-Success is observable in workflow logs: an eligible Dependabot PR with
+Success is observable in workflow logs: an eligible Dependabot pull request (PR) with
 `automerge_merge_state=UNSTABLE` should now emit `automerge_status=enabled`
 instead of `automerge_status=skipped` with `merge-state-unstable`.
 
@@ -94,7 +94,7 @@ silently broadening scope.
 
 - Discovery: The current repository has no `PLANS.md`, so this ExecPlan is
   governed by the `execplans` skill format and `AGENTS.md` instructions.
-- Discovery: Qdrant memory MCP tools (`qdrant-find`, `qdrant-store`) are not
+- Discovery: Qdrant memory Model Context Protocol (MCP) tools (`qdrant-find`, `qdrant-store`) are not
   exposed in this execution environment; no remote project-memory lookup was
   possible from this session.
 - Discovery: The existing unit suite already has a dedicated test asserting
@@ -131,7 +131,7 @@ Primary implementation files:
   enable/skip decision logic.
 - `workflow_scripts/tests/test_dependabot_automerge.py`: unit coverage for live
   execution scenarios, including the current `UNSTABLE` skip assertion.
-- `docs/dependabot-automerge-workflow.md`: reusable workflow behavior and policy
+- `docs/dependabot-automerge-workflow.md`: reusable workflow behaviour and policy
   documentation.
 
 Relevant pre-change behaviour (captured during planning):
@@ -232,8 +232,8 @@ Validation evidence:
 
 Retrospective:
 
-- The change was low-risk because merge-state behavior is centralized in
+- The change was low-risk because merge-state behaviour is centralized in
   `MERGE_STATE_SKIP_REASONS`; removing one enum key cleanly changed policy.
-- Existing parametrized tests made the behavior flip explicit with a one-case
+- Existing parametrized tests made the behaviour flip explicit with a one-case
   expectation update.
 - No deviations from plan were required.

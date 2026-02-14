@@ -155,12 +155,11 @@ Stage A: Update merge-state policy in script.
 Stage B: Update and extend automated tests.
 
 - In `workflow_scripts/tests/test_dependabot_automerge.py`, update the
-  parameterized live-execution case currently named `merge_state_unstable_skips`
-  so it expects:
+  parameterised live-execution case to test ID `merge_state_unstable_enables`
+  with parameters:
   - `should_enable=True`
   - `expected_status="enabled"`
   - `expected_reason="enabled"`
-  - test id renamed to reflect enablement on unstable state.
 - Confirm existing skip tests (`DIRTY`, `BLOCKED`, `BEHIND`, `CONFLICTING`)
   remain intact to guard against over-broad policy changes.
 

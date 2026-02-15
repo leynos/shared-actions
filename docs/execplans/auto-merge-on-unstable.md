@@ -155,7 +155,7 @@ Stage A: Update merge-state policy in script.
 Stage B: Update and extend automated tests.
 
 - In `workflow_scripts/tests/test_dependabot_automerge.py`, update the
-  parameterised live-execution case to test ID `merge_state_unstable_enables`
+  parametrized live-execution case to test ID `merge_state_unstable_enables`
   with parameters:
   - `should_enable=True`
   - `expected_status="enabled"`

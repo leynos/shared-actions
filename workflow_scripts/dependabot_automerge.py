@@ -512,10 +512,7 @@ def _normalize_enum(value: JsonValue | None) -> str | None:
     return None
 
 
-EnumT = typ.TypeVar("EnumT")
-
-
-def _extract_enum(
+def _extract_enum[EnumT](
     data: dict[str, JsonValue],
     field: str,
     enum_type: type[EnumT],

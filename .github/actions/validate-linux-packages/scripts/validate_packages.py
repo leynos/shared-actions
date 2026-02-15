@@ -581,7 +581,7 @@ class _MetadataValidators:
         return _validator
 
 
-def _validate_package(
+def _validate_package[MetaT: _SupportsFiles](
     inspect_fn: typ.Callable[[Path], MetaT],
     *,
     package_path: Path,

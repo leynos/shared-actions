@@ -6,29 +6,32 @@ import logging
 import pathlib
 import platform
 import shutil
-import stat
-import textwrap
 import typing as typ
 
-from plumbum.commands.processes import ProcessExecutionError
+from validate_arch import (
+    _should_skip_sandbox,
+    acceptable_rpm_architectures,
+    rpm_expected_architecture,
+)
 from validate_exceptions import ValidationError
-from validate_helpers import ensure_directory, unique_match
+from validate_formatters import _extract_process_stderr
+from validate_helpers import ensure_directory
+from validate_locators import ensure_subset, locate_deb, locate_rpm
 from validate_metadata import (
     DebMetadata,
     RpmMetadata,
     inspect_deb_package,
     inspect_rpm_package,
 )
-from validate_polythene import PolytheneSession, _decode_stream
+from validate_path_checks import _validate_paths_executable, _validate_paths_exist
+from validate_polythene import PolytheneSession
+from validate_sandbox_diagnostics import (
+    _collect_diagnostics_safely,
+    _collect_environment_details,
+    _collect_host_path_details,
+)
 
 logger = logging.getLogger(__name__)
-
-
-_PYTHON_FALLBACK_SCRIPT = (
-    "import os, sys\nsys.exit(0 if os.access(sys.argv[1], os.X_OK) else 1)\n"
-)
-_PYTHON_FALLBACK_INTERPRETERS: tuple[str, ...] = ("python3", "python")
-_PATH_CHECK_TIMEOUT_SECONDS = 10
 
 if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
     from pathlib import Path
@@ -50,265 +53,20 @@ __all__ = [
     "validate_rpm_package",
 ]
 
+if typ.TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from pathlib import Path
+
+    from plumbum.commands.base import BaseCommand
+else:  # pragma: no cover - runtime fallbacks
+    Path = pathlib.Path
+    BaseCommand = object
+
 SandboxFactory = typ.Callable[[], typ.ContextManager[PolytheneSession]]
 MetaT = typ.TypeVar("MetaT", bound="_SupportsFiles")
 
 
-_HOST_ARCH_ALIAS_MAP: dict[str, set[str]] = {
-    "x86_64": {"x86_64", "amd64"},
-    "amd64": {"x86_64", "amd64"},
-    "aarch64": {"aarch64", "arm64"},
-    "arm64": {"aarch64", "arm64"},
-    "armv7l": {"armv7l", "armhf"},
-    "armv6l": {"armv6l", "armhf"},
-    "ppc64le": {"ppc64le"},
-    "s390x": {"s390x"},
-    "riscv64": {"riscv64"},
-    "loongarch64": {"loongarch64", "loong64"},
-    "loong64": {"loongarch64", "loong64"},
-}
-
-
-def _host_architectures() -> set[str]:
-    """Return aliases for the host processor architecture."""
-    machine = (platform.machine() or "").lower()
-    if not machine:
-        return set()
-    aliases = _HOST_ARCH_ALIAS_MAP.get(machine, {machine})
-    return {alias.lower() for alias in aliases}
-
-
-def _should_skip_sandbox(package_architecture: str | None) -> bool:
-    """Return ``True`` when sandbox checks should be skipped for the architecture."""
-    if not package_architecture:
-        return False
-    normalized = package_architecture.lower()
-    if normalized in {"all", "any", "noarch"}:
-        return False
-
-    host_arches = _host_architectures()
-    if not host_arches:
-        return False
-    return normalized not in host_arches
-
-
 class _SupportsFiles(typ.Protocol):
     files: typ.Collection[str]
-
-
-def acceptable_rpm_architectures(arch: str) -> set[str]:
-    """Return accepted RPM architecture aliases for nfpm ``arch``."""
-    aliases = {
-        "amd64": {"amd64", "x86_64"},
-        "386": {"386", "i386", "i486", "i586", "i686"},
-        "arm": {"arm", "armhfp", "armv7hl"},
-        "arm64": {"arm64", "aarch64"},
-        "riscv64": {"riscv64"},
-        "ppc64le": {"ppc64le"},
-        "s390x": {"s390x"},
-        "loong64": {"loong64", "loongarch64"},
-    }
-    return aliases.get(arch, {arch})
-
-
-def rpm_expected_architecture(arch: str) -> str:
-    """Return canonical RPM architecture for nfpm ``arch`` values."""
-    return "x86_64" if arch == "amd64" else arch
-
-
-def locate_deb(
-    package_dir: Path, package_name: str, version: str, release: str
-) -> Path:
-    """Return the Debian package matching ``package_name`` and ``version``."""
-    pattern = f"{package_name}_{version}-{release}_*.deb"
-    return unique_match(
-        package_dir.glob(pattern), description=f"{package_name} deb package"
-    )
-
-
-def locate_rpm(
-    package_dir: Path, package_name: str, version: str, release: str
-) -> Path:
-    """Return the RPM package matching ``package_name`` and ``version``."""
-    pattern = f"{package_name}-{version}-{release}*.rpm"
-    return unique_match(
-        package_dir.glob(pattern), description=f"{package_name} rpm package"
-    )
-
-
-def ensure_subset(
-    expected: typ.Collection[str], actual: typ.Collection[str], label: str
-) -> None:
-    """Raise :class:`ValidationError` when expected items are missing."""
-    if missing := [path for path in expected if path not in actual]:
-        message = f"missing {label}: {', '.join(missing)}"
-        raise ValidationError(message)
-
-
-def _trim_output(output: str, *, line_limit: int = 5, char_limit: int = 400) -> str:
-    """Return ``output`` trimmed to a manageable length for diagnostics."""
-    text = output.strip()
-    if not text:
-        return "<no output>"
-
-    lines = text.splitlines()
-    if len(lines) > line_limit:
-        text = "\n".join(lines[:line_limit]) + "\n…"
-    else:
-        text = "\n".join(lines)
-
-    if len(text) > char_limit:
-        text = text[: char_limit - 1].rstrip() + "…"
-
-    return text
-
-
-def _extract_process_stderr(error: BaseException | None) -> str | None:
-    """Return trimmed stderr output when ``error`` originated from a process."""
-    if not isinstance(error, ProcessExecutionError):
-        return None
-
-    stderr_text = _decode_stream(getattr(error, "stderr", None))
-    if not stderr_text.strip():
-        return None
-    return _trim_output(stderr_text)
-
-
-def _execute_diagnostic_command(
-    sandbox: PolytheneSession, label: str, args: tuple[str, ...]
-) -> str:
-    """Return formatted diagnostics for executing ``args`` in ``sandbox``."""
-    try:
-        output = sandbox.exec(*args, timeout=_PATH_CHECK_TIMEOUT_SECONDS)
-    except ValidationError as exc:
-        summary = _trim_output(str(exc))
-        entry_lines = [f"- {label}: error ({summary})"]
-        stderr_text = _extract_process_stderr(exc.__cause__)
-        if stderr_text is not None:
-            entry_lines.append(f"  stderr: {stderr_text}")
-        return "\n".join(entry_lines)
-
-    summary = _trim_output(output)
-    return f"- {label}: {summary}"
-
-
-def _build_path_diagnostic_commands(path: str) -> list[tuple[str, tuple[str, ...]]]:
-    """Return diagnostic command specifications for ``path``."""
-    commands: list[tuple[str, tuple[str, ...]]] = [
-        ("ls -ld", ("ls", "-ld", path)),
-        ("stat", ("stat", "-c", "%A %a %U %G %n", path)),
-        ("file", ("file", path)),
-        ("sha256sum", ("sha256sum", path)),
-        (f"{path} --help", (path, "--help")),
-    ]
-
-    script = (
-        "import os; "
-        f"path={path!r}; "
-        "st=os.stat(path); "
-        "print('mode', oct(st.st_mode), 'uid', st.st_uid, 'gid', st.st_gid); "
-        "print('x_ok', os.access(path, os.X_OK))"
-    )
-    commands.append(("python os.access", ("python3", "-c", script)))
-
-    parent = str(pathlib.PurePosixPath(path).parent)
-    if parent and parent != ".":
-        commands.append(("ls parent", ("ls", "-l", parent)))
-
-    return commands
-
-
-def _format_path_diagnostics(
-    sandbox: PolytheneSession, path: str, *, error: BaseException | None = None
-) -> str | None:
-    """Return sandbox diagnostics describing ``path`` when checks fail."""
-    commands = _build_path_diagnostic_commands(path)
-
-    details: list[str] = []
-    stderr_text = _extract_process_stderr(error)
-    if stderr_text:
-        details.append(f"- stderr: {stderr_text}")
-
-    for label, args in commands:
-        result = _execute_diagnostic_command(sandbox, label, args)
-        details.append(result)
-
-    if not details:
-        return None
-
-    joined = "\n".join(details)
-    return f"Path diagnostics for {path}:\n{joined}"
-
-
-def _collect_diagnostics_safely(
-    diagnostics_fn: typ.Callable[[BaseException | None], str | None] | None,
-    args: tuple[str, ...],
-    cause: BaseException | None,
-) -> str | None:
-    """Return diagnostics from ``diagnostics_fn`` while suppressing errors."""
-    if diagnostics_fn is None:
-        return None
-
-    try:
-        return diagnostics_fn(cause)
-    except ValidationError as diag_exc:  # pragma: no cover - defensive
-        logger.debug(
-            "diagnostic collection raised ValidationError for %s: %s",
-            args,
-            diag_exc,
-        )
-    except Exception as diag_exc:  # noqa: BLE001
-        logger.debug(
-            "failed to collect diagnostics for %s: %s",
-            args,
-            diag_exc,
-        )
-    return None
-
-
-def _collect_environment_details(sandbox: PolytheneSession) -> list[str]:
-    """Return environment diagnostics gathered from ``sandbox``."""
-    env_details: list[str] = []
-    for label, command in (
-        ("id -u", ("id", "-u")),
-        ("umask", ("sh", "-c", "umask")),
-        (
-            "mount /usr",
-            ("sh", "-c", "mount | grep ' /usr ' || true"),
-        ),
-    ):
-        try:
-            output = sandbox.exec(*command)
-        except ValidationError as exc:
-            summary = _trim_output(str(exc))
-            env_details.append(f"{label}: error ({summary})")
-        else:
-            summary = _trim_output(output)
-            env_details.append(f"{label}: {summary}")
-
-    return env_details
-
-
-def _collect_host_path_details(
-    sandbox: PolytheneSession, paths: list[str]
-) -> list[str]:
-    """Return host-side ``stat`` information for ``paths`` within ``sandbox``."""
-    host_details: list[str] = []
-    for path in paths:
-        host_path = sandbox.root / path.lstrip("/")
-        try:
-            stat_result = host_path.stat()
-        except FileNotFoundError as err:
-            host_details.append(f"{path}: missing ({err})")
-        else:
-            perm_bits = stat.S_IMODE(stat_result.st_mode)
-            host_details.append(
-                f"{path}: mode={oct(stat_result.st_mode)} "
-                f"perm={oct(perm_bits)} "
-                f"uid={stat_result.st_uid} gid={stat_result.st_gid}"
-            )
-
-    return host_details
 
 
 def _exec_with_diagnostics(
@@ -333,125 +91,6 @@ def _exec_with_diagnostics(
         if detail:
             message = f"{message}\n{detail}"
         raise ValidationError(message) from exc
-
-
-def _validate_paths_exist(
-    sandbox: PolytheneSession,
-    paths: typ.Iterable[str],
-    exec_fn: typ.Callable[..., str],
-) -> None:
-    """Ensure each path in ``paths`` exists within ``sandbox``."""
-    for path in paths:
-        exec_fn(
-            "test",
-            "-e",
-            path,
-            context=f"expected path missing from sandbox payload: {path}",
-            diagnostics_fn=lambda err, p=path: _format_path_diagnostics(
-                sandbox, p, error=err
-            ),
-        )
-
-
-def _make_path_diagnostics_fn(
-    sandbox: PolytheneSession, path: str
-) -> typ.Callable[[BaseException | None], str | None]:
-    def _diagnostics(error: BaseException | None) -> str | None:
-        return _format_path_diagnostics(sandbox, path, error=error)
-
-    return _diagnostics
-
-
-def _iter_python_fallback_commands(path: str) -> typ.Iterator[tuple[str, ...]]:
-    for interpreter in _PYTHON_FALLBACK_INTERPRETERS:
-        yield (interpreter, "-c", _PYTHON_FALLBACK_SCRIPT, path)
-
-
-def _combine_fallback_errors(
-    primary_error: ValidationError,
-    fallback_failures: list[tuple[str, ValidationError]],
-) -> str:
-    message_lines = [str(primary_error)]
-    for interpreter, error in fallback_failures:
-        heading = (
-            "python os.access fallback"
-            f" ({interpreter}) also reported the path as non-executable:"
-        )
-        message_lines.append(heading)
-        message_lines.append(str(error))
-    return "\n".join(message_lines)
-
-
-def _trim_output(text: str, char_limit: int = 200) -> str:
-    """Return a trimmed single-line summary suitable for logging."""
-    normalized = " ".join(text.split())
-    if len(normalized) <= char_limit:
-        return normalized
-    return textwrap.shorten(normalized, width=char_limit, placeholder="…")
-
-
-def _try_python_fallback(
-    path: str,
-    exec_fn: typ.Callable[..., str],
-    diagnostics_fn: typ.Callable[[BaseException | None], str | None],
-    primary_error: ValidationError,
-) -> None:
-    """Attempt Python fallback validation; raise ValidationError if all fail."""
-    fallback_failures: list[tuple[str, ValidationError]] = []
-
-    for command in _iter_python_fallback_commands(path):
-        interpreter = command[0]
-        try:
-            exec_fn(
-                *command,
-                context=(
-                    "expected path is not executable "
-                    "(python os.access fallback): "
-                    f"{path}"
-                ),
-                diagnostics_fn=diagnostics_fn,
-                timeout=_PATH_CHECK_TIMEOUT_SECONDS,
-            )
-        except ValidationError as fallback_exc:
-            fallback_failures.append((interpreter, fallback_exc))
-            continue
-        else:
-            summary = _trim_output(str(primary_error))
-            logger.info(
-                "test -x reported %s as non-executable; %s os.access "
-                "fallback succeeded",
-                path,
-                interpreter,
-            )
-            logger.debug("test -x failure details for %s: %s", path, summary)
-            return
-
-    # All fallbacks failed
-    if not fallback_failures:
-        raise ValidationError(str(primary_error)) from primary_error
-    combined_message = _combine_fallback_errors(primary_error, fallback_failures)
-    raise ValidationError(combined_message) from fallback_failures[-1][1]
-
-
-def _validate_paths_executable(
-    sandbox: PolytheneSession,
-    paths: typ.Iterable[str],
-    exec_fn: typ.Callable[..., str],
-) -> None:
-    """Ensure each path in ``paths`` is executable within ``sandbox``."""
-    for path in paths:
-        diagnostics_fn = _make_path_diagnostics_fn(sandbox, path)
-        try:
-            exec_fn(
-                "test",
-                "-x",
-                path,
-                context=f"expected path is not executable: {path}",
-                diagnostics_fn=diagnostics_fn,
-                timeout=_PATH_CHECK_TIMEOUT_SECONDS,
-            )
-        except ValidationError as exc:
-            _try_python_fallback(path, exec_fn, diagnostics_fn, exc)
 
 
 def _install_and_verify(

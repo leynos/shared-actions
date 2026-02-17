@@ -1,10 +1,10 @@
 # Refactor validate_packages.py into focused modules
 
-This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This Execution Plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 
 ## Purpose / big picture
@@ -52,12 +52,13 @@ Hard invariants that must hold throughout implementation:
 ## Risks
 
 - Risk: The duplicate `_trim_output()` functions have different signatures (one
-  at line 148 with line_limit parameter, one at line 385 without). Resolution
-  strategy must preserve all call sites.
+  at line 148 with line_limit and char_limit parameters, one at line 385
+  without). The second definition overrides the first, so some call sites
+  expecting the multi-line variant may not work correctly.
   Severity: medium
   Likelihood: high
-  Mitigation: Audit all call sites before choosing which signature to keep, or
-  rename one variant.
+  Mitigation: Audit all call sites and consolidate into a single implementation
+  that preserves the intended behaviour for all callers.
 
 - Risk: Tests use dynamic module loading via fixture; imports from new modules
   might not be properly discovered.
@@ -74,32 +75,101 @@ Hard invariants that must hold throughout implementation:
 
 ## Progress
 
-- [ ] Audit `_trim_output()` duplicate and resolve signature conflict.
-- [ ] Create validate_arch.py with architecture functions.
-- [ ] Create validate_locators.py with package discovery functions.
-- [ ] Create validate_sandbox_diagnostics.py with diagnostic functions.
-- [ ] Create validate_path_checks.py with path validation functions.
-- [ ] Create validate_formatters.py with formatting functions.
-- [ ] Update validate_packages.py with imports and re-exports.
-- [ ] Run `make typecheck` and verify no errors.
-- [ ] Run `make test` and verify all tests pass (635 passed, 86 skipped).
-- [ ] Run `make lint` and verify no errors.
-- [ ] Run `make check-fmt` and verify formatting is correct.
+- [x] (2025-02-17) Audit `_trim_output()` duplicate and resolve signature conflict.
+- [x] (2025-02-17) Create validate_formatters.py with formatting functions.
+- [x] (2025-02-17) Create validate_sandbox_diagnostics.py with diagnostic functions.
+- [x] (2025-02-17) Create validate_path_checks.py with path validation functions.
+- [x] (2025-02-17) Create validate_arch.py with architecture functions.
+- [x] (2025-02-17) Create validate_locators.py with package discovery functions.
+- [x] (2025-02-17) Update validate_packages.py with imports and re-exports.
+- [x] (2025-02-17) Run `make typecheck` and verify no errors (1 pre-existing warning).
+- [x] (2025-02-17) Run `make test` and verify all tests pass (635 passed, 86 skipped).
+- [x] (2025-02-17) Run `make lint` and verify no errors.
+- [x] (2025-02-17) Run `make check-fmt` and verify formatting is correct.
 
 
 ## Surprises & discoveries
 
-(To be filled during implementation)
+- Observation: The duplicate `_trim_output()` functions serve different purposes.
+  The first (line 148) preserves multi-line structure with line limits, while the
+  second (line 385) normalises to a single line for logging. Both are needed.
+  Evidence: Call sites at lines 174, 184, 191, 283, 286 use multi-line variant
+  for diagnostics; lines 419, 426 use single-line variant for logging.
+  Impact: Resolution was to rename the second function to `_trim_output_single_line()`
+  rather than delete it, preserving both behaviours.
+
+- Observation: The `_PATH_CHECK_TIMEOUT_SECONDS` constant is used in
+  validate_sandbox_diagnostics.py but logically belongs with path checks.
+  Evidence: Used in `_execute_diagnostic_command()` for path diagnostic commands.
+  Impact: Duplicated the constant in validate_sandbox_diagnostics.py to avoid
+  circular import dependency while keeping path check timeout logic together.
 
 
 ## Decision log
 
-(To be filled during implementation)
+- Decision: Rename second `_trim_output()` to `_trim_output_single_line()` instead
+  of consolidating into one function.
+  Rationale: The two functions serve distinctly different purposes - multi-line
+  diagnostic formatting vs single-line logging. Combining them would require
+  complex conditional logic and reduce code clarity. Renaming makes the intent
+  explicit and preserves both behaviours cleanly.
+  Date/Author: 2025-02-17 / Agent
+
+- Decision: Create modules in dependency order: formatters, diagnostics, path_checks,
+  arch, locators.
+  Rationale: Avoids circular imports by ensuring each module only imports from
+  modules created earlier or from existing validate_* modules. Formatters has no
+  dependencies on new modules, so it comes first.
+  Date/Author: 2025-02-17 / Agent
+
+- Decision: Move PolytheneSession imports to TYPE_CHECKING blocks in new modules.
+  Rationale: Ruff lint rule TC002 requires third-party imports used only for type
+  hints to be in TYPE_CHECKING blocks. This reduces runtime import overhead and
+  makes type-only dependencies explicit.
+  Date/Author: 2025-02-17 / Agent
+
+- Decision: Keep validate_packages.py as orchestration layer only.
+  Rationale: Retained `_exec_with_diagnostics()`, `_install_and_verify()`,
+  `_validate_package()`, `_MetadataValidators`, and public entry points
+  `validate_deb_package()` and `validate_rpm_package()` in validate_packages.py.
+  These functions coordinate between multiple modules and belong at the
+  orchestration layer.
+  Date/Author: 2025-02-17 / Agent
 
 
 ## Outcomes & retrospective
 
-(To be filled at completion)
+Successfully refactored validate_packages.py from 734 lines to 377 lines by
+extracting 5 focused modules. All 635 tests pass, all commit gates pass.
+
+Modules created:
+- validate_formatters.py (51 lines): Output trimming and stderr extraction
+- validate_arch.py (70 lines): Architecture mapping and platform detection
+- validate_locators.py (49 lines): Package discovery (locate_deb, locate_rpm, ensure_subset)
+- validate_sandbox_diagnostics.py (176 lines): Diagnostic collection for sandbox troubleshooting
+- validate_path_checks.py (151 lines): Path validation with Python fallback logic
+
+What worked well:
+- Dependency-ordered module creation prevented circular imports
+- Renaming `_trim_output()` variants instead of consolidating preserved clarity
+- Re-exporting public functions via `__all__` in validate_packages.py maintained
+  backward compatibility - no test changes required
+- TYPE_CHECKING blocks for type-only imports satisfied lint rules
+
+What could be improved:
+- The `_PATH_CHECK_TIMEOUT_SECONDS` constant ended up duplicated between
+  validate_sandbox_diagnostics.py and validate_path_checks.py. A better approach
+  might be a shared constants module, but this would have added complexity for
+  marginal benefit.
+
+Lessons learned:
+- When encountering duplicate functions, investigate usage patterns before
+  assuming consolidation is correct. Sometimes duplicates serve distinct purposes.
+- Module extraction benefits from clear dependency analysis upfront. Creating a
+  dependency graph before extraction would have made the ordering decision more
+  obvious.
+- Tests using dynamic module loading (via fixtures) work seamlessly with
+  refactored imports as long as re-exports are maintained.
 
 
 ## Context and orientation
@@ -125,22 +195,30 @@ the module dynamically via a pytest fixture (`validate_packages_module`) in
 efforts.
 
 The duplicate `_trim_output()` issue: two functions with the same name exist at
-lines 148 and 385 with different signatures, which is a Python syntax error
-that likely indicates the file has been manually edited. This must be resolved
-first.
+lines 148 and 385 with different signatures. In Python, the second definition
+(line 385) overrides the first (line 148), meaning only the later single-line
+variant is currently effective. However, some call sites may expect the
+multi-line variant's signature (with line_limit and char_limit parameters).
+This must be resolved by consolidating into a single canonical implementation
+that preserves the intended behaviour for all call sites.
 
 
 ## Plan of work
 
 Stage A: Audit and resolve the `_trim_output()` duplicate
 
-- Read lines 148-174 and 385-391 to understand both signatures.
+- Read lines 148-174 and 385-391 to understand both signatures and their
+  intended use cases.
 - Search all call sites in validate_packages.py to determine which signature
   each caller expects.
-- Decision: keep the multi-line variant (line 148) as `_trim_output()` and
-  rename the single-line variant (line 385) to `_trim_output_single_line()`.
-  Update all call sites of the line 385 variant.
-- Verify this compiles and tests pass before proceeding.
+- Consolidate into a single canonical `_trim_output()` implementation that
+  preserves the multi-line variant's signature (line 148) with line_limit and
+  char_limit parameters, since this provides the most flexibility. The
+  single-line variant (line 385) can be expressed as a call to the multi-line
+  variant with appropriate parameters.
+- Update all call sites of the single-line variant to use the consolidated
+  implementation.
+- Verify behaviour remains identical and tests pass before proceeding.
 
 Stage B: Create the five new modules
 

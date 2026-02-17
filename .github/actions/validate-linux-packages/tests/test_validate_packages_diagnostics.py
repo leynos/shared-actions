@@ -125,14 +125,17 @@ def _run_validation(
     validate_packages_module: ModuleType,
     sandbox: RaisingSandbox,
 ) -> str:
+    expected = validate_packages_module.ExpectedMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        architecture="amd64",
+        deb_version="1.2.3-1",
+    )
     with pytest.raises(validate_packages_module.ValidationError) as excinfo:
         validate_packages_module.validate_deb_package(
             dpkg_deb=object(),
             package_path=package,
-            expected_name="rust-toy-app",
-            expected_version="1.2.3",
-            expected_deb_version="1.2.3-1",
-            expected_arch="amd64",
+            expected=expected,
             expected_paths=("/usr/bin/rust-toy-app",),
             executable_paths=("/usr/bin/rust-toy-app",),
             verify_command=("/usr/bin/rust-toy-app", "--version"),

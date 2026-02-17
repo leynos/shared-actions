@@ -23,6 +23,7 @@ from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, ensure_exists, get_command
 from validate_normalise import normalise_command, normalise_formats, normalise_paths
 from validate_packages import (
+    ExpectedMetadata,
     locate_deb,
     locate_rpm,
     rpm_expected_architecture,
@@ -113,13 +114,16 @@ def _handle_deb(
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
 ) -> None:
+    expected = ExpectedMetadata(
+        name=cfg.package_value,
+        version=cfg.version,
+        architecture=cfg.deb_arch,
+        deb_version=cfg.deb_version,
+    )
     validate_deb_package(
         command,
         pkg_path,
-        expected_name=cfg.package_value,
-        expected_version=cfg.version,
-        expected_deb_version=cfg.deb_version,
-        expected_arch=cfg.deb_arch,
+        expected=expected,
         expected_paths=cfg.expected_paths,
         executable_paths=cfg.executable_paths,
         verify_command=cfg.verify_command,
@@ -134,13 +138,16 @@ def _handle_rpm(
     cfg: ValidationConfig,
     sandbox_factory: SandboxFactory,
 ) -> None:
+    expected = ExpectedMetadata(
+        name=cfg.package_value,
+        version=cfg.version,
+        architecture=rpm_expected_architecture(cfg.arch),
+        release=cfg.release,
+    )
     validate_rpm_package(
         command,
         pkg_path,
-        expected_name=cfg.package_value,
-        expected_version=cfg.version,
-        expected_release=cfg.release,
-        expected_arch=rpm_expected_architecture(cfg.arch),
+        expected=expected,
         expected_paths=cfg.expected_paths,
         executable_paths=cfg.executable_paths,
         verify_command=cfg.verify_command,

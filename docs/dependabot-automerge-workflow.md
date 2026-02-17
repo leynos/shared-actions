@@ -19,6 +19,17 @@ Note: The helper reads `DEPENDABOT_LOGINS` (defined in
 `workflow_scripts/dependabot_automerge.py`) to support both author login variants
 across platforms.
 
+## Merge-state behaviour
+
+After author/draft/label checks pass, the helper evaluates GitHub merge state:
+
+- `UNSTABLE` is treated as eligible for enabling auto-merge.
+- `DIRTY`, `BLOCKED`, `BEHIND`, and `CONFLICTING` are skipped.
+- `UNKNOWN` mergeability is retried with backoff before a final decision.
+
+Enabling auto-merge on `UNSTABLE` does not force an immediate merge. GitHub still
+waits for required checks and branch protection rules to pass before merging.
+
 ## Required permissions
 
 The calling workflow must grant at least:

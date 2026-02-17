@@ -28,6 +28,10 @@ def _clean_stderr(stderr: str) -> str:
         line
         for line in stderr.splitlines()
         if not line.startswith("warning: `VIRTUAL_ENV=")
+        and not line.startswith("Building shared-actions @ file://")
+        and not line.startswith("Built shared-actions @ file://")
+        and not line.startswith("Uninstalled shared-actions")
+        and not line.startswith("Installed shared-actions")
     ]
     return "\n".join(lines)
 

@@ -44,6 +44,7 @@ else:  # pragma: no cover - runtime fallbacks
 
 __all__ = [
     "DebMetadata",
+    "ExpectedMetadata",
     "RpmMetadata",
     "acceptable_rpm_architectures",
     "ensure_subset",
@@ -95,6 +96,19 @@ class PackageContext:
     payload_label: str
     package_architecture: str | None = None
     package_format: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ExpectedMetadata:
+    """Expected package metadata for validation."""
+
+    name: str
+    version: str
+    architecture: str
+    # For Debian packages
+    deb_version: str | None = None
+    # For RPM packages
+    release: str | None = None
 
 
 def _exec_with_diagnostics(
@@ -294,10 +308,7 @@ def validate_deb_package(
     dpkg_deb: BaseCommand,
     package_path: Path,
     *,
-    expected_name: str,
-    expected_version: str,
-    expected_deb_version: str,
-    expected_arch: str,
+    expected: ExpectedMetadata,
     expected_paths: typ.Collection[str],
     executable_paths: typ.Collection[str],
     verify_command: tuple[str, ...],
@@ -311,12 +322,12 @@ def validate_deb_package(
     )
     install_cfg = InstallConfig(
         install_command=("dpkg", "-i", package_path.name),
-        remove_command=("dpkg", "-r", expected_name),
+        remove_command=("dpkg", "-r", expected.name),
         install_error="dpkg installation failed",
     )
     context = PackageContext(
         payload_label="Debian package payload",
-        package_architecture=expected_arch,
+        package_architecture=expected.architecture,
         package_format="deb",
     )
 
@@ -324,18 +335,18 @@ def validate_deb_package(
         lambda pkg_path: inspect_deb_package(dpkg_deb, pkg_path),
         package_path=package_path,
         validators=(
-            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
+            _MetadataValidators.equal("name", expected.name, "unexpected package name"),
             _MetadataValidators.in_set(
                 "version",
-                {expected_deb_version, expected_version},
+                {expected.deb_version, expected.version},
                 "unexpected deb version",
                 fmt_expected=lambda values: (
-                    f"{expected_deb_version!r} or {expected_version!r}"
+                    f"{expected.deb_version!r} or {expected.version!r}"
                 ),
             ),
         ),
         architecture_validator=_MetadataValidators.equal(
-            "architecture", expected_arch, "unexpected deb architecture"
+            "architecture", expected.architecture, "unexpected deb architecture"
         ),
         paths=paths,
         install_cfg=install_cfg,
@@ -348,10 +359,7 @@ def validate_rpm_package(
     rpm_cmd: BaseCommand,
     package_path: Path,
     *,
-    expected_name: str,
-    expected_version: str,
-    expected_release: str,
-    expected_arch: str,
+    expected: ExpectedMetadata,
     expected_paths: typ.Collection[str],
     executable_paths: typ.Collection[str],
     verify_command: tuple[str, ...],
@@ -371,16 +379,16 @@ def validate_rpm_package(
             "--nosignature",
             package_path.name,
         ),
-        remove_command=("rpm", "-e", expected_name),
+        remove_command=("rpm", "-e", expected.name),
         install_error="rpm installation failed",
     )
     context = PackageContext(
         payload_label="RPM package payload",
-        package_architecture=expected_arch,
+        package_architecture=expected.architecture,
         package_format="rpm",
     )
 
-    acceptable_arches = acceptable_rpm_architectures(expected_arch)
+    acceptable_arches = acceptable_rpm_architectures(expected.architecture)
 
     architecture_validator = _MetadataValidators.in_set(
         "architecture",
@@ -392,12 +400,12 @@ def validate_rpm_package(
         lambda pkg_path: inspect_rpm_package(rpm_cmd, pkg_path),
         package_path=package_path,
         validators=(
-            _MetadataValidators.equal("name", expected_name, "unexpected package name"),
+            _MetadataValidators.equal("name", expected.name, "unexpected package name"),
             _MetadataValidators.equal(
-                "version", expected_version, "unexpected rpm version"
+                "version", expected.version, "unexpected rpm version"
             ),
             _MetadataValidators.prefix(
-                "release", expected_release, "unexpected rpm release prefix"
+                "release", expected.release, "unexpected rpm release prefix"
             ),
         ),
         architecture_validator=architecture_validator,

@@ -36,6 +36,12 @@ def test_validate_rpm_package_rejects_unexpected_release(
         lambda *_: metadata,
     )
 
+    expected = validate_packages_module.ExpectedMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        architecture="x86_64",
+        release="1",
+    )
     with pytest.raises(
         validate_packages_module.ValidationError,
         match="unexpected rpm release",
@@ -43,10 +49,7 @@ def test_validate_rpm_package_rejects_unexpected_release(
         validate_packages_module.validate_rpm_package(
             rpm_cmd=object(),
             package_path=package,
-            expected_name="rust-toy-app",
-            expected_version="1.2.3",
-            expected_release="1",
-            expected_arch="x86_64",
+            expected=expected,
             expected_paths=("/usr/bin/rust-toy-app",),
             executable_paths=("/usr/bin/rust-toy-app",),
             verify_command=(),
@@ -97,13 +100,16 @@ def test_validate_rpm_package_skips_cross_architecture_sandbox(
 
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
+    expected = validate_packages_module.ExpectedMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        architecture="aarch64",
+        release="1",
+    )
     validate_packages_module.validate_rpm_package(
         rpm_cmd=object(),
         package_path=package,
-        expected_name="rust-toy-app",
-        expected_version="1.2.3",
-        expected_release="1",
-        expected_arch="aarch64",
+        expected=expected,
         expected_paths=("/usr/bin/rust-toy-app",),
         executable_paths=("/usr/bin/rust-toy-app",),
         verify_command=(),
@@ -145,13 +151,16 @@ def test_validate_rpm_package_skips_using_metadata_architecture(
         message = "sandbox used"
         raise AssertionError(message)
 
+    expected = validate_packages_module.ExpectedMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        architecture="x86_64",
+        release="1",
+    )
     validate_packages_module.validate_rpm_package(
         rpm_cmd=object(),
         package_path=package,
-        expected_name="rust-toy-app",
-        expected_version="1.2.3",
-        expected_release="1",
-        expected_arch="x86_64",
+        expected=expected,
         expected_paths=("/usr/bin/rust-toy-app",),
         executable_paths=("/usr/bin/rust-toy-app",),
         verify_command=(),
@@ -184,6 +193,12 @@ def test_validate_rpm_package_rejects_unexpected_architecture(
         message = "sandbox used"
         raise AssertionError(message)
 
+    expected = validate_packages_module.ExpectedMetadata(
+        name="rust-toy-app",
+        version="1.2.3",
+        architecture="arm64",
+        release="1",
+    )
     with pytest.raises(
         validate_packages_module.ValidationError,
         match="unexpected rpm architecture",
@@ -191,10 +206,7 @@ def test_validate_rpm_package_rejects_unexpected_architecture(
         validate_packages_module.validate_rpm_package(
             rpm_cmd=object(),
             package_path=package,
-            expected_name="rust-toy-app",
-            expected_version="1.2.3",
-            expected_release="1",
-            expected_arch="arm64",
+            expected=expected,
             expected_paths=("/usr/bin/rust-toy-app",),
             executable_paths=("/usr/bin/rust-toy-app",),
             verify_command=(),

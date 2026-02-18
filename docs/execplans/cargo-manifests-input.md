@@ -4,7 +4,7 @@
 
 This Execution Plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 `PLANS.md` was not found in this repository when this plan was created.
 
@@ -68,9 +68,12 @@ Success is observable when the action:
 - [x] (2026-02-18 16:27Z) Drafted this ExecPlan with staged implementation and validation details.
 - [x] (2026-02-18 16:40Z) Revised plan to use scalar `cargo-manifest` input
   instead of list `cargo-manifests`.
-- [ ] Implement detection fallback and selected-manifest output wiring.
-- [ ] Implement Rust runner `--manifest-path` wiring.
-- [ ] Update docs/changelog/tests and run all required gateways.
+- [x] (2026-02-18 17:10Z) Implemented detection fallback and selected-manifest
+  output wiring in `detect.py` and `action.yml`.
+- [x] (2026-02-18 17:15Z) Implemented Rust runner `--manifest-path` wiring in
+  `run_rust.py`.
+- [x] (2026-02-18 17:30Z) Updated tests, README, and changelog; validated with
+  targeted tests plus full required gateways.
 
 ## Surprises & Discoveries
 
@@ -81,6 +84,14 @@ Success is observable when the action:
 - Observation: no MCP resources/tools for the project memory protocol (`qdrant-find`/`qdrant-store`) are available in this execution environment.
   Evidence: `list_mcp_resources` and `list_mcp_resource_templates` returned empty sets.
   Impact: proceeded without project-memory recall/store.
+
+- Observation: using a Typer `Option(...)` object as a trailing default in
+  `detect.main` broke direct function-call tests by passing `OptionInfo` into
+  `.strip()`.
+  Evidence: `AttributeError: 'OptionInfo' object has no attribute 'strip'` in
+  `test_detect.py`.
+  Impact: switched to a plain string parameter and explicit
+  `os.getenv("INPUT_CARGO_MANIFEST", "")` fallback.
 
 ## Decision Log
 
@@ -94,9 +105,43 @@ Success is observable when the action:
   Rationale: keeps selection logic in one place and avoids diverging manifest resolution rules across scripts.
   Date/Author: 2026-02-18 (Codex)
 
+- Decision: keep `detect.main` callable as a regular Python function for tests,
+  while still reading `INPUT_CARGO_MANIFEST` from the environment in script
+  mode.
+  Rationale: avoids Typer `OptionInfo` default pitfalls and preserves existing
+  unit test invocation style.
+  Date/Author: 2026-02-18 (Codex)
+
 ## Outcomes & Retrospective
 
-Planned, not yet executed. Expected outcome: optional fallback manifest detection with unchanged default behaviour and explicit manifest-path passing in Rust coverage commands.
+Implemented scalar `cargo-manifest` support for `generate-coverage`:
+
+- Added optional `cargo-manifest` input in
+  `.github/actions/generate-coverage/action.yml`.
+- Updated `.github/actions/generate-coverage/scripts/detect.py` to:
+  - prefer root `Cargo.toml`,
+  - fall back to `cargo-manifest` when present and existing,
+  - emit `cargo_manifest` output for Rust and mixed projects.
+- Updated `.github/actions/generate-coverage/scripts/run_rust.py` to pass
+  `--manifest-path <selected-manifest>` for primary and cucumber runs.
+- Updated tests in:
+  - `.github/actions/generate-coverage/tests/test_detect.py`
+  - `.github/actions/generate-coverage/tests/test_scripts.py`
+- Updated docs/changelog:
+  - `.github/actions/generate-coverage/README.md`
+  - `.github/actions/generate-coverage/CHANGELOG.md`
+
+Validation results:
+
+- Targeted:
+  - `uv run --with pytest pytest .github/actions/generate-coverage/tests/test_detect.py -v`
+  - `uv run --with pytest pytest .github/actions/generate-coverage/tests/test_scripts.py -v`
+- Required gateways:
+  - `make check-fmt`
+  - `UV_PYTHON=3.13 make typecheck`
+  - `UV_PYTHON=3.13 make lint`
+  - `UV_PYTHON=3.13 make test`
+    (`640 passed, 86 skipped`)
 
 ## Context and Orientation
 
@@ -254,4 +299,5 @@ Expected detect output snippet for fallback case:
 
 Revised this draft to use scalar `cargo-manifest` instead of list
 `cargo-manifests`, and updated tests, implementation stages, and acceptance
-criteria accordingly.
+criteria accordingly. This revision also records completed implementation and
+validation evidence, and updates status/progress to `COMPLETE`.

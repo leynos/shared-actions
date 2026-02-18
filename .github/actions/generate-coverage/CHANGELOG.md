@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.3.12 (2026-02-18)
+
+- Add optional `cargo-manifest` input for repositories where `Cargo.toml`
+  lives outside the repository root.
+- Detect Rust projects using root `Cargo.toml` first, then fall back to
+  `cargo-manifest` when provided and present.
+- Pass `--manifest-path <selected-manifest>` to `cargo llvm-cov` runs.
+
 ## v1.3.11 (2026-01-12)
 
 - Add `use-cargo-nextest` input (default true) and run Rust coverage via

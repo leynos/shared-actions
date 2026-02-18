@@ -102,3 +102,77 @@ def test_detect_appends_to_malformed_output_file(
     detect.main("coveragepy", out)
 
     assert out.read_text() == "garbage\nnot=kv\nlang=python\nfmt=coveragepy\n"
+
+
+def test_detect_prefers_root_manifest_over_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Root ``Cargo.toml`` takes precedence over input ``cargo-manifest``."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "Cargo.toml").write_text("")
+    nested_manifest = project_dir / "nested" / "Cargo.toml"
+    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
+    nested_manifest.write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+
+    detect.main("lcov", out, "nested/Cargo.toml")
+
+    assert out.read_text() == "lang=rust\nfmt=lcov\ncargo_manifest=Cargo.toml\n"
+
+
+def test_detect_uses_input_manifest_when_root_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Configured manifest is used when root manifest is absent."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    nested_manifest = project_dir / "rust-toy-app" / "Cargo.toml"
+    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
+    nested_manifest.write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+
+    detect.main("lcov", out, "rust-toy-app/Cargo.toml")
+
+    assert (
+        out.read_text()
+        == "lang=rust\nfmt=lcov\ncargo_manifest=rust-toy-app/Cargo.toml\n"
+    )
+
+
+def test_detect_uses_mixed_when_input_manifest_and_pyproject_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Input manifest plus root Python project yields mixed language."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    nested_manifest = project_dir / "crate" / "Cargo.toml"
+    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
+    nested_manifest.write_text("")
+    (project_dir / "pyproject.toml").write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+
+    detect.main("cobertura", out, "crate/Cargo.toml")
+
+    assert (
+        out.read_text()
+        == "lang=mixed\nfmt=cobertura\ncargo_manifest=crate/Cargo.toml\n"
+    )
+
+
+def test_detect_ignores_missing_input_manifest_for_python_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing ``cargo-manifest`` keeps Python-only behaviour."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "pyproject.toml").write_text("")
+    monkeypatch.chdir(project_dir)
+    out = project_dir / "gh.txt"
+
+    detect.main("coveragepy", out, "missing/Cargo.toml")
+
+    assert out.read_text() == "lang=python\nfmt=coveragepy\n"

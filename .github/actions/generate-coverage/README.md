@@ -5,12 +5,14 @@ Run coverage for Rust, Python, or mixed Rust+Python projects.
 Run code coverage for Rust projects, Python projects, and mixed Rust + Python
 projects. The action uses `cargo llvm-cov` (with `cargo nextest` by default)
 when a `Cargo.toml` is present and `slipcover` with `pytest` when a
-`pyproject.toml` is present. It installs `slipcover` and `pytest` automatically
-via `uv` before running the tests, leveraging ``uv run --with`` so no
-system-level Python installs are required. When Rust coverage is required,
-`cargo-llvm-cov` and `cargo-nextest` are installed automatically. If both
-configuration files are present, coverage is run for each language and the
-Cobertura reports are merged using `uvx merge-cobertura`.
+`pyproject.toml` is present. If your repository root does not contain a Cargo
+manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
+`slipcover` and `pytest` automatically via `uv` before running the tests,
+leveraging ``uv run --with`` so no system-level Python installs are required.
+When Rust coverage is required, `cargo-llvm-cov` and `cargo-nextest` are
+installed automatically. If both configuration files are present, coverage is
+run for each language and the Cobertura reports are merged using
+`uvx merge-cobertura`.
 
 ## Flow
 
@@ -39,6 +41,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
+| cargo-manifest | Optional path to Cargo.toml if root Cargo.toml is missing | no | |
 | use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
@@ -126,6 +129,15 @@ Disable cargo-nextest:
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
+```
+
+Use a nested Cargo manifest:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    cargo-manifest: rust-toy-app/Cargo.toml
 ```
 
 The action prints the current coverage percentage to the log. When

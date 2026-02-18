@@ -8,6 +8,9 @@ inputs:
     description: Enable default features
     required: false
     default: "true"
+  cargo-manifest:
+    description: Optional path to Cargo.toml when the repository root has none
+    required: false
   use-cargo-nextest:
     description: Use cargo-nextest for Rust coverage runs
     required: false
@@ -72,6 +75,7 @@ runs:
       run: uv run --script "${{ github.action_path }}/scripts/detect.py"
       env:
         INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_CARGO_MANIFEST: ${{ inputs.cargo-manifest }}
       shell: bash
     - name: Restore baselines
       id: restore-baselines
@@ -162,6 +166,7 @@ runs:
       env:
         DETECTED_LANG: ${{ steps.detect.outputs.lang }}
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
+        DETECTED_CARGO_MANIFEST: ${{ steps.detect.outputs.cargo_manifest }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         INPUT_FEATURES: ${{ inputs.features }}
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}

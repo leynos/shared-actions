@@ -1,6 +1,6 @@
 <!-- markdownlint-disable MD013 MD014 -->
 
-# Add cargo-manifests input fallback to generate-coverage
+# Add cargo-manifest input fallback to generate-coverage
 
 This Execution Plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -10,19 +10,27 @@ Status: DRAFT
 
 ## Purpose / Big Picture
 
-The `generate-coverage` action should support Rust projects whose `Cargo.toml` is not at repository root by accepting an optional `cargo-manifests` input (comma/space/newline-separated candidate paths). After this change, Rust or mixed-language detection will still prefer root `Cargo.toml`, otherwise select the first existing path from `cargo-manifests`, and pass that selected file to `cargo llvm-cov` via `--manifest-path`. If `cargo-manifests` is unset, behaviour remains exactly as it is today.
+The `generate-coverage` action should support Rust projects whose `Cargo.toml`
+is not at repository root by accepting an optional `cargo-manifest` input
+(single relative path). After this change, Rust or mixed-language detection
+will still prefer root `Cargo.toml`, otherwise use `cargo-manifest` if the
+path exists, and pass that selected file to `cargo llvm-cov` via
+`--manifest-path`. If `cargo-manifest` is unset, behaviour remains exactly as
+it is today.
 
 Success is observable when the action:
 
-- still behaves exactly as today with no `cargo-manifests` input,
-- detects Rust/mixed projects through the fallback list when root `Cargo.toml` is absent,
+- still behaves exactly as today with no `cargo-manifest` input,
+- detects Rust/mixed projects through the fallback path when root
+  `Cargo.toml` is absent,
 - executes `cargo llvm-cov ... --manifest-path <selected-manifest>` for Rust coverage.
 
 ## Constraints
 
 - Follow repository policy in `AGENTS.md`, including Makefile-first execution and required gateways for GitHub Action logic changes: `make check-fmt`, `make typecheck`, `make lint`, `make test`.
 - Use `set -o pipefail` and `tee` for long-running gateway commands so failures are not masked and logs can be reviewed.
-- Keep backward compatibility: when `cargo-manifests` is unset, outputs and behaviour must match current behaviour.
+- Keep backward compatibility: when `cargo-manifest` is unset, outputs and
+  behaviour must match current behaviour.
 - Preserve existing action inputs/outputs; only add the new optional input and any internal step output required to wire selected manifest path.
 - Keep paths relative in caller-facing docs and examples, matching the requirement.
 - Keep scope limited to `.github/actions/generate-coverage/` plus this plan document.
@@ -37,10 +45,12 @@ Success is observable when the action:
 
 ## Risks
 
-- Risk: fallback list parsing could incorrectly treat malformed separators as paths.
+- Risk: a configured scalar path may be absolute or escape workspace
+  unexpectedly.
   Severity: medium
   Likelihood: medium
-  Mitigation: centralize parsing helper and add table-driven tests for comma/space/newline combinations.
+  Mitigation: resolve path relative to workspace/cwd and add tests for unset,
+  relative, non-existent, and absolute path handling.
 
 - Risk: adding `--manifest-path` can regress command assembly (including cucumber path).
   Severity: medium
@@ -56,6 +66,8 @@ Success is observable when the action:
 
 - [x] (2026-02-18 16:20Z) Reviewed current `generate-coverage` action inputs, detection script, Rust runner script, and tests.
 - [x] (2026-02-18 16:27Z) Drafted this ExecPlan with staged implementation and validation details.
+- [x] (2026-02-18 16:40Z) Revised plan to use scalar `cargo-manifest` input
+  instead of list `cargo-manifests`.
 - [ ] Implement detection fallback and selected-manifest output wiring.
 - [ ] Implement Rust runner `--manifest-path` wiring.
 - [ ] Update docs/changelog/tests and run all required gateways.
@@ -72,8 +84,10 @@ Success is observable when the action:
 
 ## Decision Log
 
-- Decision: keep coverage execution scalar (one selected manifest), while allowing `cargo-manifests` to be a list of candidate paths for discovery.
-  Rationale: `cargo llvm-cov --workspace` already covers a workspace rooted at the selected manifest. Executing multiple manifests in one action run would duplicate test execution, require multi-report merge semantics, and introduce unclear deduplication/ratchet behaviour.
+- Decision: use scalar `cargo-manifest` input and single-manifest execution.
+  Rationale: `cargo llvm-cov --workspace` already covers a workspace rooted at
+  the selected manifest. Multi-manifest execution in one action run would
+  duplicate test execution and add unclear merge/ratchet semantics.
   Date/Author: 2026-02-18 (Codex)
 
 - Decision: detect step will emit the selected manifest path as an internal step output (for Rust/mixed paths) consumed by `run_rust.py`.
@@ -107,9 +121,11 @@ Current baseline behaviour:
 Stage A (no behavioural change): add focused tests that describe desired fallback behaviour.
 
 - Extend `tests/test_detect.py` with cases covering:
-  - root `Cargo.toml` precedence over `cargo-manifests` candidates,
-  - first-existing selection from comma/space/newline-separated candidates,
-  - Python-only/error behaviour unchanged when fallback list is empty or has no existing files,
+  - root `Cargo.toml` precedence over scalar `cargo-manifest`,
+  - scalar fallback selection when root `Cargo.toml` is absent and
+    `cargo-manifest` exists,
+  - Python-only/error behaviour unchanged when scalar fallback is unset or
+    non-existent,
   - mixed detection when selected manifest exists and root `pyproject.toml` exists.
 - Extend `tests/test_scripts.py` cases that assert cargo argv to include `--manifest-path` in both primary and cucumber coverage invocations.
 
@@ -118,14 +134,14 @@ Go/no-go: new tests should fail before implementation and pass after implementat
 Stage B: implement manifest selection in detection and export selected path.
 
 - In `scripts/detect.py`:
-  - add option/env binding for `INPUT_CARGO_MANIFESTS`.
-  - add parser for comma/space/newline-separated tokens.
-  - add resolver: root `Cargo.toml` first; else first existing candidate; else none.
+  - add option/env binding for `INPUT_CARGO_MANIFEST`.
+  - add resolver: root `Cargo.toml` first; else `cargo-manifest` when existing;
+    else none.
   - keep existing Python/error behaviour when no manifest selected.
   - append selected manifest to detect outputs (internal output such as `cargo_manifest=<path>`).
 - In `action.yml`:
-  - add new input `cargo-manifests` (optional) with clear description.
-  - pass `INPUT_CARGO_MANIFESTS` into detect step.
+  - add new input `cargo-manifest` (optional) with clear description.
+  - pass `INPUT_CARGO_MANIFEST` into detect step.
   - pass detect output manifest path to Rust step environment (e.g. `DETECTED_CARGO_MANIFEST`).
 
 Go/no-go: detect script tests pass and default path (input unset) remains unchanged.
@@ -143,9 +159,9 @@ Go/no-go: rust script tests confirm manifest-path in command args for nextest/no
 Stage D: update docs/changelog and run full gateways.
 
 - Update `.github/actions/generate-coverage/README.md`:
-  - input table row for `cargo-manifests`.
+  - input table row for `cargo-manifest`.
   - flow/behaviour text describing precedence rules.
-  - example showing nested manifest fallback.
+  - example showing scalar manifest fallback.
 - Update `.github/actions/generate-coverage/CHANGELOG.md` with a new release entry.
 - Run all required gateways and capture logs via `tee`.
 
@@ -187,9 +203,11 @@ Stage D: update docs/changelog and run full gateways.
 
 Acceptance criteria:
 
-- With no `cargo-manifests` input, detection and runtime behaviour match current behaviour.
-- With root `Cargo.toml` present, that manifest is always selected regardless of `cargo-manifests` values.
-- With no root `Cargo.toml`, first existing path from `cargo-manifests` is selected.
+- With no `cargo-manifest` input, detection and runtime behaviour match current
+  behaviour.
+- With root `Cargo.toml` present, that manifest is always selected regardless
+  of `cargo-manifest` value.
+- With no root `Cargo.toml`, `cargo-manifest` is selected when it exists.
 - If no manifest exists after fallback, action keeps current Python-only/error behaviour.
 - Rust command invocation includes `--manifest-path <selected-manifest>`.
 - `make check-fmt`, `make typecheck`, `make lint`, `make test` all pass.
@@ -218,7 +236,7 @@ Expected detect output snippet for fallback case:
 ## Interfaces and Dependencies
 
 - New action input:
-  - `cargo-manifests` (optional string): comma/space/newline-separated relative candidate paths.
+  - `cargo-manifest` (optional string): single relative candidate path.
 - Internal step contract:
   - detect step emits selected manifest path output (for Rust/mixed detection paths).
   - rust step consumes selected manifest path via environment variable.
@@ -234,4 +252,6 @@ Expected detect output snippet for fallback case:
 
 ## Revision note
 
-Initial draft created to plan `cargo-manifests` fallback detection and manifest-path wiring for Rust coverage, with a deliberate scalar execution decision and explicit backward-compatibility checks.
+Revised this draft to use scalar `cargo-manifest` instead of list
+`cargo-manifests`, and updated tests, implementation stages, and acceptance
+criteria accordingly.

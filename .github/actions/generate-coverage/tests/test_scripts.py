@@ -151,6 +151,14 @@ class RustCoverageConfig:
     manifest_path: str = "Cargo.toml"
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class RustMainConfig:
+    """Configuration for ``_run_rust_main_variant`` test helper."""
+
+    use_nextest: bool
+    manifest_path: Path = Path("Cargo.toml")
+
+
 def _run_rust_coverage_test(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -327,9 +335,7 @@ def _run_rust_main_variant(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
-    *,
-    use_nextest: bool,
-    manifest_path: Path = Path("Cargo.toml"),
+    config: RustMainConfig,
 ) -> tuple[list[str], Path, Path]:
     """Run ``main`` with the provided nextest flag and return captured data."""
     monkeypatch.chdir(tmp_path)
@@ -348,10 +354,10 @@ def _run_rust_main_variant(
         output,
         "",
         with_default=True,
-        use_nextest=use_nextest,
+        use_nextest=config.use_nextest,
         lang="rust",
         fmt="lcov",
-        manifest_path=manifest_path,
+        manifest_path=config.manifest_path,
         github_output=github_output,
         cucumber_rs_features="",
         cucumber_rs_args="",
@@ -374,7 +380,7 @@ def test_run_rust_main_nextest_variants(
         tmp_path,
         monkeypatch,
         run_rust_module,
-        use_nextest=use_nextest,
+        RustMainConfig(use_nextest=use_nextest),
     )
 
     if use_nextest:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,36 @@ def _exit_code(exc: BaseException) -> int | None:
     if exit_code is None:
         exit_code = getattr(exc, "code", None)
     return exit_code
+
+
+@pytest.fixture
+def setup_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> typ.Callable[
+    [dict[str, str] | None, str | None],
+    tuple[Path, Path],
+]:
+    """Return a factory that creates a project directory and output file."""
+
+    def factory(
+        files: dict[str, str] | None = None,
+        initial_output: str | None = None,
+    ) -> tuple[Path, Path]:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        for rel_path, content in (files or {}).items():
+            target = project_dir / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        monkeypatch.chdir(project_dir)
+        out = project_dir / "gh.txt"
+        if initial_output is None:
+            out.touch()
+        else:
+            out.write_text(initial_output)
+        return project_dir, out
+
+    return factory
 
 
 def test_invalid_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -58,14 +89,10 @@ def test_valid_formats(
 
 
 def test_detect_writes_output_for_empty_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Valid format writes language and format to an empty ``GITHUB_OUTPUT`` file."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
+    _project_dir, out = setup_project({"pyproject.toml": ""})
 
     detect.main("coveragepy", out)
 
@@ -73,15 +100,10 @@ def test_detect_writes_output_for_empty_file(
 
 
 def test_detect_appends_to_existing_output_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Existing ``GITHUB_OUTPUT`` contents are preserved when appending results."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
-    out.write_text("prev=1\n")
+    _project_dir, out = setup_project({"pyproject.toml": ""}, "prev=1\n")
 
     detect.main("coveragepy", out)
 
@@ -89,15 +111,10 @@ def test_detect_appends_to_existing_output_file(
 
 
 def test_detect_appends_to_malformed_output_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Pre-existing malformed output lines remain untouched when appending results."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
-    out.write_text("garbage\nnot=kv\n")
+    _project_dir, out = setup_project({"pyproject.toml": ""}, "garbage\nnot=kv\n")
 
     detect.main("coveragepy", out)
 
@@ -105,17 +122,15 @@ def test_detect_appends_to_malformed_output_file(
 
 
 def test_detect_prefers_root_manifest_over_input(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Root ``Cargo.toml`` takes precedence over input ``cargo-manifest``."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "Cargo.toml").write_text("")
-    nested_manifest = project_dir / "nested" / "Cargo.toml"
-    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
-    nested_manifest.write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
+    _project_dir, out = setup_project(
+        {
+            "Cargo.toml": "",
+            "nested/Cargo.toml": "",
+        }
+    )
 
     detect.main("lcov", out, "nested/Cargo.toml")
 
@@ -123,16 +138,10 @@ def test_detect_prefers_root_manifest_over_input(
 
 
 def test_detect_uses_input_manifest_when_root_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Configured manifest is used when root manifest is absent."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    nested_manifest = project_dir / "rust-toy-app" / "Cargo.toml"
-    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
-    nested_manifest.write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
+    _project_dir, out = setup_project({"rust-toy-app/Cargo.toml": ""})
 
     detect.main("lcov", out, "rust-toy-app/Cargo.toml")
 
@@ -143,17 +152,15 @@ def test_detect_uses_input_manifest_when_root_missing(
 
 
 def test_detect_uses_mixed_when_input_manifest_and_pyproject_exist(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Input manifest plus root Python project yields mixed language."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    nested_manifest = project_dir / "crate" / "Cargo.toml"
-    nested_manifest.parent.mkdir(parents=True, exist_ok=True)
-    nested_manifest.write_text("")
-    (project_dir / "pyproject.toml").write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
+    _project_dir, out = setup_project(
+        {
+            "crate/Cargo.toml": "",
+            "pyproject.toml": "",
+        }
+    )
 
     detect.main("cobertura", out, "crate/Cargo.toml")
 
@@ -164,14 +171,10 @@ def test_detect_uses_mixed_when_input_manifest_and_pyproject_exist(
 
 
 def test_detect_ignores_missing_input_manifest_for_python_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
 ) -> None:
     """Missing ``cargo-manifest`` keeps Python-only behaviour."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "pyproject.toml").write_text("")
-    monkeypatch.chdir(project_dir)
-    out = project_dir / "gh.txt"
+    _project_dir, out = setup_project({"pyproject.toml": ""})
 
     detect.main("coveragepy", out, "missing/Cargo.toml")
 

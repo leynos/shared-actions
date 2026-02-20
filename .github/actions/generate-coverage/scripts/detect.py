@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import enum
+import os
 from pathlib import Path
 
 import typer
@@ -37,14 +38,31 @@ FMT_OPT = typer.Option(
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 
 
-def get_lang() -> Lang:
-    """Detect whether the project is Rust, Python or mixed."""
-    cargo = Path("Cargo.toml").is_file()
+def _resolve_cargo_manifest(cargo_manifest: str) -> Path | None:
+    """Resolve the selected Cargo manifest with root precedence."""
+    root_manifest = Path("Cargo.toml")
+    if root_manifest.is_file():
+        return root_manifest
+
+    configured_manifest = cargo_manifest.strip()
+    if not configured_manifest:
+        return None
+
+    configured_path = Path(configured_manifest)
+    if configured_path.is_file():
+        return configured_path
+
+    return None
+
+
+def get_lang(cargo_manifest: str = "") -> tuple[Lang, Path | None]:
+    """Detect project language and selected Cargo manifest (if any)."""
+    selected_manifest = _resolve_cargo_manifest(cargo_manifest)
     python = Path("pyproject.toml").is_file()
-    if cargo:
-        return Lang.MIXED if python else Lang.RUST
+    if selected_manifest is not None:
+        return (Lang.MIXED if python else Lang.RUST), selected_manifest
     if python:
-        return Lang.PYTHON
+        return Lang.PYTHON, None
     typer.echo("Neither Cargo.toml nor pyproject.toml found", err=True)
     raise typer.Exit(code=1)
 
@@ -52,9 +70,12 @@ def get_lang() -> Lang:
 def main(
     fmt: str = FMT_OPT,
     github_output: Path = GITHUB_OUTPUT_OPT,
+    cargo_manifest: str = "",
 ) -> None:
     """Detect the project language and write it plus the format to ``GITHUB_OUTPUT``."""
-    lang = get_lang()
+    if not cargo_manifest:
+        cargo_manifest = os.getenv("INPUT_CARGO_MANIFEST", "")
+    lang, selected_manifest = get_lang(cargo_manifest)
     try:
         fmt_enum = CoverageFmt(fmt.lower())
     except ValueError as exc:
@@ -74,6 +95,8 @@ def main(
 
     with github_output.open("a") as fh:
         fh.write(f"lang={lang.value}\nfmt={fmt_enum.value}\n")
+        if selected_manifest is not None:
+            fh.write(f"cargo_manifest={selected_manifest}\n")
 
 
 if __name__ == "__main__":

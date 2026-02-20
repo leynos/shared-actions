@@ -80,6 +80,7 @@ WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURE
 USE_NEXTEST_OPT = typer.Option(default=True, envvar="INPUT_USE_CARGO_NEXTEST")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
+MANIFEST_PATH_OPT = typer.Option(Path("Cargo.toml"), envvar="DETECTED_CARGO_MANIFEST")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 CUCUMBER_RS_FEATURES_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_FEATURES")
 CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
@@ -103,6 +104,7 @@ def get_cargo_coverage_cmd(
     out: Path,
     features: str,
     *,
+    manifest_path: Path,
     with_default: bool,
     use_nextest: bool,
 ) -> list[str]:
@@ -110,7 +112,7 @@ def get_cargo_coverage_cmd(
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
-    args += ["--workspace", "--summary-only"]
+    args += ["--manifest-path", str(manifest_path), "--workspace", "--summary-only"]
     if not with_default:
         args.append("--no-default-features")
     if features:
@@ -382,6 +384,7 @@ def run_cucumber_rs_coverage(
     fmt: str,
     features: str,
     *,
+    manifest_path: Path,
     with_default: bool,
     use_nextest: bool,
     cucumber_rs_features: str,
@@ -393,6 +396,7 @@ def run_cucumber_rs_coverage(
         fmt,
         cucumber_file,
         features,
+        manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
     )
@@ -487,6 +491,7 @@ def main(
     use_nextest: bool = USE_NEXTEST_OPT,
     lang: str = LANG_OPT,
     fmt: str = FMT_OPT,
+    manifest_path: Path = MANIFEST_PATH_OPT,
     github_output: Path = GITHUB_OUTPUT_OPT,
     cucumber_rs_features: str = CUCUMBER_RS_FEATURES_OPT,
     cucumber_rs_args: str = CUCUMBER_RS_ARGS_OPT,
@@ -503,6 +508,7 @@ def main(
         fmt,
         out,
         features,
+        manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
     )
@@ -517,6 +523,7 @@ def main(
                 out,
                 fmt,
                 features,
+                manifest_path=manifest_path,
                 with_default=with_default,
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,

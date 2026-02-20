@@ -148,6 +148,15 @@ class RustCoverageConfig:
     use_nextest: bool
     features: str = ""
     with_default_features: bool = True
+    manifest_path: str = "Cargo.toml"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class RustMainConfig:
+    """Configuration for ``_run_rust_main_variant`` test helper."""
+
+    use_nextest: bool
+    manifest_path: Path = Path("Cargo.toml")
 
 
 def _run_rust_coverage_test(
@@ -177,6 +186,7 @@ def _run_rust_coverage_test(
             "true" if config.with_default_features else "false"
         ),
         "INPUT_USE_CARGO_NEXTEST": "true" if config.use_nextest else "false",
+        "DETECTED_CARGO_MANIFEST": config.manifest_path,
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -207,6 +217,8 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     )
     expected_args = [
         "llvm-cov",
+        "--manifest-path",
+        "Cargo.toml",
         "--workspace",
         "--summary-only",
         "--no-default-features",
@@ -238,6 +250,8 @@ def test_run_rust_nextest_command(
     expected_args = [
         "llvm-cov",
         "nextest",
+        "--manifest-path",
+        "Cargo.toml",
         "--workspace",
         "--summary-only",
         "--lcov",
@@ -248,6 +262,18 @@ def test_run_rust_nextest_command(
     assert not (tmp_path / ".config" / "nextest.toml").exists()
 
 
+def test_run_rust_uses_detected_manifest_path(
+    tmp_path: Path, shell_stubs: StubManager
+) -> None:
+    """Detected manifest path is propagated to cargo llvm-cov."""
+    cargo_args, _out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
+    )
+    assert cargo_args[0:3] == ["llvm-cov", "--manifest-path", "rust-toy-app/Cargo.toml"]
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -255,9 +281,12 @@ def test_run_rust_nextest_command(
             True,
             "fast",
             False,
+            "Cargo.toml",
             [
                 "llvm-cov",
                 "nextest",
+                "--manifest-path",
+                "Cargo.toml",
                 "--workspace",
                 "--summary-only",
                 "--no-default-features",
@@ -271,8 +300,11 @@ def test_run_rust_nextest_command(
             False,
             "",
             True,
+            "rust-toy-app/Cargo.toml",
             [
                 "llvm-cov",
+                "--manifest-path",
+                "rust-toy-app/Cargo.toml",
                 "--workspace",
                 "--summary-only",
                 "--lcov",
@@ -283,15 +315,16 @@ def test_run_rust_nextest_command(
 )
 def test_get_cargo_coverage_cmd_variants(
     run_rust_module: ModuleType,
-    case: tuple[bool, str, bool, list[str]],
+    case: tuple[bool, str, bool, str, list[str]],
 ) -> None:
     """``get_cargo_coverage_cmd`` varies arguments based on nextest usage."""
-    use_nextest, features, with_default, expected = case
+    use_nextest, features, with_default, manifest_path, expected = case
     out = Path("cov.lcov")
     args = run_rust_module.get_cargo_coverage_cmd(
         "lcov",
         out,
         features,
+        manifest_path=Path(manifest_path),
         with_default=with_default,
         use_nextest=use_nextest,
     )
@@ -302,8 +335,7 @@ def _run_rust_main_variant(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_rust_module: ModuleType,
-    *,
-    use_nextest: bool,
+    config: RustMainConfig,
 ) -> tuple[list[str], Path, Path]:
     """Run ``main`` with the provided nextest flag and return captured data."""
     monkeypatch.chdir(tmp_path)
@@ -322,9 +354,10 @@ def _run_rust_main_variant(
         output,
         "",
         with_default=True,
-        use_nextest=use_nextest,
+        use_nextest=config.use_nextest,
         lang="rust",
         fmt="lcov",
+        manifest_path=config.manifest_path,
         github_output=github_output,
         cucumber_rs_features="",
         cucumber_rs_args="",
@@ -347,17 +380,21 @@ def test_run_rust_main_nextest_variants(
         tmp_path,
         monkeypatch,
         run_rust_module,
-        use_nextest=use_nextest,
+        RustMainConfig(use_nextest=use_nextest),
     )
 
     if use_nextest:
         assert args[:2] == ["llvm-cov", "nextest"]
+        assert "--manifest-path" in args
+        assert "Cargo.toml" in args
         data = github_output.read_text().splitlines()
         assert f"file={output}" in data
         assert "percent=100.00" in data
     else:
         assert args[0] == "llvm-cov"
         assert "nextest" not in args
+        assert "--manifest-path" in args
+        assert "Cargo.toml" in args
 
 
 def test_nextest_config_is_temporary(
@@ -619,6 +656,7 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
+        "DETECTED_CARGO_MANIFEST": "rust-toy-app/Cargo.toml",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
         "INPUT_USE_CARGO_NEXTEST": "false",
@@ -637,6 +675,8 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
     cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
     expected_second = [
         "llvm-cov",
+        "--manifest-path",
+        "rust-toy-app/Cargo.toml",
         "--workspace",
         "--summary-only",
         "--lcov",
@@ -680,6 +720,7 @@ def test_run_rust_with_cucumber_nextest(
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
+        "DETECTED_CARGO_MANIFEST": "rust-toy-app/Cargo.toml",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
         "INPUT_USE_CARGO_NEXTEST": "true",
@@ -698,6 +739,8 @@ def test_run_rust_with_cucumber_nextest(
     assert len(calls) == 2
     assert "nextest" in calls[0].argv
     assert "nextest" in calls[1].argv
+    assert calls[0].argv[2:4] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
+    assert calls[1].argv[2:4] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
     assert out.read_text() == "TN:test\nend_of_record\nTN:cuke\nend_of_record\n"
     assert not cuc_file.exists()
     assert not (tmp_path / ".config" / "nextest.toml").exists()
@@ -733,6 +776,7 @@ def test_run_rust_with_cucumber_cobertura(
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "cobertura",
+        "DETECTED_CARGO_MANIFEST": "rust-toy-app/Cargo.toml",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
         "INPUT_USE_CARGO_NEXTEST": "false",
@@ -784,6 +828,7 @@ def test_run_rust_with_cucumber_cobertura_merge_failure(
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "cobertura",
+        "DETECTED_CARGO_MANIFEST": "rust-toy-app/Cargo.toml",
         "INPUT_FEATURES": "",
         "INPUT_WITH_DEFAULT_FEATURES": "true",
         "INPUT_USE_CARGO_NEXTEST": "false",
@@ -811,6 +856,7 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
         "INPUT_OUTPUT_PATH": str(tmp_path / "out"),
         "DETECTED_LANG": "rust",
         "DETECTED_FMT": "lcov",
+        "DETECTED_CARGO_MANIFEST": "rust-toy-app/Cargo.toml",
         "INPUT_USE_CARGO_NEXTEST": "false",
         "GITHUB_OUTPUT": str(tmp_path / "gh.txt"),
     }

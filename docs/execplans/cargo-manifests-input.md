@@ -1,6 +1,6 @@
-<!-- markdownlint-disable MD013 MD014 -->
-
 # Add cargo-manifest input fallback to generate-coverage
+
+<!-- markdownlint-disable MD013 MD014 -->
 
 This Execution Plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -37,7 +37,8 @@ Success is observable when the action:
 
 ## Tolerances (Exception Triggers)
 
-- Scope: if implementation exceeds 7 files or 260 net LOC, stop and escalate.
+- Scope: if implementation exceeds 7 files or 260 net lines of code (LOC),
+  stop and escalate.
 - Interface: if preserving exact unset-input behaviour requires changing public outputs/semantics beyond the new input, stop and escalate.
 - Dependencies: if any new package is needed, stop and escalate.
 - Iterations: if required gateways fail after 2 full fix/retest cycles, stop and escalate with logs.
@@ -49,8 +50,9 @@ Success is observable when the action:
   unexpectedly.
   Severity: medium
   Likelihood: medium
-  Mitigation: resolve path relative to workspace/cwd and add tests for unset,
-  relative, non-existent, and absolute path handling.
+  Mitigation: resolve path relative to workspace/current working directory
+  (cwd) and add tests for unset, relative, non-existent, and absolute path
+  handling.
 
 - Risk: adding `--manifest-path` can regress command assembly (including cucumber path).
   Severity: medium
@@ -81,7 +83,9 @@ Success is observable when the action:
   Evidence: `get_lang()` uses `Path("Cargo.toml").is_file()`, and `get_cargo_coverage_cmd()` does not add manifest-path args.
   Impact: both detection and runtime command assembly need changes for this feature.
 
-- Observation: no MCP resources/tools for the project memory protocol (`qdrant-find`/`qdrant-store`) are available in this execution environment.
+- Observation: no Model Context Protocol (MCP) resources/tools for the project
+  memory protocol (`qdrant-find`/`qdrant-store`) are available in this
+  execution environment.
   Evidence: `list_mcp_resources` and `list_mcp_resource_templates` returned empty sets.
   Impact: proceeded without project-memory recall/store.
 
@@ -172,7 +176,9 @@ Stage A (no behavioural change): add focused tests that describe desired fallbac
   - Python-only/error behaviour unchanged when scalar fallback is unset or
     non-existent,
   - mixed detection when selected manifest exists and root `pyproject.toml` exists.
-- Extend `tests/test_scripts.py` cases that assert cargo argv to include `--manifest-path` in both primary and cucumber coverage invocations.
+- Extend `tests/test_scripts.py` cases that assert the cargo argument vector
+  (argv) includes `--manifest-path` in both primary and cucumber coverage
+  invocations.
 
 Go/no-go: new tests should fail before implementation and pass after implementation.
 
@@ -264,7 +270,11 @@ Observable checks:
 
 ## Idempotence and Recovery
 
-The edits are text-only and re-runnable. If a test run partially writes coverage outputs in temp paths, remove only test temp artefacts and rerun. If command-order assertions fail due argument position changes, adjust tests to assert stable semantic invariants (presence and value pairing of `--manifest-path`) rather than brittle absolute positions where appropriate.
+The edits are text-only and re-runnable. If a test run partially writes
+coverage outputs in temp paths, remove only test temp artefacts and rerun. If
+command-order assertions fail due to argument position changes, adjust tests to
+assert stable semantic invariants (presence and value pairing of
+`--manifest-path`) rather than brittle absolute positions where appropriate.
 
 ## Artifacts and Notes
 

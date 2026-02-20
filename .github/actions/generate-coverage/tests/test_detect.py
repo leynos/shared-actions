@@ -179,3 +179,33 @@ def test_detect_ignores_missing_input_manifest_for_python_project(
     detect.main("coveragepy", out, "missing/Cargo.toml")
 
     assert out.read_text() == "lang=python\nfmt=coveragepy\n"
+
+
+def test_detect_reads_manifest_from_env(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INPUT_CARGO_MANIFEST is used when no positional manifest is provided."""
+    _project_dir, out = setup_project({"rust-toy-app/Cargo.toml": ""})
+    monkeypatch.setenv("INPUT_CARGO_MANIFEST", "rust-toy-app/Cargo.toml")
+
+    detect.main("lcov", out)
+
+    assert (
+        out.read_text()
+        == "lang=rust\nfmt=lcov\ncargo_manifest=rust-toy-app/Cargo.toml\n"
+    )
+
+
+def test_detect_errors_when_only_missing_manifest_configured(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing configured manifest without Python/Rust roots should fail."""
+    _project_dir, out = setup_project()
+
+    with pytest.raises(detect.typer.Exit) as exc:
+        detect.main("lcov", out, "missing/Cargo.toml")
+
+    assert _exit_code(exc.value) == 1
+    assert "Neither Cargo.toml nor pyproject.toml found" in capsys.readouterr().err

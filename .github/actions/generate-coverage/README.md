@@ -5,7 +5,7 @@ Run coverage for Rust, Python, or mixed Rust+Python projects.
 Run code coverage for Rust projects, Python projects, and mixed Rust + Python
 projects. The action uses `cargo llvm-cov` (with `cargo nextest` by default)
 when a `Cargo.toml` is present and `slipcover` with `pytest` when a
-`pyproject.toml` is present. If your repository root does not contain a Cargo
+`pyproject.toml` is present. If the repository root does not contain a Cargo
 manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 `slipcover` and `pytest` automatically via `uv` before running the tests,
 leveraging ``uv run --with`` so no system-level Python installs are required.

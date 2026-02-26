@@ -96,6 +96,7 @@ def install_cargo_nextest() -> None:
             "cargo-nextest",
             "--version",
             CARGO_NEXTEST_VERSION,
+            "--locked",
             "--no-confirm",
             "--force",
         ]

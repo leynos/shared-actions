@@ -1047,6 +1047,7 @@ def test_install_nextest_invokes_binstall(
         "cargo-nextest",
         "--version",
         install_nextest_module.CARGO_NEXTEST_VERSION,
+        "--locked",
         "--no-confirm",
         "--force",
     ]

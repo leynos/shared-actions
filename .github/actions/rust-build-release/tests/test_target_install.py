@@ -38,10 +38,12 @@ def test_skips_target_install_when_cross_available(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Continues when target addition fails but cross is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
@@ -221,10 +223,12 @@ def test_builds_freebsd_target_with_cross_and_container(
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
     capsys: pytest.CaptureFixture[str],
+    setup_manifest: Path,
 ) -> None:
     """Succeeds when cross and a container runtime are available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -311,10 +315,12 @@ def test_errors_when_cross_container_start_fails(
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
     capsys: pytest.CaptureFixture[str],
+    setup_manifest: Path,
 ) -> None:
     """Fails with an error when cross cannot launch the container runtime."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -358,10 +364,12 @@ def test_sets_cross_container_engine_when_docker_available(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Automatically export CROSS_CONTAINER_ENGINE when Docker is detected."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -381,7 +389,6 @@ def test_sets_cross_container_engine_when_docker_available(
     app_env.patch_shutil_which(fake_which)
     app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
-    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
 
     engines: list[str | None] = []
 
@@ -392,11 +399,12 @@ def test_sets_cross_container_engine_when_docker_available(
     app_env.patch_run_cmd(record_engine)
 
     cmd_mox.replay()
+    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
     main_module.main("x86_64-unknown-freebsd", default_toolchain)
-    cmd_mox.verify()
 
     assert engines == ["docker"]
     assert "CROSS_CONTAINER_ENGINE" not in os.environ
+    cmd_mox.verify()
 
 
 @CMD_MOX_UNSUPPORTED
@@ -405,10 +413,12 @@ def test_sets_cross_container_engine_when_only_podman_available(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Prefers Podman when Docker is unavailable."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -428,7 +438,6 @@ def test_sets_cross_container_engine_when_only_podman_available(
     app_env.patch_shutil_which(fake_which)
     app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "podman")
-    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
 
     engines: list[str | None] = []
 
@@ -439,11 +448,12 @@ def test_sets_cross_container_engine_when_only_podman_available(
     app_env.patch_run_cmd(record_engine)
 
     cmd_mox.replay()
+    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
     main_module.main("x86_64-unknown-freebsd", default_toolchain)
-    cmd_mox.verify()
 
     assert engines == ["podman"]
     assert "CROSS_CONTAINER_ENGINE" not in os.environ
+    cmd_mox.verify()
 
 
 @CMD_MOX_UNSUPPORTED
@@ -452,10 +462,12 @@ def test_preserves_existing_cross_container_engine(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Does not override a pre-existing CROSS_CONTAINER_ENGINE value."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -487,10 +499,10 @@ def test_preserves_existing_cross_container_engine(
 
     cmd_mox.replay()
     main_module.main("x86_64-unknown-freebsd", default_toolchain)
-    cmd_mox.verify()
 
     assert engines == ["custom"]
     assert os.environ.get("CROSS_CONTAINER_ENGINE") == "custom"
+    cmd_mox.verify()
 
 
 @CMD_MOX_UNSUPPORTED
@@ -541,10 +553,12 @@ def test_falls_back_to_cargo_when_cross_container_fails(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Falls back to cargo when cross exits with a container error."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     def run_cmd_side_effect(cmd: list[str]) -> None:
         if cmd and Path(cmd[0]).name == "cross":
@@ -582,11 +596,13 @@ def test_falls_back_to_cargo_when_podman_unusable(
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
     capsys: pytest.CaptureFixture[str],
+    setup_manifest: Path,
 ) -> None:
     """Fallback to cargo when podman runtime detection fails quickly (issue #97)."""
     cross_env = module_harness(cross_module)
     runtime_env = module_harness(runtime_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -634,10 +650,12 @@ def test_windows_host_skips_container_probe_for_windows_targets(
     main_module: ModuleType,
     module_harness: HarnessFactory,
     target: str,
+    setup_manifest: Path,
 ) -> None:
     """Does not probe container runtimes for Windows targets on Windows hosts."""
     harness = module_harness(main_module)
     harness.patch_platform("win32")
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 
@@ -685,10 +703,12 @@ def test_windows_host_skips_container_probe_for_windows_targets(
 def test_windows_host_probes_container_for_non_windows_targets(
     main_module: ModuleType,
     module_harness: HarnessFactory,
+    setup_manifest: Path,
 ) -> None:
     """Still probes container runtimes for non-Windows targets."""
     harness = module_harness(main_module)
     harness.patch_platform("win32")
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 
@@ -844,10 +864,12 @@ def test_runtime_available_handles_timeout(
     main_module: ModuleType,
     module_harness: HarnessFactory,
     capsys: pytest.CaptureFixture[str],
+    setup_manifest: Path,
 ) -> None:
     """Treat runtime probe timeouts as unavailable while still completing the build."""
     harness = module_harness(main_module)
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
+    assert setup_manifest.is_file()
 
     harness.patch_shutil_which(
         lambda name: "/usr/bin/rustup" if name == "rustup" else None
@@ -867,7 +889,7 @@ def test_runtime_available_handles_timeout(
 
     def record_run_cmd(cmd: list[str]) -> None:
         commands.append(cmd)
-        if cmd[:3] == ["/usr/bin/rustup", "target", "add"]:
+        if cmd[:3] == ["rustup", "target", "add"]:
             return
         if cmd and cmd[0] == "cargo":
             return
@@ -900,7 +922,7 @@ def test_runtime_available_handles_timeout(
     _assert_no_timeout_trace(err)
 
     assert len(commands) >= 2
-    assert commands[0][:3] == ["/usr/bin/rustup", "target", "add"]
+    assert commands[0][:3] == ["rustup", "target", "add"]
     assert commands[1][0] == "cargo"
     assert commands[1][1].startswith("+")
     assert commands[1][-1] == "thumbv7em-none-eabihf"

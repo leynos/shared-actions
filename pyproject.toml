@@ -18,6 +18,7 @@ dependencies = [
     "cyclopts>=3.24,<4.0",
     "syspath-hack>=0.4.0,<0.5.0",
     "jinja2>=3.1,<4.0",
+    "uuid-utils>=0.14,<0.15",
     # Pin Polythene to the requested commit for Linux package validation tooling.
     "polythene@git+https://github.com/leynos/polythene.git@61b4566130305fcb32f419f09ae8b3940ceb4107",
 ]
@@ -32,6 +33,7 @@ classifiers = [
 dev = [
     "lxml-stubs>=0.5.1",
     "pytest>=8.0,<9.0",
+    "pytest-bdd>=8.0,<9.0",
     "pyyaml>=6.0,<7.0",
     "ty>=0.0.1a20",
     "uuid6>=2025.0.1",

@@ -358,10 +358,12 @@ def test_installs_cross_without_container_runtime(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Installs cross even when no container runtime is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -380,6 +382,7 @@ def test_installs_cross_without_container_runtime(
     app_env.patch_shutil_which(fake_which)
     cross_env.patch_run_cmd()
     app_env.patch_run_cmd()
+    app_env.patch_attr("ensure_cross", cross_module.ensure_cross)
 
     cmd_mox.replay()
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
@@ -444,10 +447,12 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    setup_manifest: Path,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    assert setup_manifest.is_file()
 
     docker_path = "/usr/bin/docker"
     cross_path = "/usr/bin/cross"
@@ -462,6 +467,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", cross_module.ensure_cross)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 
@@ -486,6 +492,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
 
     cross_env.patch_subprocess_run(fake_run)
     app_env.patch_subprocess_run(fake_run)
+    app_env.patch_attr("_probe_runtime", lambda *_: False)
 
     main_module.main("x86_64-unknown-linux-gnu", default_toolchain)
 

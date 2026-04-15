@@ -25,6 +25,44 @@ function Ensure-WixToolAvailable {
     return $wixCommand
 }
 
+function Get-VersionMajor {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $VersionText,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Description
+    )
+
+    $match = [regex]::Match($VersionText, '(\d+)(?:\.\d+){0,2}')
+    if (-not $match.Success) {
+        Write-Error "Unable to determine $Description major version from '$VersionText'."
+        exit 1
+    }
+
+    return [int]$match.Groups[1].Value
+}
+
+function Get-WixMajorVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $WixExecutable
+    )
+
+    $wixVersionOutput = (& $WixExecutable --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to determine installed WiX CLI version:`n$wixVersionOutput"
+        exit $LASTEXITCODE
+    }
+
+    return Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+}
+
 function Ensure-PythonCommand {
     if ($script:PythonCommand) {
         return
@@ -453,7 +491,14 @@ function Build-MsiPackage {
         exit 1
     }
 
-    $arguments = @('build', $env:WXS_PATH)
+    $wixMajorVersion = Get-WixMajorVersion -WixExecutable $wixCommand.Name
+
+    $arguments = @('build')
+    if ($wixMajorVersion -ge 7) {
+        $arguments += @('-acceptEula', 'wix7')
+    }
+
+    $arguments += $env:WXS_PATH
     $arguments += Build-WixExtensionArguments -ExtensionList $env:WIX_EXTENSION
 
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)

@@ -65,6 +65,14 @@ if ($LASTEXITCODE -ne 0) {
 
 $wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
 
+if ($wixMajorVersion -ge 7) {
+    $eulaAcceptOutput = (& wix eula accept wix7 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to persist WiX EULA acceptance:`n$eulaAcceptOutput"
+        exit $LASTEXITCODE
+    }
+}
+
 if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
     $extensionVersion = $env:WIX_EXTENSION_VERSION
     if ([string]::IsNullOrWhiteSpace($extensionVersion)) {

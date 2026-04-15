@@ -343,6 +343,11 @@ def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
         . \"{BUILD_MSI_SCRIPT_PATH}\"
         function wix {{
             param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.0.0'
+                return
+            }}
             $global:LASTEXITCODE = 0
             $outputIndex = $args.IndexOf('-o')
             if ($outputIndex -ge 0 -and $outputIndex + 1 -lt $args.Count) {{
@@ -364,6 +369,7 @@ def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
     stdout = result.stdout
     assert "Executing WiX command:" in stdout
     assert "wix" in stdout
+    assert "-acceptEula wix7" in stdout
     assert "WiX output:" in stdout
     assert "Simulated WiX output" in stdout
     assert any(line.startswith("result:") for line in stdout.splitlines())
@@ -385,6 +391,11 @@ def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
         . \"{BUILD_MSI_SCRIPT_PATH}\"
         function wix {{
             param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.0.0'
+                return
+            }}
             Write-Error 'WiX compiler failed'
             $global:LASTEXITCODE = 17
         }}

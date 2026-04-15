@@ -25,6 +25,26 @@ function Ensure-WixToolAvailable {
     return $wixCommand
 }
 
+function Get-WixMajorVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $WixExecutable
+    )
+
+    $wixVersionOutput = (& $WixExecutable --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to determine installed WiX CLI version:`n$wixVersionOutput"
+        exit $LASTEXITCODE
+    }
+
+    $wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+    Assert-SupportedWixMajorVersion -MajorVersion $wixMajorVersion -VersionText $wixVersionOutput
+
+    return $wixMajorVersion
+}
+
 function Ensure-PythonCommand {
     if ($script:PythonCommand) {
         return
@@ -453,7 +473,14 @@ function Build-MsiPackage {
         exit 1
     }
 
-    $arguments = @('build', $env:WXS_PATH)
+    $wixMajorVersion = Get-WixMajorVersion -WixExecutable $wixCommand.Name
+
+    $arguments = @('build')
+    if ($wixMajorVersion -ge 7) {
+        $arguments += @('-acceptEula', 'wix7')
+    }
+
+    $arguments += $env:WXS_PATH
     $arguments += Build-WixExtensionArguments -ExtensionList $env:WIX_EXTENSION
 
     $arguments += @('-arch', $Architecture, '-d', "Version=$($env:VERSION)", '-o', $OutputPath)

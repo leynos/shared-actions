@@ -4,6 +4,8 @@
 
 - Harden MSI version parsing and output path sanitisation.
 - Improve WiX tool installation idempotency and error reporting.
+- Auto-match WiX extension versions to the installed WiX CLI major version and
+  reject explicit major-version mismatches.
 - Restrict tag-derived versions to refs that match `v#.#.#` semantics and fall
   back to `0.0.0` for non-tag builds.
 - Accept MSI build numbers up to `65535` and normalise architecture inputs to
@@ -17,4 +19,4 @@
 ## windows-package-v0.1.0
 
 - Initial release of the Windows packaging composite action.
-- Installs WiX v4, builds an MSI from a `.wxs` file and uploads the artefact.
+- Installs WiX, builds an MSI from a `.wxs` file and uploads the artefact.

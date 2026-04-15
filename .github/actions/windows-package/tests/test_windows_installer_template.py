@@ -20,6 +20,7 @@ MODULE_DIR = Path(__file__).resolve().parents[1] / "scripts"
 WINDOWS_INSTALLER_PATH = MODULE_DIR / "windows_installer" / "__init__.py"
 GENERATE_WXS_PATH = MODULE_DIR / "generate_wxs.py"
 BUILD_MSI_SCRIPT_PATH = MODULE_DIR / "build_msi.ps1"
+INSTALL_WIX_CLI_SCRIPT_PATH = MODULE_DIR / "install_wix_cli.ps1"
 
 
 def _load_module(path: Path, name: str) -> types.ModuleType:
@@ -216,6 +217,45 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
     assert result.stdout.strip() == "7.8.9"
 
 
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_install_wix_cli_uses_full_version_for_default_extension_coordinate() -> None:
+    """Blank extension versions should use the full semantic WiX CLI version."""
+    env = os.environ.copy()
+    env["WIX_EXTENSION"] = "WixToolset.UI.wixext"
+    env["WIX_EXTENSION_VERSION"] = " "
+    env.pop("WIX_TOOL_VERSION", None)
+
+    command = textwrap.dedent(
+        f"""
+        $global:WixCalls = @()
+        function dotnet {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            $global:LASTEXITCODE = 0
+        }}
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            $global:WixCalls += ,($args -join ' ')
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.1.2'
+                return
+            }}
+            $global:LASTEXITCODE = 0
+        }}
+        & "{INSTALL_WIX_CLI_SCRIPT_PATH}"
+        Write-Output $global:WixCalls[-1]
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    assert (
+        "extension add -acceptEula wix7 -g WixToolset.UI.wixext/7.1.2" in result.stdout
+    )
+    assert "WixToolset.UI.wixext/7 " not in result.stdout
+
+
 @dataclasses.dataclass(slots=True)
 class InputVersionScenario:
     """Test scenario for INPUT_VERSION handling."""
@@ -343,6 +383,11 @@ def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
         . \"{BUILD_MSI_SCRIPT_PATH}\"
         function wix {{
             param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.0.0'
+                return
+            }}
             $global:LASTEXITCODE = 0
             $outputIndex = $args.IndexOf('-o')
             if ($outputIndex -ge 0 -and $outputIndex + 1 -lt $args.Count) {{
@@ -364,9 +409,49 @@ def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
     stdout = result.stdout
     assert "Executing WiX command:" in stdout
     assert "wix" in stdout
+    assert "-acceptEula wix7" in stdout
     assert "WiX output:" in stdout
     assert "Simulated WiX output" in stdout
     assert any(line.startswith("result:") for line in stdout.splitlines())
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_rejects_pre_v7_wix(tmp_path: Path) -> None:
+    """WiX versions older than v7 should fail before attempting a build."""
+    env = os.environ.copy()
+    env["WXS_PATH"] = str(tmp_path / "input.wxs")
+    env["VERSION"] = "9.9.9"
+    env["OUTPUT_DIRECTORY"] = str(tmp_path)
+
+    output_path = tmp_path / "package.msi"
+    Path(env["WXS_PATH"]).write_text("<Wix/>", encoding="utf-8")
+
+    command = textwrap.dedent(
+        f"""
+        . \"{BUILD_MSI_SCRIPT_PATH}\"
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '6.0.0'
+                return
+            }}
+            $global:LASTEXITCODE = 0
+            Write-Output 'Simulated WiX output'
+        }}
+        Build-MsiPackage -OutputPath \"{output_path}\" -Architecture x64
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 1
+    assert (
+        "WiX CLI version '6.0.0' is not supported. WiX v7 or newer is required."
+        in result.stderr
+    )
+    assert "Executing WiX command:" not in result.stdout
+    assert not output_path.exists()
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
@@ -385,6 +470,11 @@ def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
         . \"{BUILD_MSI_SCRIPT_PATH}\"
         function wix {{
             param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.0.0'
+                return
+            }}
             Write-Error 'WiX compiler failed'
             $global:LASTEXITCODE = 17
         }}
@@ -395,8 +485,12 @@ def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
     result = _run_pwsh(command, env)
 
     assert result.returncode == 17
-    assert "WiX output:" in result.stdout
-    assert "WiX compiler failed" in result.stdout
+    stdout = result.stdout
+    assert "Executing WiX command:" in stdout
+    assert "wix" in stdout
+    assert "-acceptEula wix7" in stdout
+    assert "WiX output:" in stdout
+    assert "WiX compiler failed" in stdout
     assert "WiX build failed with exit code 17" in result.stderr
     assert not output_path.exists()
 

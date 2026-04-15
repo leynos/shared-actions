@@ -92,7 +92,6 @@ jobs:
           output-basename: rust-toy-app
           output-directory: rust-toy-app/target/${{ matrix.target }}/msi
           license-plaintext-path: rust-toy-app/LICENSE
-          wix-extension-version: '6'
           artefact-name: rust-toy-app-${{ matrix.target }}-msi-${{ steps.crate-version.outputs.version }}
       - name: Package Linux artefacts
         if: contains(matrix.target, 'unknown-linux-')

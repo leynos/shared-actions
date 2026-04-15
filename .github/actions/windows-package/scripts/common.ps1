@@ -18,6 +18,45 @@ function Get-SafeName {
     return $sanitised
 }
 
+function Get-VersionMajor {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $VersionText,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Description
+    )
+
+    $match = [regex]::Match($VersionText, '(\d+)(?:\.\d+){0,2}')
+    if (-not $match.Success) {
+        Write-Error "Unable to determine $Description major version from '$VersionText'."
+        exit 1
+    }
+
+    return [int]$match.Groups[1].Value
+}
+
+function Assert-SupportedWixMajorVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $MajorVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $VersionText
+    )
+
+    if ($MajorVersion -lt 7) {
+        Write-Error "WiX CLI version '$VersionText' is not supported. WiX v7 or newer is required."
+        exit 1
+    }
+}
+
 
 function Resolve-Architecture {
     [CmdletBinding()]

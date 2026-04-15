@@ -41,5 +41,5 @@ if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
     if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION_VERSION)) {
         $extensionCoordinate = "$extensionCoordinate/$($env:WIX_EXTENSION_VERSION)"
     }
-    wix extension add -g $extensionCoordinate
+    wix -acceptEula extension add -g $extensionCoordinate
 }

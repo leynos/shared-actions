@@ -109,7 +109,13 @@ def get_cargo_coverage_cmd(
     use_nextest: bool,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
-    args = ["llvm-cov"]
+    args = [
+        "--config",
+        'profile.dev.codegen-backend="llvm"',
+        "--config",
+        'profile.test.codegen-backend="llvm"',
+        "llvm-cov",
+    ]
     if use_nextest:
         args.append("nextest")
     args += ["--manifest-path", str(manifest_path), "--workspace", "--summary-only"]

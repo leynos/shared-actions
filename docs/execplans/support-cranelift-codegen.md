@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -104,20 +104,30 @@ the LLVM backend.
 
 ## Progress
 
-- [ ] Drafted initial ExecPlan.
-- [ ] Located all cargo argument assertions in test suite.
-- [ ] Updated `get_cargo_coverage_cmd` in `run_rust.py` to prepend `--config`
+- [x] (2026-04-15 00:00Z) Drafted initial ExecPlan.
+- [x] (2026-04-15 00:05Z) Located all cargo argument assertions in test suite.
+- [x] (2026-04-15 00:10Z) Updated `get_cargo_coverage_cmd` in `run_rust.py` to prepend `--config`
       flags.
-- [ ] Updated all existing tests to expect the new `--config` flags in the
-      cargo argument list.
-- [ ] Added new behavioural test for Cranelift-configured project.
-- [ ] Ran required Makefile gateways and committed.
+- [x] (2026-04-15 00:15Z) Updated all existing tests to expect the new `--config` flags in the
+      cargo argument list (8 test functions updated).
+- [x] (2026-04-15 00:20Z) Added new behavioural test for Cranelift-configured project.
+- [x] (2026-04-15 00:30Z) Ran required Makefile gateways: `make check-fmt` (passed),
+      `make lint` (passed), `make test` (643 passed, 86 skipped). Note: `make
+      typecheck` has a pre-existing error in `generate_wxs.py` unrelated to this
+      change.
 
 ## Surprises & discoveries
 
-- Observation: none yet.
-  Evidence: N/A
-  Impact: none.
+- Observation: `make typecheck` fails with a pre-existing error in
+  `generate_wxs.py` unrelated to this change.
+  Evidence: error[unresolved-import]: Module `cyclopts.exceptions` has no
+  member `UsageError` at `.github/actions/windows-package/scripts/generate_wxs.py:17:37`.
+  The code has `# type: ignore[attr-defined]` but the `ty` type checker
+  doesn't recognize this directive.
+  Impact: this is a pre-existing issue not introduced by this change. The
+  change is isolated to `run_rust.py` and `test_scripts.py` in the
+  generate-coverage action. Proceeding with `make lint` and `make test` to
+  verify the changes are correct.
 
 ## Decision log
 
@@ -143,7 +153,33 @@ the LLVM backend.
 
 ## Outcomes & retrospective
 
-Not yet started.
+Successfully implemented LLVM codegen backend forcing for the generate-coverage
+action. The `get_cargo_coverage_cmd()` function now prepends `--config
+'profile.dev.codegen-backend="llvm"'` and `--config
+'profile.test.codegen-backend="llvm"'` before the `llvm-cov` subcommand,
+ensuring coverage generation works even when projects configure the Cranelift
+codegen backend in their `.cargo/config.toml`.
+
+All existing tests were updated to expect the new `--config` flags (9 test
+functions total: 8 existing + 1 new Cranelift behavioural test). The new test
+`test_run_rust_cranelift_project_uses_llvm_codegen` validates that the LLVM
+override flags are present when a project has Cranelift configured.
+
+All required Makefile gateways passed except `make typecheck`, which has a
+pre-existing error in `generate_wxs.py` unrelated to this change.
+
+Key learnings:
+
+- The `--config` flag is a top-level cargo option and must appear before the
+  `llvm-cov` subcommand in the argument list. Attempting to pass it after
+  `llvm-cov` produces `error: invalid option '--config'`.
+- Ruff auto-formatting made one test assertion span multiple lines, which is
+  fine for readability.
+- One test (`test_run_rust_failure`) needed updating because it asserted
+  "cargo llvm-cov" in stderr, but the full command now includes `--config`
+  flags before `llvm-cov`.
+
+The implementation is complete and ready for commit.
 
 ## Context and orientation
 

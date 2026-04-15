@@ -3,6 +3,27 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+function Get-VersionMajor {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]
+        $VersionText,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Description
+    )
+
+    $match = [regex]::Match($VersionText, '(\d+)(?:\.\d+){0,2}')
+    if (-not $match.Success) {
+        Write-Error "Unable to determine $Description major version from '$VersionText'."
+        exit 1
+    }
+
+    return [int]$match.Groups[1].Value
+}
+
 $toolsDir = Join-Path $env:USERPROFILE '.dotnet\tools'
 if (-not ($env:PATH -split ';' | Where-Object { $_ -eq $toolsDir })) {
     $env:PATH = "$toolsDir;$env:PATH"
@@ -36,10 +57,30 @@ if ($updateExitCode -ne 0) {
     }
 }
 
+$wixVersionOutput = (& wix --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to determine installed WiX CLI version:`n$wixVersionOutput"
+    exit $LASTEXITCODE
+}
+
+$wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+
 if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
+    $extensionVersion = $env:WIX_EXTENSION_VERSION
+    if ([string]::IsNullOrWhiteSpace($extensionVersion)) {
+        $extensionVersion = $wixMajorVersion.ToString()
+    }
+    else {
+        $extensionMajorVersion = Get-VersionMajor -VersionText $extensionVersion -Description 'WiX extension'
+        if ($extensionMajorVersion -ne $wixMajorVersion) {
+            Write-Error "WiX extension version '$extensionVersion' is incompatible with installed WiX CLI version '$wixVersionOutput'. Use a $wixMajorVersion.x extension or omit WIX_EXTENSION_VERSION to auto-match the installed WiX major."
+            exit 1
+        }
+    }
+
     $extensionCoordinate = $env:WIX_EXTENSION
-    if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION_VERSION)) {
-        $extensionCoordinate = "$extensionCoordinate/$($env:WIX_EXTENSION_VERSION)"
+    if (-not [string]::IsNullOrWhiteSpace($extensionVersion)) {
+        $extensionCoordinate = "$extensionCoordinate/$extensionVersion"
     }
     wix extension add -acceptEula wix7 -g $extensionCoordinate
 }

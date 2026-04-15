@@ -1,5 +1,5 @@
 name: Windows package
-description: Build a WiX v4 MSI from prebuilt application assets on Windows runners
+description: Build a WiX MSI from prebuilt application assets on Windows runners
 inputs:
   wxs-path:
     description: Path to a custom WiX authoring (.wxs) file. When omitted the action renders a default template.
@@ -59,9 +59,11 @@ inputs:
     required: false
     default: WixToolset.UI.wixext
   wix-extension-version:
-    description: Version of the WiX extension to install via `wix extension add`.
+    description: >-
+      Version of the WiX extension to install via `wix extension add`. When omitted, the
+      action auto-matches the installed WiX CLI major version.
     required: false
-    default: '4'
+    default: ''
   output-basename:
     description: Base filename for the generated MSI without extension.
     required: false

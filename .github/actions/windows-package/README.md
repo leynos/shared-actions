@@ -1,13 +1,13 @@
 # Windows package action
 
-Build a WiX v4 MSI from a prebuilt Windows application, license text (RTF) and
+Build a WiX MSI from a prebuilt Windows application, license text (RTF) and
 supporting documentation. The action codifies the workflow documented in the
 repository guidance so that any job can produce a signed installer artefact with
 one composite call.
 
 ## Features
 
-- Installs the WiX v4 CLI and UI extension on the runner.
+- Installs the WiX CLI and UI extension on the runner.
 - Resolves the MSI version from an explicit input or a tagged Git reference.
 - Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a generated template that
   installs the provided application and supporting files.
@@ -25,7 +25,7 @@ inputs):
 ```text
 .
 ├─ installer/
-│  └─ Package.wxs              # WiX v4 authoring
+│  └─ Package.wxs              # WiX authoring
 └─ assets/
    ├─ MyApp.exe                # application binary
    ├─ LICENSE.rtf              # license text shown in the installer UI
@@ -53,7 +53,7 @@ provide the executable (and optional additional files) via the `application-path
 | `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
 | `wix-tool-version` | no | _latest_ | Specific version of the `wix` .NET global tool to install. |
 | `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension coordinate loaded during the build. |
-| `wix-extension-version` | no | `4` | Version suffix appended to the extension coordinate (e.g. `WixToolset.UI.wixext/4`). |
+| `wix-extension-version` | no | `''` | Version suffix appended to the extension coordinate. When omitted, the action auto-matches the installed WiX CLI major version (for example `WixToolset.UI.wixext/7` with WiX v7). |
 | `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
 | `output-directory` | no | `out` | Directory where the MSI artefact is created. |
 | `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license |

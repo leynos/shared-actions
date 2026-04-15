@@ -376,6 +376,45 @@ def test_build_msi_logs_command_and_output(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_build_msi_rejects_pre_v7_wix(tmp_path: Path) -> None:
+    """WiX versions older than v7 should fail before attempting a build."""
+    env = os.environ.copy()
+    env["WXS_PATH"] = str(tmp_path / "input.wxs")
+    env["VERSION"] = "9.9.9"
+    env["OUTPUT_DIRECTORY"] = str(tmp_path)
+
+    output_path = tmp_path / "package.msi"
+    Path(env["WXS_PATH"]).write_text("<Wix/>", encoding="utf-8")
+
+    command = textwrap.dedent(
+        f"""
+        . \"{BUILD_MSI_SCRIPT_PATH}\"
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '6.0.0'
+                return
+            }}
+            $global:LASTEXITCODE = 0
+            Write-Output 'Simulated WiX output'
+        }}
+        Build-MsiPackage -OutputPath \"{output_path}\" -Architecture x64
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 1
+    assert (
+        "WiX CLI version '6.0.0' is not supported. WiX v7 or newer is required."
+        in result.stderr
+    )
+    assert "Executing WiX command:" not in result.stdout
+    assert not output_path.exists()
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
 def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
     """Non-zero WiX exits should propagate with captured output."""
     env = os.environ.copy()

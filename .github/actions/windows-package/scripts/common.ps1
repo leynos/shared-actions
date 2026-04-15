@@ -39,6 +39,24 @@ function Get-VersionMajor {
     return [int]$match.Groups[1].Value
 }
 
+function Assert-SupportedWixMajorVersion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]
+        $MajorVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $VersionText
+    )
+
+    if ($MajorVersion -lt 7) {
+        Write-Error "WiX CLI version '$VersionText' is not supported. WiX v7 or newer is required."
+        exit 1
+    }
+}
+
 
 function Resolve-Architecture {
     [CmdletBinding()]

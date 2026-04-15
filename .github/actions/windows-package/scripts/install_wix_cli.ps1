@@ -27,25 +27,17 @@ function Install-WixTool {
 
     dotnet tool update @installArgs 2>&1 | Tee-Object -Variable updateOutput | Out-Null
     $updateExitCode = $LASTEXITCODE
-    if ($updateExitCode -ne 0) {
-        if ($updateOutput) {
-            Write-Warning "dotnet tool update failed with exit code $($updateExitCode):`n$($updateOutput)"
-        }
-        else {
-            Write-Warning "dotnet tool update failed with exit code $($updateExitCode)."
-        }
+    if ($updateExitCode -eq 0) { return }
 
-        dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            if ($installOutput) {
-                Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE)):`n$($installOutput)"
-            }
-            else {
-                Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE))."
-            }
-            exit $LASTEXITCODE
-        }
-    }
+    $updateSuffix = if ($updateOutput) { ":`n$updateOutput" } else { '.' }
+    Write-Warning "dotnet tool update failed with exit code $($updateExitCode)$updateSuffix"
+
+    dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null
+    if ($LASTEXITCODE -eq 0) { return }
+
+    $installSuffix = if ($installOutput) { ":`n$installOutput" } else { '.' }
+    Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE))$installSuffix"
+    exit $LASTEXITCODE
 }
 
 function Get-InstalledWixVersion {
@@ -161,6 +153,7 @@ function Invoke-Main {
 
     $wixVersionOutput = Get-InstalledWixVersion
     $wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+    Assert-SupportedWixMajorVersion -MajorVersion $wixMajorVersion -VersionText $wixVersionOutput
 
     Confirm-WixEula -MajorVersion $wixMajorVersion
     Install-WixExtension `

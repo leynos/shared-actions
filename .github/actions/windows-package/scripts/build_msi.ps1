@@ -39,7 +39,10 @@ function Get-WixMajorVersion {
         exit $LASTEXITCODE
     }
 
-    return Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+    $wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+    Assert-SupportedWixMajorVersion -MajorVersion $wixMajorVersion -VersionText $wixVersionOutput
+
+    return $wixMajorVersion
 }
 
 function Ensure-PythonCommand {

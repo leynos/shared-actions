@@ -71,7 +71,8 @@ function Confirm-WixEula {
     )
 
     if ($MajorVersion -ge 7) {
-        $eulaAcceptOutput = (& wix eula accept wix7 2>&1 | Out-String).Trim()
+        $eulaToken = "wix$MajorVersion"
+        $eulaAcceptOutput = (& wix eula accept $eulaToken 2>&1 | Out-String).Trim()
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Failed to persist WiX EULA acceptance:`n$eulaAcceptOutput"
             exit $LASTEXITCODE
@@ -147,12 +148,17 @@ function Install-WixExtension {
 
     $arguments = @('extension', 'add')
     if ($WixMajorVersion -ge 7) {
-        $arguments += @('-acceptEula', 'wix7')
+        $eulaToken = "wix$WixMajorVersion"
+        $arguments += @('-acceptEula', $eulaToken)
     }
     $arguments += @('-g', $extensionCoordinate)
 
-    & wix @arguments
+    $output = & wix @arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
+        $outputText = ($output | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($outputText)) {
+            Write-Error $outputText
+        }
         exit $LASTEXITCODE
     }
 }

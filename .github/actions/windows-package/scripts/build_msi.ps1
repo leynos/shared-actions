@@ -25,27 +25,6 @@ function Ensure-WixToolAvailable {
     return $wixCommand
 }
 
-function Get-VersionMajor {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]
-        $VersionText,
-
-        [Parameter(Mandatory = $true)]
-        [string]
-        $Description
-    )
-
-    $match = [regex]::Match($VersionText, '(\d+)(?:\.\d+){0,2}')
-    if (-not $match.Success) {
-        Write-Error "Unable to determine $Description major version from '$VersionText'."
-        exit 1
-    }
-
-    return [int]$match.Groups[1].Value
-}
-
 function Get-WixMajorVersion {
     [CmdletBinding()]
     param(

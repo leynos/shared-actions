@@ -3,92 +3,171 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
-function Get-VersionMajor {
+function Set-ToolsPath {
+    [CmdletBinding()]
+    param()
+
+    $toolsDir = Join-Path $env:USERPROFILE '.dotnet\tools'
+    if (-not ($env:PATH -split ';' | Where-Object { $_ -eq $toolsDir })) {
+        $env:PATH = "$toolsDir;$env:PATH"
+    }
+}
+
+function Install-WixTool {
+    [CmdletBinding()]
+    param(
+        [string]
+        $ToolVersion
+    )
+
+    $installArgs = @('--global', 'wix')
+    if (-not [string]::IsNullOrWhiteSpace($ToolVersion)) {
+        $installArgs += @('--version', $ToolVersion)
+    }
+
+    dotnet tool update @installArgs 2>&1 | Tee-Object -Variable updateOutput | Out-Null
+    $updateExitCode = $LASTEXITCODE
+    if ($updateExitCode -ne 0) {
+        if ($updateOutput) {
+            Write-Warning "dotnet tool update failed with exit code $($updateExitCode):`n$($updateOutput)"
+        }
+        else {
+            Write-Warning "dotnet tool update failed with exit code $($updateExitCode)."
+        }
+
+        dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            if ($installOutput) {
+                Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE)):`n$($installOutput)"
+            }
+            else {
+                Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE))."
+            }
+            exit $LASTEXITCODE
+        }
+    }
+}
+
+function Get-InstalledWixVersion {
+    [CmdletBinding()]
+    param()
+
+    $wixVersionOutput = (& wix --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to determine installed WiX CLI version:`n$wixVersionOutput"
+        exit $LASTEXITCODE
+    }
+
+    return $wixVersionOutput
+}
+
+function Confirm-WixEula {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
+        [int]
+        $MajorVersion
+    )
+
+    if ($MajorVersion -ge 7) {
+        $eulaAcceptOutput = (& wix eula accept wix7 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to persist WiX EULA acceptance:`n$eulaAcceptOutput"
+            exit $LASTEXITCODE
+        }
+    }
+}
+
+function Resolve-ExtensionVersion {
+    [CmdletBinding()]
+    param(
         [string]
-        $VersionText,
+        $ExtensionVersion,
+
+        [Parameter(Mandatory = $true)]
+        [int]
+        $WixMajorVersion,
 
         [Parameter(Mandatory = $true)]
         [string]
-        $Description
+        $WixVersionOutput
     )
 
-    $match = [regex]::Match($VersionText, '(\d+)(?:\.\d+){0,2}')
-    if (-not $match.Success) {
-        Write-Error "Unable to determine $Description major version from '$VersionText'."
+    if ([string]::IsNullOrWhiteSpace($ExtensionVersion)) {
+        return $WixMajorVersion.ToString()
+    }
+
+    $extensionMajorVersion = Get-VersionMajor -VersionText $ExtensionVersion -Description 'WiX extension'
+    if ($extensionMajorVersion -ne $WixMajorVersion) {
+        Write-Error "WiX extension version '$ExtensionVersion' is incompatible with installed WiX CLI version '$WixVersionOutput'. Use a $WixMajorVersion.x extension or omit WIX_EXTENSION_VERSION to auto-match the installed WiX major."
         exit 1
     }
 
-    return [int]$match.Groups[1].Value
+    return $ExtensionVersion
 }
 
-$toolsDir = Join-Path $env:USERPROFILE '.dotnet\tools'
-if (-not ($env:PATH -split ';' | Where-Object { $_ -eq $toolsDir })) {
-    $env:PATH = "$toolsDir;$env:PATH"
-}
+function Install-WixExtension {
+    [CmdletBinding()]
+    param(
+        [string]
+        $Extension,
 
-$toolVersion = $env:WIX_TOOL_VERSION
-$installArgs = @('--global', 'wix')
-if (-not [string]::IsNullOrWhiteSpace($toolVersion)) {
-    $installArgs += @('--version', $toolVersion)
-}
+        [string]
+        $ExtensionVersion,
 
-dotnet tool update @installArgs 2>&1 | Tee-Object -Variable updateOutput | Out-Null
-$updateExitCode = $LASTEXITCODE
-if ($updateExitCode -ne 0) {
-    if ($updateOutput) {
-        Write-Warning "dotnet tool update failed with exit code $($updateExitCode):`n$($updateOutput)"
+        [Parameter(Mandatory = $true)]
+        [int]
+        $WixMajorVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $WixVersionOutput
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Extension)) {
+        return
     }
-    else {
-        Write-Warning "dotnet tool update failed with exit code $($updateExitCode)."
+
+    $resolvedExtensionVersion = Resolve-ExtensionVersion `
+        -ExtensionVersion $ExtensionVersion `
+        -WixMajorVersion $WixMajorVersion `
+        -WixVersionOutput $WixVersionOutput
+
+    $extensionCoordinate = $Extension
+    if (-not [string]::IsNullOrWhiteSpace($resolvedExtensionVersion)) {
+        $extensionCoordinate = "$extensionCoordinate/$resolvedExtensionVersion"
     }
 
-    dotnet tool install @installArgs 2>&1 | Tee-Object -Variable installOutput | Out-Null
+    $arguments = @('extension', 'add')
+    if ($WixMajorVersion -ge 7) {
+        $arguments += @('-acceptEula', 'wix7')
+    }
+    $arguments += @('-g', $extensionCoordinate)
+
+    & wix @arguments
     if ($LASTEXITCODE -ne 0) {
-        if ($installOutput) {
-            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE)):`n$($installOutput)"
-        }
-        else {
-            Write-Error "Failed to install WiX CLI via dotnet tool (exit code $($LASTEXITCODE))."
-        }
         exit $LASTEXITCODE
     }
 }
 
-$wixVersionOutput = (& wix --version 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to determine installed WiX CLI version:`n$wixVersionOutput"
-    exit $LASTEXITCODE
+function Invoke-Main {
+    [CmdletBinding()]
+    param()
+
+    . (Join-Path -Path $PSScriptRoot -ChildPath 'common.ps1')
+
+    Set-ToolsPath
+    Install-WixTool -ToolVersion $env:WIX_TOOL_VERSION
+
+    $wixVersionOutput = Get-InstalledWixVersion
+    $wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
+
+    Confirm-WixEula -MajorVersion $wixMajorVersion
+    Install-WixExtension `
+        -Extension $env:WIX_EXTENSION `
+        -ExtensionVersion $env:WIX_EXTENSION_VERSION `
+        -WixMajorVersion $wixMajorVersion `
+        -WixVersionOutput $wixVersionOutput
 }
 
-$wixMajorVersion = Get-VersionMajor -VersionText $wixVersionOutput -Description 'WiX CLI'
-
-if ($wixMajorVersion -ge 7) {
-    $eulaAcceptOutput = (& wix eula accept wix7 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to persist WiX EULA acceptance:`n$eulaAcceptOutput"
-        exit $LASTEXITCODE
-    }
-}
-
-if (-not [string]::IsNullOrWhiteSpace($env:WIX_EXTENSION)) {
-    $extensionVersion = $env:WIX_EXTENSION_VERSION
-    if ([string]::IsNullOrWhiteSpace($extensionVersion)) {
-        $extensionVersion = $wixMajorVersion.ToString()
-    }
-    else {
-        $extensionMajorVersion = Get-VersionMajor -VersionText $extensionVersion -Description 'WiX extension'
-        if ($extensionMajorVersion -ne $wixMajorVersion) {
-            Write-Error "WiX extension version '$extensionVersion' is incompatible with installed WiX CLI version '$wixVersionOutput'. Use a $wixMajorVersion.x extension or omit WIX_EXTENSION_VERSION to auto-match the installed WiX major."
-            exit 1
-        }
-    }
-
-    $extensionCoordinate = $env:WIX_EXTENSION
-    if (-not [string]::IsNullOrWhiteSpace($extensionVersion)) {
-        $extensionCoordinate = "$extensionCoordinate/$extensionVersion"
-    }
-    wix extension add -acceptEula wix7 -g $extensionCoordinate
-}
+Invoke-Main

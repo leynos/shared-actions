@@ -406,8 +406,12 @@ def test_build_msi_surfaces_wix_exit_code(tmp_path: Path) -> None:
     result = _run_pwsh(command, env)
 
     assert result.returncode == 17
-    assert "WiX output:" in result.stdout
-    assert "WiX compiler failed" in result.stdout
+    stdout = result.stdout
+    assert "Executing WiX command:" in stdout
+    assert "wix" in stdout
+    assert "-acceptEula wix7" in stdout
+    assert "WiX output:" in stdout
+    assert "WiX compiler failed" in stdout
     assert "WiX build failed with exit code 17" in result.stderr
     assert not output_path.exists()
 

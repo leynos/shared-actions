@@ -7,9 +7,18 @@ function Set-ToolsPath {
     [CmdletBinding()]
     param()
 
-    $toolsDir = Join-Path $env:USERPROFILE '.dotnet\tools'
-    if (-not ($env:PATH -split ';' | Where-Object { $_ -eq $toolsDir })) {
-        $env:PATH = "$toolsDir;$env:PATH"
+    $homeDir = $env:USERPROFILE
+    if ([string]::IsNullOrWhiteSpace($homeDir)) {
+        $homeDir = $HOME
+    }
+    if ([string]::IsNullOrWhiteSpace($homeDir)) {
+        return
+    }
+
+    $toolsDir = Join-Path (Join-Path $homeDir '.dotnet') 'tools'
+    $pathSeparator = [IO.Path]::PathSeparator
+    if (-not ($env:PATH -split [regex]::Escape([string]$pathSeparator) | Where-Object { $_ -eq $toolsDir })) {
+        $env:PATH = "$toolsDir$pathSeparator$env:PATH"
     }
 }
 

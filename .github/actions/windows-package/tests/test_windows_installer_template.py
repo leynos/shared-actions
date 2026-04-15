@@ -20,6 +20,7 @@ MODULE_DIR = Path(__file__).resolve().parents[1] / "scripts"
 WINDOWS_INSTALLER_PATH = MODULE_DIR / "windows_installer" / "__init__.py"
 GENERATE_WXS_PATH = MODULE_DIR / "generate_wxs.py"
 BUILD_MSI_SCRIPT_PATH = MODULE_DIR / "build_msi.ps1"
+INSTALL_WIX_CLI_SCRIPT_PATH = MODULE_DIR / "install_wix_cli.ps1"
 
 
 def _load_module(path: Path, name: str) -> types.ModuleType:
@@ -214,6 +215,45 @@ def test_build_msi_sets_input_version_from_version_env() -> None:
 
     assert result.returncode == 0
     assert result.stdout.strip() == "7.8.9"
+
+
+@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh is not available")
+def test_install_wix_cli_uses_full_version_for_default_extension_coordinate() -> None:
+    """Blank extension versions should use the full semantic WiX CLI version."""
+    env = os.environ.copy()
+    env["WIX_EXTENSION"] = "WixToolset.UI.wixext"
+    env["WIX_EXTENSION_VERSION"] = " "
+    env.pop("WIX_TOOL_VERSION", None)
+
+    command = textwrap.dedent(
+        f"""
+        $global:WixCalls = @()
+        function dotnet {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            $global:LASTEXITCODE = 0
+        }}
+        function wix {{
+            param([Parameter(ValueFromRemainingArguments = $true)][string[]] $args)
+            $global:WixCalls += ,($args -join ' ')
+            if ($args.Count -gt 0 -and $args[0] -eq '--version') {{
+                $global:LASTEXITCODE = 0
+                Write-Output '7.1.2'
+                return
+            }}
+            $global:LASTEXITCODE = 0
+        }}
+        & "{INSTALL_WIX_CLI_SCRIPT_PATH}"
+        Write-Output $global:WixCalls[-1]
+        """
+    ).strip()
+
+    result = _run_pwsh(command, env)
+
+    assert result.returncode == 0
+    assert (
+        "extension add -acceptEula wix7 -g WixToolset.UI.wixext/7.1.2" in result.stdout
+    )
+    assert "WixToolset.UI.wixext/7 " not in result.stdout
 
 
 @dataclasses.dataclass(slots=True)

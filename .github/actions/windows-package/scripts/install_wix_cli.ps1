@@ -86,6 +86,12 @@ function Resolve-ExtensionVersion {
     )
 
     if ([string]::IsNullOrWhiteSpace($ExtensionVersion)) {
+        $versionMatch = [regex]::Match($WixVersionOutput, '(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)')
+        if ($versionMatch.Success) {
+            return $versionMatch.Groups[1].Value
+        }
+
+        Write-Warning "Unable to determine full WiX extension version from installed WiX CLI version '$WixVersionOutput'. Falling back to major version '$WixMajorVersion'."
         return $WixMajorVersion.ToString()
     }
 

@@ -224,7 +224,6 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         ),
     )
     expected_args = [
-        *_LLVM_CONFIG_PREFIX,
         "llvm-cov",
         "--manifest-path",
         "Cargo.toml",
@@ -257,7 +256,6 @@ def test_run_rust_nextest_command(
         monkeypatch=monkeypatch,
     )
     expected_args = [
-        *_LLVM_CONFIG_PREFIX,
         "llvm-cov",
         "nextest",
         "--manifest-path",
@@ -281,8 +279,7 @@ def test_run_rust_uses_detected_manifest_path(
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
     )
-    assert cargo_args[0:7] == [
-        *_LLVM_CONFIG_PREFIX,
+    assert cargo_args[0:3] == [
         "llvm-cov",
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
@@ -298,7 +295,6 @@ def test_run_rust_uses_detected_manifest_path(
             False,
             "Cargo.toml",
             [
-                *_LLVM_CONFIG_PREFIX,
                 "llvm-cov",
                 "nextest",
                 "--manifest-path",
@@ -318,7 +314,6 @@ def test_run_rust_uses_detected_manifest_path(
             True,
             "rust-toy-app/Cargo.toml",
             [
-                *_LLVM_CONFIG_PREFIX,
                 "llvm-cov",
                 "--manifest-path",
                 "rust-toy-app/Cargo.toml",
@@ -401,14 +396,14 @@ def test_run_rust_main_nextest_variants(
     )
 
     if use_nextest:
-        assert args[:6] == [*_LLVM_CONFIG_PREFIX, "llvm-cov", "nextest"]
+        assert args[:2] == ["llvm-cov", "nextest"]
         assert "--manifest-path" in args
         assert "Cargo.toml" in args
         data = github_output.read_text().splitlines()
         assert f"file={output}" in data
         assert "percent=100.00" in data
     else:
-        assert args[:5] == [*_LLVM_CONFIG_PREFIX, "llvm-cov"]
+        assert args[:1] == ["llvm-cov"]
         assert "nextest" not in args
         assert "--manifest-path" in args
         assert "Cargo.toml" in args
@@ -729,7 +724,6 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
     assert len(calls) == 2
     cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
     expected_second = [
-        *_LLVM_CONFIG_PREFIX,
         "llvm-cov",
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
@@ -795,8 +789,6 @@ def test_run_rust_with_cucumber_nextest(
     assert len(calls) == 2
     assert "nextest" in calls[0].argv
     assert "nextest" in calls[1].argv
-    assert calls[0].argv[: len(_LLVM_CONFIG_PREFIX)] == _LLVM_CONFIG_PREFIX
-    assert calls[1].argv[: len(_LLVM_CONFIG_PREFIX)] == _LLVM_CONFIG_PREFIX
     assert "--manifest-path" in calls[0].argv
     assert "--manifest-path" in calls[1].argv
     assert "rust-toy-app/Cargo.toml" in calls[0].argv

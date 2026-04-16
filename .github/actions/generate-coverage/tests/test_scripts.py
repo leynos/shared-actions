@@ -211,9 +211,15 @@ def _run_rust_coverage_test(
     return calls[0].argv, calls[0].env, out, gh
 
 
-def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
+def test_run_rust_success(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Happy path for ``run_rust.py``."""
-    cargo_args, cargo_env, out, gh = _run_rust_coverage_test(
+    monkeypatch.delenv("CARGO_PROFILE_DEV_CODEGEN_BACKEND", raising=False)
+    monkeypatch.delenv("CARGO_PROFILE_TEST_CODEGEN_BACKEND", raising=False)
+    cargo_call, out, gh = _run_rust_coverage_call(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(
@@ -222,6 +228,7 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
             with_default_features=False,
         ),
     )
+    cargo_args = cargo_call.argv
     expected_args = [
         "llvm-cov",
         "--manifest-path",
@@ -236,8 +243,8 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         str(out),
     ]
     assert cargo_args == expected_args
-    assert cargo_env.get("CARGO_PROFILE_DEV_CODEGEN_BACKEND") is None
-    assert cargo_env.get("CARGO_PROFILE_TEST_CODEGEN_BACKEND") is None
+    assert "CARGO_PROFILE_DEV_CODEGEN_BACKEND" not in cargo_call.env
+    assert "CARGO_PROFILE_TEST_CODEGEN_BACKEND" not in cargo_call.env
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
@@ -1692,3 +1699,52 @@ def test_cobertura_permission_error(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+def test_get_cargo_coverage_env_cranelift_variants(
+    tmp_path: Path, run_rust_module: ModuleType
+) -> None:
+    """Config or manifest Cranelift settings get overrides; LLVM repos do not."""
+    cargo_config_dir = tmp_path / ".cargo"
+    cargo_config_dir.mkdir()
+    cargo_config = cargo_config_dir / "config.toml"
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text("[package]\nname = 'demo'\nversion = '0.1.0'\n")
+
+    cargo_config.write_text(
+        "[profile.dev]\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    cargo_config.write_text(
+        "[profile.dev]\ncodegen-backend = 'llvm'\n", encoding="utf-8"
+    )
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        '[profile.dev]\ncodegen-backend = "cranelift"\n',
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        "[profile.test]\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        "[profile.dev]\ncodegen-backend = 'llvm'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {}

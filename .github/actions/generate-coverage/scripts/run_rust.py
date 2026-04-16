@@ -176,6 +176,29 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
         search_dir = parent
     return False
 
+def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
+    """Return ``True`` when ``manifest_path`` configures Cranelift in profiles."""
+    try:
+        content = manifest_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+
+    in_profile_section = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        section_match = re.match(r"^\[(?P<section>[^\]]+)\]$", stripped)
+        if section_match:
+            section = section_match.group("section").strip()
+            in_profile_section = section == "profile" or section.startswith("profile.")
+            continue
+        if not in_profile_section:
+            continue
+        if re.match(r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']', line):
+            return True
+    return False
+
 
 def get_cargo_coverage_cmd(
     fmt: str,

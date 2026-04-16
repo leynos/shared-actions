@@ -110,18 +110,17 @@ GitHub Actions environment variables already set by the caller.
 
 ### Cranelift Detection Strategy
 
-Cranelift detection deliberately reuses the existing lightweight search in
-`_uses_cranelift_backend(manifest_path)`:
+Cranelift detection is intentionally lightweight, but it now checks two
+sources before deciding coverage needs LLVM overrides:
 
-- start from the selected Cargo manifest directory
-- walk upward towards the filesystem root
-- look for `.cargo/config.toml` and `.cargo/config`
-- read the file as UTF-8 when possible
-- treat any line matching `codegen-backend = "cranelift"` as a signal that
-  coverage should switch the `dev` and `test` profiles back to LLVM
+- `_uses_cranelift_backend(manifest_path)` walks upward from the selected Cargo
+  manifest directory and scans `.cargo/config.toml` plus `.cargo/config`.
+- `_manifest_uses_cranelift_backend(manifest_path)` reads the selected
+  `Cargo.toml` and scans profile sections for
+  `codegen-backend = "cranelift"` or the single-quoted equivalent.
 
-This approach is fast, dependency-free, and good enough for the specific
-coverage failure mode the action is addressing.
+The action therefore catches both repository-level Cargo config overrides and
+manifest-level profile settings without needing a full TOML parser.
 
 ### Known Limitations
 
@@ -132,10 +131,9 @@ should understand:
   `codegen-backend = "cranelift"` assignment triggers the override, even if it
   appears in a table that is more specific than the action strictly needs to
   reason about.
-- It only inspects `.cargo/config.toml` and `.cargo/config` files reachable by
-  walking upward from the manifest directory. It does not model configuration
-  injected via CLI `--config`, environment-backed Cargo config, or other
-  runtime indirection.
+- It only inspects `.cargo/config.toml`, `.cargo/config`, and the selected
+  `Cargo.toml`. It does not model configuration injected via CLI `--config`,
+  environment-backed Cargo config, or other runtime indirection.
 - It always applies both `CARGO_PROFILE_DEV_CODEGEN_BACKEND` and
   `CARGO_PROFILE_TEST_CODEGEN_BACKEND` together once Cranelift is detected. The
   action currently does not try to mirror per-profile granularity from the

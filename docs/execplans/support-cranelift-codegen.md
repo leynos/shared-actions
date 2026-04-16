@@ -101,10 +101,12 @@ detected.
   break existing tests that assert exact argument sequences.
   Severity: medium
   Likelihood: high
-  Mitigation: update all affected test assertions to include the new `--config`
-  flags in the expected argument list. The exploration phase identified that
-  tests in `test_scripts.py` assert exact `cargo_args` lists; these must all be
-  updated.
+  Mitigation: because the `--config` flags are only prepended when Cranelift is
+  detected, most existing tests (which do not create `.cargo/config.toml` with
+  Cranelift settings) are unaffected. Only the new Cranelift-specific test
+  asserts the presence of the prefix. Tests with rigid positional assertions
+  (like `args[:3]`) are updated to use semantic checks (like finding the index
+  of `"--manifest-path"`) so they work regardless of prefix presence.
 
 ## Progress
 
@@ -332,7 +334,8 @@ updated assertions.
 ### Stage C: add new behavioural test for Cranelift-configured project
 
 Add a new test function `test_run_rust_cranelift_project_uses_llvm_codegen` to
-`test_scripts.py`. This test will:
+`test_scripts.py`. This unit test validates cargo argument construction (not
+end-to-end coverage generation):
 
 1. Create a temporary directory with a `.cargo/config.toml` that configures
    Cranelift:
@@ -348,33 +351,28 @@ Add a new test function `test_run_rust_cranelift_project_uses_llvm_codegen` to
    codegen-backend = "cranelift"
    ```
 
-2. Copy (or symlink) the `rust-toy-app/Cargo.toml` into the temporary
-   directory to satisfy the manifest path requirement (or just use the existing
-   `RustCoverageConfig` with a stub cargo).
+2. Use `_run_rust_coverage_test` with `shell_stubs` and
+   `RustCoverageConfig(use_nextest=True)` to stub the `cargo` executable via
+   cmd-mox and run the coverage script against the temporary directory. The
+   helper uses `monkeypatch.chdir(tmp_path)` so the script finds the
+   `.cargo/config.toml`.
 
-3. Use `_run_rust_coverage_test` (or a variant of it) with `shell_stubs` to
-   stub `cargo` and capture the argument list.
+3. Capture the stubbed cargo invocation's argv from `shell_stubs.calls_of("cargo")`.
 
-4. Assert that the captured cargo arguments contain the `--config
-   'profile.dev.codegen-backend="llvm"'` and `--config
-   'profile.test.codegen-backend="llvm"'` flags before the `llvm-cov`
-   subcommand.
+4. Assert that the captured `cargo_args[:len(_LLVM_CONFIG_PREFIX)]` equals
+   `_LLVM_CONFIG_PREFIX` (the four `--config` override elements), followed by
+   `"llvm-cov"` at index `len(_LLVM_CONFIG_PREFIX)` and `"nextest"` at
+   `len(_LLVM_CONFIG_PREFIX) + 1`.
 
-5. Assert that coverage output is generated successfully (the stub returns
-   valid coverage data).
+The test does not copy `rust-toy-app/Cargo.toml`, does not produce real
+coverage output, and does not invoke real cargo. It proves that the script
+constructs the correct cargo argument list when Cranelift is detected. The
+actual command-line override (cargo's `--config` precedence) is cargo's
+documented behaviour and does not need testing here.
 
-The test proves that even when a project has Cranelift configured in its
-`.cargo/config.toml`, the action's cargo invocation includes the LLVM override
-flags. The actual override is handled by cargo's `--config` precedence rules
-(command-line `--config` takes precedence over `.cargo/config.toml`), which is
-cargo's documented behaviour and does not need to be tested here.
-
-The test should also ensure the Cranelift rustup component would be installed
-in a real scenario. Since cmd-mox stubs are used, this is represented by a
-comment or docstring explaining that the real-world prerequisite is `rustup
-component add rustc-codegen-cranelift-preview`. The test's purpose is to
-validate the action's argument construction, not the Cranelift component
-installation.
+The test's docstring notes that in a real scenario, `rustup component add
+rustc-codegen-cranelift-preview` would be required, but the unit test validates
+only argument construction, not component installation or coverage generation.
 
 Validation: run `make test` and confirm the new test passes. The new test
 should be visible in the pytest output as
@@ -396,28 +394,43 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
 
 ## Concrete steps
 
-1. Edit `.github/actions/generate-coverage/scripts/run_rust.py`, function
-   `get_cargo_coverage_cmd` (line 112). Change:
+1. Add a `_uses_cranelift_backend(manifest_path: Path) -> bool` detection
+   function to `.github/actions/generate-coverage/scripts/run_rust.py` that
+   searches upward from the manifest directory for `.cargo/config.toml` (or
+   `.cargo/config`) and returns `True` when it finds uncommented
+   `codegen-backend = "cranelift"` settings.
+
+2. Edit `.github/actions/generate-coverage/scripts/run_rust.py`, function
+   `get_cargo_coverage_cmd` (line 144). Change:
 
    ```python
-   args = ["llvm-cov"]
+   args: list[str] = []
+   args.append("llvm-cov")
    ```
 
    to:
 
    ```python
-   args = [
+   args: list[str] = []
+   if _uses_cranelift_backend(manifest_path):
+       args += _LLVM_CODEGEN_OVERRIDE
+   args.append("llvm-cov")
+   ```
+
+   where `_LLVM_CODEGEN_OVERRIDE` is a module constant defined as:
+
+   ```python
+   _LLVM_CODEGEN_OVERRIDE = [
        "--config",
        'profile.dev.codegen-backend="llvm"',
        "--config",
        'profile.test.codegen-backend="llvm"',
-       "llvm-cov",
    ]
    ```
 
-2. Edit `.github/actions/generate-coverage/tests/test_scripts.py`. Add a
+3. Edit `.github/actions/generate-coverage/tests/test_scripts.py`. Add a
    constant near the top of the file (after the imports and before the helper
-   functions):
+   functions) for use in the Cranelift test:
 
    ```python
    _LLVM_CONFIG_PREFIX = [
@@ -428,31 +441,21 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
    ]
    ```
 
-3. Update `test_run_rust_success` expected args from `["llvm-cov", ...]` to
-   `[*_LLVM_CONFIG_PREFIX, "llvm-cov", ...]`.
+4. Update tests with rigid positional assertions (like `cargo_args[0:3]`) to
+   use semantic checks instead. For example, `test_run_rust_uses_detected_manifest_path`
+   should find the index of `"--manifest-path"` and assert the next element is
+   the expected path, rather than asserting `cargo_args[0:3]` equals a fixed list.
+   This makes tests resilient to the conditional prefix.
 
-4. Update `test_run_rust_nextest_command` expected args similarly.
+5. Update `test_run_rust_with_cucumber_nextest` to replace loose `"nextest" in
+   calls[N].argv` checks with positional assertions like `calls[N].argv[0] ==
+   "llvm-cov"` and `calls[N].argv[1] == "nextest"` to enforce the subcommand
+   boundary.
 
-5. Update `test_run_rust_uses_detected_manifest_path` slice assertion from
-   `cargo_args[0:3]` to `cargo_args[0:7]` and update the expected value to
-   `[*_LLVM_CONFIG_PREFIX, "llvm-cov", "--manifest-path",
-   "rust-toy-app/Cargo.toml"]`.
+6. Update `test_run_rust_main_nextest_variants` else-branch to replace
+   `args[:1] == ["llvm-cov"]` with `"llvm-cov" in args` for semantic checking.
 
-6. Update `test_get_cargo_coverage_cmd_variants` parametrized expected lists to
-   include `_LLVM_CONFIG_PREFIX` at the start. Note: since the test uses
-   `run_rust_module.get_cargo_coverage_cmd(...)` directly (not via shell
-   stubs), the assertion is on the return value of the function.
-
-7. Update `test_run_rust_main_nextest_variants` assertions: change `args[:2]`
-   to `args[:6]` and update expected values to include the config prefix.
-   Change `args[0] == "llvm-cov"` to `args[4] == "llvm-cov"`.
-
-8. Search for any other tests asserting cargo argument lists containing
-   `"llvm-cov"` and update them. This includes cucumber-related tests:
-   `test_run_rust_with_cucumber`, `test_run_rust_with_cucumber_nextest`,
-   `test_run_rust_with_cucumber_cobertura`.
-
-9. Add the new test function `test_run_rust_cranelift_project_uses_llvm_codegen`
+7. Add the new test function `test_run_rust_cranelift_project_uses_llvm_codegen`
    to `test_scripts.py`:
 
    ```python
@@ -489,12 +492,13 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
        )
 
        # The config prefix must appear before llvm-cov to override Cranelift
-       assert cargo_args[:4] == _LLVM_CONFIG_PREFIX
-       assert cargo_args[4] == "llvm-cov"
-       assert cargo_args[5] == "nextest"
+       prefix_len = len(_LLVM_CONFIG_PREFIX)
+       assert cargo_args[:prefix_len] == _LLVM_CONFIG_PREFIX
+       assert cargo_args[prefix_len] == "llvm-cov"
+       assert cargo_args[prefix_len + 1] == "nextest"
    ```
 
-10. Run gating commands (step-by-step from Stage D).
+8. Run gating commands (step-by-step from Stage D).
 
 ## Validation and acceptance
 

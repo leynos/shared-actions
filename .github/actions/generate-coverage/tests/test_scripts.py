@@ -441,9 +441,10 @@ def test_run_rust_cranelift_project_uses_llvm_codegen(
     )
 
     # The config prefix must appear before llvm-cov to override Cranelift
-    assert cargo_args[:4] == _LLVM_CONFIG_PREFIX
-    assert cargo_args[4] == "llvm-cov"
-    assert cargo_args[5] == "nextest"
+    prefix_len = len(_LLVM_CONFIG_PREFIX)
+    assert cargo_args[:prefix_len] == _LLVM_CONFIG_PREFIX
+    assert cargo_args[prefix_len] == "llvm-cov"
+    assert cargo_args[prefix_len + 1] == "nextest"
 
 
 def test_nextest_config_is_temporary(

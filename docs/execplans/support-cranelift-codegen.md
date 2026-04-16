@@ -136,7 +136,7 @@ the LLVM backend.
 
 - Decision: place `--config` flags as top-level cargo args before `llvm-cov`,
   not as `cargo llvm-cov` flags.
-  Rationale: `cargo llvm-cov` does not recognise `--config` as its own flag
+  Rationale: `cargo llvm-cov` does not recognize `--config` as its own flag
   (tested: `cargo llvm-cov --config '...'` returns `error: invalid option
   '--config'`). However, `cargo --config '...' llvm-cov ...` works because
   `--config` is a top-level cargo option processed before subcommand dispatch.
@@ -301,7 +301,7 @@ The affected tests and locations (all in
    `cargo_args[0:3]` slice assertion — the prefix now has four additional
    elements, so the slice index must shift.
 4. `test_get_cargo_coverage_cmd_variants` (line ~277): update both
-   parametrised `expected` lists.
+   parametrized `expected` lists.
 5. `test_run_rust_main_nextest_variants` (line ~370): update the `args[:2]`
    assertion (now `args[:6]` or similar) and the `args[0]` assertion for the
    non-nextest path.
@@ -376,7 +376,7 @@ Validation: run `make test` and confirm the new test passes. The new test
 should be visible in the pytest output as
 `test_run_rust_cranelift_project_uses_llvm_codegen`.
 
-### Stage D: run gating commands and finalise
+### Stage D: run gating commands and finalize
 
 Run the full suite of repository gating commands:
 
@@ -434,7 +434,7 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
    `[*_LLVM_CONFIG_PREFIX, "llvm-cov", "--manifest-path",
    "rust-toy-app/Cargo.toml"]`.
 
-6. Update `test_get_cargo_coverage_cmd_variants` parametrised expected lists to
+6. Update `test_get_cargo_coverage_cmd_variants` parametrized expected lists to
    include `_LLVM_CONFIG_PREFIX` at the start. Note: since the test uses
    `run_rust_module.get_cargo_coverage_cmd(...)` directly (not via shell
    stubs), the assertion is on the return value of the function.

@@ -159,4 +159,4 @@ target/
 .crush/
 
 # Context pack MCP server
-.agents/mcp/context_pack/packs/
+/.agents/mcp/context_pack/packs/

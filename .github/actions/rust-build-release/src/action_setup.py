@@ -120,6 +120,28 @@ def validate(target: str = typer.Argument(...)) -> None:
         raise typer.Exit(1) from exc
 
 
+def _resolve_default_toolchain(toolchain_override: str, manifest_path: Path) -> str:
+    """Return the default toolchain, respecting override and manifest sources."""
+    return resolve_requested_toolchain(
+        toolchain_override,
+        project_dir=Path.cwd(),
+        manifest_path=manifest_path,
+        fallback_toolchain=read_default_toolchain(),
+    )
+
+
+def _emit_resolved_toolchain(
+    target: str, runner_os: str, runner_arch: str, default_toolchain: str
+) -> None:
+    """Resolve the runner-specific toolchain and print it, or exit on error."""
+    try:
+        resolved = resolve_toolchain(default_toolchain, target, runner_os, runner_arch)
+    except ToolchainResolutionError as exc:
+        typer.echo(f"::error:: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo(resolved)
+
+
 @app.command()
 def toolchain(
     target: str = typer.Option(..., "--target"),
@@ -129,18 +151,12 @@ def toolchain(
     manifest_path: Path = MANIFEST_PATH_OPT,
 ) -> None:
     """CLI entry point that prints the resolved toolchain."""
-    default_toolchain = resolve_requested_toolchain(
-        toolchain,
-        project_dir=Path.cwd(),
-        manifest_path=manifest_path,
-        fallback_toolchain=read_default_toolchain(),
+    _emit_resolved_toolchain(
+        target,
+        runner_os,
+        runner_arch,
+        _resolve_default_toolchain(toolchain, manifest_path),
     )
-    try:
-        resolved = resolve_toolchain(default_toolchain, target, runner_os, runner_arch)
-    except ToolchainResolutionError as exc:
-        typer.echo(f"::error:: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    typer.echo(resolved)
 
 
 if __name__ == "__main__":

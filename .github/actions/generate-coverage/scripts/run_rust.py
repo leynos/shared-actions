@@ -99,6 +99,43 @@ global-timeout = "10m"
 """
 
 
+_LLVM_CODEGEN_OVERRIDE = [
+    "--config",
+    'profile.dev.codegen-backend="llvm"',
+    "--config",
+    'profile.test.codegen-backend="llvm"',
+]
+
+
+def _uses_cranelift_backend(manifest_path: Path) -> bool:
+    """Return ``True`` when the project configures the Cranelift codegen backend.
+
+    Searches from the manifest directory upward for ``.cargo/config.toml``
+    (or ``.cargo/config``) and checks whether any profile sets
+    ``codegen-backend = "cranelift"``.
+    """
+    search_dir = manifest_path.resolve().parent
+    while True:
+        for name in ("config.toml", "config"):
+            candidate = search_dir / ".cargo" / name
+            if candidate.is_file():
+                try:
+                    content = candidate.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                if re.search(
+                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
+                    content,
+                    flags=re.MULTILINE,
+                ):
+                    return True
+        parent = search_dir.parent
+        if parent == search_dir:
+            break
+        search_dir = parent
+    return False
+
+
 def get_cargo_coverage_cmd(
     fmt: str,
     out: Path,
@@ -109,7 +146,10 @@ def get_cargo_coverage_cmd(
     use_nextest: bool,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
-    args = ["llvm-cov"]
+    args: list[str] = []
+    if _uses_cranelift_backend(manifest_path):
+        args += _LLVM_CODEGEN_OVERRIDE
+    args.append("llvm-cov")
     if use_nextest:
         args.append("nextest")
     args += ["--manifest-path", str(manifest_path), "--workspace", "--summary-only"]

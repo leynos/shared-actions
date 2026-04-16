@@ -29,6 +29,14 @@ else:
     RunResult = import_cmd_utils().RunResult
 
 
+_LLVM_CONFIG_PREFIX = [
+    "--config",
+    'profile.dev.codegen-backend="llvm"',
+    "--config",
+    'profile.test.codegen-backend="llvm"',
+]
+
+
 def _exit_code(exc: BaseException) -> int | None:
     """Extract an exit code from Typer or SystemExit exceptions."""
     exit_code = getattr(exc, "exit_code", None)
@@ -271,7 +279,10 @@ def test_run_rust_uses_detected_manifest_path(
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
     )
-    assert cargo_args[0:3] == ["llvm-cov", "--manifest-path", "rust-toy-app/Cargo.toml"]
+    assert "llvm-cov" in cargo_args
+    mp_idx = cargo_args.index("--manifest-path")
+    assert cargo_args[mp_idx + 1] == "rust-toy-app/Cargo.toml"
+    assert "nextest" not in cargo_args
 
 
 @pytest.mark.parametrize(
@@ -391,10 +402,49 @@ def test_run_rust_main_nextest_variants(
         assert f"file={output}" in data
         assert "percent=100.00" in data
     else:
-        assert args[0] == "llvm-cov"
+        assert "llvm-cov" in args
         assert "nextest" not in args
         assert "--manifest-path" in args
         assert "Cargo.toml" in args
+
+
+def test_run_rust_cranelift_project_uses_llvm_codegen(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Coverage forces LLVM codegen even when project configures Cranelift.
+
+    When a Rust project uses the Cranelift codegen backend (configured in
+    .cargo/config.toml), the coverage action must still invoke cargo with
+    --config flags that override the codegen backend to LLVM, because
+    source-based code coverage (-C instrument-coverage) is an LLVM-only
+    feature.
+
+    In a real-world scenario, the Cranelift component would be installed via
+    ``rustup component add rustc-codegen-cranelift-preview``.
+    """
+    # Simulate a Cranelift-configured project
+    cargo_config_dir = tmp_path / ".cargo"
+    cargo_config_dir.mkdir()
+    (cargo_config_dir / "config.toml").write_text(
+        "[unstable]\ncodegen-backend = true\n\n"
+        '[profile.dev]\ncodegen-backend = "cranelift"\n\n'
+        '[profile.test]\ncodegen-backend = "cranelift"\n',
+    )
+
+    cargo_args, _out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(use_nextest=True),
+        monkeypatch=monkeypatch,
+    )
+
+    # The config prefix must appear before llvm-cov to override Cranelift
+    prefix_len = len(_LLVM_CONFIG_PREFIX)
+    assert cargo_args[:prefix_len] == _LLVM_CONFIG_PREFIX
+    assert cargo_args[prefix_len] == "llvm-cov"
+    assert cargo_args[prefix_len + 1] == "nextest"
 
 
 def test_nextest_config_is_temporary(
@@ -737,10 +787,14 @@ def test_run_rust_with_cucumber_nextest(
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 2
-    assert "nextest" in calls[0].argv
-    assert "nextest" in calls[1].argv
-    assert calls[0].argv[2:4] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
-    assert calls[1].argv[2:4] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
+    assert calls[0].argv[0] == "llvm-cov"
+    assert calls[0].argv[1] == "nextest"
+    assert calls[1].argv[0] == "llvm-cov"
+    assert calls[1].argv[1] == "nextest"
+    assert "--manifest-path" in calls[0].argv
+    assert "--manifest-path" in calls[1].argv
+    assert "rust-toy-app/Cargo.toml" in calls[0].argv
+    assert "rust-toy-app/Cargo.toml" in calls[1].argv
     assert out.read_text() == "TN:test\nend_of_record\nTN:cuke\nend_of_record\n"
     assert not cuc_file.exists()
     assert not (tmp_path / ".config" / "nextest.toml").exists()
@@ -863,7 +917,7 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     returncode, _, stderr = run_script(script, env)
     assert returncode == 2
-    assert "cargo llvm-cov" in stderr
+    assert "llvm-cov" in stderr
     assert "failed with code 2" in stderr
 
 

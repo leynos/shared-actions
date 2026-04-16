@@ -11,12 +11,8 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
+from cyclopts.exceptions import CycloptsError as UsageError  # cyclopts>=3.24 (pinned)
 from syspath_hack import SysPathMode, ensure_module_dir
-
-try:
-    from cyclopts.exceptions import UsageError  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover - compatibility with older cyclopts
-    from cyclopts.exceptions import CycloptsError as UsageError
 
 if __package__ in {None, ""}:
     _MODULE_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)

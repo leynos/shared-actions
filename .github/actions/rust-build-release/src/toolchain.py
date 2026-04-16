@@ -82,6 +82,25 @@ def read_repo_toolchain(project_dir: Path, manifest_path: Path) -> str | None:
     return None
 
 
+def _extract_rust_version_from_package(section: object) -> str | None:
+    """Return ``rust-version`` from a TOML ``[package]`` mapping, if declared."""
+    if not isinstance(section, dict):
+        return None
+    mapping = typ.cast("dict[str, object]", section)
+    rust_version = mapping.get("rust-version")
+    if isinstance(rust_version, str):
+        return _strip_optional(rust_version)
+    return None
+
+
+def _workspace_package(manifest_data: dict) -> object:
+    """Return the ``[workspace.package]`` table from *manifest_data*, if present."""
+    workspace = manifest_data.get("workspace")
+    if isinstance(workspace, dict):
+        return workspace.get("package")
+    return None
+
+
 def read_manifest_rust_version(project_dir: Path, manifest_path: Path) -> str | None:
     """Return ``rust-version`` from the manifest when it is declared."""
     try:
@@ -93,20 +112,9 @@ def read_manifest_rust_version(project_dir: Path, manifest_path: Path) -> str | 
     except (OSError, tomllib.TOMLDecodeError):
         return None
 
-    package = manifest_data.get("package")
-    if isinstance(package, dict):
-        rust_version = package.get("rust-version")
-        if isinstance(rust_version, str):
-            return _strip_optional(rust_version)
-
-    workspace = manifest_data.get("workspace")
-    if isinstance(workspace, dict):
-        workspace_package = workspace.get("package")
-        if isinstance(workspace_package, dict):
-            rust_version = workspace_package.get("rust-version")
-            if isinstance(rust_version, str):
-                return _strip_optional(rust_version)
-    return None
+    return _extract_rust_version_from_package(
+        manifest_data.get("package")
+    ) or _extract_rust_version_from_package(_workspace_package(manifest_data))
 
 
 def resolve_requested_toolchain(

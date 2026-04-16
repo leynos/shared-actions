@@ -787,8 +787,10 @@ def test_run_rust_with_cucumber_nextest(
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 2
-    assert "nextest" in calls[0].argv
-    assert "nextest" in calls[1].argv
+    assert calls[0].argv[0] == "llvm-cov"
+    assert calls[0].argv[1] == "nextest"
+    assert calls[1].argv[0] == "llvm-cov"
+    assert calls[1].argv[1] == "nextest"
     assert "--manifest-path" in calls[0].argv
     assert "--manifest-path" in calls[1].argv
     assert "rust-toy-app/Cargo.toml" in calls[0].argv

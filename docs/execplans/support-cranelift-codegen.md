@@ -24,15 +24,16 @@ coverage generation works even when the project normally compiles with
 Cranelift, without affecting stable-toolchain projects that do not use
 Cranelift (since `codegen-backend` is an unstable Cargo profile key).
 
-A new behavioural test will validate this by cloning the repository's toy Rust
-fixture application, configuring it to use the Cranelift backend via
-`.cargo/config.toml`, and then running the coverage script against that clone.
-The test will confirm that coverage generation succeeds (meaning the LLVM
-override took effect), despite the project being configured for Cranelift.
+A new behavioural test validates this by creating a temporary directory with a
+`.cargo/config.toml` that configures Cranelift, stubbing the `cargo` executable
+via cmd-mox, and running the coverage script against that directory. The test
+asserts that the generated cargo argument list (argv) contains the correct
+`--config` override flags in the correct position — before the `llvm-cov`
+subcommand — rather than performing an end-to-end build or coverage generation.
 
-Observable success: running `make test` passes, and the new test (which
-exercises a Cranelift-configured project) produces valid coverage output using
-the LLVM backend.
+Observable success: running `make test` passes, and the new test confirms that
+the cargo invocation includes the LLVM codegen override flags when Cranelift is
+detected.
 
 ## Constraints
 
@@ -115,22 +116,22 @@ the LLVM backend.
       cargo argument list (8 test functions updated).
 - [x] (2026-04-15 00:20Z) Added new behavioural test for Cranelift-configured project.
 - [x] (2026-04-15 00:30Z) Ran required Makefile gateways: `make check-fmt` (passed),
-      `make lint` (passed), `make test` (643 passed, 86 skipped). Note: `make
-      typecheck` has a pre-existing error in `generate_wxs.py` unrelated to this
-      change.
+      `make lint` (passed), `make test` (643 passed, 86 skipped). `make
+      typecheck` had a pre-existing error in `generate_wxs.py` (since resolved).
+- [x] (2026-04-16) All four Makefile gates pass: `make check-fmt`, `make
+      typecheck`, `make lint`, `make test` (645 passed, 88 skipped).
 
 ## Surprises & discoveries
 
-- Observation: `make typecheck` fails with a pre-existing error in
+- Observation: `make typecheck` initially failed with a pre-existing error in
   `generate_wxs.py` unrelated to this change.
   Evidence: error[unresolved-import]: Module `cyclopts.exceptions` has no
   member `UsageError` at `.github/actions/windows-package/scripts/generate_wxs.py:17:37`.
-  The code has `# type: ignore[attr-defined]` but the `ty` type checker
-  (from the Ruff project) doesn't recognize this directive.
-  Impact: this is a pre-existing issue not introduced by this change. The
-  change is isolated to `run_rust.py` and `test_scripts.py` in the
-  generate-coverage action. Proceeding with `make lint` and `make test` to
-  verify the changes are correct.
+  The code had a fallback import pattern that the `ty` type checker (from the
+  Ruff project) could not resolve.
+  Resolution: the import was simplified to a direct `from
+  cyclopts.exceptions import CycloptsError as UsageError` (guaranteed by the
+  pinned `cyclopts>=3.24` minimum). `make typecheck` now passes.
 
 ## Decision log
 
@@ -496,9 +497,11 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
 
 Acceptance is met when the following are true:
 
-- `get_cargo_coverage_cmd()` returns an argument list where the first four
-  elements are the two `--config` key-value pairs forcing `profile.dev` and
-  `profile.test` codegen backends to `"llvm"`, followed by `"llvm-cov"`.
+- When Cranelift is detected, `get_cargo_coverage_cmd()` returns an argument
+  list where the first four elements are the two `--config` key-value pairs
+  forcing `profile.dev` and `profile.test` codegen backends to `"llvm"`,
+  followed by `"llvm-cov"`. When Cranelift is not detected, the argument list
+  begins directly with `"llvm-cov"` (no `--config` prefix).
 
 - All existing tests in `test_scripts.py` pass with updated assertions that
   include the config prefix.

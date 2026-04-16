@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cyclopts
 from cyclopts import App, Parameter
-from cyclopts.exceptions import CycloptsError as UsageError
+from cyclopts.exceptions import CycloptsError as UsageError  # cyclopts>=3.24 (pinned)
 from syspath_hack import SysPathMode, ensure_module_dir
 
 if __package__ in {None, ""}:

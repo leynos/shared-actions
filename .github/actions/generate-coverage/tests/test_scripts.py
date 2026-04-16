@@ -795,8 +795,12 @@ def test_run_rust_with_cucumber_nextest(
     assert len(calls) == 2
     assert "nextest" in calls[0].argv
     assert "nextest" in calls[1].argv
-    assert calls[0].argv[6:8] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
-    assert calls[1].argv[6:8] == ["--manifest-path", "rust-toy-app/Cargo.toml"]
+    assert calls[0].argv[: len(_LLVM_CONFIG_PREFIX)] == _LLVM_CONFIG_PREFIX
+    assert calls[1].argv[: len(_LLVM_CONFIG_PREFIX)] == _LLVM_CONFIG_PREFIX
+    assert "--manifest-path" in calls[0].argv
+    assert "--manifest-path" in calls[1].argv
+    assert "rust-toy-app/Cargo.toml" in calls[0].argv
+    assert "rust-toy-app/Cargo.toml" in calls[1].argv
     assert out.read_text() == "TN:test\nend_of_record\nTN:cuke\nend_of_record\n"
     assert not cuc_file.exists()
     assert not (tmp_path / ".config" / "nextest.toml").exists()

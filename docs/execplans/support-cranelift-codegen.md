@@ -1,4 +1,4 @@
-# Force LLVM codegen backend for coverage and test cranelift override
+# Force LLVM codegen backend for coverage and test Cranelift override
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -10,8 +10,8 @@ Status: COMPLETE
 ## Purpose / big picture
 
 Rust projects that use the Cranelift codegen backend for faster compile times
-cannot generate LLVM source-based code coverage because the `-C
-instrument-coverage` flag is an LLVM-only feature. When a project sets
+cannot generate Low Level Virtual Machine (LLVM) source-based code coverage
+because the `-C instrument-coverage` flag is an LLVM-only feature. When a project sets
 `codegen-backend = "cranelift"` in its `.cargo/config.toml` (or `Cargo.toml`)
 and then runs `cargo llvm-cov`, the build fails or produces no coverage data.
 
@@ -74,7 +74,7 @@ the LLVM backend.
   Mitigation: the generate-coverage action already pins toolchain versions via
   `rust-toolchain.toml` in consuming projects. Stable Rust 1.79+ supports
   `codegen-backend` in profiles without `-Z` flags. The `--config` flag is
-  stable since Rust 1.63. The action's CI tests will validate the flag works
+  stable since Rust 1.63. The action's continuous integration (CI) tests will validate the flag works
   with the toolchain version used by the test fixture (`rust-toy-app` requires
   Rust 1.89). Even if the flag is silently ignored on an LLVM-only toolchain
   (which is the default), this is harmless since LLVM is already the active
@@ -123,7 +123,7 @@ the LLVM backend.
   Evidence: error[unresolved-import]: Module `cyclopts.exceptions` has no
   member `UsageError` at `.github/actions/windows-package/scripts/generate_wxs.py:17:37`.
   The code has `# type: ignore[attr-defined]` but the `ty` type checker
-  doesn't recognize this directive.
+  (from the Ruff project) doesn't recognize this directive.
   Impact: this is a pre-existing issue not introduced by this change. The
   change is isolated to `run_rust.py` and `test_scripts.py` in the
   generate-coverage action. Proceeding with `make lint` and `make test` to
@@ -221,7 +221,7 @@ The `RustCoverageConfig` dataclass (line 144) and `RustMainConfig` dataclass
 (line 154) configure test variants. The `_run_rust_main_variant` helper (line
 334) tests `main()` directly with a monkeypatched `_run_cargo`.
 
-The toy Rust fixture at `rust-toy-app/` is a simple CLI application used as a
+The toy Rust fixture at `rust-toy-app/` is a simple command-line interface (CLI) application used as a
 test fixture. It has no `.cargo/config.toml` file. For the new behavioural
 test, a `.cargo/config.toml` will be created in a temporary copy of this
 fixture to simulate a Cranelift-configured project.
@@ -355,7 +355,7 @@ flags. The actual override is handled by cargo's `--config` precedence rules
 cargo's documented behaviour and does not need to be tested here.
 
 The test should also ensure the Cranelift rustup component would be installed
-in a real scenario. Since we are using cmd-mox stubs, this is represented by a
+in a real scenario. Since cmd-mox stubs are used, this is represented by a
 comment or docstring explaining that the real-world prerequisite is `rustup
 component add rustc-codegen-cranelift-preview`. The test's purpose is to
 validate the action's argument construction, not the Cranelift component

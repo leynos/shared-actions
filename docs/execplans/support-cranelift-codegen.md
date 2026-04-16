@@ -11,17 +11,18 @@ Status: COMPLETE
 
 Rust projects that use the Cranelift codegen backend for faster compile times
 cannot generate Low Level Virtual Machine (LLVM) source-based code coverage
-because the `-C instrument-coverage` flag is an LLVM-only feature. When a project sets
-`codegen-backend = "cranelift"` in its `.cargo/config.toml` (or `.cargo/config`)
-and then runs `cargo llvm-cov`, the build fails or produces no coverage data.
+because the `-C instrument-coverage` flag is an LLVM-only feature. When a
+project sets `codegen-backend = "cranelift"` in its `.cargo/config.toml` (or
+`.cargo/config`) and then runs `cargo llvm-cov`, the build fails or produces
+no coverage data.
 
 After this change, the generate-coverage action will detect whether the
 project configures the Cranelift codegen backend (by searching for
-`.cargo/config.toml` from the manifest directory upward) and, only when
-Cranelift is detected, explicitly force the LLVM codegen backend for both
-`dev` and `test` profiles when invoking `cargo llvm-cov`. This ensures
-coverage generation works even when the project normally compiles with
-Cranelift, without affecting stable-toolchain projects that do not use
+`.cargo/config.toml` and `.cargo/config` from the manifest directory upward)
+and, only when Cranelift is detected, explicitly force the LLVM codegen
+backend for both `dev` and `test` profiles when invoking `cargo llvm-cov`.
+This ensures coverage generation works even when the project normally compiles
+with Cranelift, without affecting stable-toolchain projects that do not use
 Cranelift (since `codegen-backend` is an unstable Cargo profile key).
 
 A new behavioural test validates this by creating a temporary directory with a
@@ -78,7 +79,8 @@ detected.
   Mitigation: the generate-coverage action already pins toolchain versions via
   `rust-toolchain.toml` in consuming projects. Stable Rust 1.79+ supports
   `codegen-backend` in profiles without `-Z` flags. The `--config` flag is
-  stable since Rust 1.63. The action's continuous integration (CI) tests will validate the flag works
+  stable since Rust 1.63. The action's continuous integration (CI) tests will
+  validate the flag works
   with the toolchain version used by the test fixture (`rust-toy-app` requires
   Rust 1.89). Even if the flag is silently ignored on an LLVM-only toolchain
   (which is the default), this is harmless since LLVM is already the active
@@ -112,10 +114,12 @@ detected.
 
 - [x] (2026-04-15 00:00Z) Drafted initial ExecPlan.
 - [x] (2026-04-15 00:05Z) Located all cargo argument assertions in test suite.
-- [x] (2026-04-15 00:10Z) Updated `get_cargo_coverage_cmd` in `run_rust.py` to prepend `--config`
-      flags.
-- [x] (2026-04-15 00:15Z) Updated all existing tests to expect the new `--config` flags in the
-      cargo argument list (8 test functions updated).
+- [x] (2026-04-15 00:10Z) Updated `get_cargo_coverage_cmd` in `run_rust.py`
+      to prepend `--config` flags.
+- [x] (2026-04-15 00:15Z) Updated the Cranelift-related coverage tests to
+      expect the conditional `--config` flags in the cargo argument list,
+      while non-Cranelift tests kept their existing argv expectations to stay
+      aligned with Stage B and the acceptance criteria.
 - [x] (2026-04-15 00:20Z) Added new behavioural test for Cranelift-configured project.
 - [x] (2026-04-15 00:30Z) Ran required Makefile gateways: `make check-fmt` (passed),
       `make lint` (passed), `make test` (643 passed, 86 skipped). `make
@@ -203,7 +207,7 @@ the argument list passed to `cargo`. Currently it produces arguments like:
 
 These arguments are passed to plumbum's `cargo[args].popen(...)` in the
 `_run_cargo()` function (line 304), which executes `cargo llvm-cov nextest
---manifest-path ... `.
+--manifest-path ...`.
 
 The `--config` flag is a top-level cargo option (not a subcommand option). It
 must appear before the `llvm-cov` subcommand in the argument list. When a
@@ -228,9 +232,10 @@ The `RustCoverageConfig` dataclass (line 144) and `RustMainConfig` dataclass
 (line 154) configure test variants. The `_run_rust_main_variant` helper (line
 334) tests `main()` directly with a monkeypatched `_run_cargo`.
 
-The toy Rust fixture at `rust-toy-app/` is a simple command-line interface (CLI) application used as a
-test fixture. It has no `.cargo/config.toml` file. For the new behavioural
-test, a `.cargo/config.toml` will be created in a temporary copy of this
+The toy Rust fixture at `rust-toy-app/` is a simple command-line interface
+(CLI) application used as a test fixture. It has no `.cargo/config.toml`
+file. For the new behavioural test, a `.cargo/config.toml` will be created in
+a temporary copy of this
 fixture to simulate a Cranelift-configured project.
 
 Cranelift is an alternative codegen backend for the Rust compiler. It is faster

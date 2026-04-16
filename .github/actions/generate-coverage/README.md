@@ -194,4 +194,8 @@ Coverage reports are archived as workflow artefacts named
 `<os>-<arch>` segment. This prevents collisions across matrix jobs and
 distinguishes runs on different platforms.
 
+Developer-facing design notes, including the rationale for Cranelift coverage
+environment overrides, are available in
+[`docs/generate-coverage-design.md`](../../../docs/generate-coverage-design.md).
+
 Release history is available in [CHANGELOG](CHANGELOG.md).

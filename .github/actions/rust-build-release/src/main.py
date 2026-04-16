@@ -203,6 +203,17 @@ def _list_installed_toolchains(rustup_exec: str) -> list[str]:
     return [line.split()[0] for line in installed if line.strip()]
 
 
+def _matches_toolchain_channel(name: str, toolchain: str) -> bool:
+    """Return True if *name* matches *toolchain* exactly or by channel/dotted prefix."""
+    channel_prefix = f"{toolchain}-"
+    dotted_prefix = f"{toolchain}."
+    return (
+        name == toolchain
+        or name.startswith(channel_prefix)
+        or name.startswith(dotted_prefix)
+    )
+
+
 def _resolve_toolchain_name(
     toolchain: str, target: str, installed_names: list[str]
 ) -> str:
@@ -211,14 +222,8 @@ def _resolve_toolchain_name(
     for name in installed_names:
         if name in preferred:
             return name
-    channel_prefix = f"{toolchain}-"
-    dotted_prefix = f"{toolchain}."
     for name in installed_names:
-        if (
-            name == toolchain
-            or name.startswith(channel_prefix)
-            or name.startswith(dotted_prefix)
-        ):
+        if _matches_toolchain_channel(name, toolchain):
             return name
     return ""
 
@@ -298,17 +303,11 @@ def _ensure_rustup_exec() -> str:
 
 def _fallback_toolchain_name(toolchain: str, installed_names: list[str]) -> str:
     """Return a toolchain matching *toolchain* or its channel prefix."""
-    channel_prefix = f"{toolchain}-"
-    dotted_prefix = f"{toolchain}."
     return next(
         (
             name
             for name in installed_names
-            if (
-                name == toolchain
-                or name.startswith(channel_prefix)
-                or name.startswith(dotted_prefix)
-            )
+            if _matches_toolchain_channel(name, toolchain)
         ),
         "",
     )

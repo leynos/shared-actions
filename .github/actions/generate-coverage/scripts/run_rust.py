@@ -344,16 +344,66 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     return stdout_lines
 
 
+def _build_cargo_command(
+    extra_env: dict[str, str] | None,
+) -> tuple[str, typ.Any]:
+    """Return *(display_prefix, cargo_cmd)* reflecting *extra_env*."""
+    if not extra_env:
+        return "", cargo
+    env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in extra_env.items()) + " "
+    return env_prefix, cargo.with_env(**extra_env)
+
+
+def _abort_on_missing_streams(proc: subprocess.Popen[str]) -> None:
+    """Kill *proc* and exit with an error if its output streams were not captured."""
+    if proc.stdout is not None and proc.stderr is not None:
+        return
+    missing_streams = []
+    if proc.stdout is None:
+        missing_streams.append("stdout")
+    if proc.stderr is None:
+        missing_streams.append("stderr")
+    missing = ", ".join(missing_streams)
+    message = f"cargo output streams not captured: missing {missing}"
+    with contextlib.suppress(Exception):
+        proc.kill()
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=5)
+    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stdout))
+    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stderr))
+    typer.echo(f"::error::{message}", err=True)
+    raise typer.Exit(1) from None
+
+
+def _wait_for_cargo(
+    proc: subprocess.Popen[str],
+    args: list[str],
+    wait_timeout: float,
+) -> None:
+    """Wait for *proc* to finish, raising ``typer.Exit`` on timeout or failure."""
+    try:
+        retcode = proc.wait(timeout=wait_timeout)
+    except subprocess.TimeoutExpired:
+        typer.echo(
+            f"::error::cargo did not exit within {wait_timeout}s; killing",
+            err=True,
+        )
+        with contextlib.suppress(Exception):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
+        raise typer.Exit(1) from None
+    if retcode != 0:
+        typer.echo(
+            f"cargo {shlex.join(args)} failed with code {retcode}",
+            err=True,
+        )
+        raise typer.Exit(code=retcode or 1)
+
+
 def _run_cargo(args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
-    env_prefix = ""
-    cargo_cmd = cargo
-    if extra_env:
-        env_prefix = " ".join(
-            f"{key}={shlex.quote(value)}" for key, value in extra_env.items()
-        )
-        env_prefix += " "
-        cargo_cmd = cargo.with_env(**extra_env)
+    env_prefix, cargo_cmd = _build_cargo_command(extra_env)
     typer.echo(f"$ {env_prefix}cargo {shlex.join(args)}")
     proc = cargo_cmd[args].popen(
         stdin=subprocess.DEVNULL,
@@ -364,42 +414,10 @@ def _run_cargo(args: list[str], *, extra_env: dict[str, str] | None = None) -> s
         errors="replace",
     )
     try:
-        if proc.stdout is None or proc.stderr is None:
-            missing_streams = []
-            if proc.stdout is None:
-                missing_streams.append("stdout")
-            if proc.stderr is None:
-                missing_streams.append("stderr")
-            missing = ", ".join(missing_streams)
-            message = f"cargo output streams not captured: missing {missing}"
-            with contextlib.suppress(Exception):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5)
-            _safe_close_text_stream(proc.stdout)
-            _safe_close_text_stream(proc.stderr)
-            typer.echo(f"::error::{message}", err=True)
-            raise typer.Exit(1) from None
+        _abort_on_missing_streams(proc)
         stdout_lines = _pump_cargo_output(proc)
         wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-        try:
-            retcode = proc.wait(timeout=wait_timeout)
-        except subprocess.TimeoutExpired:
-            typer.echo(
-                f"::error::cargo did not exit within {wait_timeout}s; killing",
-                err=True,
-            )
-            with contextlib.suppress(Exception):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5)
-            raise typer.Exit(1) from None
-        if retcode != 0:
-            typer.echo(
-                f"cargo {shlex.join(args)} failed with code {retcode}",
-                err=True,
-            )
-            raise typer.Exit(code=retcode or 1)
+        _wait_for_cargo(proc, args, wait_timeout)
         return "\n".join(stdout_lines)
     finally:
         _safe_close_text_stream(proc.stdout)

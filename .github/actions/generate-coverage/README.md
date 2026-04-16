@@ -41,6 +41,44 @@ flowchart TD
     K --> L[End]
 ```
 
+
+## Rust coverage environment propagation
+
+Figure: sequence diagram showing how `run_rust.py` derives coverage-specific
+Cargo environment overrides for Cranelift-configured projects and passes them
+into `_run_cargo`, including the optional cucumber.rs follow-up run.
+
+```mermaid
+sequenceDiagram
+    actor GitHubActions
+    participant run_rust_py as run_rust.py
+    participant get_cargo_coverage_env
+    participant _run_cargo
+    participant cargo
+
+    GitHubActions->>run_rust_py: main(manifest_path, fmt, use_nextest, ...)
+    run_rust_py->>get_cargo_coverage_env: get_cargo_coverage_env(manifest_path)
+    get_cargo_coverage_env-->>run_rust_py: cargo_env
+    run_rust_py->>_run_cargo: _run_cargo(args, env_overrides=cargo_env)
+    alt env_overrides is not None
+        _run_cargo->>_run_cargo: merge os_environ with env_overrides
+    else
+        _run_cargo->>_run_cargo: use os_environ unchanged
+    end
+    _run_cargo->>cargo: invoke cargo llvm-cov with env
+    cargo-->>_run_cargo: stdout
+    _run_cargo-->>run_rust_py: stdout
+
+    opt with_cucumber_rs
+        run_rust_py->>get_cargo_coverage_env: get_cargo_coverage_env(manifest_path)
+        get_cargo_coverage_env-->>run_rust_py: cargo_env
+        run_rust_py->>_run_cargo: _run_cargo(cucumber_args, env_overrides=cargo_env)
+        _run_cargo->>cargo: invoke cargo test with env
+        cargo-->>_run_cargo: stdout
+        _run_cargo-->>run_rust_py: stdout
+    end
+```
+
 ## Inputs
 
 | Name | Description | Required | Default |

@@ -77,14 +77,17 @@ detected.
   Severity: medium
   Likelihood: low
   Mitigation: the generate-coverage action already pins toolchain versions via
-  `rust-toolchain.toml` in consuming projects. Stable Rust 1.79+ supports
-  `codegen-backend` in profiles without `-Z` flags. The `--config` flag is
-  stable since Rust 1.63. The action's continuous integration (CI) tests will
-  validate the flag works
-  with the toolchain version used by the test fixture (`rust-toy-app` requires
-  Rust 1.89). Even if the flag is silently ignored on an LLVM-only toolchain
-  (which is the default), this is harmless since LLVM is already the active
-  backend.
+  `rust-toolchain.toml` in consuming projects. Cargo still treats
+  `codegen-backend` as an unstable feature, so any workflow that exercises it
+  must use a nightly override such as `cargo +nightly ...` (or an equivalent
+  `rustup override` / `rust-toolchain.toml` setup) and enable it with
+  `-Z codegen-backend` or `[unstable].codegen-backend = true`. When a workflow
+  also depends on unstable CLI-only options, it must pass
+  `-Z unstable-options` as required by Cargo's unstable-feature rules. The
+  `--config` flag itself is stable, and the action's continuous integration
+  (CI) tests validate only the placement of the override arguments. Even if the
+  override is evaluated on an LLVM-only toolchain, that is harmless because
+  LLVM is already the active backend.
 
 - Risk: installing the `rustc-codegen-cranelift-preview` component may fail on
   some platforms or toolchains (it is only available on nightly, or on stable
@@ -197,8 +200,9 @@ test coverage for Rust, Python, and mixed projects. For Rust projects, it
 invokes `cargo llvm-cov` (optionally with `nextest`) via the Python script
 `.github/actions/generate-coverage/scripts/run_rust.py`.
 
-The function `get_cargo_coverage_cmd()` (line 102 of `run_rust.py`) assembles
-the argument list passed to `cargo`. Currently it produces arguments like:
+The `get_cargo_coverage_cmd()` function in
+`.github/actions/generate-coverage/scripts/run_rust.py` assembles the argument
+list passed to `cargo`. Currently it produces arguments like:
 
 ```plaintext
 ["llvm-cov", "nextest", "--manifest-path", "Cargo.toml", "--workspace",
@@ -206,8 +210,9 @@ the argument list passed to `cargo`. Currently it produces arguments like:
 ```
 
 These arguments are passed to plumbum's `cargo[args].popen(...)` in the
-`_run_cargo()` function (line 304), which executes `cargo llvm-cov nextest
---manifest-path ...`.
+`_run_cargo()` helper in
+`.github/actions/generate-coverage/scripts/run_rust.py`, which executes
+`cargo llvm-cov nextest --manifest-path ...`.
 
 The `--config` flag is a top-level cargo option (not a subcommand option). It
 must appear before the `llvm-cov` subcommand in the argument list. When a
@@ -222,15 +227,17 @@ cargo --config 'profile.dev.codegen-backend="llvm"' \
 For projects that do not use Cranelift, the invocation remains unchanged
 (no `--config` flags are prepended).
 
-The test suite lives at `.github/actions/generate-coverage/tests/test_scripts.py`.
-Tests use cmd-mox (via the `shell_stubs` fixture from `conftest.py`) to stub
-the `cargo` command and capture the argument list. The `_run_rust_coverage_test`
-helper (line 162) runs `run_rust.py` via `uv run --script` and then inspects
+The Rust coverage tests live in
+`.github/actions/generate-coverage/tests/test_scripts.py`. They use cmd-mox
+via the `shell_stubs` fixture from
+`.github/actions/generate-coverage/tests/conftest.py` to stub the `cargo`
+command and capture the argument list. The `_run_rust_coverage_test` helper
+runs `run_rust.py` via `uv run --script` and then inspects
 `shell_stubs.calls_of("cargo")` to assert the exact argument list passed.
 
-The `RustCoverageConfig` dataclass (line 144) and `RustMainConfig` dataclass
-(line 154) configure test variants. The `_run_rust_main_variant` helper (line
-334) tests `main()` directly with a monkeypatched `_run_cargo`.
+The `RustCoverageConfig` and `RustMainConfig` dataclasses configure test
+variants. The `_run_rust_main_variant` helper exercises the `main()` entry
+point directly with a monkeypatched `_run_cargo`.
 
 The toy Rust fixture at `rust-toy-app/` is a simple command-line interface
 (CLI) application used as a test fixture. It has no `.cargo/config.toml`
@@ -398,7 +405,7 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
    `codegen-backend = "cranelift"` settings.
 
 2. Edit `.github/actions/generate-coverage/scripts/run_rust.py`, function
-   `get_cargo_coverage_cmd` (line 144). Change:
+   `get_cargo_coverage_cmd`. Change:
 
    ```python
    args: list[str] = []

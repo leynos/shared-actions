@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.3.13 (2026-04-16)
+
+- Override Cranelift coverage builds via
+  `CARGO_PROFILE_DEV_CODEGEN_BACKEND=llvm` and
+  `CARGO_PROFILE_TEST_CODEGEN_BACKEND=llvm` so `cargo llvm-cov` child cargo
+  processes inherit the LLVM backend.
+- Remove the outer `cargo --config profile.*.codegen-backend="llvm"` prefix
+  workaround from Rust coverage command construction.
+
 ## v1.3.12 (2026-02-18)
 
 - Add optional `cargo-manifest` input for repositories where `Cargo.toml`

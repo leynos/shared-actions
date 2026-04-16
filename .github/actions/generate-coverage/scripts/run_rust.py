@@ -99,12 +99,10 @@ global-timeout = "10m"
 """
 
 
-_LLVM_CODEGEN_OVERRIDE = [
-    "--config",
-    'profile.dev.codegen-backend="llvm"',
-    "--config",
-    'profile.test.codegen-backend="llvm"',
-]
+_LLVM_CODEGEN_ENV = {
+    "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+    "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+}
 
 
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
@@ -147,8 +145,6 @@ def get_cargo_coverage_cmd(
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
     args: list[str] = []
-    if _uses_cranelift_backend(manifest_path):
-        args += _LLVM_CODEGEN_OVERRIDE
     args.append("llvm-cov")
     if use_nextest:
         args.append("nextest")
@@ -159,6 +155,13 @@ def get_cargo_coverage_cmd(
         args += ["--features", features]
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+    """Return extra environment overrides needed for coverage runs."""
+    if _uses_cranelift_backend(manifest_path):
+        return dict(_LLVM_CODEGEN_ENV)
+    return {}
 
 
 def extract_percent(output: str) -> str:
@@ -341,10 +344,18 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     return stdout_lines
 
 
-def _run_cargo(args: list[str]) -> str:
+def _run_cargo(args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
-    typer.echo(f"$ cargo {shlex.join(args)}")
-    proc = cargo[args].popen(
+    env_prefix = ""
+    cargo_cmd = cargo
+    if extra_env:
+        env_prefix = " ".join(
+            f"{key}={shlex.quote(value)}" for key, value in extra_env.items()
+        )
+        env_prefix += " "
+        cargo_cmd = cargo.with_env(**extra_env)
+    typer.echo(f"$ {env_prefix}cargo {shlex.join(args)}")
+    proc = cargo_cmd[args].popen(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -429,6 +440,7 @@ def run_cucumber_rs_coverage(
     use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
+    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -452,7 +464,7 @@ def run_cucumber_rs_coverage(
     if cucumber_rs_args:
         c_args += shlex.split(cucumber_rs_args)
 
-    _run_cargo(c_args)
+    _run_cargo(c_args, extra_env=extra_env)
 
     if fmt == "cobertura":
         from plumbum.cmd import uvx
@@ -552,11 +564,12 @@ def main(
         with_default=with_default,
         use_nextest=use_nextest,
     )
+    extra_env = get_cargo_coverage_env(manifest_path)
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
     )
     with config_context:
-        stdout = _run_cargo(args)
+        stdout = _run_cargo(args, extra_env=extra_env)
 
         if with_cucumber_rs and cucumber_rs_features:
             run_cucumber_rs_coverage(
@@ -568,6 +581,7 @@ def main(
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
+                extra_env=extra_env,
             )
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)

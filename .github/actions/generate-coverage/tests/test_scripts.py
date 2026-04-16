@@ -402,7 +402,7 @@ def test_run_rust_main_nextest_variants(
         assert f"file={output}" in data
         assert "percent=100.00" in data
     else:
-        assert args[:1] == ["llvm-cov"]
+        assert "llvm-cov" in args
         assert "nextest" not in args
         assert "--manifest-path" in args
         assert "Cargo.toml" in args

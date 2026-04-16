@@ -185,10 +185,12 @@ Key learnings:
 - The `--config` flag is a top-level cargo option and must appear before the
   `llvm-cov` subcommand in the argument list. Attempting to pass it after
   `llvm-cov` produces `error: invalid option '--config'`.
-- The `codegen-backend` profile key is unstable in Cargo and requires
-  `-Z unstable-options` on stable toolchains. Unconditionally prepending
-  the `--config` flags would break normal stable-toolchain projects that
-  do not use Cranelift. The detection must be conditional.
+- The `codegen-backend` profile key is a nightly-only Cargo feature. Workflows
+  that exercise it must use nightly Cargo and enable it with either
+  `-Z codegen-backend` or `[unstable].codegen-backend = true`; it is not
+  available on stable toolchains. Unconditionally prepending the `--config`
+  flags would therefore break normal stable-toolchain projects that do not use
+  Cranelift. The detection must be conditional.
 
 The implementation is complete and ready for commit.
 
@@ -560,10 +562,14 @@ Expected cargo argument list after the change (example with nextest):
  "--lcov", "--output-path", "cov.lcov"]
 ```
 
-Verified by manual testing that `cargo --config
-'profile.dev.codegen-backend="llvm"' --config
-'profile.test.codegen-backend="llvm"' llvm-cov --lcov --output-path /tmp/test-
-cov.lcov` compiles and runs successfully in the `rust-toy-app` directory.
+Verified by manual testing that this command compiles and runs successfully in
+the `rust-toy-app` directory:
+
+```bash
+cargo --config 'profile.dev.codegen-backend="llvm"' \
+      --config 'profile.test.codegen-backend="llvm"' \
+      llvm-cov --lcov --output-path /tmp/test-cov.lcov
+```
 
 Also verified that `cargo llvm-cov --config '...'` (config flag after
 `llvm-cov`) fails with `error: invalid option '--config'`, confirming the flags

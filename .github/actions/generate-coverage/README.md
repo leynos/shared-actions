@@ -61,9 +61,9 @@ sequenceDiagram
     get_cargo_coverage_env-->>run_rust_py: cargo_env
     run_rust_py->>_run_cargo: _run_cargo(args, env_overrides=cargo_env)
     alt env_overrides is not None
-        _run_cargo->>_run_cargo: merge os_environ with env_overrides
+        _run_cargo->>_run_cargo: merge os.environ with env_overrides
     else
-        _run_cargo->>_run_cargo: use os_environ unchanged
+        _run_cargo->>_run_cargo: use os.environ unchanged
     end
     _run_cargo->>cargo: invoke cargo llvm-cov with env
     cargo-->>_run_cargo: stdout

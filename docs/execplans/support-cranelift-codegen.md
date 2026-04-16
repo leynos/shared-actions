@@ -288,7 +288,7 @@ Validation: existing tests pass without the prefix (no Cranelift config in test
 fixtures). The new Cranelift test creates a `.cargo/config.toml` and verifies
 the prefix is present.
 
-### Stage B: update all existing test assertions
+### Stage B: verify existing test assertions are unaffected
 
 Because the `--config` prefix is conditional (only injected when Cranelift is
 detected), existing tests that do not create a `.cargo/config.toml` with
@@ -298,24 +298,14 @@ asserts that the prefix (`"--config"`,
 `'profile.dev.codegen-backend="llvm"'`, `"--config"`,
 `'profile.test.codegen-backend="llvm"'`) appears before `"llvm-cov"`.
 
-The affected tests and locations (all in
-`.github/actions/generate-coverage/tests/test_scripts.py`):
-
-1. `test_run_rust_success` (line ~218): update `expected_args` list.
-2. `test_run_rust_nextest_command` (line ~250): update `expected_args` list.
-3. `test_run_rust_uses_detected_manifest_path` (line ~273): update the
-   `cargo_args[0:3]` slice assertion — the prefix now has four additional
-   elements, so the slice index must shift.
-4. `test_get_cargo_coverage_cmd_variants` (line ~277): update both
-   parametrized `expected` lists.
-5. `test_run_rust_main_nextest_variants` (line ~370): update the `args[:2]`
-   assertion (now `args[:6]` or similar) and the `args[0]` assertion for the
-   non-nextest path.
-6. Any cucumber-related tests that assert cargo argument lists (search for
-   `"llvm-cov"` in assertions).
+Because the prefix is conditional, existing tests (which do not create a
+`.cargo/config.toml` with Cranelift settings) require **no changes** to their
+expected argument lists — they continue to assert arguments without the
+four-element override prefix.
 
 Approach: define a module-level constant in the test file for the config prefix
-to avoid repeating the four-element list in every test:
+so that Cranelift-specific tests can reference it without repeating the
+four-element list:
 
 ```python
 _LLVM_CONFIG_PREFIX = [
@@ -326,10 +316,12 @@ _LLVM_CONFIG_PREFIX = [
 ]
 ```
 
-Then use `[*_LLVM_CONFIG_PREFIX, "llvm-cov", ...]` in expected argument lists.
+This constant is used **only** in
+`test_run_rust_cranelift_project_uses_llvm_codegen` (and any future tests that
+intentionally simulate the Cranelift-to-LLVM override). Other tests' expected
+argument lists remain unchanged.
 
-Validation: run `make test` and confirm all existing tests pass with the
-updated assertions.
+Validation: run `make test` and confirm all existing tests pass unchanged.
 
 ### Stage C: add new behavioural test for Cranelift-configured project
 

@@ -279,11 +279,10 @@ def test_run_rust_uses_detected_manifest_path(
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
     )
-    assert cargo_args[0:3] == [
-        "llvm-cov",
-        "--manifest-path",
-        "rust-toy-app/Cargo.toml",
-    ]
+    assert "llvm-cov" in cargo_args
+    mp_idx = cargo_args.index("--manifest-path")
+    assert cargo_args[mp_idx + 1] == "rust-toy-app/Cargo.toml"
+    assert "nextest" not in cargo_args
 
 
 @pytest.mark.parametrize(

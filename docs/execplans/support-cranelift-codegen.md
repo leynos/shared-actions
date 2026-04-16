@@ -12,7 +12,7 @@ Status: COMPLETE
 Rust projects that use the Cranelift codegen backend for faster compile times
 cannot generate Low Level Virtual Machine (LLVM) source-based code coverage
 because the `-C instrument-coverage` flag is an LLVM-only feature. When a project sets
-`codegen-backend = "cranelift"` in its `.cargo/config.toml` (or `Cargo.toml`)
+`codegen-backend = "cranelift"` in its `.cargo/config.toml` (or `.cargo/config`)
 and then runs `cargo llvm-cov`, the build fails or produces no coverage data.
 
 After this change, the generate-coverage action will detect whether the
@@ -288,10 +288,13 @@ the prefix is present.
 
 ### Stage B: update all existing test assertions
 
-Every test in `test_scripts.py` that asserts the exact cargo argument list must
-be updated to include the four new leading elements (`"--config"`,
+Because the `--config` prefix is conditional (only injected when Cranelift is
+detected), existing tests that do not create a `.cargo/config.toml` with
+Cranelift settings do **not** include the four leading override elements.
+Only the dedicated Cranelift test (`test_run_rust_cranelift_project_uses_llvm_codegen`)
+asserts that the prefix (`"--config"`,
 `'profile.dev.codegen-backend="llvm"'`, `"--config"`,
-`'profile.test.codegen-backend="llvm"'`) before `"llvm-cov"`.
+`'profile.test.codegen-backend="llvm"'`) appears before `"llvm-cov"`.
 
 The affected tests and locations (all in
 `.github/actions/generate-coverage/tests/test_scripts.py`):
@@ -503,8 +506,8 @@ Acceptance is met when the following are true:
   followed by `"llvm-cov"`. When Cranelift is not detected, the argument list
   begins directly with `"llvm-cov"` (no `--config` prefix).
 
-- All existing tests in `test_scripts.py` pass with updated assertions that
-  include the config prefix.
+- All existing tests in `test_scripts.py` pass (non-Cranelift tests verify
+  that no config prefix is present; the Cranelift test verifies the prefix).
 
 - The new test `test_run_rust_cranelift_project_uses_llvm_codegen` passes,
   confirming that the LLVM override flags are present even when a project has

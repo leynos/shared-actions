@@ -23,11 +23,16 @@ duration of the build so that `cross` automatically uses the available engine.
 The `uv` Python package manager is installed automatically to execute the build
 script.
 
+Toolchains are resolved from the target repository in this order: explicit
+`toolchain` input, repository `rust-toolchain.toml` or `rust-toolchain`,
+manifest `rust-version`, then the action's bundled fallback version.
+
 ## Inputs
 
 | Name          | Type   | Default                    | Description                                                        | Required |
 | ------------- | ------ | -------------------------- | ------------------------------------------------------------------ | -------- |
 | target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                             | no       |
+| toolchain     | string | (empty)                    | Explicit Rust toolchain override; otherwise resolve from the target repository before falling back to the action default | no |
 | project-dir   | string | `.`                        | Path to the Rust project to build                                  | no       |
 | manifest-path | string | `Cargo.toml`               | Path to the Cargo manifest (relative to `project-dir` or absolute) | no       |
 | bin-name      | string | `rust-toy-app`             | Binary name produced by the build                                  | no       |
@@ -60,6 +65,7 @@ None.
 - uses: ./.github/actions/rust-build-release
   with:
     target: x86_64-unknown-linux-gnu
+    toolchain: nightly-2026-03-26
     project-dir: rust-toy-app
     bin-name: rust-toy-app
     features: "verbose,experimental"

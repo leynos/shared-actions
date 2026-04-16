@@ -6,6 +6,8 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
+import typing as typ
 from pathlib import Path
 
 from utils import ensure_allowed_executable, run_validated
@@ -16,6 +18,112 @@ TOOLCHAIN_VERSION_FILE = Path(__file__).resolve().parents[1] / "TOOLCHAIN_VERSIO
 def read_default_toolchain() -> str:
     """Return the repository's default Rust toolchain."""
     return TOOLCHAIN_VERSION_FILE.read_text(encoding="utf-8").strip()
+
+
+def _resolve_manifest_path(project_dir: Path, manifest_path: Path) -> Path:
+    """Resolve *manifest_path* relative to *project_dir* when needed."""
+    candidate = manifest_path.expanduser()
+    if not candidate.is_absolute():
+        candidate = project_dir / candidate
+    return candidate.resolve()
+
+
+def _strip_optional(value: str | None) -> str | None:
+    """Return a trimmed string or ``None`` when the input is blank."""
+    if value is None:
+        return None
+    trimmed = value.strip()
+    return trimmed or None
+
+
+def _parse_toolchain_file(path: Path) -> str | None:
+    """Return the declared toolchain channel from *path*, if any."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    try:
+        data = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError:
+        for line in raw.splitlines():
+            if channel := _strip_optional(line.partition("#")[0]):
+                return channel
+        return None
+
+    toolchain = data.get("toolchain")
+    if isinstance(toolchain, dict):
+        channel = toolchain.get("channel")
+        if isinstance(channel, str):
+            return _strip_optional(channel)
+    return None
+
+
+def _iter_toolchain_search_dirs(start: Path) -> typ.Iterator[Path]:
+    """Yield directories to search for repository toolchain declarations."""
+    search_dir = start.resolve()
+    while True:
+        yield search_dir
+        if (search_dir / ".git").exists():
+            return
+        parent = search_dir.parent
+        if parent == search_dir:
+            return
+        search_dir = parent
+
+
+def read_repo_toolchain(project_dir: Path, manifest_path: Path) -> str | None:
+    """Return the repo-declared toolchain nearest the target manifest, if any."""
+    resolved_manifest = _resolve_manifest_path(project_dir, manifest_path)
+    for directory in _iter_toolchain_search_dirs(resolved_manifest.parent):
+        for filename in ("rust-toolchain.toml", "rust-toolchain"):
+            if toolchain := _parse_toolchain_file(directory / filename):
+                return toolchain
+    return None
+
+
+def read_manifest_rust_version(project_dir: Path, manifest_path: Path) -> str | None:
+    """Return ``rust-version`` from the manifest when it is declared."""
+    try:
+        manifest_data = tomllib.loads(
+            _resolve_manifest_path(project_dir, manifest_path).read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    package = manifest_data.get("package")
+    if isinstance(package, dict):
+        rust_version = package.get("rust-version")
+        if isinstance(rust_version, str):
+            return _strip_optional(rust_version)
+
+    workspace = manifest_data.get("workspace")
+    if isinstance(workspace, dict):
+        workspace_package = workspace.get("package")
+        if isinstance(workspace_package, dict):
+            rust_version = workspace_package.get("rust-version")
+            if isinstance(rust_version, str):
+                return _strip_optional(rust_version)
+    return None
+
+
+def resolve_requested_toolchain(
+    explicit_toolchain: str | None,
+    *,
+    project_dir: Path,
+    manifest_path: Path,
+    fallback_toolchain: str,
+) -> str:
+    """Resolve the toolchain using explicit input, repo config, MSRV, then fallback."""
+    if toolchain := _strip_optional(explicit_toolchain):
+        return toolchain
+    if repo_toolchain := read_repo_toolchain(project_dir, manifest_path):
+        return repo_toolchain
+    if rust_version := read_manifest_rust_version(project_dir, manifest_path):
+        return rust_version
+    return fallback_toolchain
 
 
 def toolchain_triple(toolchain: str) -> str | None:

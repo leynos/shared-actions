@@ -60,9 +60,12 @@ def bootstrap_environment() -> tuple[Path, Path]:
 _ACTION_PATH, _REPO_ROOT = bootstrap_environment()
 
 import typer
-from toolchain import read_default_toolchain
+from toolchain import read_default_toolchain, resolve_requested_toolchain
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+DEFAULT_MANIFEST_PATH = Path("Cargo.toml")
+TOOLCHAIN_OVERRIDE_OPT = typer.Option("", "--toolchain")
+MANIFEST_PATH_OPT = typer.Option(DEFAULT_MANIFEST_PATH, "--manifest-path")
 
 app = typer.Typer(add_completion=False)
 
@@ -122,9 +125,16 @@ def toolchain(
     target: str = typer.Option(..., "--target"),
     runner_os: str = typer.Option(..., "--runner-os"),
     runner_arch: str = typer.Option(..., "--runner-arch"),
+    toolchain: str = TOOLCHAIN_OVERRIDE_OPT,
+    manifest_path: Path = MANIFEST_PATH_OPT,
 ) -> None:
     """CLI entry point that prints the resolved toolchain."""
-    default_toolchain = read_default_toolchain()
+    default_toolchain = resolve_requested_toolchain(
+        toolchain,
+        project_dir=Path.cwd(),
+        manifest_path=manifest_path,
+        fallback_toolchain=read_default_toolchain(),
+    )
     try:
         resolved = resolve_toolchain(default_toolchain, target, runner_os, runner_arch)
     except ToolchainResolutionError as exc:

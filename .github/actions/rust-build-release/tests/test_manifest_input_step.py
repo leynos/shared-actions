@@ -31,6 +31,16 @@ def test_manifest_path_input_declared() -> None:
     assert manifest_input.get("default") == "Cargo.toml"
 
 
+def test_toolchain_input_declared() -> None:
+    """The toolchain override input must exist with an empty default."""
+    manifest = _load_action_manifest()
+    inputs = manifest["inputs"]
+    assert "toolchain" in inputs
+    toolchain_input = inputs["toolchain"]
+    assert toolchain_input.get("required", False) is False
+    assert toolchain_input.get("default") == ""
+
+
 def test_build_step_exports_manifest_path_env() -> None:
     """Build step should pass manifest-path via RBR_MANIFEST_PATH."""
     manifest = _load_action_manifest()
@@ -39,3 +49,15 @@ def test_build_step_exports_manifest_path_env() -> None:
     env = build_step.get("env")
     assert isinstance(env, dict)
     assert env.get("RBR_MANIFEST_PATH") == "${{ inputs.manifest-path }}"
+
+
+def test_determine_toolchain_step_uses_project_lookup_inputs() -> None:
+    """Toolchain lookup must run in project-dir and receive both override inputs."""
+    manifest = _load_action_manifest()
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    determine_step = _find_step(steps, "Determine toolchain")
+    assert determine_step.get("working-directory") == "${{ inputs.project-dir }}"
+    run_script = determine_step.get("run")
+    assert isinstance(run_script, str)
+    assert '--toolchain "${{ inputs.toolchain }}"' in run_script
+    assert '--manifest-path "${{ inputs.manifest-path }}"' in run_script

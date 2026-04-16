@@ -32,7 +32,11 @@ from runtime import (
     DEFAULT_HOST_TARGET,
     runtime_available,
 )
-from toolchain import configure_windows_linkers, read_default_toolchain
+from toolchain import (
+    configure_windows_linkers,
+    read_default_toolchain,
+    resolve_requested_toolchain,
+)
 from utils import (
     UnexpectedExecutableError,
     ensure_allowed_executable,
@@ -208,8 +212,13 @@ def _resolve_toolchain_name(
         if name in preferred:
             return name
     channel_prefix = f"{toolchain}-"
+    dotted_prefix = f"{toolchain}."
     for name in installed_names:
-        if name == toolchain or name.startswith(channel_prefix):
+        if (
+            name == toolchain
+            or name.startswith(channel_prefix)
+            or name.startswith(dotted_prefix)
+        ):
             return name
     return ""
 
@@ -290,11 +299,16 @@ def _ensure_rustup_exec() -> str:
 def _fallback_toolchain_name(toolchain: str, installed_names: list[str]) -> str:
     """Return a toolchain matching *toolchain* or its channel prefix."""
     channel_prefix = f"{toolchain}-"
+    dotted_prefix = f"{toolchain}."
     return next(
         (
             name
             for name in installed_names
-            if name == toolchain or name.startswith(channel_prefix)
+            if (
+                name == toolchain
+                or name.startswith(channel_prefix)
+                or name.startswith(dotted_prefix)
+            )
         ),
         "",
     )
@@ -670,9 +684,9 @@ def _manifest_argument(manifest_path: Path) -> Path:
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
     toolchain: str = typer.Option(
-        DEFAULT_TOOLCHAIN,
+        "",
         envvar="RBR_TOOLCHAIN",
-        help="Rust toolchain version",
+        help="Rust toolchain version override",
     ),
     features: str = typer.Option(
         "",
@@ -682,9 +696,19 @@ def main(
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
+    manifest_path: Path | None = None
+    requested_toolchain = toolchain.strip()
+    if not requested_toolchain:
+        manifest_path = _resolve_manifest_path()
+        requested_toolchain = resolve_requested_toolchain(
+            toolchain,
+            project_dir=Path.cwd(),
+            manifest_path=manifest_path,
+            fallback_toolchain=DEFAULT_TOOLCHAIN,
+        )
     rustup_exec = _ensure_rustup_exec()
     toolchain_name, installed_names = _resolve_toolchain(
-        rustup_exec, toolchain, target_to_build
+        rustup_exec, requested_toolchain, target_to_build
     )
     target_installed = _ensure_target_installed(
         rustup_exec, toolchain_name, target_to_build
@@ -713,8 +737,8 @@ def main(
 
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
-    manifest_path = _resolve_manifest_path()
-    manifest_argument = _manifest_argument(manifest_path)
+    manifest_location = manifest_path or _resolve_manifest_path()
+    manifest_argument = _manifest_argument(manifest_location)
     if decision.use_cross:
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features

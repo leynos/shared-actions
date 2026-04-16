@@ -361,13 +361,17 @@ def _run_rust_main_variant(
     output = tmp_path / "cov.lcov"
     output.write_text("LF:10\nLH:10\n")
     github_output = tmp_path / "gh.txt"
-    recorded_args: list[str] = []
+    recorded: dict[str, object] = {}
 
     def fake_run_cargo(
-        args: list[str], *, extra_env: dict[str, str] | None = None
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
     ) -> str:
-        recorded_args[:] = args
-        _ = extra_env
+        recorded["args"] = args
+        recorded["env_overrides"] = dict(env_overrides or {})
+        recorded["env_unsets"] = tuple(env_unsets)
         return "Coverage: 100%"
 
     monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
@@ -386,7 +390,7 @@ def _run_rust_main_variant(
         with_cucumber_rs=False,
         baseline_file=None,
     )
-    return recorded_args, github_output, output
+    return typ.cast("list[str]", recorded["args"]), github_output, output
 
 
 @pytest.mark.parametrize("use_nextest", [True, False])
@@ -714,6 +718,40 @@ def test_run_cargo_windows_closes_streams(
     assert stderr.closed
     assert stdout.close_calls >= 1
     assert stderr.close_calls >= 1
+
+
+def test_run_cargo_passes_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` scrubs and reapplies coverage env overrides."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setenv("RUN_RUST_INHERITED", "present")
+    monkeypatch.setenv("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
+    monkeypatch.setenv("CARGO_PROFILE_TEST_CODEGEN_BACKEND", "cranelift")
+
+    fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    result = mod._run_cargo(
+        ["llvm-cov"],
+        env_unsets=(
+            "CARGO_PROFILE_DEV_CODEGEN_BACKEND",
+            "CARGO_PROFILE_TEST_CODEGEN_BACKEND",
+        ),
+        env_overrides={
+            "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+            "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+        },
+    )
+
+    assert result == "out-line"
+    assert fake_cargo.last_popen_kwargs is not None
+    env = typ.cast("dict[str, str]", fake_cargo.last_popen_kwargs["env"])
+    assert env["RUN_RUST_INHERITED"] == "present"
+    assert env["CARGO_PROFILE_DEV_CODEGEN_BACKEND"] == "llvm"
+    assert env["CARGO_PROFILE_TEST_CODEGEN_BACKEND"] == "llvm"
 
 
 def test_run_cargo_windows_nonzero_exit(

@@ -65,7 +65,6 @@ When Cranelift is detected, the helper returns:
 
 ```text
 CARGO_PROFILE_DEV_CODEGEN_BACKEND=llvm
-CARGO_PROFILE_TEST_CODEGEN_BACKEND=llvm
 ```
 
 These variables are passed to the `cargo llvm-cov` subprocess and therefore
@@ -81,10 +80,10 @@ The environment-variable approach is intentional rather than incidental:
 - Coverage therefore needs a transport mechanism that survives process
   boundaries.
 
-Using `CARGO_PROFILE_*_CODEGEN_BACKEND` matches Cargo's configuration model
-while keeping the override tightly scoped to the coverage subprocess. The
-repository's checked-in configuration stays unchanged, and non-coverage flows
-continue to use Cranelift if the repository asked for it.
+Using `CARGO_PROFILE_DEV_CODEGEN_BACKEND` keeps the override tightly scoped to
+the coverage subprocess. The repository's checked-in configuration stays
+unchanged, and non-coverage flows continue to use Cranelift if the repository
+asked for it.
 
 ### Where the Overrides Apply
 
@@ -98,15 +97,20 @@ not drift between the primary and follow-up coverage invocations.
 
 ### Behaviour of `env_overrides`
 
-`_run_cargo(..., env_overrides=...)` accepts an optional mapping:
+`_run_cargo(..., env_overrides=..., env_unsets=...)` accepts two optional
+inputs:
 
-- `None` means "use the inherited process environment unchanged"
+- `env_overrides=None` means "do not add replacement values"
+- `env_unsets=()` means "do not remove any inherited keys"
 - a mapping means "merge the current environment with these extra keys"
+- an iterable of keys means "remove these inherited variables before applying
+  overrides"
 
-The helper does not construct a clean-room environment. It starts from
-`os.environ` and overlays the requested keys, preserving the rest of the
-workflow's runtime context such as PATH, toolchain configuration, and any
-GitHub Actions environment variables already set by the caller.
+The helper still starts from `os.environ` so it preserves PATH, toolchain
+configuration, and the rest of the GitHub Actions runtime context, but it now
+explicitly removes inherited `CARGO_PROFILE_DEV_CODEGEN_BACKEND` before
+applying coverage overrides. That prevents a caller or runner host from
+leaking an unrelated Cranelift preference into coverage runs.
 
 ### Cranelift Detection Strategy
 
@@ -116,11 +120,13 @@ sources before deciding coverage needs LLVM overrides:
 - `_uses_cranelift_backend(manifest_path)` walks upward from the selected Cargo
   manifest directory and scans `.cargo/config.toml` plus `.cargo/config`.
 - `_manifest_uses_cranelift_backend(manifest_path)` reads the selected
-  `Cargo.toml` and scans profile sections for
+  `Cargo.toml` and then walks ancestor `Cargo.toml` files until it reaches the
+  filesystem root or a manifest that declares `[workspace]`.
+- Each visited manifest is scanned for profile sections containing
   `codegen-backend = "cranelift"` or the single-quoted equivalent.
 
 The action therefore catches both repository-level Cargo config overrides and
-manifest-level profile settings without needing a full TOML parser.
+workspace-root profile settings without needing a full TOML parser.
 
 ### Known Limitations
 
@@ -132,10 +138,10 @@ should understand:
   appears in a table that is more specific than the action strictly needs to
   reason about.
 - It only inspects `.cargo/config.toml`, `.cargo/config`, and the selected
-  `Cargo.toml`. It does not model configuration injected via CLI `--config`,
-  environment-backed Cargo config, or other runtime indirection.
-- It always applies both `CARGO_PROFILE_DEV_CODEGEN_BACKEND` and
-  `CARGO_PROFILE_TEST_CODEGEN_BACKEND` together once Cranelift is detected. The
+  `Cargo.toml` plus its ancestor manifests up to the workspace root. It does
+  not model configuration injected via CLI `--config`, environment-backed Cargo
+  config beyond the explicit dev-profile unset, or other runtime indirection.
+- It always applies the `dev` profile override once Cranelift is detected. The
   action currently does not try to mirror per-profile granularity from the
   repository config.
 - Files that cannot be read as UTF-8 are ignored rather than failing the run,

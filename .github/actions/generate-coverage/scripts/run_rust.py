@@ -99,6 +99,11 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 global-timeout = "10m"
 """
 
+_CARGO_COVERAGE_ENV_UNSETS = (
+    "CARGO_PROFILE_DEV_CODEGEN_BACKEND",
+    "CARGO_PROFILE_TEST_CODEGEN_BACKEND",
+)
+
 
 _LLVM_CODEGEN_ENV = {
     "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
@@ -410,14 +415,39 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     return stdout_lines
 
 
-def _build_cargo_command(
-    extra_env: dict[str, str] | None,
-) -> tuple[str, typ.Any]:
-    """Return *(display_prefix, cargo_cmd)* reflecting *extra_env*."""
-    if not extra_env:
-        return "", cargo
-    env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in extra_env.items()) + " "
-    return env_prefix, cargo.with_env(**extra_env)
+def _build_cargo_env(
+    env_overrides: typ.Mapping[str, str] | None,
+    env_unsets: typ.Iterable[str],
+) -> dict[str, str]:
+    """Return the environment dict for a spawned cargo process."""
+    env = dict(os.environ)
+    for key in env_unsets:
+        env.pop(key, None)
+    if env_overrides is not None:
+        env.update(env_overrides)
+    return env
+
+
+def _spawn_cargo(
+    command: typ.Any,  # noqa: ANN401
+    env: dict[str, str],
+) -> subprocess.Popen[str]:
+    """Spawn a ``cargo`` subprocess with the given environment."""
+    popen_kwargs: dict[str, typ.Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    machine_env = getattr(getattr(cargo, "machine", None), "env", None)
+    if machine_env is None:
+        return command.popen(**popen_kwargs, env=env)
+    with machine_env():
+        machine_env.clear()
+        machine_env.update(env)
+        return command.popen(**popen_kwargs)
 
 
 def _abort_on_missing_streams(proc: subprocess.Popen[str]) -> None:
@@ -467,18 +497,16 @@ def _wait_for_cargo(
         raise typer.Exit(code=retcode or 1)
 
 
-def _run_cargo(args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
+def _run_cargo(
+    args: list[str],
+    *,
+    env_overrides: typ.Mapping[str, str] | None = None,
+    env_unsets: typ.Iterable[str] = (),
+) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
-    env_prefix, cargo_cmd = _build_cargo_command(extra_env)
-    typer.echo(f"$ {env_prefix}cargo {shlex.join(args)}")
-    proc = cargo_cmd[args].popen(
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    typer.echo(f"$ cargo {shlex.join(args)}")
+    env = _build_cargo_env(env_overrides, env_unsets)
+    proc = _spawn_cargo(cargo[args], env)
     try:
         _abort_on_missing_streams(proc)
         stdout_lines = _pump_cargo_output(proc)
@@ -524,7 +552,6 @@ def run_cucumber_rs_coverage(
     use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
-    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -548,7 +575,11 @@ def run_cucumber_rs_coverage(
     if cucumber_rs_args:
         c_args += shlex.split(cucumber_rs_args)
 
-    _run_cargo(c_args, extra_env=extra_env)
+    _run_cargo(
+        c_args,
+        env_overrides=get_cargo_coverage_env(manifest_path),
+        env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
+    )
 
     if fmt == "cobertura":
         from plumbum.cmd import uvx
@@ -648,12 +679,16 @@ def main(
         with_default=with_default,
         use_nextest=use_nextest,
     )
-    extra_env = get_cargo_coverage_env(manifest_path)
+    cargo_env = get_cargo_coverage_env(manifest_path)
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
     )
     with config_context:
-        stdout = _run_cargo(args, extra_env=extra_env)
+        stdout = _run_cargo(
+            args,
+            env_overrides=cargo_env,
+            env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
+        )
 
         if with_cucumber_rs and cucumber_rs_features:
             run_cucumber_rs_coverage(
@@ -665,7 +700,6 @@ def main(
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
-                extra_env=extra_env,
             )
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)

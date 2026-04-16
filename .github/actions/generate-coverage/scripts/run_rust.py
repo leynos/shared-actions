@@ -123,9 +123,7 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
                     content = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):
                     continue
-                if re.search(
-                    r'codegen-backend\s*=\s*["\']cranelift["\']', content
-                ):
+                if re.search(r'codegen-backend\s*=\s*["\']cranelift["\']', content):
                     return True
         parent = search_dir.parent
         if parent == search_dir:

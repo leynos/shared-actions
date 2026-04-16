@@ -288,14 +288,12 @@ def test_main_errors_when_manifest_missing(
 
 
 def test_main_prefers_repo_declared_toolchain(
-    main_module: ModuleType,
-    patch_common_main_deps: ModuleHarness,
-    cross_decision_factory: CrossDecisionFactory,
-    dummy_command_factory: DummyCommandFactory,
+    build_main_context: BuildMainContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """main() resolves repo toolchains before falling back to the action default."""
-    harness = patch_common_main_deps
+    context = build_main_context
+    harness = context.harness
     captured: dict[str, object] = {}
     monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
 
@@ -309,7 +307,7 @@ def test_main_prefers_repo_declared_toolchain(
         return toolchain_arg, [toolchain_arg]
 
     harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
-    decision = cross_decision_factory(main_module, use_cross=False)
+    decision = context.cross_decision_factory(context.main_module, use_cross=False)
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
     def fake_cargo(
@@ -317,11 +315,11 @@ def test_main_prefers_repo_declared_toolchain(
     ) -> object:
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg
-        return dummy_command_factory("cargo-build")
+        return context.dummy_command_factory("cargo-build")
 
     harness.patch_attr("_build_cargo_command", fake_cargo)
 
-    main_module.main("aarch64-unknown-linux-gnu")
+    context.main_module.main("aarch64-unknown-linux-gnu")
 
     assert captured["toolchain"] == "nightly-2026-03-26"
     assert captured["target"] == "aarch64-unknown-linux-gnu"

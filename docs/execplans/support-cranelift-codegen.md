@@ -243,9 +243,10 @@ point directly with a monkeypatched `_run_cargo`.
 
 The toy Rust fixture at `rust-toy-app/` is a simple command-line interface
 (CLI) application used as a test fixture. It has no `.cargo/config.toml`
-file. For the new behavioural test, a `.cargo/config.toml` will be created in
-a temporary copy of this
-fixture to simulate a Cranelift-configured project.
+file. For the new behavioural test, the test writes `.cargo/config.toml`
+directly into `tmp_path/.cargo/config.toml` to simulate a Cranelift-configured
+project, then validates the resulting cargo argv through cmd-mox stubs instead
+of operating on a copied `rust-toy-app` fixture.
 
 Cranelift is an alternative codegen backend for the Rust compiler. It is faster
 than LLVM for debug builds but does not support LLVM-specific features like

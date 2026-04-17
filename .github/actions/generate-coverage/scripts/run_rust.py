@@ -341,6 +341,36 @@ def _pump_cargo_output_windows(
     return stdout_lines
 
 
+def _handle_cargo_output_event(
+    key: selectors.SelectorKey,
+    stdout_lines: list[str],
+    sel: selectors.DefaultSelector,
+) -> None:
+    """Process one selector event from a cargo output stream.
+
+    Unregisters the stream when EOF is reached; otherwise echoes the line
+    and, for stdout, appends it to *stdout_lines*.
+    """
+    stream = typ.cast("typ.TextIO", key.fileobj)
+    line = stream.readline()
+    if not line:
+        sel.unregister(stream)
+        return
+    if key.data == "stdout":
+        typer.echo(line, nl=False)
+        stdout_lines.append(line.rstrip("\r\n"))
+    else:
+        typer.echo(line, err=True, nl=False)
+
+
+def _kill_cargo_process(proc: subprocess.Popen[str]) -> None:
+    """Kill *proc* and wait for termination, suppressing any errors."""
+    with contextlib.suppress(Exception):
+        proc.kill()
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=5)
+
+
 def _pump_cargo_output(
     proc: subprocess.Popen[str],
     *,
@@ -379,21 +409,9 @@ def _pump_cargo_output(
 
             timeout = max(0.0, deadline - time.monotonic())
             for key, _ in sel.select(timeout):
-                stream = typ.cast("typ.TextIO", key.fileobj)
-                line = stream.readline()
-                if not line:
-                    sel.unregister(stream)
-                    continue
-                if key.data == "stdout":
-                    typer.echo(line, nl=False)
-                    stdout_lines.append(line.rstrip("\r\n"))
-                else:
-                    typer.echo(line, err=True, nl=False)
+                _handle_cargo_output_event(key, stdout_lines, sel)
     except Exception:
-        with contextlib.suppress(Exception):
-            proc.kill()
-        with contextlib.suppress(Exception):
-            proc.wait(timeout=5)
+        _kill_cargo_process(proc)
         raise
     finally:
         sel.close()

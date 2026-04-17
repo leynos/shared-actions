@@ -274,64 +274,69 @@ def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
         stream.close()
 
 
-def _pump_cargo_output_windows(
-    proc: subprocess.Popen[str],
-    stdout_stream: typ.IO[str],
-    stderr_stream: typ.IO[str],
+def _is_debug_pump_enabled() -> bool:
+    """Return ``True`` if cargo pump-thread debug logging is requested."""
+    return os.environ.get("RUN_RUST_DEBUG") == "1" or bool(os.environ.get("DEBUG_UTF8"))
+
+
+def _pump_stream_thread(
+    src: typ.IO[str],
     *,
+    to_stdout: bool,
+    stdout_lines: list[str],
+    thread_exceptions: list[Exception],
+) -> None:
+    """Read lines from *src*, echo them, and capture stdout lines.
+
+    Thread exceptions are appended to *thread_exceptions* rather than
+    propagated so that the monitoring loop can handle them.
+    """
+    dest = sys.stdout if to_stdout else sys.stderr
+    try:
+        for line in iter(src.readline, ""):
+            dest.write(line)
+            dest.flush()
+            if to_stdout:
+                stdout_lines.append(line.rstrip("\r\n"))
+    except Exception as exc:  # noqa: BLE001
+        thread_exceptions.append(exc)
+        if _is_debug_pump_enabled():
+            sys.stderr.write(f"Exception in pump thread: {exc}\n")
+            sys.stderr.write(traceback.format_exc())
+
+
+def _poll_pump_loop_iteration(
+    threads: list[threading.Thread],
+    proc: subprocess.Popen[str],
+    deadline: float,
     wait_timeout: float,
-) -> list[str]:
-    """Pump cargo output on Windows using background threads."""
-    thread_exceptions: list[Exception] = []
-    stdout_lines: list[str] = []
-    deadline = time.monotonic() + wait_timeout
-
-    def pump(src: typ.IO[str], *, to_stdout: bool) -> None:
-        dest = sys.stdout if to_stdout else sys.stderr
-        try:
-            for line in iter(src.readline, ""):
-                dest.write(line)
-                dest.flush()
-                if to_stdout:
-                    stdout_lines.append(line.rstrip("\r\n"))
-        except Exception as exc:  # noqa: BLE001
-            thread_exceptions.append(exc)
-            if os.environ.get("RUN_RUST_DEBUG") == "1" or os.environ.get("DEBUG_UTF8"):
-                sys.stderr.write(f"Exception in pump thread: {exc}\n")
-                sys.stderr.write(traceback.format_exc())
-
-    threads = [
-        threading.Thread(
-            name="cargo-stdout",
-            target=pump,
-            args=(stdout_stream,),
-            kwargs={"to_stdout": True},
-        ),
-        threading.Thread(
-            name="cargo-stderr",
-            target=pump,
-            args=(stderr_stream,),
-            kwargs={"to_stdout": False},
-        ),
-    ]
+    thread_exceptions: list[Exception],
+) -> bool:
+    """Perform one monitoring iteration; return ``True`` when pumping is done."""
+    if thread_exceptions:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        return True
+    if not any(t.is_alive() for t in threads):
+        return True
+    if proc.poll() is None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+        join_timeout = min(0.1, remaining)
+    else:
+        join_timeout = 0.0
     for thread in threads:
-        thread.start()
-    while True:
-        if thread_exceptions:
-            with contextlib.suppress(Exception):
-                proc.kill()
-            break
-        if not any(t.is_alive() for t in threads):
-            break
-        if proc.poll() is None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-            join_timeout = min(0.1, remaining)
-        else:
-            join_timeout = 0.0
-        for thread in threads:
-            thread.join(timeout=join_timeout)
+        thread.join(timeout=join_timeout)
+    return False
+
+
+def _finalise_pump_threads(
+    threads: list[threading.Thread],
+    proc: subprocess.Popen[str],
+    thread_exceptions: list[Exception],
+) -> None:
+    """Join threads, kill on timeout, and re-raise any captured thread exception."""
     timed_out = False
     for thread in threads:
         thread.join(timeout=5)
@@ -348,6 +353,48 @@ def _pump_cargo_output_windows(
             proc.wait(timeout=5)
         raise thread_exceptions[0]
 
+
+def _pump_cargo_output_windows(
+    proc: subprocess.Popen[str],
+    stdout_stream: typ.IO[str],
+    stderr_stream: typ.IO[str],
+    *,
+    wait_timeout: float,
+) -> list[str]:
+    """Pump cargo output on Windows using background threads."""
+    thread_exceptions: list[Exception] = []
+    stdout_lines: list[str] = []
+    deadline = time.monotonic() + wait_timeout
+
+    threads = [
+        threading.Thread(
+            name="cargo-stdout",
+            target=_pump_stream_thread,
+            args=(stdout_stream,),
+            kwargs={
+                "to_stdout": True,
+                "stdout_lines": stdout_lines,
+                "thread_exceptions": thread_exceptions,
+            },
+        ),
+        threading.Thread(
+            name="cargo-stderr",
+            target=_pump_stream_thread,
+            args=(stderr_stream,),
+            kwargs={
+                "to_stdout": False,
+                "stdout_lines": stdout_lines,
+                "thread_exceptions": thread_exceptions,
+            },
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    while not _poll_pump_loop_iteration(
+        threads, proc, deadline, wait_timeout, thread_exceptions
+    ):
+        pass
+    _finalise_pump_threads(threads, proc, thread_exceptions)
     return stdout_lines
 
 

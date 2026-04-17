@@ -131,21 +131,35 @@ def _toml_uses_cranelift_backend(content: str) -> bool:
     return False
 
 
+def _manifest_uses_cranelift(manifest_path: Path) -> bool:
+    """Return ``True`` when *manifest_path* declares cranelift in any profile."""
+    try:
+        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False
+    profiles = data.get("profile")
+    if not isinstance(profiles, dict):
+        return False
+    return any(
+        isinstance(section, dict)
+        and _is_cranelift_backend(section.get("codegen-backend"))
+        for section in profiles.values()
+    )
+
+
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when the project configures the Cranelift codegen backend.
 
-    Searches from the manifest directory upward for ``.cargo/config.toml``
+    Checks ``[profile.*].codegen-backend`` in *manifest_path* itself, then
+    searches from the manifest directory upward for ``.cargo/config.toml``
     (or ``.cargo/config``) and checks whether any profile sets
     ``codegen-backend = "cranelift"``.
     """
-    try:
-        manifest_content = manifest_path.resolve().read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        manifest_content = None
-    if manifest_content is not None and _toml_uses_cranelift_backend(manifest_content):
+    resolved = manifest_path.resolve()
+    if _manifest_uses_cranelift(resolved):
         return True
 
-    search_dir = manifest_path.resolve().parent
+    search_dir = resolved.parent
     while True:
         for name in ("config.toml", "config"):
             candidate = search_dir / ".cargo" / name

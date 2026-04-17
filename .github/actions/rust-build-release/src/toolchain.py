@@ -72,15 +72,21 @@ def _parse_toolchain_file(path: Path) -> str | None:
     return _extract_toml_channel(data)
 
 
-def _iter_toolchain_search_dirs(start: Path, stop_at: Path) -> typ.Iterator[Path]:
-    """Yield directories to search for repository toolchain declarations."""
+def _iter_toolchain_search_dirs(
+    start: Path, stop_at: Path | None = None
+) -> typ.Iterator[Path]:
+    """Yield directories to search for repository toolchain declarations.
+
+    Stops at the first ``.git`` directory encountered, at the filesystem root,
+    or at *stop_at* (inclusive) when provided.
+    """
     search_dir = start.resolve()
-    repo_root = stop_at.resolve()
-    if search_dir != repo_root and repo_root not in search_dir.parents:
-        return
+    stop = stop_at.resolve() if stop_at is not None else None
     while True:
         yield search_dir
-        if search_dir == repo_root or (search_dir / ".git").exists():
+        if stop is not None and search_dir == stop:
+            return
+        if (search_dir / ".git").exists():
             return
         parent = search_dir.parent
         if parent == search_dir:

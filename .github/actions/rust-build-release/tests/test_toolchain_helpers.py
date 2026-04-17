@@ -114,6 +114,25 @@ def test_read_repo_toolchain_ignores_parent_toolchains_outside_project_dir(
     assert toolchain is None
 
 
+def test_iter_toolchain_search_dirs_stops_at_boundary(
+    toolchain_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """stop_at causes the iterator to halt at the given directory."""
+    deep = tmp_path / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+
+    dirs = list(
+        toolchain_module._iter_toolchain_search_dirs(
+            deep,
+            stop_at=tmp_path / "a",
+        )
+    )
+
+    assert dirs[-1] == (tmp_path / "a").resolve()
+    assert tmp_path.resolve() not in dirs
+
+
 def test_read_repo_toolchain_ignores_malformed_rust_toolchain_toml(
     toolchain_module: ModuleType,
     tmp_path: Path,

@@ -447,6 +447,16 @@ def test_get_cargo_coverage_env_detects_cranelift_fixture(
     assert env == _LLVM_CODEGEN_ENV
 
 
+def test_uses_cranelift_backend_detects_manifest_fixture(
+    run_rust_module: ModuleType,
+) -> None:
+    """Cargo.toml profile settings alone trigger Cranelift detection."""
+    fixture_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "cargo-toml-cranelift-project"
+    )
+    assert run_rust_module._uses_cranelift_backend(fixture_dir / "Cargo.toml") is True
+
+
 def test_get_cargo_coverage_env_non_cranelift_is_empty(
     run_rust_module: ModuleType, tmp_path: Path
 ) -> None:

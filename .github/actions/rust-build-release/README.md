@@ -32,7 +32,7 @@ manifest `rust-version`, then the action's bundled fallback version.
 | Name          | Type   | Default                    | Description                                                        | Required |
 | ------------- | ------ | -------------------------- | ------------------------------------------------------------------ | -------- |
 | target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                             | no       |
-| toolchain     | string | (empty)                    | Explicit Rust toolchain override; otherwise resolve from the target repository before falling back to the action default | no |
+| toolchain     | string | (empty)                    | Explicit Rust toolchain override; otherwise the toolchain is resolved from the target repository before falling back to the action default | no |
 | project-dir   | string | `.`                        | Path to the Rust project to build                                  | no       |
 | manifest-path | string | `Cargo.toml`               | Path to the Cargo manifest (relative to `project-dir` or absolute) | no       |
 | bin-name      | string | `rust-toy-app`             | Binary name produced by the build                                  | no       |

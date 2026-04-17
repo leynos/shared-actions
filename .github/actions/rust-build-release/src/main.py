@@ -693,16 +693,13 @@ def main(
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
-    manifest_path: Path | None = None
-    requested_toolchain = toolchain.strip()
-    if not requested_toolchain:
-        manifest_path = _resolve_manifest_path()
-        requested_toolchain = resolve_requested_toolchain(
-            toolchain,
-            project_dir=Path.cwd(),
-            manifest_path=manifest_path,
-            fallback_toolchain=DEFAULT_TOOLCHAIN,
-        )
+    manifest_path = _resolve_manifest_path()
+    requested_toolchain = toolchain.strip() or resolve_requested_toolchain(
+        toolchain,
+        project_dir=Path.cwd(),
+        manifest_path=manifest_path,
+        fallback_toolchain=DEFAULT_TOOLCHAIN,
+    )
     rustup_exec = _ensure_rustup_exec()
     toolchain_name, installed_names = _resolve_toolchain(
         rustup_exec, requested_toolchain, target_to_build
@@ -734,8 +731,7 @@ def main(
 
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
 
-    manifest_location = manifest_path or _resolve_manifest_path()
-    manifest_argument = _manifest_argument(manifest_location)
+    manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features

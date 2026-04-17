@@ -63,6 +63,34 @@ def test_read_manifest_rust_version_reads_package_msrv(
     assert rust_version == "1.88"
 
 
+def test_read_manifest_rust_version_reads_workspace_package_msrv(
+    toolchain_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """Manifest fallback reads the workspace.package rust-version field."""
+    project_dir = tmp_path / "workspace-project"
+    project_dir.mkdir()
+    (project_dir / "Cargo.toml").write_text(
+        "\n".join(
+            [
+                "[workspace]",
+                "members = []",
+                "[workspace.package]",
+                'rust-version = "1.88"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rust_version = toolchain_module.read_manifest_rust_version(
+        project_dir,
+        Path("Cargo.toml"),
+    )
+
+    assert rust_version == "1.88"
+
+
 def test_read_repo_toolchain_ignores_parent_toolchains_outside_project_dir(
     toolchain_module: ModuleType,
     tmp_path: Path,
@@ -127,6 +155,14 @@ def test_resolve_requested_toolchain_precedence(
         fallback_toolchain="1.89.0",
     )
     assert explicit == "nightly-2026-03-26"
+
+    whitespace_explicit = toolchain_module.resolve_requested_toolchain(
+        "   ",
+        project_dir=manifest_dir,
+        manifest_path=Path("Cargo.toml"),
+        fallback_toolchain="1.89.0",
+    )
+    assert whitespace_explicit == "1.77"
 
     (manifest_dir / "rust-toolchain.toml").write_text(
         "[toolchain]\nchannel='nightly-2026-03-27'\n",

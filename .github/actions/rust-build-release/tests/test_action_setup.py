@@ -305,6 +305,35 @@ def test_cli_toolchain_prefers_repo_declared_nightly(
     assert result.stdout.strip() == "nightly-2026-03-26"
 
 
+def test_cli_toolchain_override_wins_over_repo_declared_nightly(
+    action_setup_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit CLI toolchain overrides repo rust-toolchain and manifest MSRV."""
+    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
+
+    result = runner.invoke(
+        action_setup_module.app,
+        [
+            "toolchain",
+            "--toolchain",
+            "beta",
+            "--target",
+            "aarch64-unknown-linux-gnu",
+            "--manifest-path",
+            "Cargo.toml",
+            "--runner-os",
+            "Linux",
+            "--runner-arch",
+            "X64",
+        ],
+        prog_name="action-setup",
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "beta"
+
+
 def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:
     """CLI validation command reports errors via Typer exit codes."""
     result = runner.invoke(

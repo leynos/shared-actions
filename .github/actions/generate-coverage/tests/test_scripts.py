@@ -482,6 +482,92 @@ def test_get_cargo_coverage_env_detects_manifest_only_cranelift(
     assert run_rust_module.get_cargo_coverage_env(manifest_path) == _LLVM_CODEGEN_ENV
 
 
+def test_run_cucumber_rs_coverage_passes_extra_env_for_cranelift(
+    run_rust_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """cucumber.rs coverage forwards Cranelift env overrides to ``_run_cargo``."""
+    fixture_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "nightly-cranelift-project"
+    )
+    manifest_path = fixture_dir / "Cargo.toml"
+    out = tmp_path / "coverage.lcov"
+    out.write_text("TN:\nend_of_record\n", encoding="utf-8")
+    captured_env: dict[str, str] | None = None
+
+    def fake_run_cargo(
+        _args: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> str:
+        nonlocal captured_env
+        captured_env = extra_env
+        out.with_name(f"{out.stem}.cucumber{out.suffix}").write_text(
+            "TN:\nend_of_record\n",
+            encoding="utf-8",
+        )
+        return ""
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+
+    run_rust_module.run_cucumber_rs_coverage(
+        out,
+        "lcov",
+        "",
+        manifest_path=manifest_path,
+        with_default=True,
+        use_nextest=False,
+        cucumber_rs_features="cucumber",
+        cucumber_rs_args="",
+        extra_env=run_rust_module.get_cargo_coverage_env(manifest_path),
+    )
+
+    assert captured_env == _LLVM_CODEGEN_ENV
+
+
+def test_run_cucumber_rs_coverage_passes_extra_env_for_non_cranelift(
+    run_rust_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """cucumber.rs coverage forwards explicit non-Cranelift env unchanged."""
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "coverage.lcov"
+    out.write_text("TN:\nend_of_record\n", encoding="utf-8")
+    captured_env: dict[str, str] | None = None
+    extra_env = {"FOO": "BAR", "BAZ": "QUX"}
+
+    def fake_run_cargo(
+        _args: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> str:
+        nonlocal captured_env
+        captured_env = extra_env
+        out.with_name(f"{out.stem}.cucumber{out.suffix}").write_text(
+            "TN:\nend_of_record\n",
+            encoding="utf-8",
+        )
+        return ""
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+
+    run_rust_module.run_cucumber_rs_coverage(
+        out,
+        "lcov",
+        "",
+        manifest_path=manifest_path,
+        with_default=True,
+        use_nextest=False,
+        cucumber_rs_features="cucumber",
+        cucumber_rs_args="",
+        extra_env=extra_env,
+    )
+
+    assert captured_env == extra_env
+
+
 def test_nextest_config_is_temporary(
     tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:

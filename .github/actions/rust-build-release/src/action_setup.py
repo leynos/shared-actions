@@ -69,6 +69,31 @@ MANIFEST_PATH_OPT = typer.Option(DEFAULT_MANIFEST_PATH, "--manifest-path")
 
 app = typer.Typer(add_completion=False)
 
+_TRIPLE_OS_COMPONENTS = {
+    "linux",
+    "windows",
+    "darwin",
+    "freebsd",
+    "netbsd",
+    "openbsd",
+    "dragonfly",
+    "solaris",
+    "android",
+    "ios",
+    "emscripten",
+    "haiku",
+    "hermit",
+    "fuchsia",
+    "wasi",
+    "redox",
+    "illumos",
+    "uefi",
+    "macabi",
+    "rumprun",
+    "vita",
+    "psp",
+}
+
 
 class TargetValidationError(ValueError):
     """Raised when a provided target triple is invalid."""
@@ -76,6 +101,25 @@ class TargetValidationError(ValueError):
 
 class ToolchainResolutionError(ValueError):
     """Raised when the action cannot resolve a toolchain."""
+
+
+def _looks_like_target_triple(candidate: str) -> bool:
+    """Return ``True`` when *candidate* resembles an embedded target triple."""
+    components = [part for part in candidate.split("-") if part]
+    if len(components) < 3:
+        return False
+    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
+
+
+def _has_embedded_target_triple(toolchain: str) -> bool:
+    """Return ``True`` when *toolchain* already includes a target triple."""
+    parts = toolchain.split("-")
+    for suffix_parts in (4, 3):
+        if len(parts) < suffix_parts + 1:
+            continue
+        if _looks_like_target_triple("-".join(parts[-suffix_parts:])):
+            return True
+    return False
 
 
 def validate_target(target: str) -> None:
@@ -97,6 +141,8 @@ def resolve_toolchain(
 ) -> str:
     """Return the toolchain identifier for the provided runner metadata."""
     if runner_os == "Windows" and target.endswith("-pc-windows-gnu"):
+        if _has_embedded_target_triple(default_toolchain):
+            return default_toolchain
         arch_map = {"X64": "x86_64", "ARM64": "aarch64"}
         try:
             host_arch = arch_map[runner_arch]

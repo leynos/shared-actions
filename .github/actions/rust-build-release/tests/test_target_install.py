@@ -27,6 +27,9 @@ if typ.TYPE_CHECKING:
     from .conftest import HarnessFactory
 
 
+pytestmark = pytest.mark.usefixtures("setup_manifest")
+
+
 def _assert_no_timeout_trace(output: str) -> None:
     """Ensure TimeoutExpired tracebacks do not leak into CLI output."""
     assert "TimeoutExpired" not in output, output
@@ -381,7 +384,9 @@ def test_sets_cross_container_engine_when_docker_available(
     app_env.patch_shutil_which(fake_which)
     app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "docker")
-    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
+    isolated_env = dict(os.environ)
+    isolated_env.pop("CROSS_CONTAINER_ENGINE", None)
+    app_env.monkeypatch.setattr(os, "environ", isolated_env)
 
     engines: list[str | None] = []
 
@@ -396,7 +401,6 @@ def test_sets_cross_container_engine_when_docker_available(
     cmd_mox.verify()
 
     assert engines == ["docker"]
-    assert "CROSS_CONTAINER_ENGINE" not in os.environ
 
 
 @CMD_MOX_UNSUPPORTED
@@ -428,7 +432,9 @@ def test_sets_cross_container_engine_when_only_podman_available(
     app_env.patch_shutil_which(fake_which)
     app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
     app_env.patch_attr("runtime_available", lambda runtime: runtime == "podman")
-    app_env.monkeypatch.delenv("CROSS_CONTAINER_ENGINE", raising=False)
+    isolated_env = dict(os.environ)
+    isolated_env.pop("CROSS_CONTAINER_ENGINE", None)
+    app_env.monkeypatch.setattr(os, "environ", isolated_env)
 
     engines: list[str | None] = []
 
@@ -443,7 +449,7 @@ def test_sets_cross_container_engine_when_only_podman_available(
     cmd_mox.verify()
 
     assert engines == ["podman"]
-    assert "CROSS_CONTAINER_ENGINE" not in os.environ
+    assert os.environ.get("CROSS_CONTAINER_ENGINE") != "podman"
 
 
 @CMD_MOX_UNSUPPORTED

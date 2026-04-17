@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import tomllib
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
@@ -105,6 +106,31 @@ _LLVM_CODEGEN_ENV = {
 }
 
 
+def _is_cranelift_backend(value: object) -> bool:
+    """Return ``True`` when *value* declares the Cranelift codegen backend."""
+    if not isinstance(value, str):
+        return False
+    return value.strip().casefold() == "cranelift"
+
+
+def _toml_uses_cranelift_backend(content: str) -> bool:
+    """Return ``True`` when parsed TOML enables Cranelift for dev or test."""
+    try:
+        data = tomllib.loads(content)
+    except tomllib.TOMLDecodeError:
+        return False
+    profile = data.get("profile")
+    if not isinstance(profile, dict):
+        return False
+    for profile_name in ("dev", "test"):
+        section = profile.get(profile_name)
+        if not isinstance(section, dict):
+            continue
+        if _is_cranelift_backend(section.get("codegen-backend")):
+            return True
+    return False
+
+
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when the project configures the Cranelift codegen backend.
 
@@ -112,6 +138,13 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
     (or ``.cargo/config``) and checks whether any profile sets
     ``codegen-backend = "cranelift"``.
     """
+    try:
+        manifest_content = manifest_path.resolve().read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        manifest_content = None
+    if manifest_content is not None and _toml_uses_cranelift_backend(manifest_content):
+        return True
+
     search_dir = manifest_path.resolve().parent
     while True:
         for name in ("config.toml", "config"):
@@ -121,11 +154,7 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
                     content = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):
                     continue
-                if re.search(
-                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
-                    content,
-                    flags=re.MULTILINE,
-                ):
+                if _toml_uses_cranelift_backend(content):
                     return True
         parent = search_dir.parent
         if parent == search_dir:

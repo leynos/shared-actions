@@ -295,6 +295,7 @@ def test_main_prefers_repo_declared_toolchain(
     context = build_main_context
     harness = context.harness
     captured: dict[str, object] = {}
+    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
     monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
 
     harness.patch_attr("_resolve_target_argument", lambda value: value)
@@ -311,7 +312,7 @@ def test_main_prefers_repo_declared_toolchain(
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
     def fake_cargo(
-        _spec: str, target_arg: str, manifest_arg: Path, features_arg: str
+        _spec: str, _target_arg: str, manifest_arg: Path, features_arg: str
     ) -> object:
         captured["manifest"] = manifest_arg
         captured["features"] = features_arg

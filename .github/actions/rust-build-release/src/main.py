@@ -207,11 +207,7 @@ def _matches_toolchain_channel(name: str, toolchain: str) -> bool:
     """Return True if *name* matches *toolchain* exactly or by channel/dotted prefix."""
     channel_prefix = f"{toolchain}-"
     dotted_prefix = f"{toolchain}."
-    return (
-        name == toolchain
-        or name.startswith(channel_prefix)
-        or name.startswith(dotted_prefix)
-    )
+    return name == toolchain or name.startswith((channel_prefix, dotted_prefix))
 
 
 def _resolve_toolchain_name(
@@ -569,6 +565,8 @@ def _restore_container_engine(
 
 def _normalize_features(features: str) -> str:
     """Normalize comma-separated feature lists for --features arguments."""
+    if not isinstance(features, str):
+        return ""
     parts = [part.strip() for part in features.split(",")]
     normalized = [part for part in parts if part]
     return ",".join(normalized)

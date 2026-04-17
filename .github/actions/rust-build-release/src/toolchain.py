@@ -65,17 +65,22 @@ def _parse_toolchain_file(path: Path) -> str | None:
     try:
         data = tomllib.loads(raw)
     except tomllib.TOMLDecodeError:
+        if path.name != "rust-toolchain":
+            return None
         return _parse_legacy_toolchain_file(raw)
 
     return _extract_toml_channel(data)
 
 
-def _iter_toolchain_search_dirs(start: Path) -> typ.Iterator[Path]:
+def _iter_toolchain_search_dirs(start: Path, stop_at: Path) -> typ.Iterator[Path]:
     """Yield directories to search for repository toolchain declarations."""
     search_dir = start.resolve()
+    repo_root = stop_at.resolve()
+    if search_dir != repo_root and repo_root not in search_dir.parents:
+        return
     while True:
         yield search_dir
-        if (search_dir / ".git").exists():
+        if search_dir == repo_root or (search_dir / ".git").exists():
             return
         parent = search_dir.parent
         if parent == search_dir:
@@ -86,7 +91,7 @@ def _iter_toolchain_search_dirs(start: Path) -> typ.Iterator[Path]:
 def read_repo_toolchain(project_dir: Path, manifest_path: Path) -> str | None:
     """Return the repo-declared toolchain nearest the target manifest, if any."""
     resolved_manifest = _resolve_manifest_path(project_dir, manifest_path)
-    for directory in _iter_toolchain_search_dirs(resolved_manifest.parent):
+    for directory in _iter_toolchain_search_dirs(resolved_manifest.parent, project_dir):
         for filename in ("rust-toolchain.toml", "rust-toolchain"):
             if toolchain := _parse_toolchain_file(directory / filename):
                 return toolchain

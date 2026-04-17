@@ -63,6 +63,50 @@ def test_read_manifest_rust_version_reads_package_msrv(
     assert rust_version == "1.88"
 
 
+def test_read_repo_toolchain_ignores_parent_toolchains_outside_project_dir(
+    toolchain_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """Toolchain discovery stays bounded to the supplied project directory."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    (outer / "rust-toolchain.toml").write_text(
+        "[toolchain]\nchannel='nightly-2099-01-01'\n",
+        encoding="utf-8",
+    )
+    project_dir = outer / "project"
+    project_dir.mkdir()
+    (project_dir / "Cargo.toml").write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+        encoding="utf-8",
+    )
+
+    toolchain = toolchain_module.read_repo_toolchain(project_dir, Path("Cargo.toml"))
+
+    assert toolchain is None
+
+
+def test_read_repo_toolchain_ignores_malformed_rust_toolchain_toml(
+    toolchain_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    """Malformed ``rust-toolchain.toml`` files do not fall back to legacy parsing."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "Cargo.toml").write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+        encoding="utf-8",
+    )
+    (project_dir / "rust-toolchain.toml").write_text(
+        "nightly-2099-01-01\ninvalid = [\n",
+        encoding="utf-8",
+    )
+
+    toolchain = toolchain_module.read_repo_toolchain(project_dir, Path("Cargo.toml"))
+
+    assert toolchain is None
+
+
 def test_resolve_requested_toolchain_precedence(
     toolchain_module: ModuleType,
     tmp_path: Path,

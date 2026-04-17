@@ -456,6 +456,32 @@ def test_get_cargo_coverage_env_non_cranelift_is_empty(
     assert run_rust_module.get_cargo_coverage_env(manifest_path) == {}
 
 
+@pytest.mark.parametrize("profile_name", ["dev", "test"])
+def test_get_cargo_coverage_env_detects_manifest_only_cranelift(
+    run_rust_module: ModuleType,
+    tmp_path: Path,
+    profile_name: str,
+) -> None:
+    """Manifest profile settings alone trigger LLVM codegen env overrides."""
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "\n".join(
+            [
+                "[package]",
+                "name='demo'",
+                "version='0.1.0'",
+                f"[profile.{profile_name}]",
+                'codegen-backend = "  Cranelift  "',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert run_rust_module._uses_cranelift_backend(manifest_path) is True
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == _LLVM_CODEGEN_ENV
+
+
 def test_nextest_config_is_temporary(
     tmp_path: Path, run_rust_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:

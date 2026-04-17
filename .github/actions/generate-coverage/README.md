@@ -14,12 +14,6 @@ installed automatically. If both configuration files are present, coverage is
 run for each language and the Cobertura reports are merged using
 `uvx merge-cobertura`.
 
-If a Rust project enables Cranelift — via `.cargo/config.toml`,
-`.cargo/config`, or a `[profile.*].codegen-backend` key in `Cargo.toml` —
-the action automatically exports `CARGO_PROFILE_DEV_CODEGEN_BACKEND=llvm`
-and `CARGO_PROFILE_TEST_CODEGEN_BACKEND=llvm` for the coverage runs so
-`cargo llvm-cov` and its child Cargo processes stay on LLVM.
-
 ## Flow
 
 ```mermaid
@@ -41,12 +35,15 @@ flowchart TD
     K --> L[End]
 ```
 
-
 ## Rust coverage environment propagation
 
 Figure: sequence diagram showing how `run_rust.py` derives coverage-specific
 Cargo environment overrides for Cranelift-configured projects and passes them
-into `_run_cargo`, including the optional cucumber.rs follow-up run.
+into `_run_cargo`, including the optional cucumber.rs follow-up run. Internally
+`_run_cargo` starts from the current process environment, removes inherited
+codegen-backend-related variables first, and then merges
+`get_cargo_coverage_env(manifest_path)` on top so workflow-level Cranelift
+exports are not treated as the default coverage behaviour.
 
 ```mermaid
 sequenceDiagram
@@ -54,16 +51,18 @@ sequenceDiagram
     participant run_rust_py as run_rust.py
     participant get_cargo_coverage_env
     participant _run_cargo
+    participant env_unsets
     participant cargo
 
     GitHubActions->>run_rust_py: main(manifest_path, fmt, use_nextest, ...)
     run_rust_py->>get_cargo_coverage_env: get_cargo_coverage_env(manifest_path)
     get_cargo_coverage_env-->>run_rust_py: cargo_env
-    run_rust_py->>_run_cargo: _run_cargo(args, env_overrides=cargo_env)
+    run_rust_py->>_run_cargo: _run_cargo(args, env_overrides=cargo_env, env_unsets=...)
+    _run_cargo->>env_unsets: scrub inherited backend vars
     alt env_overrides is not None
-        _run_cargo->>_run_cargo: merge os.environ with env_overrides
+        _run_cargo->>_run_cargo: merge scrubbed os.environ with env_overrides
     else
-        _run_cargo->>_run_cargo: use os.environ unchanged
+        _run_cargo->>_run_cargo: use scrubbed os.environ unchanged
     end
     _run_cargo->>cargo: invoke cargo llvm-cov with env
     cargo-->>_run_cargo: stdout
@@ -72,12 +71,55 @@ sequenceDiagram
     opt with_cucumber_rs
         run_rust_py->>get_cargo_coverage_env: get_cargo_coverage_env(manifest_path)
         get_cargo_coverage_env-->>run_rust_py: cargo_env
-        run_rust_py->>_run_cargo: _run_cargo(cucumber_args, env_overrides=cargo_env)
+        run_rust_py->>_run_cargo: _run_cargo(cucumber_args, env_overrides=cargo_env, env_unsets=...)
+        _run_cargo->>env_unsets: scrub inherited backend vars
         _run_cargo->>cargo: invoke cargo test with env
         cargo-->>_run_cargo: stdout
         _run_cargo-->>run_rust_py: stdout
     end
 ```
+
+## Cranelift codegen backend support
+
+The action automatically detects when a Rust repository configures the
+Cranelift codegen backend in `.cargo/config.toml`, `.cargo/config`, or the
+selected `Cargo.toml` profile sections. You do not need to enable a separate
+input for this behaviour.
+
+When Cranelift is detected, coverage runs set
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND=llvm` and
+`CARGO_PROFILE_TEST_CODEGEN_BACKEND=llvm` as environment overrides before
+launching `cargo-llvm-cov`. That ensures nested `cargo` processes inherit LLVM,
+which is required by `-Cinstrument-coverage`. Normal non-coverage builds are
+not changed by the action.
+
+For a Cranelift-configured repository, the standard coverage invocation is
+still enough:
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    format: cobertura
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    format: cobertura
+```
+
+Known limitations:
+
+- Profile sections in the workspace root `Cargo.toml` are only detected when
+  `cargo-manifest` points to the workspace root manifest. If `cargo-manifest`
+  points to a workspace member, Cranelift configured solely in the workspace
+  root manifest profile will not be detected; use `.cargo/config.toml` in that
+  case.
+- Detection uses two approaches: `.cargo/config.toml` and `.cargo/config`
+  scanning remains text/regex-based, and selected `Cargo.toml` profile
+  detection also uses a lightweight text scan.
 
 ## Inputs
 
@@ -112,7 +154,14 @@ supported for Python projects. Mixed projects must use `cobertura`.
 ## Example
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    format: cobertura
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     format: cobertura
@@ -121,7 +170,7 @@ supported for Python projects. Mixed projects must use `cobertura`.
 For a single feature:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging
@@ -130,7 +179,7 @@ For a single feature:
 For multiple features:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging tracing
@@ -140,7 +189,7 @@ For multiple features:
 Comma-separated feature list:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     features: logging,tracing
@@ -149,7 +198,7 @@ Comma-separated feature list:
 Enable ratcheting:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     with-ratchet: true
@@ -158,7 +207,7 @@ Enable ratcheting:
 Enable cucumber-rs:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     with-cucumber-rs: true
@@ -169,7 +218,7 @@ Enable cucumber-rs:
 Disable cargo-nextest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
@@ -178,7 +227,7 @@ Disable cargo-nextest:
 Use a nested Cargo manifest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     cargo-manifest: rust-toy-app/Cargo.toml

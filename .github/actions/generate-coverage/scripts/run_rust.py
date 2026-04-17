@@ -17,7 +17,6 @@ import shlex
 import subprocess
 import sys
 import threading
-import tomllib
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
@@ -105,66 +104,14 @@ _CARGO_COVERAGE_ENV_UNSETS = (
 )
 
 
-_LLVM_CODEGEN_ENV = {
-    "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
-    "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
-}
-
-
-def _is_cranelift_backend(value: object) -> bool:
-    """Return ``True`` when *value* declares the Cranelift codegen backend."""
-    if not isinstance(value, str):
-        return False
-    return value.strip().casefold() == "cranelift"
-
-
-def _toml_uses_cranelift_backend(content: str) -> bool:
-    """Return ``True`` when parsed TOML enables Cranelift for dev or test."""
-    try:
-        data = tomllib.loads(content)
-    except tomllib.TOMLDecodeError:
-        return False
-    profile = data.get("profile")
-    if not isinstance(profile, dict):
-        return False
-    for profile_name in ("dev", "test"):
-        section = profile.get(profile_name)
-        if not isinstance(section, dict):
-            continue
-        if _is_cranelift_backend(section.get("codegen-backend")):
-            return True
-    return False
-
-
-def _manifest_uses_cranelift(manifest_path: Path) -> bool:
-    """Return ``True`` when *manifest_path* declares cranelift in any profile."""
-    try:
-        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
-        return False
-    profiles = data.get("profile")
-    if not isinstance(profiles, dict):
-        return False
-    return any(
-        isinstance(section, dict)
-        and _is_cranelift_backend(section.get("codegen-backend"))
-        for section in profiles.values()
-    )
-
-
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when the project configures the Cranelift codegen backend.
 
-    Checks ``[profile.*].codegen-backend`` in *manifest_path* itself, then
-    searches from the manifest directory upward for ``.cargo/config.toml``
+    Searches from the manifest directory upward for ``.cargo/config.toml``
     (or ``.cargo/config``) and checks whether any profile sets
     ``codegen-backend = "cranelift"``.
     """
-    resolved = manifest_path.resolve()
-    if _manifest_uses_cranelift(resolved):
-        return True
-
-    search_dir = resolved.parent
+    search_dir = manifest_path.resolve().parent
     while True:
         for name in ("config.toml", "config"):
             candidate = search_dir / ".cargo" / name
@@ -173,7 +120,11 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
                     content = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):
                     continue
-                if _toml_uses_cranelift_backend(content):
+                if re.search(
+                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
+                    content,
+                    flags=re.MULTILINE,
+                ):
                     return True
         parent = search_dir.parent
         if parent == search_dir:
@@ -181,28 +132,61 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
         search_dir = parent
     return False
 
+
+def _is_profile_section(section: str) -> bool:
+    """Return ``True`` if *section* is a Cargo profile section name.
+
+    Matches both the bare ``[profile]`` table and dotted sub-tables such as
+    ``[profile.dev]`` and ``[profile.release]``.
+    """
+    return section == "profile" or section.startswith("profile.")
+
+
 def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
-    """Return ``True`` when ``manifest_path`` configures Cranelift in profiles."""
+    """Return ``True`` when ``manifest_path`` configures Cranelift in profiles.
+
+    Parameters
+    ----------
+    manifest_path : Path
+        Path to the ``Cargo.toml`` manifest to inspect.
+
+    Returns
+    -------
+    bool
+        ``True`` if any ``[profile.*]`` section sets
+        ``codegen-backend = "cranelift"``; ``False`` otherwise.
+    """
     try:
         content = manifest_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-
     in_profile_section = False
     for line in content.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith(("#", "//")):
             continue
-        section_match = re.match(r"^\[(?P<section>[^\]]+)\]$", stripped)
-        if section_match:
-            section = section_match.group("section").strip()
-            in_profile_section = section == "profile" or section.startswith("profile.")
+        section_match = re.match(r"^\s*\[(?P<section>[^\]]+)\]\s*(?:#.*)?$", line)
+        if section_match is not None:
+            in_profile_section = _is_profile_section(section_match["section"])
             continue
-        if not in_profile_section:
-            continue
-        if re.match(r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']', line):
+        if in_profile_section and re.match(
+            r"""^codegen-backend\s*=\s*["']cranelift["']""",
+            stripped,
+        ):
             return True
     return False
+
+
+def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+    """Return coverage-specific cargo env overrides for Cranelift projects."""
+    if not _uses_cranelift_backend(
+        manifest_path
+    ) and not _manifest_uses_cranelift_backend(manifest_path):
+        return {}
+    return {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
 
 
 def get_cargo_coverage_cmd(
@@ -215,8 +199,7 @@ def get_cargo_coverage_cmd(
     use_nextest: bool,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
-    args: list[str] = []
-    args.append("llvm-cov")
+    args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
     args += ["--manifest-path", str(manifest_path), "--workspace", "--summary-only"]
@@ -226,13 +209,6 @@ def get_cargo_coverage_cmd(
         args += ["--features", features]
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
-
-
-def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
-    """Return extra environment overrides needed for coverage runs."""
-    if _uses_cranelift_backend(manifest_path):
-        return dict(_LLVM_CODEGEN_ENV)
-    return {}
 
 
 def extract_percent(output: str) -> str:
@@ -419,7 +395,11 @@ def _build_cargo_env(
     env_overrides: typ.Mapping[str, str] | None,
     env_unsets: typ.Iterable[str],
 ) -> dict[str, str]:
-    """Return the environment dict for a spawned cargo process."""
+    """Return the environment dict for a spawned cargo process.
+
+    Starts from a copy of ``os.environ``, removes every key in
+    ``env_unsets``, then merges ``env_overrides`` (if provided).
+    """
     env = dict(os.environ)
     for key in env_unsets:
         env.pop(key, None)
@@ -428,30 +408,11 @@ def _build_cargo_env(
     return env
 
 
-def _spawn_cargo(
-    command: typ.Any,  # noqa: ANN401
-    env: dict[str, str],
-) -> subprocess.Popen[str]:
-    """Spawn a ``cargo`` subprocess with the given environment."""
-    popen_kwargs: dict[str, typ.Any] = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-    }
-    machine_env = getattr(getattr(cargo, "machine", None), "env", None)
-    if machine_env is None:
-        return command.popen(**popen_kwargs, env=env)
-    with machine_env():
-        machine_env.clear()
-        machine_env.update(env)
-        return command.popen(**popen_kwargs)
+def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
+    """Raise ``typer.Exit(1)`` if stdout or stderr were not captured.
 
-
-def _abort_on_missing_streams(proc: subprocess.Popen[str]) -> None:
-    """Kill *proc* and exit with an error if its output streams were not captured."""
+    Kills and cleans up the process before raising so no resources leak.
+    """
     if proc.stdout is not None and proc.stderr is not None:
         return
     missing_streams = []
@@ -471,14 +432,15 @@ def _abort_on_missing_streams(proc: subprocess.Popen[str]) -> None:
     raise typer.Exit(1) from None
 
 
-def _wait_for_cargo(
-    proc: subprocess.Popen[str],
-    args: list[str],
-    wait_timeout: float,
-) -> None:
-    """Wait for *proc* to finish, raising ``typer.Exit`` on timeout or failure."""
+def _wait_for_cargo(proc: subprocess.Popen[str]) -> int:
+    """Wait for cargo to exit and return its return code.
+
+    Kills the process and raises ``typer.Exit(1)`` if it does not exit
+    within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
+    """
+    wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
     try:
-        retcode = proc.wait(timeout=wait_timeout)
+        return proc.wait(timeout=wait_timeout)
     except subprocess.TimeoutExpired:
         typer.echo(
             f"::error::cargo did not exit within {wait_timeout}s; killing",
@@ -489,12 +451,32 @@ def _wait_for_cargo(
         with contextlib.suppress(Exception):
             proc.wait(timeout=5)
         raise typer.Exit(1) from None
-    if retcode != 0:
-        typer.echo(
-            f"cargo {shlex.join(args)} failed with code {retcode}",
-            err=True,
-        )
-        raise typer.Exit(code=retcode or 1)
+
+
+def _spawn_cargo(
+    command: typ.Any,  # noqa: ANN401
+    env: dict[str, str],
+) -> subprocess.Popen[str]:
+    """Spawn a ``cargo`` subprocess with the given environment.
+
+    Handles both direct ``popen`` invocation and plumbum machine-env
+    contexts transparently.
+    """
+    popen_kwargs: dict[str, typ.Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    machine_env = getattr(getattr(cargo, "machine", None), "env", None)
+    if machine_env is None:
+        return command.popen(**popen_kwargs, env=env)
+    with machine_env():
+        machine_env.clear()
+        machine_env.update(env)
+        return command.popen(**popen_kwargs)
 
 
 def _run_cargo(
@@ -503,15 +485,47 @@ def _run_cargo(
     env_overrides: typ.Mapping[str, str] | None = None,
     env_unsets: typ.Iterable[str] = (),
 ) -> str:
-    """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
+    """Run ``cargo`` with ``args`` streaming output and return ``stdout``.
+
+    Builds a subprocess environment by copying ``os.environ``, removing every
+    key in ``env_unsets``, and — when ``env_overrides`` is not ``None`` —
+    merging its entries into that copy (overrides take precedence). The
+    resulting environment is passed to the spawned ``cargo`` process, whose
+    stdout and stderr are streamed to the current process.
+
+    Parameters
+    ----------
+    args : list[str]
+        Arguments forwarded verbatim to ``cargo``.
+    env_overrides : Mapping[str, str] | None, optional
+        Extra or replacement environment variables. When ``None`` (the
+        default), the environment is inherited unchanged except for any
+        ``env_unsets`` removals.
+    env_unsets : Iterable[str], optional
+        Variable names to remove from the inherited environment before
+        ``env_overrides`` are applied. Missing keys are silently ignored.
+        Unsets are performed before overrides, so ``env_overrides`` can
+        unconditionally set a variable that may or may not have been
+        inherited.
+
+    Returns
+    -------
+    str
+        Captured stdout from the ``cargo`` invocation.
+    """
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
     proc = _spawn_cargo(cargo[args], env)
     try:
-        _abort_on_missing_streams(proc)
+        _assert_cargo_streams(proc)
         stdout_lines = _pump_cargo_output(proc)
-        wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-        _wait_for_cargo(proc, args, wait_timeout)
+        retcode = _wait_for_cargo(proc)
+        if retcode != 0:
+            typer.echo(
+                f"cargo {shlex.join(args)} failed with code {retcode}",
+                err=True,
+            )
+            raise typer.Exit(code=retcode or 1)
         return "\n".join(stdout_lines)
     finally:
         _safe_close_text_stream(proc.stdout)
@@ -679,10 +693,10 @@ def main(
         with_default=with_default,
         use_nextest=use_nextest,
     )
-    cargo_env = get_cargo_coverage_env(manifest_path)
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
     )
+    cargo_env = get_cargo_coverage_env(manifest_path)
     with config_context:
         stdout = _run_cargo(
             args,

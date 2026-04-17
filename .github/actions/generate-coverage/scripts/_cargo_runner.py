@@ -161,9 +161,11 @@ def _pump_cargo_output_windows(
     ]
     for thread in threads:
         thread.start()
-    while not _poll_pump_loop_iteration(threads, ctx, thread_exceptions):
-        pass
-    _finalise_pump_threads(threads, ctx.proc, thread_exceptions)
+    try:
+        while not _poll_pump_loop_iteration(threads, ctx, thread_exceptions):
+            pass
+    finally:
+        _finalise_pump_threads(threads, ctx.proc, thread_exceptions)
     return stdout_lines
 
 

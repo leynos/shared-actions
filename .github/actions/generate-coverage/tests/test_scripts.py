@@ -125,7 +125,11 @@ def _make_fake_cargo(
             if track_lifecycle:
                 self.killed = True
 
-        def wait(self, timeout: float | None = None) -> int:
+        def wait(
+            self,
+            _timeout: float | None = None,
+            **_kwargs: float | None,
+        ) -> int:
             """Return the configured return code immediately."""
             if track_lifecycle:
                 self.waited = True
@@ -165,6 +169,82 @@ def _make_fake_cargo(
             return Runner()
 
     return FakeCargo()
+
+
+class _WindowsPumpTimeoutFakeThread:
+    """Thread stub that stays alive for a fixed number of joins."""
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        target: typ.Callable[..., object],
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> None:
+        """Initialise the thread stub with ignored thread metadata."""
+        _ = (name, target, args, kwargs)
+        self.join_calls = 0
+
+    def start(self) -> None:
+        """Pretend to start the thread."""
+
+    def is_alive(self) -> bool:
+        """Report liveness until enough joins have occurred."""
+        return self.join_calls < 2
+
+    def join(self, timeout: float | None = None) -> None:
+        """Record a join call without blocking."""
+        _ = timeout
+        self.join_calls += 1
+
+
+class _WindowsPumpTimeoutFakeProc:
+    """Minimal subprocess test double for Windows timeout handling."""
+
+    def __init__(self) -> None:
+        """Initialise the stub with captured output streams."""
+        self.stdout = io.StringIO("out-line\n")
+        self.stderr = io.StringIO("err-line\n")
+        self.killed = False
+        self.waited = False
+
+    def poll(self) -> None:
+        """Report that the process is still running."""
+
+    def kill(self) -> None:
+        """Record that the process was killed."""
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Record the wait and return success."""
+        _ = timeout
+        self.waited = True
+        return 0
+
+
+class _WindowsPumpTimeoutFakeRunner:
+    """Runner stub that returns the fake Windows process."""
+
+    def __init__(self, proc: _WindowsPumpTimeoutFakeProc) -> None:
+        """Initialise the runner with the fake process to return."""
+        self._proc = proc
+
+    def popen(self, **_kw: object) -> _WindowsPumpTimeoutFakeProc:
+        """Return the pre-created fake process."""
+        return self._proc
+
+
+class _WindowsPumpTimeoutFakeCargoCommand:
+    """Cargo command stub that yields the fake Windows runner."""
+
+    def __init__(self, proc: _WindowsPumpTimeoutFakeProc) -> None:
+        """Initialise the cargo command with the fake process."""
+        self._proc = proc
+
+    def __getitem__(self, _args: list[str]) -> _WindowsPumpTimeoutFakeRunner:
+        """Return a runner for the requested cargo arguments."""
+        return _WindowsPumpTimeoutFakeRunner(self._proc)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -906,6 +986,7 @@ def test_main_reuses_cargo_env_for_cucumber(
     github_output = tmp_path / "gh.txt"
     cargo_env = {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
     env_calls: list[Path] = []
+    run_cargo_env_calls: list[typ.Mapping[str, str] | None] = []
     cucumber_calls: list[dict[str, object]] = []
 
     def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
@@ -918,7 +999,8 @@ def test_main_reuses_cargo_env_for_cucumber(
         env_overrides: typ.Mapping[str, str] | None = None,
         env_unsets: typ.Iterable[str] = (),
     ) -> str:
-        _ = (args, env_overrides, env_unsets)
+        _ = (args, env_unsets)
+        run_cargo_env_calls.append(env_overrides)
         return "Coverage: 100%"
 
     cucumber_spy = _make_cucumber_spy(cucumber_calls)
@@ -946,6 +1028,7 @@ def test_main_reuses_cargo_env_for_cucumber(
     )
 
     assert env_calls == [manifest_path]
+    assert run_cargo_env_calls == [cargo_env]
     assert len(cucumber_calls) == 1
     assert cucumber_calls[0]["cargo_env"] == cargo_env
 
@@ -984,79 +1067,11 @@ def test_run_cargo_windows_pump_timeout(
 
     monkeypatch.setattr(mod.typer, "echo", fake_echo)
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
-
-    class FakeThread:
-        """Thread stub that stays alive for a fixed number of joins."""
-
-        join_calls = 0
-
-        def __init__(
-            self,
-            *,
-            name: str,
-            target: typ.Callable[..., object],
-            args: tuple[object, ...],
-            kwargs: dict[str, object],
-        ) -> None:
-            """Initialise the thread stub with ignored thread metadata."""
-            _ = (name, target, args, kwargs)
-
-        def start(self) -> None:
-            """Pretend to start the thread."""
-
-        def is_alive(self) -> bool:
-            """Report liveness until enough joins have occurred."""
-            return self.join_calls < 4
-
-        def join(self, timeout: float | None = None) -> None:
-            """Record a join call without blocking."""
-            _ = timeout
-            type(self).join_calls += 1
-
-    monkeypatch.setattr(mod.threading, "Thread", FakeThread)
+    monkeypatch.setattr(mod.threading, "Thread", _WindowsPumpTimeoutFakeThread)
     time_values = iter([0.0, 0.0, 1.0])
     monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
-
-    class FakeProc:
-        """Minimal subprocess test double for Windows timeout handling."""
-
-        def __init__(self) -> None:
-            """Initialise the stub with captured output streams."""
-            self.stdout = io.StringIO("out-line\n")
-            self.stderr = io.StringIO("err-line\n")
-            self.killed = False
-            self.waited = False
-
-        def poll(self) -> None:
-            """Report that the process is still running."""
-
-        def kill(self) -> None:
-            """Record that the process was killed."""
-            self.killed = True
-
-        def wait(self, timeout: float | None = None) -> int:
-            """Record the wait and return success."""
-            _ = timeout
-            self.waited = True
-            return 0
-
-    fake_proc = FakeProc()
-
-    class FakeRunner:
-        """Runner stub that returns the fake Windows process."""
-
-        def popen(self, **_kw: object) -> FakeProc:
-            """Return the pre-created fake process."""
-            return fake_proc
-
-    class FakeCargoCommand:
-        """Cargo command stub that yields the fake Windows runner."""
-
-        def __getitem__(self, _args: list[str]) -> FakeRunner:
-            """Return a runner for the requested cargo arguments."""
-            return FakeRunner()
-
-    monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
+    fake_proc = _WindowsPumpTimeoutFakeProc()
+    monkeypatch.setattr(mod, "cargo", _WindowsPumpTimeoutFakeCargoCommand(fake_proc))
 
     with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo(["llvm-cov"])

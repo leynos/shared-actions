@@ -76,7 +76,7 @@ def _poll_pump_loop_iteration(
         return True
     if not any(t.is_alive() for t in threads):
         return True
-    remaining = max(0.0, ctx.deadline - time.time())
+    remaining = max(0.0, ctx.deadline - time.monotonic())
     if remaining <= 0:
         _raise_cargo_timeout(ctx.proc, wait_timeout=ctx.wait_timeout)
     join_timeout = min(0.1, remaining)
@@ -196,7 +196,7 @@ def _pump_cargo_output_posix(
     stderr_stream:
         The captured stderr text stream from *proc*.
     deadline:
-        Absolute ``time.time()`` value after which the pump is aborted.
+        Absolute ``time.monotonic()`` value after which the pump is aborted.
     wait_timeout:
         Original timeout in seconds, used only in the error message.
 
@@ -211,9 +211,9 @@ def _pump_cargo_output_posix(
         sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
         while sel.get_map():
-            if time.time() >= deadline:
+            if time.monotonic() >= deadline:
                 _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-            timeout = max(0.0, deadline - time.time())
+            timeout = max(0.0, deadline - time.monotonic())
             for key, _ in sel.select(timeout):
                 _handle_cargo_output_event(key, stdout_lines, sel)
     except Exception:
@@ -324,7 +324,7 @@ def _wait_for_cargo(
     within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
     """
     try:
-        return proc.wait(timeout=max(0.0, deadline - time.time()))
+        return proc.wait(timeout=max(0.0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
         _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
 
@@ -399,7 +399,7 @@ def _run_cargo(
             err=True,
         )
         raise typer.Exit(1) from exc
-    deadline = time.time() + wait_timeout
+    deadline = time.monotonic() + wait_timeout
     proc = _spawn_cargo(cargo[args], env)
     try:
         _assert_cargo_streams(proc)

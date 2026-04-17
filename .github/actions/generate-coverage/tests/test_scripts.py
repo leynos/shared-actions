@@ -789,7 +789,7 @@ def test_run_cargo_unix_pump_timeout(
     monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
     monkeypatch.setattr(mod.selectors, "DefaultSelector", FakeSelector)
     time_values = iter([0.0, 0.0, 0.5, 1.0])
-    monkeypatch.setattr(mod.time, "time", lambda: next(time_values))
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
 
     with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo(["llvm-cov"])
@@ -976,7 +976,7 @@ def test_run_cargo_windows_pump_timeout(
 
     monkeypatch.setattr(mod.threading, "Thread", FakeThread)
     time_values = iter([0.0, 0.0, 1.0])
-    monkeypatch.setattr(mod.time, "time", lambda: next(time_values))
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
 
     class FakeProc:
         def __init__(self) -> None:

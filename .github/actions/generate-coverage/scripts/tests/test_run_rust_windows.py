@@ -101,7 +101,7 @@ def test_pump_cargo_output_windows_streams(
     stderr_stream = io.StringIO(stderr_payload)
 
     ctx = run_rust._CargoProcCtx(
-        proc=dummy_proc, deadline=time.time() + 1.0, wait_timeout=1.0
+        proc=dummy_proc, deadline=time.monotonic() + 1.0, wait_timeout=1.0
     )
     lines = run_rust_typed._pump_cargo_output_windows(stdout_stream, stderr_stream, ctx)
 

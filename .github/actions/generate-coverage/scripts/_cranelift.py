@@ -1,3 +1,30 @@
+"""Cranelift codegen-backend detection for the generate-coverage action.
+
+This module provides lightweight text-based detection of the Cranelift
+codegen backend in a Cargo project and computes the environment variable
+overrides required to force LLVM during coverage runs.
+
+Exported symbols:
+
+- ``_CARGO_COVERAGE_ENV_UNSETS`` — tuple of env-var names to strip from the
+  inherited environment before applying coverage overrides.
+- ``get_cargo_coverage_env(manifest_path)`` — returns a dict of
+  ``CARGO_PROFILE_*_CODEGEN_BACKEND=llvm`` overrides when Cranelift is
+  detected; returns an empty dict otherwise.
+
+Detection strategy (in priority order):
+
+1. Search upward from the manifest directory for ``.cargo/config.toml`` or
+   ``.cargo/config`` and scan for ``codegen-backend = "cranelift"``.
+2. Parse ``[profile.*]`` sections in the given ``Cargo.toml`` for the same
+   key.
+
+Known limitation: when ``manifest_path`` points to a workspace member,
+profile settings in the workspace-root ``Cargo.toml`` are not scanned.
+Use ``.cargo/config.toml`` at the workspace root to ensure detection in
+that case.
+"""
+
 from __future__ import annotations
 
 import re
@@ -95,7 +122,29 @@ def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
 
 
 def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
-    """Return coverage-specific cargo env overrides for Cranelift projects."""
+    """Return coverage-specific cargo env overrides for Cranelift projects.
+
+    Detects whether the project identified by *manifest_path* uses the
+    Cranelift codegen backend (via ``.cargo/config*`` or ``Cargo.toml``
+    profile sections). When Cranelift is detected, returns a dict that
+    forces LLVM for coverage-instrumented builds. Returns an empty dict
+    for non-Cranelift projects.
+
+    Parameters
+    ----------
+    manifest_path : Path
+        Path to the ``Cargo.toml`` manifest for the crate or workspace
+        root being instrumented. When this points to a workspace member,
+        only that member's manifest is scanned; the workspace-root profile
+        is not inspected via this path.
+
+    Returns
+    -------
+    dict[str, str]
+        ``{"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm"}`` when Cranelift is
+        detected; ``{}`` otherwise.
+    """
     if not _uses_cranelift_backend(
         manifest_path
     ) and not _manifest_uses_cranelift_backend(manifest_path):

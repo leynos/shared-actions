@@ -1,3 +1,23 @@
+"""Cargo subprocess plumbing for the generate-coverage action.
+
+This module encapsulates spawning ``cargo`` subprocesses with live console
+streaming and captured stdout. It provides:
+
+- Environment construction (``_build_cargo_env``) — copies ``os.environ``,
+  applies ``env_unsets``, then merges ``env_overrides``.
+- Output pumping — selector-based on POSIX (``_pump_cargo_output``) and
+  thread-based on Windows (``_pump_cargo_output_windows``), both bounded by
+  ``RUN_RUST_CARGO_WAIT_TIMEOUT``.
+- Process lifecycle helpers — stream assertion, timeout enforcement, and
+  cleanup (``_assert_cargo_streams``, ``_raise_cargo_timeout``,
+  ``_wait_for_cargo``, ``_kill_cargo_process``).
+- The primary entry point ``_run_cargo``, which orchestrates all of the
+  above and returns captured stdout as a string.
+
+All public symbols in this module are prefixed with ``_`` and are intended
+for use only by ``run_rust.py``.
+"""
+
 from __future__ import annotations
 
 import contextlib

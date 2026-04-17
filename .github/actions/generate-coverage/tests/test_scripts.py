@@ -96,7 +96,10 @@ def _make_fake_cargo(
     """Return a fake ``cargo`` object yielding the given streams."""
 
     class FakeProc:
+        """Minimal subprocess test double for cargo invocations."""
+
         def __init__(self) -> None:
+            """Initialise the stub with the configured streams."""
             self.stdout = (
                 stdout
                 if hasattr(stdout, "readline")
@@ -115,32 +118,42 @@ def _make_fake_cargo(
             self.waited = False
 
         def poll(self) -> None:
-            return None
+            """Report that the process is still running."""
 
         def kill(self) -> None:
+            """Record that the process was killed when lifecycle tracking is enabled."""
             if track_lifecycle:
                 self.killed = True
 
         def wait(self, timeout: float | None = None) -> int:
+            """Return the configured return code immediately."""
             if track_lifecycle:
                 self.waited = True
             return returncode
 
     class FakeCargo:
+        """Minimal cargo command stub with plumbum-like behaviour."""
+
         def __init__(self) -> None:
+            """Initialise call-tracking state for the fake cargo command."""
             self.last_proc: FakeProc | None = None
             self.last_popen_kwargs: dict[str, object] | None = None
             self.bound_env: dict[str, str] | None = None
 
         def with_env(self, **env: str) -> FakeCargo:
+            """Bind environment overrides and return the fake command."""
             self.bound_env = dict(env)
             return self
 
         def __getitem__(self, _args: list[str]) -> object:
+            """Return a runner object for the given cargo arguments."""
             cargo = self
 
             class Runner:
+                """Minimal runner object exposing ``popen``."""
+
                 def popen(self, **_kw: object) -> FakeProc:
+                    """Spawn and return the configured fake process."""
                     kwargs = dict(_kw)
                     if cargo.bound_env is not None:
                         kwargs["env"] = dict(cargo.bound_env)
@@ -678,11 +691,15 @@ def test_run_cargo_windows_closes_streams(
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class TrackingStream(io.StringIO):
+        """String stream that counts close calls."""
+
         def __init__(self, value: str) -> None:
+            """Initialise the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
         def close(self) -> None:
+            """Close the stream and record the close call."""
             self.close_calls += 1
             super().close()
 
@@ -742,36 +759,47 @@ def test_run_cargo_unix_pump_timeout(
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
 
     class FakeSelector:
+        """Selector stub that never yields readable events."""
+
         def __init__(self) -> None:
+            """Initialise the selector with a non-empty registration map."""
             self._map = {"stdout": object()}
 
         def register(self, fileobj: object, event: object, data: str) -> None:
+            """Accept a selector registration without storing it."""
             _ = (fileobj, event, data)
 
         def get_map(self) -> dict[str, object]:
+            """Return the current selector registration map."""
             return self._map
 
         def select(self, timeout: float | None = None) -> list[tuple[object, object]]:
+            """Return no ready events for the given timeout."""
             _ = timeout
             return []
 
         def close(self) -> None:
-            return None
+            """Close the selector stub."""
 
     class FakeProc:
+        """Minimal subprocess test double for timeout handling."""
+
         def __init__(self) -> None:
+            """Initialise the stub with empty captured streams."""
             self.stdout = io.StringIO("")
             self.stderr = io.StringIO("")
             self.killed = False
             self.waited = False
 
         def poll(self) -> None:
-            return None
+            """Report that the process is still running."""
 
         def kill(self) -> None:
+            """Record that the process was killed."""
             self.killed = True
 
         def wait(self, timeout: float | None = None) -> int:
+            """Record the wait and return success."""
             _ = timeout
             self.waited = True
             return 0
@@ -779,11 +807,17 @@ def test_run_cargo_unix_pump_timeout(
     fake_proc = FakeProc()
 
     class FakeRunner:
+        """Runner stub that always returns the fake process."""
+
         def popen(self, **_kw: object) -> FakeProc:
+            """Return the pre-created fake process."""
             return fake_proc
 
     class FakeCargoCommand:
+        """Cargo command stub that returns the fake runner."""
+
         def __getitem__(self, _args: list[str]) -> FakeRunner:
+            """Return a runner for the requested cargo arguments."""
             return FakeRunner()
 
     monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
@@ -952,6 +986,8 @@ def test_run_cargo_windows_pump_timeout(
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
 
     class FakeThread:
+        """Thread stub that stays alive for a fixed number of joins."""
+
         join_calls = 0
 
         def __init__(
@@ -962,15 +998,18 @@ def test_run_cargo_windows_pump_timeout(
             args: tuple[object, ...],
             kwargs: dict[str, object],
         ) -> None:
+            """Initialise the thread stub with ignored thread metadata."""
             _ = (name, target, args, kwargs)
 
         def start(self) -> None:
-            return None
+            """Pretend to start the thread."""
 
         def is_alive(self) -> bool:
+            """Report liveness until enough joins have occurred."""
             return self.join_calls < 4
 
         def join(self, timeout: float | None = None) -> None:
+            """Record a join call without blocking."""
             _ = timeout
             type(self).join_calls += 1
 
@@ -979,19 +1018,24 @@ def test_run_cargo_windows_pump_timeout(
     monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
 
     class FakeProc:
+        """Minimal subprocess test double for Windows timeout handling."""
+
         def __init__(self) -> None:
+            """Initialise the stub with captured output streams."""
             self.stdout = io.StringIO("out-line\n")
             self.stderr = io.StringIO("err-line\n")
             self.killed = False
             self.waited = False
 
         def poll(self) -> None:
-            return None
+            """Report that the process is still running."""
 
         def kill(self) -> None:
+            """Record that the process was killed."""
             self.killed = True
 
         def wait(self, timeout: float | None = None) -> int:
+            """Record the wait and return success."""
             _ = timeout
             self.waited = True
             return 0
@@ -999,11 +1043,17 @@ def test_run_cargo_windows_pump_timeout(
     fake_proc = FakeProc()
 
     class FakeRunner:
+        """Runner stub that returns the fake Windows process."""
+
         def popen(self, **_kw: object) -> FakeProc:
+            """Return the pre-created fake process."""
             return fake_proc
 
     class FakeCargoCommand:
+        """Cargo command stub that yields the fake Windows runner."""
+
         def __getitem__(self, _args: list[str]) -> FakeRunner:
+            """Return a runner for the requested cargo arguments."""
             return FakeRunner()
 
     monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
@@ -1026,7 +1076,10 @@ def test_run_cargo_windows_pump_exception(
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class BoomIO(io.StringIO):
+        """Stream stub whose ``readline`` always raises."""
+
         def readline(self) -> str:
+            """Raise a runtime error when the pump reads a line."""
             message = "boom in pump"
             raise RuntimeError(message)
 
@@ -1085,11 +1138,15 @@ def test_run_cargo_stream_close_error_suppressed(
     monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class ExplodingStream(io.StringIO):
+        """String stream that raises after being closed."""
+
         def __init__(self, value: str) -> None:
+            """Initialise the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
         def close(self) -> None:
+            """Close the stream, then raise a cleanup error."""
             self.close_calls += 1
             super().close()
             message = "close failure"

@@ -185,6 +185,7 @@ def extract_percent(output: str) -> str:
 
 
 def _format_percent(covered: int, total: int) -> str:
+    """Format coverage counts as a two-decimal-place percentage string."""
     pct = Decimal(covered) * Decimal(100) / Decimal(total)
     return str(pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 

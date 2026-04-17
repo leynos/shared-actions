@@ -200,27 +200,20 @@ def _kill_cargo_process(proc: subprocess.Popen[str]) -> None:
 
 
 def _pump_cargo_output_posix(
-    proc: subprocess.Popen[str],
     stdout_stream: typ.IO[str],
     stderr_stream: typ.IO[str],
-    *,
-    deadline: float,
-    wait_timeout: float,
+    ctx: _CargoProcCtx,
 ) -> list[str]:
     """Pump cargo output on POSIX using a selector-based event loop.
 
     Parameters
     ----------
-    proc:
-        The running cargo process.
     stdout_stream:
-        The captured stdout text stream from *proc*.
+        The captured stdout text stream from the cargo process.
     stderr_stream:
-        The captured stderr text stream from *proc*.
-    deadline:
-        Absolute ``time.monotonic()`` value after which the pump is aborted.
-    wait_timeout:
-        Original timeout in seconds, used only in the error message.
+        The captured stderr text stream from the cargo process.
+    ctx:
+        Shared context holding the process handle, deadline, and timeout.
 
     Returns
     -------
@@ -233,13 +226,13 @@ def _pump_cargo_output_posix(
         sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
         while sel.get_map():
-            if time.monotonic() >= deadline:
-                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-            timeout = max(0.0, deadline - time.monotonic())
+            if time.monotonic() >= ctx.deadline:
+                _raise_cargo_timeout(ctx.proc, wait_timeout=ctx.wait_timeout)
+            timeout = max(0.0, ctx.deadline - time.monotonic())
             for key, _ in sel.select(timeout):
                 _handle_cargo_output_event(key, stdout_lines, sel)
     except Exception:
-        _kill_cargo_process(proc)
+        _kill_cargo_process(ctx.proc)
         raise
     finally:
         sel.close()
@@ -269,16 +262,10 @@ def _pump_cargo_output(
     stdout_stream = proc.stdout
     stderr_stream = proc.stderr
 
+    ctx = _CargoProcCtx(proc=proc, deadline=deadline, wait_timeout=wait_timeout)
     if os.name == "nt":
-        ctx = _CargoProcCtx(proc=proc, deadline=deadline, wait_timeout=wait_timeout)
         return _pump_cargo_output_windows(stdout_stream, stderr_stream, ctx)
-    return _pump_cargo_output_posix(
-        proc,
-        stdout_stream,
-        stderr_stream,
-        deadline=deadline,
-        wait_timeout=wait_timeout,
-    )
+    return _pump_cargo_output_posix(stdout_stream, stderr_stream, ctx)
 
 
 def _build_cargo_env(

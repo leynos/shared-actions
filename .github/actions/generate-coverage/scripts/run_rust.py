@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import tomllib
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
@@ -133,15 +134,6 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
     return False
 
 
-def _is_profile_section(section: str) -> bool:
-    """Return ``True`` if *section* is a Cargo profile section name.
-
-    Matches both the bare ``[profile]`` table and dotted sub-tables such as
-    ``[profile.dev]`` and ``[profile.release]``.
-    """
-    return section == "profile" or section.startswith("profile.")
-
-
 def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when ``manifest_path`` configures Cranelift in profiles.
 
@@ -157,24 +149,13 @@ def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
         ``codegen-backend = "cranelift"``; ``False`` otherwise.
     """
     try:
-        content = manifest_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return False
-    in_profile_section = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "//")):
-            continue
-        section_match = re.match(r"^\s*\[(?P<section>[^\]]+)\]\s*(?:#.*)?$", line)
-        if section_match is not None:
-            in_profile_section = _is_profile_section(section_match["section"])
-            continue
-        if in_profile_section and re.match(
-            r"""^codegen-backend\s*=\s*["']cranelift["']""",
-            stripped,
-        ):
-            return True
-    return False
+    return any(
+        isinstance(profile, dict) and profile.get("codegen-backend") == "cranelift"
+        for profile in data.get("profile", {}).values()
+    )
 
 
 def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:

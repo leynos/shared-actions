@@ -199,38 +199,14 @@ class _WindowsPumpTimeoutFakeThread:
         self.join_calls += 1
 
 
-class _WindowsPumpTimeoutFakeProc:
-    """Minimal subprocess test double for Windows timeout handling."""
-
-    def __init__(self) -> None:
-        """Initialise the stub with captured output streams."""
-        self.stdout = io.StringIO("out-line\n")
-        self.stderr = io.StringIO("err-line\n")
-        self.killed = False
-        self.waited = False
-
-    def poll(self) -> None:
-        """Report that the process is still running."""
-
-    def kill(self) -> None:
-        """Record that the process was killed."""
-        self.killed = True
-
-    def wait(self, timeout: float | None = None) -> int:
-        """Record the wait and return success."""
-        _ = timeout
-        self.waited = True
-        return 0
-
-
 class _WindowsPumpTimeoutFakeRunner:
     """Runner stub that returns the fake Windows process."""
 
-    def __init__(self, proc: _WindowsPumpTimeoutFakeProc) -> None:
+    def __init__(self, proc: _WindowsPumpFakeProc) -> None:
         """Initialise the runner with the fake process to return."""
         self._proc = proc
 
-    def popen(self, **_kw: object) -> _WindowsPumpTimeoutFakeProc:
+    def popen(self, **_kw: object) -> _WindowsPumpFakeProc:
         """Return the pre-created fake process."""
         return self._proc
 
@@ -238,7 +214,7 @@ class _WindowsPumpTimeoutFakeRunner:
 class _WindowsPumpTimeoutFakeCargoCommand:
     """Cargo command stub that yields the fake Windows runner."""
 
-    def __init__(self, proc: _WindowsPumpTimeoutFakeProc) -> None:
+    def __init__(self, proc: _WindowsPumpFakeProc) -> None:
         """Initialise the cargo command with the fake process."""
         self._proc = proc
 
@@ -1053,6 +1029,30 @@ def test_run_cargo_windows_nonzero_exit(
     assert _exit_code(excinfo.value) == 1
 
 
+class _WindowsPumpFakeProc:
+    """Minimal subprocess test double for Windows timeout handling."""
+
+    def __init__(self) -> None:
+        """Initialise the stub with captured output streams."""
+        self.stdout = io.StringIO("out-line\n")
+        self.stderr = io.StringIO("err-line\n")
+        self.killed = False
+        self.waited = False
+
+    def poll(self) -> None:
+        """Report that the process is still running."""
+
+    def kill(self) -> None:
+        """Record that the process was killed."""
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Record the wait and return success."""
+        _ = timeout
+        self.waited = True
+        return 0
+
+
 def test_run_cargo_windows_pump_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1070,7 +1070,7 @@ def test_run_cargo_windows_pump_timeout(
     monkeypatch.setattr(mod.threading, "Thread", _WindowsPumpTimeoutFakeThread)
     time_values = iter([0.0, 0.0, 1.0])
     monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
-    fake_proc = _WindowsPumpTimeoutFakeProc()
+    fake_proc = _WindowsPumpFakeProc()
     monkeypatch.setattr(mod, "cargo", _WindowsPumpTimeoutFakeCargoCommand(fake_proc))
 
     with pytest.raises(mod.typer.Exit) as excinfo:

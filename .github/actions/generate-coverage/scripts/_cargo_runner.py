@@ -68,7 +68,7 @@ def _poll_pump_loop_iteration(
         return True
     if not any(t.is_alive() for t in threads):
         return True
-    remaining = deadline - time.monotonic()
+    remaining = max(0.0, deadline - time.time())
     if remaining <= 0:
         _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
     join_timeout = min(0.1, remaining)
@@ -105,12 +105,12 @@ def _pump_cargo_output_windows(
     stdout_stream: typ.IO[str],
     stderr_stream: typ.IO[str],
     *,
+    deadline: float,
     wait_timeout: float,
 ) -> list[str]:
     """Pump cargo output on Windows using background threads."""
     thread_exceptions: list[Exception] = []
     stdout_lines: list[str] = []
-    deadline = time.monotonic() + wait_timeout
 
     threads = [
         threading.Thread(
@@ -177,6 +177,7 @@ def _kill_cargo_process(proc: subprocess.Popen[str]) -> None:
 def _pump_cargo_output(
     proc: subprocess.Popen[str],
     *,
+    deadline: float,
     wait_timeout: float,
 ) -> list[str]:
     """Pump ``proc`` output streams to console and collect stdout lines."""
@@ -198,20 +199,20 @@ def _pump_cargo_output(
             proc,
             stdout_stream,
             stderr_stream,
+            deadline=deadline,
             wait_timeout=wait_timeout,
         )
 
-    deadline = time.monotonic() + wait_timeout
     sel = selectors.DefaultSelector()
     try:
         sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
 
         while sel.get_map():
-            if time.monotonic() >= deadline:
+            if time.time() >= deadline:
                 _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
 
-            timeout = max(0.0, deadline - time.monotonic())
+            timeout = max(0.0, deadline - time.time())
             for key, _ in sel.select(timeout):
                 _handle_cargo_output_event(key, stdout_lines, sel)
     except Exception:
@@ -279,14 +280,16 @@ def _raise_cargo_timeout(
     raise typer.Exit(1) from None
 
 
-def _wait_for_cargo(proc: subprocess.Popen[str], *, wait_timeout: float) -> int:
+def _wait_for_cargo(
+    proc: subprocess.Popen[str], *, deadline: float, wait_timeout: float
+) -> int:
     """Wait for cargo to exit and return its return code.
 
     Kills the process and raises ``typer.Exit(1)`` if it does not exit
     within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
     """
     try:
-        return proc.wait(timeout=wait_timeout)
+        return proc.wait(timeout=max(0.0, deadline - time.time()))
     except subprocess.TimeoutExpired:
         _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
 
@@ -361,11 +364,20 @@ def _run_cargo(
             err=True,
         )
         raise typer.Exit(1) from exc
+    deadline = time.time() + wait_timeout
     proc = _spawn_cargo(cargo[args], env)
     try:
         _assert_cargo_streams(proc)
-        stdout_lines = _pump_cargo_output(proc, wait_timeout=wait_timeout)
-        retcode = _wait_for_cargo(proc, wait_timeout=wait_timeout)
+        stdout_lines = _pump_cargo_output(
+            proc,
+            deadline=deadline,
+            wait_timeout=wait_timeout,
+        )
+        retcode = _wait_for_cargo(
+            proc,
+            deadline=deadline,
+            wait_timeout=wait_timeout,
+        )
         if retcode != 0:
             typer.echo(
                 f"cargo {shlex.join(args)} failed with code {retcode}",

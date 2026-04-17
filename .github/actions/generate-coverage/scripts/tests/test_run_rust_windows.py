@@ -48,6 +48,7 @@ class _RunRustModule(typ.Protocol):
         stdout_stream: typ.IO[str],
         stderr_stream: typ.IO[str],
         *,
+        deadline: float,
         wait_timeout: float,
     ) -> list[str]:
         """Mirror of the helper under test."""
@@ -103,6 +104,7 @@ def test_pump_cargo_output_windows_streams(
         dummy_proc,
         stdout_stream,
         stderr_stream,
+        deadline=1.0,
         wait_timeout=1.0,
     )
 

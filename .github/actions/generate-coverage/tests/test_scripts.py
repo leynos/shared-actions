@@ -177,7 +177,7 @@ def _run_rust_coverage_test(
     shell_stubs: StubManager,
     config: RustCoverageConfig,
     *,
-    monkeypatch: pytest.MonkeyPatch | None = None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[list[str], Path, Path]:
     """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
     out = tmp_path / "cov.lcov"
@@ -203,8 +203,7 @@ def _run_rust_coverage_test(
         "GITHUB_OUTPUT": str(gh),
     }
 
-    if monkeypatch is not None:
-        monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     returncode, stdout, _ = run_script(script, env)
@@ -222,7 +221,7 @@ def _run_rust_coverage_call(
     shell_stubs: StubManager,
     config: RustCoverageConfig,
     *,
-    monkeypatch: pytest.MonkeyPatch | None = None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[Call, Path, Path]:
     """Run ``run_rust.py`` and return the recorded cargo call + output paths."""
     _cargo_args, out, gh = _run_rust_coverage_test(
@@ -251,6 +250,7 @@ def test_run_rust_success(
             features="fast",
             with_default_features=False,
         ),
+        monkeypatch=monkeypatch,
     )
     cargo_args = cargo_call.argv
     expected_args = [
@@ -303,13 +303,16 @@ def test_run_rust_nextest_command(
 
 
 def test_run_rust_uses_detected_manifest_path(
-    tmp_path: Path, shell_stubs: StubManager
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Detected manifest path is propagated to cargo llvm-cov."""
     cargo_args, _out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
+        monkeypatch=monkeypatch,
     )
     assert "llvm-cov" in cargo_args
     mp_idx = cargo_args.index("--manifest-path")
@@ -785,8 +788,8 @@ def test_run_cargo_unix_pump_timeout(
 
     monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
     monkeypatch.setattr(mod.selectors, "DefaultSelector", FakeSelector)
-    monotonic_values = iter([0.0, 0.0, 0.5, 1.0])
-    monkeypatch.setattr(mod.time, "monotonic", lambda: next(monotonic_values))
+    time_values = iter([0.0, 0.0, 0.5, 1.0])
+    monkeypatch.setattr(mod.time, "time", lambda: next(time_values))
 
     with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo(["llvm-cov"])
@@ -972,8 +975,8 @@ def test_run_cargo_windows_pump_timeout(
             type(self).join_calls += 1
 
     monkeypatch.setattr(mod.threading, "Thread", FakeThread)
-    monotonic_values = iter([0.0, 0.0, 1.0])
-    monkeypatch.setattr(mod.time, "monotonic", lambda: next(monotonic_values))
+    time_values = iter([0.0, 0.0, 1.0])
+    monkeypatch.setattr(mod.time, "time", lambda: next(time_values))
 
     class FakeProc:
         def __init__(self) -> None:

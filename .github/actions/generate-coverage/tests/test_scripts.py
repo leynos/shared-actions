@@ -704,7 +704,7 @@ def test_run_cargo_passes_env_overrides(
     """``_run_cargo`` merges env overrides into the spawned cargo process."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_a, **_k: None)
     monkeypatch.setenv("RUN_RUST_INHERITED", "present")
     monkeypatch.setenv("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
 

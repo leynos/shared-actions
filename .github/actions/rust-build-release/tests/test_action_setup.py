@@ -278,17 +278,27 @@ def test_cli_toolchain_outputs_value(
     assert result.stdout.strip() == "1.99.0"
 
 
-def test_cli_toolchain_prefers_repo_declared_nightly(
+@pytest.mark.parametrize(
+    ("extra_args", "expected_toolchain"),
+    [
+        pytest.param([], "nightly-2026-03-26", id="repo-declared-nightly"),
+        pytest.param(["--toolchain", "beta"], "beta", id="cli-override-wins"),
+    ],
+)
+def test_cli_toolchain_resolution_from_nightly_project(
     action_setup_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_toolchain: str,
 ) -> None:
-    """Repo toolchain files override the action fallback when no input is set."""
+    """Toolchain resolution respects explicit override and repo-declared nightly."""
     monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
 
     result = runner.invoke(
         action_setup_module.app,
         [
             "toolchain",
+            *extra_args,
             "--target",
             "aarch64-unknown-linux-gnu",
             "--manifest-path",
@@ -302,36 +312,7 @@ def test_cli_toolchain_prefers_repo_declared_nightly(
     )
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "nightly-2026-03-26"
-
-
-def test_cli_toolchain_override_wins_over_repo_declared_nightly(
-    action_setup_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Explicit CLI toolchain overrides repo rust-toolchain and manifest MSRV."""
-    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
-
-    result = runner.invoke(
-        action_setup_module.app,
-        [
-            "toolchain",
-            "--toolchain",
-            "beta",
-            "--target",
-            "aarch64-unknown-linux-gnu",
-            "--manifest-path",
-            "Cargo.toml",
-            "--runner-os",
-            "Linux",
-            "--runner-arch",
-            "X64",
-        ],
-        prog_name="action-setup",
-    )
-
-    assert result.exit_code == 0
-    assert result.stdout.strip() == "beta"
+    assert result.stdout.strip() == expected_toolchain
 
 
 def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:

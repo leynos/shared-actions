@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import os
 import selectors
 import shlex
@@ -13,6 +14,15 @@ import typing as typ
 
 import typer
 from plumbum.cmd import cargo
+
+
+@dataclasses.dataclass
+class _CargoProcCtx:
+    """Cargo process handle together with its timing constraints."""
+
+    proc: subprocess.Popen[str]
+    deadline: float
+    wait_timeout: float
 
 
 def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
@@ -56,21 +66,19 @@ def _pump_stream_thread(
 
 def _poll_pump_loop_iteration(
     threads: list[threading.Thread],
-    proc: subprocess.Popen[str],
-    deadline: float,
-    wait_timeout: float,
+    ctx: _CargoProcCtx,
     thread_exceptions: list[Exception],
 ) -> bool:
     """Perform one monitoring iteration; return ``True`` when pumping is done."""
     if thread_exceptions:
         with contextlib.suppress(Exception):
-            proc.kill()
+            ctx.proc.kill()
         return True
     if not any(t.is_alive() for t in threads):
         return True
-    remaining = max(0.0, deadline - time.time())
+    remaining = max(0.0, ctx.deadline - time.time())
     if remaining <= 0:
-        _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+        _raise_cargo_timeout(ctx.proc, wait_timeout=ctx.wait_timeout)
     join_timeout = min(0.1, remaining)
     for thread in threads:
         thread.join(timeout=join_timeout)
@@ -101,12 +109,9 @@ def _finalise_pump_threads(
 
 
 def _pump_cargo_output_windows(
-    proc: subprocess.Popen[str],
     stdout_stream: typ.IO[str],
     stderr_stream: typ.IO[str],
-    *,
-    deadline: float,
-    wait_timeout: float,
+    ctx: _CargoProcCtx,
 ) -> list[str]:
     """Pump cargo output on Windows using background threads."""
     thread_exceptions: list[Exception] = []
@@ -136,11 +141,9 @@ def _pump_cargo_output_windows(
     ]
     for thread in threads:
         thread.start()
-    while not _poll_pump_loop_iteration(
-        threads, proc, deadline, wait_timeout, thread_exceptions
-    ):
+    while not _poll_pump_loop_iteration(threads, ctx, thread_exceptions):
         pass
-    _finalise_pump_threads(threads, proc, thread_exceptions)
+    _finalise_pump_threads(threads, ctx.proc, thread_exceptions)
     return stdout_lines
 
 
@@ -193,15 +196,10 @@ def _pump_cargo_output(
     stdout_stream = proc.stdout
     stderr_stream = proc.stderr
     stdout_lines: list[str] = []
+    ctx = _CargoProcCtx(proc=proc, deadline=deadline, wait_timeout=wait_timeout)
 
     if os.name == "nt":
-        return _pump_cargo_output_windows(
-            proc,
-            stdout_stream,
-            stderr_stream,
-            deadline=deadline,
-            wait_timeout=wait_timeout,
-        )
+        return _pump_cargo_output_windows(stdout_stream, stderr_stream, ctx)
 
     sel = selectors.DefaultSelector()
     try:
@@ -209,14 +207,14 @@ def _pump_cargo_output(
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
 
         while sel.get_map():
-            if time.time() >= deadline:
-                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+            if time.time() >= ctx.deadline:
+                _raise_cargo_timeout(ctx.proc, wait_timeout=ctx.wait_timeout)
 
-            timeout = max(0.0, deadline - time.time())
+            timeout = max(0.0, ctx.deadline - time.time())
             for key, _ in sel.select(timeout):
                 _handle_cargo_output_event(key, stdout_lines, sel)
     except Exception:
-        _kill_cargo_process(proc)
+        _kill_cargo_process(ctx.proc)
         raise
     finally:
         sel.close()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import sys
+import time
 import typing as typ
 from pathlib import Path
 from types import ModuleType
@@ -25,6 +27,7 @@ if not isinstance(
 ):  # pragma: no cover - importlib contract
     type_error_message = "module_from_spec did not return a ModuleType"
     raise TypeError(type_error_message)
+sys.modules[spec.name] = cargo_runner_module
 spec.loader.exec_module(cargo_runner_module)
 run_rust = cargo_runner_module
 
@@ -44,12 +47,9 @@ class _RunRustModule(typ.Protocol):
 
     def _pump_cargo_output_windows(
         self,
-        proc: _SupportsKillWait,
         stdout_stream: typ.IO[str],
         stderr_stream: typ.IO[str],
-        *,
-        deadline: float,
-        wait_timeout: float,
+        ctx: object,
     ) -> list[str]:
         """Mirror of the helper under test."""
 
@@ -100,13 +100,10 @@ def test_pump_cargo_output_windows_streams(
     stdout_stream = io.StringIO(stdout_payload)
     stderr_stream = io.StringIO(stderr_payload)
 
-    lines = run_rust_typed._pump_cargo_output_windows(
-        dummy_proc,
-        stdout_stream,
-        stderr_stream,
-        deadline=1.0,
-        wait_timeout=1.0,
+    ctx = run_rust._CargoProcCtx(
+        proc=dummy_proc, deadline=time.time() + 1.0, wait_timeout=1.0
     )
+    lines = run_rust_typed._pump_cargo_output_windows(stdout_stream, stderr_stream, ctx)
 
     assert lines == expected
     assert captured_stdout.getvalue() == stdout_payload

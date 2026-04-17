@@ -22,6 +22,8 @@ if typ.TYPE_CHECKING:
 
 
 EchoRecorder = cabc.Callable[[ModuleType], list[tuple[str, bool]]]
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+NIGHTLY_CRANELIFT_PROJECT = FIXTURES_DIR / "nightly-cranelift-project"
 
 
 def _unexpected(message: str) -> cabc.Callable[..., None]:
@@ -283,6 +285,46 @@ def test_main_errors_when_manifest_missing(
         context.main_module.main(target, toolchain="stable")
 
     assert harness.calls == []
+
+
+def test_main_prefers_repo_declared_toolchain(
+    build_main_context: BuildMainContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() resolves repo toolchains before falling back to the action default."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
+    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
+
+    harness.patch_attr("_resolve_target_argument", lambda value: value)
+
+    def fake_resolve_toolchain(
+        _rustup_exec: str, toolchain_arg: str, target_arg: str
+    ) -> tuple[str, list[str]]:
+        captured["toolchain"] = toolchain_arg
+        captured["target"] = target_arg
+        return toolchain_arg, [toolchain_arg]
+
+    harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
+    decision = context.cross_decision_factory(context.main_module, use_cross=False)
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_cargo(
+        _spec: str, _target_arg: str, manifest_arg: Path, features_arg: str
+    ) -> object:
+        captured["manifest"] = manifest_arg
+        captured["features"] = features_arg
+        return context.dummy_command_factory("cargo-build")
+
+    harness.patch_attr("_build_cargo_command", fake_cargo)
+
+    context.main_module.main("aarch64-unknown-linux-gnu")
+
+    assert captured["toolchain"] == "nightly-2026-03-26"
+    assert captured["target"] == "aarch64-unknown-linux-gnu"
+    assert captured["manifest"] == Path("Cargo.toml")
 
 
 @pytest.mark.parametrize(

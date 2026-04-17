@@ -4,6 +4,10 @@ inputs:
   target:
     description: Target triple to build
     default: x86_64-unknown-linux-gnu
+  toolchain:
+    description: Explicit Rust toolchain override; otherwise resolve from the target repository before falling back to the action default
+    required: false
+    default: ""
   project-dir:
     description: Path to the Rust project to build
     required: false
@@ -34,10 +38,13 @@ runs:
           validate "${{ inputs.target }}"
     - name: Determine toolchain
       shell: bash
+      working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
         TOOLCHAIN="$(uv run --script "$GITHUB_ACTION_PATH/src/action_setup.py" \
           toolchain \
+          --toolchain "${{ inputs.toolchain }}" \
+          --manifest-path "${{ inputs.manifest-path }}" \
           --target "${{ inputs.target }}" \
           --runner-os "${{ runner.os }}" \
           --runner-arch "${{ runner.arch }}")"

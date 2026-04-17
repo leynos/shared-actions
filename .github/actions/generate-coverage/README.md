@@ -14,6 +14,12 @@ installed automatically. If both configuration files are present, coverage is
 run for each language and the Cobertura reports are merged using
 `uvx merge-cobertura`.
 
+If a Rust project enables Cranelift — via `.cargo/config.toml`,
+`.cargo/config`, or a `[profile.*].codegen-backend` key in `Cargo.toml` —
+the action automatically exports `CARGO_PROFILE_DEV_CODEGEN_BACKEND=llvm`
+and `CARGO_PROFILE_TEST_CODEGEN_BACKEND=llvm` for the coverage runs so
+`cargo llvm-cov` and its child Cargo processes stay on LLVM.
+
 ## Flow
 
 ```mermaid

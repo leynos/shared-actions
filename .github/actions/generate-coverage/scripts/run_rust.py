@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import tomllib
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
@@ -99,22 +100,66 @@ global-timeout = "10m"
 """
 
 
-_LLVM_CODEGEN_OVERRIDE = [
-    "--config",
-    'profile.dev.codegen-backend="llvm"',
-    "--config",
-    'profile.test.codegen-backend="llvm"',
-]
+_LLVM_CODEGEN_ENV = {
+    "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+    "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+}
+
+
+def _is_cranelift_backend(value: object) -> bool:
+    """Return ``True`` when *value* declares the Cranelift codegen backend."""
+    if not isinstance(value, str):
+        return False
+    return value.strip().casefold() == "cranelift"
+
+
+def _toml_uses_cranelift_backend(content: str) -> bool:
+    """Return ``True`` when parsed TOML enables Cranelift for dev or test."""
+    try:
+        data = tomllib.loads(content)
+    except tomllib.TOMLDecodeError:
+        return False
+    profile = data.get("profile")
+    if not isinstance(profile, dict):
+        return False
+    for profile_name in ("dev", "test"):
+        section = profile.get(profile_name)
+        if not isinstance(section, dict):
+            continue
+        if _is_cranelift_backend(section.get("codegen-backend")):
+            return True
+    return False
+
+
+def _manifest_uses_cranelift(manifest_path: Path) -> bool:
+    """Return ``True`` when *manifest_path* declares cranelift in any profile."""
+    try:
+        data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False
+    profiles = data.get("profile")
+    if not isinstance(profiles, dict):
+        return False
+    return any(
+        isinstance(section, dict)
+        and _is_cranelift_backend(section.get("codegen-backend"))
+        for section in profiles.values()
+    )
 
 
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when the project configures the Cranelift codegen backend.
 
-    Searches from the manifest directory upward for ``.cargo/config.toml``
+    Checks ``[profile.*].codegen-backend`` in *manifest_path* itself, then
+    searches from the manifest directory upward for ``.cargo/config.toml``
     (or ``.cargo/config``) and checks whether any profile sets
     ``codegen-backend = "cranelift"``.
     """
-    search_dir = manifest_path.resolve().parent
+    resolved = manifest_path.resolve()
+    if _manifest_uses_cranelift(resolved):
+        return True
+
+    search_dir = resolved.parent
     while True:
         for name in ("config.toml", "config"):
             candidate = search_dir / ".cargo" / name
@@ -123,11 +168,7 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
                     content = candidate.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):
                     continue
-                if re.search(
-                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
-                    content,
-                    flags=re.MULTILINE,
-                ):
+                if _toml_uses_cranelift_backend(content):
                     return True
         parent = search_dir.parent
         if parent == search_dir:
@@ -147,8 +188,6 @@ def get_cargo_coverage_cmd(
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments."""
     args: list[str] = []
-    if _uses_cranelift_backend(manifest_path):
-        args += _LLVM_CODEGEN_OVERRIDE
     args.append("llvm-cov")
     if use_nextest:
         args.append("nextest")
@@ -159,6 +198,13 @@ def get_cargo_coverage_cmd(
         args += ["--features", features]
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+    """Return extra environment overrides needed for coverage runs."""
+    if _uses_cranelift_backend(manifest_path):
+        return dict(_LLVM_CODEGEN_ENV)
+    return {}
 
 
 def extract_percent(output: str) -> str:
@@ -341,10 +387,68 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
     return stdout_lines
 
 
-def _run_cargo(args: list[str]) -> str:
+def _build_cargo_command(
+    extra_env: dict[str, str] | None,
+) -> tuple[str, typ.Any]:
+    """Return *(display_prefix, cargo_cmd)* reflecting *extra_env*."""
+    if not extra_env:
+        return "", cargo
+    env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in extra_env.items()) + " "
+    return env_prefix, cargo.with_env(**extra_env)
+
+
+def _abort_on_missing_streams(proc: subprocess.Popen[str]) -> None:
+    """Kill *proc* and exit with an error if its output streams were not captured."""
+    if proc.stdout is not None and proc.stderr is not None:
+        return
+    missing_streams = []
+    if proc.stdout is None:
+        missing_streams.append("stdout")
+    if proc.stderr is None:
+        missing_streams.append("stderr")
+    missing = ", ".join(missing_streams)
+    message = f"cargo output streams not captured: missing {missing}"
+    with contextlib.suppress(Exception):
+        proc.kill()
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=5)
+    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stdout))
+    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stderr))
+    typer.echo(f"::error::{message}", err=True)
+    raise typer.Exit(1) from None
+
+
+def _wait_for_cargo(
+    proc: subprocess.Popen[str],
+    args: list[str],
+    wait_timeout: float,
+) -> None:
+    """Wait for *proc* to finish, raising ``typer.Exit`` on timeout or failure."""
+    try:
+        retcode = proc.wait(timeout=wait_timeout)
+    except subprocess.TimeoutExpired:
+        typer.echo(
+            f"::error::cargo did not exit within {wait_timeout}s; killing",
+            err=True,
+        )
+        with contextlib.suppress(Exception):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=5)
+        raise typer.Exit(1) from None
+    if retcode != 0:
+        typer.echo(
+            f"cargo {shlex.join(args)} failed with code {retcode}",
+            err=True,
+        )
+        raise typer.Exit(code=retcode or 1)
+
+
+def _run_cargo(args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
     """Run ``cargo`` with ``args`` streaming output and return ``stdout``."""
-    typer.echo(f"$ cargo {shlex.join(args)}")
-    proc = cargo[args].popen(
+    env_prefix, cargo_cmd = _build_cargo_command(extra_env)
+    typer.echo(f"$ {env_prefix}cargo {shlex.join(args)}")
+    proc = cargo_cmd[args].popen(
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -353,42 +457,10 @@ def _run_cargo(args: list[str]) -> str:
         errors="replace",
     )
     try:
-        if proc.stdout is None or proc.stderr is None:
-            missing_streams = []
-            if proc.stdout is None:
-                missing_streams.append("stdout")
-            if proc.stderr is None:
-                missing_streams.append("stderr")
-            missing = ", ".join(missing_streams)
-            message = f"cargo output streams not captured: missing {missing}"
-            with contextlib.suppress(Exception):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5)
-            _safe_close_text_stream(proc.stdout)
-            _safe_close_text_stream(proc.stderr)
-            typer.echo(f"::error::{message}", err=True)
-            raise typer.Exit(1) from None
+        _abort_on_missing_streams(proc)
         stdout_lines = _pump_cargo_output(proc)
         wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-        try:
-            retcode = proc.wait(timeout=wait_timeout)
-        except subprocess.TimeoutExpired:
-            typer.echo(
-                f"::error::cargo did not exit within {wait_timeout}s; killing",
-                err=True,
-            )
-            with contextlib.suppress(Exception):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                proc.wait(timeout=5)
-            raise typer.Exit(1) from None
-        if retcode != 0:
-            typer.echo(
-                f"cargo {shlex.join(args)} failed with code {retcode}",
-                err=True,
-            )
-            raise typer.Exit(code=retcode or 1)
+        _wait_for_cargo(proc, args, wait_timeout)
         return "\n".join(stdout_lines)
     finally:
         _safe_close_text_stream(proc.stdout)
@@ -429,6 +501,7 @@ def run_cucumber_rs_coverage(
     use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
+    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -452,7 +525,7 @@ def run_cucumber_rs_coverage(
     if cucumber_rs_args:
         c_args += shlex.split(cucumber_rs_args)
 
-    _run_cargo(c_args)
+    _run_cargo(c_args, extra_env=extra_env)
 
     if fmt == "cobertura":
         from plumbum.cmd import uvx
@@ -552,11 +625,12 @@ def main(
         with_default=with_default,
         use_nextest=use_nextest,
     )
+    extra_env = get_cargo_coverage_env(manifest_path)
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
     )
     with config_context:
-        stdout = _run_cargo(args)
+        stdout = _run_cargo(args, extra_env=extra_env)
 
         if with_cucumber_rs and cucumber_rs_features:
             run_cucumber_rs_coverage(
@@ -568,6 +642,7 @@ def main(
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
+                extra_env=extra_env,
             )
     if fmt == "lcov":
         percent = get_line_coverage_percent_from_lcov(out)

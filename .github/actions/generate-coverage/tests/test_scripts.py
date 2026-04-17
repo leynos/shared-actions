@@ -9,6 +9,7 @@ import importlib.util
 import io
 import itertools
 import os
+import shutil
 import sys
 import typing as typ
 from pathlib import Path
@@ -29,12 +30,10 @@ else:
     RunResult = import_cmd_utils().RunResult
 
 
-_LLVM_CONFIG_PREFIX = [
-    "--config",
-    'profile.dev.codegen-backend="llvm"',
-    "--config",
-    'profile.test.codegen-backend="llvm"',
-]
+_LLVM_CODEGEN_ENV = {
+    "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+    "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+}
 
 
 def _exit_code(exc: BaseException) -> int | None:
@@ -173,7 +172,7 @@ def _run_rust_coverage_test(
     config: RustCoverageConfig,
     *,
     monkeypatch: pytest.MonkeyPatch | None = None,
-) -> tuple[list[str], Path, Path]:
+) -> tuple[list[str], dict[str, str], Path, Path]:
     """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
@@ -209,12 +208,12 @@ def _run_rust_coverage_test(
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1
 
-    return calls[0].argv, out, gh
+    return calls[0].argv, calls[0].env, out, gh
 
 
 def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
     """Happy path for ``run_rust.py``."""
-    cargo_args, out, gh = _run_rust_coverage_test(
+    cargo_args, cargo_env, out, gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(
@@ -237,6 +236,8 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         str(out),
     ]
     assert cargo_args == expected_args
+    assert cargo_env.get("CARGO_PROFILE_DEV_CODEGEN_BACKEND") is None
+    assert cargo_env.get("CARGO_PROFILE_TEST_CODEGEN_BACKEND") is None
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
@@ -249,7 +250,7 @@ def test_run_rust_nextest_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_rust.py`` uses cargo llvm-cov nextest when enabled."""
-    cargo_args, out, _gh = _run_rust_coverage_test(
+    cargo_args, _cargo_env, out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=True),
@@ -274,7 +275,7 @@ def test_run_rust_uses_detected_manifest_path(
     tmp_path: Path, shell_stubs: StubManager
 ) -> None:
     """Detected manifest path is propagated to cargo llvm-cov."""
-    cargo_args, _out, _gh = _run_rust_coverage_test(
+    cargo_args, _cargo_env, _out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
@@ -353,10 +354,13 @@ def _run_rust_main_variant(
     output = tmp_path / "cov.lcov"
     output.write_text("LF:10\nLH:10\n")
     github_output = tmp_path / "gh.txt"
-    recorded: dict[str, list[str]] = {}
+    recorded_args: list[str] = []
 
-    def fake_run_cargo(args: list[str]) -> str:
-        recorded["args"] = args
+    def fake_run_cargo(
+        args: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> str:
+        recorded_args[:] = args
+        _ = extra_env
         return "Coverage: 100%"
 
     monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
@@ -375,7 +379,7 @@ def _run_rust_main_variant(
         with_cucumber_rs=False,
         baseline_file=None,
     )
-    return recorded["args"], github_output, output
+    return recorded_args, github_output, output
 
 
 @pytest.mark.parametrize("use_nextest", [True, False])
@@ -413,38 +417,167 @@ def test_run_rust_cranelift_project_uses_llvm_codegen(
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Coverage forces LLVM codegen even when project configures Cranelift.
-
-    When a Rust project uses the Cranelift codegen backend (configured in
-    .cargo/config.toml), the coverage action must still invoke cargo with
-    --config flags that override the codegen backend to LLVM, because
-    source-based code coverage (-C instrument-coverage) is an LLVM-only
-    feature.
-
-    In a real-world scenario, the Cranelift component would be installed via
-    ``rustup component add rustc-codegen-cranelift-preview``.
-    """
-    # Simulate a Cranelift-configured project
-    cargo_config_dir = tmp_path / ".cargo"
-    cargo_config_dir.mkdir()
-    (cargo_config_dir / "config.toml").write_text(
-        "[unstable]\ncodegen-backend = true\n\n"
-        '[profile.dev]\ncodegen-backend = "cranelift"\n\n'
-        '[profile.test]\ncodegen-backend = "cranelift"\n',
+    """Coverage uses environment overrides for Cranelift-configured projects."""
+    fixture_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "nightly-cranelift-project"
     )
+    shutil.copytree(fixture_dir, tmp_path, dirs_exist_ok=True)
 
-    cargo_args, _out, _gh = _run_rust_coverage_test(
+    cargo_args, cargo_env, _out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=True),
         monkeypatch=monkeypatch,
     )
 
-    # The config prefix must appear before llvm-cov to override Cranelift
-    prefix_len = len(_LLVM_CONFIG_PREFIX)
-    assert cargo_args[:prefix_len] == _LLVM_CONFIG_PREFIX
-    assert cargo_args[prefix_len] == "llvm-cov"
-    assert cargo_args[prefix_len + 1] == "nextest"
+    assert cargo_args[:2] == ["llvm-cov", "nextest"]
+    assert "--config" not in cargo_args
+    for key, value in _LLVM_CODEGEN_ENV.items():
+        assert cargo_env[key] == value
+
+
+def test_get_cargo_coverage_env_detects_cranelift_fixture(
+    run_rust_module: ModuleType,
+) -> None:
+    """Cranelift fixtures resolve to cargo environment overrides."""
+    fixture_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "nightly-cranelift-project"
+    )
+    env = run_rust_module.get_cargo_coverage_env(fixture_dir / "Cargo.toml")
+    assert env == _LLVM_CODEGEN_ENV
+
+
+def test_uses_cranelift_backend_detects_manifest_fixture(
+    run_rust_module: ModuleType,
+) -> None:
+    """Cargo.toml profile settings alone trigger Cranelift detection."""
+    fixture_dir = (
+        Path(__file__).resolve().parent / "fixtures" / "cargo-toml-cranelift-project"
+    )
+    assert run_rust_module._uses_cranelift_backend(fixture_dir / "Cargo.toml") is True
+
+
+def test_get_cargo_coverage_env_non_cranelift_is_empty(
+    run_rust_module: ModuleType, tmp_path: Path
+) -> None:
+    """Non-Cranelift projects do not receive extra cargo env overrides."""
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text("[package]\nname='demo'\nversion='0.1.0'\n")
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {}
+
+
+@pytest.mark.parametrize("profile_name", ["dev", "test"])
+def test_get_cargo_coverage_env_detects_manifest_only_cranelift(
+    run_rust_module: ModuleType,
+    tmp_path: Path,
+    profile_name: str,
+) -> None:
+    """Manifest profile settings alone trigger LLVM codegen env overrides."""
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "\n".join(
+            [
+                "[package]",
+                "name='demo'",
+                "version='0.1.0'",
+                f"[profile.{profile_name}]",
+                'codegen-backend = "  Cranelift  "',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert run_rust_module._uses_cranelift_backend(manifest_path) is True
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == _LLVM_CODEGEN_ENV
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _CucumberEnvScenario:
+    manifest_path: Path
+    extra_env: dict[str, str] | None
+
+
+def _run_cucumber_coverage_and_capture_env(
+    run_rust_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    scenario: _CucumberEnvScenario,
+) -> dict[str, str] | None:
+    """Stub ``_run_cargo``, invoke ``run_cucumber_rs_coverage``, return captured env."""
+    out = tmp_path / "coverage.lcov"
+    out.write_text("TN:\nend_of_record\n", encoding="utf-8")
+    captured_env: dict[str, str] | None = None
+
+    def fake_run_cargo(
+        _args: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> str:
+        nonlocal captured_env
+        captured_env = extra_env
+        out.with_name(f"{out.stem}.cucumber{out.suffix}").write_text(
+            "TN:\nend_of_record\n",
+            encoding="utf-8",
+        )
+        return ""
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+    run_rust_module.run_cucumber_rs_coverage(
+        out,
+        "lcov",
+        "",
+        manifest_path=scenario.manifest_path,
+        with_default=True,
+        use_nextest=False,
+        cucumber_rs_features="cucumber",
+        cucumber_rs_args="",
+        extra_env=scenario.extra_env,
+    )
+    return captured_env
+
+
+def test_run_cucumber_rs_coverage_passes_extra_env_for_cranelift(
+    run_rust_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """cucumber.rs coverage forwards Cranelift env overrides to ``_run_cargo``."""
+    manifest_path = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "nightly-cranelift-project"
+        / "Cargo.toml"
+    )
+    captured_env = _run_cucumber_coverage_and_capture_env(
+        run_rust_module,
+        monkeypatch,
+        tmp_path,
+        _CucumberEnvScenario(
+            manifest_path=manifest_path,
+            extra_env=run_rust_module.get_cargo_coverage_env(manifest_path),
+        ),
+    )
+    assert captured_env == _LLVM_CODEGEN_ENV
+
+
+def test_run_cucumber_rs_coverage_passes_extra_env_for_non_cranelift(
+    run_rust_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """cucumber.rs coverage forwards explicit non-Cranelift env unchanged."""
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+        encoding="utf-8",
+    )
+    extra_env = {"FOO": "BAR", "BAZ": "QUX"}
+    captured_env = _run_cucumber_coverage_and_capture_env(
+        run_rust_module,
+        monkeypatch,
+        tmp_path,
+        _CucumberEnvScenario(manifest_path=manifest_path, extra_env=extra_env),
+    )
+    assert captured_env == extra_env
 
 
 def test_nextest_config_is_temporary(
@@ -1197,31 +1330,24 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert calls[0].argv[:1] == ["merge-cobertura"]
 
 
-def test_lcov_zero_lines_found(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` returns 0.00 when no lines are found."""
-    lcov = tmp_path / "zero.lcov"
-    lcov.write_text("LF:0\nLH:0\n")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_empty_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """Empty lcov files report zero coverage."""
-    lcov = tmp_path / "empty.lcov"
-    lcov.write_text("")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` handles files missing ``LH`` tags."""
-    lcov = tmp_path / "missing.lcov"
-    lcov.write_text("LF:100\n")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_malformed_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` returns 0.00 for malformed files."""
-    lcov = tmp_path / "bad.lcov"
-    lcov.write_text("LF:abc\nLH:xyz\n")
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        pytest.param("zero.lcov", "LF:0\nLH:0\n", id="zero-lines"),
+        pytest.param("empty.lcov", "", id="empty-file"),
+        pytest.param("missing.lcov", "LF:100\n", id="missing-lh-tag"),
+        pytest.param("bad.lcov", "LF:abc\nLH:xyz\n", id="malformed"),
+    ],
+)
+def test_lcov_zero_coverage_variants(
+    tmp_path: Path,
+    run_rust_module: ModuleType,
+    filename: str,
+    content: str,
+) -> None:
+    """``get_line_coverage_percent_from_lcov`` returns 0.00 for degenerate inputs."""
+    lcov = tmp_path / filename
+    lcov.write_text(content)
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 

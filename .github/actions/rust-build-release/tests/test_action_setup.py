@@ -25,6 +25,8 @@ runner = CliRunner()
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "src" / "action_setup.py"
 TOOLCHAIN_PATH = Path(__file__).resolve().parents[1] / "src" / "toolchain.py"
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+NIGHTLY_CRANELIFT_PROJECT = FIXTURES_DIR / "nightly-cranelift-project"
 
 
 def _load_action_setup_from_layout(
@@ -230,6 +232,19 @@ def test_resolve_toolchain_windows_known_arch(
     assert resolved == "1.89.0-aarch64-pc-windows-gnu"
 
 
+def test_resolve_toolchain_windows_preserves_qualified_toolchain(
+    action_setup_module: ModuleType,
+) -> None:
+    """Qualified Windows GNU toolchains are returned unchanged."""
+    resolved = action_setup_module.resolve_toolchain(
+        "nightly-2026-03-26-x86_64-pc-windows-gnu",
+        "aarch64-pc-windows-gnu",
+        "Windows",
+        "ARM64",
+    )
+    assert resolved == "nightly-2026-03-26-x86_64-pc-windows-gnu"
+
+
 def test_cli_toolchain_outputs_value(
     action_setup_module: ModuleType,
     toolchain_module: ModuleType,
@@ -261,6 +276,43 @@ def test_cli_toolchain_outputs_value(
     )
     assert result.exit_code == 0
     assert result.stdout.strip() == "1.99.0"
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_toolchain"),
+    [
+        pytest.param([], "nightly-2026-03-26", id="repo-declared-nightly"),
+        pytest.param(["--toolchain", "beta"], "beta", id="cli-override-wins"),
+    ],
+)
+def test_cli_toolchain_resolution_from_nightly_project(
+    action_setup_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    extra_args: list[str],
+    expected_toolchain: str,
+) -> None:
+    """Toolchain resolution respects explicit override and repo-declared nightly."""
+    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
+
+    result = runner.invoke(
+        action_setup_module.app,
+        [
+            "toolchain",
+            *extra_args,
+            "--target",
+            "aarch64-unknown-linux-gnu",
+            "--manifest-path",
+            "Cargo.toml",
+            "--runner-os",
+            "Linux",
+            "--runner-arch",
+            "X64",
+        ],
+        prog_name="action-setup",
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == expected_toolchain
 
 
 def test_cli_validate_emits_error(action_setup_module: ModuleType) -> None:

@@ -60,11 +60,39 @@ def bootstrap_environment() -> tuple[Path, Path]:
 _ACTION_PATH, _REPO_ROOT = bootstrap_environment()
 
 import typer
-from toolchain import read_default_toolchain
+from toolchain import read_default_toolchain, resolve_requested_toolchain
 
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+DEFAULT_MANIFEST_PATH = Path("Cargo.toml")
+TOOLCHAIN_OVERRIDE_OPT = typer.Option("", "--toolchain")
+MANIFEST_PATH_OPT = typer.Option(DEFAULT_MANIFEST_PATH, "--manifest-path")
 
 app = typer.Typer(add_completion=False)
+
+_TRIPLE_OS_COMPONENTS = {
+    "linux",
+    "windows",
+    "darwin",
+    "freebsd",
+    "netbsd",
+    "openbsd",
+    "dragonfly",
+    "solaris",
+    "android",
+    "ios",
+    "emscripten",
+    "haiku",
+    "hermit",
+    "fuchsia",
+    "wasi",
+    "redox",
+    "illumos",
+    "uefi",
+    "macabi",
+    "rumprun",
+    "vita",
+    "psp",
+}
 
 
 class TargetValidationError(ValueError):
@@ -73,6 +101,25 @@ class TargetValidationError(ValueError):
 
 class ToolchainResolutionError(ValueError):
     """Raised when the action cannot resolve a toolchain."""
+
+
+def _looks_like_target_triple(candidate: str) -> bool:
+    """Return ``True`` when *candidate* resembles an embedded target triple."""
+    components = [part for part in candidate.split("-") if part]
+    if len(components) < 3:
+        return False
+    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
+
+
+def _has_embedded_target_triple(toolchain: str) -> bool:
+    """Return ``True`` when *toolchain* already includes a target triple."""
+    parts = toolchain.split("-")
+    for suffix_parts in (4, 3):
+        if len(parts) < suffix_parts + 1:
+            continue
+        if _looks_like_target_triple("-".join(parts[-suffix_parts:])):
+            return True
+    return False
 
 
 def validate_target(target: str) -> None:
@@ -94,6 +141,8 @@ def resolve_toolchain(
 ) -> str:
     """Return the toolchain identifier for the provided runner metadata."""
     if runner_os == "Windows" and target.endswith("-pc-windows-gnu"):
+        if _has_embedded_target_triple(default_toolchain):
+            return default_toolchain
         arch_map = {"X64": "x86_64", "ARM64": "aarch64"}
         try:
             host_arch = arch_map[runner_arch]
@@ -117,20 +166,43 @@ def validate(target: str = typer.Argument(...)) -> None:
         raise typer.Exit(1) from exc
 
 
-@app.command()
-def toolchain(
-    target: str = typer.Option(..., "--target"),
-    runner_os: str = typer.Option(..., "--runner-os"),
-    runner_arch: str = typer.Option(..., "--runner-arch"),
+def _resolve_default_toolchain(toolchain_override: str, manifest_path: Path) -> str:
+    """Return the default toolchain, respecting override and manifest sources."""
+    return resolve_requested_toolchain(
+        toolchain_override,
+        project_dir=Path.cwd(),
+        manifest_path=manifest_path,
+        fallback_toolchain=read_default_toolchain(),
+    )
+
+
+def _emit_resolved_toolchain(
+    target: str, runner_os: str, runner_arch: str, default_toolchain: str
 ) -> None:
-    """CLI entry point that prints the resolved toolchain."""
-    default_toolchain = read_default_toolchain()
+    """Resolve the runner-specific toolchain and print it, or exit on error."""
     try:
         resolved = resolve_toolchain(default_toolchain, target, runner_os, runner_arch)
     except ToolchainResolutionError as exc:
         typer.echo(f"::error:: {exc}", err=True)
         raise typer.Exit(1) from exc
     typer.echo(resolved)
+
+
+@app.command()
+def toolchain(
+    target: str = typer.Option(..., "--target"),
+    runner_os: str = typer.Option(..., "--runner-os"),
+    runner_arch: str = typer.Option(..., "--runner-arch"),
+    toolchain: str = TOOLCHAIN_OVERRIDE_OPT,
+    manifest_path: Path = MANIFEST_PATH_OPT,
+) -> None:
+    """CLI entry point that prints the resolved toolchain."""
+    _emit_resolved_toolchain(
+        target,
+        runner_os,
+        runner_arch,
+        _resolve_default_toolchain(toolchain, manifest_path),
+    )
 
 
 if __name__ == "__main__":

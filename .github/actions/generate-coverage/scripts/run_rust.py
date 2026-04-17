@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
@@ -340,7 +341,11 @@ def _pump_cargo_output_windows(
     return stdout_lines
 
 
-def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
+def _pump_cargo_output(
+    proc: subprocess.Popen[str],
+    *,
+    wait_timeout: float,
+) -> list[str]:
     """Pump ``proc`` output streams to console and collect stdout lines."""
     if proc.stdout is None or proc.stderr is None:  # pragma: no cover - defensive
         message = (
@@ -362,13 +367,18 @@ def _pump_cargo_output(proc: subprocess.Popen[str]) -> list[str]:
             stderr_stream,
         )
 
+    deadline = time.monotonic() + wait_timeout
     sel = selectors.DefaultSelector()
     try:
         sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
 
         while sel.get_map():
-            for key, _ in sel.select():
+            if proc.poll() is None and time.monotonic() >= deadline:
+                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+
+            timeout = max(0.0, deadline - time.monotonic())
+            for key, _ in sel.select(timeout):
                 stream = typ.cast("typ.TextIO", key.fileobj)
                 line = stream.readline()
                 if not line:
@@ -432,25 +442,31 @@ def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
     raise typer.Exit(1) from None
 
 
-def _wait_for_cargo(proc: subprocess.Popen[str]) -> int:
+def _raise_cargo_timeout(
+    proc: subprocess.Popen[str], *, wait_timeout: float
+) -> typ.Never:
+    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout."""
+    typer.echo(
+        f"::error::cargo did not exit within {wait_timeout}s; killing",
+        err=True,
+    )
+    with contextlib.suppress(Exception):
+        proc.kill()
+    with contextlib.suppress(Exception):
+        proc.wait(timeout=5)
+    raise typer.Exit(1) from None
+
+
+def _wait_for_cargo(proc: subprocess.Popen[str], *, wait_timeout: float) -> int:
     """Wait for cargo to exit and return its return code.
 
     Kills the process and raises ``typer.Exit(1)`` if it does not exit
     within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
     """
-    wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
     try:
         return proc.wait(timeout=wait_timeout)
     except subprocess.TimeoutExpired:
-        typer.echo(
-            f"::error::cargo did not exit within {wait_timeout}s; killing",
-            err=True,
-        )
-        with contextlib.suppress(Exception):
-            proc.kill()
-        with contextlib.suppress(Exception):
-            proc.wait(timeout=5)
-        raise typer.Exit(1) from None
+        _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
 
 
 def _spawn_cargo(
@@ -516,10 +532,11 @@ def _run_cargo(
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
     proc = _spawn_cargo(cargo[args], env)
+    wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
     try:
         _assert_cargo_streams(proc)
-        stdout_lines = _pump_cargo_output(proc)
-        retcode = _wait_for_cargo(proc)
+        stdout_lines = _pump_cargo_output(proc, wait_timeout=wait_timeout)
+        retcode = _wait_for_cargo(proc, wait_timeout=wait_timeout)
         if retcode != 0:
             typer.echo(
                 f"cargo {shlex.join(args)} failed with code {retcode}",
@@ -562,6 +579,7 @@ def run_cucumber_rs_coverage(
     features: str,
     *,
     manifest_path: Path,
+    cargo_env: typ.Mapping[str, str],
     with_default: bool,
     use_nextest: bool,
     cucumber_rs_features: str,
@@ -591,7 +609,7 @@ def run_cucumber_rs_coverage(
 
     _run_cargo(
         c_args,
-        env_overrides=get_cargo_coverage_env(manifest_path),
+        env_overrides=cargo_env,
         env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
     )
 
@@ -710,6 +728,7 @@ def main(
                 fmt,
                 features,
                 manifest_path=manifest_path,
+                cargo_env=cargo_env,
                 with_default=with_default,
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,

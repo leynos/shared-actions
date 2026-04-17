@@ -721,6 +721,162 @@ def test_run_cargo_passes_env_overrides(
     assert env["CARGO_PROFILE_DEV_CODEGEN_BACKEND"] == "llvm"
 
 
+def test_run_cargo_unix_pump_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` aborts when the pump loop outlives the wait timeout."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "posix")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
+
+    class FakeSelector:
+        def __init__(self) -> None:
+            self._map = {"stdout": object()}
+
+        def register(self, fileobj: object, event: object, data: str) -> None:
+            _ = (fileobj, event, data)
+
+        def get_map(self) -> dict[str, object]:
+            return self._map
+
+        def select(self, timeout: float | None = None) -> list[tuple[object, object]]:
+            _ = timeout
+            return []
+
+        def close(self) -> None:
+            return None
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            self.killed = False
+            self.waited = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            self.waited = True
+            return 0
+
+    fake_proc = FakeProc()
+
+    class FakeRunner:
+        def popen(self, **_kw: object) -> FakeProc:
+            return fake_proc
+
+    class FakeCargoCommand:
+        def __getitem__(self, _args: list[str]) -> FakeRunner:
+            return FakeRunner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
+    monkeypatch.setattr(mod.selectors, "DefaultSelector", FakeSelector)
+    monotonic_values = iter([0.0, 0.0, 0.5, 1.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(monotonic_values))
+
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo(["llvm-cov"])
+
+    assert _exit_code(excinfo.value) == 1
+    assert fake_proc.killed
+    assert fake_proc.waited
+    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
+
+
+def test_main_reuses_cargo_env_for_cucumber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: ModuleType,
+) -> None:
+    """``main`` computes cargo env once and threads it into cucumber coverage."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n", encoding="utf-8")
+    github_output = tmp_path / "gh.txt"
+    cargo_env = {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
+    env_calls: list[Path] = []
+    cucumber_calls: list[dict[str, object]] = []
+
+    def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+        env_calls.append(manifest_path)
+        return cargo_env
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        _ = (args, env_overrides, env_unsets)
+        return "Coverage: 100%"
+
+    def fake_run_cucumber_rs_coverage(
+        out: Path,
+        fmt: str,
+        features: str,
+        *,
+        manifest_path: Path,
+        cargo_env: typ.Mapping[str, str],
+        with_default: bool,
+        use_nextest: bool,
+        cucumber_rs_features: str,
+        cucumber_rs_args: str,
+    ) -> None:
+        cucumber_calls.append(
+            {
+                "out": out,
+                "fmt": fmt,
+                "features": features,
+                "manifest_path": manifest_path,
+                "cargo_env": dict(cargo_env),
+                "with_default": with_default,
+                "use_nextest": use_nextest,
+                "cucumber_rs_features": cucumber_rs_features,
+                "cucumber_rs_args": cucumber_rs_args,
+            }
+        )
+
+    monkeypatch.setattr(
+        run_rust_module, "get_cargo_coverage_env", fake_get_cargo_coverage_env
+    )
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+    monkeypatch.setattr(
+        run_rust_module, "run_cucumber_rs_coverage", fake_run_cucumber_rs_coverage
+    )
+
+    manifest_path = Path("rust-toy-app/Cargo.toml")
+    run_rust_module.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=False,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=manifest_path,
+        github_output=github_output,
+        cucumber_rs_features="tests/features",
+        cucumber_rs_args="--tag fast",
+        with_cucumber_rs=True,
+        baseline_file=None,
+    )
+
+    assert env_calls == [manifest_path]
+    assert len(cucumber_calls) == 1
+    assert cucumber_calls[0]["cargo_env"] == cargo_env
+
+
 def test_run_cargo_windows_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

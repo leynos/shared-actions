@@ -68,13 +68,10 @@ def _poll_pump_loop_iteration(
         return True
     if not any(t.is_alive() for t in threads):
         return True
-    if proc.poll() is None:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-        join_timeout = min(0.1, remaining)
-    else:
-        join_timeout = 0.0
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+    join_timeout = min(0.1, remaining)
     for thread in threads:
         thread.join(timeout=join_timeout)
     return False
@@ -211,7 +208,7 @@ def _pump_cargo_output(
         sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
 
         while sel.get_map():
-            if proc.poll() is None and time.monotonic() >= deadline:
+            if time.monotonic() >= deadline:
                 _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
 
             timeout = max(0.0, deadline - time.monotonic())
@@ -356,7 +353,14 @@ def _run_cargo(
     """
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
-    wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
+    try:
+        wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
+    except ValueError as exc:
+        typer.echo(
+            "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
     proc = _spawn_cargo(cargo[args], env)
     try:
         _assert_cargo_streams(proc)

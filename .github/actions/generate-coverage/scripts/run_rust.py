@@ -141,6 +141,7 @@ def _run_cargo(
     _cargo_runner.selectors = selectors
     _cargo_runner.threading = threading
     _cargo_runner.time = time
+    typ.cast("typ.Any", _cargo_runner).typer = typer
     return _cargo_runner_run_cargo(
         args,
         env_overrides=env_overrides,

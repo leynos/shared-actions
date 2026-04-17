@@ -802,17 +802,25 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
 ) -> None:
     """Invalid wait-timeout values fail before cargo is spawned."""
     mod = _load_module(monkeypatch, "run_rust")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "not-a-float")
 
     fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
     monkeypatch.setattr(mod, "cargo", fake_cargo)
 
-    with pytest.raises(ValueError, match="could not convert string to float"):
+    with pytest.raises(mod.typer.Exit) as excinfo:
         mod._run_cargo(["llvm-cov"])
 
+    assert _exit_code(excinfo.value) == 1
     assert fake_cargo.last_proc is None
+    assert ("::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number", True) in messages
 
 
 def _make_cucumber_spy(

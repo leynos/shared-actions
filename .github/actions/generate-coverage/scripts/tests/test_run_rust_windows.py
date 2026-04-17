@@ -45,6 +45,8 @@ class _RunRustModule(typ.Protocol):
         proc: _SupportsKillWait,
         stdout_stream: typ.IO[str],
         stderr_stream: typ.IO[str],
+        *,
+        wait_timeout: float,
     ) -> list[str]:
         """Mirror of the helper under test."""
 
@@ -56,6 +58,9 @@ class _DummyProc:
     def __init__(self) -> None:
         self.killed = False
         self.wait_timeouts: list[float | None] = []
+
+    def poll(self) -> None:
+        return None
 
     def kill(self) -> None:  # pragma: no cover - exercised only on failure
         self.killed = True
@@ -96,6 +101,7 @@ def test_pump_cargo_output_windows_streams(
         dummy_proc,
         stdout_stream,
         stderr_stream,
+        wait_timeout=1.0,
     )
 
     assert lines == expected

@@ -114,6 +114,9 @@ def _make_fake_cargo(
             self.killed = False
             self.waited = False
 
+        def poll(self) -> None:
+            return None
+
         def kill(self) -> None:
             if track_lifecycle:
                 self.killed = True
@@ -795,6 +798,24 @@ def test_run_cargo_unix_pump_timeout(
     assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
 
 
+def test_run_cargo_invalid_timeout_does_not_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid wait-timeout values fail before cargo is spawned."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "not-a-float")
+
+    fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    with pytest.raises(ValueError, match="could not convert string to float"):
+        mod._run_cargo(["llvm-cov"])
+
+    assert fake_cargo.last_proc is None
+
+
 def _make_cucumber_spy(
     calls: list[dict[str, object]],
 ) -> typ.Callable[..., None]:
@@ -903,6 +924,87 @@ def test_run_cargo_windows_nonzero_exit(
         mod._run_cargo([])
     # click.exceptions.Exit exposes ``exit_code``; SystemExit uses ``code``.
     assert _exit_code(excinfo.value) == 1
+
+
+def test_run_cargo_windows_pump_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` enforces the wait timeout on Windows pump threads."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
+
+    class FakeThread:
+        join_calls = 0
+
+        def __init__(
+            self,
+            *,
+            name: str,
+            target: typ.Callable[..., object],
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+        ) -> None:
+            _ = (name, target, args, kwargs)
+
+        def start(self) -> None:
+            return None
+
+        def is_alive(self) -> bool:
+            return self.join_calls < 4
+
+        def join(self, timeout: float | None = None) -> None:
+            _ = timeout
+            type(self).join_calls += 1
+
+    monkeypatch.setattr(mod.threading, "Thread", FakeThread)
+    monotonic_values = iter([0.0, 0.0, 1.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(monotonic_values))
+
+    class FakeProc:
+        def __init__(self) -> None:
+            self.stdout = io.StringIO("out-line\n")
+            self.stderr = io.StringIO("err-line\n")
+            self.killed = False
+            self.waited = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            self.waited = True
+            return 0
+
+    fake_proc = FakeProc()
+
+    class FakeRunner:
+        def popen(self, **_kw: object) -> FakeProc:
+            return fake_proc
+
+    class FakeCargoCommand:
+        def __getitem__(self, _args: list[str]) -> FakeRunner:
+            return FakeRunner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
+
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo(["llvm-cov"])
+
+    assert _exit_code(excinfo.value) == 1
+    assert fake_proc.killed
+    assert fake_proc.waited
+    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
 
 
 def test_run_cargo_windows_pump_exception(

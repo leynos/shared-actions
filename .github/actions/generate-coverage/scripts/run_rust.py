@@ -278,10 +278,13 @@ def _pump_cargo_output_windows(
     proc: subprocess.Popen[str],
     stdout_stream: typ.IO[str],
     stderr_stream: typ.IO[str],
+    *,
+    wait_timeout: float,
 ) -> list[str]:
     """Pump cargo output on Windows using background threads."""
     thread_exceptions: list[Exception] = []
     stdout_lines: list[str] = []
+    deadline = time.monotonic() + wait_timeout
 
     def pump(src: typ.IO[str], *, to_stdout: bool) -> None:
         dest = sys.stdout if to_stdout else sys.stderr
@@ -320,8 +323,15 @@ def _pump_cargo_output_windows(
             break
         if not any(t.is_alive() for t in threads):
             break
+        if proc.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
+            join_timeout = min(0.1, remaining)
+        else:
+            join_timeout = 0.0
         for thread in threads:
-            thread.join(timeout=0.1)
+            thread.join(timeout=join_timeout)
     timed_out = False
     for thread in threads:
         thread.join(timeout=5)
@@ -395,6 +405,7 @@ def _pump_cargo_output(
             proc,
             stdout_stream,
             stderr_stream,
+            wait_timeout=wait_timeout,
         )
 
     deadline = time.monotonic() + wait_timeout
@@ -549,8 +560,8 @@ def _run_cargo(
     """
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
-    proc = _spawn_cargo(cargo[args], env)
     wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
+    proc = _spawn_cargo(cargo[args], env)
     try:
         _assert_cargo_streams(proc)
         stdout_lines = _pump_cargo_output(proc, wait_timeout=wait_timeout)

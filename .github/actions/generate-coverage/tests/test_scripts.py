@@ -492,12 +492,17 @@ def test_get_cargo_coverage_env_detects_manifest_only_cranelift(
     assert run_rust_module.get_cargo_coverage_env(manifest_path) == _LLVM_CODEGEN_ENV
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _CucumberEnvScenario:
+    manifest_path: Path
+    extra_env: dict[str, str] | None
+
+
 def _run_cucumber_coverage_and_capture_env(
     run_rust_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    manifest_path: Path,
-    extra_env: dict[str, str] | None,
+    scenario: _CucumberEnvScenario,
 ) -> dict[str, str] | None:
     """Stub ``_run_cargo``, invoke ``run_cucumber_rs_coverage``, return captured env."""
     out = tmp_path / "coverage.lcov"
@@ -520,12 +525,12 @@ def _run_cucumber_coverage_and_capture_env(
         out,
         "lcov",
         "",
-        manifest_path=manifest_path,
+        manifest_path=scenario.manifest_path,
         with_default=True,
         use_nextest=False,
         cucumber_rs_features="cucumber",
         cucumber_rs_args="",
-        extra_env=extra_env,
+        extra_env=scenario.extra_env,
     )
     return captured_env
 
@@ -546,8 +551,10 @@ def test_run_cucumber_rs_coverage_passes_extra_env_for_cranelift(
         run_rust_module,
         monkeypatch,
         tmp_path,
-        manifest_path,
-        run_rust_module.get_cargo_coverage_env(manifest_path),
+        _CucumberEnvScenario(
+            manifest_path=manifest_path,
+            extra_env=run_rust_module.get_cargo_coverage_env(manifest_path),
+        ),
     )
     assert captured_env == _LLVM_CODEGEN_ENV
 
@@ -565,7 +572,10 @@ def test_run_cucumber_rs_coverage_passes_extra_env_for_non_cranelift(
     )
     extra_env = {"FOO": "BAR", "BAZ": "QUX"}
     captured_env = _run_cucumber_coverage_and_capture_env(
-        run_rust_module, monkeypatch, tmp_path, manifest_path, extra_env
+        run_rust_module,
+        monkeypatch,
+        tmp_path,
+        _CucumberEnvScenario(manifest_path=manifest_path, extra_env=extra_env),
     )
     assert captured_env == extra_env
 

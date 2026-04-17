@@ -18,12 +18,14 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import typing as typ
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+import _cargo_runner
 import typer
+from _cargo_runner import _run_cargo
+from _cranelift import _CARGO_COVERAGE_ENV_UNSETS, get_cargo_coverage_env
 from cmd_utils_loader import run_cmd
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
@@ -31,6 +33,7 @@ from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
 logger = logging.getLogger(__name__)
+_cargo_runner_run_cargo = _run_cargo
 
 try:  # runtime import for graceful fallback
     from lxml import etree
@@ -99,95 +102,50 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 global-timeout = "10m"
 """
 
-_CARGO_COVERAGE_ENV_UNSETS = (
-    "CARGO_PROFILE_DEV_CODEGEN_BACKEND",
-    "CARGO_PROFILE_TEST_CODEGEN_BACKEND",
-)
 
+def _run_cargo(
+    args: list[str],
+    *,
+    env_overrides: typ.Mapping[str, str] | None = None,
+    env_unsets: typ.Iterable[str] = (),
+) -> str:
+    """Run ``cargo`` with ``args`` streaming output and return ``stdout``.
 
-def _uses_cranelift_backend(manifest_path: Path) -> bool:
-    """Return ``True`` when the project configures the Cranelift codegen backend.
-
-    Searches from the manifest directory upward for ``.cargo/config.toml``
-    (or ``.cargo/config``) and checks whether any profile sets
-    ``codegen-backend = "cranelift"``.
-    """
-    search_dir = manifest_path.resolve().parent
-    while True:
-        for name in ("config.toml", "config"):
-            candidate = search_dir / ".cargo" / name
-            if candidate.is_file():
-                try:
-                    content = candidate.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-                if re.search(
-                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
-                    content,
-                    flags=re.MULTILINE,
-                ):
-                    return True
-        parent = search_dir.parent
-        if parent == search_dir:
-            break
-        search_dir = parent
-    return False
-
-
-def _is_profile_section(section: str) -> bool:
-    """Return ``True`` if *section* is a Cargo profile section name.
-
-    Matches both the bare ``[profile]`` table and dotted sub-tables such as
-    ``[profile.dev]`` and ``[profile.release]``.
-    """
-    return section == "profile" or section.startswith("profile.")
-
-
-def _manifest_uses_cranelift_backend(manifest_path: Path) -> bool:
-    """Return ``True`` when ``manifest_path`` configures Cranelift in profiles.
+    Builds a subprocess environment by copying ``os.environ``, removing every
+    key in ``env_unsets``, and — when ``env_overrides`` is not ``None`` —
+    merging its entries into that copy (overrides take precedence). The
+    resulting environment is passed to the spawned ``cargo`` process, whose
+    stdout and stderr are streamed to the current process.
 
     Parameters
     ----------
-    manifest_path : Path
-        Path to the ``Cargo.toml`` manifest to inspect.
+    args : list[str]
+        Arguments forwarded verbatim to ``cargo``.
+    env_overrides : Mapping[str, str] | None, optional
+        Extra or replacement environment variables. When ``None`` (the
+        default), the environment is inherited unchanged except for any
+        ``env_unsets`` removals.
+    env_unsets : Iterable[str], optional
+        Variable names to remove from the inherited environment before
+        ``env_overrides`` are applied. Missing keys are silently ignored.
+        Unsets are performed before overrides, so ``env_overrides`` can
+        unconditionally set a variable that may or may not have been
+        inherited.
 
     Returns
     -------
-    bool
-        ``True`` if any ``[profile.*]`` section sets
-        ``codegen-backend = "cranelift"``; ``False`` otherwise.
+    str
+        Captured stdout from the ``cargo`` invocation.
     """
-    try:
-        content = manifest_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return False
-    in_profile_section = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("#", "//")):
-            continue
-        section_match = re.match(r"^\s*\[(?P<section>[^\]]+)\]\s*(?:#.*)?$", line)
-        if section_match is not None:
-            in_profile_section = _is_profile_section(section_match["section"])
-            continue
-        if in_profile_section and re.match(
-            r"""^codegen-backend\s*=\s*["']cranelift["']""",
-            stripped,
-        ):
-            return True
-    return False
-
-
-def get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
-    """Return coverage-specific cargo env overrides for Cranelift projects."""
-    if not _uses_cranelift_backend(
-        manifest_path
-    ) and not _manifest_uses_cranelift_backend(manifest_path):
-        return {}
-    return {
-        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
-        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
-    }
+    _cargo_runner.cargo = cargo
+    _cargo_runner.selectors = selectors
+    _cargo_runner.threading = threading
+    _cargo_runner.time = time
+    return _cargo_runner_run_cargo(
+        args,
+        env_overrides=env_overrides,
+        env_unsets=env_unsets,
+    )
 
 
 def get_cargo_coverage_cmd(
@@ -264,365 +222,6 @@ def get_line_coverage_percent_from_cobertura(xml_file: Path) -> str:
         return "0.00"
 
     return _format_percent(covered, total)
-
-
-def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
-    """Close ``stream`` while suppressing any cleanup errors."""
-    if stream is None:
-        return
-    with contextlib.suppress(Exception):
-        stream.close()
-
-
-def _is_debug_pump_enabled() -> bool:
-    """Return ``True`` if cargo pump-thread debug logging is requested."""
-    return os.environ.get("RUN_RUST_DEBUG") == "1" or bool(os.environ.get("DEBUG_UTF8"))
-
-
-def _pump_stream_thread(
-    src: typ.IO[str],
-    *,
-    to_stdout: bool,
-    stdout_lines: list[str],
-    thread_exceptions: list[Exception],
-) -> None:
-    """Read lines from *src*, echo them, and capture stdout lines.
-
-    Thread exceptions are appended to *thread_exceptions* rather than
-    propagated so that the monitoring loop can handle them.
-    """
-    dest = sys.stdout if to_stdout else sys.stderr
-    try:
-        for line in iter(src.readline, ""):
-            dest.write(line)
-            dest.flush()
-            if to_stdout:
-                stdout_lines.append(line.rstrip("\r\n"))
-    except Exception as exc:  # noqa: BLE001
-        thread_exceptions.append(exc)
-        if _is_debug_pump_enabled():
-            sys.stderr.write(f"Exception in pump thread: {exc}\n")
-            sys.stderr.write(traceback.format_exc())
-
-
-def _poll_pump_loop_iteration(
-    threads: list[threading.Thread],
-    proc: subprocess.Popen[str],
-    deadline: float,
-    wait_timeout: float,
-    thread_exceptions: list[Exception],
-) -> bool:
-    """Perform one monitoring iteration; return ``True`` when pumping is done."""
-    if thread_exceptions:
-        with contextlib.suppress(Exception):
-            proc.kill()
-        return True
-    if not any(t.is_alive() for t in threads):
-        return True
-    if proc.poll() is None:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-        join_timeout = min(0.1, remaining)
-    else:
-        join_timeout = 0.0
-    for thread in threads:
-        thread.join(timeout=join_timeout)
-    return False
-
-
-def _finalise_pump_threads(
-    threads: list[threading.Thread],
-    proc: subprocess.Popen[str],
-    thread_exceptions: list[Exception],
-) -> None:
-    """Join threads, kill on timeout, and re-raise any captured thread exception."""
-    timed_out = False
-    for thread in threads:
-        thread.join(timeout=5)
-        if thread.is_alive():
-            timed_out = True
-    if timed_out:
-        with contextlib.suppress(Exception):
-            proc.kill()
-        thread_exceptions.append(
-            TimeoutError("cargo output pump threads did not terminate in time")
-        )
-    if thread_exceptions:
-        with contextlib.suppress(Exception):
-            proc.wait(timeout=5)
-        raise thread_exceptions[0]
-
-
-def _pump_cargo_output_windows(
-    proc: subprocess.Popen[str],
-    stdout_stream: typ.IO[str],
-    stderr_stream: typ.IO[str],
-    *,
-    wait_timeout: float,
-) -> list[str]:
-    """Pump cargo output on Windows using background threads."""
-    thread_exceptions: list[Exception] = []
-    stdout_lines: list[str] = []
-    deadline = time.monotonic() + wait_timeout
-
-    threads = [
-        threading.Thread(
-            name="cargo-stdout",
-            target=_pump_stream_thread,
-            args=(stdout_stream,),
-            kwargs={
-                "to_stdout": True,
-                "stdout_lines": stdout_lines,
-                "thread_exceptions": thread_exceptions,
-            },
-        ),
-        threading.Thread(
-            name="cargo-stderr",
-            target=_pump_stream_thread,
-            args=(stderr_stream,),
-            kwargs={
-                "to_stdout": False,
-                "stdout_lines": stdout_lines,
-                "thread_exceptions": thread_exceptions,
-            },
-        ),
-    ]
-    for thread in threads:
-        thread.start()
-    while not _poll_pump_loop_iteration(
-        threads, proc, deadline, wait_timeout, thread_exceptions
-    ):
-        pass
-    _finalise_pump_threads(threads, proc, thread_exceptions)
-    return stdout_lines
-
-
-def _handle_cargo_output_event(
-    key: selectors.SelectorKey,
-    stdout_lines: list[str],
-    sel: selectors.DefaultSelector,
-) -> None:
-    """Process one selector event from a cargo output stream.
-
-    Unregisters the stream when EOF is reached; otherwise echoes the line
-    and, for stdout, appends it to *stdout_lines*.
-    """
-    stream = typ.cast("typ.TextIO", key.fileobj)
-    line = stream.readline()
-    if not line:
-        sel.unregister(stream)
-        return
-    if key.data == "stdout":
-        typer.echo(line, nl=False)
-        stdout_lines.append(line.rstrip("\r\n"))
-    else:
-        typer.echo(line, err=True, nl=False)
-
-
-def _kill_cargo_process(proc: subprocess.Popen[str]) -> None:
-    """Kill *proc* and wait for termination, suppressing any errors."""
-    with contextlib.suppress(Exception):
-        proc.kill()
-    with contextlib.suppress(Exception):
-        proc.wait(timeout=5)
-
-
-def _pump_cargo_output(
-    proc: subprocess.Popen[str],
-    *,
-    wait_timeout: float,
-) -> list[str]:
-    """Pump ``proc`` output streams to console and collect stdout lines."""
-    if proc.stdout is None or proc.stderr is None:  # pragma: no cover - defensive
-        message = (
-            "cargo output streams must be captured.\n"
-            f"proc.stdout: {proc.stdout}\n"
-            f"proc.stderr: {proc.stderr}\n"
-            f"proc.args: {getattr(proc, 'args', None)}"
-        )
-        raise RuntimeError(message)
-
-    stdout_stream = proc.stdout
-    stderr_stream = proc.stderr
-    stdout_lines: list[str] = []
-
-    if os.name == "nt":
-        return _pump_cargo_output_windows(
-            proc,
-            stdout_stream,
-            stderr_stream,
-            wait_timeout=wait_timeout,
-        )
-
-    deadline = time.monotonic() + wait_timeout
-    sel = selectors.DefaultSelector()
-    try:
-        sel.register(stdout_stream, selectors.EVENT_READ, data="stdout")
-        sel.register(stderr_stream, selectors.EVENT_READ, data="stderr")
-
-        while sel.get_map():
-            if proc.poll() is None and time.monotonic() >= deadline:
-                _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-
-            timeout = max(0.0, deadline - time.monotonic())
-            for key, _ in sel.select(timeout):
-                _handle_cargo_output_event(key, stdout_lines, sel)
-    except Exception:
-        _kill_cargo_process(proc)
-        raise
-    finally:
-        sel.close()
-
-    return stdout_lines
-
-
-def _build_cargo_env(
-    env_overrides: typ.Mapping[str, str] | None,
-    env_unsets: typ.Iterable[str],
-) -> dict[str, str]:
-    """Return the environment dict for a spawned cargo process.
-
-    Starts from a copy of ``os.environ``, removes every key in
-    ``env_unsets``, then merges ``env_overrides`` (if provided).
-    """
-    env = dict(os.environ)
-    for key in env_unsets:
-        env.pop(key, None)
-    if env_overrides is not None:
-        env.update(env_overrides)
-    return env
-
-
-def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
-    """Raise ``typer.Exit(1)`` if stdout or stderr were not captured.
-
-    Kills and cleans up the process before raising so no resources leak.
-    """
-    if proc.stdout is not None and proc.stderr is not None:
-        return
-    missing_streams = []
-    if proc.stdout is None:
-        missing_streams.append("stdout")
-    if proc.stderr is None:
-        missing_streams.append("stderr")
-    missing = ", ".join(missing_streams)
-    message = f"cargo output streams not captured: missing {missing}"
-    with contextlib.suppress(Exception):
-        proc.kill()
-    with contextlib.suppress(Exception):
-        proc.wait(timeout=5)
-    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stdout))
-    _safe_close_text_stream(typ.cast("typ.TextIO | None", proc.stderr))
-    typer.echo(f"::error::{message}", err=True)
-    raise typer.Exit(1) from None
-
-
-def _raise_cargo_timeout(
-    proc: subprocess.Popen[str], *, wait_timeout: float
-) -> typ.Never:
-    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout."""
-    typer.echo(
-        f"::error::cargo did not exit within {wait_timeout}s; killing",
-        err=True,
-    )
-    with contextlib.suppress(Exception):
-        proc.kill()
-    with contextlib.suppress(Exception):
-        proc.wait(timeout=5)
-    raise typer.Exit(1) from None
-
-
-def _wait_for_cargo(proc: subprocess.Popen[str], *, wait_timeout: float) -> int:
-    """Wait for cargo to exit and return its return code.
-
-    Kills the process and raises ``typer.Exit(1)`` if it does not exit
-    within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
-    """
-    try:
-        return proc.wait(timeout=wait_timeout)
-    except subprocess.TimeoutExpired:
-        _raise_cargo_timeout(proc, wait_timeout=wait_timeout)
-
-
-def _spawn_cargo(
-    command: typ.Any,  # noqa: ANN401
-    env: dict[str, str],
-) -> subprocess.Popen[str]:
-    """Spawn a ``cargo`` subprocess with the given environment.
-
-    Handles both direct ``popen`` invocation and plumbum machine-env
-    contexts transparently.
-    """
-    popen_kwargs: dict[str, typ.Any] = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-    }
-    machine_env = getattr(getattr(cargo, "machine", None), "env", None)
-    if machine_env is None:
-        return command.popen(**popen_kwargs, env=env)
-    with machine_env():
-        machine_env.clear()
-        machine_env.update(env)
-        return command.popen(**popen_kwargs)
-
-
-def _run_cargo(
-    args: list[str],
-    *,
-    env_overrides: typ.Mapping[str, str] | None = None,
-    env_unsets: typ.Iterable[str] = (),
-) -> str:
-    """Run ``cargo`` with ``args`` streaming output and return ``stdout``.
-
-    Builds a subprocess environment by copying ``os.environ``, removing every
-    key in ``env_unsets``, and — when ``env_overrides`` is not ``None`` —
-    merging its entries into that copy (overrides take precedence). The
-    resulting environment is passed to the spawned ``cargo`` process, whose
-    stdout and stderr are streamed to the current process.
-
-    Parameters
-    ----------
-    args : list[str]
-        Arguments forwarded verbatim to ``cargo``.
-    env_overrides : Mapping[str, str] | None, optional
-        Extra or replacement environment variables. When ``None`` (the
-        default), the environment is inherited unchanged except for any
-        ``env_unsets`` removals.
-    env_unsets : Iterable[str], optional
-        Variable names to remove from the inherited environment before
-        ``env_overrides`` are applied. Missing keys are silently ignored.
-        Unsets are performed before overrides, so ``env_overrides`` can
-        unconditionally set a variable that may or may not have been
-        inherited.
-
-    Returns
-    -------
-    str
-        Captured stdout from the ``cargo`` invocation.
-    """
-    typer.echo(f"$ cargo {shlex.join(args)}")
-    env = _build_cargo_env(env_overrides, env_unsets)
-    wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-    proc = _spawn_cargo(cargo[args], env)
-    try:
-        _assert_cargo_streams(proc)
-        stdout_lines = _pump_cargo_output(proc, wait_timeout=wait_timeout)
-        retcode = _wait_for_cargo(proc, wait_timeout=wait_timeout)
-        if retcode != 0:
-            typer.echo(
-                f"cargo {shlex.join(args)} failed with code {retcode}",
-                err=True,
-            )
-            raise typer.Exit(code=retcode or 1)
-        return "\n".join(stdout_lines)
-    finally:
-        _safe_close_text_stream(proc.stdout)
-        _safe_close_text_stream(proc.stderr)
 
 
 def _merge_lcov(base: Path, extra: Path) -> None:

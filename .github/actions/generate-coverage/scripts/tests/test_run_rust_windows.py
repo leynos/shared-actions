@@ -11,20 +11,22 @@ from types import ModuleType
 import pytest
 from syspath_hack import prepend_to_syspath
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "run_rust.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "_cargo_runner.py"
 SCRIPT_DIR = MODULE_PATH.parent
 prepend_to_syspath(SCRIPT_DIR)
 
-spec = importlib.util.spec_from_file_location("run_rust_module", MODULE_PATH)
+spec = importlib.util.spec_from_file_location("cargo_runner_module", MODULE_PATH)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard
-    load_error_message = "Unable to load run_rust module for testing"
+    load_error_message = "Unable to load _cargo_runner module for testing"
     raise RuntimeError(load_error_message)
-run_rust_module = importlib.util.module_from_spec(spec)
-if not isinstance(run_rust_module, ModuleType):  # pragma: no cover - importlib contract
+cargo_runner_module = importlib.util.module_from_spec(spec)
+if not isinstance(
+    cargo_runner_module, ModuleType
+):  # pragma: no cover - importlib contract
     type_error_message = "module_from_spec did not return a ModuleType"
     raise TypeError(type_error_message)
-spec.loader.exec_module(run_rust_module)
-run_rust = run_rust_module
+spec.loader.exec_module(cargo_runner_module)
+run_rust = cargo_runner_module
 
 
 class _SupportsKillWait(typ.Protocol):

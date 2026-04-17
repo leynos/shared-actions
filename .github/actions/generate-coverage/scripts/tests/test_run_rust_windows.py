@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import sys
+import time
 import typing as typ
 from pathlib import Path
 from types import ModuleType
@@ -11,20 +13,23 @@ from types import ModuleType
 import pytest
 from syspath_hack import prepend_to_syspath
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "run_rust.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "_cargo_runner.py"
 SCRIPT_DIR = MODULE_PATH.parent
 prepend_to_syspath(SCRIPT_DIR)
 
-spec = importlib.util.spec_from_file_location("run_rust_module", MODULE_PATH)
+spec = importlib.util.spec_from_file_location("cargo_runner_module", MODULE_PATH)
 if spec is None or spec.loader is None:  # pragma: no cover - defensive import guard
-    load_error_message = "Unable to load run_rust module for testing"
+    load_error_message = "Unable to load _cargo_runner module for testing"
     raise RuntimeError(load_error_message)
-run_rust_module = importlib.util.module_from_spec(spec)
-if not isinstance(run_rust_module, ModuleType):  # pragma: no cover - importlib contract
+cargo_runner_module = importlib.util.module_from_spec(spec)
+if not isinstance(
+    cargo_runner_module, ModuleType
+):  # pragma: no cover - importlib contract
     type_error_message = "module_from_spec did not return a ModuleType"
     raise TypeError(type_error_message)
-spec.loader.exec_module(run_rust_module)
-run_rust = run_rust_module
+sys.modules[spec.name] = cargo_runner_module
+spec.loader.exec_module(cargo_runner_module)
+run_rust = cargo_runner_module
 
 
 class _SupportsKillWait(typ.Protocol):
@@ -42,9 +47,9 @@ class _RunRustModule(typ.Protocol):
 
     def _pump_cargo_output_windows(
         self,
-        proc: _SupportsKillWait,
         stdout_stream: typ.IO[str],
         stderr_stream: typ.IO[str],
+        ctx: object,
     ) -> list[str]:
         """Mirror of the helper under test."""
 
@@ -56,6 +61,9 @@ class _DummyProc:
     def __init__(self) -> None:
         self.killed = False
         self.wait_timeouts: list[float | None] = []
+
+    def poll(self) -> None:
+        return None
 
     def kill(self) -> None:  # pragma: no cover - exercised only on failure
         self.killed = True
@@ -92,11 +100,10 @@ def test_pump_cargo_output_windows_streams(
     stdout_stream = io.StringIO(stdout_payload)
     stderr_stream = io.StringIO(stderr_payload)
 
-    lines = run_rust_typed._pump_cargo_output_windows(
-        dummy_proc,
-        stdout_stream,
-        stderr_stream,
+    ctx = run_rust._CargoProcCtx(
+        proc=dummy_proc, deadline=time.monotonic() + 1.0, wait_timeout=1.0
     )
+    lines = run_rust_typed._pump_cargo_output_windows(stdout_stream, stderr_stream, ctx)
 
     assert lines == expected
     assert captured_stdout.getvalue() == stdout_payload

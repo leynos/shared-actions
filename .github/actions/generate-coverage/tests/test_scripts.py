@@ -9,7 +9,6 @@ import importlib.util
 import io
 import itertools
 import os
-import shutil
 import sys
 import typing as typ
 from pathlib import Path
@@ -18,7 +17,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
-from test_support.cmd_mox_stub_adapter import DefaultResponse
+from test_support.cmd_mox_stub_adapter import Call, DefaultResponse
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
@@ -28,12 +27,6 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from test_support.cmd_mox_stub_adapter import StubManager
 else:
     RunResult = import_cmd_utils().RunResult
-
-
-_LLVM_CODEGEN_ENV = {
-    "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
-    "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
-}
 
 
 def _exit_code(exc: BaseException) -> int | None:
@@ -103,7 +96,10 @@ def _make_fake_cargo(
     """Return a fake ``cargo`` object yielding the given streams."""
 
     class FakeProc:
+        """Minimal subprocess test double for cargo invocations."""
+
         def __init__(self) -> None:
+            """Initialise the stub with the configured streams."""
             self.stdout = (
                 stdout
                 if hasattr(stdout, "readline")
@@ -121,24 +117,51 @@ def _make_fake_cargo(
             self.killed = False
             self.waited = False
 
+        def poll(self) -> None:
+            """Report that the process is still running."""
+
         def kill(self) -> None:
+            """Record that the process was killed when lifecycle tracking is enabled."""
             if track_lifecycle:
                 self.killed = True
 
-        def wait(self, timeout: float | None = None) -> int:
+        def wait(
+            self,
+            _timeout: float | None = None,
+            **_kwargs: float | None,
+        ) -> int:
+            """Return the configured return code immediately."""
             if track_lifecycle:
                 self.waited = True
             return returncode
 
     class FakeCargo:
+        """Minimal cargo command stub with plumbum-like behaviour."""
+
         def __init__(self) -> None:
+            """Initialise call-tracking state for the fake cargo command."""
             self.last_proc: FakeProc | None = None
+            self.last_popen_kwargs: dict[str, object] | None = None
+            self.bound_env: dict[str, str] | None = None
+
+        def with_env(self, **env: str) -> FakeCargo:
+            """Bind environment overrides and return the fake command."""
+            self.bound_env = dict(env)
+            return self
 
         def __getitem__(self, _args: list[str]) -> object:
+            """Return a runner object for the given cargo arguments."""
             cargo = self
 
             class Runner:
+                """Minimal runner object exposing ``popen``."""
+
                 def popen(self, **_kw: object) -> FakeProc:
+                    """Spawn and return the configured fake process."""
+                    kwargs = dict(_kw)
+                    if cargo.bound_env is not None:
+                        kwargs["env"] = dict(cargo.bound_env)
+                    cargo.last_popen_kwargs = kwargs
                     proc = FakeProc()
                     cargo.last_proc = proc
                     return proc
@@ -146,6 +169,58 @@ def _make_fake_cargo(
             return Runner()
 
     return FakeCargo()
+
+
+class _WindowsPumpTimeoutFakeThread:
+    """Thread stub that stays alive for a fixed number of joins."""
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        target: typ.Callable[..., object],
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> None:
+        """Initialise the thread stub with ignored thread metadata."""
+        _ = (name, target, args, kwargs)
+        self.join_calls = 0
+
+    def start(self) -> None:
+        """Pretend to start the thread."""
+
+    def is_alive(self) -> bool:
+        """Report liveness until enough joins have occurred."""
+        return self.join_calls < 2
+
+    def join(self, timeout: float | None = None) -> None:
+        """Record a join call without blocking."""
+        _ = timeout
+        self.join_calls += 1
+
+
+class _WindowsPumpTimeoutFakeRunner:
+    """Runner stub that returns the fake Windows process."""
+
+    def __init__(self, proc: _WindowsPumpFakeProc) -> None:
+        """Initialise the runner with the fake process to return."""
+        self._proc = proc
+
+    def popen(self, **_kw: object) -> _WindowsPumpFakeProc:
+        """Return the pre-created fake process."""
+        return self._proc
+
+
+class _WindowsPumpTimeoutFakeCargoCommand:
+    """Cargo command stub that yields the fake Windows runner."""
+
+    def __init__(self, proc: _WindowsPumpFakeProc) -> None:
+        """Initialise the cargo command with the fake process."""
+        self._proc = proc
+
+    def __getitem__(self, _args: list[str]) -> _WindowsPumpTimeoutFakeRunner:
+        """Return a runner for the requested cargo arguments."""
+        return _WindowsPumpTimeoutFakeRunner(self._proc)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -171,8 +246,8 @@ def _run_rust_coverage_test(
     shell_stubs: StubManager,
     config: RustCoverageConfig,
     *,
-    monkeypatch: pytest.MonkeyPatch | None = None,
-) -> tuple[list[str], dict[str, str], Path, Path]:
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[str], Path, Path]:
     """Run ``run_rust.py`` with shared setup and return cargo argv + paths."""
     out = tmp_path / "cov.lcov"
     gh = tmp_path / "gh.txt"
@@ -197,8 +272,7 @@ def _run_rust_coverage_test(
         "GITHUB_OUTPUT": str(gh),
     }
 
-    if monkeypatch is not None:
-        monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_rust.py"
     returncode, stdout, _ = run_script(script, env)
@@ -208,12 +282,36 @@ def _run_rust_coverage_test(
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 1
 
-    return calls[0].argv, calls[0].env, out, gh
+    return calls[0].argv, out, gh
 
 
-def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
+def _run_rust_coverage_call(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    config: RustCoverageConfig,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Call, Path, Path]:
+    """Run ``run_rust.py`` and return the recorded cargo call + output paths."""
+    _cargo_args, out, gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        config,
+        monkeypatch=monkeypatch,
+    )
+    calls = shell_stubs.calls_of("cargo")
+    return calls[0], out, gh
+
+
+def test_run_rust_success(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Happy path for ``run_rust.py``."""
-    cargo_args, cargo_env, out, gh = _run_rust_coverage_test(
+    monkeypatch.setenv("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
+    monkeypatch.setenv("CARGO_PROFILE_TEST_CODEGEN_BACKEND", "cranelift")
+    cargo_call, out, gh = _run_rust_coverage_call(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(
@@ -221,7 +319,9 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
             features="fast",
             with_default_features=False,
         ),
+        monkeypatch=monkeypatch,
     )
+    cargo_args = cargo_call.argv
     expected_args = [
         "llvm-cov",
         "--manifest-path",
@@ -236,8 +336,8 @@ def test_run_rust_success(tmp_path: Path, shell_stubs: StubManager) -> None:
         str(out),
     ]
     assert cargo_args == expected_args
-    assert cargo_env.get("CARGO_PROFILE_DEV_CODEGEN_BACKEND") is None
-    assert cargo_env.get("CARGO_PROFILE_TEST_CODEGEN_BACKEND") is None
+    assert "CARGO_PROFILE_DEV_CODEGEN_BACKEND" not in cargo_call.env
+    assert "CARGO_PROFILE_TEST_CODEGEN_BACKEND" not in cargo_call.env
 
     data = gh.read_text().splitlines()
     assert f"file={out}" in data
@@ -250,7 +350,7 @@ def test_run_rust_nextest_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``run_rust.py`` uses cargo llvm-cov nextest when enabled."""
-    cargo_args, _cargo_env, out, _gh = _run_rust_coverage_test(
+    cargo_args, out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=True),
@@ -272,13 +372,16 @@ def test_run_rust_nextest_command(
 
 
 def test_run_rust_uses_detected_manifest_path(
-    tmp_path: Path, shell_stubs: StubManager
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Detected manifest path is propagated to cargo llvm-cov."""
-    cargo_args, _cargo_env, _out, _gh = _run_rust_coverage_test(
+    cargo_args, _out, _gh = _run_rust_coverage_test(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=False, manifest_path="rust-toy-app/Cargo.toml"),
+        monkeypatch=monkeypatch,
     )
     assert "llvm-cov" in cargo_args
     mp_idx = cargo_args.index("--manifest-path")
@@ -354,13 +457,17 @@ def _run_rust_main_variant(
     output = tmp_path / "cov.lcov"
     output.write_text("LF:10\nLH:10\n")
     github_output = tmp_path / "gh.txt"
-    recorded_args: list[str] = []
+    recorded: dict[str, object] = {}
 
     def fake_run_cargo(
-        args: list[str], *, extra_env: dict[str, str] | None = None
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
     ) -> str:
-        recorded_args[:] = args
-        _ = extra_env
+        recorded["args"] = args
+        recorded["env_overrides"] = dict(env_overrides or {})
+        recorded["env_unsets"] = tuple(env_unsets)
         return "Coverage: 100%"
 
     monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
@@ -379,7 +486,7 @@ def _run_rust_main_variant(
         with_cucumber_rs=False,
         baseline_file=None,
     )
-    return recorded_args, github_output, output
+    return typ.cast("list[str]", recorded["args"]), github_output, output
 
 
 @pytest.mark.parametrize("use_nextest", [True, False])
@@ -412,172 +519,125 @@ def test_run_rust_main_nextest_variants(
         assert "Cargo.toml" in args
 
 
-def test_run_rust_cranelift_project_uses_llvm_codegen(
+def test_run_rust_cranelift_project_uses_llvm_codegen_env(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Coverage uses environment overrides for Cranelift-configured projects."""
-    fixture_dir = (
-        Path(__file__).resolve().parent / "fixtures" / "nightly-cranelift-project"
-    )
-    shutil.copytree(fixture_dir, tmp_path, dirs_exist_ok=True)
+    """Coverage exports LLVM env overrides for Cranelift-configured repos.
 
-    cargo_args, cargo_env, _out, _gh = _run_rust_coverage_test(
+    When a Rust project uses the Cranelift codegen backend (configured in
+    .cargo/config.toml), the coverage action must still invoke cargo with
+    environment overrides that force nested cargo invocations spawned by
+    cargo-llvm-cov back onto LLVM, because source-based code coverage
+    (-C instrument-coverage) is an LLVM-only feature.
+
+    In a real-world scenario, the Cranelift component would be installed via
+    ``rustup component add rustc-codegen-cranelift-preview``.
+    """
+    # Simulate a Cranelift-configured project
+    cargo_config_dir = tmp_path / ".cargo"
+    cargo_config_dir.mkdir()
+    (cargo_config_dir / "config.toml").write_text(
+        "[unstable]\ncodegen-backend = true\n\n"
+        '[profile.dev]\ncodegen-backend = "cranelift"\n\n'
+        '[profile.test]\ncodegen-backend = "cranelift"\n',
+    )
+
+    cargo_call, _out, _gh = _run_rust_coverage_call(
         tmp_path,
         shell_stubs,
         RustCoverageConfig(use_nextest=True),
         monkeypatch=monkeypatch,
     )
 
-    assert cargo_args[:2] == ["llvm-cov", "nextest"]
-    assert "--config" not in cargo_args
-    for key, value in _LLVM_CODEGEN_ENV.items():
-        assert cargo_env[key] == value
+    assert cargo_call.argv[:2] == ["llvm-cov", "nextest"]
+    assert "--config" not in cargo_call.argv
+    assert cargo_call.env["CARGO_PROFILE_DEV_CODEGEN_BACKEND"] == "llvm"
+    assert cargo_call.env["CARGO_PROFILE_TEST_CODEGEN_BACKEND"] == "llvm"
 
 
-def test_get_cargo_coverage_env_detects_cranelift_fixture(
-    run_rust_module: ModuleType,
+def test_get_cargo_coverage_env_cranelift_variants(
+    tmp_path: Path, run_rust_module: ModuleType
 ) -> None:
-    """Cranelift fixtures resolve to cargo environment overrides."""
-    fixture_dir = (
-        Path(__file__).resolve().parent / "fixtures" / "nightly-cranelift-project"
-    )
-    env = run_rust_module.get_cargo_coverage_env(fixture_dir / "Cargo.toml")
-    assert env == _LLVM_CODEGEN_ENV
-
-
-def test_uses_cranelift_backend_detects_manifest_fixture(
-    run_rust_module: ModuleType,
-) -> None:
-    """Cargo.toml profile settings alone trigger Cranelift detection."""
-    fixture_dir = (
-        Path(__file__).resolve().parent / "fixtures" / "cargo-toml-cranelift-project"
-    )
-    assert run_rust_module._uses_cranelift_backend(fixture_dir / "Cargo.toml") is True
-
-
-def test_get_cargo_coverage_env_non_cranelift_is_empty(
-    run_rust_module: ModuleType, tmp_path: Path
-) -> None:
-    """Non-Cranelift projects do not receive extra cargo env overrides."""
+    """Config or manifest Cranelift settings get overrides; LLVM repos do not."""
+    cargo_config_dir = tmp_path / ".cargo"
+    cargo_config_dir.mkdir()
+    cargo_config = cargo_config_dir / "config.toml"
     manifest_path = tmp_path / "Cargo.toml"
-    manifest_path.write_text("[package]\nname='demo'\nversion='0.1.0'\n")
+    manifest_path.write_text("[package]\nname = 'demo'\nversion = '0.1.0'\n")
+
+    cargo_config.write_text(
+        "[profile.dev]\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    cargo_config.write_text(
+        "[profile.dev]\ncodegen-backend = 'llvm'\n", encoding="utf-8"
+    )
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        '[profile.dev]\ncodegen-backend = "cranelift"\n',
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        "[profile.test]\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        "[profile.dev] # comment\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    assert run_rust_module.get_cargo_coverage_env(manifest_path) == {
+        "CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm",
+        "CARGO_PROFILE_TEST_CODEGEN_BACKEND": "llvm",
+    }
+
+    manifest_path.write_text(
+        "[package]\nname = 'demo'\nversion = '0.1.0'\n\n"
+        "[profile.dev]\ncodegen-backend = 'llvm'\n",
+        encoding="utf-8",
+    )
     assert run_rust_module.get_cargo_coverage_env(manifest_path) == {}
 
 
-@pytest.mark.parametrize("profile_name", ["dev", "test"])
-def test_get_cargo_coverage_env_detects_manifest_only_cranelift(
-    run_rust_module: ModuleType,
-    tmp_path: Path,
-    profile_name: str,
+def test_get_cargo_coverage_env_workspace_member_manifest_cranelift(
+    tmp_path: Path, run_rust_module: ModuleType
 ) -> None:
-    """Manifest profile settings alone trigger LLVM codegen env overrides."""
-    manifest_path = tmp_path / "Cargo.toml"
-    manifest_path.write_text(
-        "\n".join(
-            [
-                "[package]",
-                "name='demo'",
-                "version='0.1.0'",
-                f"[profile.{profile_name}]",
-                'codegen-backend = "  Cranelift  "',
-                "",
-            ]
-        ),
+    """Workspace-root profile-only Cranelift is not detected for members."""
+    workspace_manifest = tmp_path / "Cargo.toml"
+    workspace_manifest.write_text(
+        '[workspace]\nmembers = ["crates/foo"]\n\n'
+        "[profile.dev]\ncodegen-backend = 'cranelift'\n",
+        encoding="utf-8",
+    )
+    member_dir = tmp_path / "crates" / "foo"
+    member_dir.mkdir(parents=True)
+    member_manifest = member_dir / "Cargo.toml"
+    member_manifest.write_text(
+        '[package]\nname = "foo"\nversion = "0.1.0"\n',
         encoding="utf-8",
     )
 
-    assert run_rust_module._uses_cranelift_backend(manifest_path) is True
-    assert run_rust_module.get_cargo_coverage_env(manifest_path) == _LLVM_CODEGEN_ENV
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class _CucumberEnvScenario:
-    manifest_path: Path
-    extra_env: dict[str, str] | None
-
-
-def _run_cucumber_coverage_and_capture_env(
-    run_rust_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    scenario: _CucumberEnvScenario,
-) -> dict[str, str] | None:
-    """Stub ``_run_cargo``, invoke ``run_cucumber_rs_coverage``, return captured env."""
-    out = tmp_path / "coverage.lcov"
-    out.write_text("TN:\nend_of_record\n", encoding="utf-8")
-    captured_env: dict[str, str] | None = None
-
-    def fake_run_cargo(
-        _args: list[str], *, extra_env: dict[str, str] | None = None
-    ) -> str:
-        nonlocal captured_env
-        captured_env = extra_env
-        out.with_name(f"{out.stem}.cucumber{out.suffix}").write_text(
-            "TN:\nend_of_record\n",
-            encoding="utf-8",
-        )
-        return ""
-
-    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
-    run_rust_module.run_cucumber_rs_coverage(
-        out,
-        "lcov",
-        "",
-        manifest_path=scenario.manifest_path,
-        with_default=True,
-        use_nextest=False,
-        cucumber_rs_features="cucumber",
-        cucumber_rs_args="",
-        extra_env=scenario.extra_env,
-    )
-    return captured_env
-
-
-def test_run_cucumber_rs_coverage_passes_extra_env_for_cranelift(
-    run_rust_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """cucumber.rs coverage forwards Cranelift env overrides to ``_run_cargo``."""
-    manifest_path = (
-        Path(__file__).resolve().parent
-        / "fixtures"
-        / "nightly-cranelift-project"
-        / "Cargo.toml"
-    )
-    captured_env = _run_cucumber_coverage_and_capture_env(
-        run_rust_module,
-        monkeypatch,
-        tmp_path,
-        _CucumberEnvScenario(
-            manifest_path=manifest_path,
-            extra_env=run_rust_module.get_cargo_coverage_env(manifest_path),
-        ),
-    )
-    assert captured_env == _LLVM_CODEGEN_ENV
-
-
-def test_run_cucumber_rs_coverage_passes_extra_env_for_non_cranelift(
-    run_rust_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """cucumber.rs coverage forwards explicit non-Cranelift env unchanged."""
-    manifest_path = tmp_path / "Cargo.toml"
-    manifest_path.write_text(
-        "[package]\nname='demo'\nversion='0.1.0'\n",
-        encoding="utf-8",
-    )
-    extra_env = {"FOO": "BAR", "BAZ": "QUX"}
-    captured_env = _run_cucumber_coverage_and_capture_env(
-        run_rust_module,
-        monkeypatch,
-        tmp_path,
-        _CucumberEnvScenario(manifest_path=manifest_path, extra_env=extra_env),
-    )
-    assert captured_env == extra_env
+    # This is a documented limitation for now: manifest scanning only inspects
+    # the selected member manifest, not workspace-root profile sections.
+    assert run_rust_module.get_cargo_coverage_env(member_manifest) == {}
 
 
 def test_nextest_config_is_temporary(
@@ -684,14 +744,18 @@ def test_run_cargo_windows_closes_streams(
     """``_run_cargo`` closes captured streams on success."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class TrackingStream(io.StringIO):
+        """String stream that counts close calls."""
+
         def __init__(self, value: str) -> None:
+            """Initialise the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
         def close(self) -> None:
+            """Close the stream and record the close call."""
             self.close_calls += 1
             super().close()
 
@@ -709,6 +773,242 @@ def test_run_cargo_windows_closes_streams(
     assert stderr.close_calls >= 1
 
 
+def test_run_cargo_passes_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` merges env overrides into the spawned cargo process."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", lambda *_a, **_k: None)
+    monkeypatch.setenv("RUN_RUST_INHERITED", "present")
+    monkeypatch.setenv("CARGO_PROFILE_DEV_CODEGEN_BACKEND", "cranelift")
+
+    fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    result = mod._run_cargo(
+        ["llvm-cov"],
+        env_unsets=("CARGO_PROFILE_DEV_CODEGEN_BACKEND",),
+        env_overrides={"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"},
+    )
+
+    assert result == "out-line"
+    assert fake_cargo.last_popen_kwargs is not None
+    env = typ.cast("dict[str, str]", fake_cargo.last_popen_kwargs["env"])
+    assert env["RUN_RUST_INHERITED"] == "present"
+    assert env["CARGO_PROFILE_DEV_CODEGEN_BACKEND"] == "llvm"
+
+
+def test_run_cargo_unix_pump_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` aborts when the pump loop outlives the wait timeout."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "posix")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
+
+    class FakeSelector:
+        """Selector stub that never yields readable events."""
+
+        def __init__(self) -> None:
+            """Initialise the selector with a non-empty registration map."""
+            self._map = {"stdout": object()}
+
+        def register(self, fileobj: object, event: object, data: str) -> None:
+            """Accept a selector registration without storing it."""
+            _ = (fileobj, event, data)
+
+        def get_map(self) -> dict[str, object]:
+            """Return the current selector registration map."""
+            return self._map
+
+        def select(self, timeout: float | None = None) -> list[tuple[object, object]]:
+            """Return no ready events for the given timeout."""
+            _ = timeout
+            return []
+
+        def close(self) -> None:
+            """Close the selector stub."""
+
+    class FakeProc:
+        """Minimal subprocess test double for timeout handling."""
+
+        def __init__(self) -> None:
+            """Initialise the stub with empty captured streams."""
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            self.killed = False
+            self.waited = False
+
+        def poll(self) -> None:
+            """Report that the process is still running."""
+
+        def kill(self) -> None:
+            """Record that the process was killed."""
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            """Record the wait and return success."""
+            _ = timeout
+            self.waited = True
+            return 0
+
+    fake_proc = FakeProc()
+
+    class FakeRunner:
+        """Runner stub that always returns the fake process."""
+
+        def popen(self, **_kw: object) -> FakeProc:
+            """Return the pre-created fake process."""
+            return fake_proc
+
+    class FakeCargoCommand:
+        """Cargo command stub that returns the fake runner."""
+
+        def __getitem__(self, _args: list[str]) -> FakeRunner:
+            """Return a runner for the requested cargo arguments."""
+            return FakeRunner()
+
+    monkeypatch.setattr(mod, "cargo", FakeCargoCommand())
+    monkeypatch.setattr(mod.selectors, "DefaultSelector", FakeSelector)
+    time_values = iter([0.0, 0.0, 0.5, 1.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
+
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo(["llvm-cov"])
+
+    assert _exit_code(excinfo.value) == 1
+    assert fake_proc.killed
+    assert fake_proc.waited
+    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
+
+
+def test_run_cargo_invalid_timeout_does_not_spawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid wait-timeout values fail before cargo is spawned."""
+    mod = _load_module(monkeypatch, "run_rust")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
+    monkeypatch.setattr(mod.os, "name", "nt")
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "not-a-float")
+
+    fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
+    monkeypatch.setattr(mod, "cargo", fake_cargo)
+
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo(["llvm-cov"])
+
+    assert _exit_code(excinfo.value) == 1
+    assert fake_cargo.last_proc is None
+    assert ("::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number", True) in messages
+
+
+def _make_cucumber_spy(
+    calls: list[dict[str, object]],
+) -> typ.Callable[..., None]:
+    """Return a ``run_cucumber_rs_coverage`` spy that records its call arguments."""
+
+    def _spy(
+        out: Path,
+        fmt: str,
+        features: str,
+        *,
+        manifest_path: Path,
+        cargo_env: typ.Mapping[str, str],
+        with_default: bool,
+        use_nextest: bool,
+        cucumber_rs_features: str,
+        cucumber_rs_args: str,
+    ) -> None:
+        calls.append(
+            {
+                "out": out,
+                "fmt": fmt,
+                "features": features,
+                "manifest_path": manifest_path,
+                "cargo_env": dict(cargo_env),
+                "with_default": with_default,
+                "use_nextest": use_nextest,
+                "cucumber_rs_features": cucumber_rs_features,
+                "cucumber_rs_args": cucumber_rs_args,
+            }
+        )
+
+    return _spy
+
+
+def test_main_reuses_cargo_env_for_cucumber(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: ModuleType,
+) -> None:
+    """``main`` computes cargo env once and threads it into cucumber coverage."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n", encoding="utf-8")
+    github_output = tmp_path / "gh.txt"
+    cargo_env = {"CARGO_PROFILE_DEV_CODEGEN_BACKEND": "llvm"}
+    env_calls: list[Path] = []
+    run_cargo_env_calls: list[typ.Mapping[str, str] | None] = []
+    cucumber_calls: list[dict[str, object]] = []
+
+    def fake_get_cargo_coverage_env(manifest_path: Path) -> dict[str, str]:
+        env_calls.append(manifest_path)
+        return cargo_env
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        _ = (args, env_unsets)
+        run_cargo_env_calls.append(env_overrides)
+        return "Coverage: 100%"
+
+    cucumber_spy = _make_cucumber_spy(cucumber_calls)
+
+    monkeypatch.setattr(
+        run_rust_module, "get_cargo_coverage_env", fake_get_cargo_coverage_env
+    )
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+    monkeypatch.setattr(run_rust_module, "run_cucumber_rs_coverage", cucumber_spy)
+
+    manifest_path = Path("rust-toy-app/Cargo.toml")
+    run_rust_module.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=False,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=manifest_path,
+        github_output=github_output,
+        cucumber_rs_features="tests/features",
+        cucumber_rs_args="--tag fast",
+        with_cucumber_rs=True,
+        baseline_file=None,
+    )
+
+    assert env_calls == [manifest_path]
+    assert run_cargo_env_calls == [cargo_env]
+    assert len(cucumber_calls) == 1
+    assert cucumber_calls[0]["cargo_env"] == cargo_env
+
+
 def test_run_cargo_windows_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -717,7 +1017,7 @@ def test_run_cargo_windows_nonzero_exit(
 
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
 
     monkeypatch.setattr(
@@ -729,16 +1029,72 @@ def test_run_cargo_windows_nonzero_exit(
     assert _exit_code(excinfo.value) == 1
 
 
+class _WindowsPumpFakeProc:
+    """Minimal subprocess test double for Windows timeout handling."""
+
+    def __init__(self) -> None:
+        """Initialise the stub with captured output streams."""
+        self.stdout = io.StringIO("out-line\n")
+        self.stderr = io.StringIO("err-line\n")
+        self.killed = False
+        self.waited = False
+
+    def poll(self) -> None:
+        """Report that the process is still running."""
+
+    def kill(self) -> None:
+        """Record that the process was killed."""
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        """Record the wait and return success."""
+        _ = timeout
+        self.waited = True
+        return 0
+
+
+def test_run_cargo_windows_pump_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_run_cargo`` enforces the wait timeout on Windows pump threads."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setattr(mod.os, "name", "nt")
+    messages: list[tuple[str, bool]] = []
+
+    def fake_echo(message: str, *, err: bool = False, nl: bool = True) -> None:
+        _ = nl
+        messages.append((message, err))
+
+    monkeypatch.setattr(mod.typer, "echo", fake_echo)
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "1")
+    monkeypatch.setattr(mod.threading, "Thread", _WindowsPumpTimeoutFakeThread)
+    time_values = iter([0.0, 0.0, 1.0])
+    monkeypatch.setattr(mod.time, "monotonic", lambda: next(time_values))
+    fake_proc = _WindowsPumpFakeProc()
+    monkeypatch.setattr(mod, "cargo", _WindowsPumpTimeoutFakeCargoCommand(fake_proc))
+
+    with pytest.raises(mod.typer.Exit) as excinfo:
+        mod._run_cargo(["llvm-cov"])
+
+    assert _exit_code(excinfo.value) == 1
+    assert fake_proc.killed
+    assert fake_proc.waited
+    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
+
+
 def test_run_cargo_windows_pump_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class BoomIO(io.StringIO):
+        """Stream stub whose ``readline`` always raises."""
+
         def readline(self) -> str:
+            """Raise a runtime error when the pump reads a line."""
             message = "boom in pump"
             raise RuntimeError(message)
 
@@ -758,7 +1114,7 @@ def test_run_cargo_windows_none_stdout(
     """``_run_cargo`` fails when stdout is missing on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     fake_cargo = _make_fake_cargo(None, "err-line\n")
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -776,7 +1132,7 @@ def test_run_cargo_windows_none_stderr(
     """``_run_cargo`` fails when stderr is missing on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     fake_cargo = _make_fake_cargo("out-line\n", None)
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -794,14 +1150,18 @@ def test_run_cargo_stream_close_error_suppressed(
     """Errors closing streams are suppressed during cleanup."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class ExplodingStream(io.StringIO):
+        """String stream that raises after being closed."""
+
         def __init__(self, value: str) -> None:
+            """Initialise the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
         def close(self) -> None:
+            """Close the stream, then raise a cleanup error."""
             self.close_calls += 1
             super().close()
             message = "close failure"
@@ -1331,22 +1691,22 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
 
 
 @pytest.mark.parametrize(
-    ("filename", "content"),
+    ("content", "label"),
     [
-        pytest.param("zero.lcov", "LF:0\nLH:0\n", id="zero-lines"),
-        pytest.param("empty.lcov", "", id="empty-file"),
-        pytest.param("missing.lcov", "LF:100\n", id="missing-lh-tag"),
-        pytest.param("bad.lcov", "LF:abc\nLH:xyz\n", id="malformed"),
+        ("LF:0\nLH:0\n", "zero_lines"),
+        ("", "empty_file"),
+        ("LF:100\n", "missing_lh_tag"),
+        ("LF:abc\nLH:xyz\n", "malformed_values"),
     ],
 )
-def test_lcov_zero_coverage_variants(
+def test_lcov_returns_zero_for_degenerate_files(
     tmp_path: Path,
     run_rust_module: ModuleType,
-    filename: str,
     content: str,
+    label: str,
 ) -> None:
     """``get_line_coverage_percent_from_lcov`` returns 0.00 for degenerate inputs."""
-    lcov = tmp_path / filename
+    lcov = tmp_path / f"{label}.lcov"
     lcov.write_text(content)
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 

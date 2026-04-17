@@ -1330,31 +1330,24 @@ def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert calls[0].argv[:1] == ["merge-cobertura"]
 
 
-def test_lcov_zero_lines_found(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` returns 0.00 when no lines are found."""
-    lcov = tmp_path / "zero.lcov"
-    lcov.write_text("LF:0\nLH:0\n")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_empty_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """Empty lcov files report zero coverage."""
-    lcov = tmp_path / "empty.lcov"
-    lcov.write_text("")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_missing_lh_tag(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` handles files missing ``LH`` tags."""
-    lcov = tmp_path / "missing.lcov"
-    lcov.write_text("LF:100\n")
-    assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
-
-
-def test_lcov_malformed_file(tmp_path: Path, run_rust_module: ModuleType) -> None:
-    """``get_line_coverage_percent_from_lcov`` returns 0.00 for malformed files."""
-    lcov = tmp_path / "bad.lcov"
-    lcov.write_text("LF:abc\nLH:xyz\n")
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        pytest.param("zero.lcov", "LF:0\nLH:0\n", id="zero-lines"),
+        pytest.param("empty.lcov", "", id="empty-file"),
+        pytest.param("missing.lcov", "LF:100\n", id="missing-lh-tag"),
+        pytest.param("bad.lcov", "LF:abc\nLH:xyz\n", id="malformed"),
+    ],
+)
+def test_lcov_zero_coverage_variants(
+    tmp_path: Path,
+    run_rust_module: ModuleType,
+    filename: str,
+    content: str,
+) -> None:
+    """``get_line_coverage_percent_from_lcov`` returns 0.00 for degenerate inputs."""
+    lcov = tmp_path / filename
+    lcov.write_text(content)
     assert run_rust_module.get_line_coverage_percent_from_lcov(lcov) == "0.00"
 
 

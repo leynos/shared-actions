@@ -501,6 +501,14 @@ def _run_cargo(
         Extra or replacement environment variables. When ``None`` (the
         default), the environment is inherited unchanged except for any
         ``env_unsets`` removals.
+
+        ``env_unsets`` is an optional iterable of environment variable names
+        to remove from the inherited environment before ``env_overrides`` are
+        applied. Variables listed here are silently ignored if they are not
+        present in the inherited environment. When both ``env_unsets`` and
+        ``env_overrides`` are supplied, unsets are performed first, so
+        ``env_overrides`` can unconditionally set a variable that may or may
+        not have been inherited.
     env_unsets : Iterable[str], optional
         Variable names to remove from the inherited environment before
         ``env_overrides`` are applied. Missing keys are silently ignored.

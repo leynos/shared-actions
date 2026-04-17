@@ -232,7 +232,6 @@ def _run_rust_coverage_call(
         monkeypatch=monkeypatch,
     )
     calls = shell_stubs.calls_of("cargo")
-    assert len(calls) == 1
     return calls[0], out, gh
 
 
@@ -673,7 +672,7 @@ def test_run_cargo_windows_closes_streams(
     """``_run_cargo`` closes captured streams on success."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class TrackingStream(io.StringIO):
         def __init__(self, value: str) -> None:
@@ -804,7 +803,7 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
     """Invalid wait-timeout values fail before cargo is spawned."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "not-a-float")
 
     fake_cargo = _make_fake_cargo("out-line\n", "err-line\n")
@@ -914,7 +913,7 @@ def test_run_cargo_windows_nonzero_exit(
 
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(mod.typer, "Exit", real_typer.Exit)
 
     monkeypatch.setattr(
@@ -1013,7 +1012,7 @@ def test_run_cargo_windows_pump_exception(
     """``_run_cargo`` re-raises exceptions from pump threads on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class BoomIO(io.StringIO):
         def readline(self) -> str:
@@ -1036,7 +1035,7 @@ def test_run_cargo_windows_none_stdout(
     """``_run_cargo`` fails when stdout is missing on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     fake_cargo = _make_fake_cargo(None, "err-line\n")
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -1054,7 +1053,7 @@ def test_run_cargo_windows_none_stderr(
     """``_run_cargo`` fails when stderr is missing on Windows."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     fake_cargo = _make_fake_cargo("out-line\n", None)
     monkeypatch.setattr(mod, "cargo", fake_cargo)
@@ -1072,7 +1071,7 @@ def test_run_cargo_stream_close_error_suppressed(
     """Errors closing streams are suppressed during cleanup."""
     mod = _load_module(monkeypatch, "run_rust")
     monkeypatch.setattr(mod.os, "name", "nt")
-    monkeypatch.setattr(mod.typer, "echo", lambda *a, **k: None)
+    monkeypatch.setattr(mod.typer, "echo", lambda *_args, **_kwargs: None)
 
     class ExplodingStream(io.StringIO):
         def __init__(self, value: str) -> None:

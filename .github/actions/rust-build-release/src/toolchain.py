@@ -36,6 +36,25 @@ def _strip_optional(value: str | None) -> str | None:
     return trimmed or None
 
 
+def _parse_legacy_toolchain_file(raw: str) -> str | None:
+    """Return the first non-blank, non-comment line from a legacy toolchain file."""
+    for line in raw.splitlines():
+        if channel := _strip_optional(line.partition("#")[0]):
+            return channel
+    return None
+
+
+def _extract_toml_channel(data: dict) -> str | None:
+    """Return ``[toolchain].channel`` from parsed TOML data, if any."""
+    toolchain = data.get("toolchain")
+    if not isinstance(toolchain, dict):
+        return None
+    channel = toolchain.get("channel")
+    if isinstance(channel, str):
+        return _strip_optional(channel)
+    return None
+
+
 def _parse_toolchain_file(path: Path) -> str | None:
     """Return the declared toolchain channel from *path*, if any."""
     try:
@@ -46,17 +65,9 @@ def _parse_toolchain_file(path: Path) -> str | None:
     try:
         data = tomllib.loads(raw)
     except tomllib.TOMLDecodeError:
-        for line in raw.splitlines():
-            if channel := _strip_optional(line.partition("#")[0]):
-                return channel
-        return None
+        return _parse_legacy_toolchain_file(raw)
 
-    toolchain = data.get("toolchain")
-    if isinstance(toolchain, dict):
-        channel = toolchain.get("channel")
-        if isinstance(channel, str):
-            return _strip_optional(channel)
-    return None
+    return _extract_toml_channel(data)
 
 
 def _iter_toolchain_search_dirs(start: Path) -> typ.Iterator[Path]:
@@ -82,8 +93,8 @@ def read_repo_toolchain(project_dir: Path, manifest_path: Path) -> str | None:
     return None
 
 
-def _extract_rust_version_from_package(section: object) -> str | None:
-    """Return ``rust-version`` from a TOML ``[package]`` mapping, if declared."""
+def _section_rust_version(section: object) -> str | None:
+    """Return ``rust-version`` from a ``[package]``-like TOML mapping, if present."""
     if not isinstance(section, dict):
         return None
     mapping = typ.cast("dict[str, object]", section)
@@ -93,12 +104,12 @@ def _extract_rust_version_from_package(section: object) -> str | None:
     return None
 
 
-def _workspace_package(manifest_data: dict) -> object:
-    """Return the ``[workspace.package]`` table from *manifest_data*, if present."""
+def _workspace_rust_version(manifest_data: dict) -> str | None:
+    """Return ``rust-version`` from ``[workspace.package]``, if declared."""
     workspace = manifest_data.get("workspace")
-    if isinstance(workspace, dict):
-        return workspace.get("package")
-    return None
+    if not isinstance(workspace, dict):
+        return None
+    return _section_rust_version(workspace.get("package"))
 
 
 def read_manifest_rust_version(project_dir: Path, manifest_path: Path) -> str | None:
@@ -112,9 +123,9 @@ def read_manifest_rust_version(project_dir: Path, manifest_path: Path) -> str | 
     except (OSError, tomllib.TOMLDecodeError):
         return None
 
-    return _extract_rust_version_from_package(
+    return _section_rust_version(
         manifest_data.get("package")
-    ) or _extract_rust_version_from_package(_workspace_package(manifest_data))
+    ) or _workspace_rust_version(manifest_data)
 
 
 def resolve_requested_toolchain(

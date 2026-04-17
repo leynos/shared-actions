@@ -12,6 +12,24 @@ _CARGO_COVERAGE_ENV_UNSETS = (
 )
 
 
+def _cargo_config_contains_cranelift(candidate: Path) -> bool:
+    """Return ``True`` if *candidate* is a cargo config file that sets Cranelift.
+
+    Returns ``False`` on any read or decode error.
+    """
+    try:
+        content = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(
+        re.search(
+            r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
+            content,
+            flags=re.MULTILINE,
+        )
+    )
+
+
 def _uses_cranelift_backend(manifest_path: Path) -> bool:
     """Return ``True`` when the project configures the Cranelift codegen backend.
 
@@ -23,17 +41,8 @@ def _uses_cranelift_backend(manifest_path: Path) -> bool:
     while True:
         for name in ("config.toml", "config"):
             candidate = search_dir / ".cargo" / name
-            if candidate.is_file():
-                try:
-                    content = candidate.read_text(encoding="utf-8")
-                except (OSError, UnicodeDecodeError):
-                    continue
-                if re.search(
-                    r'^[ \t]*codegen-backend\s*=\s*["\']cranelift["\']',
-                    content,
-                    flags=re.MULTILINE,
-                ):
-                    return True
+            if candidate.is_file() and _cargo_config_contains_cranelift(candidate):
+                return True
         parent = search_dir.parent
         if parent == search_dir:
             break

@@ -795,6 +795,40 @@ def test_run_cargo_unix_pump_timeout(
     assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
 
 
+def _make_cucumber_spy(
+    calls: list[dict[str, object]],
+) -> typ.Callable[..., None]:
+    """Return a ``run_cucumber_rs_coverage`` spy that records its call arguments."""
+
+    def _spy(
+        out: Path,
+        fmt: str,
+        features: str,
+        *,
+        manifest_path: Path,
+        cargo_env: typ.Mapping[str, str],
+        with_default: bool,
+        use_nextest: bool,
+        cucumber_rs_features: str,
+        cucumber_rs_args: str,
+    ) -> None:
+        calls.append(
+            {
+                "out": out,
+                "fmt": fmt,
+                "features": features,
+                "manifest_path": manifest_path,
+                "cargo_env": dict(cargo_env),
+                "with_default": with_default,
+                "use_nextest": use_nextest,
+                "cucumber_rs_features": cucumber_rs_features,
+                "cucumber_rs_args": cucumber_rs_args,
+            }
+        )
+
+    return _spy
+
+
 def test_main_reuses_cargo_env_for_cucumber(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -822,39 +856,13 @@ def test_main_reuses_cargo_env_for_cucumber(
         _ = (args, env_overrides, env_unsets)
         return "Coverage: 100%"
 
-    def fake_run_cucumber_rs_coverage(
-        out: Path,
-        fmt: str,
-        features: str,
-        *,
-        manifest_path: Path,
-        cargo_env: typ.Mapping[str, str],
-        with_default: bool,
-        use_nextest: bool,
-        cucumber_rs_features: str,
-        cucumber_rs_args: str,
-    ) -> None:
-        cucumber_calls.append(
-            {
-                "out": out,
-                "fmt": fmt,
-                "features": features,
-                "manifest_path": manifest_path,
-                "cargo_env": dict(cargo_env),
-                "with_default": with_default,
-                "use_nextest": use_nextest,
-                "cucumber_rs_features": cucumber_rs_features,
-                "cucumber_rs_args": cucumber_rs_args,
-            }
-        )
+    cucumber_spy = _make_cucumber_spy(cucumber_calls)
 
     monkeypatch.setattr(
         run_rust_module, "get_cargo_coverage_env", fake_get_cargo_coverage_env
     )
     monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
-    monkeypatch.setattr(
-        run_rust_module, "run_cucumber_rs_coverage", fake_run_cucumber_rs_coverage
-    )
+    monkeypatch.setattr(run_rust_module, "run_cucumber_rs_coverage", cucumber_spy)
 
     manifest_path = Path("rust-toy-app/Cargo.toml")
     run_rust_module.main(

@@ -1165,7 +1165,6 @@ def test_main_propagates_windows_linker_rustup_failure(
             cross_path=None,
             cross_version=None,
             use_cross=False,
-            cross_toolchain_spec=None,
             cargo_toolchain_spec=None,
             use_cross_local_backend=False,
             docker_present=False,

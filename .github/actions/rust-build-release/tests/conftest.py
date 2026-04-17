@@ -212,7 +212,6 @@ class CrossDecision(typ.Protocol):
     cross_path: str | None
     cross_version: str | None
     use_cross: bool
-    cross_toolchain_spec: str
     cargo_toolchain_spec: str
     use_cross_local_backend: bool
     docker_present: bool
@@ -233,7 +232,6 @@ def _cross_decision(
         cross_path="/usr/bin/cross" if use_cross else None,
         cross_version="0.2.5",
         use_cross=use_cross,
-        cross_toolchain_spec="+stable",
         cargo_toolchain_spec="+stable",
         use_cross_local_backend=False,
         docker_present=True,

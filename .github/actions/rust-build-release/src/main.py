@@ -68,31 +68,6 @@ BSD_TARGET_SUFFIXES = (
     "unknown-netbsd",
 )
 
-_TRIPLE_OS_COMPONENTS = {
-    "linux",
-    "windows",
-    "darwin",
-    "freebsd",
-    "netbsd",
-    "openbsd",
-    "dragonfly",
-    "solaris",
-    "android",
-    "ios",
-    "emscripten",
-    "haiku",
-    "hermit",
-    "fuchsia",
-    "wasi",
-    "redox",
-    "illumos",
-    "uefi",
-    "macabi",
-    "rumprun",
-    "vita",
-    "psp",
-}
-
 app = typer.Typer(add_completion=False)
 
 
@@ -102,7 +77,6 @@ class _CrossDecision(typ.NamedTuple):
     cross_path: str | None
     cross_version: str | None
     use_cross: bool
-    cross_toolchain_spec: str
     cargo_toolchain_spec: str
     use_cross_local_backend: bool
     docker_present: bool
@@ -222,26 +196,6 @@ def _resolve_toolchain_name(
         if _matches_toolchain_channel(name, toolchain):
             return name
     return ""
-
-
-def _looks_like_triple(candidate: str) -> bool:
-    """Return ``True`` when *candidate* resembles a target triple."""
-    components = [part for part in candidate.split("-") if part]
-    if len(components) < 3:
-        return False
-    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
-
-
-def _toolchain_channel(toolchain_name: str) -> str:
-    """Strip any target triple suffix from *toolchain_name* for CLI overrides."""
-    for suffix_parts in (4, 3):
-        parts = toolchain_name.rsplit("-", suffix_parts)
-        if len(parts) != suffix_parts + 1:
-            continue
-        candidate = "-".join(parts[-suffix_parts:])
-        if _looks_like_triple(candidate):
-            return parts[0]
-    return toolchain_name
 
 
 def _probe_runtime(name: str) -> bool:
@@ -386,8 +340,8 @@ def _ensure_target_installed(
 
 def _decide_cross_usage(
     toolchain_name: str,
-    installed_names: list[str],
-    rustup_exec: str,
+    _installed_names: list[str],
+    _rustup_exec: str,
     target: str,
     host_target: str,
 ) -> _CrossDecision:
@@ -418,41 +372,11 @@ def _decide_cross_usage(
     use_cross = cross_path is not None and (has_container or use_cross_local_backend)
 
     cargo_toolchain_spec = f"+{toolchain_name}"
-    cross_toolchain_spec = cargo_toolchain_spec
-
-    if use_cross:
-        cross_toolchain_name = _toolchain_channel(toolchain_name)
-        if (
-            cross_toolchain_name != toolchain_name
-            and cross_toolchain_name not in installed_names
-        ):
-            try:
-                run_cmd(
-                    local[rustup_exec][
-                        "toolchain",
-                        "install",
-                        cross_toolchain_name,
-                        "--profile",
-                        "minimal",
-                        "--no-self-update",
-                    ]
-                )
-            except ProcessExecutionError:
-                typer.echo(
-                    "::warning:: failed to install sanitized toolchain; using cargo",
-                    err=True,
-                )
-                use_cross = False
-            else:
-                installed_names = _list_installed_toolchains(rustup_exec)
-        if use_cross:
-            cross_toolchain_spec = f"+{cross_toolchain_name}"
 
     return _CrossDecision(
         cross_path=cross_path,
         cross_version=cross_version,
         use_cross=use_cross,
-        cross_toolchain_spec=cross_toolchain_spec,
         cargo_toolchain_spec=cargo_toolchain_spec,
         use_cross_local_backend=use_cross_local_backend,
         docker_present=docker_present,
@@ -578,7 +502,6 @@ def _build_cross_command(
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
     build_cmd = executor[
-        decision.cross_toolchain_spec,
         "build",
         "--manifest-path",
         str(manifest_path),

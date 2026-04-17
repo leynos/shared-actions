@@ -345,12 +345,34 @@ def test_build_commands_include_manifest_path(
         cmd = context.main_module._build_cross_command(
             context.cross_decision, target, context.manifest, ""
         )
+        parts = list(cmd.formulate())
+        assert parts[1] == "build"
+        assert all(not part.startswith("+") for part in parts[1:])
     else:
         cmd = context.main_module._build_cargo_command(
             "+stable", target, context.manifest, ""
         )
 
     assert_manifest_in_command(cmd, context.manifest)
+
+
+def test_cross_command_omits_repo_declared_nightly_override(
+    build_command_context: BuildCommandContext,
+) -> None:
+    """Cross relies on the repo-declared nightly instead of a CLI override."""
+    context = build_command_context
+    cmd = context.main_module._build_cross_command(
+        context.cross_decision,
+        "aarch64-unknown-linux-gnu",
+        NIGHTLY_CRANELIFT_PROJECT / "Cargo.toml",
+        "",
+    )
+
+    parts = list(cmd.formulate())
+
+    assert parts[0] == "cross"
+    assert parts[1] == "build"
+    assert all(not part.startswith("+") for part in parts[1:])
 
 
 def test_handle_cross_container_error_passes_manifest_to_fallback(

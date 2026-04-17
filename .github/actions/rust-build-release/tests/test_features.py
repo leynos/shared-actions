@@ -256,6 +256,9 @@ class TestBuildCommandFeatures:
             )
 
         parts = list(cmd.formulate())
+        if builder_type == "cross":
+            assert parts[1] == "build"
+            assert all(not part.startswith("+") for part in parts[1:])
 
         _assert_features_in_command_parts(
             parts, test_case.expected_in_parts, test_case.expected_value

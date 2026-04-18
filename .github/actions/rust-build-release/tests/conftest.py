@@ -207,9 +207,14 @@ class _DummyCommand:
         return None
 
     def with_env(self, *args: object, **kwargs: str) -> _DummyCommand:
-        _ = args
+        env_from_args: dict[str, str] = {}
+        for arg in args:
+            if not isinstance(arg, cabc.Mapping):
+                msg = "with_env positional arguments must be mappings"
+                raise TypeError(msg)
+            env_from_args.update(arg)
         wrapped = _DummyCommand(self._name)
-        wrapped.env = {**self.env, **kwargs}
+        wrapped.env = {**self.env, **env_from_args, **kwargs}
         return wrapped
 
 

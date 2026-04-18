@@ -332,7 +332,7 @@ def test_main_prefers_repo_declared_toolchain(
         pytest.param(
             "nightly-2026-03-26",
             "nightly-2026-03-26-x86_64-unknown-linux-gnu",
-            {"RUSTUP_TOOLCHAIN": "nightly-2026-03-26"},
+            {"RUSTUP_TOOLCHAIN": "nightly-2026-03-26-x86_64-unknown-linux-gnu"},
             id="explicit-override",
         ),
         pytest.param(

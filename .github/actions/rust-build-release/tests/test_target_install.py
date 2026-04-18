@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
+from rust_build_release_test_helpers import assert_no_toolchain_override
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
@@ -80,8 +81,7 @@ def test_skips_target_install_when_cross_available(
     cmd_mox.verify()
     build_cmd = typ.cast("list[str]", captured["parts"])
     assert Path(build_cmd[0]).name == "cross"
-    assert build_cmd[1] == "build"
-    assert all(not part.startswith("+") for part in build_cmd[1:])
+    assert_no_toolchain_override(build_cmd)
     assert captured["env"] == {"RUSTUP_TOOLCHAIN": default_toolchain}
 
 

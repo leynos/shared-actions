@@ -624,7 +624,7 @@ def main(
     manifest_path = _resolve_manifest_path()
     explicit_toolchain = toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
-        toolchain,
+        explicit_toolchain,
         project_dir=Path.cwd(),
         manifest_path=manifest_path,
         fallback_toolchain=DEFAULT_TOOLCHAIN,

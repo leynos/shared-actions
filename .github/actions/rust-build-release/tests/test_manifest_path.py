@@ -430,6 +430,45 @@ def test_cross_command_omits_repo_declared_nightly_override(
     assert_no_toolchain_override(parts)
 
 
+def test_main_cross_uses_repo_declared_nightly_without_env_override(
+    build_main_context: BuildMainContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() should let cross inherit a repo-declared nightly manifest."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    decision = context.cross_decision_factory(context.main_module, use_cross=True)
+    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
+    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
+
+    harness.patch_attr("_resolve_target_argument", lambda value: value)
+
+    def fake_resolve_toolchain(
+        _rustup_exec: str, toolchain_arg: str, target_arg: str
+    ) -> str:
+        captured["toolchain"] = toolchain_arg
+        captured["target"] = target_arg
+        return "nightly-2026-03-26-x86_64-unknown-linux-gnu"
+
+    harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_run(cmd: object) -> None:
+        captured["parts"] = list(cmd.formulate())
+        captured["env"] = getattr(cmd, "env", {})
+
+    harness.patch_attr("run_cmd", fake_run)
+
+    context.main_module.main("aarch64-unknown-linux-gnu")
+
+    parts = typ.cast("list[str]", captured["parts"])
+    assert captured["toolchain"] == "nightly-2026-03-26"
+    assert captured["target"] == "aarch64-unknown-linux-gnu"
+    assert_no_toolchain_override(parts)
+    assert captured["env"] == {}
+
+
 def test_handle_cross_container_error_passes_manifest_to_fallback(
     cross_fallback_context: CrossFallbackContext,
 ) -> None:

@@ -531,8 +531,6 @@ def test_decide_cross_usage_marks_bsd_targets_for_container(
 
     decision = main_module._decide_cross_usage(
         toolchain_name="stable-x86_64-unknown-linux-gnu",
-        installed_names=["stable-x86_64-unknown-linux-gnu"],
-        rustup_exec="rustup",
         target=target,
         host_target=host_target,
     )

@@ -8,6 +8,8 @@ import typing as typ
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
 
+from conftest import assert_no_toolchain_override
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
@@ -257,8 +259,7 @@ class TestBuildCommandFeatures:
 
         parts = list(cmd.formulate())
         if builder_type == "cross":
-            assert parts[1] == "build"
-            assert all(not part.startswith("+") for part in parts[1:])
+            assert_no_toolchain_override(parts)
 
         _assert_features_in_command_parts(
             parts, test_case.expected_in_parts, test_case.expected_value

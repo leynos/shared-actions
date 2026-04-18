@@ -11,6 +11,8 @@ from types import ModuleType
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
 
+from conftest import assert_no_toolchain_override
+
 if typ.TYPE_CHECKING:
     from .conftest import (
         CrossDecision,
@@ -346,8 +348,7 @@ def test_build_commands_include_manifest_path(
             context.cross_decision, target, context.manifest, ""
         )
         parts = list(cmd.formulate())
-        assert parts[1] == "build"
-        assert all(not part.startswith("+") for part in parts[1:])
+        assert_no_toolchain_override(parts)
     else:
         cmd = context.main_module._build_cargo_command(
             "+stable", target, context.manifest, ""
@@ -371,8 +372,7 @@ def test_cross_command_omits_repo_declared_nightly_override(
     parts = list(cmd.formulate())
 
     assert parts[0] == "cross"
-    assert parts[1] == "build"
-    assert all(not part.startswith("+") for part in parts[1:])
+    assert_no_toolchain_override(parts)
 
 
 def test_handle_cross_container_error_passes_manifest_to_fallback(

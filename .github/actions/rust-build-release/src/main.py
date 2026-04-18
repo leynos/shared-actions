@@ -340,8 +340,6 @@ def _ensure_target_installed(
 
 def _decide_cross_usage(
     toolchain_name: str,
-    _installed_names: list[str],
-    _rustup_exec: str,
     target: str,
     host_target: str,
 ) -> _CrossDecision:
@@ -624,7 +622,7 @@ def main(
         fallback_toolchain=DEFAULT_TOOLCHAIN,
     )
     rustup_exec = _ensure_rustup_exec()
-    toolchain_name, installed_names = _resolve_toolchain(
+    toolchain_name, _installed_names = _resolve_toolchain(
         rustup_exec, requested_toolchain, target_to_build
     )
     target_installed = _ensure_target_installed(
@@ -634,9 +632,7 @@ def main(
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
 
     host_target = DEFAULT_HOST_TARGET
-    decision = _decide_cross_usage(
-        toolchain_name, installed_names, rustup_exec, target_to_build, host_target
-    )
+    decision = _decide_cross_usage(toolchain_name, target_to_build, host_target)
 
     _validate_cross_requirements(decision, target_to_build, host_target)
 

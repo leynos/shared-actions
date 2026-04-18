@@ -1154,7 +1154,7 @@ def test_main_propagates_windows_linker_rustup_failure(
     harness.patch_attr("_ensure_rustup_exec", lambda: rustup_path)
     harness.patch_attr(
         "_resolve_toolchain",
-        lambda *_: (toolchain_name, [toolchain_name]),
+        lambda *_: toolchain_name,
     )
     harness.patch_attr("_ensure_target_installed", lambda *_: True)
     harness.patch_attr(

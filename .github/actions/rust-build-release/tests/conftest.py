@@ -198,12 +198,19 @@ HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 class _DummyCommand:
     def __init__(self, name: str = "dummy") -> None:
         self._name = name
+        self.env: dict[str, str] = {}
 
     def formulate(self) -> list[str]:
         return [self._name]
 
     def __call__(self, *_args: object, **_kwargs: object) -> None:
         return None
+
+    def with_env(self, *args: object, **kwargs: str) -> _DummyCommand:
+        _ = args
+        wrapped = _DummyCommand(self._name)
+        wrapped.env = {**self.env, **kwargs}
+        return wrapped
 
 
 def assert_no_toolchain_override(parts: list[str]) -> None:
@@ -320,7 +327,7 @@ def patch_common_main_deps(
     """Provide a harness with the common main() dependencies patched."""
     harness = module_harness(main_module)
     harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
+    harness.patch_attr("_resolve_toolchain", lambda *_: "stable")
     harness.patch_attr("_ensure_target_installed", lambda *_: True)
     harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
     harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))

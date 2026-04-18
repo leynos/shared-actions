@@ -223,9 +223,7 @@ def test_main_passes_manifest_to_builder(
 
     if config.build_mode == "cross":
         harness.patch_attr("_resolve_target_argument", lambda _value: config.target)
-        harness.patch_attr(
-            "_resolve_toolchain", lambda *_: (config.toolchain, [config.toolchain])
-        )
+        harness.patch_attr("_resolve_toolchain", lambda *_: config.toolchain)
         decision = context.cross_decision_factory(context.main_module, use_cross=True)
 
         def fake_cross(
@@ -304,10 +302,10 @@ def test_main_prefers_repo_declared_toolchain(
 
     def fake_resolve_toolchain(
         _rustup_exec: str, toolchain_arg: str, target_arg: str
-    ) -> tuple[str, list[str]]:
+    ) -> str:
         captured["toolchain"] = toolchain_arg
         captured["target"] = target_arg
-        return toolchain_arg, [toolchain_arg]
+        return toolchain_arg
 
     harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
     decision = context.cross_decision_factory(context.main_module, use_cross=False)
@@ -343,7 +341,7 @@ def test_main_exports_explicit_toolchain_to_cross_command(
     )
     harness.patch_attr(
         "_resolve_toolchain",
-        lambda *_: ("nightly-2026-03-26-x86_64-unknown-linux-gnu", []),
+        lambda *_: "nightly-2026-03-26-x86_64-unknown-linux-gnu",
     )
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
@@ -378,7 +376,7 @@ def test_main_does_not_export_cross_toolchain_without_explicit_override(
         "resolve_requested_toolchain",
         lambda *_args, **_kwargs: "1.89.0",
     )
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("1.89.0", []))
+    harness.patch_attr("_resolve_toolchain", lambda *_: "1.89.0")
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
     def fake_run(cmd: object) -> None:

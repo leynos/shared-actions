@@ -54,6 +54,8 @@ if typ.TYPE_CHECKING:
         def with_env(self, *args: object, **kwargs: object) -> _SupportsEnvFormulate:
             """Return a command wrapper with the provided environment overrides."""
             ...
+
+
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -295,24 +297,22 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
         raise typer.Exit(1) from None
 
 
-def _resolve_toolchain(
-    rustup_exec: str, toolchain: str, target: str
-) -> tuple[str, list[str]]:
+def _resolve_toolchain(rustup_exec: str, toolchain: str, target: str) -> str:
     """Return the installed toolchain to use for the build."""
     installed_names = _list_installed_toolchains(rustup_exec)
     toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     _install_toolchain_channel(rustup_exec, toolchain)
     installed_names = _list_installed_toolchains(rustup_exec)
     toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     toolchain_name = _fallback_toolchain_name(toolchain, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     typer.echo(
         f"::error:: requested toolchain '{toolchain}' not installed",
@@ -630,7 +630,7 @@ def main(
         fallback_toolchain=DEFAULT_TOOLCHAIN,
     )
     rustup_exec = _ensure_rustup_exec()
-    toolchain_name, _installed_names = _resolve_toolchain(
+    toolchain_name = _resolve_toolchain(
         rustup_exec, requested_toolchain, target_to_build
     )
     target_installed = _ensure_target_installed(

@@ -213,12 +213,6 @@ class _DummyCommand:
         return wrapped
 
 
-def assert_no_toolchain_override(parts: list[str]) -> None:
-    """Assert that a cross command does not inject a +toolchain override."""
-    assert parts[1] == "build"  # noqa: S101
-    assert all(not part.startswith("+") for part in parts[1:])  # noqa: S101
-
-
 class CrossDecision(typ.Protocol):
     """Typed view of the _CrossDecision fields used in tests."""
 

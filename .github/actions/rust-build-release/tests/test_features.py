@@ -7,8 +7,7 @@ import typing as typ
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
-
-from conftest import assert_no_toolchain_override
+from rust_build_release_test_helpers import assert_no_toolchain_override
 
 if typ.TYPE_CHECKING:
     from pathlib import Path

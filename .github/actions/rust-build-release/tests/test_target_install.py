@@ -45,12 +45,7 @@ def test_skips_target_install_when_cross_available(
     """Continues when target addition fails but cross is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
-
-    def run_cmd_side_effect(cmd: list[str]) -> None:
-        if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
-            raise ProcessExecutionError(cmd, 1, "", "")
-
-    app_env.patch_run_cmd(run_cmd_side_effect)
+    captured: dict[str, object] = {}
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -69,13 +64,25 @@ def test_skips_target_install_when_cross_available(
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
+    def fake_run(cmd: object) -> None:
+        parts = list(cmd.formulate())
+        env = getattr(cmd, "env", {})
+        if Path(parts[0]).name == "rustup" and parts[1:3] == ["target", "add"]:
+            raise ProcessExecutionError(parts, 1, "", "")
+        captured["parts"] = parts
+        captured["env"] = env
+
+    app_env.patch_attr("run_cmd", fake_run)
+
     cmd_mox.replay()
 
     main_module.main("aarch64-pc-windows-gnu", default_toolchain)
     cmd_mox.verify()
-    build_cmd = app_env.calls[-1]
+    build_cmd = typ.cast("list[str]", captured["parts"])
     assert Path(build_cmd[0]).name == "cross"
-    assert build_cmd[1] == f"+{default_toolchain}"
+    assert build_cmd[1] == "build"
+    assert all(not part.startswith("+") for part in build_cmd[1:])
+    assert captured["env"] == {"RUSTUP_TOOLCHAIN": default_toolchain}
 
 
 @CMD_MOX_UNSUPPORTED

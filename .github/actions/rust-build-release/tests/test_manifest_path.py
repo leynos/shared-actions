@@ -10,8 +10,7 @@ from types import ModuleType
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
-
-from conftest import assert_no_toolchain_override
+from rust_build_release_test_helpers import assert_no_toolchain_override
 
 if typ.TYPE_CHECKING:
     from .conftest import (
@@ -357,7 +356,9 @@ def test_main_exports_explicit_toolchain_to_cross_command(
 
     parts = typ.cast("list[str]", captured["parts"])
     assert_no_toolchain_override(parts)
-    assert captured["env"] == {"RUSTUP_TOOLCHAIN": "nightly-2026-03-26"}
+    assert captured["env"] == {
+        "RUSTUP_TOOLCHAIN": "nightly-2026-03-26-x86_64-unknown-linux-gnu"
+    }
 
 
 def test_main_does_not_export_cross_toolchain_without_explicit_override(

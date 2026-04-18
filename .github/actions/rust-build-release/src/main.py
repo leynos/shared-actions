@@ -665,7 +665,7 @@ def main(
         )
         if explicit_toolchain:
             build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
-                RUSTUP_TOOLCHAIN=explicit_toolchain
+                RUSTUP_TOOLCHAIN=toolchain_name
             )
     else:
         build_cmd = _build_cargo_command(

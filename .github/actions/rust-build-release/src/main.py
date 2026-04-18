@@ -47,6 +47,13 @@ if typ.TYPE_CHECKING:
     import subprocess
 
     from cmd_utils import SupportsFormulate
+
+    class _SupportsEnvFormulate(SupportsFormulate, typ.Protocol):
+        """Protocol for commands that support temporary environment bindings."""
+
+        def with_env(self, *args: object, **kwargs: object) -> _SupportsEnvFormulate:
+            """Return a command wrapper with the provided environment overrides."""
+            ...
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -615,7 +622,8 @@ def main(
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
     manifest_path = _resolve_manifest_path()
-    requested_toolchain = toolchain.strip() or resolve_requested_toolchain(
+    explicit_toolchain = toolchain.strip()
+    requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
         toolchain,
         project_dir=Path.cwd(),
         manifest_path=manifest_path,
@@ -655,6 +663,10 @@ def main(
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features
         )
+        if explicit_toolchain:
+            build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
+                RUSTUP_TOOLCHAIN=explicit_toolchain
+            )
     else:
         build_cmd = _build_cargo_command(
             decision.cargo_toolchain_spec, target_to_build, manifest_argument, features

@@ -329,6 +329,71 @@ def test_main_prefers_repo_declared_toolchain(
     assert captured["manifest"] == Path("Cargo.toml")
 
 
+def test_main_exports_explicit_toolchain_to_cross_command(
+    build_main_context: BuildMainContext,
+) -> None:
+    """Explicit toolchain overrides are passed to cross via RUSTUP_TOOLCHAIN."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    decision = context.cross_decision_factory(context.main_module, use_cross=True)
+
+    harness.patch_attr(
+        "_resolve_target_argument", lambda _value: "aarch64-unknown-linux-gnu"
+    )
+    harness.patch_attr(
+        "_resolve_toolchain",
+        lambda *_: ("nightly-2026-03-26-x86_64-unknown-linux-gnu", []),
+    )
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_run(cmd: object) -> None:
+        captured["parts"] = list(cmd.formulate())
+        captured["env"] = getattr(cmd, "env", {})
+
+    harness.patch_attr("run_cmd", fake_run)
+
+    context.main_module.main(
+        "aarch64-unknown-linux-gnu", toolchain="nightly-2026-03-26"
+    )
+
+    parts = typ.cast("list[str]", captured["parts"])
+    assert_no_toolchain_override(parts)
+    assert captured["env"] == {"RUSTUP_TOOLCHAIN": "nightly-2026-03-26"}
+
+
+def test_main_does_not_export_cross_toolchain_without_explicit_override(
+    build_main_context: BuildMainContext,
+) -> None:
+    """Cross inherits the ambient toolchain selection when no override is given."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    decision = context.cross_decision_factory(context.main_module, use_cross=True)
+
+    harness.patch_attr(
+        "_resolve_target_argument", lambda _value: "aarch64-unknown-linux-gnu"
+    )
+    harness.patch_attr(
+        "resolve_requested_toolchain",
+        lambda *_args, **_kwargs: "1.89.0",
+    )
+    harness.patch_attr("_resolve_toolchain", lambda *_: ("1.89.0", []))
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_run(cmd: object) -> None:
+        captured["parts"] = list(cmd.formulate())
+        captured["env"] = getattr(cmd, "env", {})
+
+    harness.patch_attr("run_cmd", fake_run)
+
+    context.main_module.main("aarch64-unknown-linux-gnu")
+
+    parts = typ.cast("list[str]", captured["parts"])
+    assert_no_toolchain_override(parts)
+    assert captured["env"] == {}
+
+
 @pytest.mark.parametrize(
     ("builder", "target"),
     [

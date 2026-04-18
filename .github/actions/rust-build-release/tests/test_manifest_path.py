@@ -10,6 +10,7 @@ from types import ModuleType
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
+from rust_build_release_test_helpers import assert_no_toolchain_override
 
 if typ.TYPE_CHECKING:
     from .conftest import (
@@ -221,9 +222,7 @@ def test_main_passes_manifest_to_builder(
 
     if config.build_mode == "cross":
         harness.patch_attr("_resolve_target_argument", lambda _value: config.target)
-        harness.patch_attr(
-            "_resolve_toolchain", lambda *_: (config.toolchain, [config.toolchain])
-        )
+        harness.patch_attr("_resolve_toolchain", lambda *_: config.toolchain)
         decision = context.cross_decision_factory(context.main_module, use_cross=True)
 
         def fake_cross(
@@ -302,10 +301,10 @@ def test_main_prefers_repo_declared_toolchain(
 
     def fake_resolve_toolchain(
         _rustup_exec: str, toolchain_arg: str, target_arg: str
-    ) -> tuple[str, list[str]]:
+    ) -> str:
         captured["toolchain"] = toolchain_arg
         captured["target"] = target_arg
-        return toolchain_arg, [toolchain_arg]
+        return toolchain_arg
 
     harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
     decision = context.cross_decision_factory(context.main_module, use_cross=False)
@@ -328,6 +327,64 @@ def test_main_prefers_repo_declared_toolchain(
 
 
 @pytest.mark.parametrize(
+    ("explicit_toolchain", "resolved_toolchain", "expected_env"),
+    [
+        pytest.param(
+            "nightly-2026-03-26",
+            "nightly-2026-03-26-x86_64-unknown-linux-gnu",
+            {"RUSTUP_TOOLCHAIN": "nightly-2026-03-26-x86_64-unknown-linux-gnu"},
+            id="explicit-override",
+        ),
+        pytest.param(
+            None,
+            "1.89.0",
+            {},
+            id="no-override",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("setup_manifest")
+def test_main_cross_toolchain_environment(
+    build_main_context: BuildMainContext,
+    explicit_toolchain: str | None,
+    resolved_toolchain: str,
+    expected_env: dict[str, str],
+) -> None:
+    """Cross env export depends on whether an explicit toolchain was provided."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    decision = context.cross_decision_factory(context.main_module, use_cross=True)
+
+    harness.patch_attr(
+        "_resolve_target_argument", lambda _value: "aarch64-unknown-linux-gnu"
+    )
+    harness.patch_attr(
+        "resolve_requested_toolchain",
+        lambda *_args, **_kwargs: resolved_toolchain,
+    )
+    harness.patch_attr("_resolve_toolchain", lambda *_: resolved_toolchain)
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_run(cmd: object) -> None:
+        captured["parts"] = list(cmd.formulate())
+        captured["env"] = getattr(cmd, "env", {})
+
+    harness.patch_attr("run_cmd", fake_run)
+
+    if explicit_toolchain is not None:
+        context.main_module.main(
+            "aarch64-unknown-linux-gnu", toolchain=explicit_toolchain
+        )
+    else:
+        context.main_module.main("aarch64-unknown-linux-gnu")
+
+    parts = typ.cast("list[str]", captured["parts"])
+    assert_no_toolchain_override(parts)
+    assert captured["env"] == expected_env
+
+
+@pytest.mark.parametrize(
     ("builder", "target"),
     [
         ("cross", "x86_64-unknown-linux-gnu"),
@@ -345,12 +402,71 @@ def test_build_commands_include_manifest_path(
         cmd = context.main_module._build_cross_command(
             context.cross_decision, target, context.manifest, ""
         )
+        parts = list(cmd.formulate())
+        assert_no_toolchain_override(parts)
     else:
         cmd = context.main_module._build_cargo_command(
             "+stable", target, context.manifest, ""
         )
 
     assert_manifest_in_command(cmd, context.manifest)
+
+
+def test_cross_command_omits_repo_declared_nightly_override(
+    build_command_context: BuildCommandContext,
+) -> None:
+    """Cross relies on the repo-declared nightly instead of a CLI override."""
+    context = build_command_context
+    cmd = context.main_module._build_cross_command(
+        context.cross_decision,
+        "aarch64-unknown-linux-gnu",
+        NIGHTLY_CRANELIFT_PROJECT / "Cargo.toml",
+        "",
+    )
+
+    parts = list(cmd.formulate())
+
+    assert parts[0] == "cross"
+    assert_no_toolchain_override(parts)
+
+
+def test_main_cross_uses_repo_declared_nightly_without_env_override(
+    build_main_context: BuildMainContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """main() should let cross inherit a repo-declared nightly manifest."""
+    context = build_main_context
+    harness = context.harness
+    captured: dict[str, object] = {}
+    decision = context.cross_decision_factory(context.main_module, use_cross=True)
+    monkeypatch.delenv("RBR_MANIFEST_PATH", raising=False)
+    monkeypatch.chdir(NIGHTLY_CRANELIFT_PROJECT)
+
+    harness.patch_attr("_resolve_target_argument", lambda value: value)
+
+    def fake_resolve_toolchain(
+        _rustup_exec: str, toolchain_arg: str, target_arg: str
+    ) -> str:
+        captured["toolchain"] = toolchain_arg
+        captured["target"] = target_arg
+        return "nightly-2026-03-26-x86_64-unknown-linux-gnu"
+
+    harness.patch_attr("_resolve_toolchain", fake_resolve_toolchain)
+    harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
+
+    def fake_run(cmd: object) -> None:
+        captured["parts"] = list(cmd.formulate())
+        captured["env"] = getattr(cmd, "env", {})
+
+    harness.patch_attr("run_cmd", fake_run)
+
+    context.main_module.main("aarch64-unknown-linux-gnu")
+
+    parts = typ.cast("list[str]", captured["parts"])
+    assert captured["toolchain"] == "nightly-2026-03-26"
+    assert captured["target"] == "aarch64-unknown-linux-gnu"
+    assert_no_toolchain_override(parts)
+    assert captured["env"] == {}
 
 
 def test_handle_cross_container_error_passes_manifest_to_fallback(

@@ -7,6 +7,7 @@ import typing as typ
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
+from rust_build_release_test_helpers import assert_no_toolchain_override
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -256,6 +257,8 @@ class TestBuildCommandFeatures:
             )
 
         parts = list(cmd.formulate())
+        if builder_type == "cross":
+            assert_no_toolchain_override(parts)
 
         _assert_features_in_command_parts(
             parts, test_case.expected_in_parts, test_case.expected_value

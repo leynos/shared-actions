@@ -1,4 +1,4 @@
-"""Verify toolchain triple is sanitized for cross."""
+"""Regression coverage for repo-declared toolchains and cross builds."""
 
 from __future__ import annotations
 
@@ -16,27 +16,11 @@ from cmd_utils_importer import import_cmd_utils
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
-    from types import ModuleType
-
     from ._packaging_utils import PackagingProject as _PackagingProject
 
 _cmd_utils = import_cmd_utils()
 RunResult = _cmd_utils.RunResult
 run_cmd = _cmd_utils.run_cmd
-
-
-def test_toolchain_channel_strips_host_triple(main_module: ModuleType) -> None:
-    """The action strips host triples when preparing cross CLI overrides."""
-    channel = main_module._toolchain_channel("1.89.0-x86_64-unknown-linux-gnu")
-    assert channel == "1.89.0"
-
-    nightly = main_module._toolchain_channel(
-        "nightly-2024-08-10-x86_64-unknown-linux-gnu"
-    )
-    assert nightly == "nightly-2024-08-10"
-
-    stable = main_module._toolchain_channel("stable")
-    assert stable == "stable"
 
 
 os.environ.setdefault("CROSS_CONTAINER_ENGINE", "docker")

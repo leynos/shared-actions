@@ -47,6 +47,15 @@ if typ.TYPE_CHECKING:
     import subprocess
 
     from cmd_utils import SupportsFormulate
+
+    class _SupportsEnvFormulate(SupportsFormulate, typ.Protocol):
+        """Protocol for commands that support temporary environment bindings."""
+
+        def with_env(self, *args: object, **kwargs: object) -> _SupportsEnvFormulate:
+            """Return a command wrapper with the provided environment overrides."""
+            ...
+
+
 from cmd_utils_importer import import_cmd_utils
 
 run_cmd = import_cmd_utils().run_cmd
@@ -68,31 +77,6 @@ BSD_TARGET_SUFFIXES = (
     "unknown-netbsd",
 )
 
-_TRIPLE_OS_COMPONENTS = {
-    "linux",
-    "windows",
-    "darwin",
-    "freebsd",
-    "netbsd",
-    "openbsd",
-    "dragonfly",
-    "solaris",
-    "android",
-    "ios",
-    "emscripten",
-    "haiku",
-    "hermit",
-    "fuchsia",
-    "wasi",
-    "redox",
-    "illumos",
-    "uefi",
-    "macabi",
-    "rumprun",
-    "vita",
-    "psp",
-}
-
 app = typer.Typer(add_completion=False)
 
 
@@ -102,7 +86,6 @@ class _CrossDecision(typ.NamedTuple):
     cross_path: str | None
     cross_version: str | None
     use_cross: bool
-    cross_toolchain_spec: str
     cargo_toolchain_spec: str
     use_cross_local_backend: bool
     docker_present: bool
@@ -224,26 +207,6 @@ def _resolve_toolchain_name(
     return ""
 
 
-def _looks_like_triple(candidate: str) -> bool:
-    """Return ``True`` when *candidate* resembles a target triple."""
-    components = [part for part in candidate.split("-") if part]
-    if len(components) < 3:
-        return False
-    return any(component in _TRIPLE_OS_COMPONENTS for component in components[1:])
-
-
-def _toolchain_channel(toolchain_name: str) -> str:
-    """Strip any target triple suffix from *toolchain_name* for CLI overrides."""
-    for suffix_parts in (4, 3):
-        parts = toolchain_name.rsplit("-", suffix_parts)
-        if len(parts) != suffix_parts + 1:
-            continue
-        candidate = "-".join(parts[-suffix_parts:])
-        if _looks_like_triple(candidate):
-            return parts[0]
-    return toolchain_name
-
-
 def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
@@ -334,24 +297,22 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
         raise typer.Exit(1) from None
 
 
-def _resolve_toolchain(
-    rustup_exec: str, toolchain: str, target: str
-) -> tuple[str, list[str]]:
+def _resolve_toolchain(rustup_exec: str, toolchain: str, target: str) -> str:
     """Return the installed toolchain to use for the build."""
     installed_names = _list_installed_toolchains(rustup_exec)
     toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     _install_toolchain_channel(rustup_exec, toolchain)
     installed_names = _list_installed_toolchains(rustup_exec)
     toolchain_name = _resolve_toolchain_name(toolchain, target, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     toolchain_name = _fallback_toolchain_name(toolchain, installed_names)
     if toolchain_name:
-        return toolchain_name, installed_names
+        return toolchain_name
 
     typer.echo(
         f"::error:: requested toolchain '{toolchain}' not installed",
@@ -386,8 +347,6 @@ def _ensure_target_installed(
 
 def _decide_cross_usage(
     toolchain_name: str,
-    installed_names: list[str],
-    rustup_exec: str,
     target: str,
     host_target: str,
 ) -> _CrossDecision:
@@ -418,41 +377,11 @@ def _decide_cross_usage(
     use_cross = cross_path is not None and (has_container or use_cross_local_backend)
 
     cargo_toolchain_spec = f"+{toolchain_name}"
-    cross_toolchain_spec = cargo_toolchain_spec
-
-    if use_cross:
-        cross_toolchain_name = _toolchain_channel(toolchain_name)
-        if (
-            cross_toolchain_name != toolchain_name
-            and cross_toolchain_name not in installed_names
-        ):
-            try:
-                run_cmd(
-                    local[rustup_exec][
-                        "toolchain",
-                        "install",
-                        cross_toolchain_name,
-                        "--profile",
-                        "minimal",
-                        "--no-self-update",
-                    ]
-                )
-            except ProcessExecutionError:
-                typer.echo(
-                    "::warning:: failed to install sanitized toolchain; using cargo",
-                    err=True,
-                )
-                use_cross = False
-            else:
-                installed_names = _list_installed_toolchains(rustup_exec)
-        if use_cross:
-            cross_toolchain_spec = f"+{cross_toolchain_name}"
 
     return _CrossDecision(
         cross_path=cross_path,
         cross_version=cross_version,
         use_cross=use_cross,
-        cross_toolchain_spec=cross_toolchain_spec,
         cargo_toolchain_spec=cargo_toolchain_spec,
         use_cross_local_backend=use_cross_local_backend,
         docker_present=docker_present,
@@ -578,7 +507,6 @@ def _build_cross_command(
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
     build_cmd = executor[
-        decision.cross_toolchain_spec,
         "build",
         "--manifest-path",
         str(manifest_path),
@@ -694,14 +622,15 @@ def main(
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
     manifest_path = _resolve_manifest_path()
-    requested_toolchain = toolchain.strip() or resolve_requested_toolchain(
-        toolchain,
+    explicit_toolchain = toolchain.strip()
+    requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
+        explicit_toolchain,
         project_dir=Path.cwd(),
         manifest_path=manifest_path,
         fallback_toolchain=DEFAULT_TOOLCHAIN,
     )
     rustup_exec = _ensure_rustup_exec()
-    toolchain_name, installed_names = _resolve_toolchain(
+    toolchain_name = _resolve_toolchain(
         rustup_exec, requested_toolchain, target_to_build
     )
     target_installed = _ensure_target_installed(
@@ -711,9 +640,7 @@ def main(
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
 
     host_target = DEFAULT_HOST_TARGET
-    decision = _decide_cross_usage(
-        toolchain_name, installed_names, rustup_exec, target_to_build, host_target
-    )
+    decision = _decide_cross_usage(toolchain_name, target_to_build, host_target)
 
     _validate_cross_requirements(decision, target_to_build, host_target)
 
@@ -736,6 +663,10 @@ def main(
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features
         )
+        if explicit_toolchain:
+            build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
+                RUSTUP_TOOLCHAIN=toolchain_name
+            )
     else:
         build_cmd = _build_cargo_command(
             decision.cargo_toolchain_spec, target_to_build, manifest_argument, features

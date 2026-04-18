@@ -198,12 +198,24 @@ HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 class _DummyCommand:
     def __init__(self, name: str = "dummy") -> None:
         self._name = name
+        self.env: dict[str, str] = {}
 
     def formulate(self) -> list[str]:
         return [self._name]
 
     def __call__(self, *_args: object, **_kwargs: object) -> None:
         return None
+
+    def with_env(self, *args: object, **kwargs: str) -> _DummyCommand:
+        env_from_args: dict[str, str] = {}
+        for arg in args:
+            if not isinstance(arg, cabc.Mapping):
+                msg = "with_env positional arguments must be mappings"
+                raise TypeError(msg)
+            env_from_args.update(arg)
+        wrapped = _DummyCommand(self._name)
+        wrapped.env = {**self.env, **env_from_args, **kwargs}
+        return wrapped
 
 
 class CrossDecision(typ.Protocol):
@@ -212,7 +224,6 @@ class CrossDecision(typ.Protocol):
     cross_path: str | None
     cross_version: str | None
     use_cross: bool
-    cross_toolchain_spec: str
     cargo_toolchain_spec: str
     use_cross_local_backend: bool
     docker_present: bool
@@ -233,7 +244,6 @@ def _cross_decision(
         cross_path="/usr/bin/cross" if use_cross else None,
         cross_version="0.2.5",
         use_cross=use_cross,
-        cross_toolchain_spec="+stable",
         cargo_toolchain_spec="+stable",
         use_cross_local_backend=False,
         docker_present=True,
@@ -316,7 +326,7 @@ def patch_common_main_deps(
     """Provide a harness with the common main() dependencies patched."""
     harness = module_harness(main_module)
     harness.patch_attr("_ensure_rustup_exec", lambda: "/usr/bin/rustup")
-    harness.patch_attr("_resolve_toolchain", lambda *_: ("stable", ["stable"]))
+    harness.patch_attr("_resolve_toolchain", lambda *_: "stable")
     harness.patch_attr("_ensure_target_installed", lambda *_: True)
     harness.patch_attr("configure_windows_linkers", lambda *_, **__: None)
     harness.patch_attr("_configure_cross_container_engine", lambda *_: (None, None))

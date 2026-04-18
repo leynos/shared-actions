@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from plumbum.commands.processes import ProcessExecutionError
+from rust_build_release_test_helpers import assert_no_toolchain_override
 from shared_actions_conftest import (
     CMD_MOX_UNSUPPORTED,
     _register_cross_version_stub,
@@ -45,12 +46,7 @@ def test_skips_target_install_when_cross_available(
     """Continues when target addition fails but cross is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
-
-    def run_cmd_side_effect(cmd: list[str]) -> None:
-        if Path(cmd[0]).name == "rustup" and cmd[1:3] == ["target", "add"]:
-            raise ProcessExecutionError(cmd, 1, "", "")
-
-    app_env.patch_run_cmd(run_cmd_side_effect)
+    captured: dict[str, object] = {}
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -69,13 +65,24 @@ def test_skips_target_install_when_cross_available(
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
 
+    def fake_run(cmd: object) -> None:
+        parts = list(cmd.formulate())
+        env = getattr(cmd, "env", {})
+        if Path(parts[0]).name == "rustup" and parts[1:3] == ["target", "add"]:
+            raise ProcessExecutionError(parts, 1, "", "")
+        captured["parts"] = parts
+        captured["env"] = env
+
+    app_env.patch_attr("run_cmd", fake_run)
+
     cmd_mox.replay()
 
     main_module.main("aarch64-pc-windows-gnu", default_toolchain)
     cmd_mox.verify()
-    build_cmd = app_env.calls[-1]
+    build_cmd = typ.cast("list[str]", captured["parts"])
     assert Path(build_cmd[0]).name == "cross"
-    assert build_cmd[1] == f"+{default_toolchain}"
+    assert_no_toolchain_override(build_cmd)
+    assert captured["env"] == {"RUSTUP_TOOLCHAIN": default_toolchain}
 
 
 @CMD_MOX_UNSUPPORTED
@@ -531,8 +538,6 @@ def test_decide_cross_usage_marks_bsd_targets_for_container(
 
     decision = main_module._decide_cross_usage(
         toolchain_name="stable-x86_64-unknown-linux-gnu",
-        installed_names=["stable-x86_64-unknown-linux-gnu"],
-        rustup_exec="rustup",
         target=target,
         host_target=host_target,
     )
@@ -1156,7 +1161,7 @@ def test_main_propagates_windows_linker_rustup_failure(
     harness.patch_attr("_ensure_rustup_exec", lambda: rustup_path)
     harness.patch_attr(
         "_resolve_toolchain",
-        lambda *_: (toolchain_name, [toolchain_name]),
+        lambda *_: toolchain_name,
     )
     harness.patch_attr("_ensure_target_installed", lambda *_: True)
     harness.patch_attr(
@@ -1165,7 +1170,6 @@ def test_main_propagates_windows_linker_rustup_failure(
             cross_path=None,
             cross_version=None,
             use_cross=False,
-            cross_toolchain_spec=None,
             cargo_toolchain_spec=None,
             use_cross_local_backend=False,
             docker_present=False,

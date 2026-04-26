@@ -30,7 +30,7 @@ endif
 	uv sync --group dev
 
 lint: ## Check test scripts and actions
-	uvx ruff check
+	uv tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
 	| xargs -r -0 -n1 action-validator
 
@@ -58,12 +58,12 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts
 fmt: ## Format Python files and auto-fix selected lint rules
-	uvx ruff format
-	uvx ruff check --select $(RUFF_FIX_RULES) --fix
+	uv tool run ruff format
+	uv tool run ruff check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
-	uvx ruff format --check
-	uvx ruff check --select $(RUFF_FIX_RULES)
+	uv tool run ruff format --check
+	uv tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)

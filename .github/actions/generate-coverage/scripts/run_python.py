@@ -15,6 +15,7 @@ from pathlib import Path
 import typer
 from cmd_utils_loader import run_cmd
 from coverage_parsers import get_line_coverage_percent_from_cobertura
+from plumbum import local
 from plumbum.cmd import uv
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
@@ -27,6 +28,8 @@ LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
+COVERAGE_VENV = Path(".venv-coverage")
+TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
     "-m",
@@ -40,18 +43,15 @@ PYTEST_ARGS: tuple[str, ...] = (
 )
 
 
-def _uv_python_cmd() -> BoundCommand:
-    """Return ``uv run`` configured with the required coverage tools."""
-    return uv[
-        "run",
-        "--with",
-        "slipcover",
-        "--with",
-        "pytest",
-        "--with",
-        "coverage",
-        "python",
-    ]
+def create_venv() -> str:
+    """Create a throwaway venv for coverage tooling; return python path."""
+    run_cmd(uv["venv", str(COVERAGE_VENV)])
+    return str(COVERAGE_VENV / "bin" / "python")
+
+
+def install_coverage_tools(python: str) -> None:
+    """Install coverage tooling into the throwaway venv."""
+    run_cmd(uv["pip", "install", "--python", python, *TOOLING_PACKAGES])
 
 
 def _coverage_args(fmt: str, out: Path) -> list[str]:
@@ -64,18 +64,17 @@ def _coverage_args(fmt: str, out: Path) -> list[str]:
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
+def coverage_cmd_for_fmt(fmt: str, out: Path, python: str) -> BoundCommand:
     """Return the slipcover command for the requested format."""
-    python_cmd = _uv_python_cmd()
-    return python_cmd[_coverage_args(fmt, out)]
+    return local[python][_coverage_args(fmt, out)]
 
 
 @contextlib.contextmanager
-def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
+def tmp_coveragepy_xml(out: Path, python: str) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
     try:
-        cmd = _uv_python_cmd()["-m", "coverage", "xml", "-o", str(xml_tmp)]
+        cmd = local[python]["-m", "coverage", "xml", "-o", str(xml_tmp)]
         run_cmd(cmd)
     except ProcessExecutionError as exc:
         typer.echo(
@@ -102,14 +101,17 @@ def main(
         out = output_path.with_name(f"{output_path.stem}.python{output_path.suffix}")
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = coverage_cmd_for_fmt(fmt, out)
+    python = create_venv()
+    install_coverage_tools(python)
+
+    cmd = coverage_cmd_for_fmt(fmt, out, python)
     try:
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
-        with tmp_coveragepy_xml(out) as xml_tmp:
+        with tmp_coveragepy_xml(out, python) as xml_tmp:
             percent = get_line_coverage_percent_from_cobertura(xml_tmp)
         Path(".coverage").replace(out)
     else:

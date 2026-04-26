@@ -14,25 +14,27 @@ clean: ## Remove transient artefacts
 	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache
 
 BUILD_JOBS ?=
+ACTION_VALIDATOR ?= $(if $(wildcard $(HOME)/.cargo/bin/action-validator),$(HOME)/.cargo/bin/action-validator,action-validator)
 MDLINT ?= markdownlint
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
+UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
 
 test: .venv ## Run tests
-	uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
-	ACT_WORKFLOW_TESTS=1 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
+	ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
 endif
 
 .venv:
-	uv venv
-	uv sync --group dev
+	$(UV) venv
+	$(UV) sync --group dev
 
 lint: ## Check test scripts and actions
-	uv tool run ruff check
+	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 action-validator
+	| xargs -r -0 -n1 $(ACTION_VALIDATOR)
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
@@ -58,12 +60,12 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts
 fmt: ## Format Python files and auto-fix selected lint rules
-	uv tool run ruff format
-	uv tool run ruff check --select $(RUFF_FIX_RULES) --fix
+	$(UV) tool run ruff format
+	$(UV) tool run ruff check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
-	uv tool run ruff format --check
-	uv tool run ruff check --select $(RUFF_FIX_RULES)
+	$(UV) tool run ruff format --check
+	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import importlib.util
 import re
@@ -278,10 +279,19 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
 
 
-def test_check_target_support_exits_when_target_not_installed_and_no_cross(
+@pytest.mark.parametrize(
+    ("target_installed", "expect_exit"),
+    [
+        pytest.param(False, True, id="exits_when_not_installed_and_no_cross"),
+        pytest.param(True, False, id="passes_when_target_installed"),
+    ],
+)
+def test_check_target_support(
     monkeypatch: pytest.MonkeyPatch,
+    target_installed: bool,  # noqa: FBT001
+    expect_exit: bool,  # noqa: FBT001
 ) -> None:
-    """Target support exits when cargo cannot build without cross."""
+    """_check_target_support exits only when target is missing and cross is disabled."""
     main_module = _load_main_module(monkeypatch)
     decision = main_module._CrossDecision(
         cross_path=None,
@@ -296,39 +306,18 @@ def test_check_target_support_exits_when_target_not_installed_and_no_cross(
         requires_cross_container=False,
     )
 
-    with pytest.raises(main_module.typer.Exit):
+    ctx = (
+        pytest.raises(main_module.typer.Exit)
+        if expect_exit
+        else contextlib.nullcontext()
+    )
+    with ctx:
         main_module._check_target_support(
             decision,
             "bogus-nightly",
             "aarch64-unknown-linux-gnu",
-            target_installed=False,
+            target_installed=target_installed,
         )
-
-
-def test_check_target_support_passes_when_target_installed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Target support passes when the requested target is installed."""
-    main_module = _load_main_module(monkeypatch)
-    decision = main_module._CrossDecision(
-        cross_path=None,
-        cross_version=None,
-        use_cross=False,
-        cargo_toolchain_spec="+bogus-nightly",
-        use_cross_local_backend=False,
-        docker_present=False,
-        podman_present=False,
-        has_container=False,
-        container_engine=None,
-        requires_cross_container=False,
-    )
-
-    main_module._check_target_support(
-        decision,
-        "bogus-nightly",
-        "aarch64-unknown-linux-gnu",
-        target_installed=True,
-    )
 
 
 def test_assemble_build_command_returns_cargo_when_use_cross_false(

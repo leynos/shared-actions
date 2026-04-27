@@ -11,6 +11,7 @@ import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
 import shutil
 import typing as typ
+from functools import lru_cache
 from pathlib import Path
 
 import typer
@@ -31,12 +32,6 @@ GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
-# _COVERAGE_PYTHON_CMD is a module-level lazy singleton.  GitHub Actions
-# runners execute action steps sequentially in a single thread, so no
-# synchronisation is required.  The variable is None until the first call
-# to _coverage_python_cmd(), after which it is reused for the lifetime of
-# the process.
-_COVERAGE_PYTHON_CMD: BoundCommand | None = None
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
     "-m",
@@ -50,8 +45,8 @@ PYTEST_ARGS: tuple[str, ...] = (
 )
 
 
-def _coverage_python_path() -> Path:
-    """Return the Python executable path inside the coverage venv."""
+def _find_coverage_python() -> Path | None:
+    """Return the coverage venv Python executable path when it exists."""
     candidates = (
         COVERAGE_VENV / "bin" / "python",
         COVERAGE_VENV / "Scripts" / "python.exe",
@@ -60,83 +55,40 @@ def _coverage_python_path() -> Path:
     for candidate in candidates:
         if candidate.is_file():
             return candidate
-    paths = ", ".join(str(candidate) for candidate in candidates)
-    msg = f"Coverage venv Python executable not found; checked: {paths}"
-    raise RuntimeError(msg)
+    return None
 
 
-def create_venv() -> str:
-    """Create a throwaway venv for coverage tooling.
+def _ensure_coverage_venv() -> str:
+    """Create or repair the coverage venv and install coverage tooling.
 
-    If the venv directory already exists but its Python executable cannot be
-    located (broken-cache state), the directory is removed and the venv is
-    recreated before returning the interpreter path.
-
-    Returns
-    -------
-    str
-        Absolute path to the Python executable inside the created venv.
+    Returns the Python executable path inside the isolated coverage venv.
     """
-    if not COVERAGE_VENV.exists():
-        typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
+    python = _find_coverage_python()
+    if python is None:
+        if COVERAGE_VENV.exists():
+            typer.echo(
+                f"Coverage venv at {COVERAGE_VENV} is missing its Python "
+                "executable; recreating.",
+                err=True,
+            )
+            shutil.rmtree(COVERAGE_VENV)
+        else:
+            typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
         run_cmd(uv["venv", str(COVERAGE_VENV)])
-    else:
-        typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
-    try:
-        python = str(_coverage_python_path())
-    except RuntimeError:
-        typer.echo(
-            f"Coverage venv at {COVERAGE_VENV} is missing its Python "
-            "executable; recreating.",
-            err=True,
-        )
-        shutil.rmtree(COVERAGE_VENV)
-        run_cmd(uv["venv", str(COVERAGE_VENV)])
-        python = str(_coverage_python_path())
-    return python
-
-
-def install_coverage_tools(python: str) -> None:
-    """Install coverage tooling into the throwaway venv.
-
-    Parameters
-    ----------
-    python : str
-        Path to the Python executable inside the target venv, as returned by
-        create_venv().
-
-    Raises
-    ------
-    plumbum.commands.processes.ProcessExecutionError
-        Propagated from run_cmd() when uv pip install fails.
-    """
+        python = _find_coverage_python()
+        if python is None:
+            msg = f"Coverage venv Python executable not found in {COVERAGE_VENV}"
+            raise RuntimeError(msg)
     typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
-    run_cmd(uv["pip", "install", "--python", python, *TOOLING_PACKAGES])
+    run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
+    return str(python)
 
 
+@lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
-    """Set up the coverage venv on first call and return the cached command.
-
-    Side effects on first call
-    --------------------------
-    * Creates .venv-coverage via create_venv() (recreates on broken cache).
-    * Installs slipcover, pytest, and coverage into the venv.
-    * Caches the resulting BoundCommand in _COVERAGE_PYTHON_CMD.
-
-    Returns
-    -------
-    BoundCommand
-        A plumbum command bound to the venv's Python executable.
-    """
-    global _COVERAGE_PYTHON_CMD
-    if _COVERAGE_PYTHON_CMD is not None:
-        typer.echo("Reusing cached coverage Python command.")
-        return _COVERAGE_PYTHON_CMD
-    typer.echo("Setting up coverage Python environment (first use).")
-    python = create_venv()
-    install_coverage_tools(python)
-    _COVERAGE_PYTHON_CMD = local[python]
-    return _COVERAGE_PYTHON_CMD
+    """Return the coverage venv Python command, creating it on first use."""
+    python = _ensure_coverage_venv()
+    return local[python]
 
 
 def _coverage_args(fmt: str, out: Path) -> list[str]:

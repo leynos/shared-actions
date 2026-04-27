@@ -69,9 +69,12 @@ check-fmt: ## Check Python formatting without modifying files
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	@files=$$(git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE)...HEAD -- '*.md' 2>/dev/null); \
-	if [ -n "$$files" ]; then \
-		printf '%s\n' "$$files" | xargs -r -- $(MDLINT); \
+	@if files=$$(git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE)...HEAD -- '*.md' 2>/dev/null); then \
+		if [ -n "$$files" ]; then \
+			printf '%s\n' "$$files" | xargs -r -- $(MDLINT); \
+		else \
+			find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT); \
+		fi; \
 	else \
 		find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT); \
 	fi

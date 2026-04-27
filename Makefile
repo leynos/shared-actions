@@ -14,7 +14,7 @@ clean: ## Remove transient artefacts
 	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache
 
 BUILD_JOBS ?=
-ACTION_VALIDATOR ?= $(if $(wildcard $(HOME)/.cargo/bin/action-validator),$(HOME)/.cargo/bin/action-validator,action-validator)
+ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
 MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint),$(HOME)/.bun/bin/markdownlint,markdownlint)
 MARKDOWNLINT_BASE ?= origin/main
 NIXIE ?= nixie

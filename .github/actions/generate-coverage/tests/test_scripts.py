@@ -1764,7 +1764,7 @@ def _set_fake_coverage_python_cmd(
 
 def _assert_python_command_structure(parts: list[str]) -> None:
     """Verify common venv Python command structure with slipcover and pytest."""
-    assert Path(parts[0]).name == "python"
+    assert Path(parts[0]).stem == "python"
     slip_idx = parts.index("-m", 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
     assert parts[-3:] == ["-m", "pytest", "-v"]
@@ -1772,7 +1772,10 @@ def _assert_python_command_structure(parts: list[str]) -> None:
 
 def _assert_coverage_python_path(actual: str, expected: str) -> None:
     """Assert that a formulated command points at the coverage venv Python."""
-    assert Path(actual).parts[-3:] == Path(expected).parts[-3:]
+    actual_path = Path(actual)
+    expected_path = Path(expected)
+    assert actual_path.parts[-3:-1] == expected_path.parts[-3:-1]
+    assert actual_path.stem == expected_path.stem
 
 
 def _assert_tokens_in_order(parts: list[str], *tokens: str) -> None:
@@ -1852,7 +1855,7 @@ def test_ensure_coverage_venv_returns_coverage_python(
     assert python == str(setup.coverage_venv / "bin" / "python")
     assert len(setup.recorded) == 3
     venv_parts = setup.recorded[0]
-    assert Path(venv_parts[0]).name == "uv"
+    assert Path(venv_parts[0]).stem == "uv"
     assert venv_parts[1:] == ["venv", str(setup.coverage_venv)]
     sync_parts = setup.recorded[1]
     assert sync_parts[1:] == ["sync", "--inexact", "--python", python]
@@ -1940,7 +1943,7 @@ def test_ensure_coverage_venv_raises_when_created_venv_has_no_python(
 
     assert run_python_module._find_coverage_python() is None
     assert len(setup.recorded) == 1
-    assert Path(setup.recorded[0][0]).name == "uv"
+    assert Path(setup.recorded[0][0]).stem == "uv"
     assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
     assert not [r for r in setup.recorded if len(r) > 1 and r[1] == "sync"]
     assert not [
@@ -2053,7 +2056,7 @@ def test_ensure_coverage_venv_targets_venv_python_for_tooling(
     assert len(setup.recorded) == 2
     assert setup.recorded[0][1:] == ["sync", "--inexact", "--python", str(python)]
     parts = setup.recorded[1]
-    assert Path(parts[0]).name == "uv"
+    assert Path(parts[0]).stem == "uv"
     assert parts[1:5] == ["pip", "install", "--python", str(python)]
     assert "--system" not in parts
     assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)

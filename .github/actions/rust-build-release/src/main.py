@@ -501,12 +501,21 @@ def _normalize_features(features: str) -> str:
     return ",".join(normalized)
 
 
+def _assert_cross_command_has_no_toolchain_override(cmd: cabc.Sequence[object]) -> None:
+    # Cross must not be given a +<toolchain>; rely on rust-toolchain.toml /
+    # rustup override.
+    if any(isinstance(arg, str) and arg.startswith("+") for arg in cmd[1:3]):
+        message = "cross command must not include a +<toolchain> override"
+        raise ValueError(message)
+
+
 def _build_cross_command(
     decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
-    build_cmd = executor[
+    cmd: list[object] = [
+        cross_executable,
         "build",
         "--manifest-path",
         str(manifest_path),
@@ -514,6 +523,8 @@ def _build_cross_command(
         "--target",
         target_to_build,
     ]
+    _assert_cross_command_has_no_toolchain_override(cmd)
+    build_cmd = executor[cmd[1:]]
     normalized_features = _normalize_features(features)
     if normalized_features:
         build_cmd = build_cmd["--features", normalized_features]
@@ -667,6 +678,7 @@ def main(
             build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
                 RUSTUP_TOOLCHAIN=toolchain_name
             )
+        typer.echo(f"::debug:: cross argv: {build_cmd}")
     else:
         build_cmd = _build_cargo_command(
             decision.cargo_toolchain_spec, target_to_build, manifest_argument, features

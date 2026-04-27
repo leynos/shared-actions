@@ -504,7 +504,7 @@ def _normalize_features(features: str) -> str:
 def _assert_cross_command_has_no_toolchain_override(cmd: cabc.Sequence[object]) -> None:
     # Cross must not be given a +<toolchain>; rely on rust-toolchain.toml /
     # rustup override.
-    if any(isinstance(arg, str) and arg.startswith("+") for arg in cmd[1:3]):
+    if any(isinstance(arg, str) and arg.startswith("+") for arg in cmd[1:]):
         message = "cross command must not include a +<toolchain> override"
         raise ValueError(message)
 

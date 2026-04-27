@@ -52,7 +52,7 @@ def test_build_cross_command_never_injects_toolchain_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Cross commands start with cross build and omit +toolchain arguments."""
+    """Cross commands start with `cross build` and omit +toolchain arguments."""
     main_module = _load_main_module(monkeypatch)
     cross_path = _make_cross_executable(tmp_path)
     decision = main_module._CrossDecision(
@@ -76,7 +76,7 @@ def test_build_cross_command_never_injects_toolchain_override(
     )
 
     parts = list(cmd.formulate())
-    assert parts[0] == "cross"
+    assert parts[:3] == ["cross", "build", "--manifest-path"]
     assert_no_toolchain_override(parts)
 
 
@@ -131,6 +131,51 @@ def test_cross_container_fallback_keeps_cargo_toolchain_override(
     ]
 
 
+def test_cross_container_fallback_without_cargo_toolchain_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The container-error fallback uses no +toolchain when none is configured."""
+    main_module = _load_main_module(monkeypatch)
+    calls: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object) -> None:
+        formulated = list(cmd.formulate())
+        if formulated:
+            formulated[0] = Path(formulated[0]).name
+        calls.append(formulated)
+
+    monkeypatch.setattr(main_module, "run_cmd", fake_run_cmd)
+    decision = main_module._CrossDecision(
+        cross_path="/usr/bin/cross",
+        cross_version="0.2.5",
+        use_cross=True,
+        cargo_toolchain_spec="",
+        use_cross_local_backend=False,
+        docker_present=True,
+        podman_present=False,
+        has_container=True,
+        container_engine="docker",
+        requires_cross_container=False,
+    )
+    exc = ProcessExecutionError(["cross", "build"], 125, "", "")
+
+    main_module._handle_cross_container_error(
+        exc,
+        decision,
+        "aarch64-unknown-linux-gnu",
+        tmp_path / "Cargo.toml",
+        "",
+    )
+
+    assert calls
+    fallback_call = calls[0]
+    assert fallback_call[0] == "cargo"
+    assert all(
+        not (isinstance(arg, str) and arg.startswith("+")) for arg in fallback_call[1:]
+    )
+
+
 def test_cross_command_guard_rejects_toolchain_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -141,5 +186,5 @@ def test_cross_command_guard_rejects_toolchain_override(
         match=r"cross command must not include a \+<toolchain> override",
     ):
         main_module._assert_cross_command_has_no_toolchain_override(
-            ["cross", "+bogus-nightly", "build"]
+            ["cross", "build", "--manifest-path", "Cargo.toml", "+bogus-nightly"]
         )

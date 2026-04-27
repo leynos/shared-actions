@@ -552,8 +552,7 @@ def _build_cargo_command(
         cmd.insert(0, cargo_toolchain_spec)
     build_cmd = executor[cmd]
     wrapped_cmd = _CommandWrapper(build_cmd, "cargo")
-    gha_debug(f"cargo argv: {wrapped_cmd}")
-    return wrapped_cmd
+    return wrapped_cmd  # noqa: RET504 - keep the named command for call-site logging.
 
 
 def _handle_cross_container_error(
@@ -642,9 +641,11 @@ def _assemble_build_command(
 ) -> SupportsFormulate:
     """Construct the build command for either cross or cargo."""
     if not decision.use_cross:
-        return _build_cargo_command(
+        cmd = _build_cargo_command(
             decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
         )
+        gha_debug(f"cargo argv: {cmd}")
+        return cmd
     try:
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features

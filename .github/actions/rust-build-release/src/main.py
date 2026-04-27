@@ -545,12 +545,12 @@ def _build_cargo_command(
         "--target",
         target_to_build,
     ]
+    normalized_features = _normalize_features(features)
+    if normalized_features:
+        cmd.extend(["--features", normalized_features])
     if cargo_toolchain_spec:
         cmd.insert(0, cargo_toolchain_spec)
     build_cmd = executor[cmd]
-    normalized_features = _normalize_features(features)
-    if normalized_features:
-        build_cmd = build_cmd["--features", normalized_features]
     return _CommandWrapper(build_cmd, "cargo")
 
 

@@ -523,11 +523,11 @@ def _build_cross_command(
         "--target",
         target_to_build,
     ]
-    _assert_cross_command_has_no_toolchain_override(cmd)
-    build_cmd = executor[cmd[1:]]
     normalized_features = _normalize_features(features)
     if normalized_features:
-        build_cmd = build_cmd["--features", normalized_features]
+        cmd.extend(["--features", normalized_features])
+    _assert_cross_command_has_no_toolchain_override(cmd)
+    build_cmd = executor[cmd[1:]]
     if decision.cross_path:
         build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     return build_cmd

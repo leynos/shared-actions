@@ -7,9 +7,10 @@ projects. The action uses `cargo llvm-cov` (with `cargo nextest` by default)
 when a `Cargo.toml` is present and `slipcover` with `pytest` when a
 `pyproject.toml` is present. If the repository root does not contain a Cargo
 manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
-`slipcover`, `pytest`, and `coverage` automatically via `uv` into an isolated
-throwaway virtual environment (`.venv-coverage`) before running the tests, so
-no system-level Python installs are required.
+the project dependencies plus `slipcover`, `pytest`, and `coverage`
+automatically via `uv` into an isolated throwaway virtual environment
+(`.venv-coverage`) before running the tests, so no system-level Python installs
+are required.
 When Rust coverage is required, `cargo-llvm-cov` and `cargo-nextest` are
 installed automatically. If both configuration files are present, coverage is
 run for each language and the Cobertura reports are merged using

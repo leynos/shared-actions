@@ -32,6 +32,7 @@ GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
+PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
     "-m",
@@ -59,7 +60,7 @@ def _find_coverage_python() -> Path | None:
 
 
 def _ensure_coverage_venv() -> str:
-    """Create or repair the coverage venv and install coverage tooling.
+    """Create or repair the coverage venv and install project/test tooling.
 
     Returns the Python executable path inside the isolated coverage venv.
     """
@@ -79,6 +80,8 @@ def _ensure_coverage_venv() -> str:
         if python is None:
             msg = f"Coverage venv Python executable not found in {COVERAGE_VENV}"
             raise RuntimeError(msg)
+    typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
+    run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
     typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
     run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
     return str(python)

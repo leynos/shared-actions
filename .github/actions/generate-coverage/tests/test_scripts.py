@@ -1850,11 +1850,13 @@ def test_ensure_coverage_venv_returns_coverage_python(
     python = run_python_module._ensure_coverage_venv()
 
     assert python == str(setup.coverage_venv / "bin" / "python")
-    assert len(setup.recorded) == 2
+    assert len(setup.recorded) == 3
     venv_parts = setup.recorded[0]
     assert Path(venv_parts[0]).name == "uv"
     assert venv_parts[1:] == ["venv", str(setup.coverage_venv)]
-    install_parts = setup.recorded[1]
+    sync_parts = setup.recorded[1]
+    assert sync_parts[1:] == ["sync", "--inexact", "--python", python]
+    install_parts = setup.recorded[2]
     assert install_parts[1:5] == [
         "pip",
         "install",
@@ -1877,8 +1879,9 @@ def test_ensure_coverage_venv_reuses_existing_coverage_venv(
     python_path.touch()
 
     assert run_python_module._ensure_coverage_venv() == str(python_path)
-    assert len(setup.recorded) == 1
-    assert setup.recorded[0][1:5] == [
+    assert len(setup.recorded) == 2
+    assert setup.recorded[0][1:] == ["sync", "--inexact", "--python", str(python_path)]
+    assert setup.recorded[1][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1900,6 +1903,7 @@ def test_ensure_coverage_venv_recovers_from_broken_cache(
     venv_calls = [r for r in setup.recorded if len(r) > 1 and r[1] == "venv"]
     assert len(venv_calls) == 1
     assert python == str(setup.coverage_venv / "bin" / "python")
+    assert setup.recorded[-2][1:] == ["sync", "--inexact", "--python", python]
     assert setup.recorded[-1][1:5] == [
         "pip",
         "install",
@@ -1933,9 +1937,15 @@ def test_ensure_coverage_venv_recreates_broken_coverage_venv(
     assert run_python_module._ensure_coverage_venv() == str(
         setup.coverage_venv / "bin" / "python"
     )
-    assert len(setup.recorded) == 2
+    assert len(setup.recorded) == 3
     assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
-    assert setup.recorded[1][1:5] == [
+    assert setup.recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(setup.coverage_venv / "bin" / "python"),
+    ]
+    assert setup.recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1960,9 +1970,15 @@ def test_ensure_coverage_venv_recreates_invalid_python_candidate(
     assert run_python_module._ensure_coverage_venv() == str(
         setup.coverage_venv / "Scripts" / "python.exe"
     )
-    assert len(setup.recorded) == 2
+    assert len(setup.recorded) == 3
     assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
-    assert setup.recorded[1][1:5] == [
+    assert setup.recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(setup.coverage_venv / "Scripts" / "python.exe"),
+    ]
+    assert setup.recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
@@ -1985,8 +2001,9 @@ def test_ensure_coverage_venv_targets_venv_python_for_tooling(
 
     assert run_python_module._ensure_coverage_venv() == str(python)
 
-    assert len(setup.recorded) == 1
-    parts = setup.recorded[0]
+    assert len(setup.recorded) == 2
+    assert setup.recorded[0][1:] == ["sync", "--inexact", "--python", str(python)]
+    parts = setup.recorded[1]
     assert Path(parts[0]).name == "uv"
     assert parts[1:5] == ["pip", "install", "--python", str(python)]
     assert "--system" not in parts
@@ -2018,9 +2035,10 @@ def test_coverage_python_cmd_prepares_tools_once(
     assert first is second
     parts = list(first.formulate())
     _assert_coverage_python_path(parts[0], str(python_path))
-    assert len(recorded) == 2
+    assert len(recorded) == 3
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
-    assert recorded[1][1:5] == [
+    assert recorded[1][1:] == ["sync", "--inexact", "--python", str(python_path)]
+    assert recorded[2][1:5] == [
         "pip",
         "install",
         "--python",

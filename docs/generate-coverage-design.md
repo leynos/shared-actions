@@ -19,7 +19,8 @@ action and the evolution of its supporting scripts.
 - *2026-04-27* — Python coverage runs now execute inside an isolated,
   short-lived virtual environment (`.venv-coverage`) rather than relying on
   `uv run --with` or the system interpreter. `_ensure_coverage_venv()` creates
-  or repairs the venv on first use, installs tooling (`slipcover`, `pytest`,
+  or repairs the venv on first use, syncs the project dependencies into it via
+  `uv sync --inexact --python`, installs tooling (`slipcover`, `pytest`,
   `coverage`) via `uv pip install --python`, and `_coverage_python_cmd()` caches
   the resulting interpreter command for the lifetime of the process.
 
@@ -192,10 +193,13 @@ the same job, and discarded when the runner workspace is cleaned up.
    - If absent, it creates the venv via `uv venv .venv-coverage`.
    - If present but broken (Python binary missing), it removes the directory
      and recreates it.
-2. `_ensure_coverage_venv()` installs `slipcover`, `pytest`, and `coverage`
+2. `_ensure_coverage_venv()` syncs the current project into the venv with
+   `uv sync --inexact --python <venv-python>` so tests can import project
+   dependencies.
+3. `_ensure_coverage_venv()` installs `slipcover`, `pytest`, and `coverage`
    into the venv using `uv pip install --python <venv-python>`. The `--system`
    flag is deliberately excluded to keep the install isolated.
-3. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
+4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
    cached value on all subsequent calls within the same process.
 
@@ -210,6 +214,6 @@ requires no explicit synchronisation.
 <!-- markdownlint-disable MD013 MD060 -->
 | Symbol | Role |
 |---|---|
-| `_ensure_coverage_venv() -> str` | Create or recover the venv, install tooling, and return Python path. |
+| `_ensure_coverage_venv() -> str` | Create or recover the venv, install project/tool dependencies, and return Python path. |
 | `_coverage_python_cmd() -> BoundCommand` | Return the cached venv Python command. |
 <!-- markdownlint-enable MD013 MD060 -->

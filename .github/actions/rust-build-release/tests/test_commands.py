@@ -170,12 +170,17 @@ def test_cross_container_fallback_without_cargo_toolchain_override(
         "",
     )
 
-    assert calls
-    fallback_call = calls[0]
-    assert fallback_call[0] == "cargo"
-    assert all(
-        not (isinstance(arg, str) and arg.startswith("+")) for arg in fallback_call[1:]
-    )
+    assert calls == [
+        [
+            "cargo",
+            "build",
+            "--manifest-path",
+            str(tmp_path / "Cargo.toml"),
+            "--release",
+            "--target",
+            "aarch64-unknown-linux-gnu",
+        ]
+    ]
 
 
 def test_cross_command_guard_rejects_toolchain_override(

@@ -8,7 +8,7 @@ import importlib.util
 import stat
 import sys
 import typing as typ
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -249,7 +249,7 @@ def test_cross_debug_output_snapshot(
     monkeypatch.chdir(tmp_path)
     cross_path = _make_cross_executable(tmp_path)
     # Use a stable manifest path suffix for the snapshot
-    stable_manifest = Path("/snapshot/Cargo.toml")
+    stable_manifest = PurePosixPath("/snapshot/Cargo.toml")
     decision = _make_cross_decision(
         main_module,
         cross_path,

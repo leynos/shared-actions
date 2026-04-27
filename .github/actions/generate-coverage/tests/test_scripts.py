@@ -1816,7 +1816,7 @@ def _setup_create_venv_test(
     ----------
     python_to_create:
         Relative POSIX path inside the venv to create when ``uv venv``
-        is called.  Pass ``None`` to skip creation (venv-reuse scenario).
+        is recorded. Pass ``None`` to skip creation (reuse scenario).
     """
     coverage_venv = tmp_path / ".venv-coverage"
     setup = VenvTestSetup(coverage_venv=coverage_venv)
@@ -1824,7 +1824,7 @@ def _setup_create_venv_test(
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
         parts = list(cmd.formulate())  # type: ignore[attr-defined]
         setup.recorded.append(parts)
-        if python_to_create is not None and parts[1] == "venv":
+        if python_to_create is not None and len(parts) > 1 and parts[1] == "venv":
             python_path = coverage_venv / python_to_create
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.touch()
@@ -1866,6 +1866,22 @@ def test_create_venv_reuses_existing_coverage_venv(
 
     assert run_python_module.create_venv() == str(python_path)
     assert setup.recorded == []
+
+
+def test_create_venv_recovers_from_broken_cache(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """create_venv() recreates a venv whose Python executable is absent."""
+    setup = _setup_create_venv_test(tmp_path, run_python_module, monkeypatch)
+    setup.coverage_venv.mkdir(parents=True)  # broken: dir present, no binary
+
+    python = run_python_module.create_venv()
+
+    venv_calls = [r for r in setup.recorded if len(r) > 1 and r[1] == "venv"]
+    assert len(venv_calls) == 1
+    assert python == str(setup.coverage_venv / "bin" / "python")
 
 
 def test_coverage_python_path_raises_when_no_executable(

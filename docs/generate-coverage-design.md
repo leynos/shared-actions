@@ -208,7 +208,9 @@ synchronisation.
 
 ### Public API
 
+<!-- markdownlint-disable MD013 MD060 -->
 | Symbol | Role |
 |---|---|
 | `create_venv() -> str` | Create or recover the venv; return Python path. |
 | `install_coverage_tools(python: str) -> None` | Install tooling into the venv. |
+<!-- markdownlint-enable MD013 MD060 -->

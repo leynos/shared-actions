@@ -1796,6 +1796,11 @@ def _assert_flag_value_pair(parts: list[str], flag: str, value: str) -> None:
     pytest.fail(message)
 
 
+def _is_uv_venv_invocation(parts: list[str]) -> bool:
+    """Return True when the command parts represent a ``uv venv`` call."""
+    return len(parts) > 1 and parts[1] == "venv"
+
+
 @dataclasses.dataclass
 class VenvTestSetup:
     """Scaffolding returned by _setup_create_venv_test for create_venv() tests."""
@@ -1824,7 +1829,7 @@ def _setup_create_venv_test(
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
         parts = list(cmd.formulate())  # type: ignore[attr-defined]
         setup.recorded.append(parts)
-        if python_to_create is not None and len(parts) > 1 and parts[1] == "venv":
+        if python_to_create is not None and _is_uv_venv_invocation(parts):
             python_path = coverage_venv / python_to_create
             python_path.parent.mkdir(parents=True, exist_ok=True)
             python_path.touch()

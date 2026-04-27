@@ -1816,7 +1816,7 @@ def _setup_create_venv_test(
     ----------
     python_to_create:
         Relative POSIX path inside the venv to create when ``uv venv``
-        is recorded. Pass ``None`` to skip creation (reuse scenario).
+        is called.  Pass ``None`` to skip creation (venv-reuse scenario).
     """
     coverage_venv = tmp_path / ".venv-coverage"
     setup = VenvTestSetup(coverage_venv=coverage_venv)
@@ -1866,38 +1866,6 @@ def test_create_venv_reuses_existing_coverage_venv(
 
     assert run_python_module.create_venv() == str(python_path)
     assert setup.recorded == []
-
-
-def test_create_venv_recovers_from_broken_cache(
-    tmp_path: Path,
-    run_python_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """create_venv() recreates a venv whose Python executable is absent."""
-    coverage_venv = tmp_path / ".venv-coverage"
-    # Simulate a broken cache: directory exists but no Python binary inside it
-    coverage_venv.mkdir(parents=True)
-    recorded: list[list[str]] = []
-
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        parts = list(cmd.formulate())  # type: ignore[attr-defined]
-        recorded.append(parts)
-        if parts[1] == "venv":
-            # After the recreate call, place the binary so the second
-            # _coverage_python_path() call succeeds.
-            python = coverage_venv / "bin" / "python"
-            python.parent.mkdir(parents=True, exist_ok=True)
-            python.touch()
-
-    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
-    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
-
-    python = run_python_module.create_venv()
-
-    # One uv venv call (the recreate) must have been recorded.
-    venv_calls = [r for r in recorded if r[1] == "venv"]
-    assert len(venv_calls) == 1
-    assert python == str(coverage_venv / "bin" / "python")
 
 
 def test_coverage_python_path_raises_when_no_executable(

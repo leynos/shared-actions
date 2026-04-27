@@ -35,7 +35,7 @@ endif
 lint: ## Check test scripts and actions
 	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
-		-exec $(ACTION_VALIDATOR) {} +
+		-exec $(ACTION_VALIDATOR) {} \;
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \

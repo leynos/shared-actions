@@ -72,7 +72,10 @@ def _ensure_coverage_venv() -> str:
                 "executable; recreating.",
                 err=True,
             )
-            shutil.rmtree(COVERAGE_VENV)
+            if COVERAGE_VENV.is_dir() and not COVERAGE_VENV.is_symlink():
+                shutil.rmtree(COVERAGE_VENV)
+            else:
+                COVERAGE_VENV.unlink(missing_ok=True)
         else:
             typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
         run_cmd(uv["venv", str(COVERAGE_VENV)])

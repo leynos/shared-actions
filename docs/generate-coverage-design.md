@@ -207,7 +207,7 @@ the same job, and discarded when the runner workspace is cleaned up.
 
 GitHub Actions executes action steps sequentially in a single thread. The
 `functools.lru_cache` memoized `_coverage_python_cmd()` accessor therefore
-requires no explicit synchronisation.
+requires no explicit synchronization.
 
 ### Public API
 

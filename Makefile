@@ -34,8 +34,8 @@ endif
 
 lint: ## Check test scripts and actions
 	$(UV) tool run ruff check
-	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 $(ACTION_VALIDATOR)
+	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
+		-exec $(ACTION_VALIDATOR) {} +
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
@@ -71,12 +71,13 @@ check-fmt: ## Check Python formatting without modifying files
 markdownlint: ## Lint Markdown files
 	@if files=$$(git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE)...HEAD -- '*.md' 2>/dev/null); then \
 		if [ -n "$$files" ]; then \
-			printf '%s\n' "$$files" | xargs -r -- $(MDLINT); \
+			printf '%s\n' "$$files" | while IFS= read -r file; do $(MDLINT) "$$file"; done; \
 		else \
-			find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT); \
+			find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
 		fi; \
 	else \
-		find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT); \
+		printf 'Warning: git diff using MARKDOWNLINT_BASE=%s failed; running full markdown lint\n' '$(MARKDOWNLINT_BASE)' >&2; \
+		find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
 	fi
 
 nixie: ## Validate Mermaid diagrams

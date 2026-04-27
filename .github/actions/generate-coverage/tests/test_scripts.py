@@ -1925,31 +1925,26 @@ def test_find_coverage_python_returns_none_when_no_executable(
     assert run_python_module._find_coverage_python() is None
 
 
-def test_ensure_coverage_venv_recreates_broken_coverage_venv(
+def test_ensure_coverage_venv_replaces_broken_file_cache(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The helper repairs an existing venv that has no Python executable."""
+    """The helper replaces a non-directory cache placeholder before recreate."""
     setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
-    setup.coverage_venv.mkdir()  # broken: directory present, no Python binary
+    setup.coverage_venv.write_text("not a venv")
 
-    assert run_python_module._ensure_coverage_venv() == str(
-        setup.coverage_venv / "bin" / "python"
-    )
+    python = run_python_module._ensure_coverage_venv()
+
+    assert python == str(setup.coverage_venv / "bin" / "python")
     assert len(setup.recorded) == 3
     assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
-    assert setup.recorded[1][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(setup.coverage_venv / "bin" / "python"),
-    ]
+    assert setup.recorded[1][1:] == ["sync", "--inexact", "--python", python]
     assert setup.recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
-        str(setup.coverage_venv / "bin" / "python"),
+        python,
     ]
 
 

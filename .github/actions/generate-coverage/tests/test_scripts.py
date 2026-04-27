@@ -1925,6 +1925,29 @@ def test_find_coverage_python_returns_none_when_no_executable(
     assert run_python_module._find_coverage_python() is None
 
 
+def test_ensure_coverage_venv_raises_when_created_venv_has_no_python(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_ensure_coverage_venv() fails before sync/install if uv creates no Python."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+
+    with pytest.raises(RuntimeError, match="Coverage venv Python executable not found"):
+        run_python_module._ensure_coverage_venv()
+
+    assert run_python_module._find_coverage_python() is None
+    assert len(setup.recorded) == 1
+    assert Path(setup.recorded[0][0]).name == "uv"
+    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
+    assert not [r for r in setup.recorded if len(r) > 1 and r[1] == "sync"]
+    assert not [
+        r for r in setup.recorded if len(r) > 2 and r[1:3] == ["pip", "install"]
+    ]
+
+
 def _assert_venv_rebuild_commands(
     recorded: list[list[str]],
     coverage_venv: Path,
@@ -1945,6 +1968,28 @@ def _assert_venv_rebuild_commands(
         "--python",
         str(python_path),
     ]
+
+
+def test_ensure_coverage_venv_replaces_broken_symlink_cache(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper unlinks a symlink cache placeholder before recreate."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    target = tmp_path / "not-a-venv"
+    target.write_text("not a directory")
+    setup.coverage_venv.symlink_to(target)
+
+    python = run_python_module._ensure_coverage_venv()
+
+    assert not setup.coverage_venv.is_symlink()
+    assert python == str(setup.coverage_venv / "bin" / "python")
+    _assert_venv_rebuild_commands(
+        setup.recorded,
+        setup.coverage_venv,
+        setup.coverage_venv / "bin" / "python",
+    )
 
 
 def test_ensure_coverage_venv_replaces_broken_file_cache(

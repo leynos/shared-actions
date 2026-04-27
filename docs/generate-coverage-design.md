@@ -196,9 +196,10 @@ the same job, and discarded when the runner workspace is cleaned up.
 2. `_ensure_coverage_venv()` syncs the current project into the venv with
    `uv sync --inexact --python <venv-python>` so tests can import project
    dependencies.
-3. `_ensure_coverage_venv()` installs `slipcover`, `pytest`, and `coverage`
-   into the venv using `uv pip install --python <venv-python>`. The `--system`
-   flag is deliberately excluded to keep the install isolated.
+3. `_ensure_coverage_venv()` performs installation of `slipcover`, `pytest`,
+   and `coverage` into the venv using
+   `uv pip install --python <venv-python>`. The `--system` flag is deliberately
+   excluded to keep the install isolated.
 4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
    cached value on all subsequent calls within the same process.

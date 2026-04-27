@@ -71,7 +71,7 @@ check-fmt: ## Check Python formatting without modifying files
 markdownlint: ## Lint Markdown files
 	@if files=$$(git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE)...HEAD -- '*.md' 2>/dev/null); then \
 		if [ -n "$$files" ]; then \
-			printf '%s\n' "$$files" | while IFS= read -r file; do $(MDLINT) "$$file"; done; \
+			printf '%s\n' "$$files" | { status=0; while IFS= read -r file; do $(MDLINT) "$$file" || status=1; done; exit $$status; }; \
 		else \
 			find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
 		fi; \

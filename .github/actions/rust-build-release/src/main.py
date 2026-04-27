@@ -123,19 +123,10 @@ class _CommandWrapper:
         """Return the command argv with the configured display name applied."""
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
-            self._warn(
-                f"::warning:: command {self._command!r} does not support formulate(); "
-                "returning display name only"
-            )
             return [self._display_name]
         try:
             parts = list(formulate_callable())
-        except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            message = (
-                "::warning:: failed to generate command line for "
-                f"{self._command!r}: {exc}"
-            )
-            self._warn(message)
+        except Exception:  # noqa: BLE001  # pragma: no cover - unexpected failure
             return [self._display_name]
         if parts:
             parts[0] = self._display_name
@@ -730,16 +721,16 @@ def main(
     )
     _announce_build_mode(decision)
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
-    manifest_argument = _manifest_argument(manifest_path)
-    build_cmd = _assemble_build_command(
-        decision,
-        target_to_build,
-        manifest_argument,
-        features,
-        explicit_toolchain,
-        toolchain_name,
-    )
     try:
+        manifest_argument = _manifest_argument(manifest_path)
+        build_cmd = _assemble_build_command(
+            decision,
+            target_to_build,
+            manifest_argument,
+            features,
+            explicit_toolchain,
+            toolchain_name,
+        )
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
         _handle_cross_container_error(

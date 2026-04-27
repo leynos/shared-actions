@@ -232,26 +232,49 @@ def test_cross_debug_output_matches_expected_argv_pattern(
 ) -> None:
     """The cross debug line reports the materialized cross argv."""
     main_module = _load_main_module(monkeypatch)
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
     cross_path = _make_cross_executable(tmp_path)
     decision = _make_cross_decision(
         main_module,
         cross_path,
         CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
-
-    build_cmd = main_module._build_cross_command(
-        decision,
-        "aarch64-unknown-linux-gnu",
-        tmp_path / "Cargo.toml",
-        "",
+    build_cross_command = main_module._build_cross_command
+    build_cross_command_spy = mock.MagicMock(wraps=build_cross_command)
+    monkeypatch.setattr(main_module, "_build_cross_command", build_cross_command_spy)
+    monkeypatch.setattr(
+        main_module,
+        "resolve_requested_toolchain",
+        lambda *_args, **_kw: "bogus-nightly",
     )
-    main_module.typer.echo(f"::debug:: cross argv: {build_cmd}")
+    monkeypatch.setattr(main_module, "_ensure_rustup_exec", lambda: "rustup")
+    monkeypatch.setattr(
+        main_module, "_resolve_toolchain", lambda *_args: "bogus-nightly"
+    )
+    monkeypatch.setattr(main_module, "_ensure_target_installed", lambda *_args: True)
+    monkeypatch.setattr(main_module, "configure_windows_linkers", lambda *_args: None)
+    monkeypatch.setattr(main_module, "_decide_cross_usage", lambda *_args: decision)
+    monkeypatch.setattr(
+        main_module, "_validate_cross_requirements", lambda *_args: None
+    )
+    monkeypatch.setattr(main_module, "_announce_build_mode", lambda *_args: None)
+    monkeypatch.setattr(main_module, "run_cmd", lambda *_args: None)
 
-    assert len(echo_recorder) == 1
+    main_module.main("aarch64-unknown-linux-gnu", "")
+
+    build_cross_command_spy.assert_called_once()
+    debug_lines = [
+        line for line in echo_recorder if line.startswith("::debug:: cross argv:")
+    ]
+    assert len(debug_lines) == 1
     assert re.match(
         r"^::debug:: cross argv: cross build --manifest-path .+ "
         r"--release --target .+$",
-        echo_recorder[0],
+        debug_lines[0],
     )
 
 

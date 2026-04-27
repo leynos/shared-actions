@@ -238,11 +238,24 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
 
 
-def test_cross_container_fallback_keeps_cargo_toolchain_override(
+@pytest.mark.parametrize(
+    ("cargo_toolchain_spec", "extra_args"),
+    [
+        pytest.param(
+            "+bogus-nightly",
+            ["+bogus-nightly"],
+            id="keeps_toolchain_override",
+        ),
+        pytest.param("", [], id="omits_toolchain_override"),
+    ],
+)
+def test_cross_container_fallback_cargo_toolchain(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    cargo_toolchain_spec: str,
+    extra_args: list[str],
 ) -> None:
-    """The container-error fallback remains cargo-only and keeps +toolchain."""
+    """Container-error fallback emits the correct cargo argv for the toolchain spec."""
     main_module = _load_main_module(monkeypatch)
     calls: list[list[str]] = []
 
@@ -257,7 +270,7 @@ def test_cross_container_fallback_keeps_cargo_toolchain_override(
         cross_path="/usr/bin/cross",
         cross_version="0.2.5",
         use_cross=True,
-        cargo_toolchain_spec="+bogus-nightly",
+        cargo_toolchain_spec=cargo_toolchain_spec,
         use_cross_local_backend=False,
         docker_present=True,
         podman_present=False,
@@ -275,18 +288,18 @@ def test_cross_container_fallback_keeps_cargo_toolchain_override(
         "",
     )
 
-    assert calls == [
-        [
-            "cargo",
-            "+bogus-nightly",
-            "build",
-            "--manifest-path",
-            str(tmp_path / "Cargo.toml"),
-            "--release",
-            "--target",
-            "aarch64-unknown-linux-gnu",
-        ]
+    manifest_path = str(tmp_path / "Cargo.toml")
+    expected = [
+        "cargo",
+        *extra_args,
+        "build",
+        "--manifest-path",
+        manifest_path,
+        "--release",
+        "--target",
+        "aarch64-unknown-linux-gnu",
     ]
+    assert calls == [expected]
 
 
 def test_cross_container_error_with_other_retcode_reraises_original_exception(
@@ -344,56 +357,6 @@ def test_required_cross_container_error_exits_without_fallback(
     assert echo_recorder == [
         "::error:: cross failed to start a container runtime for target "
         "'aarch64-unknown-linux-gnu' (engine=docker)"
-    ]
-
-
-def test_cross_container_fallback_without_cargo_toolchain_override(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The container-error fallback uses no +toolchain when none is configured."""
-    main_module = _load_main_module(monkeypatch)
-    calls: list[list[str]] = []
-
-    def fake_run_cmd(cmd: object) -> None:
-        formulated = list(cmd.formulate())
-        if formulated:
-            formulated[0] = Path(formulated[0]).name
-        calls.append(formulated)
-
-    monkeypatch.setattr(main_module, "run_cmd", fake_run_cmd)
-    decision = main_module._CrossDecision(
-        cross_path="/usr/bin/cross",
-        cross_version="0.2.5",
-        use_cross=True,
-        cargo_toolchain_spec="",
-        use_cross_local_backend=False,
-        docker_present=True,
-        podman_present=False,
-        has_container=True,
-        container_engine="docker",
-        requires_cross_container=False,
-    )
-    exc = ProcessExecutionError(["cross", "build"], 125, "", "")
-
-    main_module._handle_cross_container_error(
-        exc,
-        decision,
-        "aarch64-unknown-linux-gnu",
-        tmp_path / "Cargo.toml",
-        "",
-    )
-
-    assert calls == [
-        [
-            "cargo",
-            "build",
-            "--manifest-path",
-            str(tmp_path / "Cargo.toml"),
-            "--release",
-            "--target",
-            "aarch64-unknown-linux-gnu",
-        ]
     ]
 
 

@@ -69,16 +69,7 @@ check-fmt: ## Check Python formatting without modifying files
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	@if files=$$(git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE)...HEAD -- '*.md' 2>/dev/null); then \
-		if [ -n "$$files" ]; then \
-			printf '%s\n' "$$files" | { status=0; while IFS= read -r file; do $(MDLINT) "$$file" || status=1; done; exit $$status; }; \
-		else \
-			find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
-		fi; \
-	else \
-		echo "markdownlint: git diff failed or base '$(MARKDOWNLINT_BASE)' not found; linting all .md files" >&2; \
-		find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
-	fi
+	MARKDOWNLINT_BASE='$(MARKDOWNLINT_BASE)' MDLINT='$(MDLINT)' ./workflow_scripts/markdownlint-check.sh
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)

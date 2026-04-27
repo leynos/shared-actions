@@ -5,10 +5,9 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import importlib.util
-import re
 import stat
+import sys
 import typing as typ
-import unittest.mock as mock
 from pathlib import Path
 
 import pytest
@@ -39,6 +38,7 @@ class CrossDecisionConfig:
 
 
 def _make_cross_executable(tmp_path: Path) -> Path:
+    """Create a minimal executable cross stub at *tmp_path*."""
     cross_path = tmp_path / "cross"
     cross_path.write_text("#!/bin/sh\n", encoding="utf-8")
     cross_path.chmod(
@@ -48,8 +48,10 @@ def _make_cross_executable(tmp_path: Path) -> Path:
 
 
 def _load_main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load main.py as a fresh module after patching the action path."""
     monkeypatch.setenv("GITHUB_ACTION_PATH", str(REPO_ROOT))
     monkeypatch.syspath_prepend(str(SRC_DIR))
+    sys.modules.pop("gha", None)
 
     import packaging
     import packaging.version as packaging_version
@@ -122,31 +124,37 @@ def test_build_cross_command_never_injects_toolchain_override(
     assert_no_toolchain_override(parts)
 
 
-def test_build_cross_command_invokes_toolchain_override_guard(
+def test_build_cross_command_rejects_injected_toolchain_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Cross command construction invokes the toolchain override guard."""
+    """_build_cross_command raises ValueError when argv would contain +toolchain."""
     main_module = _load_main_module(monkeypatch)
     cross_path = _make_cross_executable(tmp_path)
+
+    # Patch the guard to inject a +toolchain token after the fact
+    original_guard = main_module._assert_cross_command_has_no_toolchain_override
+
+    def injecting_guard(cmd: object) -> None:
+        # Simulate the bug: a +toolchain has been inserted into the argv
+        original_guard(["cross", "+injected-nightly", "build"])
+
+    monkeypatch.setattr(
+        main_module, "_assert_cross_command_has_no_toolchain_override", injecting_guard
+    )
     decision = _make_cross_decision(
         main_module,
         cross_path,
         CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
-    guard = mock.MagicMock()
-    monkeypatch.setattr(
-        main_module, "_assert_cross_command_has_no_toolchain_override", guard
-    )
 
-    main_module._build_cross_command(
-        decision,
-        "aarch64-unknown-linux-gnu",
-        tmp_path / "Cargo.toml",
-        "",
-    )
-
-    guard.assert_called_once()
+    with pytest.raises(ValueError, match=r"\+<toolchain>"):
+        main_module._build_cross_command(
+            decision,
+            "aarch64-unknown-linux-gnu",
+            tmp_path / "Cargo.toml",
+            "",
+        )
 
 
 @pytest.fixture
@@ -226,12 +234,13 @@ def test_cross_command_guard_accepts_generated_argv_without_toolchain_override(
     main_module._assert_cross_command_has_no_toolchain_override(["cross", *args])
 
 
-def test_cross_debug_output_matches_expected_argv_pattern(
+def test_cross_debug_output_snapshot(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     echo_recorder: list[str],
+    snapshot: object,
 ) -> None:
-    """The cross debug line reports the materialized cross argv."""
+    """The ::debug:: cross argv line matches the recorded snapshot."""
     main_module = _load_main_module(monkeypatch)
     manifest_path = tmp_path / "Cargo.toml"
     manifest_path.write_text(
@@ -239,14 +248,13 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
     monkeypatch.chdir(tmp_path)
     cross_path = _make_cross_executable(tmp_path)
+    # Use a stable manifest path suffix for the snapshot
+    stable_manifest = Path("/snapshot/Cargo.toml")
     decision = _make_cross_decision(
         main_module,
         cross_path,
         CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
-    build_cross_command = main_module._build_cross_command
-    build_cross_command_spy = mock.MagicMock(wraps=build_cross_command)
-    monkeypatch.setattr(main_module, "_build_cross_command", build_cross_command_spy)
     monkeypatch.setattr(
         main_module,
         "resolve_requested_toolchain",
@@ -264,19 +272,15 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
     monkeypatch.setattr(main_module, "_announce_build_mode", lambda *_args: None)
     monkeypatch.setattr(main_module, "run_cmd", lambda *_args: None)
+    monkeypatch.setattr(
+        main_module, "_manifest_argument", lambda _path: stable_manifest
+    )
 
     main_module.main("aarch64-unknown-linux-gnu", "")
 
-    build_cross_command_spy.assert_called_once()
-    debug_lines = [
-        line for line in echo_recorder if line.startswith("::debug:: cross argv:")
-    ]
+    debug_lines = [ln for ln in echo_recorder if "cross argv" in ln]
     assert len(debug_lines) == 1
-    assert re.match(
-        r"^::debug:: cross argv: cross build --manifest-path .+ "
-        r"--release --target .+$",
-        debug_lines[0],
-    )
+    assert debug_lines[0] == snapshot
 
 
 def test_assemble_build_command_sets_rustup_toolchain_env_when_explicit_toolchain_given(
@@ -408,6 +412,62 @@ def test_assemble_build_command_raises_exit_on_toolchain_override(
             "",
             "bogus-nightly",
         )
+
+
+def test_main_emits_error_annotation_when_cross_guard_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    echo_recorder: list[str],
+) -> None:
+    """main() emits ::error:: and exits 1 when the cross guard raises ValueError."""
+    main_module = _load_main_module(monkeypatch)
+    manifest_path = tmp_path / "Cargo.toml"
+    manifest_path.write_text(
+        "[package]\nname='demo'\nversion='0.1.0'\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    cross_path = _make_cross_executable(tmp_path)
+    decision = _make_cross_decision(
+        main_module,
+        cross_path,
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
+    )
+
+    def bad_build_cross(*_args: object) -> object:
+        msg = (
+            "cross command must not include a +<toolchain> override; "
+            "found: ['+bogus-nightly']"
+        )
+        raise ValueError(msg)
+
+    monkeypatch.setattr(
+        main_module,
+        "resolve_requested_toolchain",
+        lambda *_args, **_kw: "bogus-nightly",
+    )
+    monkeypatch.setattr(main_module, "_ensure_rustup_exec", lambda: "rustup")
+    monkeypatch.setattr(
+        main_module, "_resolve_toolchain", lambda *_args: "bogus-nightly"
+    )
+    monkeypatch.setattr(main_module, "_ensure_target_installed", lambda *_args: True)
+    monkeypatch.setattr(main_module, "configure_windows_linkers", lambda *_args: None)
+    monkeypatch.setattr(main_module, "_decide_cross_usage", lambda *_args: decision)
+    monkeypatch.setattr(
+        main_module, "_validate_cross_requirements", lambda *_args: None
+    )
+    monkeypatch.setattr(main_module, "_announce_build_mode", lambda *_args: None)
+    monkeypatch.setattr(main_module, "run_cmd", lambda *_args: None)
+    monkeypatch.setattr(main_module, "_build_cross_command", bad_build_cross)
+
+    with pytest.raises(main_module.typer.Exit) as exc_info:
+        main_module.main("aarch64-unknown-linux-gnu", "")
+
+    assert exc_info.value.exit_code == 1
+    error_lines = [
+        line for line in echo_recorder if "cross command validation failed" in line
+    ]
+    assert len(error_lines) == 1
+    assert "aarch64-unknown-linux-gnu" in error_lines[0]
 
 
 @pytest.mark.parametrize(

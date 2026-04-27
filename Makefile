@@ -72,7 +72,8 @@ check-fmt: ## Check Python formatting without modifying files
 	$(RUFF) check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_BASE) -- '*.md' \
+	$(eval MARKDOWNLINT_DIFF_BASE := $(shell git rev-parse --verify --quiet $(MARKDOWNLINT_BASE) >/dev/null && printf '%s' '$(MARKDOWNLINT_BASE)' || printf '%s' 'HEAD'))
+	git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_DIFF_BASE) -- '*.md' \
 	| xargs -r -- $(MDLINT)
 
 nixie: ## Validate Mermaid diagrams

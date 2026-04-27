@@ -637,7 +637,6 @@ def _assemble_build_command(
     manifest_argument: Path,
     features: str,
     explicit_toolchain: str,
-    toolchain_name: str,
 ) -> SupportsFormulate:
     """Construct the build command for either cross or cargo."""
     if not decision.use_cross:
@@ -711,7 +710,6 @@ def main(
             manifest_argument,
             features,
             explicit_toolchain,
-            toolchain_name,
         )
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:

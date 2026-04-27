@@ -244,7 +244,14 @@ DummyCommandFactory = cabc.Callable[..., _DummyCommand]
 
 
 class _EchoRecorder(list[str]):
-    """Capture global echo calls while preserving module-specific recording."""
+    """Capture echo output in two modes for rust-build-release tests.
+
+    _EchoRecorder itself subclasses list[str] so the echo_recorder fixture can
+    collect global typer.echo messages patched through monkeypatch. Calling
+    _EchoRecorder.__call__(module) patches module.typer.echo with fake_echo and
+    returns a separate list[tuple[str, bool]] of (message, err) pairs for
+    module-scoped captures that need stderr tracking.
+    """
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Initialise the recorder with the provided *monkeypatch* instance."""

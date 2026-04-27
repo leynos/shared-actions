@@ -37,6 +37,19 @@ class CrossDecisionConfig:
     use_cross_local_backend: bool = False
 
 
+@contextlib.contextmanager
+def _preserve_packaging_version() -> typ.Iterator[None]:
+    """Remove packaging.version after loading when the import side effect remains."""
+    import packaging
+    import packaging.version as packaging_version
+
+    try:
+        yield
+    finally:
+        if getattr(packaging, "version", None) is packaging_version:
+            delattr(packaging, "version")
+
+
 def _make_cross_executable(tmp_path: Path) -> Path:
     """Create a minimal executable cross stub at *tmp_path*."""
     cross_path = tmp_path / "cross"
@@ -53,9 +66,6 @@ def _load_main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.syspath_prepend(str(SRC_DIR))
     sys.modules.pop("gha", None)
 
-    import packaging
-    import packaging.version as packaging_version
-
     spec = importlib.util.spec_from_file_location(
         "rbr_main_commands", SRC_DIR / "main.py"
     )
@@ -64,11 +74,8 @@ def _load_main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
         raise RuntimeError(msg)
 
     module = importlib.util.module_from_spec(spec)
-    try:
+    with _preserve_packaging_version():
         spec.loader.exec_module(module)
-    finally:
-        if getattr(packaging, "version", None) is packaging_version:
-            delattr(packaging, "version")
     return module
 
 
@@ -135,7 +142,7 @@ def test_build_cross_command_rejects_injected_toolchain_override(
     # Patch the guard to inject a +toolchain token after the fact
     original_guard = main_module._assert_cross_command_has_no_toolchain_override
 
-    def injecting_guard(cmd: object) -> None:
+    def injecting_guard(_cmd: object) -> None:
         # Simulate the bug: a +toolchain has been inserted into the argv
         original_guard(["cross", "+injected-nightly", "build"])
 
@@ -302,7 +309,6 @@ def test_assemble_build_command_sets_rustup_toolchain_env_when_explicit_toolchai
         tmp_path / "Cargo.toml",
         "",
         "nightly",  # explicit_toolchain - non-empty triggers with_env
-        "nightly",  # toolchain_name
     )
 
     # The returned wrapper must carry the RUSTUP_TOOLCHAIN binding.
@@ -378,7 +384,6 @@ def test_assemble_build_command_returns_cargo_when_use_cross_false(
         tmp_path / "Cargo.toml",
         "",
         "",
-        "bogus-nightly",
     )
 
     parts = list(cmd.formulate())
@@ -410,7 +415,6 @@ def test_assemble_build_command_raises_exit_on_toolchain_override(
             tmp_path / "Cargo.toml",
             "",
             "",
-            "bogus-nightly",
         )
 
 

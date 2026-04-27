@@ -104,6 +104,7 @@ class _CommandWrapper:
         display_name: str,
         echo: cabc.Callable[[str], None] = typer.echo,
     ) -> None:
+        """Wrap *command* with *display_name*, routing output through *echo*."""
         formulate_callable = getattr(command, "formulate", None)
         if not callable(formulate_callable):
             message = (

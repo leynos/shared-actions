@@ -279,6 +279,35 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
 
 
+def test_assemble_build_command_sets_rustup_toolchain_env_when_explicit_toolchain_given(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When an explicit toolchain is supplied, RUSTUP_TOOLCHAIN is injected."""
+    main_module = _load_main_module(monkeypatch)
+    cross_path = _make_cross_executable(tmp_path)
+    decision = _make_cross_decision(
+        main_module,
+        cross_path,
+        CrossDecisionConfig(cargo_toolchain_spec=""),
+    )
+
+    cmd = main_module._assemble_build_command(
+        decision,
+        "aarch64-unknown-linux-gnu",
+        tmp_path / "Cargo.toml",
+        "",
+        "nightly",  # explicit_toolchain - non-empty triggers with_env
+        "nightly",  # toolchain_name
+    )
+
+    # The returned wrapper must carry the RUSTUP_TOOLCHAIN binding.
+    env = getattr(cmd, "env", None) or getattr(cmd._command, "env", {}) or {}
+    assert env.get("RUSTUP_TOOLCHAIN") == "nightly", (
+        f"Expected RUSTUP_TOOLCHAIN=nightly in env, got: {env}"
+    )
+
+
 @pytest.mark.parametrize(
     ("target_installed", "expect_exit"),
     [

@@ -59,6 +59,48 @@ def _find_coverage_python() -> Path | None:
     return None
 
 
+def _remove_coverage_venv() -> None:
+    """Remove the coverage venv directory or non-directory placeholder.
+
+    Uses ``shutil.rmtree`` for directories and ``Path.unlink`` for any
+    other filesystem object (e.g. a symlink or a stale file).
+    """
+    if COVERAGE_VENV.is_dir() and not COVERAGE_VENV.is_symlink():
+        shutil.rmtree(COVERAGE_VENV)
+    else:
+        COVERAGE_VENV.unlink(missing_ok=True)
+
+
+def _recreate_coverage_venv() -> Path:
+    """Remove any existing broken venv, create a fresh one, and return its Python.
+
+    Returns
+    -------
+    Path
+        Absolute path to the Python executable inside the newly created venv.
+
+    Raises
+    ------
+    RuntimeError
+        If the Python executable cannot be located after creation.
+    """
+    if COVERAGE_VENV.exists():
+        typer.echo(
+            f"Coverage venv at {COVERAGE_VENV} is missing its Python "
+            "executable; recreating.",
+            err=True,
+        )
+        _remove_coverage_venv()
+    else:
+        typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
+    run_cmd(uv["venv", str(COVERAGE_VENV)])
+    python = _find_coverage_python()
+    if python is None:
+        msg = f"Coverage venv Python executable not found in {COVERAGE_VENV}"
+        raise RuntimeError(msg)
+    return python
+
+
 def _ensure_coverage_venv() -> str:
     """Create or repair the coverage venv and install project/test tooling.
 
@@ -66,23 +108,7 @@ def _ensure_coverage_venv() -> str:
     """
     python = _find_coverage_python()
     if python is None:
-        if COVERAGE_VENV.exists():
-            typer.echo(
-                f"Coverage venv at {COVERAGE_VENV} is missing its Python "
-                "executable; recreating.",
-                err=True,
-            )
-            if COVERAGE_VENV.is_dir() and not COVERAGE_VENV.is_symlink():
-                shutil.rmtree(COVERAGE_VENV)
-            else:
-                COVERAGE_VENV.unlink(missing_ok=True)
-        else:
-            typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
-        run_cmd(uv["venv", str(COVERAGE_VENV)])
-        python = _find_coverage_python()
-        if python is None:
-            msg = f"Coverage venv Python executable not found in {COVERAGE_VENV}"
-            raise RuntimeError(msg)
+        python = _recreate_coverage_venv()
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
     run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
     typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")

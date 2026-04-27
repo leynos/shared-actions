@@ -16,7 +16,7 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 MDLINT ?= markdownlint
 NIXIE ?= nixie
-ACTION_VALIDATOR_CANDIDATES := $(wildcard $(HOME)/.cargo/bin/action-validator /usr/local/bin/action-validator /usr/bin/action-validator)
+ACTION_VALIDATOR_CANDIDATES := $(wildcard $(HOME)/.cargo/bin/action-validator $(HOME)/.bun/bin/action-validator /usr/local/bin/action-validator /usr/bin/action-validator)
 ACTION_VALIDATOR ?= $(if $(ACTION_VALIDATOR_CANDIDATES),$(firstword $(ACTION_VALIDATOR_CANDIDATES)),action-validator)
 RUFF_CANDIDATES := $(wildcard $(CURDIR)/.venv/bin/ruff $(HOME)/.local/bin/ruff /usr/local/bin/ruff /usr/bin/ruff)
 RUFF ?= $(if $(RUFF_CANDIDATES),$(firstword $(RUFF_CANDIDATES)),uv tool run ruff)

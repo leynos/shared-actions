@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-import os
+import stat
 import typing as typ
 from pathlib import Path
 
@@ -21,7 +21,9 @@ if typ.TYPE_CHECKING:
 def _make_cross_executable(tmp_path: Path) -> Path:
     cross_path = tmp_path / "cross"
     cross_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    cross_path.chmod(cross_path.stat().st_mode | os.X_OK)
+    cross_path.chmod(
+        cross_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    )
     return cross_path
 
 

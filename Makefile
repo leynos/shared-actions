@@ -76,7 +76,7 @@ markdownlint: ## Lint Markdown files
 			find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
 		fi; \
 	else \
-		printf 'Warning: git diff using MARKDOWNLINT_BASE=%s failed; running full markdown lint\n' '$(MARKDOWNLINT_BASE)' >&2; \
+		echo "markdownlint: git diff failed or base '$(MARKDOWNLINT_BASE)' not found; linting all .md files" >&2; \
 		find . -type f -name '*.md' -not -path './target/*' -exec $(MDLINT) {} +; \
 	fi
 

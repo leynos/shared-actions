@@ -2160,7 +2160,7 @@ def test_run_python_coveragepy_empty_xml(
     captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )
@@ -2214,7 +2214,7 @@ def test_run_python_coveragepy_malformed_xml_exits(
     captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
         captured_python.append(
             next(iter(run_python_module._coverage_python_cmd().formulate()))
         )

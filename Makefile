@@ -14,8 +14,14 @@ clean: ## Remove transient artefacts
 	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache
 
 BUILD_JOBS ?=
-MDLINT ?= markdownlint
+MARKDOWNLINT_BASE ?= origin/main
+MDLINT_CANDIDATES := $(wildcard $(HOME)/.bun/bin/markdownlint $(HOME)/.local/bin/markdownlint /usr/local/bin/markdownlint /usr/bin/markdownlint)
+MDLINT ?= $(if $(MDLINT_CANDIDATES),$(firstword $(MDLINT_CANDIDATES)),markdownlint)
 NIXIE ?= nixie
+ACTION_VALIDATOR_CANDIDATES := $(wildcard $(HOME)/.cargo/bin/action-validator $(HOME)/.bun/bin/action-validator /usr/local/bin/action-validator /usr/bin/action-validator)
+ACTION_VALIDATOR ?= $(if $(ACTION_VALIDATOR_CANDIDATES),$(firstword $(ACTION_VALIDATOR_CANDIDATES)),action-validator)
+RUFF_CANDIDATES := $(wildcard $(CURDIR)/.venv/bin/ruff $(HOME)/.local/bin/ruff /usr/local/bin/ruff /usr/bin/ruff)
+RUFF ?= $(if $(RUFF_CANDIDATES),$(firstword $(RUFF_CANDIDATES)),uv tool run ruff)
 RUFF_FIX_RULES ?= D202,I001
 
 test: .venv ## Run tests
@@ -30,9 +36,9 @@ endif
 	uv sync --group dev
 
 lint: ## Check test scripts and actions
-	uvx ruff check
+	$(RUFF) check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 action-validator
+	| xargs -r -0 -n1 $(ACTION_VALIDATOR)
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
@@ -58,15 +64,17 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts
 fmt: ## Format Python files and auto-fix selected lint rules
-	uvx ruff format
-	uvx ruff check --select $(RUFF_FIX_RULES) --fix
+	$(RUFF) format
+	$(RUFF) check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
-	uvx ruff format --check
-	uvx ruff check --select $(RUFF_FIX_RULES)
+	$(RUFF) format --check
+	$(RUFF) check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)
+	$(eval MARKDOWNLINT_DIFF_BASE := $(shell git rev-parse --verify --quiet $(MARKDOWNLINT_BASE) >/dev/null && printf '%s' '$(MARKDOWNLINT_BASE)' || printf '%s' 'HEAD'))
+	git diff --name-only --diff-filter=ACMRT $(MARKDOWNLINT_DIFF_BASE) -- '*.md' \
+	| xargs -r -- $(MDLINT)
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)

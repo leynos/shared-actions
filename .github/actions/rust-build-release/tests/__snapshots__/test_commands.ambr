@@ -1,0 +1,4 @@
+# serializer version: 1
+# name: test_cross_debug_output_snapshot
+  '::debug:: cross argv: cross build --manifest-path /snapshot/Cargo.toml --release --target aarch64-unknown-linux-gnu'
+# ---

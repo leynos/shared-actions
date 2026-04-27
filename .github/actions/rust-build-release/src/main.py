@@ -22,6 +22,9 @@ prepend_project_root(sigil="cmd_utils_importer.py", start=_SCRIPT_DIR)
 
 import typer
 from cross_manager import ensure_cross
+from gha import debug as gha_debug
+from gha import error as gha_error
+from gha import warning as gha_warning
 from plumbum import local
 from plumbum.commands.processes import (
     ProcessExecutionError,
@@ -98,67 +101,68 @@ class _CrossDecision(typ.NamedTuple):
 class _CommandWrapper:
     """Expose a stable display name for a plumbum command."""
 
-    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
-        formulate_callable = getattr(command, "formulate", None)
-        if not callable(formulate_callable):
-            message = (
-                f"{command!r} does not expose a callable formulate(); cannot wrap "
-                "for display override"
-            )
-            raise TypeError(message)
+    def __init__(
+        self,
+        command: SupportsFormulate,
+        display_name: str,
+    ) -> None:
+        """Wrap *command* with *display_name*."""
+        _validate_formulation(command, display_name)
         self._command: typ.Any = command
         self._display_name = display_name
 
     def formulate(self) -> cabc.Sequence[str]:
+        """Return the command argv with the configured display name applied."""
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
-            typer.echo(
-                f"::warning:: command {self._command!r} does not support formulate(); "
-                "returning display name only",
-                err=True,
-            )
             return [self._display_name]
         try:
             parts = list(formulate_callable())
-        except Exception as exc:  # noqa: BLE001  # pragma: no cover - unexpected failure
-            message = (
-                "::warning:: failed to generate command line for "
-                f"{self._command!r}: {exc}"
-            )
-            typer.echo(message, err=True)
+        except Exception:  # noqa: BLE001  # pragma: no cover - unexpected failure
             return [self._display_name]
         if parts:
             parts[0] = self._display_name
         return parts
 
     def __str__(self) -> str:
+        """Return a shell-escaped display string for the wrapped command."""
         parts = [str(part) for part in self.formulate()]
         return shlex.join(parts)
 
     def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
+        """Delegate command invocation to the wrapped command."""
         return self._command(*args, **kwargs)
 
     def run(
         self, *args: object, **kwargs: object
     ) -> tuple[int, str | bytes | None, str | bytes | None]:
+        """Run the wrapped command and return plumbum's result tuple."""
         return self._command.run(*args, **kwargs)
 
     def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
+        """Start the wrapped command as a subprocess."""
         return self._command.popen(*args, **kwargs)
 
     def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        """Return a wrapper around the command with temporary environment values."""
         wrapped = self._command.with_env(*args, **kwargs)
-        wrapped_formulate = getattr(wrapped, "formulate", None)
-        if not callable(wrapped_formulate):
-            message = (
-                f"{wrapped!r} returned from with_env() does not expose formulate(); "
-                "cannot maintain display override"
-            )
-            raise TypeError(message)
+        _validate_formulation(wrapped, self._display_name)
         return _CommandWrapper(wrapped, self._display_name)
 
     def __getattr__(self, name: str) -> object:
+        """Delegate unknown attributes to the wrapped command."""
         return getattr(self._command, name)
+
+
+def _validate_formulation(command: SupportsFormulate, display_name: str) -> None:
+    """Raise TypeError when *command* does not expose a callable formulate()."""
+    formulate_callable = getattr(command, "formulate", None)
+    if not callable(formulate_callable):
+        message = (
+            f"{command!r} does not expose a callable formulate(); "
+            f"cannot wrap '{display_name}' for display override"
+        )
+        raise TypeError(message)
 
 
 def _target_is_windows(target: str) -> bool:
@@ -214,11 +218,9 @@ def _probe_runtime(name: str) -> bool:
     except ProcessTimedOut as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
-        message = (
-            f"::warning::{name} runtime probe timed out{duration}; "
-            "treating runtime as unavailable"
+        gha_warning(
+            f"{name} runtime probe timed out{duration}; treating runtime as unavailable"
         )
-        typer.echo(message, err=True)
         return False
 
 
@@ -228,12 +230,12 @@ def _emit_missing_target_error() -> typ.NoReturn:
     env_input_target = os.environ.get("INPUT_TARGET", "<unset>")
     env_github_ref = os.environ.get("GITHUB_REF", "<unset>")
     message = (
-        "::error:: no build target specified; set input 'target' or env RBR_TARGET\n"
+        "no build target specified; set input 'target' or env RBR_TARGET\n"
         f"RBR_TARGET={env_rbr_target} "
         f"INPUT_TARGET={env_input_target} "
         f"GITHUB_REF={env_github_ref}"
     )
-    typer.echo(message, err=True)
+    gha_error(message)
     raise typer.Exit(1)
 
 
@@ -251,12 +253,12 @@ def _ensure_rustup_exec() -> str:
     """Locate a trusted rustup executable or exit with an error."""
     rustup_path = shutil.which("rustup")
     if rustup_path is None:
-        typer.echo("::error:: rustup not found", err=True)
+        gha_error("rustup not found")
         raise typer.Exit(1)
     try:
         return ensure_allowed_executable(rustup_path, ("rustup", "rustup.exe"))
     except UnexpectedExecutableError:
-        typer.echo("::error:: unexpected rustup executable", err=True)
+        gha_error("unexpected rustup executable")
         raise typer.Exit(1) from None
 
 
@@ -286,14 +288,8 @@ def _install_toolchain_channel(rustup_exec: str, toolchain: str) -> None:
             ]
         )
     except ProcessExecutionError:
-        typer.echo(
-            f"::error:: failed to install toolchain '{toolchain}'",
-            err=True,
-        )
-        typer.echo(
-            f"::error:: requested toolchain '{toolchain}' not installed",
-            err=True,
-        )
+        gha_error(f"failed to install toolchain '{toolchain}'")
+        gha_error(f"requested toolchain '{toolchain}' not installed")
         raise typer.Exit(1) from None
 
 
@@ -314,10 +310,7 @@ def _resolve_toolchain(rustup_exec: str, toolchain: str, target: str) -> str:
     if toolchain_name:
         return toolchain_name
 
-    typer.echo(
-        f"::error:: requested toolchain '{toolchain}' not installed",
-        err=True,
-    )
+    gha_error(f"requested toolchain '{toolchain}' not installed")
     raise typer.Exit(1)
 
 
@@ -336,10 +329,9 @@ def _ensure_target_installed(
             ]
         )
     except ProcessExecutionError:
-        typer.echo(
-            f"::warning:: toolchain '{toolchain_name}' does not support "
-            f"target '{target}'; continuing",
-            err=True,
+        gha_warning(
+            f"toolchain '{toolchain_name}' does not support target '{target}'; "
+            "continuing"
         )
         return False
     return True
@@ -400,12 +392,11 @@ def _validate_cross_requirements(
         return
 
     if decision.use_cross_local_backend:
-        typer.echo(
-            "::error:: target "
+        gha_error(
+            "target "
             f"'{target_to_build}' requires cross with a container runtime "
             f"on host '{host_target}'; CROSS_NO_DOCKER=1 is unsupported when "
-            "a container runtime is required",
-            err=True,
+            "a container runtime is required"
         )
         raise typer.Exit(1)
 
@@ -416,12 +407,11 @@ def _validate_cross_requirements(
         if not decision.has_container:
             details.append("no container runtime detected")
         detail_suffix = f", {', '.join(details)}" if details else ""
-        typer.echo(
-            "::error:: target "
+        gha_error(
+            "target "
             f"'{target_to_build}' requires cross with a container runtime "
             f"on host '{host_target}'"
-            f"{detail_suffix}",
-            err=True,
+            f"{detail_suffix}"
         )
         raise typer.Exit(1)
 
@@ -477,6 +467,7 @@ def _configure_cross_container_engine(
 def _restore_container_engine(
     previous_engine: str | None, *, applied_engine: str | None
 ) -> None:
+    """Restore CROSS_CONTAINER_ENGINE after a temporary cross configuration."""
     current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
 
     if previous_engine is None:
@@ -501,12 +492,29 @@ def _normalize_features(features: str) -> str:
     return ",".join(normalized)
 
 
+def _assert_cross_command_has_no_toolchain_override(cmd: cabc.Sequence[object]) -> None:
+    """Raise ValueError if a cross argv contains a +toolchain override."""
+    # Cross must not be given a +<toolchain>; rely on rust-toolchain.toml /
+    # rustup override.
+    offenders = [
+        str(arg) for arg in cmd[1:] if isinstance(arg, str) and arg.startswith("+")
+    ]
+    if offenders:
+        message = (
+            "cross command must not include a +<toolchain> override; "
+            f"found: {offenders!r}"
+        )
+        raise ValueError(message)
+
+
 def _build_cross_command(
     decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build a cross command argv and validate it contains no +toolchain."""
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
-    build_cmd = executor[
+    cmd: list[object] = [
+        cross_executable,
         "build",
         "--manifest-path",
         str(manifest_path),
@@ -516,7 +524,9 @@ def _build_cross_command(
     ]
     normalized_features = _normalize_features(features)
     if normalized_features:
-        build_cmd = build_cmd["--features", normalized_features]
+        cmd.extend(["--features", normalized_features])
+    _assert_cross_command_has_no_toolchain_override(cmd)
+    build_cmd = executor[cmd[1:]]
     if decision.cross_path:
         build_cmd = _CommandWrapper(build_cmd, Path(decision.cross_path).name)
     return build_cmd
@@ -525,9 +535,9 @@ def _build_cross_command(
 def _build_cargo_command(
     cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build a cargo command argv, preserving any configured +toolchain."""
     executor = local["cargo"]
-    build_cmd = executor[
-        cargo_toolchain_spec,
+    cmd = [
         "build",
         "--manifest-path",
         str(manifest_path),
@@ -537,8 +547,12 @@ def _build_cargo_command(
     ]
     normalized_features = _normalize_features(features)
     if normalized_features:
-        build_cmd = build_cmd["--features", normalized_features]
-    return _CommandWrapper(build_cmd, "cargo")
+        cmd.extend(["--features", normalized_features])
+    if cargo_toolchain_spec:
+        cmd.insert(0, cargo_toolchain_spec)
+    build_cmd = executor[cmd]
+    wrapped_cmd = _CommandWrapper(build_cmd, "cargo")
+    return wrapped_cmd  # noqa: RET504 - keep the named command for call-site logging.
 
 
 def _handle_cross_container_error(
@@ -548,28 +562,30 @@ def _handle_cross_container_error(
     manifest_path: Path,
     features: str,
 ) -> None:
+    """Handle cross container startup failures or re-raise other errors."""
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
             engine = decision.container_engine or "unknown"
-            typer.echo(
-                "::error:: cross failed to start a container runtime for "
-                f"target '{target_to_build}' (engine={engine})",
-                err=True,
+            gha_error(
+                "cross failed to start a container runtime for "
+                f"target '{target_to_build}' (engine={engine})"
             )
             raise typer.Exit(exc.retcode) from exc
 
-        typer.echo(
-            "::warning:: cross failed to start a container; retrying with cargo",
-            err=True,
-        )
+        gha_warning("cross failed to start a container; retrying with cargo")
         fallback_cmd = _build_cargo_command(
             decision.cargo_toolchain_spec,
             target_to_build,
             manifest_path,
             features,
         )
+        gha_debug(f"fallback cargo argv: {fallback_cmd}")
         run_cmd(fallback_cmd)
+        gha_debug(f"fallback cargo build completed for target '{target_to_build}'")
         return
+    gha_error(
+        f"cross build failed for target '{target_to_build}' (retcode={exc.retcode})"
+    )
     raise exc
 
 
@@ -588,10 +604,7 @@ def _resolve_manifest_path() -> Path:
 
     manifest_location = manifest_location.resolve()
     if not manifest_location.is_file():
-        typer.echo(
-            f"::error:: Cargo manifest not found at {manifest_location}",
-            err=True,
-        )
+        gha_error(f"Cargo manifest not found at {manifest_location}")
         raise typer.Exit(1)
     return manifest_location
 
@@ -603,6 +616,51 @@ def _manifest_argument(manifest_path: Path) -> Path:
         return manifest_path.relative_to(cwd)
     except ValueError:
         return manifest_path
+
+
+def _check_target_support(
+    decision: _CrossDecision,
+    toolchain_name: str,
+    target_to_build: str,
+    *,
+    target_installed: bool,
+) -> None:
+    """Exit with an error if the toolchain cannot build the requested target."""
+    if not target_installed and (
+        not decision.use_cross or decision.use_cross_local_backend
+    ):
+        gha_error(
+            f"toolchain '{toolchain_name}' does not support target '{target_to_build}'"
+        )
+        raise typer.Exit(1)
+
+
+def _assemble_build_command(
+    decision: _CrossDecision,
+    target_to_build: str,
+    manifest_argument: Path,
+    features: str,
+    explicit_toolchain: str,
+) -> tuple[SupportsFormulate | None, str | None]:
+    """Assemble the build command; return (cmd, None) or (None, error_message)."""
+    if not decision.use_cross:
+        cmd = _build_cargo_command(
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
+        )
+        return cmd, None
+    try:
+        build_cmd = _build_cross_command(
+            decision, target_to_build, manifest_argument, features
+        )
+    except ValueError as exc:
+        return None, (
+            f"cross command validation failed for target '{target_to_build}': {exc}"
+        )
+    if explicit_toolchain:
+        build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
+            RUSTUP_TOOLCHAIN=explicit_toolchain
+        )
+    return build_cmd, None
 
 
 @app.command()
@@ -636,43 +694,33 @@ def main(
     target_installed = _ensure_target_installed(
         rustup_exec, toolchain_name, target_to_build
     )
-
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
-
     host_target = DEFAULT_HOST_TARGET
     decision = _decide_cross_usage(toolchain_name, target_to_build, host_target)
-
     _validate_cross_requirements(decision, target_to_build, host_target)
-
-    if not target_installed and (
-        not decision.use_cross or decision.use_cross_local_backend
-    ):
-        typer.echo(
-            f"::error:: toolchain '{toolchain_name}' does not support "
-            f"target '{target_to_build}'",
-            err=True,
-        )
-        raise typer.Exit(1)
-
+    _check_target_support(
+        decision, toolchain_name, target_to_build, target_installed=target_installed
+    )
     _announce_build_mode(decision)
-
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
-
-    manifest_argument = _manifest_argument(manifest_path)
-    if decision.use_cross:
-        build_cmd = _build_cross_command(
-            decision, target_to_build, manifest_argument, features
-        )
-        if explicit_toolchain:
-            build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
-                RUSTUP_TOOLCHAIN=toolchain_name
-            )
-    else:
-        build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
-        )
     try:
+        manifest_argument = _manifest_argument(manifest_path)
+        build_cmd, assemble_error = _assemble_build_command(
+            decision,
+            target_to_build,
+            manifest_argument,
+            features,
+            explicit_toolchain,
+        )
+        if assemble_error is not None:
+            gha_error(assemble_error)
+            raise typer.Exit(1)
+        if decision.use_cross:
+            gha_debug(f"cross argv: {build_cmd}")
+        else:
+            gha_debug(f"cargo argv: {build_cmd}")
         run_cmd(build_cmd)
+        gha_debug(f"build completed for target '{target_to_build}'")
     except ProcessExecutionError as exc:
         _handle_cross_container_error(
             exc, decision, target_to_build, manifest_argument, features

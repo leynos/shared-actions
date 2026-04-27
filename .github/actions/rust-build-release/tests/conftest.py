@@ -122,6 +122,7 @@ def isolated_rust_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _ensure_dependency(name: str, attribute: str | None = None) -> None:
+    """Skip the test if *name* is not importable or lacks *attribute*."""
     try:
         module = importlib.import_module(name)
     except ModuleNotFoundError:  # pragma: no cover - environment guard
@@ -136,6 +137,7 @@ def _load_module(
     *,
     deps: cabc.Sequence[tuple[str, str | None]] = (),
 ) -> ModuleType:
+    """Load *filename* as *module_name*, skipping if any *deps* are absent."""
     prepend_to_syspath(SRC_DIR)
     for dep_name, attr in deps:
         _ensure_dependency(dep_name, attr)
@@ -153,6 +155,7 @@ class ModuleHarness:
     """Utility wrapper around a loaded module for patching helpers."""
 
     def __init__(self, module: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Bind *module* and *monkeypatch* and initialise the call log."""
         self.module = module
         self.monkeypatch = monkeypatch
         self.calls: list[list[str]] = []
@@ -197,16 +200,19 @@ HarnessFactory = cabc.Callable[[ModuleType], ModuleHarness]
 
 class _DummyCommand:
     def __init__(self, name: str = "dummy") -> None:
+        """Initialise a dummy command with *name* and an empty env."""
         self._name = name
         self.env: dict[str, str] = {}
 
     def formulate(self) -> list[str]:
+        """Return a single-element argv containing the command name."""
         return [self._name]
 
     def __call__(self, *_args: object, **_kwargs: object) -> None:
-        return None
+        """Accept and discard any invocation arguments."""
 
     def with_env(self, *args: object, **kwargs: str) -> _DummyCommand:
+        """Return a copy of this command with the supplied env bindings merged."""
         env_from_args: dict[str, str] = {}
         for arg in args:
             if not isinstance(arg, cabc.Mapping):
@@ -237,9 +243,36 @@ CrossDecisionFactory = cabc.Callable[..., CrossDecision]
 DummyCommandFactory = cabc.Callable[..., _DummyCommand]
 
 
+class _EchoRecorder(list[str]):
+    """Capture echo output in two modes for rust-build-release tests.
+
+    _EchoRecorder itself subclasses list[str] so the echo_recorder fixture can
+    collect global typer.echo messages patched through monkeypatch. Calling
+    _EchoRecorder.__call__(module) patches module.typer.echo with fake_echo and
+    returns a separate list[tuple[str, bool]] of (message, err) pairs for
+    module-scoped captures that need stderr tracking.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Initialise the recorder with the provided *monkeypatch* instance."""
+        super().__init__()
+        self._monkeypatch = monkeypatch
+
+    def __call__(self, module: ModuleType) -> list[tuple[str, bool]]:
+        """Patch *module*.typer.echo to record (message, err) tuples."""
+        messages: list[tuple[str, bool]] = []
+
+        def fake_echo(message: str, *, err: bool = False) -> None:
+            messages.append((message, err))
+
+        self._monkeypatch.setattr(module.typer, "echo", fake_echo)
+        return messages
+
+
 def _cross_decision(
     main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
 ) -> CrossDecision:
+    """Return a _CrossDecision with common test defaults."""
     return main_module._CrossDecision(  # type: ignore[attr-defined]
         cross_path="/usr/bin/cross" if use_cross else None,
         cross_version="0.2.5",
@@ -279,21 +312,17 @@ def cross_decision_factory() -> CrossDecisionFactory:
 
 
 @pytest.fixture
-def echo_recorder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> cabc.Callable[[ModuleType], list[tuple[str, bool]]]:
-    """Return a helper that patches ``typer.echo`` and records messages."""
+def echo_recorder(monkeypatch: pytest.MonkeyPatch) -> _EchoRecorder:
+    """Capture all typer.echo calls and return the recorded lines."""
+    import typer
 
-    def install(module: ModuleType) -> list[tuple[str, bool]]:
-        messages: list[tuple[str, bool]] = []
+    lines = _EchoRecorder(monkeypatch)
 
-        def fake_echo(message: str, *, err: bool = False) -> None:
-            messages.append((message, err))
+    def record_echo(msg: object = "", **_kwargs: object) -> None:
+        lines.append(str(msg))
 
-        monkeypatch.setattr(module.typer, "echo", fake_echo)
-        return messages
-
-    return install
+    monkeypatch.setattr(typer, "echo", record_echo)
+    return lines
 
 
 @pytest.fixture

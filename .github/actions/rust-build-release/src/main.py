@@ -581,7 +581,11 @@ def _handle_cross_container_error(
         )
         gha_debug(f"fallback cargo argv: {fallback_cmd}")
         run_cmd(fallback_cmd)
+        gha_debug(f"fallback cargo build completed for target '{target_to_build}'")
         return
+    gha_error(
+        f"cross build failed for target '{target_to_build}' (retcode={exc.retcode})"
+    )
     raise exc
 
 
@@ -637,29 +641,26 @@ def _assemble_build_command(
     manifest_argument: Path,
     features: str,
     explicit_toolchain: str,
-) -> SupportsFormulate:
-    """Construct the build command for either cross or cargo."""
+) -> tuple[SupportsFormulate | None, str | None]:
+    """Assemble the build command; return (cmd, None) or (None, error_message)."""
     if not decision.use_cross:
         cmd = _build_cargo_command(
             decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
         )
-        gha_debug(f"cargo argv: {cmd}")
-        return cmd
+        return cmd, None
     try:
         build_cmd = _build_cross_command(
             decision, target_to_build, manifest_argument, features
         )
     except ValueError as exc:
-        gha_error(
+        return None, (
             f"cross command validation failed for target '{target_to_build}': {exc}"
         )
-        raise typer.Exit(1) from None
     if explicit_toolchain:
         build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
             RUSTUP_TOOLCHAIN=explicit_toolchain
         )
-    gha_debug(f"cross argv: {build_cmd}")
-    return build_cmd
+    return build_cmd, None
 
 
 @app.command()
@@ -704,14 +705,22 @@ def main(
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
     try:
         manifest_argument = _manifest_argument(manifest_path)
-        build_cmd = _assemble_build_command(
+        build_cmd, assemble_error = _assemble_build_command(
             decision,
             target_to_build,
             manifest_argument,
             features,
             explicit_toolchain,
         )
+        if assemble_error is not None:
+            gha_error(assemble_error)
+            raise typer.Exit(1)
+        if decision.use_cross:
+            gha_debug(f"cross argv: {build_cmd}")
+        else:
+            gha_debug(f"cargo argv: {build_cmd}")
         run_cmd(build_cmd)
+        gha_debug(f"build completed for target '{target_to_build}'")
     except ProcessExecutionError as exc:
         _handle_cross_container_error(
             exc, decision, target_to_build, manifest_argument, features

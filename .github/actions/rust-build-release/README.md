@@ -1,5 +1,7 @@
 # rust-build-release
 
+<!-- markdownlint-disable MD013 MD060 -->
+
 Build Rust application release artefacts using the repository's `setup-rust` action, `uv`, and `cross`.
 
 FreeBSD targets (for example `x86_64-unknown-freebsd`) require `cross` with a
@@ -26,6 +28,20 @@ script.
 Toolchains are resolved from the target repository in this order: explicit
 `toolchain` input, repository `rust-toolchain.toml` or `rust-toolchain`,
 manifest `rust-version`, then the action's bundled fallback version.
+
+## Toolchain specification for cross builds
+
+When `cross` is used for compilation, toolchain selection must be made via one
+of the following methods — **not** via a `+<toolchain>` CLI override:
+
+- **`rust-toolchain.toml`** in the project repository (recommended).
+- The `toolchain` action input, which is propagated as the `RUSTUP_TOOLCHAIN`
+  environment variable for the `cross` invocation.
+- The `RUSTUP_TOOLCHAIN` environment variable set upstream in the workflow.
+
+Passing a `+<toolchain>` override on the `cross` command line is rejected by the
+action and will cause the build to fail with a `::error::` annotation. This
+restriction does not apply to `cargo`-only builds.
 
 ## Inputs
 

@@ -131,6 +131,44 @@ def test_build_cross_command_never_injects_toolchain_override(
     assert_no_toolchain_override(parts)
 
 
+def test_build_cross_command_calls_toolchain_override_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """_build_cross_command invokes the override guard exactly once."""
+    import unittest.mock as mock
+
+    main_module = _load_main_module(monkeypatch)
+    cross_path = _make_cross_executable(tmp_path)
+    decision = main_module._CrossDecision(
+        cross_path=str(cross_path),
+        cross_version="0.2.5",
+        use_cross=True,
+        cargo_toolchain_spec="+bogus-nightly",
+        use_cross_local_backend=False,
+        docker_present=True,
+        podman_present=False,
+        has_container=True,
+        container_engine="docker",
+        requires_cross_container=False,
+    )
+
+    real_guard = main_module._assert_cross_command_has_no_toolchain_override
+    with mock.patch.object(
+        main_module,
+        "_assert_cross_command_has_no_toolchain_override",
+        wraps=real_guard,
+    ) as spy:
+        main_module._build_cross_command(
+            decision,
+            "aarch64-unknown-linux-gnu",
+            tmp_path / "Cargo.toml",
+            "",
+        )
+
+    spy.assert_called_once()
+
+
 def test_build_cross_command_rejects_injected_toolchain_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -162,6 +200,57 @@ def test_build_cross_command_rejects_injected_toolchain_override(
             tmp_path / "Cargo.toml",
             "",
         )
+
+
+@pytest.mark.parametrize(
+    ("cargo_toolchain_spec", "features", "expected_prefix"),
+    [
+        pytest.param(
+            "+nightly",
+            "",
+            ["+nightly", "build"],
+            id="toolchain_spec_prepended",
+        ),
+        pytest.param(
+            "",
+            "",
+            ["build"],
+            id="no_toolchain_spec",
+        ),
+        pytest.param(
+            "+stable",
+            "async,tls",
+            ["+stable", "build"],
+            id="with_features",
+        ),
+    ],
+)
+def test_build_cargo_command_argv_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cargo_toolchain_spec: str,
+    features: str,
+    expected_prefix: list[str],
+) -> None:
+    """_build_cargo_command produces the expected argv shape."""
+    main_module = _load_main_module(monkeypatch)
+    manifest = tmp_path / "Cargo.toml"
+
+    cmd = main_module._build_cargo_command(
+        cargo_toolchain_spec, "aarch64-unknown-linux-gnu", manifest, features
+    )
+    parts = list(cmd.formulate())
+
+    assert parts[0] == "cargo"
+    assert parts[1 : 1 + len(expected_prefix)] == expected_prefix
+    assert "--manifest-path" in parts
+    assert "--release" in parts
+    assert "--target" in parts
+    assert "aarch64-unknown-linux-gnu" in parts
+    if features:
+        assert "--features" in parts
+        feat_idx = parts.index("--features")
+        assert parts[feat_idx + 1] == features
 
 
 @pytest.fixture
@@ -303,13 +392,15 @@ def test_assemble_build_command_sets_rustup_toolchain_env_when_explicit_toolchai
         CrossDecisionConfig(cargo_toolchain_spec=""),
     )
 
-    cmd = main_module._assemble_build_command(
+    cmd, error_msg = main_module._assemble_build_command(
         decision,
         "aarch64-unknown-linux-gnu",
         tmp_path / "Cargo.toml",
         "",
         "nightly",  # explicit_toolchain - non-empty triggers with_env
     )
+    assert error_msg is None
+    assert cmd is not None
 
     # The returned wrapper must carry the RUSTUP_TOOLCHAIN binding.
     env = getattr(cmd, "env", None) or getattr(cmd._command, "env", {}) or {}
@@ -378,7 +469,7 @@ def test_assemble_build_command_returns_cargo_when_use_cross_false(
         requires_cross_container=False,
     )
 
-    cmd = main_module._assemble_build_command(
+    cmd, error_msg = main_module._assemble_build_command(
         decision,
         "aarch64-unknown-linux-gnu",
         tmp_path / "Cargo.toml",
@@ -386,15 +477,17 @@ def test_assemble_build_command_returns_cargo_when_use_cross_false(
         "",
     )
 
+    assert error_msg is None
+    assert cmd is not None
     parts = list(cmd.formulate())
     assert parts[0] == "cargo"
 
 
-def test_assemble_build_command_raises_exit_on_toolchain_override(
+def test_assemble_build_command_returns_error_message_on_toolchain_override(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Build command assembly exits when cross validation fails."""
+    """Build command assembly returns an error message when cross validation fails."""
     main_module = _load_main_module(monkeypatch)
     decision = _make_cross_decision(
         main_module,
@@ -408,14 +501,17 @@ def test_assemble_build_command_raises_exit_on_toolchain_override(
 
     monkeypatch.setattr(main_module, "_build_cross_command", fail_build_cross_command)
 
-    with pytest.raises(main_module.typer.Exit):
-        main_module._assemble_build_command(
-            decision,
-            "aarch64-unknown-linux-gnu",
-            tmp_path / "Cargo.toml",
-            "",
-            "",
-        )
+    cmd, error_msg = main_module._assemble_build_command(
+        decision,
+        "aarch64-unknown-linux-gnu",
+        tmp_path / "Cargo.toml",
+        "",
+        "",
+    )
+
+    assert cmd is None
+    assert error_msg is not None
+    assert "cross command validation failed" in error_msg
 
 
 def test_main_emits_error_annotation_when_cross_guard_raises(
@@ -562,7 +658,7 @@ def test_cross_container_error_with_other_retcode_reraises_original_exception(
         )
 
     assert raised.value is exc
-    assert echo_recorder == []
+    assert any("cross build failed" in ln for ln in echo_recorder)
 
 
 def test_required_cross_container_error_exits_without_fallback(

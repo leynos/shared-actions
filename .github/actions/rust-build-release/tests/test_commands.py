@@ -238,6 +238,120 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     )
 
 
+def test_check_target_support_exits_when_target_not_installed_and_no_cross(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Target support exits when cargo cannot build without cross."""
+    main_module = _load_main_module(monkeypatch)
+    decision = main_module._CrossDecision(
+        cross_path=None,
+        cross_version=None,
+        use_cross=False,
+        cargo_toolchain_spec="+bogus-nightly",
+        use_cross_local_backend=False,
+        docker_present=False,
+        podman_present=False,
+        has_container=False,
+        container_engine=None,
+        requires_cross_container=False,
+    )
+
+    with pytest.raises(main_module.typer.Exit):
+        main_module._check_target_support(
+            decision,
+            "bogus-nightly",
+            "aarch64-unknown-linux-gnu",
+            target_installed=False,
+        )
+
+
+def test_check_target_support_passes_when_target_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Target support passes when the requested target is installed."""
+    main_module = _load_main_module(monkeypatch)
+    decision = main_module._CrossDecision(
+        cross_path=None,
+        cross_version=None,
+        use_cross=False,
+        cargo_toolchain_spec="+bogus-nightly",
+        use_cross_local_backend=False,
+        docker_present=False,
+        podman_present=False,
+        has_container=False,
+        container_engine=None,
+        requires_cross_container=False,
+    )
+
+    main_module._check_target_support(
+        decision,
+        "bogus-nightly",
+        "aarch64-unknown-linux-gnu",
+        target_installed=True,
+    )
+
+
+def test_assemble_build_command_returns_cargo_when_use_cross_false(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Build command assembly returns cargo when cross is disabled."""
+    main_module = _load_main_module(monkeypatch)
+    decision = main_module._CrossDecision(
+        cross_path=None,
+        cross_version=None,
+        use_cross=False,
+        cargo_toolchain_spec="+bogus-nightly",
+        use_cross_local_backend=False,
+        docker_present=False,
+        podman_present=False,
+        has_container=False,
+        container_engine=None,
+        requires_cross_container=False,
+    )
+
+    cmd = main_module._assemble_build_command(
+        decision,
+        "aarch64-unknown-linux-gnu",
+        tmp_path / "Cargo.toml",
+        "",
+        "",
+        "bogus-nightly",
+    )
+
+    parts = list(cmd.formulate())
+    assert parts[0] == "cargo"
+
+
+def test_assemble_build_command_raises_exit_on_toolchain_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Build command assembly exits when cross validation fails."""
+    main_module = _load_main_module(monkeypatch)
+    decision = _make_cross_decision(
+        main_module,
+        "/usr/bin/cross",
+        cargo_toolchain_spec="+bogus-nightly",
+    )
+
+    def fail_build_cross_command(*_args: object) -> object:
+        msg = "cross command must not include a +<toolchain> override"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(main_module, "_build_cross_command", fail_build_cross_command)
+
+    with pytest.raises(main_module.typer.Exit):
+        main_module._assemble_build_command(
+            decision,
+            "aarch64-unknown-linux-gnu",
+            tmp_path / "Cargo.toml",
+            "",
+            "",
+            "bogus-nightly",
+        )
+
+
 @pytest.mark.parametrize(
     ("cargo_toolchain_spec", "extra_args"),
     [

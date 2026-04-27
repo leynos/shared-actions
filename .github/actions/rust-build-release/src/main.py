@@ -639,6 +639,57 @@ def _manifest_argument(manifest_path: Path) -> Path:
         return manifest_path
 
 
+def _check_target_support(
+    decision: _CrossDecision,
+    toolchain_name: str,
+    target_to_build: str,
+    *,
+    target_installed: bool,
+) -> None:
+    """Exit with an error if the toolchain cannot build the requested target."""
+    if not target_installed and (
+        not decision.use_cross or decision.use_cross_local_backend
+    ):
+        typer.echo(
+            f"::error:: toolchain '{toolchain_name}' does not support "
+            f"target '{target_to_build}'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
+def _assemble_build_command(
+    decision: _CrossDecision,
+    target_to_build: str,
+    manifest_argument: Path,
+    features: str,
+    explicit_toolchain: str,
+    toolchain_name: str,
+) -> SupportsFormulate:
+    """Construct the build command for either cross or cargo."""
+    if not decision.use_cross:
+        return _build_cargo_command(
+            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
+        )
+    try:
+        build_cmd = _build_cross_command(
+            decision, target_to_build, manifest_argument, features
+        )
+    except ValueError as exc:
+        typer.echo(
+            f"::error:: cross command validation failed for target "
+            f"'{target_to_build}': {exc}",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    if explicit_toolchain:
+        build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
+            RUSTUP_TOOLCHAIN=explicit_toolchain
+        )
+    typer.echo(f"::debug:: cross argv: {build_cmd}")
+    return build_cmd
+
+
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
@@ -670,50 +721,24 @@ def main(
     target_installed = _ensure_target_installed(
         rustup_exec, toolchain_name, target_to_build
     )
-
     configure_windows_linkers(toolchain_name, target_to_build, rustup_exec)
-
     host_target = DEFAULT_HOST_TARGET
     decision = _decide_cross_usage(toolchain_name, target_to_build, host_target)
-
     _validate_cross_requirements(decision, target_to_build, host_target)
-
-    if not target_installed and (
-        not decision.use_cross or decision.use_cross_local_backend
-    ):
-        typer.echo(
-            f"::error:: toolchain '{toolchain_name}' does not support "
-            f"target '{target_to_build}'",
-            err=True,
-        )
-        raise typer.Exit(1)
-
+    _check_target_support(
+        decision, toolchain_name, target_to_build, target_installed=target_installed
+    )
     _announce_build_mode(decision)
-
     previous_engine, applied_engine = _configure_cross_container_engine(decision)
-
     manifest_argument = _manifest_argument(manifest_path)
-    if decision.use_cross:
-        try:
-            build_cmd = _build_cross_command(
-                decision, target_to_build, manifest_argument, features
-            )
-        except ValueError as exc:
-            typer.echo(
-                f"::error:: cross command validation failed for target "
-                f"'{target_to_build}': {exc}",
-                err=True,
-            )
-            raise typer.Exit(1) from None
-        if explicit_toolchain:
-            build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
-                RUSTUP_TOOLCHAIN=toolchain_name
-            )
-        typer.echo(f"::debug:: cross argv: {build_cmd}")
-    else:
-        build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
-        )
+    build_cmd = _assemble_build_command(
+        decision,
+        target_to_build,
+        manifest_argument,
+        features,
+        explicit_toolchain,
+        toolchain_name,
+    )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:

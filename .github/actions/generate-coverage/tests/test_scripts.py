@@ -1845,6 +1845,56 @@ def test_create_venv_reuses_existing_coverage_venv(
     assert recorded == []
 
 
+def test_create_venv_recreates_broken_coverage_venv(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper repairs an existing venv that has no Python executable."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    coverage_venv.mkdir()
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+        python_path = coverage_venv / "bin" / "python"
+        python_path.parent.mkdir(parents=True)
+        python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    assert run_python_module.create_venv() == str(coverage_venv / "bin" / "python")
+    assert len(recorded) == 1
+    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+
+
+def test_create_venv_recreates_invalid_python_candidate(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper rejects non-file Python placeholders before reuse."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    (coverage_venv / "bin" / "python").mkdir(parents=True)
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+        python_path = coverage_venv / "Scripts" / "python.exe"
+        python_path.parent.mkdir(parents=True)
+        python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    assert run_python_module.create_venv() == str(
+        coverage_venv / "Scripts" / "python.exe"
+    )
+    assert len(recorded) == 1
+    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+
+
 def test_install_coverage_tools_targets_venv_python(
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

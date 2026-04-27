@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import shutil
 import typing as typ
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def _coverage_python_path() -> Path:
         COVERAGE_VENV / "Scripts" / "python",
     )
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.is_file():
             return candidate
     paths = ", ".join(str(candidate) for candidate in candidates)
     msg = f"Coverage venv Python executable not found; checked: {paths}"
@@ -63,7 +64,15 @@ def create_venv() -> str:
     """Create a throwaway venv for coverage tooling; return python path."""
     if not COVERAGE_VENV.exists():
         run_cmd(uv["venv", str(COVERAGE_VENV)])
-    return str(_coverage_python_path())
+    try:
+        return str(_coverage_python_path())
+    except RuntimeError:
+        if COVERAGE_VENV.is_dir() and not COVERAGE_VENV.is_symlink():
+            shutil.rmtree(COVERAGE_VENV)
+        else:
+            COVERAGE_VENV.unlink(missing_ok=True)
+        run_cmd(uv["venv", str(COVERAGE_VENV)])
+        return str(_coverage_python_path())
 
 
 def install_coverage_tools(python: str) -> None:

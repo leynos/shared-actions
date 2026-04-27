@@ -1965,17 +1965,24 @@ def test_coverage_cmd_uses_venv_python(
     _assert_python_command_structure(parts)
 
 
+@dataclasses.dataclass(frozen=True)
+class CoverageFmtSpec:
+    """Pairs a coverage format name with the corresponding file suffix."""
+
+    fmt: str
+    suffix: str
+
+
 def _get_coverage_cmd_parts(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    fmt: str,
-    suffix: str,
+    spec: CoverageFmtSpec,
 ) -> tuple[list[str], Path]:
     """Build coverage command for format and return parts and output path."""
-    out = tmp_path / f"cov.{suffix}"
+    out = tmp_path / f"cov.{spec.suffix}"
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
-    cmd = run_python_module.coverage_cmd_for_fmt(fmt, out)
+    cmd = run_python_module.coverage_cmd_for_fmt(spec.fmt, out)
     parts = list(cmd.formulate())
     _assert_python_command_structure(parts)
     return parts, out
@@ -1988,7 +1995,7 @@ def test_coverage_cmd_cobertura_uses_venv_python(
 ) -> None:
     """Cobertura format invokes slipcover with ``--xml`` using the venv Python."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, monkeypatch, "cobertura", "xml"
+        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("cobertura", "xml")
     )
     assert parts.count("--xml") == 1
     _assert_tokens_in_order(parts, "--xml", "--out")
@@ -2002,7 +2009,7 @@ def test_coverage_cmd_default_branch_has_shared_args(
 ) -> None:
     """Non-Cobertura formats reuse the shared slipcover arguments."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, monkeypatch, "coveragepy", "dat"
+        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("coveragepy", "dat")
     )
     assert "--xml" not in parts
     assert str(out) not in parts
@@ -2015,7 +2022,7 @@ def test_non_cobertura_formats_do_not_emit_out_flag(
 ) -> None:
     """Ensure slipcover output targeting stays isolated to Cobertura runs."""
     parts, _ = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, monkeypatch, "coveragepy", "dat"
+        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("coveragepy", "dat")
     )
     assert "--out" not in parts
 

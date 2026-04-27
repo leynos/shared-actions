@@ -2070,8 +2070,9 @@ def test_coverage_python_cmd_prepares_tools_once(
     recorded: list[list[str]] = []
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
-        if recorded[-1][1] == "venv":
+        args = list(cmd.formulate())  # type: ignore[attr-defined]
+        recorded.append(args)
+        if len(args) > 1 and args[1] == "venv":
             python_path.parent.mkdir(parents=True)
             python_path.touch()
 

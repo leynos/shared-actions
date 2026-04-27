@@ -1796,31 +1796,59 @@ def _assert_flag_value_pair(parts: list[str], flag: str, value: str) -> None:
     pytest.fail(message)
 
 
+@dataclasses.dataclass
+class VenvTestSetup:
+    """Scaffolding returned by _setup_create_venv_test for create_venv() tests."""
+
+    coverage_venv: Path
+    recorded: list[list[str]] = dataclasses.field(default_factory=list)
+
+
+def _setup_create_venv_test(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    python_to_create: str | None = "bin/python",
+) -> VenvTestSetup:
+    """Patch COVERAGE_VENV and run_cmd; return shared test scaffolding.
+
+    Parameters
+    ----------
+    python_to_create:
+        Relative POSIX path inside the venv to create when ``uv venv``
+        is recorded. Pass ``None`` to skip creation (reuse scenario).
+    """
+    coverage_venv = tmp_path / ".venv-coverage"
+    setup = VenvTestSetup(coverage_venv=coverage_venv)
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if python_to_create is not None and parts[1] == "venv":
+            python_path = coverage_venv / python_to_create
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    return setup
+
+
 def test_create_venv_returns_coverage_python(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The helper creates the throwaway coverage venv and returns its Python."""
-    recorded: list[list[str]] = []
-    coverage_venv = tmp_path / ".venv-coverage"
-
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
-        python = coverage_venv / "bin" / "python"
-        python.parent.mkdir(parents=True)
-        python.touch()
-
-    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
-    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    setup = _setup_create_venv_test(tmp_path, run_python_module, monkeypatch)
 
     python = run_python_module.create_venv()
 
-    assert python == str(coverage_venv / "bin" / "python")
-    assert len(recorded) == 1
-    parts = recorded[0]
+    assert python == str(setup.coverage_venv / "bin" / "python")
+    assert len(setup.recorded) == 1
+    parts = setup.recorded[0]
     assert Path(parts[0]).name == "uv"
-    assert parts[1:] == ["venv", str(coverage_venv)]
+    assert parts[1:] == ["venv", str(setup.coverage_venv)]
 
 
 def test_create_venv_reuses_existing_coverage_venv(
@@ -1829,20 +1857,15 @@ def test_create_venv_reuses_existing_coverage_venv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The helper does not recreate an existing coverage venv."""
-    coverage_venv = tmp_path / ".venv-coverage"
-    python_path = coverage_venv / "Scripts" / "python.exe"
+    setup = _setup_create_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    python_path = setup.coverage_venv / "Scripts" / "python.exe"
     python_path.parent.mkdir(parents=True)
     python_path.touch()
-    recorded: list[list[str]] = []
-
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
-
-    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
-    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
 
     assert run_python_module.create_venv() == str(python_path)
-    assert recorded == []
+    assert setup.recorded == []
 
 
 def test_create_venv_recovers_from_broken_cache(
@@ -1897,22 +1920,14 @@ def test_create_venv_recreates_broken_coverage_venv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The helper repairs an existing venv that has no Python executable."""
-    coverage_venv = tmp_path / ".venv-coverage"
-    coverage_venv.mkdir()
-    recorded: list[list[str]] = []
+    setup = _setup_create_venv_test(tmp_path, run_python_module, monkeypatch)
+    setup.coverage_venv.mkdir()  # broken: directory present, no Python binary
 
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
-        python_path = coverage_venv / "bin" / "python"
-        python_path.parent.mkdir(parents=True)
-        python_path.touch()
-
-    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
-    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
-
-    assert run_python_module.create_venv() == str(coverage_venv / "bin" / "python")
-    assert len(recorded) == 1
-    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+    assert run_python_module.create_venv() == str(
+        setup.coverage_venv / "bin" / "python"
+    )
+    assert len(setup.recorded) == 1
+    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
 
 
 def test_create_venv_recreates_invalid_python_candidate(
@@ -1921,24 +1936,19 @@ def test_create_venv_recreates_invalid_python_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The helper rejects non-file Python placeholders before reuse."""
-    coverage_venv = tmp_path / ".venv-coverage"
-    (coverage_venv / "bin" / "python").mkdir(parents=True)
-    recorded: list[list[str]] = []
-
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
-        python_path = coverage_venv / "Scripts" / "python.exe"
-        python_path.parent.mkdir(parents=True)
-        python_path.touch()
-
-    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
-    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    setup = _setup_create_venv_test(
+        tmp_path,
+        run_python_module,
+        monkeypatch,
+        python_to_create="Scripts/python.exe",
+    )
+    (setup.coverage_venv / "bin" / "python").mkdir(parents=True)  # dir, not file
 
     assert run_python_module.create_venv() == str(
-        coverage_venv / "Scripts" / "python.exe"
+        setup.coverage_venv / "Scripts" / "python.exe"
     )
-    assert len(recorded) == 1
-    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+    assert len(setup.recorded) == 1
+    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
 
 
 def test_install_coverage_tools_targets_venv_python(

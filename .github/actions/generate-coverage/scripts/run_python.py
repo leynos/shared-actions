@@ -30,6 +30,7 @@ GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
+_COVERAGE_PYTHON_CMD: BoundCommand | None = None
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
     "-m",
@@ -43,15 +44,41 @@ PYTEST_ARGS: tuple[str, ...] = (
 )
 
 
+def _coverage_python_path() -> Path:
+    """Return the Python executable path inside the coverage venv."""
+    candidates = (
+        COVERAGE_VENV / "bin" / "python",
+        COVERAGE_VENV / "Scripts" / "python.exe",
+        COVERAGE_VENV / "Scripts" / "python",
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    paths = ", ".join(str(candidate) for candidate in candidates)
+    msg = f"Coverage venv Python executable not found; checked: {paths}"
+    raise RuntimeError(msg)
+
+
 def create_venv() -> str:
     """Create a throwaway venv for coverage tooling; return python path."""
-    run_cmd(uv["venv", str(COVERAGE_VENV)])
-    return str(COVERAGE_VENV / "bin" / "python")
+    if not COVERAGE_VENV.exists():
+        run_cmd(uv["venv", str(COVERAGE_VENV)])
+    return str(_coverage_python_path())
 
 
 def install_coverage_tools(python: str) -> None:
     """Install coverage tooling into the throwaway venv."""
     run_cmd(uv["pip", "install", "--python", python, *TOOLING_PACKAGES])
+
+
+def _coverage_python_cmd() -> BoundCommand:
+    """Return a python command with coverage tooling available."""
+    global _COVERAGE_PYTHON_CMD
+    if _COVERAGE_PYTHON_CMD is None:
+        python = create_venv()
+        install_coverage_tools(python)
+        _COVERAGE_PYTHON_CMD = local[python]
+    return _COVERAGE_PYTHON_CMD
 
 
 def _coverage_args(fmt: str, out: Path) -> list[str]:
@@ -64,17 +91,19 @@ def _coverage_args(fmt: str, out: Path) -> list[str]:
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path, python: str) -> BoundCommand:
+def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     """Return the slipcover command for the requested format."""
-    return local[python][_coverage_args(fmt, out)]
+    python_cmd = _coverage_python_cmd()
+    return python_cmd[_coverage_args(fmt, out)]
 
 
 @contextlib.contextmanager
-def tmp_coveragepy_xml(out: Path, python: str) -> cabc.Generator[Path]:
+def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     """Generate a cobertura XML from coverage.py and clean up afterwards."""
     xml_tmp = out.with_suffix(".xml")
+    python_cmd = _coverage_python_cmd()
     try:
-        cmd = local[python]["-m", "coverage", "xml", "-o", str(xml_tmp)]
+        cmd = python_cmd["-m", "coverage", "xml", "-o", str(xml_tmp)]
         run_cmd(cmd)
     except ProcessExecutionError as exc:
         typer.echo(
@@ -101,17 +130,14 @@ def main(
         out = output_path.with_name(f"{output_path.stem}.python{output_path.suffix}")
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    python = create_venv()
-    install_coverage_tools(python)
-
-    cmd = coverage_cmd_for_fmt(fmt, out, python)
+    cmd = coverage_cmd_for_fmt(fmt, out)
     try:
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
 
     if fmt == "coveragepy":
-        with tmp_coveragepy_xml(out, python) as xml_tmp:
+        with tmp_coveragepy_xml(out) as xml_tmp:
             percent = get_line_coverage_percent_from_cobertura(xml_tmp)
         Path(".coverage").replace(out)
     else:

@@ -1748,6 +1748,20 @@ def _coverage_python(run_python_module: ModuleType) -> str:
     return str(run_python_module.COVERAGE_VENV / "bin" / "python")
 
 
+def _set_fake_coverage_python_cmd(
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> str:
+    """Patch the coverage Python command helper to avoid creating a venv."""
+    python = _coverage_python(run_python_module)
+    monkeypatch.setattr(
+        run_python_module,
+        "_coverage_python_cmd",
+        lambda: local[python],
+    )
+    return python
+
+
 def _assert_python_command_structure(parts: list[str]) -> None:
     """Verify common venv Python command structure with slipcover and pytest."""
     assert Path(parts[0]).name == "python"
@@ -1783,24 +1797,52 @@ def _assert_flag_value_pair(parts: list[str], flag: str, value: str) -> None:
 
 
 def test_create_venv_returns_coverage_python(
+    tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The helper creates the throwaway coverage venv and returns its Python."""
     recorded: list[list[str]] = []
+    coverage_venv = tmp_path / ".venv-coverage"
 
     def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
         recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+        python = coverage_venv / "bin" / "python"
+        python.parent.mkdir(parents=True)
+        python.touch()
 
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
 
     python = run_python_module.create_venv()
 
-    assert python == _coverage_python(run_python_module)
+    assert python == str(coverage_venv / "bin" / "python")
     assert len(recorded) == 1
     parts = recorded[0]
     assert Path(parts[0]).name == "uv"
-    assert parts[1:] == ["venv", str(run_python_module.COVERAGE_VENV)]
+    assert parts[1:] == ["venv", str(coverage_venv)]
+
+
+def test_create_venv_reuses_existing_coverage_venv(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper does not recreate an existing coverage venv."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    python_path = coverage_venv / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.touch()
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    assert run_python_module.create_venv() == str(python_path)
+    assert recorded == []
 
 
 def test_install_coverage_tools_targets_venv_python(
@@ -1826,12 +1868,48 @@ def test_install_coverage_tools_targets_venv_python(
     assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)
 
 
-def test_coverage_cmd_uses_venv_python(run_python_module: ModuleType) -> None:
+def test_coverage_python_cmd_prepares_tools_once(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The coverage Python command lazily creates and installs tooling once."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    python_path = coverage_venv / "bin" / "python"
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+        if recorded[-1][1] == "venv":
+            python_path.parent.mkdir(parents=True)
+            python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    first = run_python_module._coverage_python_cmd()
+    second = run_python_module._coverage_python_cmd()
+
+    assert first is second
+    parts = list(first.formulate())
+    _assert_coverage_python_path(parts[0], str(python_path))
+    assert len(recorded) == 2
+    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+    assert recorded[1][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(python_path),
+    ]
+
+
+def test_coverage_cmd_uses_venv_python(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The helper wires slipcover/pytest through the throwaway venv."""
-    python = _coverage_python(run_python_module)
-    cmd = run_python_module.coverage_cmd_for_fmt(
-        "coveragepy", Path("coverage.dat"), python
-    )
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt("coveragepy", Path("coverage.dat"))
     parts = list(cmd.formulate())
     _assert_coverage_python_path(parts[0], python)
     _assert_python_command_structure(parts)
@@ -1840,25 +1918,27 @@ def test_coverage_cmd_uses_venv_python(run_python_module: ModuleType) -> None:
 def _get_coverage_cmd_parts(
     tmp_path: Path,
     run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
     fmt: str,
     suffix: str,
 ) -> tuple[list[str], Path]:
     """Build coverage command for format and return parts and output path."""
     out = tmp_path / f"cov.{suffix}"
-    cmd = run_python_module.coverage_cmd_for_fmt(
-        fmt, out, _coverage_python(run_python_module)
-    )
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt(fmt, out)
     parts = list(cmd.formulate())
     _assert_python_command_structure(parts)
     return parts, out
 
 
 def test_coverage_cmd_cobertura_uses_venv_python(
-    tmp_path: Path, run_python_module: ModuleType
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Cobertura format invokes slipcover with ``--xml`` using the venv Python."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, "cobertura", "xml"
+        tmp_path, run_python_module, monkeypatch, "cobertura", "xml"
     )
     assert parts.count("--xml") == 1
     _assert_tokens_in_order(parts, "--xml", "--out")
@@ -1866,26 +1946,34 @@ def test_coverage_cmd_cobertura_uses_venv_python(
 
 
 def test_coverage_cmd_default_branch_has_shared_args(
-    tmp_path: Path, run_python_module: ModuleType
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Non-Cobertura formats reuse the shared slipcover arguments."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, "coveragepy", "dat"
+        tmp_path, run_python_module, monkeypatch, "coveragepy", "dat"
     )
     assert "--xml" not in parts
     assert str(out) not in parts
 
 
 def test_non_cobertura_formats_do_not_emit_out_flag(
-    tmp_path: Path, run_python_module: ModuleType
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Ensure slipcover output targeting stays isolated to Cobertura runs."""
-    parts, _ = _get_coverage_cmd_parts(tmp_path, run_python_module, "coveragepy", "dat")
+    parts, _ = _get_coverage_cmd_parts(
+        tmp_path, run_python_module, monkeypatch, "coveragepy", "dat"
+    )
     assert "--out" not in parts
 
 
 def test_tmp_coveragepy_xml_invokes_venv_python(
-    tmp_path: Path, run_python_module: ModuleType
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The coverage.py exporter also reuses the venv Python."""
     out = tmp_path / "coveragepy.dat"
@@ -1898,8 +1986,8 @@ def test_tmp_coveragepy_xml_invokes_venv_python(
 
     run_python_module.run_cmd = fake_run_cmd  # type: ignore[assignment]
 
-    python = _coverage_python(run_python_module)
-    with run_python_module.tmp_coveragepy_xml(out, python) as generated:
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    with run_python_module.tmp_coveragepy_xml(out) as generated:
         assert generated == xml_path
         assert xml_path.exists()
 
@@ -1929,21 +2017,13 @@ def test_run_python_cobertura_passes_out_flag(
         )  # type: ignore[attr-defined]
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
 
     run_python_module.main(output, "python", "cobertura", github_output, None)
 
-    assert len(recorded) == 3
-    assert recorded[0][0][1:] == ["venv", str(run_python_module.COVERAGE_VENV)]
-    install_parts = recorded[1][0]
-    assert install_parts[1:5] == [
-        "pip",
-        "install",
-        "--python",
-        _coverage_python(run_python_module),
-    ]
-    assert "--system" not in install_parts
-    parts = recorded[2][0]
-    assert recorded[2][1] == "run_fg"
+    assert len(recorded) == 1
+    parts = recorded[0][0]
+    assert recorded[0][1] == "run_fg"
     _assert_python_command_structure(parts)
     _assert_tokens_in_order(parts, "--xml", "--out")
     _assert_flag_value_pair(parts, "--out", str(output))
@@ -2019,9 +2099,14 @@ def test_run_python_coveragepy_empty_xml(
         return None
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path, _python: str) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        captured_python.append(
+            next(iter(run_python_module._coverage_python_cmd().formulate()))
+        )
         xml_path = tmp_path / "coverage.xml"
         xml_path.write_text(
             "<coverage lines-covered='0' lines-valid='0' />",
@@ -2037,6 +2122,9 @@ def test_run_python_coveragepy_empty_xml(
     )
 
     run_python_module.main(output, "python", "coveragepy", github_output, None)
+
+    assert len(captured_python) == 1
+    _assert_coverage_python_path(captured_python[0], python)
 
     captured = capsys.readouterr()
     assert "Current coverage: 0.00%" in captured.out
@@ -2065,9 +2153,14 @@ def test_run_python_coveragepy_malformed_xml_exits(
         return None
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path, _python: str) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        captured_python.append(
+            next(iter(run_python_module._coverage_python_cmd().formulate()))
+        )
         xml_path = tmp_path / "coverage.xml"
         xml_path.write_text("<coverage>", encoding="utf-8")
         try:
@@ -2081,6 +2174,9 @@ def test_run_python_coveragepy_malformed_xml_exits(
 
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.main(output, "python", "coveragepy", github_output, None)
+
+    assert len(captured_python) == 1
+    _assert_coverage_python_path(captured_python[0], python)
 
     assert _exit_code(excinfo.value) == 1
     assert coverage_file.exists()

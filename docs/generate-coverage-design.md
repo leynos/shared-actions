@@ -16,6 +16,14 @@ action and the evolution of its supporting scripts.
   configures the Cranelift backend. This keeps the action compatible with
   `cargo-llvm-cov`, which spawns nested Cargo commands that inherit environment
   variables but do not inherit the wrapper process's ad hoc `--config` flags.
+- *2026-04-27* — Python coverage runs now execute inside an isolated,
+  short-lived virtual environment (`.venv-coverage`) rather than relying on
+  `uv run --with` or the system interpreter. The venv is created on first use
+  by `create_venv()`, which also handles broken-cache recovery by detecting a
+  missing Python executable and recreating the directory. Tooling (`slipcover`,
+  `pytest`, `coverage`) is installed via `uv pip install --python` into that
+  venv and the resulting interpreter path is cached for the lifetime of the
+  process.
 
 ## Rust Coverage Environment Overrides
 
@@ -169,3 +177,38 @@ stops short of that complexity.
   suffixes.
 - [x] Document the Rust coverage environment-override design for
   Cranelift-configured repositories.
+
+## Python Coverage Venv Architecture
+
+### Motivation
+
+Running `uv run --with slipcover ...` on each invocation re-resolves
+dependencies and creates a temporary environment on every call. A named venv
+(`.venv-coverage`) is created once per job, reused on subsequent calls within
+the same job, and discarded when the runner workspace is cleaned up.
+
+### Lifecycle
+
+1. `create_venv()` checks whether `.venv-coverage` exists.
+   - If absent, it creates the venv via `uv venv .venv-coverage`.
+   - If present but broken (Python binary missing), it removes the directory
+     and recreates it.
+2. `install_coverage_tools(python)` installs `slipcover`, `pytest`, and
+   `coverage` into the venv using `uv pip install --python <venv-python>`. The
+   `--system` flag is deliberately excluded to keep the install isolated.
+3. `_coverage_python_cmd()` calls steps 1-2 on first use, caches the resulting
+   `plumbum` command, and returns the cached value on all subsequent calls
+   within the same process.
+
+### Concurrency Model
+
+GitHub Actions executes action steps sequentially in a single thread. The
+module-level `_COVERAGE_PYTHON_CMD` singleton therefore requires no explicit
+synchronisation.
+
+### Public API
+
+| Symbol | Role |
+|---|---|
+| `create_venv() -> str` | Create or recover the venv; return Python path. |
+| `install_coverage_tools(python: str) -> None` | Install tooling into the venv. |

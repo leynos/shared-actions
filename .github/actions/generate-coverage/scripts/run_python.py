@@ -31,6 +31,11 @@ GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
+# _COVERAGE_PYTHON_CMD is a module-level lazy singleton.  GitHub Actions
+# runners execute action steps sequentially in a single thread, so no
+# synchronisation is required.  The variable is None until the first call
+# to _coverage_python_cmd(), after which it is reused for the lifetime of
+# the process.
 _COVERAGE_PYTHON_CMD: BoundCommand | None = None
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
@@ -61,32 +66,76 @@ def _coverage_python_path() -> Path:
 
 
 def create_venv() -> str:
-    """Create a throwaway venv for coverage tooling; return python path."""
+    """Create a throwaway venv for coverage tooling.
+
+    If the venv directory already exists but its Python executable cannot be
+    located (broken-cache state), the directory is removed and the venv is
+    recreated before returning the interpreter path.
+
+    Returns
+    -------
+    str
+        Absolute path to the Python executable inside the created venv.
+    """
     if not COVERAGE_VENV.exists():
+        typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
         run_cmd(uv["venv", str(COVERAGE_VENV)])
+    else:
+        typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
     try:
-        return str(_coverage_python_path())
+        python = str(_coverage_python_path())
     except RuntimeError:
-        if COVERAGE_VENV.is_dir() and not COVERAGE_VENV.is_symlink():
-            shutil.rmtree(COVERAGE_VENV)
-        else:
-            COVERAGE_VENV.unlink(missing_ok=True)
+        typer.echo(
+            f"Coverage venv at {COVERAGE_VENV} is missing its Python "
+            "executable; recreating.",
+            err=True,
+        )
+        shutil.rmtree(COVERAGE_VENV)
         run_cmd(uv["venv", str(COVERAGE_VENV)])
-        return str(_coverage_python_path())
+        python = str(_coverage_python_path())
+    return python
 
 
 def install_coverage_tools(python: str) -> None:
-    """Install coverage tooling into the throwaway venv."""
+    """Install coverage tooling into the throwaway venv.
+
+    Parameters
+    ----------
+    python : str
+        Path to the Python executable inside the target venv, as returned by
+        create_venv().
+
+    Raises
+    ------
+    plumbum.commands.processes.ProcessExecutionError
+        Propagated from run_cmd() when uv pip install fails.
+    """
+    typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
     run_cmd(uv["pip", "install", "--python", python, *TOOLING_PACKAGES])
 
 
 def _coverage_python_cmd() -> BoundCommand:
-    """Return a python command with coverage tooling available."""
+    """Set up the coverage venv on first call and return the cached command.
+
+    Side effects on first call
+    --------------------------
+    * Creates .venv-coverage via create_venv() (recreates on broken cache).
+    * Installs slipcover, pytest, and coverage into the venv.
+    * Caches the resulting BoundCommand in _COVERAGE_PYTHON_CMD.
+
+    Returns
+    -------
+    BoundCommand
+        A plumbum command bound to the venv's Python executable.
+    """
     global _COVERAGE_PYTHON_CMD
-    if _COVERAGE_PYTHON_CMD is None:
-        python = create_venv()
-        install_coverage_tools(python)
-        _COVERAGE_PYTHON_CMD = local[python]
+    if _COVERAGE_PYTHON_CMD is not None:
+        typer.echo("Reusing cached coverage Python command.")
+        return _COVERAGE_PYTHON_CMD
+    typer.echo("Setting up coverage Python environment (first use).")
+    python = create_venv()
+    install_coverage_tools(python)
+    _COVERAGE_PYTHON_CMD = local[python]
     return _COVERAGE_PYTHON_CMD
 
 

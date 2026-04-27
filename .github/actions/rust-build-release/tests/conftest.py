@@ -237,6 +237,23 @@ CrossDecisionFactory = cabc.Callable[..., CrossDecision]
 DummyCommandFactory = cabc.Callable[..., _DummyCommand]
 
 
+class _EchoRecorder(list[str]):
+    """Capture global echo calls while preserving module-specific recording."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        super().__init__()
+        self._monkeypatch = monkeypatch
+
+    def __call__(self, module: ModuleType) -> list[tuple[str, bool]]:
+        messages: list[tuple[str, bool]] = []
+
+        def fake_echo(message: str, *, err: bool = False) -> None:
+            messages.append((message, err))
+
+        self._monkeypatch.setattr(module.typer, "echo", fake_echo)
+        return messages
+
+
 def _cross_decision(
     main_module: ModuleType, *, use_cross: bool, requires_container: bool = False
 ) -> CrossDecision:
@@ -279,21 +296,17 @@ def cross_decision_factory() -> CrossDecisionFactory:
 
 
 @pytest.fixture
-def echo_recorder(
-    monkeypatch: pytest.MonkeyPatch,
-) -> cabc.Callable[[ModuleType], list[tuple[str, bool]]]:
-    """Return a helper that patches ``typer.echo`` and records messages."""
+def echo_recorder(monkeypatch: pytest.MonkeyPatch) -> _EchoRecorder:
+    """Capture all typer.echo calls and return the recorded lines."""
+    import typer
 
-    def install(module: ModuleType) -> list[tuple[str, bool]]:
-        messages: list[tuple[str, bool]] = []
+    lines = _EchoRecorder(monkeypatch)
 
-        def fake_echo(message: str, *, err: bool = False) -> None:
-            messages.append((message, err))
+    def record_echo(msg: object = "", **_kwargs: object) -> None:
+        lines.append(str(msg))
 
-        monkeypatch.setattr(module.typer, "echo", fake_echo)
-        return messages
-
-    return install
+    monkeypatch.setattr(typer, "echo", record_echo)
+    return lines
 
 
 @pytest.fixture

@@ -98,7 +98,12 @@ class _CrossDecision(typ.NamedTuple):
 class _CommandWrapper:
     """Expose a stable display name for a plumbum command."""
 
-    def __init__(self, command: SupportsFormulate, display_name: str) -> None:
+    def __init__(
+        self,
+        command: SupportsFormulate,
+        display_name: str,
+        echo: cabc.Callable[[str], None] = typer.echo,
+    ) -> None:
         formulate_callable = getattr(command, "formulate", None)
         if not callable(formulate_callable):
             message = (
@@ -108,14 +113,19 @@ class _CommandWrapper:
             raise TypeError(message)
         self._command: typ.Any = command
         self._display_name = display_name
+        self._echo = echo
+
+    def _warn(self, message: str) -> None:
+        """Emit a wrapper warning through the configured echo callable."""
+        self._echo(message)
 
     def formulate(self) -> cabc.Sequence[str]:
+        """Return the command argv with the configured display name applied."""
         formulate_callable = getattr(self._command, "formulate", None)
         if not callable(formulate_callable):
-            typer.echo(
+            self._warn(
                 f"::warning:: command {self._command!r} does not support formulate(); "
-                "returning display name only",
-                err=True,
+                "returning display name only"
             )
             return [self._display_name]
         try:
@@ -125,28 +135,33 @@ class _CommandWrapper:
                 "::warning:: failed to generate command line for "
                 f"{self._command!r}: {exc}"
             )
-            typer.echo(message, err=True)
+            self._warn(message)
             return [self._display_name]
         if parts:
             parts[0] = self._display_name
         return parts
 
     def __str__(self) -> str:
+        """Return a shell-escaped display string for the wrapped command."""
         parts = [str(part) for part in self.formulate()]
         return shlex.join(parts)
 
     def __call__(self, *args: object, **kwargs: object) -> SupportsFormulate:
+        """Delegate command invocation to the wrapped command."""
         return self._command(*args, **kwargs)
 
     def run(
         self, *args: object, **kwargs: object
     ) -> tuple[int, str | bytes | None, str | bytes | None]:
+        """Run the wrapped command and return plumbum's result tuple."""
         return self._command.run(*args, **kwargs)
 
     def popen(self, *args: object, **kwargs: object) -> subprocess.Popen[typ.Any]:
+        """Start the wrapped command as a subprocess."""
         return self._command.popen(*args, **kwargs)
 
     def with_env(self, *args: object, **kwargs: object) -> _CommandWrapper:
+        """Return a wrapper around the command with temporary environment values."""
         wrapped = self._command.with_env(*args, **kwargs)
         wrapped_formulate = getattr(wrapped, "formulate", None)
         if not callable(wrapped_formulate):
@@ -155,9 +170,10 @@ class _CommandWrapper:
                 "cannot maintain display override"
             )
             raise TypeError(message)
-        return _CommandWrapper(wrapped, self._display_name)
+        return _CommandWrapper(wrapped, self._display_name, self._echo)
 
     def __getattr__(self, name: str) -> object:
+        """Delegate unknown attributes to the wrapped command."""
         return getattr(self._command, name)
 
 
@@ -477,6 +493,7 @@ def _configure_cross_container_engine(
 def _restore_container_engine(
     previous_engine: str | None, *, applied_engine: str | None
 ) -> None:
+    """Restore CROSS_CONTAINER_ENGINE after a temporary cross configuration."""
     current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
 
     if previous_engine is None:
@@ -502,6 +519,7 @@ def _normalize_features(features: str) -> str:
 
 
 def _assert_cross_command_has_no_toolchain_override(cmd: cabc.Sequence[object]) -> None:
+    """Raise ValueError if a cross argv contains a +toolchain override."""
     # Cross must not be given a +<toolchain>; rely on rust-toolchain.toml /
     # rustup override.
     if any(isinstance(arg, str) and arg.startswith("+") for arg in cmd[1:]):
@@ -512,6 +530,7 @@ def _assert_cross_command_has_no_toolchain_override(cmd: cabc.Sequence[object]) 
 def _build_cross_command(
     decision: _CrossDecision, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build a cross command argv and validate it contains no +toolchain."""
     cross_executable = decision.cross_path or "cross"
     executor = local[cross_executable]
     cmd: list[object] = [
@@ -536,6 +555,7 @@ def _build_cross_command(
 def _build_cargo_command(
     cargo_toolchain_spec: str, target_to_build: str, manifest_path: Path, features: str
 ) -> SupportsFormulate:
+    """Build a cargo command argv, preserving any configured +toolchain."""
     executor = local["cargo"]
     cmd = [
         "build",
@@ -561,6 +581,7 @@ def _handle_cross_container_error(
     manifest_path: Path,
     features: str,
 ) -> None:
+    """Handle cross container startup failures or re-raise other errors."""
     if decision.use_cross and exc.retcode in CROSS_CONTAINER_ERROR_CODES:
         if decision.requires_cross_container and not decision.use_cross_local_backend:
             engine = decision.container_engine or "unknown"
@@ -673,9 +694,17 @@ def main(
 
     manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
-        build_cmd = _build_cross_command(
-            decision, target_to_build, manifest_argument, features
-        )
+        try:
+            build_cmd = _build_cross_command(
+                decision, target_to_build, manifest_argument, features
+            )
+        except ValueError as exc:
+            typer.echo(
+                f"::error:: cross command validation failed for target "
+                f"'{target_to_build}': {exc}",
+                err=True,
+            )
+            raise typer.Exit(1) from None
         if explicit_toolchain:
             build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
                 RUSTUP_TOOLCHAIN=toolchain_name

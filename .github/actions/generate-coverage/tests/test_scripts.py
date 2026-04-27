@@ -1970,6 +1970,16 @@ def _assert_venv_rebuild_commands(
     ]
 
 
+def _assert_venv_default_python_rebuild(
+    python: str,
+    setup: VenvTestSetup,
+) -> None:
+    """Assert venv was rebuilt and Python resolved to the default POSIX path."""
+    expected = setup.coverage_venv / "bin" / "python"
+    assert python == str(expected)
+    _assert_venv_rebuild_commands(setup.recorded, setup.coverage_venv, expected)
+
+
 def test_ensure_coverage_venv_replaces_broken_symlink_cache(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -1984,12 +1994,7 @@ def test_ensure_coverage_venv_replaces_broken_symlink_cache(
     python = run_python_module._ensure_coverage_venv()
 
     assert not setup.coverage_venv.is_symlink()
-    assert python == str(setup.coverage_venv / "bin" / "python")
-    _assert_venv_rebuild_commands(
-        setup.recorded,
-        setup.coverage_venv,
-        setup.coverage_venv / "bin" / "python",
-    )
+    _assert_venv_default_python_rebuild(python, setup)
 
 
 def test_ensure_coverage_venv_replaces_broken_file_cache(
@@ -2003,12 +2008,7 @@ def test_ensure_coverage_venv_replaces_broken_file_cache(
 
     python = run_python_module._ensure_coverage_venv()
 
-    assert python == str(setup.coverage_venv / "bin" / "python")
-    _assert_venv_rebuild_commands(
-        setup.recorded,
-        setup.coverage_venv,
-        setup.coverage_venv / "bin" / "python",
-    )
+    _assert_venv_default_python_rebuild(python, setup)
 
 
 def test_ensure_coverage_venv_recreates_invalid_python_candidate(

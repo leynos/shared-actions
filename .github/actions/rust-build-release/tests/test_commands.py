@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import re
 import stat
@@ -25,6 +26,15 @@ ALNUM_TEXT = st.text(
     alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
     min_size=1,
 )
+
+
+@dataclasses.dataclass(frozen=True)
+class CrossDecisionConfig:
+    """Overridable fields for constructing a _CrossDecision in tests."""
+
+    cargo_toolchain_spec: str
+    requires_cross_container: bool = False
+    use_cross_local_backend: bool = False
 
 
 def _make_cross_executable(tmp_path: Path) -> Path:
@@ -62,22 +72,20 @@ def _load_main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 def _make_cross_decision(
     main_module: ModuleType,
     cross_path: Path | str | None,
-    *,
-    cargo_toolchain_spec: str,
-    requires_cross_container: bool = False,
-    use_cross_local_backend: bool = False,
+    config: CrossDecisionConfig,
 ) -> object:
+    """Construct a _CrossDecision from the given module, path, and config."""
     return main_module._CrossDecision(
         cross_path=str(cross_path) if cross_path is not None else None,
         cross_version="0.2.5",
         use_cross=True,
-        cargo_toolchain_spec=cargo_toolchain_spec,
-        use_cross_local_backend=use_cross_local_backend,
+        cargo_toolchain_spec=config.cargo_toolchain_spec,
+        use_cross_local_backend=config.use_cross_local_backend,
         docker_present=True,
         podman_present=False,
         has_container=True,
         container_engine="docker",
-        requires_cross_container=requires_cross_container,
+        requires_cross_container=config.requires_cross_container,
     )
 
 
@@ -123,7 +131,7 @@ def test_build_cross_command_invokes_toolchain_override_guard(
     decision = _make_cross_decision(
         main_module,
         cross_path,
-        cargo_toolchain_spec="+bogus-nightly",
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
     guard = mock.MagicMock()
     monkeypatch.setattr(
@@ -140,31 +148,40 @@ def test_build_cross_command_invokes_toolchain_override_guard(
     guard.assert_called_once()
 
 
+@pytest.fixture
+def cross_module_context(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[ModuleType, Path]:
+    """Load the main module and create a stub cross executable."""
+    main_module = _load_main_module(monkeypatch)
+    cross_path = _make_cross_executable(tmp_path)
+    return main_module, cross_path
+
+
 @settings(
     max_examples=40,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(target=ALNUM_TEXT, features=ALNUM_TEXT, manifest_stem=ALNUM_TEXT)
 def test_build_cross_command_property_omits_toolchain_override(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    cross_module_context: tuple[ModuleType, Path],
     target: str,
     features: str,
     manifest_stem: str,
 ) -> None:
     """Generated cross commands never include +toolchain tokens after argv[0]."""
-    main_module = _load_main_module(monkeypatch)
-    cross_path = _make_cross_executable(tmp_path)
+    main_module, cross_path = cross_module_context
     decision = _make_cross_decision(
         main_module,
         cross_path,
-        cargo_toolchain_spec="+bogus-nightly",
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
 
     cmd = main_module._build_cross_command(
         decision,
         target,
-        tmp_path / f"{manifest_stem}.toml",
+        Path(f"{manifest_stem}.toml"),
         features,
     )
 
@@ -219,7 +236,7 @@ def test_cross_debug_output_matches_expected_argv_pattern(
     decision = _make_cross_decision(
         main_module,
         cross_path,
-        cargo_toolchain_spec="+bogus-nightly",
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
 
     build_cmd = main_module._build_cross_command(
@@ -332,7 +349,7 @@ def test_assemble_build_command_raises_exit_on_toolchain_override(
     decision = _make_cross_decision(
         main_module,
         "/usr/bin/cross",
-        cargo_toolchain_spec="+bogus-nightly",
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
 
     def fail_build_cross_command(*_args: object) -> object:
@@ -426,7 +443,7 @@ def test_cross_container_error_with_other_retcode_reraises_original_exception(
     decision = _make_cross_decision(
         main_module,
         "/usr/bin/cross",
-        cargo_toolchain_spec="+bogus-nightly",
+        CrossDecisionConfig(cargo_toolchain_spec="+bogus-nightly"),
     )
     exc = ProcessExecutionError(["cross", "build"], 2, "", "")
 
@@ -453,9 +470,10 @@ def test_required_cross_container_error_exits_without_fallback(
     decision = _make_cross_decision(
         main_module,
         "/usr/bin/cross",
-        cargo_toolchain_spec="+bogus-nightly",
-        requires_cross_container=True,
-        use_cross_local_backend=False,
+        CrossDecisionConfig(
+            cargo_toolchain_spec="+bogus-nightly",
+            requires_cross_container=True,
+        ),
     )
     exc = ProcessExecutionError(["cross", "build"], 125, "", "")
 

@@ -1925,6 +1925,36 @@ def test_find_coverage_python_returns_none_when_no_executable(
     assert run_python_module._find_coverage_python() is None
 
 
+def _assert_venv_recreated_with_python(
+    setup: VenvTestSetup,
+    python_path: Path,
+) -> None:
+    """Assert the three run_cmd calls expected after a venv recreation.
+
+    Parameters
+    ----------
+    setup:
+        Shared scaffolding containing the recorded command parts.
+    python_path:
+        Absolute path to the Python executable that the recreation must
+        target for the sync and pip-install commands.
+    """
+    assert len(setup.recorded) == 3
+    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
+    assert setup.recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path),
+    ]
+    assert setup.recorded[2][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(python_path),
+    ]
+
+
 def test_ensure_coverage_venv_replaces_broken_file_cache(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -1937,15 +1967,7 @@ def test_ensure_coverage_venv_replaces_broken_file_cache(
     python = run_python_module._ensure_coverage_venv()
 
     assert python == str(setup.coverage_venv / "bin" / "python")
-    assert len(setup.recorded) == 3
-    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
-    assert setup.recorded[1][1:] == ["sync", "--inexact", "--python", python]
-    assert setup.recorded[2][1:5] == [
-        "pip",
-        "install",
-        "--python",
-        python,
-    ]
+    _assert_venv_recreated_with_python(setup, setup.coverage_venv / "bin" / "python")
 
 
 def test_ensure_coverage_venv_recreates_invalid_python_candidate(
@@ -1965,20 +1987,9 @@ def test_ensure_coverage_venv_recreates_invalid_python_candidate(
     assert run_python_module._ensure_coverage_venv() == str(
         setup.coverage_venv / "Scripts" / "python.exe"
     )
-    assert len(setup.recorded) == 3
-    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
-    assert setup.recorded[1][1:] == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(setup.coverage_venv / "Scripts" / "python.exe"),
-    ]
-    assert setup.recorded[2][1:5] == [
-        "pip",
-        "install",
-        "--python",
-        str(setup.coverage_venv / "Scripts" / "python.exe"),
-    ]
+    _assert_venv_recreated_with_python(
+        setup, setup.coverage_venv / "Scripts" / "python.exe"
+    )
 
 
 def test_ensure_coverage_venv_targets_venv_python_for_tooling(

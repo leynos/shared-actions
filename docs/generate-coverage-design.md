@@ -204,7 +204,7 @@ the same job, and discarded when the runner workspace is cleaned up.
 3. `_ensure_coverage_venv()` performs installation of `slipcover`, `pytest`,
    and `coverage` into the venv using
    `uv pip install --python <venv-python>`. The `--system` flag is deliberately
-   excluded to keep the install isolated.
+   excluded to keep the installation isolated.
 4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
    cached value on all subsequent calls within the same process.

@@ -176,6 +176,10 @@ stops short of that complexity.
   suffixes.
 - [x] Document the Rust coverage environment-override design for
   Cranelift-configured repositories.
+- [x] Replace `uv run --with` ephemeral environments with a persistent,
+  job-local `.venv-coverage` virtual environment to enable intra-process
+  caching of the Python interpreter path via `functools.lru_cache` and to add
+  broken-venv recovery.
 
 ## Python Coverage Venv Architecture
 

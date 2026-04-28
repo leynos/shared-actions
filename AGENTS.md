@@ -106,6 +106,25 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.
 
+### Makefile tool resolution
+
+The `Makefile` resolves optional local tool installations before falling back
+to bare names on `PATH`. The following variables are set at the top of
+`Makefile` and may be overridden on the command line:
+
+| Variable             | Default resolution order                                                                 |
+|----------------------|------------------------------------------------------------------------------------------|
+| `UV`                 | `~/.local/bin/uv` if present, otherwise `uv`                                            |
+| `ACTION_VALIDATOR`   | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` |
+| `MDLINT`             | `~/.bun/bin/markdownlint` if present, otherwise `markdownlint`                          |
+| `MARKDOWNLINT_BASE`  | `origin/main` (used as the base ref for `git diff` in the `markdownlint` target)        |
+
+Example - use a system `uv` and a custom markdownlint base:
+
+```bash
+make lint UV=uv MARKDOWNLINT_BASE=origin/develop
+```
+
 ## 5  Security Hardening
 
 1. **Pin third‑party actions** to a full commit SHA (not just `@v1`).

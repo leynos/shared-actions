@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.14 (2026-04-28)
+
+- Run Python coverage tooling in an isolated, job-local virtual environment
+  (`.venv-coverage`) instead of using `uv run --with`. The venv is created
+  once per process, reused across calls within the same job, and repaired
+  automatically when the Python executable is missing.
+- Project dependencies are synced into the venv via `uv sync --inexact
+  --python`; `slipcover`, `pytest`, and `coverage` are installed via
+  `uv pip install --python` without `--system`.
+- Broken-venv recovery: if `.venv-coverage` exists but its Python executable
+  is absent or a non-directory placeholder occupies its path, the directory is
+  removed and recreated before proceeding.
+
 ## v1.3.13 (2026-04-16)
 
 - Override Cranelift coverage builds via

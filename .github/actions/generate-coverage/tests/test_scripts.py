@@ -2404,3 +2404,158 @@ def test_cobertura_permission_error(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+
+# ---------------------------------------------------------------------------
+# Integration tests - run_python.py via run_script()
+# ---------------------------------------------------------------------------
+
+
+def _run_python_script(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    *,
+    fmt: str = "cobertura",
+    extra_env: dict[str, str] | None = None,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> tuple[int, str, str]:
+    """Run run_python.py end-to-end with stub uv and return (rc, stdout, stderr)."""
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
+
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "python",
+        "DETECTED_FMT": fmt,
+        "GITHUB_OUTPUT": str(gh),
+    }
+    if extra_env:
+        env.update(extra_env)
+    if monkeypatch is not None:
+        monkeypatch.chdir(tmp_path)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    return run_script(script, env)
+
+
+def _write_fake_uv(
+    tmp_path: Path,
+    *,
+    venv_exit: int = 0,
+    sync_exit: int = 0,
+) -> tuple[Path, Path]:
+    """Write a fake uv executable and return its bin directory and log path."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls.log"
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$*" >> '{log}'
+if [ "$1" = "venv" ]; then
+    if [ {venv_exit} -ne 0 ]; then
+        echo "uv venv exploded" >&2
+        exit {venv_exit}
+    fi
+    mkdir -p "$2/bin"
+    cat > "$2/bin/python" <<'PY'
+#!/usr/bin/env sh
+exit 0
+PY
+    chmod +x "$2/bin/python"
+    exit 0
+fi
+if [ "$1" = "sync" ]; then
+    if [ {sync_exit} -ne 0 ]; then
+        echo "uv sync exploded" >&2
+        exit {sync_exit}
+    fi
+    exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    return bin_dir, log
+
+
+def _python_integration_env(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    bin_dir: Path,
+) -> dict[str, str]:
+    """Return environment for run_python.py integration tests."""
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "python",
+        "DETECTED_FMT": "cobertura",
+        "GITHUB_OUTPUT": str(gh),
+    }
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    return env
+
+
+def test_run_python_integration_cobertura_success(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py creates the venv, syncs deps, and installs tooling."""
+    bin_dir, log = _write_fake_uv(tmp_path)
+    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
+    monkeypatch.chdir(tmp_path)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    returncode, _stdout, _stderr = run_script(script, env)
+    uv_calls = log.read_text(encoding="utf-8").splitlines()
+    venv_calls = [c for c in uv_calls if c.startswith("venv ")]
+    sync_calls = [c for c in uv_calls if c.startswith("sync ")]
+    pip_calls = [c for c in uv_calls if c.startswith("pip install ")]
+    assert returncode == 0
+    assert venv_calls, "uv venv must be called to create the coverage venv"
+    assert sync_calls, "uv sync must be called to install project deps"
+    assert pip_calls, "uv pip install must be called to install tooling"
+    pip_args = pip_calls[0].split()
+    assert "--python" in pip_args
+    assert "--system" not in pip_args
+    assert "slipcover" in pip_args
+    assert "pytest" in pip_args
+    assert "coverage" in pip_args
+
+
+def test_run_python_integration_uv_venv_failure(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py exits non-zero when uv venv fails."""
+    bin_dir, _log = _write_fake_uv(tmp_path, venv_exit=1)
+    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
+    monkeypatch.chdir(tmp_path)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    returncode, _stdout, _stderr = run_script(script, env)
+    assert returncode != 0
+
+
+def test_run_python_integration_uv_sync_failure(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py exits non-zero and logs a message when uv sync fails."""
+    bin_dir, _log = _write_fake_uv(tmp_path, sync_exit=2)
+    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
+    monkeypatch.chdir(tmp_path)
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    returncode, _stdout, stderr = run_script(script, env)
+    assert returncode != 0
+    assert "uv sync failed" in stderr

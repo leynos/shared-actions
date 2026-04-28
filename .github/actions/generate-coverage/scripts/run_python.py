@@ -110,9 +110,23 @@ def _ensure_coverage_venv() -> str:
     if python is None:
         python = _recreate_coverage_venv()
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
-    run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
+    try:
+        run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv sync failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
     typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
-    run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
+    try:
+        run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv pip install failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
     return str(python)
 
 
@@ -134,14 +148,51 @@ def _coverage_args(fmt: str, out: Path) -> list[str]:
 
 
 def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
-    """Return the slipcover command for the requested format."""
+    """Return the slipcover command for the requested coverage format.
+
+    Parameters
+    ----------
+    fmt : str
+        Coverage format identifier. ``"cobertura"`` adds slipcover's
+        ``--xml`` and ``--out`` flags; all other values produce a bare
+        slipcover/pytest invocation.
+    out : Path
+        Destination path for the coverage output file; passed to slipcover's
+        ``--out`` argument when ``fmt == "cobertura"``.
+
+    Returns
+    -------
+    plumbum.commands.base.BoundCommand
+        A plumbum command that runs slipcover via the coverage venv Python.
+    """
     python_cmd = _coverage_python_cmd()
     return python_cmd[_coverage_args(fmt, out)]
 
 
 @contextlib.contextmanager
 def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
-    """Generate a cobertura XML from coverage.py and clean up afterwards."""
+    """Generate a Cobertura XML from coverage.py and clean it up afterwards.
+
+    Invokes ``python -m coverage xml -o <xml_tmp>`` using the coverage venv
+    Python, yields the temporary XML path for the caller to consume, and
+    removes the file on exit - whether the body raised or returned normally.
+
+    Parameters
+    ----------
+    out : Path
+        Path to the ``.dat`` (coverage.py data) file.  The temporary XML is
+        written to ``out.with_suffix(".xml")``.
+
+    Yields
+    ------
+    Path
+        Absolute path to the freshly generated temporary Cobertura XML file.
+
+    Raises
+    ------
+    typer.Exit
+        If ``coverage xml`` exits with a non-zero return code.
+    """
     xml_tmp = out.with_suffix(".xml")
     python_cmd = _coverage_python_cmd()
     try:
@@ -166,7 +217,25 @@ def main(
     github_output: Path = GITHUB_OUTPUT_OPT,
     baseline_file: Path | None = BASELINE_OPT,
 ) -> None:
-    """Run slipcover coverage and write the output path to ``GITHUB_OUTPUT``."""
+    """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
+
+    Parameters
+    ----------
+    output_path : Path
+        Destination path for the coverage output file.
+    lang : str
+        Detected project language (``"rust"``, ``"python"``, or
+        ``"mixed"``).  When ``"mixed"``, the output file is renamed to
+        include a ``.python`` infix.
+    fmt : str
+        Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
+    github_output : Path
+        Path to the ``GITHUB_OUTPUT`` append file where ``file=`` and
+        ``percent=`` are written.
+    baseline_file : Path or None
+        Optional path to a previous coverage baseline file.  When present,
+        the previous percentage is echoed to the log.
+    """
     out = output_path
     if lang == "mixed":
         out = output_path.with_name(f"{output_path.stem}.python{output_path.suffix}")

@@ -2502,6 +2502,19 @@ def _python_integration_env(
     return env
 
 
+def _run_integration_script(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    bin_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[int, str, str]:
+    """Set up env, chdir, and invoke run_python.py; return (rc, stdout, stderr)."""
+    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
+    monkeypatch.chdir(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    return run_script(script, env)
+
+
 def test_run_python_integration_cobertura_success(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -2509,11 +2522,11 @@ def test_run_python_integration_cobertura_success(
 ) -> None:
     """run_python.py creates the venv, syncs deps, and installs tooling."""
     bin_dir, log = _write_fake_uv(tmp_path)
-    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
-    monkeypatch.chdir(tmp_path)
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
-    returncode, _stdout, _stderr = run_script(script, env)
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
     uv_calls = log.read_text(encoding="utf-8").splitlines()
     venv_calls = [c for c in uv_calls if c.startswith("venv ")]
     sync_calls = [c for c in uv_calls if c.startswith("sync ")]
@@ -2537,11 +2550,11 @@ def test_run_python_integration_uv_venv_failure(
 ) -> None:
     """run_python.py exits non-zero when uv venv fails."""
     bin_dir, _log = _write_fake_uv(tmp_path, venv_exit=1)
-    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
-    monkeypatch.chdir(tmp_path)
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
-    returncode, _stdout, _stderr = run_script(script, env)
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
     assert returncode != 0
 
 
@@ -2552,10 +2565,10 @@ def test_run_python_integration_uv_sync_failure(
 ) -> None:
     """run_python.py exits non-zero and logs a message when uv sync fails."""
     bin_dir, _log = _write_fake_uv(tmp_path, sync_exit=2)
-    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
-    monkeypatch.chdir(tmp_path)
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
-    returncode, _stdout, stderr = run_script(script, env)
+    returncode, _stdout, stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
     assert returncode != 0
     assert "uv sync failed" in stderr

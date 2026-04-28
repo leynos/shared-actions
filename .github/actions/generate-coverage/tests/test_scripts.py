@@ -2148,28 +2148,17 @@ def test_coverage_cmd_cobertura_uses_venv_python(
     _assert_flag_value_pair(parts, "--out", str(out))
 
 
-def test_coverage_cmd_default_branch_has_shared_args(
+def test_non_cobertura_formats_do_not_emit_cobertura_flags(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-Cobertura formats reuse the shared slipcover arguments."""
+    """Non-Cobertura formats do not emit Cobertura output flags."""
     parts, out = _get_coverage_cmd_parts(
         tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("coveragepy", "dat")
     )
     assert "--xml" not in parts
     assert str(out) not in parts
-
-
-def test_non_cobertura_formats_do_not_emit_out_flag(
-    tmp_path: Path,
-    run_python_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ensure slipcover output targeting stays isolated to Cobertura runs."""
-    parts, _ = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("coveragepy", "dat")
-    )
     assert "--out" not in parts
 
 

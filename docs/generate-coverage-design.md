@@ -195,8 +195,9 @@ the same job, and discarded when the runner workspace is cleaned up.
 1. `_ensure_coverage_venv()` checks whether `.venv-coverage` contains a Python
    executable.
    - If absent, it creates the venv via `uv venv .venv-coverage`.
-   - If present but broken (Python binary missing), it removes the directory
-     and recreates it.
+   - If present but broken (Python binary missing), it removes the existing
+     path - unlinking files and symlinks and removing directories - and then
+     recreates it.
 2. `_ensure_coverage_venv()` syncs the current project into the venv with
    `uv sync --inexact --python <venv-python>` so tests can import project
    dependencies.

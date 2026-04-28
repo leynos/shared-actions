@@ -48,6 +48,8 @@ PYTEST_ARGS: tuple[str, ...] = (
 
 def _find_coverage_python() -> Path | None:
     """Return the coverage venv Python executable path when it exists."""
+    if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
+        return None
     candidates = (
         COVERAGE_VENV / "bin" / "python",
         COVERAGE_VENV / "Scripts" / "python.exe",

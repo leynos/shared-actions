@@ -2411,35 +2411,6 @@ def test_cobertura_permission_error(
 # ---------------------------------------------------------------------------
 
 
-def _run_python_script(
-    tmp_path: Path,
-    shell_stubs: StubManager,
-    *,
-    fmt: str = "cobertura",
-    extra_env: dict[str, str] | None = None,
-    monkeypatch: pytest.MonkeyPatch | None = None,
-) -> tuple[int, str, str]:
-    """Run run_python.py end-to-end with stub uv and return (rc, stdout, stderr)."""
-    out = tmp_path / "cov.xml"
-    gh = tmp_path / "gh.txt"
-    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
-
-    env = {
-        **shell_stubs.env,
-        "INPUT_OUTPUT_PATH": str(out),
-        "DETECTED_LANG": "python",
-        "DETECTED_FMT": fmt,
-        "GITHUB_OUTPUT": str(gh),
-    }
-    if extra_env:
-        env.update(extra_env)
-    if monkeypatch is not None:
-        monkeypatch.chdir(tmp_path)
-
-    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
-    return run_script(script, env)
-
-
 def _write_fake_uv(
     tmp_path: Path,
     *,

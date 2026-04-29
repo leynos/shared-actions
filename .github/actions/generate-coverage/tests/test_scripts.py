@@ -2083,6 +2083,7 @@ def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
     assert run_python_module._ensure_coverage_venv() == str(python)
 
     assert sync_environment == [str(setup.coverage_venv.resolve())]
+    assert "UV_PROJECT_ENVIRONMENT" not in os.environ
 
 
 def test_coverage_python_cmd_prepares_tools_once(
@@ -2570,12 +2571,22 @@ def test_run_python_integration_cobertura_success(
     assert "coverage" in pip_args
 
 
+@dataclasses.dataclass(frozen=True)
+class UvFailureSpec:
+    """Pairs a fake-uv exit-code configuration with the expected stderr fragment."""
+
+    write_kwargs: dict[str, int]
+    expected_in_stderr: str | None
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 @pytest.mark.parametrize(
-    ("write_kwargs", "expected_in_stderr"),
+    "spec",
     [
-        ({"venv_exit": 1}, None),
-        ({"sync_exit": 2}, "uv sync failed"),
+        UvFailureSpec(write_kwargs={"venv_exit": 1}, expected_in_stderr=None),
+        UvFailureSpec(
+            write_kwargs={"sync_exit": 2}, expected_in_stderr="uv sync failed"
+        ),
     ],
     ids=["uv-venv-fails", "uv-sync-fails"],
 )
@@ -2583,16 +2594,15 @@ def test_run_python_integration_uv_failure_modes(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
-    write_kwargs: dict[str, int],
-    expected_in_stderr: str | None,
+    spec: UvFailureSpec,
 ) -> None:
     """run_python.py exits non-zero when uv venv or uv sync fails."""
-    bin_dir, _log = _write_fake_uv(tmp_path, **write_kwargs)
+    bin_dir, _log = _write_fake_uv(tmp_path, **spec.write_kwargs)
 
     returncode, _stdout, stderr = _run_integration_script(
         tmp_path, shell_stubs, bin_dir, monkeypatch
     )
 
     assert returncode != 0
-    if expected_in_stderr is not None:
-        assert expected_in_stderr in stderr
+    if spec.expected_in_stderr is not None:
+        assert spec.expected_in_stderr in stderr

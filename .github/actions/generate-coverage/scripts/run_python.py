@@ -110,6 +110,7 @@ def _ensure_coverage_venv() -> str:
     if python is None:
         python = _recreate_coverage_venv()
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
+    previous_project_environment = os.environ.get("UV_PROJECT_ENVIRONMENT")
     os.environ["UV_PROJECT_ENVIRONMENT"] = str(COVERAGE_VENV.resolve())
     try:
         run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
@@ -119,6 +120,11 @@ def _ensure_coverage_venv() -> str:
             err=True,
         )
         raise
+    finally:
+        if previous_project_environment is None:
+            os.environ.pop("UV_PROJECT_ENVIRONMENT", None)
+        else:
+            os.environ["UV_PROJECT_ENVIRONMENT"] = previous_project_environment
     typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
     try:
         run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])

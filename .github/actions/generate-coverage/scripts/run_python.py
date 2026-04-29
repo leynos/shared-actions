@@ -86,7 +86,7 @@ def _recreate_coverage_venv() -> Path:
     RuntimeError
         If the Python executable cannot be located after creation.
     """
-    if COVERAGE_VENV.exists():
+    if COVERAGE_VENV.exists() or COVERAGE_VENV.is_symlink():
         typer.echo(
             f"Coverage venv at {COVERAGE_VENV} is missing its Python "
             "executable; recreating.",

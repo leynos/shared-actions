@@ -1991,7 +1991,6 @@ def test_ensure_coverage_venv_replaces_broken_symlink_cache(
     """The helper unlinks a symlink cache placeholder before recreate."""
     setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
     target = tmp_path / "not-a-venv"
-    target.write_text("not a directory")
     setup.coverage_venv.symlink_to(target)
 
     python = run_python_module._ensure_coverage_venv()

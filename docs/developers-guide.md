@@ -19,20 +19,33 @@ interpreter reference within the same process.
 `.venv-coverage` in the working directory.
 
 | Step | Function | Description |
-|---|---|---|
-| 1 | `_find_coverage_python()` | Locate the Python executable within `.venv-coverage`; returns `None` if absent or if the venv directory is a symlink or non-directory. |
-| 2 | `_remove_coverage_venv()` | Remove the venv directory (via `shutil.rmtree`) or any non-directory placeholder (via `Path.unlink`). |
-| 3 | `_recreate_coverage_venv()` | Remove any broken venv state, create a fresh venv via `uv venv`, and return the new Python path. Raises `RuntimeError` if the executable is still absent after creation. |
-| 4 | `_ensure_coverage_venv()` | Orchestrates steps 1-3, then runs `uv sync --inexact --python` and `uv pip install --python slipcover pytest coverage`. Returns the Python path as a string. |
-| 5 | `_coverage_python_cmd()` | Calls `_ensure_coverage_venv()` on first use via `@lru_cache(maxsize=1)`; returns a cached `plumbum.BoundCommand` thereafter. |
+| --- | --- | --- |
+| 1 | `_find_coverage_python()` | Locate the Python executable. |
+| 2 | `_remove_coverage_venv()` | Remove the venv or placeholder path. |
+| 3 | `_recreate_coverage_venv()` | Recreate the venv. |
+| 4 | `_ensure_coverage_venv()` | Sync project deps and install tooling. |
+| 5 | `_coverage_python_cmd()` | Return the cached `plumbum.BoundCommand`. |
+
+`_find_coverage_python()` returns `None` when `.venv-coverage` is absent, is a
+symlink, is a non-directory, or lacks a Python executable. `_remove_coverage_venv()`
+uses `shutil.rmtree` for directories and `Path.unlink` for files or symlinks.
+`_recreate_coverage_venv()` raises `RuntimeError` if the executable is still
+absent after creation. `_ensure_coverage_venv()` runs
+`uv sync --inexact --python` and
+`uv pip install --python slipcover pytest coverage`. `_coverage_python_cmd()`
+uses `@lru_cache(maxsize=1)` and returns the cached command thereafter.
 
 ### Public API
 
 | Symbol | Signature | Role |
-|---|---|---|
-| `coverage_cmd_for_fmt` | `(fmt: str, out: Path) -> BoundCommand` | Build the slipcover command for a given format. |
-| `tmp_coveragepy_xml` | `(out: Path) -> Generator[Path]` | Context manager: generate Cobertura XML via coverage.py, yield the path, clean up on exit. |
-| `main` | `(output_path, lang, fmt, github_output, baseline_file)` | Entry point: run slipcover, parse coverage, write `GITHUB_OUTPUT`. |
+| --- | --- | --- |
+| `coverage_cmd_for_fmt` | `(fmt, out)` | Build a slipcover command. |
+| `tmp_coveragepy_xml` | `(out)` | Generate temporary Cobertura XML. |
+| `main` | `(output_path, lang, fmt, github_output, baseline)` | Entry point. |
+
+`coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format.
+`tmp_coveragepy_xml` yields a temporary XML path and removes it on exit.
+`main` runs slipcover, parses coverage, and writes `GITHUB_OUTPUT`.
 
 ### Concurrency Model
 
@@ -61,11 +74,15 @@ The `Makefile` resolves optional local tool installations before falling back
 to bare names on `PATH`.
 
 | Variable | Default resolution order |
-|---|---|
+| --- | --- |
 | `UV` | `~/.local/bin/uv` if present, otherwise `uv` |
-| `ACTION_VALIDATOR` | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` |
+| `ACTION_VALIDATOR` | Bun install, then Cargo install, then `PATH` |
 | `MDLINT` | `~/.bun/bin/markdownlint` if present, otherwise `markdownlint` |
-| `MARKDOWNLINT_BASE` | `origin/main` (base ref for `git diff` in the `markdownlint` target) |
+| `MARKDOWNLINT_BASE` | `origin/main` |
+
+`ACTION_VALIDATOR` resolves to `~/.bun/bin/action-validator`, then
+`~/.cargo/bin/action-validator`, then `action-validator`. `MARKDOWNLINT_BASE`
+is the base ref for `git diff` in the `markdownlint` target.
 
 Override example:
 

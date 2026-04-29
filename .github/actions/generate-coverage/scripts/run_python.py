@@ -301,11 +301,14 @@ def main(
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = coverage_cmd_for_fmt(fmt, out)
     try:
+        cmd = coverage_cmd_for_fmt(fmt, out)
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
+    except RuntimeError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
     if fmt == "coveragepy":
         with tmp_coveragepy_xml(out) as xml_tmp:

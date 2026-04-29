@@ -31,9 +31,10 @@ symlink, is a non-directory, or lacks a Python executable. `_remove_coverage_ven
 uses `shutil.rmtree` for directories and `Path.unlink` for files or symlinks.
 `_recreate_coverage_venv()` raises `RuntimeError` if the executable is still
 absent after creation. `_ensure_coverage_venv()` runs
-`uv sync --inexact --python` and
-`uv pip install --python slipcover pytest coverage`. `_coverage_python_cmd()`
-uses `@lru_cache(maxsize=1)` and returns the cached command thereafter.
+`uv sync --inexact --python <venv_python>` and
+`uv pip install --python <venv_python> slipcover pytest coverage`.
+`_coverage_python_cmd()` uses `@lru_cache(maxsize=1)` and returns the cached
+command for `<venv_python>` thereafter.
 
 ### Public API
 
@@ -41,7 +42,7 @@ uses `@lru_cache(maxsize=1)` and returns the cached command thereafter.
 | --- | --- | --- |
 | `coverage_cmd_for_fmt` | `(fmt, out)` | Build a slipcover command. |
 | `tmp_coveragepy_xml` | `(out)` | Generate temporary Cobertura XML. |
-| `main` | `(output_path, lang, fmt, github_output, baseline)` | Entry point. |
+| `main` | `(output_path, lang, fmt, github_output, baseline_file)` | Run. |
 
 `coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit.
@@ -51,7 +52,7 @@ uses `@lru_cache(maxsize=1)` and returns the cached command thereafter.
 
 `run_python.py` runs as a single-threaded GitHub Actions step. The
 `@lru_cache(maxsize=1)` on `_coverage_python_cmd()` therefore requires no
-explicit synchronisation; the cache is safe for the lifetime of the process.
+explicit synchronization; the cache is safe for the lifetime of the process.
 
 ### Broken-Venv Recovery
 

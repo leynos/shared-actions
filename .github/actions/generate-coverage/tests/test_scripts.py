@@ -54,6 +54,12 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
     -------
     RunResult
         A three-tuple of ``(return_code, stdout, stderr)``.
+
+    Raises
+    ------
+    None
+        This helper does not raise for non-zero exits; failures are conveyed
+        via the returned exit code and stderr captured from the child process.
     """
     command = local["uv"]["run", "--script", str(script)]
     if args:
@@ -2366,6 +2372,57 @@ def test_run_python_coveragepy_empty_xml(
     data = github_output.read_text(encoding="utf-8").splitlines()
     assert f"file={output}" in data
     assert "percent=0.00" in data
+
+
+def test_main_echoes_previous_coverage_when_baseline_present(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """main() logs 'Previous coverage: ...%' when a baseline is provided."""
+    monkeypatch.chdir(tmp_path)
+    coverage_file = tmp_path / ".coverage"
+    coverage_file.write_text("payload", encoding="utf-8")
+
+    def fake_run_cmd(_cmd: object, **_kw: object) -> None:
+        pass
+
+    @contextlib.contextmanager
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        xml = out.with_suffix(".xml")
+        xml.write_text(
+            "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
+        )
+        try:
+            yield xml
+        finally:
+            xml.unlink(missing_ok=True)
+
+    def fake_read_previous_coverage(_baseline: Path | None) -> float | None:
+        return 42.0
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(
+        run_python_module, "tmp_coveragepy_xml", fake_tmp_coveragepy_xml
+    )
+    monkeypatch.setattr(
+        run_python_module, "read_previous_coverage", fake_read_previous_coverage
+    )
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+
+    out = tmp_path / "cov.dat"
+    gh = tmp_path / "gh.txt"
+    run_python_module.main(
+        output_path=out,
+        lang="python",
+        fmt="coveragepy",
+        github_output=gh,
+        baseline_file=tmp_path / "baseline.txt",
+    )
+
+    captured = capsys.readouterr()
+    assert "Previous coverage: 42.0%" in captured.out
 
 
 def test_run_python_coveragepy_malformed_xml_exits(

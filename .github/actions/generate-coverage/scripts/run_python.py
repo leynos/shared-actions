@@ -131,11 +131,14 @@ def _ensure_coverage_venv() -> str:
     python = _find_coverage_python()
     if python is None:
         python = _recreate_coverage_venv()
+    else:
+        typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
     previous_project_environment = os.environ.get("UV_PROJECT_ENVIRONMENT")
     os.environ["UV_PROJECT_ENVIRONMENT"] = str(COVERAGE_VENV.resolve())
     try:
         run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
+        typer.echo(f"Project dependencies installed into {COVERAGE_VENV}")
     except ProcessExecutionError as exc:
         typer.echo(
             f"uv sync failed with code {exc.retcode}: {exc.stderr}",

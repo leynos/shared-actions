@@ -265,22 +265,27 @@ def _resolve_output_path(output_path: Path, lang: str) -> Path:
     return output_path
 
 
-def _run_slipcover(fmt: str, out: Path) -> None:
-    """Build and execute the slipcover command, converting errors to typer.Exit.
+def _run_coverage(fmt: str, out: Path) -> str:
+    """Run slipcover and return the line coverage percentage.
 
     Parameters
     ----------
     fmt : str
-        Coverage format identifier; forwarded to
-        :func:`coverage_cmd_for_fmt`.
+        Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
     out : Path
         Destination path for the coverage output file.
+
+    Returns
+    -------
+    str
+        Line coverage percentage parsed from the generated report.
 
     Raises
     ------
     typer.Exit
-        When the slipcover/pytest command exits non-zero (preserving the
-        original return code) or when venv setup raises ``RuntimeError``.
+        With the subprocess return code when the slipcover/coverage
+        command exits non-zero, or when ``coverage xml`` fails in
+        ``coveragepy`` format mode.
     """
     try:
         cmd = coverage_cmd_for_fmt(fmt, out)
@@ -291,33 +296,6 @@ def _run_slipcover(fmt: str, out: Path) -> None:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
 
-
-def _parse_coverage_percent(fmt: str, out: Path) -> str:
-    """Run coverage-format post-processing and return the line-coverage percentage.
-
-    For ``"coveragepy"`` format, invokes ``coverage xml`` via
-    :func:`tmp_coveragepy_xml` to produce a Cobertura XML, parses it,
-    then moves the ``.coverage`` data file into ``out``.  For all other
-    formats, parses ``out`` directly as a Cobertura XML.
-
-    Parameters
-    ----------
-    fmt : str
-        Coverage format identifier.
-    out : Path
-        Path to the coverage output file produced by slipcover.
-
-    Returns
-    -------
-    str
-        Line coverage percentage.
-
-    Raises
-    ------
-    typer.Exit
-        Propagated from :func:`tmp_coveragepy_xml` when ``coverage xml``
-        exits non-zero.
-    """
     if fmt == "coveragepy":
         with tmp_coveragepy_xml(out) as xml_tmp:
             percent = get_line_coverage_percent_from_cobertura(xml_tmp)
@@ -361,15 +339,11 @@ def main(
     """
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
-
-    _run_slipcover(fmt, out)
-    percent = _parse_coverage_percent(fmt, out)
-
+    percent = _run_coverage(fmt, out)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:
         typer.echo(f"Previous coverage: {previous}%")
-
     with github_output.open("a") as fh:
         fh.write(f"file={out}\n")
         fh.write(f"percent={percent}\n")

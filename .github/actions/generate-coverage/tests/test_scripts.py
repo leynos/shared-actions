@@ -1983,33 +1983,28 @@ def _assert_venv_default_python_rebuild(
     _assert_venv_rebuild_commands(setup.recorded, setup.coverage_venv, expected)
 
 
-def test_ensure_coverage_venv_replaces_broken_symlink_cache(
+@pytest.mark.parametrize(
+    "broken_state_kind",
+    ["file", "symlink"],
+    ids=["file-placeholder", "symlink-placeholder"],
+)
+def test_ensure_coverage_venv_replaces_broken_placeholder(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    broken_state_kind: str,
 ) -> None:
-    """The helper unlinks a symlink cache placeholder before recreate."""
+    """The helper removes file and symlink placeholders before recreating the venv."""
     setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
-    target = tmp_path / "not-a-venv"
-    setup.coverage_venv.symlink_to(target)
+    if broken_state_kind == "symlink":
+        setup.coverage_venv.symlink_to(tmp_path / "not-a-venv")
+    else:
+        setup.coverage_venv.write_text("not a venv")
 
     python = run_python_module._ensure_coverage_venv()
 
-    assert not setup.coverage_venv.is_symlink()
-    _assert_venv_default_python_rebuild(python, setup)
-
-
-def test_ensure_coverage_venv_replaces_broken_file_cache(
-    tmp_path: Path,
-    run_python_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The helper replaces a non-directory cache placeholder before recreate."""
-    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
-    setup.coverage_venv.write_text("not a venv")
-
-    python = run_python_module._ensure_coverage_venv()
-
+    if broken_state_kind == "symlink":
+        assert not setup.coverage_venv.is_symlink()
     _assert_venv_default_python_rebuild(python, setup)
 
 
@@ -2513,32 +2508,28 @@ def test_run_python_integration_cobertura_success(
     assert "coverage" in pip_args
 
 
-def test_run_python_integration_uv_venv_failure(
+@pytest.mark.parametrize(
+    ("write_kwargs", "expected_in_stderr"),
+    [
+        ({"venv_exit": 1}, None),
+        ({"sync_exit": 2}, "uv sync failed"),
+    ],
+    ids=["uv-venv-fails", "uv-sync-fails"],
+)
+def test_run_python_integration_uv_failure_modes(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
+    write_kwargs: dict[str, int],
+    expected_in_stderr: str | None,
 ) -> None:
-    """run_python.py exits non-zero when uv venv fails."""
-    bin_dir, _log = _write_fake_uv(tmp_path, venv_exit=1)
-
-    returncode, _stdout, _stderr = _run_integration_script(
-        tmp_path, shell_stubs, bin_dir, monkeypatch
-    )
-
-    assert returncode != 0
-
-
-def test_run_python_integration_uv_sync_failure(
-    tmp_path: Path,
-    shell_stubs: StubManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """run_python.py exits non-zero and logs a message when uv sync fails."""
-    bin_dir, _log = _write_fake_uv(tmp_path, sync_exit=2)
+    """run_python.py exits non-zero when uv venv or uv sync fails."""
+    bin_dir, _log = _write_fake_uv(tmp_path, **write_kwargs)
 
     returncode, _stdout, stderr = _run_integration_script(
         tmp_path, shell_stubs, bin_dir, monkeypatch
     )
 
     assert returncode != 0
-    assert "uv sync failed" in stderr
+    if expected_in_stderr is not None:
+        assert expected_in_stderr in stderr

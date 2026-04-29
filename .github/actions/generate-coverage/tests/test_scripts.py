@@ -2056,6 +2056,34 @@ def test_ensure_coverage_venv_targets_venv_python_for_tooling(
     assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)
 
 
+def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uv sync targets the coverage venv via UV_PROJECT_ENVIRONMENT."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    python = setup.coverage_venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    sync_environment: list[str | None] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if len(parts) > 1 and parts[1] == "sync":
+            sync_environment.append(os.environ.get("UV_PROJECT_ENVIRONMENT"))
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
+
+    assert run_python_module._ensure_coverage_venv() == str(python)
+
+    assert sync_environment == [str(setup.coverage_venv.resolve())]
+
+
 def test_coverage_python_cmd_prepares_tools_once(
     tmp_path: Path,
     run_python_module: ModuleType,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import os
 import shutil
 import typing as typ
 from functools import lru_cache
@@ -109,6 +110,7 @@ def _ensure_coverage_venv() -> str:
     if python is None:
         python = _recreate_coverage_venv()
     typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
+    os.environ["UV_PROJECT_ENVIRONMENT"] = str(COVERAGE_VENV.resolve())
     try:
         run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
     except ProcessExecutionError as exc:

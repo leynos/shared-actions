@@ -14,6 +14,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+import yaml
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -2433,6 +2434,32 @@ def test_cobertura_permission_error(
 # ---------------------------------------------------------------------------
 
 
+def _generate_coverage_action() -> dict[str, object]:
+    """Return the generate-coverage action contract."""
+    action = Path(__file__).resolve().parents[1] / "action.yml"
+    with action.open(encoding="utf-8") as stream:
+        loaded = yaml.safe_load(stream)
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+def _python_step_env_contract() -> dict[str, str]:
+    """Return the env contract for the Python coverage step."""
+    action = _generate_coverage_action()
+    runs = action.get("runs")
+    assert isinstance(runs, dict)
+    steps = runs.get("steps")
+    assert isinstance(steps, list)
+    python_step = next(
+        step for step in steps if isinstance(step, dict) and step.get("id") == "python"
+    )
+    env = python_step.get("env")
+    assert isinstance(env, dict)
+    assert all(isinstance(key, str) for key in env)
+    assert all(isinstance(value, str) for value in env.values())
+    return typ.cast("dict[str, str]", env)
+
+
 def _write_fake_uv(
     tmp_path: Path,
     *,
@@ -2481,6 +2508,11 @@ def _python_integration_env(
     bin_dir: Path,
 ) -> dict[str, str]:
     """Return environment for run_python.py integration tests."""
+    python_env = _python_step_env_contract()
+    assert python_env["INPUT_OUTPUT_PATH"] == "${{ inputs.output-path }}"
+    assert python_env["DETECTED_LANG"] == "${{ steps.detect.outputs.lang }}"
+    assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
+    assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
     out = tmp_path / "cov.xml"
     gh = tmp_path / "gh.txt"
     out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
@@ -2489,6 +2521,7 @@ def _python_integration_env(
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "python",
         "DETECTED_FMT": "cobertura",
+        "BASELINE_PYTHON_FILE": str(tmp_path / "baseline-python.txt"),
         "GITHUB_OUTPUT": str(gh),
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
@@ -2508,6 +2541,7 @@ def _run_integration_script(
     return run_script(script, env)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 def test_run_python_integration_cobertura_success(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -2536,6 +2570,7 @@ def test_run_python_integration_cobertura_success(
     assert "coverage" in pip_args
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
 @pytest.mark.parametrize(
     ("write_kwargs", "expected_in_stderr"),
     [

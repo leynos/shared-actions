@@ -55,10 +55,7 @@ def _find_coverage_python() -> Path | None:
         COVERAGE_VENV / "Scripts" / "python.exe",
         COVERAGE_VENV / "Scripts" / "python",
     )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
+    return next((c for c in candidates if c.is_file()), None)
 
 
 def _remove_coverage_venv() -> None:
@@ -212,6 +209,27 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
         xml_tmp.unlink(missing_ok=True)
 
 
+def _resolve_output_path(output_path: Path, lang: str) -> Path:
+    """Return the effective output path, accounting for mixed-language projects.
+
+    Parameters
+    ----------
+    output_path : Path
+        Base output path supplied by the caller.
+    lang : str
+        Detected project language.  When ``"mixed"``, a ``.python`` infix
+        is inserted between the stem and the suffix.
+
+    Returns
+    -------
+    Path
+        Adjusted output path.
+    """
+    if lang == "mixed":
+        return output_path.with_name(f"{output_path.stem}.python{output_path.suffix}")
+    return output_path
+
+
 def main(
     output_path: Path = OUTPUT_PATH_OPT,
     lang: str = LANG_OPT,
@@ -238,9 +256,7 @@ def main(
         Optional path to a previous coverage baseline file.  When present,
         the previous percentage is echoed to the log.
     """
-    out = output_path
-    if lang == "mixed":
-        out = output_path.with_name(f"{output_path.stem}.python{output_path.suffix}")
+    out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = coverage_cmd_for_fmt(fmt, out)

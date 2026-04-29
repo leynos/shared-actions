@@ -22,6 +22,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Pin `setup-rust` to the commit behind `setup-rust-v1`, so toolchain inputs and OS guards apply when invoked from external repositories.
 - Resolve toolchains from the target repository before falling back to the action's bundled default: explicit input first, then `rust-toolchain.toml` or `rust-toolchain`, then manifest `rust-version`.
+- Prefer deterministic `target/generated-man/...` manual pages when staging
+  Linux and illumos artefacts, falling back to the newest Cargo build-script
+  `OUT_DIR` page only when needed.
 
 ## [0.1.0] - 2025-09-10
 

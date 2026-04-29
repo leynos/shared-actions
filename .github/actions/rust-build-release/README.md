@@ -73,16 +73,6 @@ None.
 
 ```yaml
 # Package artefacts after building
-- id: find-linux-manpage
-  shell: bash
-  working-directory: rust-toy-app
-  run: |
-    set -euo pipefail
-    manpage=$(find target/${TARGET}/release/build -name 'rust-toy-app.1' -print -quit)
-    test -n "$manpage"
-    echo "path=${manpage}" >> "$GITHUB_OUTPUT"
-  env:
-    TARGET: x86_64-unknown-linux-gnu
 - uses: ./.github/actions/linux-packages
   with:
     project-dir: rust-toy-app
@@ -90,7 +80,7 @@ None.
     package-name: rust-toy-app
     target: x86_64-unknown-linux-gnu
     version: 1.2.3
-    man-paths: ${{ steps.find-linux-manpage.outputs.path }}
+    man-paths: target/generated-man/x86_64-unknown-linux-gnu/release/rust-toy-app.1
 ```
 
 ### Cross-compiling illumos artefacts

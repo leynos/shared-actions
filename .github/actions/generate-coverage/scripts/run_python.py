@@ -31,6 +31,9 @@ LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
 FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
 GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
 BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
+# COVERAGE_VENV is a process-scoped constant.  It is consumed by
+# _ensure_coverage_venv() and _coverage_python_cmd(), both of which are
+# called from a single-threaded GitHub Actions step.
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
@@ -94,6 +97,7 @@ def _recreate_coverage_venv() -> Path:
     else:
         typer.echo(f"Creating coverage venv at {COVERAGE_VENV}")
     run_cmd(uv["venv", str(COVERAGE_VENV)])
+    typer.echo(f"Coverage venv created at {COVERAGE_VENV}")
     python = _find_coverage_python()
     if python is None:
         msg = f"Coverage venv Python executable not found in {COVERAGE_VENV}"
@@ -104,7 +108,25 @@ def _recreate_coverage_venv() -> Path:
 def _ensure_coverage_venv() -> str:
     """Create or repair the coverage venv and install project/test tooling.
 
-    Returns the Python executable path inside the isolated coverage venv.
+    Checks whether ``.venv-coverage`` contains a healthy Python executable.
+    If not, delegates to :func:`_recreate_coverage_venv` to remove any
+    broken state and create a fresh venv.  Then runs ``uv sync`` to install
+    project dependencies, followed by ``uv pip install`` to add
+    ``slipcover``, ``pytest``, and ``coverage``.
+
+    Returns
+    -------
+    str
+        Absolute path to the Python executable inside the coverage venv.
+
+    Raises
+    ------
+    RuntimeError
+        Propagated from :func:`_recreate_coverage_venv` when the Python
+        executable cannot be located after venv creation.
+    plumbum.commands.processes.ProcessExecutionError
+        Propagated from ``uv sync`` or ``uv pip install`` when either
+        command exits with a non-zero return code.
     """
     python = _find_coverage_python()
     if python is None:
@@ -134,9 +156,14 @@ def _ensure_coverage_venv() -> str:
             err=True,
         )
         raise
+    typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
     return str(python)
 
 
+# _coverage_python_cmd() is memoised with lru_cache rather than using a
+# mutable global.  GitHub Actions executes action steps sequentially in a
+# single thread, so no synchronisation is required; the cache is safe to
+# use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
     """Return the coverage venv Python command, creating it on first use."""
@@ -263,6 +290,13 @@ def main(
     baseline_file : Path or None
         Optional path to a previous coverage baseline file.  When present,
         the previous percentage is echoed to the log.
+
+    Raises
+    ------
+    typer.Exit
+        With the subprocess return code when the slipcover/coverage command
+        exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
+        format mode.
     """
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)

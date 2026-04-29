@@ -39,7 +39,22 @@ def _exit_code(exc: BaseException) -> int | None:
 
 
 def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
-    """Run ``script`` via ``uv`` with ``env`` and return the run tuple."""
+    """Run ``script`` via ``uv run --script`` with ``env`` and return the result.
+
+    Parameters
+    ----------
+    script : Path
+        Absolute path to the Python script to execute.
+    env : dict[str, str]
+        Environment variables to merge on top of the current environment.
+    *args : str
+        Additional positional arguments appended to the ``uv run`` command.
+
+    Returns
+    -------
+    RunResult
+        A three-tuple of ``(return_code, stdout, stderr)``.
+    """
     command = local["uv"]["run", "--script", str(script)]
     if args:
         command = command[list(args)]
@@ -2548,7 +2563,10 @@ def test_run_python_integration_cobertura_success(
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """run_python.py creates the venv, syncs deps, and installs tooling."""
+    """run_python.py creates the venv, syncs deps, installs tooling.
+
+    The script also writes outputs.
+    """
     bin_dir, log = _write_fake_uv(tmp_path)
 
     returncode, _stdout, _stderr = _run_integration_script(
@@ -2569,6 +2587,51 @@ def test_run_python_integration_cobertura_success(
     assert "slipcover" in pip_args
     assert "pytest" in pip_args
     assert "coverage" in pip_args
+    # Verify GITHUB_OUTPUT was written with expected keys
+    gh = tmp_path / "gh.txt"
+    assert gh.exists(), "GITHUB_OUTPUT file must be written"
+    gh_content = gh.read_text(encoding="utf-8")
+    assert "file=" in gh_content, "GITHUB_OUTPUT must contain file= key"
+    assert "percent=" in gh_content, "GITHUB_OUTPUT must contain percent= key"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_mixed_lang_path(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py renames the output file for mixed-lang projects.
+
+    The output path receives a .python infix.
+    """
+    bin_dir, _log = _write_fake_uv(tmp_path)
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "mixed",
+        "DETECTED_FMT": "cobertura",
+        "BASELINE_PYTHON_FILE": "",
+        "GITHUB_OUTPUT": str(gh),
+    }
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    monkeypatch.chdir(tmp_path)
+    # Provide the expected renamed file so coverage parser can read it
+    mixed_out = tmp_path / "cov.python.xml"
+    mixed_out.write_text(
+        "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    returncode, _stdout, _stderr = run_script(script, env)
+
+    assert returncode == 0
+    gh_content = gh.read_text(encoding="utf-8")
+    assert "cov.python.xml" in gh_content, (
+        "mixed-lang output path must include .python infix"
+    )
 
 
 @dataclasses.dataclass(frozen=True)

@@ -132,6 +132,42 @@ def clone_packaging_project(
     return dc.replace(project, project_dir=destination)
 
 
+def _resolve_man_page(
+    project_dir: Path,
+    target: str,
+    config: PackagingConfig,
+) -> Path:
+    """Locate the man page for *config.bin_name*.
+
+    Prefers the stable ``target/generated-man/<target>/release/<bin>.1`` path.
+    Falls back to the legacy Cargo build-output glob when the stable path is
+    absent.  Raises ``FileNotFoundError`` when no match is found and
+    ``RuntimeError`` when multiple legacy matches are found.
+    """
+    stable = project_dir / f"target/generated-man/{target}/release/{config.bin_name}.1"
+    if stable.exists():
+        return stable
+    matches = list(
+        project_dir.glob(
+            f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
+        )
+    )
+    if len(matches) == 0:
+        message = (
+            f"{config.name} man page not found at {stable} "
+            f"or under target/{target}/release/build/*/out/"
+        )
+        raise FileNotFoundError(message)
+    if len(matches) > 1:
+        paths = "\n  ".join(str(match) for match in matches)
+        message = (
+            f"expected exactly one legacy man page for {config.name}, "
+            f"found {len(matches)}:\n  {paths}"
+        )
+        raise RuntimeError(message)
+    return matches[0]
+
+
 def build_release_artefacts(
     project: PackagingProject,
     target: str,
@@ -152,31 +188,7 @@ def build_release_artefacts(
         )
         with local.env(CROSS_CONTAINER_ENGINE="podman"):
             run_cmd(local[sys.executable][project.build_script.as_posix(), target])
-        man_src = (
-            project.project_dir
-            / f"target/generated-man/{target}/release/{config.bin_name}.1"
-        )
-        if not man_src.exists():
-            matches = list(
-                project.project_dir.glob(
-                    f"target/{target}/release/build/{config.name}-*/out/"
-                    f"{config.bin_name}.1"
-                )
-            )
-            if len(matches) == 0:
-                message = (
-                    f"{config.name} man page not found at {man_src} "
-                    f"or under target/{target}/release/build/*/out/"
-                )
-                raise FileNotFoundError(message)
-            if len(matches) > 1:
-                paths = "\n  ".join(str(match) for match in matches)
-                message = (
-                    f"expected exactly one legacy man page for {config.name}, "
-                    f"found {len(matches)}:\n  {paths}"
-                )
-                raise RuntimeError(message)
-            man_src = matches[0]
+        man_src = _resolve_man_page(project.project_dir, target, config)
     return BuildArtefacts(target=target, man_page=man_src)
 
 

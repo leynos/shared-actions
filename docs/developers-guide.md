@@ -33,6 +33,8 @@ uses `shutil.rmtree` for directories and `Path.unlink` for files or symlinks.
 absent after creation. `_ensure_coverage_venv()` runs
 `uv sync --inexact --python <venv_python>` and
 `uv pip install --python <venv_python> slipcover pytest coverage`.
+`<venv_python>` is the absolute path inside `.venv-coverage`; it is not
+resolved through symlinks before being passed to uv.
 `_coverage_python_cmd()` uses `@lru_cache(maxsize=1)` and returns the cached
 command for `<venv_python>` thereafter.
 
@@ -68,6 +70,19 @@ removes the directory and recreates it from scratch. The case is detected by
 - `COVERAGE_VENV/bin/python` (POSIX)
 - `COVERAGE_VENV/Scripts/python.exe` (Windows)
 - `COVERAGE_VENV/Scripts/python` (Windows without extension)
+
+On POSIX, `bin/python` is commonly a symlink to the base interpreter, for
+example `/usr/bin/python3.12`. `_find_coverage_python()` deliberately returns
+`Path.absolute()` rather than `Path.resolve()` so the action passes
+`.venv-coverage/bin/python` to uv. Resolving that symlink would make
+`uv pip install --python` target the externally managed system interpreter
+instead of the throwaway coverage venv.
+
+The helper logs each candidate at DEBUG level with the candidate path, absolute
+path, resolved target, file status, and symlink status. `_ensure_coverage_venv()`
+logs the candidate set and the exact Python path passed to `uv sync` and
+`uv pip install` at INFO level so CI logs can identify whether uv targeted the
+venv path or the base interpreter.
 
 ## Makefile Tool Resolution
 

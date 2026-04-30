@@ -23,6 +23,13 @@ action and the evolution of its supporting scripts.
   `uv sync --inexact --python`, installs tooling (`slipcover`, `pytest`,
   `coverage`) via `uv pip install --python`, and `_coverage_python_cmd()` caches
   the resulting interpreter command for the lifetime of the process.
+- *2026-04-30* — Python coverage venv discovery now preserves the absolute
+  venv interpreter path instead of resolving it through symlinks. On Linux,
+  `.venv-coverage/bin/python` can point at `/usr/bin/python3.12`; passing the
+  resolved target to `uv pip install --python` makes uv treat `/usr` as the
+  install environment and trips externally-managed-interpreter protections.
+  The action must pass the venv path itself to uv, and it logs the candidate
+  paths, resolved targets, and selected uv command interpreter for diagnosis.
 
 ## Rust Coverage Environment Overrides
 
@@ -208,6 +215,13 @@ the same job, and discarded when the runner workspace is cleaned up.
 4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
    cached value on all subsequent calls within the same process.
+
+`<venv-python>` is the absolute path to the Python executable inside
+`.venv-coverage`, not the result of resolving that executable through symlinks.
+This distinction matters on Linux because venv Python executables commonly
+symlink to the base interpreter. Resolving the symlink before invoking uv
+would redirect installs back to the system Python and defeat the isolation
+provided by `.venv-coverage`.
 
 ### Concurrency Model
 

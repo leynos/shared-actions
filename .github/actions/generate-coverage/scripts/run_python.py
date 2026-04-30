@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import logging
 import os
 import shutil
 import typing as typ
@@ -25,6 +26,8 @@ from shared_utils import read_previous_coverage
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from plumbum.commands.base import BoundCommand
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
@@ -49,17 +52,34 @@ PYTEST_ARGS: tuple[str, ...] = (
     "-v",
 )
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(levelname)s %(name)s %(message)s",
+)
 
-def _find_coverage_python() -> Path | None:
-    """Return the coverage venv Python executable path when it exists."""
-    if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
-        return None
-    candidates = (
+
+def _coverage_python_candidates() -> tuple[Path, ...]:
+    """Return the supported Python executable locations inside the venv."""
+    return (
         COVERAGE_VENV / "bin" / "python",
         COVERAGE_VENV / "Scripts" / "python.exe",
         COVERAGE_VENV / "Scripts" / "python",
     )
-    return next((c.resolve() for c in candidates if c.is_file()), None)
+
+
+def _find_coverage_python() -> Path | None:
+    """Return the coverage venv Python executable path when it exists.
+
+    Virtual environment Python executables are commonly symlinks to the base
+    interpreter. Keep the venv path so uv targets the venv instead of the
+    externally managed system Python.
+    """
+    if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
+        return None
+    for candidate in _coverage_python_candidates():
+        if candidate.is_file():
+            return candidate.absolute()
+    return None
 
 
 def _remove_coverage_venv() -> None:
@@ -148,14 +168,66 @@ def _install_coverage_tooling(python: Path) -> None:
     typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
 
 
+def _acquire_coverage_python() -> Path:
+    """Discover or create the coverage venv and return its Python path.
+
+    Returns
+    -------
+    Path
+        Absolute path to the Python executable inside the coverage venv.
+
+    Raises
+    ------
+    RuntimeError
+        Propagated from :func:`_recreate_coverage_venv` when the Python
+        executable cannot be located after venv creation.
+    """
+    candidates = _coverage_python_candidates()
+    logger.debug(
+        "checking coverage venv Python candidates",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "candidates": [str(c) for c in candidates],
+        },
+    )
+    python = _find_coverage_python()
+    if python is None:
+        python = _recreate_coverage_venv()
+        logger.debug(
+            "created fresh coverage venv",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "python": str(python),
+            },
+        )
+    else:
+        typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
+        raw_candidate = next(
+            (candidate for candidate in candidates if candidate.absolute() == python),
+            python,
+        )
+        logger.debug(
+            "selected coverage venv Python candidate",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "candidate": str(raw_candidate),
+                "candidate_absolute": str(raw_candidate.absolute()),
+                "candidate_resolved": str(raw_candidate.resolve(strict=False)),
+                "is_symlink": raw_candidate.is_symlink(),
+                "python": str(python),
+                "resolved_python": str(raw_candidate.resolve(strict=False)),
+                "preserved_symlink": raw_candidate.is_symlink(),
+            },
+        )
+    return python
+
+
 def _ensure_coverage_venv() -> str:
     """Create or repair the coverage venv and install project/test tooling.
 
-    Checks whether ``.venv-coverage`` contains a healthy Python executable.
-    If not, delegates to :func:`_recreate_coverage_venv` to remove any
-    broken state and create a fresh venv.  Then runs ``uv sync`` to install
-    project dependencies, followed by ``uv pip install`` to add
-    ``slipcover``, ``pytest``, and ``coverage``.
+    Delegates venv discovery and creation to _acquire_coverage_python, then
+    runs ``uv sync`` to install project dependencies, followed by
+    ``uv pip install`` to add ``slipcover``, ``pytest``, and ``coverage``.
 
     Returns
     -------
@@ -171,12 +243,25 @@ def _ensure_coverage_venv() -> str:
         Propagated from ``uv sync`` or ``uv pip install`` when either
         command exits with a non-zero return code.
     """
-    python = _find_coverage_python()
-    if python is None:
-        python = _recreate_coverage_venv()
-    else:
-        typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
+    python = _acquire_coverage_python()
+    logger.info(
+        "using coverage venv Python for uv commands",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "python": str(python),
+            "sync_args": [*PROJECT_SYNC_ARGS, str(python)],
+            "tooling_packages": [*TOOLING_PACKAGES],
+        },
+    )
     _sync_project_deps(python)
+    logger.info(
+        "installing coverage tooling with uv pip",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "python": str(python),
+            "pip_args": ["pip", "install", "--python", str(python), *TOOLING_PACKAGES],
+        },
+    )
     _install_coverage_tooling(python)
     return str(python)
 

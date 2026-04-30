@@ -152,12 +152,21 @@ def build_release_artefacts(
         )
         with local.env(CROSS_CONTAINER_ENGINE="podman"):
             run_cmd(local[sys.executable][project.build_script.as_posix(), target])
-        man_src = unique_match(
-            project.project_dir.glob(
-                f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
-            ),
-            description=f"{config.name} man page",
+        man_src = (
+            project.project_dir
+            / "target"
+            / "generated-man"
+            / target
+            / "release"
+            / f"{config.bin_name}.1"
         )
+        if not man_src.is_file():
+            man_src = unique_match(
+                project.project_dir.glob(
+                    f"target/{target}/release/build/{config.name}-*/out/{config.bin_name}.1"
+                ),
+                description=f"{config.name} man page",
+            )
     return BuildArtefacts(target=target, man_page=man_src)
 
 

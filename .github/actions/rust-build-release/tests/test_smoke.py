@@ -167,10 +167,8 @@ def test_action_builds_release_binary_and_manpage(
         + (".exe" if "windows" in target else "")
     )
     assert binary.exists()
-    manpage_glob = project_dir.glob(
-        f"target/{target}/release/build/rust-toy-app-*/out/rust-toy-app.1"
-    )
-    assert any(manpage_glob)
+    manpage = project_dir / f"target/generated-man/{target}/release/rust-toy-app.1"
+    assert manpage.exists()
 
 
 def test_fails_without_target(packaging_project_paths: _PackagingProject) -> None:

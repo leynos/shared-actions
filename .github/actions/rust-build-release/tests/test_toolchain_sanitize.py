@@ -125,7 +125,7 @@ def test_accepts_toolchain_with_triple(
     assert res.returncode == 0
     binary = project_dir / f"target/{target_triple}/release/rust-toy-app"
     assert binary.exists()
-    manpage_glob = project_dir.glob(
-        f"target/{target_triple}/release/build/rust-toy-app-*/out/rust-toy-app.1"
+    manpage = (
+        project_dir / f"target/generated-man/{target_triple}/release/rust-toy-app.1"
     )
-    assert any(manpage_glob)
+    assert manpage.exists()

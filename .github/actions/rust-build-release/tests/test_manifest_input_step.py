@@ -64,7 +64,7 @@ def test_determine_toolchain_step_uses_project_lookup_inputs() -> None:
 
 
 def test_stage_artefacts_step_uses_stable_manpage_path() -> None:
-    """Packaging should use the stable generated-man path, not Cargo build hashes."""
+    """Packaging should prefer generated-man before falling back to Cargo output."""
     manifest = _load_action_manifest()
     steps: list[dict[str, object]] = manifest["runs"]["steps"]
     stage_step = _find_step(steps, "Stage artefacts")
@@ -74,5 +74,6 @@ def test_stage_artefacts_step_uses_stable_manpage_path() -> None:
         'man_path="target/generated-man/${{ inputs.target }}/release/'
         '${{ inputs.bin-name }}.1"'
     ) in run_script
-    assert "release/build" not in run_script
-    assert "man_matches" not in run_script
+    assert 'if [[ ! -f "${man_path}" ]]; then' in run_script
+    assert "release/build" in run_script
+    assert "man_matches" in run_script

@@ -124,7 +124,10 @@ runs:
         fi
         man_path="target/generated-man/${{ inputs.target }}/release/${{ inputs.bin-name }}.1"
         if [[ ! -f "${man_path}" ]]; then
-          mapfile -d $'\0' -t man_matches < <(
+          man_matches=()
+          while IFS= read -r -d $'\0' _match; do
+            man_matches+=("$_match")
+          done < <(
             find "target/${{ inputs.target }}/release/build" \
               -path "*/out/${{ inputs.bin-name }}.1" \
               -type f -print0

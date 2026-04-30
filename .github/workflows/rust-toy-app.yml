@@ -68,13 +68,13 @@ jobs:
           binary_path="target/${{ matrix.target }}/release/$bin"
           echo "Verifying binary at: $binary_path"
           test -f "$binary_path"
-          shopt -s nullglob
-          manpages=(target/${{ matrix.target }}/release/build/rust-toy-app-*/out/rust-toy-app.1)
-          (( "${#manpages[@]}" > 0 ))
+          manpage_path="target/generated-man/${{ matrix.target }}/release/rust-toy-app.1"
+          echo "Verifying man page at: $manpage_path"
+          test -f "$manpage_path"
           echo "binary=rust-toy-app/$binary_path" >> "$GITHUB_OUTPUT"
           echo "binary-relative=${binary_path}" >> "$GITHUB_OUTPUT"
-          echo "manpage=rust-toy-app/${manpages[0]}" >> "$GITHUB_OUTPUT"
-          echo "manpage-relative=${manpages[0]}" >> "$GITHUB_OUTPUT"
+          echo "manpage=rust-toy-app/$manpage_path" >> "$GITHUB_OUTPUT"
+          echo "manpage-relative=${manpage_path}" >> "$GITHUB_OUTPUT"
         working-directory: rust-toy-app
         shell: bash
       - name: Build Windows installer package

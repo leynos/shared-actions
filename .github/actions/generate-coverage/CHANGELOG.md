@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.15 (2026-04-30)
+
+- Preserve the `.venv-coverage/bin/python` path when installing coverage
+  tooling. Linux venv Python executables are often symlinks to the base
+  interpreter, and resolving the symlink made `uv pip install --python` target
+  the externally managed system Python instead of the coverage venv.
+
 ## v1.3.14 (2026-04-28)
 
 - Run Python coverage tooling in an isolated, job-local virtual environment

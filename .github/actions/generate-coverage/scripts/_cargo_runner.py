@@ -45,7 +45,7 @@ class _CargoProcCtx:
     wait_timeout: float
 
 
-def _safe_close_text_stream(stream: typ.TextIO | None) -> None:
+def _safe_close_text_stream(stream: typ.IO[str] | None) -> None:
     """Close ``stream`` while suppressing any cleanup errors."""
     if stream is None:
         return

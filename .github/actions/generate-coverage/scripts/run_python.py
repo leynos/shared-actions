@@ -51,7 +51,12 @@ PYTEST_ARGS: tuple[str, ...] = (
 
 
 def _find_coverage_python() -> Path | None:
-    """Return the coverage venv Python executable path when it exists."""
+    """Return the coverage venv Python executable path when it exists.
+
+    Virtual environment Python executables are commonly symlinks to the base
+    interpreter. Keep the venv path so uv targets the venv instead of the
+    externally managed system Python.
+    """
     if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
         return None
     candidates = (
@@ -59,7 +64,7 @@ def _find_coverage_python() -> Path | None:
         COVERAGE_VENV / "Scripts" / "python.exe",
         COVERAGE_VENV / "Scripts" / "python",
     )
-    return next((c.resolve() for c in candidates if c.is_file()), None)
+    return next((c.absolute() for c in candidates if c.is_file()), None)
 
 
 def _remove_coverage_venv() -> None:

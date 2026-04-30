@@ -1978,6 +1978,41 @@ def test_find_coverage_python_returns_absolute_path(
     assert found.is_absolute()
 
 
+def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not resolve venv Python symlinks back to the system interpreter."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    system_python = tmp_path / "usr" / "bin" / "python3.12"
+    system_python.parent.mkdir(parents=True)
+    system_python.touch()
+    venv_python = setup.coverage_venv / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(system_python)
+    expected_python = venv_python.absolute()
+
+    assert run_python_module._ensure_coverage_venv() == str(expected_python)
+
+    assert expected_python != system_python.resolve()
+    assert len(setup.recorded) == 2
+    assert setup.recorded[0][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(expected_python),
+    ]
+    assert setup.recorded[1][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(expected_python),
+    ]
+
+
 def test_ensure_coverage_venv_raises_when_created_venv_has_no_python(
     tmp_path: Path,
     run_python_module: ModuleType,

@@ -1767,6 +1767,8 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 def _coverage_python(run_python_module: ModuleType) -> str:
     """Return the expected throwaway venv Python path."""
+    if sys.platform == "win32":
+        return str(run_python_module.COVERAGE_VENV / "Scripts" / "python.exe")
     return str(run_python_module.COVERAGE_VENV / "bin" / "python")
 
 

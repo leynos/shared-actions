@@ -168,18 +168,12 @@ def _install_coverage_tooling(python: Path) -> None:
     typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
 
 
-def _ensure_coverage_venv() -> str:
-    """Create or repair the coverage venv and install project/test tooling.
-
-    Checks whether ``.venv-coverage`` contains a healthy Python executable.
-    If not, delegates to :func:`_recreate_coverage_venv` to remove any
-    broken state and create a fresh venv.  Then runs ``uv sync`` to install
-    project dependencies, followed by ``uv pip install`` to add
-    ``slipcover``, ``pytest``, and ``coverage``.
+def _acquire_coverage_python() -> Path:
+    """Discover or create the coverage venv and return its Python path.
 
     Returns
     -------
-    str
+    Path
         Absolute path to the Python executable inside the coverage venv.
 
     Raises
@@ -187,9 +181,6 @@ def _ensure_coverage_venv() -> str:
     RuntimeError
         Propagated from :func:`_recreate_coverage_venv` when the Python
         executable cannot be located after venv creation.
-    plumbum.commands.processes.ProcessExecutionError
-        Propagated from ``uv sync`` or ``uv pip install`` when either
-        command exits with a non-zero return code.
     """
     candidates = _coverage_python_candidates()
     logger.debug(
@@ -228,6 +219,31 @@ def _ensure_coverage_venv() -> str:
                 "preserved_symlink": raw_candidate.is_symlink(),
             },
         )
+    return python
+
+
+def _ensure_coverage_venv() -> str:
+    """Create or repair the coverage venv and install project/test tooling.
+
+    Delegates venv discovery and creation to _acquire_coverage_python, then
+    runs ``uv sync`` to install project dependencies, followed by
+    ``uv pip install`` to add ``slipcover``, ``pytest``, and ``coverage``.
+
+    Returns
+    -------
+    str
+        Absolute path to the Python executable inside the coverage venv.
+
+    Raises
+    ------
+    RuntimeError
+        Propagated from :func:`_recreate_coverage_venv` when the Python
+        executable cannot be located after venv creation.
+    plumbum.commands.processes.ProcessExecutionError
+        Propagated from ``uv sync`` or ``uv pip install`` when either
+        command exits with a non-zero return code.
+    """
+    python = _acquire_coverage_python()
     logger.info(
         "using coverage venv Python for uv commands",
         extra={

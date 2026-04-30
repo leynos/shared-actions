@@ -140,8 +140,8 @@ runs:
             done
             exit 1
           fi
-          echo "::warning:: man page not found at stable path ${man_path}; using legacy fallback ${man_matches[0]}"
           man_path="${man_matches[0]}"
+          echo "::warning::stable man-page path ${man_path%/release/*}/generated-man/... was absent; using legacy fallback ${man_path}"
         fi
         install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
         install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"

@@ -90,7 +90,7 @@ def test_stage_uses_legacy_fallback_when_stable_path_absent(tmp_path: Path) -> N
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / DIST_MANPAGE).read_text(encoding="utf-8") == "legacy man page"
-    assert "::warning:: man page not found at stable path" in result.stdout
+    assert "::warning::stable man-page path" in result.stdout
 
 
 def test_stage_errors_when_no_manpage_exists(tmp_path: Path) -> None:

@@ -63,6 +63,12 @@ fn main() -> std::io::Result<()> {
         .join("generated-man")
         .join(&target)
         .join(&profile);
+
+    // Force rerun if cross changes CARGO_TARGET_DIR between runs.
+    println!("cargo:rerun-if-env-changed=CARGO_TARGET_DIR");
+
+    // Diagnostic: visible in `cargo build` output, confirms stable path.
+    println!("cargo:warning=writing man page to {}", man_dir.display());
     std::fs::create_dir_all(&man_dir)?;
 
     let cmd = cli::command();

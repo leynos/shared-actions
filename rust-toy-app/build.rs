@@ -1,9 +1,14 @@
+//! Build-script support for generating CLI man pages from the shared CLI module.
+
 use std::env;
 
 use std::path::PathBuf;
 use time::OffsetDateTime;
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "the build script includes the CLI module only to render clap metadata"
+)]
 #[path = "src/cli.rs"]
 mod cli;
 

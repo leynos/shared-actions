@@ -463,6 +463,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 

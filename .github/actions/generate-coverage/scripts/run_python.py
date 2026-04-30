@@ -52,6 +52,11 @@ PYTEST_ARGS: tuple[str, ...] = (
     "-v",
 )
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(levelname)s %(name)s %(message)s",
+)
+
 
 def _coverage_python_candidates() -> tuple[Path, ...]:
     """Return the supported Python executable locations inside the venv."""
@@ -70,47 +75,10 @@ def _find_coverage_python() -> Path | None:
     externally managed system Python.
     """
     if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
-        logger.debug(
-            "coverage venv path is not a usable directory",
-            extra={
-                "coverage_venv": str(COVERAGE_VENV),
-                "exists": COVERAGE_VENV.exists(),
-                "is_dir": COVERAGE_VENV.is_dir(),
-                "is_symlink": COVERAGE_VENV.is_symlink(),
-            },
-        )
         return None
     for candidate in _coverage_python_candidates():
-        logger.debug(
-            "checking coverage venv Python candidate",
-            extra={
-                "coverage_venv": str(COVERAGE_VENV),
-                "candidate": str(candidate),
-                "candidate_absolute": str(candidate.absolute()),
-                "candidate_resolved": str(candidate.resolve(strict=False)),
-                "is_file": candidate.is_file(),
-                "is_symlink": candidate.is_symlink(),
-            },
-        )
         if candidate.is_file():
-            selected = candidate.absolute()
-            logger.debug(
-                "selected coverage venv Python candidate",
-                extra={
-                    "coverage_venv": str(COVERAGE_VENV),
-                    "python": str(selected),
-                    "resolved_python": str(candidate.resolve(strict=False)),
-                    "preserved_symlink": candidate.is_symlink(),
-                },
-            )
-            return selected
-    logger.debug(
-        "coverage venv contains no Python executable candidates",
-        extra={
-            "coverage_venv": str(COVERAGE_VENV),
-            "candidates": [str(c) for c in _coverage_python_candidates()],
-        },
-    )
+            return candidate.absolute()
     return None
 
 
@@ -223,18 +191,43 @@ def _ensure_coverage_venv() -> str:
         Propagated from ``uv sync`` or ``uv pip install`` when either
         command exits with a non-zero return code.
     """
-    logger.info(
+    candidates = _coverage_python_candidates()
+    logger.debug(
         "checking coverage venv Python candidates",
         extra={
             "coverage_venv": str(COVERAGE_VENV),
-            "candidates": [str(c) for c in _coverage_python_candidates()],
+            "candidates": [str(c) for c in candidates],
         },
     )
     python = _find_coverage_python()
     if python is None:
         python = _recreate_coverage_venv()
+        logger.debug(
+            "created fresh coverage venv",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "python": str(python),
+            },
+        )
     else:
         typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
+        raw_candidate = next(
+            (candidate for candidate in candidates if candidate.absolute() == python),
+            python,
+        )
+        logger.debug(
+            "selected coverage venv Python candidate",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "candidate": str(raw_candidate),
+                "candidate_absolute": str(raw_candidate.absolute()),
+                "candidate_resolved": str(raw_candidate.resolve(strict=False)),
+                "is_symlink": raw_candidate.is_symlink(),
+                "python": str(python),
+                "resolved_python": str(raw_candidate.resolve(strict=False)),
+                "preserved_symlink": raw_candidate.is_symlink(),
+            },
+        )
     logger.info(
         "using coverage venv Python for uv commands",
         extra={

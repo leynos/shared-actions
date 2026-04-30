@@ -8,7 +8,6 @@ import hashlib
 import importlib.util
 import io
 import itertools
-import logging
 import os
 import sys
 import typing as typ
@@ -1983,7 +1982,6 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Do not resolve venv Python symlinks back to the system interpreter."""
     setup = _setup_coverage_venv_test(
@@ -1996,7 +1994,6 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     venv_python.parent.mkdir(parents=True)
     venv_python.symlink_to(system_python)
     expected_python = venv_python.absolute()
-    caplog.set_level(logging.DEBUG, logger=run_python_module.__name__)
 
     assert run_python_module._ensure_coverage_venv() == str(expected_python)
 
@@ -2005,40 +2002,6 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     assert setup.recorded[0][1:] == [
         "sync",
         "--inexact",
-        "--python",
-        str(expected_python),
-    ]
-    selected_logs = [
-        r
-        for r in caplog.records
-        if r.message == "selected coverage venv Python candidate"
-    ]
-    assert selected_logs
-    assert selected_logs[0].python == str(expected_python)
-    assert selected_logs[0].resolved_python == str(system_python.resolve())
-    assert selected_logs[0].preserved_symlink is True
-    uv_logs = [
-        r
-        for r in caplog.records
-        if r.message == "using coverage venv Python for uv commands"
-    ]
-    assert uv_logs
-    assert uv_logs[0].python == str(expected_python)
-    assert uv_logs[0].sync_args == [
-        "sync",
-        "--inexact",
-        "--python",
-        str(expected_python),
-    ]
-    pip_logs = [
-        r
-        for r in caplog.records
-        if r.message == "installing coverage tooling with uv pip"
-    ]
-    assert pip_logs
-    assert pip_logs[0].pip_args[:4] == [
-        "pip",
-        "install",
         "--python",
         str(expected_python),
     ]
@@ -2836,3 +2799,58 @@ def test_run_python_integration_uv_failure_modes(
     assert returncode != 0
     if spec.expected_in_stderr is not None:
         assert spec.expected_in_stderr in stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_venv_python_symlink_targets_venv(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uv receives the venv symlink path, not the resolved system Python."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls.log"
+    system_python = tmp_path / "usr" / "bin" / "python3.12"
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$*" >> '{log}'
+if [ "$1" = "venv" ]; then
+    mkdir -p "$2/bin" '{system_python.parent}'
+    cat > '{system_python}' <<'PY'
+#!/usr/bin/env sh
+exit 0
+PY
+    chmod +x '{system_python}'
+    ln -s '{system_python}' "$2/bin/python"
+    exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
+    uv_calls = log.read_text(encoding="utf-8").splitlines()
+    sync_calls = [c for c in uv_calls if c.startswith("sync ")]
+    pip_calls = [c for c in uv_calls if c.startswith("pip install ")]
+    assert returncode == 0
+    assert sync_calls, "uv sync must be called to install project deps"
+    assert pip_calls, "uv pip install must be called to install tooling"
+    expected_python = (tmp_path / ".venv-coverage" / "bin" / "python").absolute()
+    resolved_python = system_python.resolve()
+
+    sync_args = sync_calls[0].split()
+    pip_args = pip_calls[0].split()
+    sync_python = sync_args[sync_args.index("--python") + 1]
+    pip_python = pip_args[pip_args.index("--python") + 1]
+
+    assert sync_python == str(expected_python)
+    assert pip_python == str(expected_python)
+    assert sync_python != str(resolved_python)
+    assert pip_python != str(resolved_python)

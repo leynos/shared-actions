@@ -447,6 +447,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     setup_manifest: Path,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
+    _ = setup_manifest
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 

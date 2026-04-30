@@ -157,8 +157,26 @@ def build_release_artefacts(
             / f"target/generated-man/{target}/release/{config.bin_name}.1"
         )
         if not man_src.exists():
-            message = f"{config.name} man page not found at {man_src}"
-            raise FileNotFoundError(message)
+            matches = list(
+                project.project_dir.glob(
+                    f"target/{target}/release/build/{config.name}-*/out/"
+                    f"{config.bin_name}.1"
+                )
+            )
+            if len(matches) == 0:
+                message = (
+                    f"{config.name} man page not found at {man_src} "
+                    f"or under target/{target}/release/build/*/out/"
+                )
+                raise FileNotFoundError(message)
+            if len(matches) > 1:
+                paths = "\n  ".join(str(match) for match in matches)
+                message = (
+                    f"expected exactly one legacy man page for {config.name}, "
+                    f"found {len(matches)}:\n  {paths}"
+                )
+                raise RuntimeError(message)
+            man_src = matches[0]
     return BuildArtefacts(target=target, man_page=man_src)
 
 

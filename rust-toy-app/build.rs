@@ -12,6 +12,9 @@ use time::OffsetDateTime;
 #[path = "src/cli.rs"]
 mod cli;
 
+/// Generates the `rust-toy-app.1` man page and writes it to the stable
+/// `target/generated-man/<TARGET>/<PROFILE>/` directory so that the
+/// release-staging action can locate it at a deterministic path.
 fn main() -> std::io::Result<()> {
     // Rebuild when the CLI definition changes.
     println!("cargo:rerun-if-changed=src/cli.rs");
@@ -70,6 +73,11 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Returns the man-page date string.
+///
+/// Reads `SOURCE_DATE_EPOCH` (a Unix timestamp) and formats it as
+/// `YYYY-MM-DD`. Falls back to `"1970-01-01"` when the variable is absent or
+/// unparseable, ensuring reproducible builds.
 fn build_date() -> String {
     env::var("SOURCE_DATE_EPOCH")
         .ok()

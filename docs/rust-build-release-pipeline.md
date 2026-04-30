@@ -100,7 +100,8 @@ jobs:
         if: matrix.os != 'darwin'
         run: |
             cargo install --locked cross --version ">=0.2.5" || \
-            cargo install --locked cross --git https://github.com/cross-rs/cross --tag v0.2.5
+            cargo install --locked cross \
+              --git https://github.com/cross-rs/cross --tag v0.2.5
       - name: Build binary and man page
         run: |
           if [ "${{ matrix.os }}" = "darwin" ]; then
@@ -114,7 +115,8 @@ jobs:
           mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/release/<binary-name> \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
-          cp target/generated-man/${{ matrix.target }}/release/<manpage-name>.1 \
+          cp \
+            target/generated-man/${{ matrix.target }}/release/<manpage-name>.1 \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
@@ -161,7 +163,8 @@ use time::{format_description::well_known::Iso8601, OffsetDateTime};
 mod cli;
 
 fn main() -> std::io::Result<()> {
-    // Rebuild when CLI, manifest, or build logic changes; respect reproducible builds.
+    // Rebuild when CLI, manifest, or build logic changes; respect
+    // reproducible builds.
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
@@ -188,7 +191,9 @@ fn main() -> std::io::Result<()> {
         )
     })?;
     let target_root =
-        if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
+        if profile_parent.file_name().and_then(|name| name.to_str())
+            == Some(target.as_str())
+        {
             profile_parent.parent().ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,

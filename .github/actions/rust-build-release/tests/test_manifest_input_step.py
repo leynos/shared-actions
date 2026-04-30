@@ -61,3 +61,18 @@ def test_determine_toolchain_step_uses_project_lookup_inputs() -> None:
     assert isinstance(run_script, str)
     assert '--toolchain "${{ inputs.toolchain }}"' in run_script
     assert '--manifest-path "${{ inputs.manifest-path }}"' in run_script
+
+
+def test_stage_artefacts_step_uses_stable_manpage_path() -> None:
+    """Packaging should use the stable generated-man path, not Cargo build hashes."""
+    manifest = _load_action_manifest()
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    stage_step = _find_step(steps, "Stage artefacts")
+    run_script = stage_step.get("run")
+    assert isinstance(run_script, str)
+    assert (
+        'man_path="target/generated-man/${{ inputs.target }}/release/'
+        '${{ inputs.bin-name }}.1"'
+    ) in run_script
+    assert "release/build" not in run_script
+    assert "man_matches" not in run_script

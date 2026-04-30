@@ -78,8 +78,8 @@ None.
   working-directory: rust-toy-app
   run: |
     set -euo pipefail
-    manpage=$(find target/${TARGET}/release/build -name 'rust-toy-app.1' -print -quit)
-    test -n "$manpage"
+    manpage="target/generated-man/${TARGET}/release/rust-toy-app.1"
+    test -f "$manpage"
     echo "path=${manpage}" >> "$GITHUB_OUTPUT"
   env:
     TARGET: x86_64-unknown-linux-gnu

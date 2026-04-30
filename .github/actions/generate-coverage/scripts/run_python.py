@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003 - used at runtime
 import contextlib
+import logging
 import os
 import shutil
 import typing as typ
@@ -25,6 +26,8 @@ from shared_utils import read_previous_coverage
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from plumbum.commands.base import BoundCommand
+
+logger = logging.getLogger(__name__)
 
 OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
 LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
@@ -50,6 +53,15 @@ PYTEST_ARGS: tuple[str, ...] = (
 )
 
 
+def _coverage_python_candidates() -> tuple[Path, ...]:
+    """Return the supported Python executable locations inside the venv."""
+    return (
+        COVERAGE_VENV / "bin" / "python",
+        COVERAGE_VENV / "Scripts" / "python.exe",
+        COVERAGE_VENV / "Scripts" / "python",
+    )
+
+
 def _find_coverage_python() -> Path | None:
     """Return the coverage venv Python executable path when it exists.
 
@@ -58,13 +70,48 @@ def _find_coverage_python() -> Path | None:
     externally managed system Python.
     """
     if COVERAGE_VENV.is_symlink() or not COVERAGE_VENV.is_dir():
+        logger.debug(
+            "coverage venv path is not a usable directory",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "exists": COVERAGE_VENV.exists(),
+                "is_dir": COVERAGE_VENV.is_dir(),
+                "is_symlink": COVERAGE_VENV.is_symlink(),
+            },
+        )
         return None
-    candidates = (
-        COVERAGE_VENV / "bin" / "python",
-        COVERAGE_VENV / "Scripts" / "python.exe",
-        COVERAGE_VENV / "Scripts" / "python",
+    for candidate in _coverage_python_candidates():
+        logger.debug(
+            "checking coverage venv Python candidate",
+            extra={
+                "coverage_venv": str(COVERAGE_VENV),
+                "candidate": str(candidate),
+                "candidate_absolute": str(candidate.absolute()),
+                "candidate_resolved": str(candidate.resolve(strict=False)),
+                "is_file": candidate.is_file(),
+                "is_symlink": candidate.is_symlink(),
+            },
+        )
+        if candidate.is_file():
+            selected = candidate.absolute()
+            logger.debug(
+                "selected coverage venv Python candidate",
+                extra={
+                    "coverage_venv": str(COVERAGE_VENV),
+                    "python": str(selected),
+                    "resolved_python": str(candidate.resolve(strict=False)),
+                    "preserved_symlink": candidate.is_symlink(),
+                },
+            )
+            return selected
+    logger.debug(
+        "coverage venv contains no Python executable candidates",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "candidates": [str(c) for c in _coverage_python_candidates()],
+        },
     )
-    return next((c.absolute() for c in candidates if c.is_file()), None)
+    return None
 
 
 def _remove_coverage_venv() -> None:
@@ -176,12 +223,36 @@ def _ensure_coverage_venv() -> str:
         Propagated from ``uv sync`` or ``uv pip install`` when either
         command exits with a non-zero return code.
     """
+    logger.info(
+        "checking coverage venv Python candidates",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "candidates": [str(c) for c in _coverage_python_candidates()],
+        },
+    )
     python = _find_coverage_python()
     if python is None:
         python = _recreate_coverage_venv()
     else:
         typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
+    logger.info(
+        "using coverage venv Python for uv commands",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "python": str(python),
+            "sync_args": [*PROJECT_SYNC_ARGS, str(python)],
+            "tooling_packages": [*TOOLING_PACKAGES],
+        },
+    )
     _sync_project_deps(python)
+    logger.info(
+        "installing coverage tooling with uv pip",
+        extra={
+            "coverage_venv": str(COVERAGE_VENV),
+            "python": str(python),
+            "pip_args": ["pip", "install", "--python", str(python), *TOOLING_PACKAGES],
+        },
+    )
     _install_coverage_tooling(python)
     return str(python)
 

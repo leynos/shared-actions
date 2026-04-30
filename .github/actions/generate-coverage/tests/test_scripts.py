@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import io
 import itertools
+import logging
 import os
 import sys
 import typing as typ
@@ -1982,6 +1983,7 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Do not resolve venv Python symlinks back to the system interpreter."""
     setup = _setup_coverage_venv_test(
@@ -1994,6 +1996,7 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     venv_python.parent.mkdir(parents=True)
     venv_python.symlink_to(system_python)
     expected_python = venv_python.absolute()
+    caplog.set_level(logging.DEBUG, logger=run_python_module.__name__)
 
     assert run_python_module._ensure_coverage_venv() == str(expected_python)
 
@@ -2002,6 +2005,40 @@ def test_ensure_coverage_venv_keeps_symlinked_venv_python_path(
     assert setup.recorded[0][1:] == [
         "sync",
         "--inexact",
+        "--python",
+        str(expected_python),
+    ]
+    selected_logs = [
+        r
+        for r in caplog.records
+        if r.message == "selected coverage venv Python candidate"
+    ]
+    assert selected_logs
+    assert selected_logs[0].python == str(expected_python)
+    assert selected_logs[0].resolved_python == str(system_python.resolve())
+    assert selected_logs[0].preserved_symlink is True
+    uv_logs = [
+        r
+        for r in caplog.records
+        if r.message == "using coverage venv Python for uv commands"
+    ]
+    assert uv_logs
+    assert uv_logs[0].python == str(expected_python)
+    assert uv_logs[0].sync_args == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(expected_python),
+    ]
+    pip_logs = [
+        r
+        for r in caplog.records
+        if r.message == "installing coverage tooling with uv pip"
+    ]
+    assert pip_logs
+    assert pip_logs[0].pip_args[:4] == [
+        "pip",
+        "install",
         "--python",
         str(expected_python),
     ]

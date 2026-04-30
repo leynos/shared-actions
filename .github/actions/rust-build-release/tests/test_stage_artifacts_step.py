@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import typing as typ
 from pathlib import Path
 
@@ -141,8 +140,8 @@ def test_stage_step_delegates_to_stage_script() -> None:
     assert "${{ inputs.bin-name }}" in run_script
 
 
-def test_stage_script_prefers_generated_manpage(tmp_path: Path) -> None:
-    """Prefer deterministic generated-man output over stale Cargo OUT_DIR pages."""
+def test_stage_script_uses_generated_manpage(tmp_path: Path) -> None:
+    """Use deterministic generated-man output even when stale OUT_DIR pages exist."""
     _write_binary(tmp_path / f"target/{TARGET}/release/{BIN_NAME}")
     _write_file(
         tmp_path / f"target/generated-man/{TARGET}/release/{BIN_NAME}.1",
@@ -168,19 +167,19 @@ def test_stage_script_prefers_generated_manpage(tmp_path: Path) -> None:
     )
 
 
-def test_stage_script_uses_newest_out_dir_manpage_when_needed(tmp_path: Path) -> None:
-    """Use the newest Cargo OUT_DIR manpage when no generated-man page exists."""
+def test_stage_script_fails_without_generated_manpage(tmp_path: Path) -> None:
+    """Reject builds that do not provide the stable generated-man page."""
     _write_binary(tmp_path / f"target/{TARGET}/release/{BIN_NAME}")
-    old = tmp_path / f"target/{TARGET}/release/build/weaver-cli-old/out/{BIN_NAME}.1"
-    new = tmp_path / f"target/{TARGET}/release/build/weaver-cli-new/out/{BIN_NAME}.1"
-    _write_file(old, "old cached manpage\n")
-    _write_file(new, "new cached manpage\n")
-    os.utime(old, (1, 1))
-    os.utime(new, (2, 2))
+    _write_file(
+        tmp_path / f"target/{TARGET}/release/build/weaver-cli-old/out/{BIN_NAME}.1",
+        "old cached manpage\n",
+    )
+    expected = (
+        "::error:: man page not found at "
+        f"target/generated-man/{TARGET}/release/{BIN_NAME}.1"
+    )
 
     result = _run_stage_script(tmp_path)
 
-    assert result.returncode == 0
-    assert "found 2 build-script man pages" in result.stdout
-    staged = tmp_path / f"dist/{BIN_NAME}_linux_arm64/{BIN_NAME}.1"
-    assert staged.read_text(encoding="utf-8") == "new cached manpage\n"
+    assert result.returncode == 1
+    assert expected in result.stdout

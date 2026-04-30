@@ -48,36 +48,10 @@ if [[ ! -f "${bin_src}" ]]; then
   exit 1
 fi
 
-stable_man_path="target/generated-man/${target}/release/${bin_name}.1"
-if [[ -f "${stable_man_path}" ]]; then
-  man_path="${stable_man_path}"
-else
-  build_dir="target/${target}/release/build"
-  man_matches=()
-  if [[ -d "${build_dir}" ]]; then
-    mapfile -d $'\0' -t man_matches < <(
-      find "${build_dir}" \
-        -path "*/out/${bin_name}.1" \
-        -type f \
-        -print0
-    )
-  fi
-  if [[ ${#man_matches[@]} -eq 0 ]]; then
-    echo "::error:: man page not found at ${stable_man_path} or under ${build_dir}/*/out/"
-    exit 1
-  fi
-  if [[ ${#man_matches[@]} -gt 1 ]]; then
-    echo "::warning:: found ${#man_matches[@]} build-script man pages; using newest match"
-    for match in "${man_matches[@]}"; do
-      echo "::warning::   ${match}"
-    done
-  fi
-  man_path="${man_matches[0]}"
-  for match in "${man_matches[@]}"; do
-    if [[ "${match}" -nt "${man_path}" ]]; then
-      man_path="${match}"
-    fi
-  done
+man_path="target/generated-man/${target}/release/${bin_name}.1"
+if [[ ! -f "${man_path}" ]]; then
+  echo "::error:: man page not found at ${man_path}"
+  exit 1
 fi
 
 if [[ ! -f "${man_path}" ]]; then

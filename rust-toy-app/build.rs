@@ -21,18 +21,35 @@ fn main() -> std::io::Result<()> {
     let profile =
         env::var("PROFILE").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-    // OUT_DIR = target/<triple>/<profile>/build/<crate>-<hash>/out
-    // 5 ancestors up reaches the `target/` directory.
-    let target_root = out_dir
-        .ancestors()
-        .nth(5)
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-            )
-        })?
-        .to_path_buf();
+    let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+        )
+    })?;
+    if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile.as_str()) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR profile: {}", out_dir.display()),
+        ));
+    }
+    let profile_parent = profile_dir.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+        )
+    })?;
+    let target_root =
+        if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
+            profile_parent.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                )
+            })?
+        } else {
+            profile_parent
+        };
 
     let man_dir = target_root
         .join("generated-man")

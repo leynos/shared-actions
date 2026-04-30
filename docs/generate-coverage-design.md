@@ -16,6 +16,13 @@ action and the evolution of its supporting scripts.
   configures the Cranelift backend. This keeps the action compatible with
   `cargo-llvm-cov`, which spawns nested Cargo commands that inherit environment
   variables but do not inherit the wrapper process's ad hoc `--config` flags.
+- *2026-04-27* — Python coverage runs now execute inside an isolated,
+  short-lived virtual environment (`.venv-coverage`) rather than relying on
+  `uv run --with` or the system interpreter. `_ensure_coverage_venv()` creates
+  or repairs the venv on first use, syncs the project dependencies into it via
+  `uv sync --inexact --python`, installs tooling (`slipcover`, `pytest`,
+  `coverage`) via `uv pip install --python`, and `_coverage_python_cmd()` caches
+  the resulting interpreter command for the lifetime of the process.
 
 ## Rust Coverage Environment Overrides
 
@@ -169,3 +176,50 @@ stops short of that complexity.
   suffixes.
 - [x] Document the Rust coverage environment-override design for
   Cranelift-configured repositories.
+- [x] Replace `uv run --with` ephemeral environments with a persistent,
+  job-local `.venv-coverage` virtual environment to enable intra-process
+  caching of the Python interpreter path via `functools.lru_cache` and to add
+  broken-venv recovery.
+
+## Python Coverage Venv Architecture
+
+### Motivation
+
+Running `uv run --with slipcover ...` on each invocation re-resolves
+dependencies and creates a temporary environment on every call. A named venv
+(`.venv-coverage`) is created once per job, reused on subsequent calls within
+the same job, and discarded when the runner workspace is cleaned up.
+
+### Lifecycle
+
+1. `_ensure_coverage_venv()` checks whether `.venv-coverage` contains a Python
+   executable.
+   - If absent, it creates the venv via `uv venv .venv-coverage`.
+   - If present but broken (Python binary missing), it removes the existing
+     path - unlinking files and symlinks and removing directories - and then
+     recreates it.
+2. `_ensure_coverage_venv()` syncs the current project into the venv with
+   `uv sync --inexact --python <venv-python>` so tests can import project
+   dependencies.
+3. `_ensure_coverage_venv()` performs installation of `slipcover`, `pytest`,
+   and `coverage` into the venv using
+   `uv pip install --python <venv-python>`. The `--system` flag is deliberately
+   excluded to keep the installation isolated.
+4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
+   the resulting `plumbum` command via `functools.lru_cache`, and returns the
+   cached value on all subsequent calls within the same process.
+
+### Concurrency Model
+
+GitHub Actions executes action steps sequentially in a single thread. The
+`functools.lru_cache` memoized `_coverage_python_cmd()` accessor therefore
+requires no explicit synchronization.
+
+### Public API
+
+<!-- markdownlint-disable MD013 MD060 -->
+| Symbol | Role |
+|---|---|
+| `_ensure_coverage_venv() -> str` | Create or recover the venv, install project/tool dependencies, and return Python path. |
+| `_coverage_python_cmd() -> BoundCommand` | Return the cached venv Python command. |
+<!-- markdownlint-enable MD013 MD060 -->

@@ -7,8 +7,10 @@ projects. The action uses `cargo llvm-cov` (with `cargo nextest` by default)
 when a `Cargo.toml` is present and `slipcover` with `pytest` when a
 `pyproject.toml` is present. If the repository root does not contain a Cargo
 manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
-`slipcover` and `pytest` automatically via `uv` before running the tests,
-leveraging ``uv run --with`` so no system-level Python installs are required.
+the project dependencies plus `slipcover`, `pytest`, and `coverage`
+automatically via `uv` into an isolated throwaway virtual environment
+(`.venv-coverage`) before running the tests, so no system-level Python installs
+are required.
 When Rust coverage is required, `cargo-llvm-cov` and `cargo-nextest` are
 installed automatically. If both configuration files are present, coverage is
 run for each language and the Cobertura reports are merged using
@@ -45,6 +47,7 @@ codegen-backend-related variables first, and then merges
 `get_cargo_coverage_env(manifest_path)` on top so workflow-level Cranelift
 exports are not treated as the default coverage behaviour.
 
+<!-- markdownlint-disable MD013 -->
 ```mermaid
 sequenceDiagram
     actor GitHubActions
@@ -78,6 +81,7 @@ sequenceDiagram
         _run_cargo-->>run_rust_py: stdout
     end
 ```
+<!-- markdownlint-enable MD013 -->
 
 ## Cranelift codegen backend support
 
@@ -123,6 +127,7 @@ Known limitations:
 
 ## Inputs
 
+<!-- markdownlint-disable MD013 -->
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
@@ -134,11 +139,11 @@ Known limitations:
 | with-ratchet | Fail if coverage drops below baseline | no | `false` |
 | artefact-name-suffix | Additional suffix appended to the uploaded coverage artefact | no | |
 | baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
-<!-- markdownlint-disable-next-line MD013 -->
 | baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
+<!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.

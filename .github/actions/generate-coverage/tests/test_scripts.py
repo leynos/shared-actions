@@ -14,6 +14,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+import yaml
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -38,7 +39,28 @@ def _exit_code(exc: BaseException) -> int | None:
 
 
 def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
-    """Run ``script`` via ``uv`` with ``env`` and return the run tuple."""
+    """Run ``script`` via ``uv run --script`` with ``env`` and return the result.
+
+    Parameters
+    ----------
+    script : Path
+        Absolute path to the Python script to execute.
+    env : dict[str, str]
+        Environment variables to merge on top of the current environment.
+    *args : str
+        Additional positional arguments appended to the ``uv run`` command.
+
+    Returns
+    -------
+    RunResult
+        A three-tuple of ``(return_code, stdout, stderr)``.
+
+    Raises
+    ------
+    None
+        This helper does not raise for non-zero exits; failures are conveyed
+        via the returned exit code and stderr captured from the child process.
+    """
     command = local["uv"]["run", "--script", str(script)]
     if args:
         command = command[list(args)]
@@ -1743,19 +1765,41 @@ def run_python_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return _load_module(monkeypatch, "run_python")
 
 
-def _assert_uv_run_base(parts: list[str]) -> None:
-    """Assert that parts starts with 'uv run'."""
-    assert Path(parts[0]).name == "uv"
-    assert parts[1] == "run"
+def _coverage_python(run_python_module: ModuleType) -> str:
+    """Return the expected throwaway venv Python path."""
+    if sys.platform == "win32":
+        return str(run_python_module.COVERAGE_VENV / "Scripts" / "python.exe")
+    return str(run_python_module.COVERAGE_VENV / "bin" / "python")
 
 
-def _assert_uv_command_structure(parts: list[str]) -> None:
-    """Verify common uv run command structure with slipcover and pytest."""
-    _assert_uv_run_base(parts)
-    python_idx = parts.index("python")
-    slip_idx = parts.index("-m", python_idx + 1)
+def _set_fake_coverage_python_cmd(
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> str:
+    """Patch the coverage Python command helper to avoid creating a venv."""
+    python = _coverage_python(run_python_module)
+    monkeypatch.setattr(
+        run_python_module,
+        "_coverage_python_cmd",
+        lambda: local[python],
+    )
+    return python
+
+
+def _assert_python_command_structure(parts: list[str]) -> None:
+    """Verify common venv Python command structure with slipcover and pytest."""
+    assert Path(parts[0]).stem == "python"
+    slip_idx = parts.index("-m", 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
     assert parts[-3:] == ["-m", "pytest", "-v"]
+
+
+def _assert_coverage_python_path(actual: str, expected: str) -> None:
+    """Assert that a formulated command points at the coverage venv Python."""
+    actual_path = Path(actual)
+    expected_path = Path(expected)
+    assert actual_path.parts[-3:-1] == expected_path.parts[-3:-1]
+    assert actual_path.stem == expected_path.stem
 
 
 def _assert_tokens_in_order(parts: list[str], *tokens: str) -> None:
@@ -1779,64 +1823,434 @@ def _assert_flag_value_pair(parts: list[str], flag: str, value: str) -> None:
     pytest.fail(message)
 
 
-def test_uv_python_cmd_bundles_dependencies(run_python_module: ModuleType) -> None:
-    """The helper wires ``uv run`` with slipcover/pytest/coverage."""
-    cmd = run_python_module._uv_python_cmd()
+def _is_uv_venv_invocation(parts: list[str]) -> bool:
+    """Return True when the command parts represent a ``uv venv`` call."""
+    return len(parts) > 1 and parts[1] == "venv"
+
+
+@dataclasses.dataclass
+class VenvTestSetup:
+    """Scaffolding returned by _setup_coverage_venv_test for venv tests."""
+
+    coverage_venv: Path
+    recorded: list[list[str]] = dataclasses.field(default_factory=list)
+
+
+def _setup_coverage_venv_test(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    python_to_create: str | None = "bin/python",
+) -> VenvTestSetup:
+    """Patch COVERAGE_VENV and run_cmd; return shared test scaffolding.
+
+    Parameters
+    ----------
+    python_to_create:
+        Relative POSIX path inside the venv to create when ``uv venv``
+        is recorded. Pass ``None`` to skip creation (reuse scenario).
+    """
+    coverage_venv = tmp_path / ".venv-coverage"
+    setup = VenvTestSetup(coverage_venv=coverage_venv)
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if python_to_create is not None and _is_uv_venv_invocation(parts):
+            python_path = coverage_venv / python_to_create
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    return setup
+
+
+def test_ensure_coverage_venv_returns_coverage_python(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper creates the throwaway coverage venv and returns its Python."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+
+    python = run_python_module._ensure_coverage_venv()
+    expected_python = (setup.coverage_venv / "bin" / "python").resolve()
+
+    assert python == str(expected_python)
+    assert len(setup.recorded) == 3
+    venv_parts = setup.recorded[0]
+    assert Path(venv_parts[0]).stem == "uv"
+    assert venv_parts[1:] == ["venv", str(setup.coverage_venv)]
+    sync_parts = setup.recorded[1]
+    assert sync_parts[1:] == ["sync", "--inexact", "--python", python]
+    install_parts = setup.recorded[2]
+    assert install_parts[1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(expected_python),
+    ]
+
+
+def test_ensure_coverage_venv_reuses_existing_coverage_venv(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper does not recreate an existing coverage venv."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    python_path = setup.coverage_venv / "Scripts" / "python.exe"
+    python_path.parent.mkdir(parents=True)
+    python_path.touch()
+
+    assert run_python_module._ensure_coverage_venv() == str(python_path.resolve())
+    assert len(setup.recorded) == 2
+    assert setup.recorded[0][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path.resolve()),
+    ]
+    assert setup.recorded[1][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(python_path.resolve()),
+    ]
+
+
+def test_ensure_coverage_venv_recovers_from_broken_cache(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper recreates a venv whose Python executable is absent."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    setup.coverage_venv.mkdir(parents=True)  # broken: dir present, no binary
+
+    python = run_python_module._ensure_coverage_venv()
+
+    venv_calls = [r for r in setup.recorded if len(r) > 1 and r[1] == "venv"]
+    assert len(venv_calls) == 1
+    assert python == str((setup.coverage_venv / "bin" / "python").resolve())
+    assert setup.recorded[-2][1:] == ["sync", "--inexact", "--python", python]
+    assert setup.recorded[-1][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        python,
+    ]
+
+
+def test_find_coverage_python_returns_none_when_no_executable(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_coverage_python() returns None when no binary exists."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    coverage_venv.mkdir(parents=True)
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+
+    assert run_python_module._find_coverage_python() is None
+
+
+def test_find_coverage_python_returns_absolute_path(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_coverage_python() resolves relative venv paths before returning."""
+    monkeypatch.chdir(tmp_path)
+    coverage_venv = Path(".venv-coverage")
+    python = coverage_venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+
+    found = run_python_module._find_coverage_python()
+
+    assert found is not None
+    assert found == python.resolve()
+    assert found.is_absolute()
+
+
+def test_ensure_coverage_venv_raises_when_created_venv_has_no_python(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_ensure_coverage_venv() fails before sync/install if uv creates no Python."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+
+    with pytest.raises(RuntimeError, match="Coverage venv Python executable not found"):
+        run_python_module._ensure_coverage_venv()
+
+    assert run_python_module._find_coverage_python() is None
+    assert len(setup.recorded) == 1
+    assert Path(setup.recorded[0][0]).stem == "uv"
+    assert setup.recorded[0][1:] == ["venv", str(setup.coverage_venv)]
+    assert not [r for r in setup.recorded if len(r) > 1 and r[1] == "sync"]
+    assert not [
+        r for r in setup.recorded if len(r) > 2 and r[1:3] == ["pip", "install"]
+    ]
+
+
+def _assert_venv_rebuild_commands(
+    recorded: list[list[str]],
+    coverage_venv: Path,
+    python_path: Path,
+) -> None:
+    """Assert the three-command venv rebuild sequence: venv, sync, pip install."""
+    assert len(recorded) == 3
+    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+    assert recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path.resolve()),
+    ]
+    assert recorded[2][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(python_path.resolve()),
+    ]
+
+
+def _assert_venv_default_python_rebuild(
+    python: str,
+    setup: VenvTestSetup,
+) -> None:
+    """Assert venv was rebuilt and Python resolved to the default POSIX path."""
+    expected = setup.coverage_venv / "bin" / "python"
+    assert python == str(expected.resolve())
+    _assert_venv_rebuild_commands(setup.recorded, setup.coverage_venv, expected)
+
+
+@pytest.mark.parametrize(
+    "broken_state_kind",
+    ["file", "symlink"],
+    ids=["file-placeholder", "symlink-placeholder"],
+)
+def test_ensure_coverage_venv_replaces_broken_placeholder(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    broken_state_kind: str,
+) -> None:
+    """The helper removes file and symlink placeholders before recreating the venv."""
+    setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
+    if broken_state_kind == "symlink":
+        setup.coverage_venv.symlink_to(tmp_path / "not-a-venv")
+    else:
+        setup.coverage_venv.write_text("not a venv")
+
+    python = run_python_module._ensure_coverage_venv()
+
+    if broken_state_kind == "symlink":
+        assert not setup.coverage_venv.is_symlink()
+    _assert_venv_default_python_rebuild(python, setup)
+
+
+def test_ensure_coverage_venv_recreates_invalid_python_candidate(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper rejects non-file Python placeholders before reuse."""
+    setup = _setup_coverage_venv_test(
+        tmp_path,
+        run_python_module,
+        monkeypatch,
+        python_to_create="Scripts/python.exe",
+    )
+    (setup.coverage_venv / "bin" / "python").mkdir(parents=True)  # dir, not file
+
+    assert run_python_module._ensure_coverage_venv() == str(
+        (setup.coverage_venv / "Scripts" / "python.exe").resolve()
+    )
+    _assert_venv_rebuild_commands(
+        setup.recorded,
+        setup.coverage_venv,
+        setup.coverage_venv / "Scripts" / "python.exe",
+    )
+
+
+def test_ensure_coverage_venv_targets_venv_python_for_tooling(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tooling installs into the throwaway venv instead of the system Python."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    python = setup.coverage_venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+
+    assert run_python_module._ensure_coverage_venv() == str(python.resolve())
+
+    assert len(setup.recorded) == 2
+    assert setup.recorded[0][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python.resolve()),
+    ]
+    parts = setup.recorded[1]
+    assert Path(parts[0]).stem == "uv"
+    assert parts[1:5] == ["pip", "install", "--python", str(python.resolve())]
+    assert "--system" not in parts
+    assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)
+
+
+def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uv sync targets the coverage venv via UV_PROJECT_ENVIRONMENT."""
+    setup = _setup_coverage_venv_test(
+        tmp_path, run_python_module, monkeypatch, python_to_create=None
+    )
+    python = setup.coverage_venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    sync_environment: list[str | None] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        parts = list(cmd.formulate())  # type: ignore[attr-defined]
+        setup.recorded.append(parts)
+        if len(parts) > 1 and parts[1] == "sync":
+            sync_environment.append(os.environ.get("UV_PROJECT_ENVIRONMENT"))
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
+
+    assert run_python_module._ensure_coverage_venv() == str(python.resolve())
+
+    assert sync_environment == [str(setup.coverage_venv.resolve())]
+    assert "UV_PROJECT_ENVIRONMENT" not in os.environ
+
+
+def test_coverage_python_cmd_prepares_tools_once(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The coverage Python command lazily creates and installs tooling once."""
+    coverage_venv = tmp_path / ".venv-coverage"
+    python_path = coverage_venv / "bin" / "python"
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        args = list(cmd.formulate())  # type: ignore[attr-defined]
+        recorded.append(args)
+        if len(args) > 1 and args[1] == "venv":
+            python_path.parent.mkdir(parents=True)
+            python_path.touch()
+
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+
+    first = run_python_module._coverage_python_cmd()
+    second = run_python_module._coverage_python_cmd()
+
+    assert first is second
+    parts = list(first.formulate())
+    _assert_coverage_python_path(parts[0], str(python_path.resolve()))
+    assert len(recorded) == 3
+    assert recorded[0][1:] == ["venv", str(coverage_venv)]
+    assert recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path.resolve()),
+    ]
+    assert recorded[2][1:5] == [
+        "pip",
+        "install",
+        "--python",
+        str(python_path.resolve()),
+    ]
+
+
+def test_coverage_cmd_uses_venv_python(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The helper wires slipcover/pytest through the throwaway venv."""
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt("coveragepy", Path("coverage.dat"))
     parts = list(cmd.formulate())
-    _assert_uv_run_base(parts)
-    assert parts.count("--with") >= 3
-    assert {"slipcover", "pytest", "coverage"}.issubset(parts)
+    _assert_coverage_python_path(parts[0], python)
+    _assert_python_command_structure(parts)
+
+
+@dataclasses.dataclass(frozen=True)
+class CoverageFmtSpec:
+    """Pairs a coverage format name with the corresponding file suffix."""
+
+    fmt: str
+    suffix: str
 
 
 def _get_coverage_cmd_parts(
     tmp_path: Path,
     run_python_module: ModuleType,
-    fmt: str,
-    suffix: str,
+    monkeypatch: pytest.MonkeyPatch,
+    spec: CoverageFmtSpec,
 ) -> tuple[list[str], Path]:
     """Build coverage command for format and return parts and output path."""
-    out = tmp_path / f"cov.{suffix}"
-    cmd = run_python_module.coverage_cmd_for_fmt(fmt, out)
+    out = tmp_path / f"cov.{spec.suffix}"
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt(spec.fmt, out)
     parts = list(cmd.formulate())
-    _assert_uv_command_structure(parts)
+    _assert_python_command_structure(parts)
     return parts, out
 
 
-def test_coverage_cmd_cobertura_uses_uv(
-    tmp_path: Path, run_python_module: ModuleType
+def test_coverage_cmd_cobertura_uses_venv_python(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cobertura format invokes slipcover with ``--xml`` using ``uv run``."""
+    """Cobertura format invokes slipcover with ``--xml`` using the venv Python."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, "cobertura", "xml"
+        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("cobertura", "xml")
     )
     assert parts.count("--xml") == 1
     _assert_tokens_in_order(parts, "--xml", "--out")
     _assert_flag_value_pair(parts, "--out", str(out))
 
 
-def test_coverage_cmd_default_branch_has_shared_args(
-    tmp_path: Path, run_python_module: ModuleType
+def test_non_cobertura_formats_do_not_emit_cobertura_flags(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-Cobertura formats reuse the shared slipcover arguments."""
+    """Non-Cobertura formats do not emit Cobertura output flags."""
     parts, out = _get_coverage_cmd_parts(
-        tmp_path, run_python_module, "coveragepy", "dat"
+        tmp_path, run_python_module, monkeypatch, CoverageFmtSpec("coveragepy", "dat")
     )
     assert "--xml" not in parts
     assert str(out) not in parts
-
-
-def test_non_cobertura_formats_do_not_emit_out_flag(
-    tmp_path: Path, run_python_module: ModuleType
-) -> None:
-    """Ensure slipcover output targeting stays isolated to Cobertura runs."""
-    parts, _ = _get_coverage_cmd_parts(tmp_path, run_python_module, "coveragepy", "dat")
     assert "--out" not in parts
 
 
-def test_tmp_coveragepy_xml_invokes_uv(
-    tmp_path: Path, run_python_module: ModuleType
+def test_tmp_coveragepy_xml_invokes_venv_python(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The coverage.py exporter also reuses the uv helper."""
+    """The coverage.py exporter also reuses the venv Python."""
     out = tmp_path / "coveragepy.dat"
     xml_path = out.with_suffix(".xml")
     recorded: dict[str, list[str]] = {}
@@ -1847,15 +2261,15 @@ def test_tmp_coveragepy_xml_invokes_uv(
 
     run_python_module.run_cmd = fake_run_cmd  # type: ignore[assignment]
 
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
     with run_python_module.tmp_coveragepy_xml(out) as generated:
         assert generated == xml_path
         assert xml_path.exists()
 
     assert not xml_path.exists()
     parts = recorded["cmd"]
-    _assert_uv_run_base(parts)
+    _assert_coverage_python_path(parts[0], python)
     assert parts[-5:] == ["-m", "coverage", "xml", "-o", str(xml_path)]
-    assert {"coverage", "pytest", "slipcover"}.issubset(parts)
 
 
 def test_run_python_cobertura_passes_out_flag(
@@ -1870,17 +2284,22 @@ def test_run_python_cobertura_passes_out_flag(
         encoding="utf-8",
     )
     github_output = tmp_path / "gh.txt"
-    recorded: dict[str, list[str]] = {}
+    recorded: list[tuple[list[str], str | None]] = []
 
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded["cmd"] = list(cmd.formulate())  # type: ignore[attr-defined]
+    def fake_run_cmd(cmd: object, *_args: object, **kwargs: object) -> None:
+        recorded.append(
+            (list(cmd.formulate()), typ.cast("str | None", kwargs.get("method")))
+        )  # type: ignore[attr-defined]
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
 
     run_python_module.main(output, "python", "cobertura", github_output, None)
 
-    parts = recorded["cmd"]
-    _assert_uv_command_structure(parts)
+    assert len(recorded) == 1
+    parts = recorded[0][0]
+    assert recorded[0][1] == "run_fg"
+    _assert_python_command_structure(parts)
     _assert_tokens_in_order(parts, "--xml", "--out")
     _assert_flag_value_pair(parts, "--out", str(output))
     data = github_output.read_text().splitlines()
@@ -1955,9 +2374,14 @@ def test_run_python_coveragepy_empty_xml(
         return None
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
+        captured_python.append(
+            next(iter(run_python_module._coverage_python_cmd().formulate()))
+        )
         xml_path = tmp_path / "coverage.xml"
         xml_path.write_text(
             "<coverage lines-covered='0' lines-valid='0' />",
@@ -1974,6 +2398,9 @@ def test_run_python_coveragepy_empty_xml(
 
     run_python_module.main(output, "python", "coveragepy", github_output, None)
 
+    assert len(captured_python) == 1
+    _assert_coverage_python_path(captured_python[0], python)
+
     captured = capsys.readouterr()
     assert "Current coverage: 0.00%" in captured.out
 
@@ -1983,6 +2410,57 @@ def test_run_python_coveragepy_empty_xml(
     data = github_output.read_text(encoding="utf-8").splitlines()
     assert f"file={output}" in data
     assert "percent=0.00" in data
+
+
+def test_main_echoes_previous_coverage_when_baseline_present(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """main() logs 'Previous coverage: ...%' when a baseline is provided."""
+    monkeypatch.chdir(tmp_path)
+    coverage_file = tmp_path / ".coverage"
+    coverage_file.write_text("payload", encoding="utf-8")
+
+    def fake_run_cmd(_cmd: object, **_kw: object) -> None:
+        pass
+
+    @contextlib.contextmanager
+    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+        xml = out.with_suffix(".xml")
+        xml.write_text(
+            "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
+        )
+        try:
+            yield xml
+        finally:
+            xml.unlink(missing_ok=True)
+
+    def fake_read_previous_coverage(_baseline: Path | None) -> float | None:
+        return 42.0
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(
+        run_python_module, "tmp_coveragepy_xml", fake_tmp_coveragepy_xml
+    )
+    monkeypatch.setattr(
+        run_python_module, "read_previous_coverage", fake_read_previous_coverage
+    )
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+
+    out = tmp_path / "cov.dat"
+    gh = tmp_path / "gh.txt"
+    run_python_module.main(
+        output_path=out,
+        lang="python",
+        fmt="coveragepy",
+        github_output=gh,
+        baseline_file=tmp_path / "baseline.txt",
+    )
+
+    captured = capsys.readouterr()
+    assert "Previous coverage: 42.0%" in captured.out
 
 
 def test_run_python_coveragepy_malformed_xml_exits(
@@ -2001,9 +2479,14 @@ def test_run_python_coveragepy_malformed_xml_exits(
         return None
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    python = _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    captured_python: list[str] = []
 
     @contextlib.contextmanager
-    def fake_tmp_coveragepy_xml(out: Path) -> typ.Iterator[Path]:
+    def fake_tmp_coveragepy_xml(_out: Path) -> typ.Iterator[Path]:
+        captured_python.append(
+            next(iter(run_python_module._coverage_python_cmd().formulate()))
+        )
         xml_path = tmp_path / "coverage.xml"
         xml_path.write_text("<coverage>", encoding="utf-8")
         try:
@@ -2017,6 +2500,9 @@ def test_run_python_coveragepy_malformed_xml_exits(
 
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.main(output, "python", "coveragepy", github_output, None)
+
+    assert len(captured_python) == 1
+    _assert_coverage_python_path(captured_python[0], python)
 
     assert _exit_code(excinfo.value) == 1
     assert coverage_file.exists()
@@ -2052,3 +2538,229 @@ def test_cobertura_permission_error(
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
         run_python_module.get_line_coverage_percent_from_cobertura(xml)
     assert _exit_code(excinfo.value) == 1
+
+
+# ---------------------------------------------------------------------------
+# Integration tests - run_python.py via run_script()
+# ---------------------------------------------------------------------------
+
+
+def _generate_coverage_action() -> dict[str, object]:
+    """Return the generate-coverage action contract."""
+    action = Path(__file__).resolve().parents[1] / "action.yml"
+    with action.open(encoding="utf-8") as stream:
+        loaded = yaml.safe_load(stream)
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+def _python_step_env_contract() -> dict[str, str]:
+    """Return the env contract for the Python coverage step."""
+    action = _generate_coverage_action()
+    runs = action.get("runs")
+    assert isinstance(runs, dict)
+    steps = runs.get("steps")
+    assert isinstance(steps, list)
+    python_step = next(
+        step for step in steps if isinstance(step, dict) and step.get("id") == "python"
+    )
+    env = python_step.get("env")
+    assert isinstance(env, dict)
+    assert all(isinstance(key, str) for key in env)
+    assert all(isinstance(value, str) for value in env.values())
+    return typ.cast("dict[str, str]", env)
+
+
+def _write_fake_uv(
+    tmp_path: Path,
+    *,
+    venv_exit: int = 0,
+    sync_exit: int = 0,
+) -> tuple[Path, Path]:
+    """Write a fake uv executable and return its bin directory and log path."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls.log"
+    uv = bin_dir / "uv"
+    uv.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$*" >> '{log}'
+if [ "$1" = "venv" ]; then
+    if [ {venv_exit} -ne 0 ]; then
+        echo "uv venv exploded" >&2
+        exit {venv_exit}
+    fi
+    mkdir -p "$2/bin"
+    cat > "$2/bin/python" <<'PY'
+#!/usr/bin/env sh
+exit 0
+PY
+    chmod +x "$2/bin/python"
+    exit 0
+fi
+if [ "$1" = "sync" ]; then
+    if [ {sync_exit} -ne 0 ]; then
+        echo "uv sync exploded" >&2
+        exit {sync_exit}
+    fi
+    exit 0
+fi
+exit 0
+""",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    return bin_dir, log
+
+
+def _python_integration_env(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    bin_dir: Path,
+) -> dict[str, str]:
+    """Return environment for run_python.py integration tests."""
+    python_env = _python_step_env_contract()
+    assert python_env["INPUT_OUTPUT_PATH"] == "${{ inputs.output-path }}"
+    assert python_env["DETECTED_LANG"] == "${{ steps.detect.outputs.lang }}"
+    assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
+    assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "python",
+        "DETECTED_FMT": "cobertura",
+        "BASELINE_PYTHON_FILE": str(tmp_path / "baseline-python.txt"),
+        "GITHUB_OUTPUT": str(gh),
+    }
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    return env
+
+
+def _run_integration_script(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    bin_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[int, str, str]:
+    """Set up env, chdir, and invoke run_python.py; return (rc, stdout, stderr)."""
+    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
+    monkeypatch.chdir(tmp_path)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    return run_script(script, env)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_cobertura_success(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py creates the venv, syncs deps, installs tooling.
+
+    The script also writes outputs.
+    """
+    bin_dir, log = _write_fake_uv(tmp_path)
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
+    uv_calls = log.read_text(encoding="utf-8").splitlines()
+    venv_calls = [c for c in uv_calls if c.startswith("venv ")]
+    sync_calls = [c for c in uv_calls if c.startswith("sync ")]
+    pip_calls = [c for c in uv_calls if c.startswith("pip install ")]
+    assert returncode == 0
+    assert venv_calls, "uv venv must be called to create the coverage venv"
+    assert sync_calls, "uv sync must be called to install project deps"
+    assert pip_calls, "uv pip install must be called to install tooling"
+    pip_args = pip_calls[0].split()
+    assert "--python" in pip_args
+    assert "--system" not in pip_args
+    assert "slipcover" in pip_args
+    assert "pytest" in pip_args
+    assert "coverage" in pip_args
+    # Verify GITHUB_OUTPUT was written with expected keys
+    gh = tmp_path / "gh.txt"
+    assert gh.exists(), "GITHUB_OUTPUT file must be written"
+    gh_content = gh.read_text(encoding="utf-8")
+    assert "file=" in gh_content, "GITHUB_OUTPUT must contain file= key"
+    assert "percent=" in gh_content, "GITHUB_OUTPUT must contain percent= key"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_mixed_lang_path(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py renames the output file for mixed-lang projects.
+
+    The output path receives a .python infix.
+    """
+    bin_dir, _log = _write_fake_uv(tmp_path)
+    out = tmp_path / "cov.xml"
+    gh = tmp_path / "gh.txt"
+    out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
+    env = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(out),
+        "DETECTED_LANG": "mixed",
+        "DETECTED_FMT": "cobertura",
+        "BASELINE_PYTHON_FILE": "",
+        "GITHUB_OUTPUT": str(gh),
+    }
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    monkeypatch.chdir(tmp_path)
+    # Provide the expected renamed file so coverage parser can read it
+    mixed_out = tmp_path / "cov.python.xml"
+    mixed_out.write_text(
+        "<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8"
+    )
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+    returncode, _stdout, _stderr = run_script(script, env)
+
+    assert returncode == 0
+    gh_content = gh.read_text(encoding="utf-8")
+    assert "cov.python.xml" in gh_content, (
+        "mixed-lang output path must include .python infix"
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class UvFailureSpec:
+    """Pairs a fake-uv exit-code configuration with the expected stderr fragment."""
+
+    write_kwargs: dict[str, int]
+    expected_in_stderr: str | None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+@pytest.mark.parametrize(
+    "spec",
+    [
+        UvFailureSpec(write_kwargs={"venv_exit": 1}, expected_in_stderr=None),
+        UvFailureSpec(
+            write_kwargs={"sync_exit": 2}, expected_in_stderr="uv sync failed"
+        ),
+    ],
+    ids=["uv-venv-fails", "uv-sync-fails"],
+)
+def test_run_python_integration_uv_failure_modes(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+    spec: UvFailureSpec,
+) -> None:
+    """run_python.py exits non-zero when uv venv or uv sync fails."""
+    bin_dir, _log = _write_fake_uv(tmp_path, **spec.write_kwargs)
+
+    returncode, _stdout, stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
+    assert returncode != 0
+    if spec.expected_in_stderr is not None:
+        assert spec.expected_in_stderr in stderr

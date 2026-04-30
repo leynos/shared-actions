@@ -14,25 +14,28 @@ clean: ## Remove transient artefacts
 	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache
 
 BUILD_JOBS ?=
-MDLINT ?= markdownlint
+ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
+MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint),$(HOME)/.bun/bin/markdownlint,markdownlint)
+MARKDOWNLINT_BASE ?= origin/main
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
+UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
 
 test: .venv ## Run tests
-	uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
-	ACT_WORKFLOW_TESTS=1 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
+	ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
 endif
 
 .venv:
-	uv venv
-	uv sync --group dev
+	$(UV) venv
+	$(UV) sync --group dev
 
 lint: ## Check test scripts and actions
-	uvx ruff check
-	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) -print0 \
-	| xargs -r -0 -n1 action-validator
+	$(UV) tool run ruff check
+	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
+		-exec $(ACTION_VALIDATOR) {} \;
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \
@@ -58,15 +61,15 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts
 fmt: ## Format Python files and auto-fix selected lint rules
-	uvx ruff format
-	uvx ruff check --select $(RUFF_FIX_RULES) --fix
+	$(UV) tool run ruff format
+	$(UV) tool run ruff check --select $(RUFF_FIX_RULES) --fix
 
 check-fmt: ## Check Python formatting without modifying files
-	uvx ruff format --check
-	uvx ruff check --select $(RUFF_FIX_RULES)
+	$(UV) tool run ruff format --check
+	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(MDLINT)
+	MARKDOWNLINT_BASE='$(MARKDOWNLINT_BASE)' MDLINT='$(MDLINT)' ./workflow_scripts/markdownlint-check.sh
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)

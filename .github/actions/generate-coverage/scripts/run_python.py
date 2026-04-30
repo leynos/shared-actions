@@ -59,7 +59,7 @@ def _find_coverage_python() -> Path | None:
         COVERAGE_VENV / "Scripts" / "python.exe",
         COVERAGE_VENV / "Scripts" / "python",
     )
-    return next((c for c in candidates if c.is_file()), None)
+    return next((c.resolve() for c in candidates if c.is_file()), None)
 
 
 def _remove_coverage_venv() -> None:

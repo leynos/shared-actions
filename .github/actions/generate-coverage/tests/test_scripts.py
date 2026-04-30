@@ -1873,8 +1873,9 @@ def test_ensure_coverage_venv_returns_coverage_python(
     setup = _setup_coverage_venv_test(tmp_path, run_python_module, monkeypatch)
 
     python = run_python_module._ensure_coverage_venv()
+    expected_python = (setup.coverage_venv / "bin" / "python").resolve()
 
-    assert python == str(setup.coverage_venv / "bin" / "python")
+    assert python == str(expected_python)
     assert len(setup.recorded) == 3
     venv_parts = setup.recorded[0]
     assert Path(venv_parts[0]).stem == "uv"
@@ -1886,7 +1887,7 @@ def test_ensure_coverage_venv_returns_coverage_python(
         "pip",
         "install",
         "--python",
-        str(setup.coverage_venv / "bin" / "python"),
+        str(expected_python),
     ]
 
 
@@ -1903,14 +1904,19 @@ def test_ensure_coverage_venv_reuses_existing_coverage_venv(
     python_path.parent.mkdir(parents=True)
     python_path.touch()
 
-    assert run_python_module._ensure_coverage_venv() == str(python_path)
+    assert run_python_module._ensure_coverage_venv() == str(python_path.resolve())
     assert len(setup.recorded) == 2
-    assert setup.recorded[0][1:] == ["sync", "--inexact", "--python", str(python_path)]
+    assert setup.recorded[0][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path.resolve()),
+    ]
     assert setup.recorded[1][1:5] == [
         "pip",
         "install",
         "--python",
-        str(python_path),
+        str(python_path.resolve()),
     ]
 
 
@@ -1927,7 +1933,7 @@ def test_ensure_coverage_venv_recovers_from_broken_cache(
 
     venv_calls = [r for r in setup.recorded if len(r) > 1 and r[1] == "venv"]
     assert len(venv_calls) == 1
-    assert python == str(setup.coverage_venv / "bin" / "python")
+    assert python == str((setup.coverage_venv / "bin" / "python").resolve())
     assert setup.recorded[-2][1:] == ["sync", "--inexact", "--python", python]
     assert setup.recorded[-1][1:5] == [
         "pip",
@@ -1948,6 +1954,26 @@ def test_find_coverage_python_returns_none_when_no_executable(
     monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
 
     assert run_python_module._find_coverage_python() is None
+
+
+def test_find_coverage_python_returns_absolute_path(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_find_coverage_python() resolves relative venv paths before returning."""
+    monkeypatch.chdir(tmp_path)
+    coverage_venv = Path(".venv-coverage")
+    python = coverage_venv / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.touch()
+    monkeypatch.setattr(run_python_module, "COVERAGE_VENV", coverage_venv)
+
+    found = run_python_module._find_coverage_python()
+
+    assert found is not None
+    assert found == python.resolve()
+    assert found.is_absolute()
 
 
 def test_ensure_coverage_venv_raises_when_created_venv_has_no_python(
@@ -1985,13 +2011,13 @@ def _assert_venv_rebuild_commands(
         "sync",
         "--inexact",
         "--python",
-        str(python_path),
+        str(python_path.resolve()),
     ]
     assert recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
-        str(python_path),
+        str(python_path.resolve()),
     ]
 
 
@@ -2001,7 +2027,7 @@ def _assert_venv_default_python_rebuild(
 ) -> None:
     """Assert venv was rebuilt and Python resolved to the default POSIX path."""
     expected = setup.coverage_venv / "bin" / "python"
-    assert python == str(expected)
+    assert python == str(expected.resolve())
     _assert_venv_rebuild_commands(setup.recorded, setup.coverage_venv, expected)
 
 
@@ -2045,7 +2071,7 @@ def test_ensure_coverage_venv_recreates_invalid_python_candidate(
     (setup.coverage_venv / "bin" / "python").mkdir(parents=True)  # dir, not file
 
     assert run_python_module._ensure_coverage_venv() == str(
-        setup.coverage_venv / "Scripts" / "python.exe"
+        (setup.coverage_venv / "Scripts" / "python.exe").resolve()
     )
     _assert_venv_rebuild_commands(
         setup.recorded,
@@ -2067,13 +2093,18 @@ def test_ensure_coverage_venv_targets_venv_python_for_tooling(
     python.parent.mkdir(parents=True)
     python.touch()
 
-    assert run_python_module._ensure_coverage_venv() == str(python)
+    assert run_python_module._ensure_coverage_venv() == str(python.resolve())
 
     assert len(setup.recorded) == 2
-    assert setup.recorded[0][1:] == ["sync", "--inexact", "--python", str(python)]
+    assert setup.recorded[0][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python.resolve()),
+    ]
     parts = setup.recorded[1]
     assert Path(parts[0]).stem == "uv"
-    assert parts[1:5] == ["pip", "install", "--python", str(python)]
+    assert parts[1:5] == ["pip", "install", "--python", str(python.resolve())]
     assert "--system" not in parts
     assert set(run_python_module.TOOLING_PACKAGES).issubset(parts)
 
@@ -2101,7 +2132,7 @@ def test_ensure_coverage_venv_sets_uv_project_environment_for_sync(
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
 
-    assert run_python_module._ensure_coverage_venv() == str(python)
+    assert run_python_module._ensure_coverage_venv() == str(python.resolve())
 
     assert sync_environment == [str(setup.coverage_venv.resolve())]
     assert "UV_PROJECT_ENVIRONMENT" not in os.environ
@@ -2132,15 +2163,20 @@ def test_coverage_python_cmd_prepares_tools_once(
 
     assert first is second
     parts = list(first.formulate())
-    _assert_coverage_python_path(parts[0], str(python_path))
+    _assert_coverage_python_path(parts[0], str(python_path.resolve()))
     assert len(recorded) == 3
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
-    assert recorded[1][1:] == ["sync", "--inexact", "--python", str(python_path)]
+    assert recorded[1][1:] == [
+        "sync",
+        "--inexact",
+        "--python",
+        str(python_path.resolve()),
+    ]
     assert recorded[2][1:5] == [
         "pip",
         "install",
         "--python",
-        str(python_path),
+        str(python_path.resolve()),
     ]
 
 

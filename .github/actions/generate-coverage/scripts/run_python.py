@@ -105,6 +105,49 @@ def _recreate_coverage_venv() -> Path:
     return python
 
 
+@contextlib.contextmanager
+def _project_env(venv: Path) -> cabc.Iterator[None]:
+    """Temporarily set UV_PROJECT_ENVIRONMENT to the given venv path."""
+    previous = os.environ.get("UV_PROJECT_ENVIRONMENT")
+    os.environ["UV_PROJECT_ENVIRONMENT"] = str(venv.resolve())
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("UV_PROJECT_ENVIRONMENT", None)
+        else:
+            os.environ["UV_PROJECT_ENVIRONMENT"] = previous
+
+
+def _sync_project_deps(python: Path) -> None:
+    """Run `uv sync` for the project into the coverage venv, with logs."""
+    typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
+    try:
+        with _project_env(COVERAGE_VENV):
+            run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
+        typer.echo(f"Project dependencies installed into {COVERAGE_VENV}")
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv sync failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
+
+
+def _install_coverage_tooling(python: Path) -> None:
+    """Install slipcover/pytest/coverage into the venv, with logs."""
+    typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
+    try:
+        run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
+    except ProcessExecutionError as exc:
+        typer.echo(
+            f"uv pip install failed with code {exc.retcode}: {exc.stderr}",
+            err=True,
+        )
+        raise
+    typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
+
+
 def _ensure_coverage_venv() -> str:
     """Create or repair the coverage venv and install project/test tooling.
 
@@ -133,33 +176,8 @@ def _ensure_coverage_venv() -> str:
         python = _recreate_coverage_venv()
     else:
         typer.echo(f"Reusing existing coverage venv at {COVERAGE_VENV}")
-    typer.echo(f"Installing project dependencies into {COVERAGE_VENV}")
-    previous_project_environment = os.environ.get("UV_PROJECT_ENVIRONMENT")
-    os.environ["UV_PROJECT_ENVIRONMENT"] = str(COVERAGE_VENV.resolve())
-    try:
-        run_cmd(uv[*PROJECT_SYNC_ARGS, str(python)])
-        typer.echo(f"Project dependencies installed into {COVERAGE_VENV}")
-    except ProcessExecutionError as exc:
-        typer.echo(
-            f"uv sync failed with code {exc.retcode}: {exc.stderr}",
-            err=True,
-        )
-        raise
-    finally:
-        if previous_project_environment is None:
-            os.environ.pop("UV_PROJECT_ENVIRONMENT", None)
-        else:
-            os.environ["UV_PROJECT_ENVIRONMENT"] = previous_project_environment
-    typer.echo(f"Installing coverage tooling {TOOLING_PACKAGES} into {COVERAGE_VENV}")
-    try:
-        run_cmd(uv["pip", "install", "--python", str(python), *TOOLING_PACKAGES])
-    except ProcessExecutionError as exc:
-        typer.echo(
-            f"uv pip install failed with code {exc.retcode}: {exc.stderr}",
-            err=True,
-        )
-        raise
-    typer.echo(f"Coverage tooling installed into {COVERAGE_VENV}")
+    _sync_project_deps(python)
+    _install_coverage_tooling(python)
     return str(python)
 
 

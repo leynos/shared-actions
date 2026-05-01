@@ -29,39 +29,44 @@ fn main() -> std::io::Result<()> {
     let profile =
         env::var("PROFILE").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-    let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-        )
-    })?;
-    if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile.as_str()) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unexpected OUT_DIR profile: {}", out_dir.display()),
-        ));
-    }
-    let profile_parent = profile_dir.parent().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-        )
-    })?;
-    let target_root = if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
-        PathBuf::from(target_dir)
-    } else if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
-        profile_parent
-            .parent()
-            .ok_or_else(|| {
+    // Prefer the explicit target directory set by cross / CARGO_TARGET_DIR.
+    // Fall back to deriving the root from OUT_DIR's ancestor structure.
+    let target_root: std::path::PathBuf =
+        if let Some(cargo_target_dir) = env::var_os("CARGO_TARGET_DIR") {
+            std::path::PathBuf::from(cargo_target_dir)
+        } else {
+            let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!("unexpected OUT_DIR structure: {}", out_dir.display()),
                 )
-            })?
-            .to_path_buf()
-    } else {
-        profile_parent.to_path_buf()
-    };
+            })?;
+            if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile.as_str()) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR profile: {}", out_dir.display()),
+                ));
+            }
+            let profile_parent = profile_dir.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                )
+            })?;
+            if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
+                profile_parent
+                    .parent()
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                        )
+                    })?
+                    .to_path_buf()
+            } else {
+                profile_parent.to_path_buf()
+            }
+        };
 
     let man_dir = target_root
         .join("generated-man")

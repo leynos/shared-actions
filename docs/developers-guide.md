@@ -99,3 +99,47 @@ make check-fmt     # Ruff formatting check
 make typecheck     # mypy
 make lint          # Ruff lint + action-validator + markdownlint
 ```
+
+## `rust-build-release` Action Architecture
+
+### Man-Page Path Strategy
+
+The `rust-build-release` composite action stages compiled Rust man pages for
+release packaging. Man pages are expected at a deterministic location:
+
+```text
+target/generated-man/<TARGET>/<PROFILE>/<bin>.1
+```
+
+This path is written by the consuming project's `build.rs` script. The build
+script derives `target/` from `CARGO_TARGET_DIR` when that variable is set (as
+it is when `cross` mounts the workspace inside a Docker container), and
+otherwise walks five ancestor levels of Cargo's hash-dependent `OUT_DIR`.
+
+If the stable path is absent the staging step falls back to scanning
+`target/<triple>/release/build/*/out/` - the legacy Cargo build-output
+location - and emits a `::warning::` annotation. Zero or multiple matches in
+the legacy location are fatal errors.
+
+### Fingerprint Invalidation
+
+`build.rs` emits `cargo:rerun-if-env-changed=CARGO_TARGET_DIR` so that a
+change in the Docker bind-mount target directory (e.g. between cached and
+uncached CI runs) forces the build script to rerun and regenerate the man page
+at the correct stable path.
+
+### Observability
+
+`build.rs` emits a `cargo:warning=writing man page to ...` diagnostic so that
+the chosen stable path is visible in the `cargo build` log. The staging step
+emits `::warning::stable man-page path ... was absent; using legacy fallback
+...` when the fallback activates.
+
+### Testing
+
+Shell-script behaviour of the staging step is exercised by
+`.github/actions/rust-build-release/tests/test_stage_script_behaviour.py`,
+which extracts the `stage-artefacts` run block from `action.yml`, parametrises
+it, and runs it under bash. Four scenarios are covered: stable path present,
+legacy fallback, missing man page (error), and multiple legacy matches (error).
+Tests are automatically skipped on Windows.

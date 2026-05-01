@@ -137,6 +137,10 @@ def test_legacy_fallback_used_when_stable_absent(tmp_path: Path) -> None:
     dist = list((project / "dist").rglob(f"{_BIN}.1"))
     assert len(dist) == 1
     assert "::warning::" in result.stdout
+    assert (
+        "target/generated-man/aarch64-unknown-linux-gnu/release/rust-toy-app.1"
+        in result.stdout
+    )
 
 
 def test_error_when_no_manpage(tmp_path: Path) -> None:

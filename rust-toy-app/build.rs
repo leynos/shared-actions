@@ -47,17 +47,21 @@ fn main() -> std::io::Result<()> {
             format!("unexpected OUT_DIR structure: {}", out_dir.display()),
         )
     })?;
-    let target_root =
-        if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
-            profile_parent.parent().ok_or_else(|| {
+    let target_root = if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
+        PathBuf::from(target_dir)
+    } else if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
+        profile_parent
+            .parent()
+            .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::Other,
                     format!("unexpected OUT_DIR structure: {}", out_dir.display()),
                 )
             })?
-        } else {
-            profile_parent
-        };
+            .to_path_buf()
+    } else {
+        profile_parent.to_path_buf()
+    };
 
     let man_dir = target_root
         .join("generated-man")

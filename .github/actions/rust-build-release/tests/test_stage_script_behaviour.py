@@ -48,8 +48,8 @@ def _write_stage_script(
     gh_output.write_text("", encoding="utf-8")
     script_body = (
         "#!/usr/bin/env bash\n"
-        f"export GITHUB_OUTPUT={gh_output}\n"
-        f"export target={target}\n" + _extract_stage_script(target, bin_name)
+        f'export GITHUB_OUTPUT="{gh_output}"\n'
+        f'export target="{target}"\n' + _extract_stage_script(target, bin_name)
     )
     stage = tmp_path / "stage.sh"
     stage.write_text(script_body, encoding="utf-8")

@@ -444,8 +444,10 @@ def test_falls_back_to_cargo_when_runtime_unusable(
     main_module: ModuleType,
     cross_module: ModuleType,
     module_harness: HarnessFactory,
+    setup_manifest: Path,
 ) -> None:
     """Falls back to cargo when docker exists but is unusable."""
+    _ = setup_manifest
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
 
@@ -462,6 +464,7 @@ def test_falls_back_to_cargo_when_runtime_unusable(
 
     cross_env.patch_shutil_which(fake_which)
     app_env.patch_shutil_which(fake_which)
+    app_env.patch_attr("ensure_cross", lambda *_: (cross_path, "0.2.5"))
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
 

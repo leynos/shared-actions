@@ -100,7 +100,8 @@ jobs:
         if: matrix.os != 'darwin'
         run: |
             cargo install --locked cross --version ">=0.2.5" || \
-            cargo install --locked cross --git https://github.com/cross-rs/cross --tag v0.2.5
+            cargo install --locked cross \
+              --git https://github.com/cross-rs/cross --tag v0.2.5
       - name: Build binary and man page
         run: |
           if [ "${{ matrix.os }}" = "darwin" ]; then
@@ -114,7 +115,8 @@ jobs:
           mkdir -p dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}
           cp target/${{ matrix.target }}/release/<binary-name> \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
-          cp target/${{ matrix.target }}/release/build/<crate-name>-*/out/<manpage-name>.1 \
+          cp \
+            target/generated-man/${{ matrix.target }}/release/<manpage-name>.1 \
             dist/netsuke_${{ matrix.os }}_${{ matrix.arch }}/
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
@@ -140,9 +142,14 @@ time = { version = "0.3", features = ["formatting"] }
 
 **`build.rs` Implementation:**
 
-The script must generate the man page into the directory specified by the
-`OUT_DIR` environment variable and honour `SOURCE_DATE_EPOCH` for reproducible
-builds.
+The script must generate the man page under
+`target/generated-man/<TARGET>/<PROFILE>/<bin>.1` and honour
+`SOURCE_DATE_EPOCH` for reproducible builds. Cargo provides the hash-dependent
+`OUT_DIR`, the target triple as `TARGET`, and the build profile as `PROFILE`.
+The script derives the stable `target/` root from `OUT_DIR`: explicit
+`--target` builds use
+`target/<triple>/<profile>/build/<crate>-<hash>/out`, while default builds use
+`target/<profile>/build/<crate>-<hash>/out`.
 
 ```rust
 // In consuming repository (e.g., netsuke/build.rs)
@@ -156,16 +163,52 @@ use time::{format_description::well_known::Iso8601, OffsetDateTime};
 mod cli;
 
 fn main() -> std::io::Result<()> {
-    // Rebuild when CLI, manifest, or build logic changes; respect reproducible builds.
+    // Rebuild when CLI, manifest, or build logic changes; respect
+    // reproducible builds.
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
-    let out_dir = PathBuf::from(
-        env::var_os("OUT_DIR")
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set"))?,
-    );
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "OUT_DIR not set")
+    })?);
+    let target = env::var("TARGET")
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+    let profile = env::var("PROFILE")
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+
+    let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+        )
+    })?;
+    let profile_parent = profile_dir.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+        )
+    })?;
+    let target_root =
+        if profile_parent.file_name().and_then(|name| name.to_str())
+            == Some(target.as_str())
+        {
+            profile_parent.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                )
+            })?
+        } else {
+            profile_parent
+        };
+    let man_dir = target_root
+        .join("generated-man")
+        .join(&target)
+        .join(&profile);
+    fs::create_dir_all(&man_dir)?;
+
     let cmd = cli::command();
     let date = env::var("SOURCE_DATE_EPOCH")
         .ok()
@@ -177,11 +220,21 @@ fn main() -> std::io::Result<()> {
     let mut buffer: Vec<u8> = Default::default();
 
     man.render(&mut buffer)?;
-    fs::write(out_dir.join("netsuke.1"), buffer)?;
+    fs::write(man_dir.join("netsuke.1"), buffer)?;
 
     Ok(())
 }
 ```
+
+The staging action first reads the deterministic `target/generated-man` path.
+It still falls back to Cargo's legacy `OUT_DIR`-based
+`target/<triple>/release/build/*/out/` path for build scripts that have not
+yet been updated.
+
+> [!NOTE]
+> Deterministic man page paths decouple release staging from Cargo's
+> content-addressed build directories. This prevents staging failures when
+> multiple build artefacts share the same hash-named output directory.
 
 Figure: Sequence of `build.rs` generating a man page during `cargo build`.
 
@@ -193,7 +246,7 @@ sequenceDiagram
   participant BuildRS as build.rs
   participant CLI as cli::command()
   participant Mangen as clap_mangen
-  participant FS as OUT_DIR
+  participant FS as target/generated-man
 
   Dev->>Cargo: Build rust-toy-app
   activate Cargo
@@ -393,7 +446,7 @@ jobs:
 - Build script derives the man page date from `SOURCE_DATE_EPOCH` using the
   `time` crate for reproducible output.
 - An `assert_cmd` integration test runs `cargo build` and asserts the build
-  script emitted a man page under `target/*/build/*/out/` using a glob search.
+  script emitted a man page under `target/generated-man/<target>/<profile>/`.
 - The crate provides a `command()` helper returning `clap::Command` for use by
   the
   build script.

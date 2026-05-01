@@ -82,7 +82,9 @@ def test_skips_target_install_when_cross_available(
     build_cmd = typ.cast("list[str]", captured["parts"])
     assert Path(build_cmd[0]).name == "cross"
     assert_no_toolchain_override(build_cmd)
-    assert captured["env"] == {"RUSTUP_TOOLCHAIN": default_toolchain}
+    assert captured["env"] == {
+        "RUSTUP_TOOLCHAIN": f"{default_toolchain}-x86_64-unknown-linux-gnu"
+    }
 
 
 @CMD_MOX_UNSUPPORTED

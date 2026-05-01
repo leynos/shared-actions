@@ -1,27 +1,98 @@
+//! Build-script support for generating CLI man pages from the shared CLI module.
+
 use std::env;
 
 use std::path::PathBuf;
 use time::OffsetDateTime;
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "the build script includes the CLI module only to render clap metadata"
+)]
 #[path = "src/cli.rs"]
 mod cli;
 
+/// Generates the `rust-toy-app.1` man page and writes it to the stable
+/// `target/generated-man/<TARGET>/<PROFILE>/` directory so that the
+/// release-staging action can locate it at a deterministic path.
 fn main() -> std::io::Result<()> {
     // Rebuild when the CLI definition changes.
     println!("cargo:rerun-if-changed=src/cli.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
-    let out_dir = env::var("OUT_DIR").map(PathBuf::from).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let out_dir = env::var("OUT_DIR")
+        .map(PathBuf::from)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let target =
+        env::var("TARGET").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let profile =
+        env::var("PROFILE").map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    // Prefer the explicit target directory set by cross / CARGO_TARGET_DIR.
+    // Fall back to deriving the root from OUT_DIR's ancestor structure.
+    let target_root: std::path::PathBuf =
+        if let Some(cargo_target_dir) = env::var_os("CARGO_TARGET_DIR") {
+            std::path::PathBuf::from(cargo_target_dir)
+        } else {
+            let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                )
+            })?;
+            if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile.as_str()) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR profile: {}", out_dir.display()),
+                ));
+            }
+            let profile_parent = profile_dir.parent().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                )
+            })?;
+            if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
+                profile_parent
+                    .parent()
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+                        )
+                    })?
+                    .to_path_buf()
+            } else {
+                profile_parent.to_path_buf()
+            }
+        };
+
+    let man_dir = target_root
+        .join("generated-man")
+        .join(&target)
+        .join(&profile);
+
+    // Force rerun when cross changes CARGO_TARGET_DIR between runs.
+    println!("cargo:rerun-if-env-changed=CARGO_TARGET_DIR");
+
+    // Diagnostic: visible in cargo build output; confirms chosen stable path.
+    println!("cargo:warning=writing man page to {}", man_dir.display());
+    std::fs::create_dir_all(&man_dir)?;
+
     let cmd = cli::command();
     let man = clap_mangen::Man::new(cmd).date(build_date());
     let mut buffer = Vec::new();
     man.render(&mut buffer)?;
-    std::fs::write(out_dir.join("rust-toy-app.1"), &buffer)?;
+    std::fs::write(man_dir.join("rust-toy-app.1"), &buffer)?;
     Ok(())
 }
 
+/// Returns the man-page date string.
+///
+/// Reads `SOURCE_DATE_EPOCH` (a Unix timestamp) and formats it as
+/// `YYYY-MM-DD`. Falls back to `"1970-01-01"` when the variable is absent or
+/// unparseable, ensuring reproducible builds.
 fn build_date() -> String {
     env::var("SOURCE_DATE_EPOCH")
         .ok()
@@ -30,5 +101,3 @@ fn build_date() -> String {
         .map(|dt| dt.date().to_string())
         .unwrap_or_else(|| "1970-01-01".to_string())
 }
-
-

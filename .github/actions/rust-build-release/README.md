@@ -1,6 +1,7 @@
 # rust-build-release
 
-Build Rust application release artefacts using the repository's `setup-rust` action, `uv`, and `cross`.
+Build Rust application release artefacts using the repository's `setup-rust`
+action, `uv`, and `cross`.
 
 FreeBSD targets (for example `x86_64-unknown-freebsd`) require `cross` with a
 container runtime when built on non-FreeBSD hosts. The action enforces this so
@@ -29,14 +30,18 @@ manifest `rust-version`, then the action's bundled fallback version.
 
 ## Inputs
 
-| Name          | Type   | Default                    | Description                                                        | Required |
-| ------------- | ------ | -------------------------- | ------------------------------------------------------------------ | -------- |
-| target        | string | `x86_64-unknown-linux-gnu` | Target triple to build                                             | no       |
-| toolchain     | string | (empty)                    | Explicit Rust toolchain override; otherwise the toolchain is resolved from the target repository before falling back to the action default | no |
-| project-dir   | string | `.`                        | Path to the Rust project to build                                  | no       |
-| manifest-path | string | `Cargo.toml`               | Path to the Cargo manifest (relative to `project-dir` or absolute) | no       |
-| bin-name      | string | `rust-toy-app`             | Binary name produced by the build                                  | no       |
-| features      | string | (empty)                    | Comma-separated list of Cargo features                             | no       |
+| Name | Type | Default | Description | Required |
+| ---- | ---- | ------- | ----------- | -------- |
+| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | no |
+| toolchain | string | (empty) | Explicit Rust toolchain override | no |
+| project-dir | string | `.` | Path to the Rust project to build | no |
+| manifest-path | string | `Cargo.toml` | Cargo manifest path | no |
+| bin-name | string | `rust-toy-app` | Binary name produced by the build | no |
+| features | string | (empty) | Comma-separated Cargo features | no |
+
+When `toolchain` is empty, the action resolves the toolchain from the target
+repository before falling back to the action default. `manifest-path` may be
+relative to `project-dir` or absolute.
 
 ## Outputs
 
@@ -78,8 +83,8 @@ None.
   working-directory: rust-toy-app
   run: |
     set -euo pipefail
-    manpage=$(find target/${TARGET}/release/build -name 'rust-toy-app.1' -print -quit)
-    test -n "$manpage"
+    manpage="target/generated-man/${TARGET}/release/rust-toy-app.1"
+    test -f "$manpage"
     echo "path=${manpage}" >> "$GITHUB_OUTPUT"
   env:
     TARGET: x86_64-unknown-linux-gnu

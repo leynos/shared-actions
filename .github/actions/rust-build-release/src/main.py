@@ -477,8 +477,6 @@ def _configure_cross_container_engine(
 def _restore_container_engine(
     previous_engine: str | None, *, applied_engine: str | None
 ) -> None:
-    current_engine = os.environ.get("CROSS_CONTAINER_ENGINE")
-
     if previous_engine is None:
         if applied_engine is not None:
             # Always remove the variable when no prior value existed so callers
@@ -488,8 +486,7 @@ def _restore_container_engine(
             os.environ.pop("CROSS_CONTAINER_ENGINE", None)
         return
 
-    if current_engine != previous_engine:
-        os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
+    os.environ["CROSS_CONTAINER_ENGINE"] = previous_engine
 
 
 def _normalize_features(features: str) -> str:

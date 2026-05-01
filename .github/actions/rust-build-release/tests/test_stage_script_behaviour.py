@@ -87,6 +87,34 @@ def _legacy_manpage(
     )
 
 
+def _prepare_project(tmp_path: Path) -> tuple[str, Path, Path]:
+    """Set up a project directory with a stub binary and staging script.
+
+    Returns a *(bash, project, stage)* triple ready for a test to populate
+    man-page fixtures and then call :func:`_run_stage`.
+    """
+    bash = _requires_bash()
+    project = tmp_path / "project"
+    project.mkdir()
+    _stub_binary(project)
+    stage = _write_stage_script(tmp_path)
+    return bash, project, stage
+
+
+def _run_stage(
+    bash: str,
+    stage: Path,
+    project: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Execute the staging script and return the completed-process result."""
+    return subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
+        [bash, str(stage)],
+        cwd=project,
+        capture_output=True,
+        text=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -94,48 +122,30 @@ def _legacy_manpage(
 
 def test_stable_path_used_when_present(tmp_path: Path) -> None:
     """Script succeeds and stages the man page from the stable generated-man path."""
-    bash = _requires_bash()
-    project = tmp_path / "project"
-    project.mkdir()
-    _stub_binary(project)
+    bash, project, stage = _prepare_project(tmp_path)
     man = _stable_manpage(project)
     man.parent.mkdir(parents=True, exist_ok=True)
     man.write_bytes(b".TH RUST-TOY-APP 1\n")
-    stage = _write_stage_script(tmp_path)
 
-    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
-        [bash, str(stage)],
-        cwd=project,
-        capture_output=True,
-        text=True,
-    )
+    result = _run_stage(bash, stage, project)
+
     assert result.returncode == 0, result.stderr
-    dist = list((project / "dist").rglob(f"{_BIN}.1"))
-    assert len(dist) == 1
+    assert len(list((project / "dist").rglob(f"{_BIN}.1"))) == 1
     # Must not emit a warning when the stable path is used.
     assert "::warning::" not in result.stdout
 
 
 def test_legacy_fallback_used_when_stable_absent(tmp_path: Path) -> None:
     """Script falls back to the legacy Cargo build path and emits a warning."""
-    bash = _requires_bash()
-    project = tmp_path / "project"
-    project.mkdir()
-    _stub_binary(project)
+    bash, project, stage = _prepare_project(tmp_path)
     legacy = _legacy_manpage(project)
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_bytes(b".TH RUST-TOY-APP 1\n")
-    stage = _write_stage_script(tmp_path)
 
-    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
-        [bash, str(stage)],
-        cwd=project,
-        capture_output=True,
-        text=True,
-    )
+    result = _run_stage(bash, stage, project)
+
     assert result.returncode == 0, result.stderr
-    dist = list((project / "dist").rglob(f"{_BIN}.1"))
-    assert len(dist) == 1
+    assert len(list((project / "dist").rglob(f"{_BIN}.1"))) == 1
     assert "::warning::" in result.stdout
     assert (
         "target/generated-man/aarch64-unknown-linux-gnu/release/rust-toy-app.1"
@@ -145,39 +155,23 @@ def test_legacy_fallback_used_when_stable_absent(tmp_path: Path) -> None:
 
 def test_error_when_no_manpage(tmp_path: Path) -> None:
     """Script exits non-zero when neither the stable nor the legacy path exists."""
-    bash = _requires_bash()
-    project = tmp_path / "project"
-    project.mkdir()
-    _stub_binary(project)
-    stage = _write_stage_script(tmp_path)
+    bash, project, stage = _prepare_project(tmp_path)
 
-    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
-        [bash, str(stage)],
-        cwd=project,
-        capture_output=True,
-        text=True,
-    )
+    result = _run_stage(bash, stage, project)
+
     assert result.returncode != 0
     assert "man page not found" in result.stdout
 
 
 def test_error_when_multiple_legacy_matches(tmp_path: Path) -> None:
     """Script exits non-zero when multiple legacy man pages are found."""
-    bash = _requires_bash()
-    project = tmp_path / "project"
-    project.mkdir()
-    _stub_binary(project)
+    bash, project, stage = _prepare_project(tmp_path)
     for suffix in ("aaa111", "bbb222"):
         legacy = _legacy_manpage(project, hash_suffix=suffix)
         legacy.parent.mkdir(parents=True, exist_ok=True)
         legacy.write_bytes(b".TH RUST-TOY-APP 1\n")
-    stage = _write_stage_script(tmp_path)
 
-    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
-        [bash, str(stage)],
-        cwd=project,
-        capture_output=True,
-        text=True,
-    )
+    result = _run_stage(bash, stage, project)
+
     assert result.returncode != 0
     assert "expected exactly one" in result.stdout

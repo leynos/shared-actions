@@ -24,6 +24,24 @@ def _verify_artefacts_script() -> str:
     return verify_step["run"]
 
 
+def test_rust_build_release_call_keeps_default_manpage_discovery() -> None:
+    """The clap_mangen toy workflow must not opt out of man-page discovery."""
+    workflow = _load_workflow()
+    jobs = workflow["jobs"]
+    build_release = jobs["build-release"]
+    steps = build_release["steps"]
+    build_steps = [
+        step
+        for step in steps
+        if step.get("uses") == "./.github/actions/rust-build-release"
+    ]
+
+    assert build_steps
+    for step in build_steps:
+        with_inputs = step.get("with", {})
+        assert "skip-man-page-discovery" not in with_inputs
+
+
 def test_verify_artefacts_uses_stable_manpage_path() -> None:
     """The workflow should verify the generated-man path emitted by build.rs."""
     script = _verify_artefacts_script()

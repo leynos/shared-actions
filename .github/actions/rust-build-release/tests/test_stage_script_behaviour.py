@@ -32,9 +32,10 @@ def _extract_stage_script(target: str = _TARGET, bin_name: str = _BIN) -> str:
     steps = data["runs"]["steps"]
     stage = next(s for s in steps if s.get("id") == "stage-artefacts")
     script: str = stage["run"]
-    return script.replace("${{ inputs.target }}", target).replace(
-        "${{ inputs.bin-name }}",
-        bin_name,
+    return (
+        script.replace("${{ inputs.target }}", target)
+        .replace("${{ inputs.bin-name }}", bin_name)
+        .replace("${{ inputs.skip-man-page-discovery }}", "${skip_man_page_discovery}")
     )
 
 
@@ -42,14 +43,19 @@ def _write_stage_script(
     tmp_path: Path,
     target: str = _TARGET,
     bin_name: str = _BIN,
+    *,
+    skip_man_page_discovery: bool = False,
 ) -> Path:
     """Write an executable stage.sh into *tmp_path* and return its path."""
     gh_output = tmp_path / "github_output"
     gh_output.write_text("", encoding="utf-8")
+    skip_value = "true" if skip_man_page_discovery else "false"
     script_body = (
         "#!/usr/bin/env bash\n"
         f'export GITHUB_OUTPUT="{gh_output}"\n'
-        f'export target="{target}"\n' + _extract_stage_script(target, bin_name)
+        f'export target="{target}"\n'
+        f'export skip_man_page_discovery="{skip_value}"\n'
+        + _extract_stage_script(target, bin_name)
     )
     stage = tmp_path / "stage.sh"
     stage.write_text(script_body, encoding="utf-8")
@@ -98,6 +104,16 @@ def _prepare_project(tmp_path: Path) -> tuple[str, Path, Path]:
     project.mkdir()
     _stub_binary(project)
     stage = _write_stage_script(tmp_path)
+    return bash, project, stage
+
+
+def _prepare_project_with_skip(tmp_path: Path) -> tuple[str, Path, Path]:
+    """Set up a project directory with man-page discovery disabled."""
+    bash = _requires_bash()
+    project = tmp_path / "project"
+    project.mkdir()
+    _stub_binary(project)
+    stage = _write_stage_script(tmp_path, skip_man_page_discovery=True)
     return bash, project, stage
 
 
@@ -175,3 +191,16 @@ def test_error_when_multiple_legacy_matches(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "expected exactly one" in result.stdout
+
+
+def test_skip_manpage_discovery_stages_binary_without_manpage(tmp_path: Path) -> None:
+    """Opt-out skips man-page lookup and stages only the release binary."""
+    bash, project, stage = _prepare_project_with_skip(tmp_path)
+
+    result = _run_stage(bash, stage, project)
+
+    assert result.returncode == 0, result.stderr
+    assert (project / f"dist/{_BIN}_linux_arm64/{_BIN}").exists()
+    assert not list((project / "dist").rglob(f"{_BIN}.1"))
+    assert "man page not found" not in result.stdout
+    assert "man-path=" not in (tmp_path / "github_output").read_text(encoding="utf-8")

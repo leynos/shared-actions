@@ -38,10 +38,17 @@ manifest `rust-version`, then the action's bundled fallback version.
 | manifest-path | string | `Cargo.toml` | Cargo manifest path | no |
 | bin-name | string | `rust-toy-app` | Binary name produced by the build | no |
 | features | string | (empty) | Comma-separated Cargo features | no |
+| skip-man-page-discovery | boolean | `false` | Post-build man opt-out | no |
 
 When `toolchain` is empty, the action resolves the toolchain from the target
 repository before falling back to the action default. `manifest-path` may be
 relative to `project-dir` or absolute.
+
+By default, Linux and illumos staging discovers man pages generated during
+`cargo build` at `target/generated-man/<target>/release/<bin>.1`, then falls
+back to Cargo `OUT_DIR` output from `build.rs`. Set
+`skip-man-page-discovery: 'true'` only when a later workflow step generates and
+validates the man page.
 
 ## Outputs
 

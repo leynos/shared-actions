@@ -14,6 +14,7 @@ ACTION_YML = Path(__file__).resolve().parents[1] / "action.yml"
 
 _TARGET = "aarch64-unknown-linux-gnu"
 _BIN = "rust-toy-app"
+_EXPECTED_MAN_PATH_OUTPUT = "man-path=dist/rust-toy-app_linux_arm64/rust-toy-app.1"
 
 
 def _requires_bash() -> str:
@@ -147,6 +148,8 @@ def test_stable_path_used_when_present(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert len(list((project / "dist").rglob(f"{_BIN}.1"))) == 1
+    github_output = (tmp_path / "github_output").read_text(encoding="utf-8")
+    assert github_output.splitlines() == [_EXPECTED_MAN_PATH_OUTPUT]
     # Must not emit a warning when the stable path is used.
     assert "::warning::" not in result.stdout
 
@@ -162,6 +165,8 @@ def test_legacy_fallback_used_when_stable_absent(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert len(list((project / "dist").rglob(f"{_BIN}.1"))) == 1
+    github_output = (tmp_path / "github_output").read_text(encoding="utf-8")
+    assert _EXPECTED_MAN_PATH_OUTPUT in github_output.splitlines()
     assert "::warning::" in result.stdout
     assert (
         "target/generated-man/aarch64-unknown-linux-gnu/release/rust-toy-app.1"
@@ -204,3 +209,13 @@ def test_skip_manpage_discovery_stages_binary_without_manpage(tmp_path: Path) ->
     assert not list((project / "dist").rglob(f"{_BIN}.1"))
     assert "man page not found" not in result.stdout
     assert "man-path=" not in (tmp_path / "github_output").read_text(encoding="utf-8")
+
+
+def test_skip_manpage_discovery_emits_notice(tmp_path: Path) -> None:
+    """Opt-out emits a notice explaining that man-page outputs are suppressed."""
+    bash, project, stage = _prepare_project_with_skip(tmp_path)
+
+    result = _run_stage(bash, stage, project)
+
+    assert result.returncode == 0, result.stderr
+    assert "::notice::" in result.stdout

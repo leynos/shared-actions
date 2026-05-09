@@ -136,6 +136,13 @@ If the stable path is absent the staging step falls back to scanning
 location - and emits a `::warning::` annotation. Zero or multiple matches in
 the legacy location are fatal errors.
 
+When `skip-man-page-discovery` is set to `'true'`, the staging step bypasses
+all man-page discovery and installation; no `man-path` output is written to
+`GITHUB_OUTPUT`. When it is `'false'` (the default), the existing stable-path
+and legacy fallback behaviour applies. Callers that generate man pages in a
+post-`cross build` step, for example via `cargo-orthohelp`, must set this input
+to `'true'` and handle staging themselves.
+
 ### Fingerprint Invalidation
 
 `build.rs` emits `cargo:rerun-if-env-changed=CARGO_TARGET_DIR` so that a
@@ -155,6 +162,7 @@ emits `::warning::stable man-page path ... was absent; using legacy fallback
 Shell-script behaviour of the staging step is exercised by
 `.github/actions/rust-build-release/tests/test_stage_script_behaviour.py`,
 which extracts the `stage-artefacts` run block from `action.yml`, parametrises
-it, and runs it under bash. Four scenarios are covered: stable path present,
-legacy fallback, missing man page (error), and multiple legacy matches (error).
-Tests are automatically skipped on Windows.
+it, and runs it under bash. Five scenarios are covered: stable path present,
+legacy fallback, missing man page (error), multiple legacy matches (error), and
+skip mode (no man-page staging, binary only). Tests are automatically skipped
+on Windows.

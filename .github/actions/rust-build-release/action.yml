@@ -159,6 +159,9 @@ runs:
             echo "::warning::stable man-page path ${stable_man_path} was absent; using legacy fallback ${man_path}"
           fi
         fi
+        if [[ "${{ inputs.skip-man-page-discovery }}" == "true" ]]; then
+          echo "::notice::skip-man-page-discovery is set; man-page discovery and the man-path output are suppressed for this run."
+        fi
         install -m 0755 "${bin_src}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}"
         if [[ "${{ inputs.skip-man-page-discovery }}" != "true" ]]; then
           install -m 0644 "${man_path}" "dist/${{ inputs.bin-name }}_${os}_${arch}/${{ inputs.bin-name }}.1"

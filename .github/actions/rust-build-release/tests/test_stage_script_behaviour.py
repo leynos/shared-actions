@@ -218,4 +218,7 @@ def test_skip_manpage_discovery_emits_notice(tmp_path: Path) -> None:
     result = _run_stage(bash, stage, project)
 
     assert result.returncode == 0, result.stderr
-    assert "::notice::" in result.stdout
+    assert (
+        "::notice::skip-man-page-discovery is set; man-page discovery and the "
+        "man-path output are suppressed for this run." in result.stdout
+    )

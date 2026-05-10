@@ -231,6 +231,19 @@ It still falls back to Cargo's legacy `OUT_DIR`-based
 `target/<triple>/release/build/*/out/` path for build scripts that have not
 yet been updated.
 
+#### Man-Page Discovery
+
+By default, `skip-man-page-discovery: 'false'` keeps the staging step on the
+`clap_mangen` path: it discovers and stages the man page from
+`target/generated-man/<target>/release/<bin>.1`, falls back to
+`target/<target>/release/build/*/out/<bin>.1`, and writes `man-path` to
+`GITHUB_OUTPUT`.
+
+Set `skip-man-page-discovery: 'true'` only when a caller generates man pages in
+a separate post-build step, such as `cargo-orthohelp`. In that mode man-page
+discovery is skipped entirely, the caller's workflow must stage and validate
+the man page after `cross build`, and no `man-path` output is emitted.
+
 > [!NOTE]
 > Deterministic man page paths decouple release staging from Cargo's
 > content-addressed build directories. This prevents staging failures when

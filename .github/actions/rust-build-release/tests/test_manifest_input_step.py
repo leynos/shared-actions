@@ -41,6 +41,17 @@ def test_toolchain_input_declared() -> None:
     assert toolchain_input.get("default") == ""
 
 
+def test_skip_man_page_discovery_input_declared() -> None:
+    """The opt-out input must preserve discovery by default."""
+    manifest = _load_action_manifest()
+    inputs = manifest["inputs"]
+    assert "skip-man-page-discovery" in inputs
+    skip_input = inputs["skip-man-page-discovery"]
+    assert skip_input.get("required", False) is False
+    assert skip_input.get("default") == "false"
+    assert "post-build step" in skip_input.get("description", "")
+
+
 def test_build_step_exports_manifest_path_env() -> None:
     """Build step should pass manifest-path via RBR_MANIFEST_PATH."""
     manifest = _load_action_manifest()
@@ -71,9 +82,12 @@ def test_stage_artefacts_step_uses_stable_manpage_path() -> None:
     run_script = stage_step.get("run")
     assert isinstance(run_script, str)
     assert (
-        'man_path="target/generated-man/${{ inputs.target }}/release/'
+        'stable_man_path="target/generated-man/${{ inputs.target }}/release/'
         '${{ inputs.bin-name }}.1"'
     ) in run_script
+    assert (
+        'if [[ "${{ inputs.skip-man-page-discovery }}" != "true" ]]; then' in run_script
+    )
     assert 'if [[ ! -f "${man_path}" ]]; then' in run_script
     assert "release/build" in run_script
     assert "man_matches" in run_script

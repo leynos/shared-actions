@@ -166,7 +166,7 @@ def test_legacy_fallback_used_when_stable_absent(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert len(list((project / "dist").rglob(f"{_BIN}.1"))) == 1
     github_output = (tmp_path / "github_output").read_text(encoding="utf-8")
-    assert _EXPECTED_MAN_PATH_OUTPUT in github_output.splitlines()
+    assert github_output.splitlines() == [_EXPECTED_MAN_PATH_OUTPUT]
     assert "::warning::" in result.stdout
     assert (
         "target/generated-man/aarch64-unknown-linux-gnu/release/rust-toy-app.1"

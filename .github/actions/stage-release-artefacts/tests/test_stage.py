@@ -135,6 +135,66 @@ target = "x86_64-unknown-linux-gnu"
         assert config.platform == "linux"
         assert len(config.artefacts) == 1
 
+    def test_loads_target_artefacts_with_dest_alias(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Target artefacts support optional entries and the dest alias."""
+        monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "binary"
+
+[targets.windows]
+platform = "windows"
+arch = "x86_64"
+target = "x86_64-pc-windows-msvc"
+
+[[targets.windows.artefacts]]
+source = "target/orthohelp/{target}/release/powershell/MyTool/MyTool.psm1"
+dest = "MyTool/MyTool.psm1"
+required = false
+""",
+            encoding="utf-8",
+        )
+
+        config = load_config(config_file, "windows")
+
+        assert len(config.artefacts) == 2
+        assert config.artefacts[1].destination == "MyTool/MyTool.psm1"
+        assert config.artefacts[1].required is False
+
+    def test_rejects_dest_and_destination_together(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Artefact entries must not provide both destination spellings."""
+        monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "binary"
+dest = "short"
+destination = "long"
+
+[targets.linux]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(StageError, match="both 'destination' and 'dest'"):
+            load_config(config_file, "linux")
+
     def test_raises_for_missing_file(self, tmp_path: Path) -> None:
         """load_config raises for missing configuration file."""
         missing = tmp_path / "missing.toml"
@@ -216,6 +276,7 @@ class TestPrepareOutputData:
         assert "artefact_map" in result
         assert "checksum_map" in result
         assert "binary_path" in result
+        assert result["powershell_help_dir"] == ""
 
 
 class TestValidateNoReservedKeyCollisions:
@@ -228,7 +289,7 @@ class TestValidateNoReservedKeyCollisions:
 
     def test_raises_for_reserved_key(self, tmp_path: Path) -> None:
         """Reserved keys raise StageError."""
-        outputs = {"artifact_dir": tmp_path / "myapp"}
+        outputs = {"powershell_help_dir": tmp_path / "myapp"}
         with pytest.raises(StageError, match="reserved keys"):
             validate_no_reserved_key_collisions(outputs)
 
@@ -431,6 +492,184 @@ class TestStageArtefacts:
         assert checksum_file.exists()
         contents = checksum_file.read_text(encoding="utf-8")
         assert "myapp" in contents
+
+    def test_stages_windows_powershell_help_dir(self, tmp_path: Path) -> None:
+        """Windows PowerShell sidecars are staged under the module directory."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        source_dir = (
+            workspace
+            / "target"
+            / "orthohelp"
+            / "x86_64-pc-windows-msvc"
+            / "release"
+            / "powershell"
+            / "MyTool"
+        )
+        help_dir = source_dir / "en-US"
+        help_dir.mkdir(parents=True)
+        files = [
+            source_dir / "MyTool.psm1",
+            source_dir / "MyTool.psd1",
+            help_dir / "MyTool-help.xml",
+            help_dir / "about_MyTool.help.txt",
+        ]
+        for file in files:
+            file.write_text(file.name, encoding="utf-8")
+        output_file = tmp_path / "output"
+
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/MyTool.psm1"
+                    ),
+                    destination="MyTool/MyTool.psm1",
+                    required=False,
+                ),
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/MyTool.psd1"
+                    ),
+                    destination="MyTool/MyTool.psd1",
+                    required=False,
+                ),
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/en-US/MyTool-help.xml"
+                    ),
+                    destination="MyTool/en-US/MyTool-help.xml",
+                    required=False,
+                ),
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/en-US/about_MyTool.help.txt"
+                    ),
+                    destination="MyTool/en-US/about_MyTool.help.txt",
+                    required=False,
+                ),
+            ],
+            platform="windows",
+            arch="x86_64",
+            target="x86_64-pc-windows-msvc",
+        )
+
+        result = stage_artefacts(config, output_file, ps_module_name="MyTool")
+
+        assert len(result.staged_artefacts) == 4
+        assert (result.staging_dir / "MyTool" / "MyTool.psm1").exists()
+        assert (result.staging_dir / "MyTool" / "MyTool.psd1").exists()
+        assert (result.staging_dir / "MyTool" / "en-US" / "MyTool-help.xml").exists()
+        assert (
+            result.staging_dir / "MyTool" / "en-US" / "about_MyTool.help.txt"
+        ).exists()
+        assert result.powershell_help_dir == result.staging_dir / "MyTool"
+        output = output_file.read_text(encoding="utf-8")
+        assert f"powershell_help_dir={result.staging_dir / 'MyTool'}" in output
+
+    def test_linux_skips_absent_optional_powershell_help(self, tmp_path: Path) -> None:
+        """Linux staging succeeds when optional PowerShell sidecars are absent."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        binary = workspace / "mytool"
+        binary.write_text("binary content", encoding="utf-8")
+        output_file = tmp_path / "output"
+
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(source="mytool"),
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/MyTool.psm1"
+                    ),
+                    destination="MyTool/MyTool.psm1",
+                    required=False,
+                ),
+            ],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+        )
+
+        result = stage_artefacts(config, output_file, ps_module_name="MyTool")
+
+        assert len(result.staged_artefacts) == 1
+        assert result.powershell_help_dir is None
+        assert "powershell_help_dir=" in output_file.read_text(encoding="utf-8")
+
+    def test_missing_required_powershell_help_fails(self, tmp_path: Path) -> None:
+        """Missing required PowerShell sidecars fail with the attempted path."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        output_file = tmp_path / "output"
+
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(
+                    source=(
+                        "target/orthohelp/{target}/release/powershell/"
+                        "MyTool/MyTool.psm1"
+                    ),
+                    destination="MyTool/MyTool.psm1",
+                ),
+            ],
+            platform="windows",
+            arch="x86_64",
+            target="x86_64-pc-windows-msvc",
+        )
+
+        with pytest.raises(StageError, match=r"MyTool/MyTool\.psm1"):
+            stage_artefacts(config, output_file, ps_module_name="MyTool")
+
+    def test_empty_ps_module_name_leaves_powershell_help_dir_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """The output stays empty unless the module name is provided."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        source_dir = workspace / "powershell" / "MyTool"
+        source_dir.mkdir(parents=True)
+        (source_dir / "MyTool.psm1").write_text("module", encoding="utf-8")
+        output_file = tmp_path / "output"
+
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(
+                    source="powershell/MyTool/MyTool.psm1",
+                    destination="MyTool/MyTool.psm1",
+                ),
+            ],
+            platform="windows",
+            arch="x86_64",
+            target="x86_64-pc-windows-msvc",
+        )
+
+        result = stage_artefacts(config, output_file)
+
+        assert (result.staging_dir / "MyTool" / "MyTool.psm1").exists()
+        assert result.powershell_help_dir is None
+        assert "powershell_help_dir=\n" in output_file.read_text(encoding="utf-8")
 
 
 class TestRenderTemplate:

@@ -43,6 +43,7 @@ class StageResult:
     staged_artefacts: list[Path]
     outputs: dict[str, Path]
     checksums: dict[str, str]
+    powershell_help_dir: Path | None = None
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
@@ -87,6 +88,7 @@ def stage_artefacts(
     github_output_file: Path,
     *,
     normalize_windows_paths: bool = False,
+    ps_module_name: str = "",
 ) -> StageResult:
     """Copy artefacts into ``config``'s staging directory.
 
@@ -98,6 +100,8 @@ def stage_artefacts(
         Path to the ``GITHUB_OUTPUT`` file used to export workflow outputs.
     normalize_windows_paths
         When True, convert backslashes to forward slashes in output paths.
+    ps_module_name
+        Optional staged PowerShell module directory name.
 
     Returns
     -------
@@ -138,8 +142,15 @@ def stage_artefacts(
         raise StageError(msg)
 
     validate_no_reserved_key_collisions(outputs)
+    powershell_help_dir = _resolve_powershell_help_dir(
+        staging_dir, staged_paths, ps_module_name
+    )
     exported_outputs = prepare_output_data(
-        staging_dir, staged_paths, outputs, checksums
+        staging_dir,
+        staged_paths,
+        outputs,
+        checksums,
+        powershell_help_dir=powershell_help_dir,
     )
     write_github_output(
         github_output_file,
@@ -147,7 +158,22 @@ def stage_artefacts(
         normalize_windows_paths=normalize_windows_paths,
     )
 
-    return StageResult(staging_dir, staged_paths, outputs, checksums)
+    return StageResult(
+        staging_dir, staged_paths, outputs, checksums, powershell_help_dir
+    )
+
+
+def _resolve_powershell_help_dir(
+    staging_dir: Path, staged_paths: list[Path], ps_module_name: str
+) -> Path | None:
+    """Return the staged PowerShell module directory when explicitly named."""
+    if not ps_module_name:
+        return None
+
+    module_dir = staging_dir / ps_module_name
+    if any(path.is_relative_to(module_dir) for path in staged_paths):
+        return module_dir
+    return None
 
 
 def _ensure_source_available(

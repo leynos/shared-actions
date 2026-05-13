@@ -88,6 +88,9 @@ inputs:
     description: Artefact name when `upload-artefact` is enabled.
     required: false
     default: msi
+  # TODO: add optional ps-help-dir input to embed MAML module in MSI.
+  # See: https://github.com/leynos/shared-actions/issues/264
+  # Decision: currently shipped as sidecar release artefacts via artifact_dir.
 outputs:
   version:
     description: Version string resolved for the MSI build.

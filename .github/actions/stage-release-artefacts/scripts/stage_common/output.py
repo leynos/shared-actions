@@ -25,6 +25,7 @@ RESERVED_OUTPUT_KEYS: frozenset[str] = frozenset(
         "staged_files",
         "artefact_map",
         "checksum_map",
+        "powershell_help_dir",
     }
 )
 
@@ -34,6 +35,8 @@ def prepare_output_data(
     staged_paths: list[Path],
     outputs: dict[str, Path],
     checksums: dict[str, str],
+    *,
+    powershell_help_dir: Path | None = None,
 ) -> dict[str, str | list[str]]:
     """Assemble workflow outputs describing the staged artefacts.
 
@@ -48,6 +51,8 @@ def prepare_output_data(
         destinations.
     checksums
         Mapping of staged artefact relative paths to their checksum digests.
+    powershell_help_dir
+        Optional staged PowerShell module directory path.
 
     Returns
     -------
@@ -67,6 +72,9 @@ def prepare_output_data(
         "staged_files": staged_file_names,
         "artefact_map": artefact_map_json,
         "checksum_map": checksum_map_json,
+        "powershell_help_dir": (
+            powershell_help_dir.as_posix() if powershell_help_dir is not None else ""
+        ),
     } | {key: path.as_posix() for key, path in outputs.items()}
 
 

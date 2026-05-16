@@ -55,6 +55,7 @@ def main(
     target: str,
     *,
     normalize_windows_paths: str = "false",
+    ps_module_name: str = "",
 ) -> None:
     """Stage artefacts for ``target`` using ``config_file``.
 
@@ -66,6 +67,8 @@ def main(
         Target key in the configuration file (for example ``"linux-x86_64"``).
     normalize_windows_paths
         When true, convert backslashes to forward slashes in output paths.
+    ps_module_name
+        Name of the staged PowerShell module sidecar directory.
 
     Raises
     ------
@@ -80,7 +83,10 @@ def main(
         config = load_config(config_path, target)
         normalize = coerce_bool(normalize_windows_paths, default=False)
         result = stage_artefacts(
-            config, github_output, normalize_windows_paths=normalize
+            config,
+            github_output,
+            normalize_windows_paths=normalize,
+            ps_module_name=ps_module_name,
         )
     except (FileNotFoundError, StageError, ValueError) as exc:
         print(f"::error title=Staging Failure::{exc}", file=sys.stderr)

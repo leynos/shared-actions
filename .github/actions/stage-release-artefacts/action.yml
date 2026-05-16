@@ -12,6 +12,14 @@ inputs:
     description: Normalize Windows-style paths in outputs (convert backslashes)
     required: false
     default: "false"
+  ps-module-name:
+    description: >
+      Name of the PowerShell module staged as a release sidecar (for example
+      'Netsuke'). When provided, powershell_help_dir is set to
+      artifact_dir/<ps-module-name> if matching artefacts were staged. Leave
+      empty for non-Windows targets.
+    required: false
+    default: ''
 
 outputs:
   artifact-dir:
@@ -38,6 +46,13 @@ outputs:
   license-path:
     description: Absolute path to the staged licence artefact, when available
     value: ${{ steps.run-stage.outputs.license_path }}
+  powershell_help_dir:
+    description: >
+      Absolute path to the staged PowerShell module directory within
+      artifact_dir, if any PowerShell artefacts were staged. Empty string when
+      no PowerShell artefacts are present. Callers must guard on this being
+      non-empty before use.
+    value: ${{ steps.run-stage.outputs.powershell_help_dir }}
 
 runs:
   using: composite
@@ -54,6 +69,7 @@ runs:
         INPUT_CONFIG_FILE: ${{ inputs.config-file }}
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_NORMALIZE_WINDOWS_PATHS: ${{ inputs.normalize-windows-paths }}
+        INPUT_PS_MODULE_NAME: ${{ inputs.ps-module-name }}
       run: |
         set -euo pipefail
         # Allow test runners (e.g. act) to override GITHUB_WORKSPACE with a temp dir.

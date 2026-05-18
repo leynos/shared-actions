@@ -46,6 +46,26 @@ class TestPrepareOutputData:
         assert "binary_path" in result
         assert result["powershell_help_dir"] == ""
 
+    def test_includes_powershell_help_dir_when_set(self, tmp_path: Path) -> None:
+        """PowerShell help directory is serialized when provided."""
+        staging_dir = tmp_path / "staging"
+        help_dir = staging_dir / "MyTool"
+        help_dir.mkdir(parents=True)
+        staged_file = help_dir / "MyTool.psm1"
+        staged_file.touch()
+
+        result = prepare_output_data(
+            StagingOutputData(
+                staging_dir=staging_dir,
+                staged_paths=[staged_file],
+                outputs={},
+                checksums={"MyTool/MyTool.psm1": "abc123"},
+                powershell_help_dir=help_dir,
+            )
+        )
+
+        assert result["powershell_help_dir"] == help_dir.as_posix()
+
 
 class TestValidateNoReservedKeyCollisions:
     """Tests for the validate_no_reserved_key_collisions function."""

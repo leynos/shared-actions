@@ -1,5 +1,7 @@
 # Stage Release Artefacts
 
+<!-- markdownlint-disable MD013 -->
+
 Stage release artefacts using a Tom's Obvious, Minimal Language (TOML)
 configuration file.
 
@@ -192,6 +194,7 @@ artefacts = [
 ### Error Handling
 
 The action fails when:
+
 - Configuration file is missing or invalid
 - Required artefact sources are not found
 - Template variables reference undefined keys

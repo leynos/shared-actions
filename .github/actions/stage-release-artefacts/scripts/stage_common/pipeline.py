@@ -188,6 +188,7 @@ def _resolve_powershell_help_dir(
 ) -> Path | None:
     """Return the staged PowerShell module directory when explicitly named."""
     if not ps_module_name:
+        logger.info("PowerShell help directory not resolved: module name is empty.")
         return None
 
     staging_root = staging_dir.resolve()
@@ -199,12 +200,21 @@ def _resolve_powershell_help_dir(
         or "\\" in ps_module_name
         or module_dir.parent != staging_root
     ):
+        logger.info(
+            "PowerShell help directory not resolved: invalid module name %r.",
+            ps_module_name,
+        )
         return None
 
     if module_dir.is_dir() and any(
         staged_path.resolve().is_relative_to(module_dir) for staged_path in staged_paths
     ):
+        logger.info("PowerShell help directory resolved to %s.", module_dir)
         return module_dir
+    logger.info(
+        "PowerShell help directory not resolved: no staged files under %s.",
+        module_dir,
+    )
     return None
 
 

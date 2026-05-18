@@ -14,6 +14,7 @@ from stage_common import StageError
 from stage_common.config import ArtefactConfig, StagingConfig
 from stage_common.pipeline import (
     _render_template,
+    _resolve_powershell_help_dir,
     _safe_destination_path,
     stage_artefacts,
 )
@@ -325,6 +326,53 @@ class TestRenderTemplate:
         """Unknown template keys raise StageError."""
         with pytest.raises(StageError, match="Invalid template key"):
             _render_template("{unknown_key}", {"known_key": "value"})
+
+
+class TestResolvePowerShellHelpDir:
+    """Tests for the _resolve_powershell_help_dir helper function."""
+
+    def test_returns_direct_child_module_dir(self, tmp_path: Path) -> None:
+        """A direct child module directory is accepted when files are staged."""
+        staging_dir = tmp_path / "staging"
+        module_dir = staging_dir / "MyTool"
+        module_dir.mkdir(parents=True)
+        staged_file = module_dir / "MyTool.psm1"
+        staged_file.touch()
+
+        result = _resolve_powershell_help_dir(staging_dir, [staged_file], "MyTool")
+
+        assert result == module_dir.resolve()
+
+    @pytest.mark.parametrize(
+        "ps_module_name",
+        [
+            ".",
+            "..",
+            "foo/bar",
+            "foo\\bar",
+            "module/..",
+        ],
+    )
+    def test_rejects_non_segment_module_names(
+        self, tmp_path: Path, ps_module_name: str
+    ) -> None:
+        """Non-segment module names never resolve to a help directory."""
+        staging_dir = tmp_path / "staging"
+        module_dir = staging_dir / "MyTool"
+        nested_dir = staging_dir / "foo" / "bar"
+        module_dir.mkdir(parents=True)
+        nested_dir.mkdir(parents=True)
+        staged_paths = [
+            staging_dir / "mytool",
+            module_dir / "MyTool.psm1",
+            nested_dir / "module.psm1",
+        ]
+        for staged_path in staged_paths:
+            staged_path.touch()
+
+        result = _resolve_powershell_help_dir(staging_dir, staged_paths, ps_module_name)
+
+        assert result is None
 
 
 class TestSafeDestinationPath:

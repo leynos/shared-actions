@@ -226,6 +226,19 @@ def test_env_overrides_normalize_inputs(
         ),
         pytest.param(
             SimpleValidationTestCase(
+                workflow="test-stage-release-artefacts.yml",
+                job="test-stage-artefacts-powershell-help",
+                expected_patterns=[
+                    (
+                        r'powershell_help_dir["\s]*[:=]["\s]*\S+',
+                        "powershell_help_dir not found or empty in logs",
+                    ),
+                ],
+            ),
+            id="stage-release-artefacts-powershell-help",
+        ),
+        pytest.param(
+            SimpleValidationTestCase(
                 workflow="test-upload-release-assets.yml",
                 job="test-upload-assets-dry-run",
                 expected_patterns=[

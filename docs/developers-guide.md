@@ -1,8 +1,9 @@
 # Developer's Guide
 
-This document describes the internal architecture of the `generate-coverage`
-action, its public API, concurrency model, and Makefile tool-resolution
-strategy.
+This document describes internal architecture and maintenance conventions for
+the shared actions in this repository. It covers action-specific implementation
+notes, public and internal APIs that affect contributors, concurrency
+assumptions, and Makefile tool-resolution strategy.
 
 ## Python Coverage Venv Architecture
 
@@ -105,6 +106,47 @@ Override example:
 ```bash
 make lint UV=uv MARKDOWNLINT_BASE=origin/develop
 ```
+
+## `stage-release-artefacts` Action Architecture
+
+### Staging Pipeline
+
+The `stage-release-artefacts` action is implemented by
+`.github/actions/stage-release-artefacts/scripts/stage.py`, which loads a TOML
+configuration and delegates staging to `stage_common.pipeline.stage_artefacts`.
+The pipeline renders configured source and destination templates, copies each
+matched artefact into the staging directory, writes checksum sidecar files, and
+exports GitHub Actions outputs.
+
+`_collect_artefacts` owns the collection phase. It iterates over the configured
+artefacts, records the staged paths, builds the map of named outputs, and
+collects checksums keyed by staged relative path. `stage_artefacts` then
+validates reserved output names, resolves optional PowerShell sidecar metadata,
+formats the final output payload, writes `GITHUB_OUTPUT`, and returns a
+`StageResult`.
+
+### Output Data
+
+`stage_common.output.StagingOutputData` is the parameter object passed to
+`prepare_output_data`. It keeps the output formatter explicit without growing
+the function argument list. The object contains the staging directory, staged
+paths, named output paths, checksum map, and the optional
+`powershell_help_dir`. `prepare_output_data` serialises path values with
+`Path.as_posix()` so workflow outputs use forward slashes consistently across
+platforms.
+
+### PowerShell Help Directory
+
+`_resolve_powershell_help_dir` only exports a PowerShell module directory when
+`ps-module-name` names a single direct child of the staging directory and at
+least one staged file exists below that directory. Empty names, `"."`, `".."`
+and names containing path separators return `None`. The resolved module
+directory must also have `staging_dir.resolve()` as its parent, which prevents
+parent-directory traversal and nested module paths from being exported.
+
+The action metadata and README document the public `ps-module-name` input and
+`powershell_help_dir` output. Keep that public contract in sync with the
+internal rules above whenever changing PowerShell sidecar staging.
 
 ## Running the Test Suite
 

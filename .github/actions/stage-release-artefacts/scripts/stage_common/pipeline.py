@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
+import os
 import shutil
 import typing as typ
 
@@ -191,7 +192,13 @@ def _resolve_powershell_help_dir(
 
     staging_root = staging_dir.resolve()
     module_dir = (staging_dir / ps_module_name).resolve()
-    if not module_dir.is_relative_to(staging_root):
+    if (
+        ps_module_name in {".", ".."}
+        or os.path.sep in ps_module_name
+        or "/" in ps_module_name
+        or "\\" in ps_module_name
+        or module_dir.parent != staging_root
+    ):
         return None
 
     if module_dir.is_dir() and any(

@@ -213,10 +213,18 @@ def _parse_artefact_entry(
 ) -> ArtefactConfig:
     """Parse and validate a single artefact entry."""
     prefix = f"in entry #{index} of {config_path}"
-    destination = entry.get("destination", entry.get("dest"))
+    for key in ("destination", "dest"):
+        value = entry.get(key)
+        if key in entry and not isinstance(value, str):
+            msg = (
+                f"Artefact '{key}' must be a string, "
+                f"got {type(value).__name__} {prefix}"
+            )
+            raise StageError(msg)
     if "destination" in entry and "dest" in entry:
         msg = f"Artefact must not define both 'destination' and 'dest' {prefix}"
         raise StageError(msg)
+    destination = entry.get("destination", entry.get("dest"))
     return ArtefactConfig(
         source=_require_string(entry, "source", prefix),
         required=_optional_bool(entry, "required", prefix, default=True),

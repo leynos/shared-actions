@@ -189,9 +189,13 @@ def _resolve_powershell_help_dir(
     if not ps_module_name:
         return None
 
-    module_dir = staging_dir / ps_module_name
+    staging_root = staging_dir.resolve()
+    module_dir = (staging_dir / ps_module_name).resolve()
+    if not module_dir.is_relative_to(staging_root):
+        return None
+
     if module_dir.is_dir() and any(
-        path.is_relative_to(module_dir) for path in staged_paths
+        staged_path.resolve().is_relative_to(module_dir) for staged_path in staged_paths
     ):
         return module_dir
     return None

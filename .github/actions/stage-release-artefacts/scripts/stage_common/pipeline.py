@@ -84,6 +84,41 @@ def _initialize_staging_dir(staging_dir: Path, workspace: Path) -> None:
     staging_dir.mkdir(parents=True, exist_ok=True)
 
 
+def _collect_artefacts(
+    config: StagingConfig,
+    staging_dir: Path,
+    context: dict[str, typ.Any],
+) -> tuple[list[Path], dict[str, Path], dict[str, str]]:
+    """Stage all configured artefacts and return paths, outputs, and checksums.
+
+    Raises
+    ------
+    StageError
+        Raised when no artefacts are staged.
+    """
+    staged_paths: list[Path] = []
+    outputs: dict[str, Path] = {}
+    checksums: dict[str, str] = {}
+
+    for staged in _iter_staged_artefacts(config, staging_dir, context):
+        staged_paths.append(staged.path)
+        relative_path = staged.path.relative_to(staging_dir).as_posix()
+        checksums[relative_path] = staged.checksum
+        if staged.artefact.output:
+            outputs[staged.artefact.output] = staged.path
+
+    if not staged_paths:
+        artefact_count = len(config.artefacts)
+        msg = (
+            f"No artefacts were staged. "
+            f"Configuration defined {artefact_count} artefact(s), "
+            f"but none were found or all were optional and missing."
+        )
+        raise StageError(msg)
+
+    return staged_paths, outputs, checksums
+
+
 def stage_artefacts(
     config: StagingConfig,
     github_output_file: Path,
@@ -121,26 +156,7 @@ def stage_artefacts(
 
     _initialize_staging_dir(staging_dir, config.workspace)
 
-    staged_paths: list[Path] = []
-    outputs: dict[str, Path] = {}
-    checksums: dict[str, str] = {}
-
-    for staged in _iter_staged_artefacts(config, staging_dir, context):
-        staged_paths.append(staged.path)
-        relative_path = staged.path.relative_to(staging_dir).as_posix()
-        checksums[relative_path] = staged.checksum
-
-        if staged.artefact.output:
-            outputs[staged.artefact.output] = staged.path
-
-    if not staged_paths:
-        artefact_count = len(config.artefacts)
-        msg = (
-            f"No artefacts were staged. "
-            f"Configuration defined {artefact_count} artefact(s), "
-            f"but none were found or all were optional and missing."
-        )
-        raise StageError(msg)
+    staged_paths, outputs, checksums = _collect_artefacts(config, staging_dir, context)
 
     validate_no_reserved_key_collisions(outputs)
     powershell_help_dir = _resolve_powershell_help_dir(

@@ -216,7 +216,10 @@ class TestStageArtefacts:
         ).exists()
         assert result.powershell_help_dir == result.staging_dir / "MyTool"
         output = output_file.read_text(encoding="utf-8")
-        assert f"powershell_help_dir={result.staging_dir / 'MyTool'}" in output
+        assert (
+            f"powershell_help_dir={(result.staging_dir / 'MyTool').as_posix()}"
+            in output
+        )
 
     def test_linux_skips_absent_optional_powershell_help(self, tmp_path: Path) -> None:
         """Linux staging succeeds when optional PowerShell sidecars are absent."""

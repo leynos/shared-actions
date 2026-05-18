@@ -12,6 +12,7 @@ prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
 from stage_common.output import (
+    StagingOutputData,
     prepare_output_data,
     validate_no_reserved_key_collisions,
     write_github_output,
@@ -29,10 +30,12 @@ class TestPrepareOutputData:
         staged_file.touch()
 
         result = prepare_output_data(
-            staging_dir=staging_dir,
-            staged_paths=[staged_file],
-            outputs={"binary_path": staged_file},
-            checksums={"myapp": "abc123"},
+            StagingOutputData(
+                staging_dir=staging_dir,
+                staged_paths=[staged_file],
+                outputs={"binary_path": staged_file},
+                checksums={"myapp": "abc123"},
+            )
         )
 
         assert "artifact_dir" in result

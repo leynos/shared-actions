@@ -14,6 +14,7 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 from .output import (
+    StagingOutputData,
     prepare_output_data,
     validate_no_reserved_key_collisions,
     write_github_output,
@@ -146,11 +147,13 @@ def stage_artefacts(
         staging_dir, staged_paths, ps_module_name
     )
     exported_outputs = prepare_output_data(
-        staging_dir,
-        staged_paths,
-        outputs,
-        checksums,
-        powershell_help_dir=powershell_help_dir,
+        StagingOutputData(
+            staging_dir=staging_dir,
+            staged_paths=staged_paths,
+            outputs=outputs,
+            checksums=checksums,
+            powershell_help_dir=powershell_help_dir,
+        )
     )
     write_github_output(
         github_output_file,

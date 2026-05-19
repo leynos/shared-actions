@@ -147,6 +147,7 @@ class TestStageArtefacts:
         result = stage_artefacts(config)
 
         assert len(result.staged_artefacts) == 1
+        assert result.skipped_artefacts == ["optional"]
 
     def test_uses_alternative_when_primary_missing(self, tmp_path: Path) -> None:
         """Alternative source is used when primary source is missing."""

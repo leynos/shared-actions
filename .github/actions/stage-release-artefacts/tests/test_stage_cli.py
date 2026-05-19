@@ -14,7 +14,8 @@ if typ.TYPE_CHECKING:
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 prepend_to_syspath(SCRIPTS_DIR)
 
-from stage import main
+from stage import _emit_skipped_artefact_warnings, main
+from stage_common import StageResult
 
 
 def _redact_paths(text: str, *paths: Path) -> str:
@@ -108,4 +109,26 @@ destination = "MyTool/MyTool.psm1"
         staging_dir = workspace / "dist" / "mytool_windows_x86_64"
         assert _redact_paths(output, staging_dir.parent, staging_dir) == snapshot(
             name="populated_powershell_help_dir"
+        )
+
+    def test_emit_skipped_artefact_warnings(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Skipped optional artefacts are emitted as GitHub Actions warnings."""
+        result = StageResult(
+            staging_dir=tmp_path / "dist" / "mytool_linux_x86_64",
+            staged_artefacts=[],
+            outputs={},
+            checksums={},
+            skipped_artefacts=["optional", "powershell/MyTool/MyTool.psm1"],
+        )
+
+        _emit_skipped_artefact_warnings(result)
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == (
+            "::warning title=Artefact Skipped::Optional artefact missing: optional\n"
+            "::warning title=Artefact Skipped::Optional artefact missing: "
+            "powershell/MyTool/MyTool.psm1\n"
         )

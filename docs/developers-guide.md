@@ -124,6 +124,13 @@ returns a `StageResult`. The CLI owns infrastructure concerns: it reads
 `GITHUB_WORKSPACE` and `GITHUB_OUTPUT`, emits GitHub Actions warning
 annotations for skipped optional artefacts, and writes workflow outputs.
 
+`stage_common.config.load_config` requires callers to pass the workspace
+explicitly via `workspace=...`; it no longer reads `GITHUB_WORKSPACE` itself.
+This keeps configuration loading independent from the process environment. The
+CLI remains responsible for resolving `GITHUB_WORKSPACE` with
+`require_env_path` and injecting that path into `load_config` before staging
+(issue `#266`).
+
 `_collect_artefacts` owns the collection phase. It iterates over the configured
 artefacts, records the staged paths, builds the map of named outputs, and
 collects checksums keyed by staged relative path. `stage_artefacts` validates

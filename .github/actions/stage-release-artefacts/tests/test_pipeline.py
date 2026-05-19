@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -249,7 +250,8 @@ class TestStageArtefacts:
 
         assert len(result.staged_artefacts) == 1
         assert result.powershell_help_dir is None
-        assert "powershell_help_dir=" in output_file.read_text(encoding="utf-8")
+        output = output_file.read_text(encoding="utf-8")
+        assert re.search(r"^powershell_help_dir=$", output, re.MULTILINE) is not None
 
     def test_missing_required_powershell_help_fails(self, tmp_path: Path) -> None:
         """Missing required PowerShell sidecars fail with the attempted path."""

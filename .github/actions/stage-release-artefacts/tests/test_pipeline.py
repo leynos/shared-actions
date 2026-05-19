@@ -300,10 +300,13 @@ class TestStageArtefacts:
         assert result.powershell_help_dir is None
 
 
+# Excludes path separators, NUL, Windows-illegal filename chars (:<>"|?*),
+# Unicode surrogates (Cs), and control characters (Cc, covers U+0001-U+001F
+# and U+007F-U+009F) so generated names are valid on Windows and POSIX.
 PS_MODULE_NAMES = st.text(
     alphabet=st.characters(
-        blacklist_characters="/\\\x00",
-        blacklist_categories=("Cs",),
+        blacklist_characters='/\\\x00:<>"|?*',
+        blacklist_categories=("Cs", "Cc"),
     ),
     min_size=1,
     max_size=12,
@@ -502,8 +505,8 @@ class TestSafeDestinationPath:
         segments=st.lists(
             st.text(
                 alphabet=st.characters(
-                    blacklist_characters="/\\\x00",
-                    blacklist_categories=("Cs",),
+                    blacklist_characters='/\\\x00:<>"|?*',
+                    blacklist_categories=("Cs", "Cc"),
                 ),
                 min_size=1,
                 max_size=8,

@@ -1,0 +1,27 @@
+# serializer version: 1
+# name: TestStageCli.test_main_writes_empty_powershell_help_dir_for_absent_sidecar[empty_powershell_help_dir]
+  '''
+  artefact_map={}
+  artifact_dir=<DIR_0>/mytool_linux_x86_64
+  checksum_map={"mytool": "9a3a45d01531a20e89ac6ae10b0b0beb0492acd7216a368aa062d1a5fecaf9cd"}
+  dist_dir=<DIR_0>
+  powershell_help_dir=
+  staged_files<<gh_STAGED_FILES
+  mytool
+  gh_STAGED_FILES
+  
+  '''
+# ---
+# name: TestStageCli.test_main_writes_powershell_help_dir_when_module_is_staged[populated_powershell_help_dir]
+  '''
+  artefact_map={}
+  artifact_dir=<DIR_0>/mytool_windows_x86_64
+  checksum_map={"MyTool/MyTool.psm1": "120970d812836f19888625587a4606a5ad23cef31c8684e601771552548fc6b9"}
+  dist_dir=<DIR_0>
+  powershell_help_dir=<DIR_0>/mytool_windows_x86_64/MyTool
+  staged_files<<gh_STAGED_FILES
+  MyTool.psm1
+  gh_STAGED_FILES
+  
+  '''
+# ---

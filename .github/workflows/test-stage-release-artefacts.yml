@@ -110,3 +110,73 @@ jobs:
           [[ -d "${{ steps.stage.outputs.artifact-dir }}" ]]
           [[ -f "${{ steps.stage.outputs.binary-path }}" ]]
           [[ -f "${{ steps.stage.outputs.binary-path }}.sha256" ]]
+
+  test-stage-artefacts-powershell-help:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Create test artefacts
+        uses: ./.github/actions/create-test-artefacts
+        with:
+          workspace-suffix: powershell
+
+      - name: Create PowerShell sidecar artefacts
+        run: |
+          set -euo pipefail
+          module_dir="${TEST_WORKSPACE}/target/orthohelp/x86_64-pc-windows-msvc/release/powershell/MyTool"
+          mkdir -p "${module_dir}/en-US"
+          echo "module" > "${module_dir}/MyTool.psm1"
+          echo "manifest" > "${module_dir}/MyTool.psd1"
+          echo "help" > "${module_dir}/en-US/MyTool-help.xml"
+
+      - name: Create staging config
+        run: |
+          cat > "${TEST_WORKSPACE}/test-staging.toml" << 'EOF'
+          [common]
+          bin_name = "test-app"
+          dist_dir = "dist"
+          checksum_algorithm = "sha256"
+
+          [[common.artefacts]]
+          source = "target/release/{bin_name}"
+          output = "binary_path"
+
+          [targets.windows-x86_64]
+          platform = "windows"
+          arch = "x86_64"
+          target = "x86_64-pc-windows-msvc"
+
+          [[targets.windows-x86_64.artefacts]]
+          source = "target/orthohelp/{target}/release/powershell/MyTool/MyTool.psm1"
+          dest = "MyTool/MyTool.psm1"
+          required = false
+
+          [[targets.windows-x86_64.artefacts]]
+          source = "target/orthohelp/{target}/release/powershell/MyTool/MyTool.psd1"
+          dest = "MyTool/MyTool.psd1"
+          required = false
+
+          [[targets.windows-x86_64.artefacts]]
+          source = "target/orthohelp/{target}/release/powershell/MyTool/en-US/MyTool-help.xml"
+          dest = "MyTool/en-US/MyTool-help.xml"
+          required = false
+          EOF
+
+      - name: Stage release artefacts with PowerShell help
+        id: stage
+        uses: ./.github/actions/stage-release-artefacts
+        with:
+          config-file: ${{ env.TEST_WORKSPACE }}/test-staging.toml
+          target: windows-x86_64
+          ps-module-name: MyTool
+          normalize-windows-paths: "true"
+
+      - name: Verify PowerShell outputs
+        run: |
+          echo "powershell_help_dir=${{ steps.stage.outputs.powershell_help_dir }}"
+          [[ -d "${{ steps.stage.outputs.powershell_help_dir }}" ]]
+          [[ -f "${{ steps.stage.outputs.powershell_help_dir }}/MyTool.psm1" ]]
+          [[ -f "${{ steps.stage.outputs.powershell_help_dir }}/en-US/MyTool-help.xml" ]]

@@ -1,7 +1,33 @@
-"""Utilities for preparing and writing staging workflow outputs."""
+"""GitHub Actions output formatting utilities for staged artefacts.
+
+This module is the infrastructure boundary between the staging domain and the
+``GITHUB_OUTPUT`` file protocol. The pipeline returns a
+``stage_common.pipeline.StageResult``; callers convert that result into
+:class:`StagingOutputData`, pass it to :func:`prepare_output_data`, and then
+write the prepared mapping with :func:`write_github_output`.
+
+Key behaviours:
+- Reserved output names are guarded by :func:`validate_no_reserved_key_collisions`.
+- Paths are serialized with ``Path.as_posix()`` for cross-platform stability.
+- Scalar values are escaped according to GitHub Actions output-file rules.
+- List values are emitted with heredoc syntax so staged file lists remain
+  readable and unambiguous.
+
+Example usage::
+
+    data = StagingOutputData(
+        staging_dir=result.staging_dir,
+        staged_paths=result.staged_artefacts,
+        outputs=result.outputs,
+        checksums=result.checksums,
+        powershell_help_dir=result.powershell_help_dir,
+    )
+    write_github_output(github_output, prepare_output_data(data))
+"""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import typing as typ
 
@@ -12,6 +38,7 @@ if typ.TYPE_CHECKING:
 
 __all__ = [
     "RESERVED_OUTPUT_KEYS",
+    "StagingOutputData",
     "prepare_output_data",
     "validate_no_reserved_key_collisions",
     "write_github_output",
@@ -25,17 +52,14 @@ RESERVED_OUTPUT_KEYS: frozenset[str] = frozenset(
         "staged_files",
         "artefact_map",
         "checksum_map",
+        "powershell_help_dir",
     }
 )
 
 
-def prepare_output_data(
-    staging_dir: Path,
-    staged_paths: list[Path],
-    outputs: dict[str, Path],
-    checksums: dict[str, str],
-) -> dict[str, str | list[str]]:
-    """Assemble workflow outputs describing the staged artefacts.
+@dataclasses.dataclass(slots=True, frozen=True)
+class StagingOutputData:
+    """Bundle of values required to assemble workflow outputs.
 
     Parameters
     ----------
@@ -48,6 +72,24 @@ def prepare_output_data(
         destinations.
     checksums
         Mapping of staged artefact relative paths to their checksum digests.
+    powershell_help_dir
+        Optional staged PowerShell module directory path.
+    """
+
+    staging_dir: Path
+    staged_paths: list[Path]
+    outputs: dict[str, Path]
+    checksums: dict[str, str]
+    powershell_help_dir: Path | None = None
+
+
+def prepare_output_data(data: StagingOutputData) -> dict[str, str | list[str]]:
+    """Assemble workflow outputs describing the staged artefacts.
+
+    Parameters
+    ----------
+    data
+        All values needed to produce the output dictionary.
 
     Returns
     -------
@@ -55,19 +97,24 @@ def prepare_output_data(
         Dictionary describing the staging results ready to be exported to the
         GitHub Actions output file.
     """
-    staged_file_names: list[str] = [path.name for path in sorted(staged_paths)]
+    staged_file_names: list[str] = [path.name for path in sorted(data.staged_paths)]
     artefact_map_json = json.dumps(
-        {key: path.as_posix() for key, path in sorted(outputs.items())}
+        {key: path.as_posix() for key, path in sorted(data.outputs.items())}
     )
-    checksum_map_json = json.dumps(dict(sorted(checksums.items())))
+    checksum_map_json = json.dumps(dict(sorted(data.checksums.items())))
 
     return {
-        "artifact_dir": staging_dir.as_posix(),
-        "dist_dir": staging_dir.parent.as_posix(),
+        "artifact_dir": data.staging_dir.as_posix(),
+        "dist_dir": data.staging_dir.parent.as_posix(),
         "staged_files": staged_file_names,
         "artefact_map": artefact_map_json,
         "checksum_map": checksum_map_json,
-    } | {key: path.as_posix() for key, path in outputs.items()}
+        "powershell_help_dir": (
+            data.powershell_help_dir.as_posix()
+            if data.powershell_help_dir is not None
+            else ""
+        ),
+    } | {key: path.as_posix() for key, path in data.outputs.items()}
 
 
 def validate_no_reserved_key_collisions(outputs: dict[str, Path]) -> None:

@@ -24,7 +24,9 @@ variables::
 
 from __future__ import annotations
 
+import logging
 import sys
+import uuid
 from pathlib import Path
 
 import cyclopts
@@ -35,7 +37,18 @@ from syspath_hack import prepend_project_root, prepend_to_syspath
 _SCRIPT_DIR = Path(__file__).resolve().parent
 prepend_to_syspath(_SCRIPT_DIR)
 
-from stage_common import StageError, load_config, require_env_path, stage_artefacts
+from stage_common import (
+    StageError,
+    StageResult,
+    load_config,
+    require_env_path,
+    stage_artefacts,
+)
+from stage_common.output import (
+    StagingOutputData,
+    prepare_output_data,
+    write_github_output,
+)
 
 # Add project root for bool_utils import
 prepend_project_root(start=_SCRIPT_DIR)
@@ -43,10 +56,44 @@ prepend_project_root(start=_SCRIPT_DIR)
 from actions_common import normalize_input_env
 from bool_utils import coerce_bool
 
+logger = logging.getLogger(__name__)
+
 app: App = App(
     help="Stage release artefacts using a TOML configuration file.",
     config=cyclopts.config.Env("INPUT_", command=False),
 )
+
+
+def _write_stage_outputs(
+    github_output: Path,
+    result: StageResult,
+    *,
+    normalize_windows_paths: bool,
+) -> None:
+    """Write staged artefact outputs to the GitHub Actions output file."""
+    exported_outputs = prepare_output_data(
+        StagingOutputData(
+            staging_dir=result.staging_dir,
+            staged_paths=result.staged_artefacts,
+            outputs=result.outputs,
+            checksums=result.checksums,
+            powershell_help_dir=result.powershell_help_dir,
+        )
+    )
+    write_github_output(
+        github_output,
+        exported_outputs,
+        normalize_windows_paths=normalize_windows_paths,
+    )
+
+
+def _emit_skipped_artefact_warnings(result: StageResult) -> None:
+    """Emit GitHub Actions annotations for optional artefacts skipped by staging."""
+    for source in result.skipped_artefacts:
+        print(
+            f"::warning title=Artefact Skipped::Optional artefact missing: {source}",
+            file=sys.stderr,
+        )
 
 
 @app.default
@@ -55,6 +102,7 @@ def main(
     target: str,
     *,
     normalize_windows_paths: str = "false",
+    ps_module_name: str = "",
 ) -> None:
     """Stage artefacts for ``target`` using ``config_file``.
 
@@ -66,6 +114,8 @@ def main(
         Target key in the configuration file (for example ``"linux-x86_64"``).
     normalize_windows_paths
         When true, convert backslashes to forward slashes in output paths.
+    ps_module_name
+        Name of the staged PowerShell module sidecar directory.
 
     Raises
     ------
@@ -74,15 +124,27 @@ def main(
         configuration file is missing or the staging pipeline reports an
         error.
     """
+    logging.basicConfig(level=logging.INFO)
+    corr_id = uuid.uuid4().hex
     try:
         config_path = Path(config_file)
         github_output = require_env_path("GITHUB_OUTPUT")
-        config = load_config(config_path, target)
+        workspace = require_env_path("GITHUB_WORKSPACE")
+        config = load_config(config_path, target, workspace=workspace)
         normalize = coerce_bool(normalize_windows_paths, default=False)
         result = stage_artefacts(
-            config, github_output, normalize_windows_paths=normalize
+            config,
+            ps_module_name=ps_module_name,
+            corr_id=corr_id,
+        )
+        _emit_skipped_artefact_warnings(result)
+        _write_stage_outputs(
+            github_output,
+            result,
+            normalize_windows_paths=normalize,
         )
     except (FileNotFoundError, StageError, ValueError) as exc:
+        logger.exception("corr_id=%s staging failed", corr_id)
         print(f"::error title=Staging Failure::{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 

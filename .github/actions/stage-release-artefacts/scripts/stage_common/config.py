@@ -13,7 +13,6 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
-from .environment import require_env_path
 from .errors import StageError
 
 __all__ = [
@@ -80,7 +79,9 @@ class StagingConfig:
         }
 
 
-def load_config(config_file: Path, target_key: str) -> StagingConfig:
+def load_config(
+    config_file: Path, target_key: str, *, workspace: Path
+) -> StagingConfig:
     """Load staging configuration from ``config_file`` for ``target_key``.
 
     Parameters
@@ -89,6 +90,8 @@ def load_config(config_file: Path, target_key: str) -> StagingConfig:
         Path to the TOML configuration file describing staging inputs.
     target_key
         Key identifying the target-specific configuration section to load.
+    workspace
+        Mandatory workspace root supplied by the caller.
 
     Returns
     -------
@@ -116,7 +119,6 @@ def load_config(config_file: Path, target_key: str) -> StagingConfig:
         f"targets.{target_key}",
         config_file,
     )
-    workspace = require_env_path("GITHUB_WORKSPACE")
     algorithm = _validate_checksum(common.get("checksum_algorithm"))
     artefacts = _make_artefacts(common, target_cfg, config_file)
 
@@ -213,11 +215,23 @@ def _parse_artefact_entry(
 ) -> ArtefactConfig:
     """Parse and validate a single artefact entry."""
     prefix = f"in entry #{index} of {config_path}"
+    for key in ("destination", "dest"):
+        value = entry.get(key)
+        if key in entry and not isinstance(value, str):
+            msg = (
+                f"Artefact '{key}' must be a string, "
+                f"got {type(value).__name__} {prefix}"
+            )
+            raise StageError(msg)
+    if "destination" in entry and "dest" in entry:
+        msg = f"Artefact must not define both 'destination' and 'dest' {prefix}"
+        raise StageError(msg)
+    destination = entry.get("destination", entry.get("dest"))
     return ArtefactConfig(
         source=_require_string(entry, "source", prefix),
         required=_optional_bool(entry, "required", prefix, default=True),
         output=entry.get("output"),
-        destination=entry.get("destination"),
+        destination=destination,
         alternatives=_optional_string_list(entry, "alternatives", prefix),
     )
 

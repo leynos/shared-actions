@@ -1,5 +1,7 @@
 # Stage Release Artefacts
 
+<!-- markdownlint-disable MD013 -->
+
 Stage release artefacts using a Tom's Obvious, Minimal Language (TOML)
 configuration file.
 
@@ -14,6 +16,7 @@ glob patterns, template variables, and optional artefacts.
 | `config-file` | Path to the TOML staging configuration file | yes | - |
 | `target` | Target key from the configuration file | yes | - |
 | `normalize-windows-paths` | Convert backslashes to forward slashes in outputs | no | `"false"` |
+| `ps-module-name` | PowerShell module sidecar directory name, when staged | no | `''` |
 
 ## Outputs
 
@@ -27,6 +30,7 @@ glob patterns, template variables, and optional artefacts.
 | `binary-path` | Absolute path to the staged binary (when configured) |
 | `man-path` | Absolute path to the staged man page (when configured) |
 | `license-path` | Absolute path to the staged licence file (when configured) |
+| `powershell_help_dir` | Absolute path to the staged PowerShell module directory, or an empty string when no module was staged |
 
 ## Usage
 
@@ -111,10 +115,81 @@ The following variables are available in `source`, `destination`, and
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
 | `source` | string | (required) | Path pattern to source file (supports globs) |
-| `destination` | string | `{source_name}` | Target filename in staging directory |
+| `destination` / `dest` | string | `{source_name}` | Target filename in staging directory |
 | `output` | string | - | GitHub output key to export the staged path |
 | `required` | bool | `true` | Whether missing source is an error |
 | `alternatives` | list | `[]` | Fallback patterns if source not found |
+
+## PowerShell MAML sidecar artefacts
+
+Declare generated PowerShell MAML files as individual target-specific
+artefacts under the Windows target. Set `required = false` on each entry so
+Linux and macOS runners can use the same staging configuration without failing
+when the files are absent.
+
+When a workflow provides `ps-module-name`, the action sets
+`powershell_help_dir` to the absolute path of `artifact-dir/<module>`, but only
+when at least one file was staged beneath that module directory.
+`ps-module-name` must be a single module directory name.
+This action rejects values of `"."` and `".."`
+and rejects any module name containing path separators. It only accepts a
+single direct child module directory under `artifact-dir`; otherwise,
+`powershell_help_dir` remains empty. Leave `ps-module-name` empty for
+non-Windows targets. Downstream steps must guard on `powershell_help_dir`
+being non-empty before using it. The action logs why the value remains
+empty, including empty input, rejected module names, or no staged files under
+the requested module directory.
+
+MAML is not currently embedded in the Windows MSI. If MSI embedding is
+required, open a separate issue against `windows-package`.
+
+```toml
+[targets.windows]
+platform = "windows"
+arch = "x86_64"
+target = "x86_64-pc-windows-msvc"
+artefacts = [
+  { source = "target/orthohelp/{target}/release/powershell/MyTool/MyTool.psm1",
+    dest = "MyTool/MyTool.psm1", required = false },
+  { source = "target/orthohelp/{target}/release/powershell/MyTool/MyTool.psd1",
+    dest = "MyTool/MyTool.psd1", required = false },
+  { source = "target/orthohelp/{target}/release/powershell/MyTool/en-US/MyTool-help.xml",
+    dest = "MyTool/en-US/MyTool-help.xml", required = false },
+  { source = "target/orthohelp/{target}/release/powershell/MyTool/en-US/about_MyTool.help.txt",
+    dest = "MyTool/en-US/about_MyTool.help.txt", required = false },
+]
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/stage-release-artefacts@<sha>
+  id: stage_paths
+  with:
+    config-file: .github/release-staging.toml
+    target: ${{ inputs.target }}
+    ps-module-name: ${{ inputs.platform == 'windows' && 'MyTool' || '' }}
+    normalize-windows-paths: ${{ inputs.platform == 'windows' }}
+
+- name: Use PowerShell help sidecars
+  if: ${{ steps.stage_paths.outputs.powershell_help_dir != '' }}
+  run: echo "${{ steps.stage_paths.outputs.powershell_help_dir }}"
+
+- name: Upload Windows sidecar artefacts
+  if: inputs.platform == 'windows'
+  uses: actions/upload-artifact@v4
+  with:
+    name: mytool-windows-sidecar
+    path: ${{ steps.stage_paths.outputs.artifact-dir }}
+```
+
+## Troubleshooting: PowerShell help output
+
+`powershell_help_dir` is empty when `ps-module-name` is empty, rejected, or no
+files were staged under the named direct child module directory. Valid module
+names are single path segments only; `"."`, `".."`
+and names containing path separators are rejected.
+
+All exported paths are serialized with forward slashes. Downstream workflow
+steps must guard on `powershell_help_dir` being non-empty before using it.
 
 ## Behaviour
 
@@ -136,6 +211,7 @@ The following variables are available in `source`, `destination`, and
 ### Error Handling
 
 The action fails when:
+
 - Configuration file is missing or invalid
 - Required artefact sources are not found
 - Template variables reference undefined keys

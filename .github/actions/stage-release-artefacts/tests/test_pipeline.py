@@ -343,6 +343,17 @@ class TestResolvePowerShellHelpDir:
 
         assert result == module_dir.resolve()
 
+    def test_returns_none_when_module_dir_missing(self, tmp_path: Path) -> None:
+        """A valid module name is ignored when no module directory exists."""
+        staging_dir = tmp_path / "staging"
+        staging_dir.mkdir()
+        staged_file = staging_dir / "mytool"
+        staged_file.touch()
+
+        result = _resolve_powershell_help_dir(staging_dir, [staged_file], "MyTool")
+
+        assert result is None
+
     @pytest.mark.parametrize(
         "ps_module_name",
         [

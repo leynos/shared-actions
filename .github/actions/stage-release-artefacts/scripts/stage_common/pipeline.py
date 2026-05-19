@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
-import os
 import shutil
 import typing as typ
 
@@ -189,7 +188,6 @@ def _is_disallowed_ps_module_name(
     """Return True when ``ps_module_name`` cannot name a direct module child."""
     return (
         ps_module_name in {".", ".."}
-        or os.path.sep in ps_module_name
         or "/" in ps_module_name
         or "\\" in ps_module_name
         or module_dir.parent != staging_root

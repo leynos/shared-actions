@@ -181,6 +181,16 @@ artefacts = [
     path: ${{ steps.stage_paths.outputs.artifact-dir }}
 ```
 
+## Troubleshooting: PowerShell help output
+
+`powershell_help_dir` is empty when `ps-module-name` is empty, rejected, or no
+files were staged under the named direct child module directory. Valid module
+names are single path segments only; `"."`, `".."`
+and names containing path separators are rejected.
+
+All exported paths are serialized with forward slashes. Downstream workflow
+steps must guard on `powershell_help_dir` being non-empty before using it.
+
 ## Behaviour
 
 1. **Directory setup**: Creates a clean staging directory (removes existing)

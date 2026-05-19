@@ -5,6 +5,10 @@ the shared actions in this repository. It covers action-specific implementation
 notes, public and internal APIs that affect contributors, concurrency
 assumptions, and Makefile tool-resolution strategy.
 
+## Architecture Decision Records
+
+- [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
+
 ## Python Coverage Venv Architecture
 
 ### Motivation
@@ -157,6 +161,28 @@ directory.
 The action metadata and README document the public `ps-module-name` input and
 `powershell_help_dir` output. Keep that public contract in sync with the
 internal rules above whenever changing PowerShell sidecar staging.
+
+### Observability
+
+The staging pipeline emits INFO records when staging starts and completes. The
+start record includes the target, artefact count, and staging directory; the
+completion record includes staged, skipped, checksum, and output counts,
+elapsed time, and the resolved `powershell_help_dir` value. PowerShell
+resolution emits INFO records for empty names, rejected module names, missing
+files below the requested module directory, and successful resolution. Together
+these records expose artefact counts, elapsed time, target, and
+`ps_module_name` resolution state.
+
+Skipped optional artefacts are surfaced as WARNING-level GitHub annotations by
+`stage.py`, keeping optional sidecar misses visible in workflow logs without
+turning them into failures.
+
+DEBUG records cover per-file staging and checksum work. Use pytest's log
+options to enable DEBUG output during local investigation or CI repro jobs:
+
+```bash
+pytest -o log_cli=true --log-level=DEBUG
+```
 
 ## Running the Test Suite
 

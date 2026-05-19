@@ -14,12 +14,48 @@ prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
 from stage_common.config import ArtefactConfig, StagingConfig
-from stage_common.pipeline import (
-    _is_disallowed_ps_module_name,
-    _render_template,
-    _resolve_powershell_help_dir,
-    _safe_destination_path,
-    stage_artefacts,
+from stage_common.pipeline import stage_artefacts
+
+# Restricted to the Basic Multilingual Plane (max_codepoint=0xFFFF) to avoid
+# macOS EILSEQ on supplementary characters. Excludes surrogates (Cs), C0/C1
+# control characters (Cc), unassigned codepoints (Cn), Windows-illegal filename
+# characters, and POSIX path separators.
+PS_MODULE_NAMES = st.text(
+    alphabet=st.characters(
+        blacklist_characters='/\\\x00:*?"<>|',
+        blacklist_categories=("Cs", "Cc", "Cn"),
+        max_codepoint=0xFFFF,
+    ),
+    min_size=1,
+    max_size=12,
+).filter(lambda value: value not in {".", ".."})
+TEMPLATE_SAFE_PS_MODULE_NAMES = PS_MODULE_NAMES.filter(
+    lambda value: "{" not in value and "}" not in value
+)
+PATH_SEGMENTS = st.text(
+    alphabet=st.characters(
+        blacklist_characters='/\\\x00:*?"<>|',
+        blacklist_categories=("Cs", "Cc", "Cn"),
+        max_codepoint=0xFFFF,
+    ),
+    min_size=1,
+    max_size=8,
+).filter(lambda value: value not in {".", ".."})
+TEMPLATE_SAFE_PATH_SEGMENTS = PATH_SEGMENTS.filter(
+    lambda value: "{" not in value and "}" not in value
+)
+TRAVERSAL_DESTINATIONS = st.text(
+    alphabet=st.characters(
+        blacklist_characters="\x00",
+        blacklist_categories=("Cs", "Cc", "Cn"),
+        max_codepoint=0xFFFF,
+    ),
+    min_size=1,
+    max_size=12,
+).filter(lambda value: "{" not in value and "}" not in value)
+HYPOTHESIS_SETTINGS = settings(
+    max_examples=25,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 
 
@@ -299,100 +335,60 @@ class TestStageArtefacts:
         assert (result.staging_dir / "MyTool" / "MyTool.psm1").exists()
         assert result.powershell_help_dir is None
 
-
-# Restricted to the Basic Multilingual Plane (max_codepoint=0xFFFF) to avoid
-# macOS EILSEQ on supplementary characters. Excludes surrogates (Cs), C0/C1
-# control characters (Cc), unassigned codepoints (Cn), Windows-illegal filename
-# characters, and POSIX path separators.
-PS_MODULE_NAMES = st.text(
-    alphabet=st.characters(
-        blacklist_characters='/\\\x00:*?"<>|',
-        blacklist_categories=("Cs", "Cc", "Cn"),
-        max_codepoint=0xFFFF,
-    ),
-    min_size=1,
-    max_size=12,
-).filter(lambda value: value not in {".", ".."})
-HYPOTHESIS_SETTINGS = settings(
-    max_examples=25,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
-)
-
-
-class TestRenderTemplate:
-    """Tests for the _render_template helper function."""
-
-    def test_renders_valid_template(self) -> None:
-        """Valid template keys are substituted."""
-        result = _render_template("{name}-{version}", {"name": "app", "version": "1.0"})
-
-        assert result == "app-1.0"
-
-    def test_unknown_key_raises_stage_error(self) -> None:
-        """Unknown template keys raise StageError."""
-        with pytest.raises(StageError, match="Invalid template key"):
-            _render_template("{unknown_key}", {"known_key": "value"})
-
-
-class TestResolvePowerShellHelpDir:
-    """Tests for the _resolve_powershell_help_dir helper function."""
-
-    def test_returns_direct_child_module_dir(self, tmp_path: Path) -> None:
-        """A direct child module directory is accepted when files are staged."""
-        staging_dir = tmp_path / "staging"
-        module_dir = staging_dir / "MyTool"
-        module_dir.mkdir(parents=True)
-        staged_file = module_dir / "MyTool.psm1"
-        staged_file.touch()
-
-        result = _resolve_powershell_help_dir(staging_dir, [staged_file], "MyTool")
-
-        assert result == module_dir.resolve()
-
-    def test_returns_none_when_module_dir_missing(self, tmp_path: Path) -> None:
-        """A valid module name is ignored when no module directory exists."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir()
-        staged_file = staging_dir / "mytool"
-        staged_file.touch()
-
-        result = _resolve_powershell_help_dir(staging_dir, [staged_file], "MyTool")
-
-        assert result is None
-
-    @HYPOTHESIS_SETTINGS
-    @given(
-        ps_module_name=PS_MODULE_NAMES,
-        module_dir_exists=st.booleans(),
-        staged_under_module=st.booleans(),
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "{unknown}/x",
+            "prefix/{unknown}",
+            "{unknown}/{source_name}",
+            "{unknown}",
+            "dir/{unknown}/x",
+            "{target}/{missing}",
+            "target/{unknown}/release",
+            "{unknown}.txt",
+        ],
     )
-    def test_resolution_depends_on_directory_and_staged_file_presence(
-        self,
-        tmp_path: Path,
-        ps_module_name: str,
-        *,
-        module_dir_exists: bool,
-        staged_under_module: bool,
+    def test_invalid_template_key_in_source_raises(
+        self, tmp_path: Path, source: str
     ) -> None:
-        """PowerShell help output requires a real module dir containing a file."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir(exist_ok=True)
-        module_dir = staging_dir / ps_module_name
-        if module_dir_exists:
-            module_dir.mkdir(exist_ok=True)
-        staged_file = staging_dir / "mytool"
-        if module_dir_exists and staged_under_module:
-            staged_file = module_dir / "MyTool.psm1"
-        staged_file.touch()
+        """Invalid source template keys raise StageError through staging."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        config = self._make_linux_config(workspace, [ArtefactConfig(source=source)])
 
-        result = _resolve_powershell_help_dir(
-            staging_dir, [staged_file], ps_module_name
+        with pytest.raises(StageError, match="Invalid template key"):
+            stage_artefacts(config)
+
+    @pytest.mark.parametrize(
+        "destination",
+        [
+            "../../escape/file",
+            "../escape/file",
+            "nested/../../../escape/file",
+            "../file",
+            "nested/../../file",
+            "nested/deeper/../../../file",
+        ],
+    )
+    def test_path_traversal_destination_raises(
+        self, tmp_path: Path, destination: str
+    ) -> None:
+        """Destination paths escaping the staging directory raise StageError."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "myapp").write_text("binary content", encoding="utf-8")
+        config = self._make_linux_config(
+            workspace,
+            [
+                ArtefactConfig(
+                    source="myapp",
+                    destination=destination,
+                )
+            ],
         )
 
-        expected = (
-            module_dir.resolve() if module_dir_exists and staged_under_module else None
-        )
-        assert result == expected
+        with pytest.raises(StageError, match="escapes staging directory"):
+            stage_artefacts(config)
 
     @pytest.mark.parametrize(
         "ps_module_name",
@@ -401,153 +397,107 @@ class TestResolvePowerShellHelpDir:
             "..",
             "foo/bar",
             "foo\\bar",
-            "module/..",
         ],
     )
-    def test_rejects_non_segment_module_names(
+    def test_disallowed_ps_module_names_do_not_set_powershell_help_dir(
         self, tmp_path: Path, ps_module_name: str
     ) -> None:
-        """Non-segment module names never resolve to a help directory."""
-        staging_dir = tmp_path / "staging"
-        module_dir = staging_dir / "MyTool"
-        nested_dir = staging_dir / "foo" / "bar"
-        module_dir.mkdir(parents=True)
-        nested_dir.mkdir(parents=True)
-        staged_paths = [
-            staging_dir / "mytool",
-            module_dir / "MyTool.psm1",
-            nested_dir / "module.psm1",
-        ]
-        for staged_path in staged_paths:
-            staged_path.touch()
-
-        result = _resolve_powershell_help_dir(staging_dir, staged_paths, ps_module_name)
-
-        assert result is None
-
-
-class TestIsDisallowedPowerShellModuleName:
-    """Tests for the _is_disallowed_ps_module_name helper function."""
-
-    @pytest.mark.parametrize("ps_module_name", [".", "..", "foo/bar", "foo\\bar"])
-    def test_rejects_invalid_segments(
-        self, tmp_path: Path, ps_module_name: str
-    ) -> None:
-        """Special and nested module names are disallowed."""
-        staging_root = tmp_path / "staging"
-        module_dir = (staging_root / ps_module_name).resolve()
-
-        assert _is_disallowed_ps_module_name(
-            staging_root.resolve(), ps_module_name, module_dir
+        """Invalid module names are ignored by the public staging API."""
+        workspace, _ = self._make_powershell_workspace(tmp_path)
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=self._powershell_artefact_configs(),
+            platform="windows",
+            arch="x86_64",
+            target="x86_64-pc-windows-msvc",
         )
 
+        result = stage_artefacts(config, ps_module_name=ps_module_name)
+
+        assert len(result.staged_artefacts) == 4
+        assert result.powershell_help_dir is None
+
     @HYPOTHESIS_SETTINGS
-    @given(ps_module_name=PS_MODULE_NAMES)
-    def test_accepts_single_direct_child_names(
+    @given(ps_module_name=TEMPLATE_SAFE_PS_MODULE_NAMES)
+    def test_valid_ps_module_names_resolve_when_staged(
         self, tmp_path: Path, ps_module_name: str
     ) -> None:
-        """Single-segment module names resolve as direct staging children."""
-        staging_root = (tmp_path / "staging").resolve()
-        module_dir = (staging_root / ps_module_name).resolve()
-
-        assert not _is_disallowed_ps_module_name(
-            staging_root, ps_module_name, module_dir
+        """Single-segment module names resolve when files are staged under them."""
+        workspace = tmp_path / "workspace"
+        source_dir = workspace / "powershell" / ps_module_name
+        source_dir.mkdir(parents=True, exist_ok=True)
+        (source_dir / "module.psm1").write_text("module", encoding="utf-8")
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="mytool",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[
+                ArtefactConfig(
+                    source=f"powershell/{ps_module_name}/module.psm1",
+                    destination=f"{ps_module_name}/module.psm1",
+                ),
+            ],
+            platform="windows",
+            arch="x86_64",
+            target="x86_64-pc-windows-msvc",
         )
 
-    @HYPOTHESIS_SETTINGS
-    @given(
-        prefix=PS_MODULE_NAMES,
-        suffix=PS_MODULE_NAMES,
-        separator=st.sampled_from(("/", "\\")),
-    )
-    def test_rejects_nested_module_names(
-        self, tmp_path: Path, prefix: str, suffix: str, separator: str
-    ) -> None:
-        """Names containing path separators are rejected."""
-        ps_module_name = f"{prefix}{separator}{suffix}"
-        staging_root = (tmp_path / "staging").resolve()
-        module_dir = (staging_root / ps_module_name).resolve()
+        result = stage_artefacts(config, ps_module_name=ps_module_name)
 
-        assert _is_disallowed_ps_module_name(staging_root, ps_module_name, module_dir)
-
-    @HYPOTHESIS_SETTINGS
-    @given(ps_module_name=PS_MODULE_NAMES)
-    def test_rejects_non_direct_children(
-        self, tmp_path: Path, ps_module_name: str
-    ) -> None:
-        """Resolved module paths must be direct staging children."""
-        staging_root = (tmp_path / "staging").resolve()
-        module_dir = (staging_root / "nested" / ps_module_name).resolve()
-
-        assert _is_disallowed_ps_module_name(staging_root, ps_module_name, module_dir)
-
-
-class TestSafeDestinationPath:
-    """Tests for the _safe_destination_path helper function."""
-
-    def test_allows_nested_path(self, tmp_path: Path) -> None:
-        """Nested paths within staging directory are allowed."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir()
-
-        result = _safe_destination_path(staging_dir, "subdir/file.txt")
-
-        assert result.is_relative_to(staging_dir)
-
-    def test_rejects_escape_attempt(self, tmp_path: Path) -> None:
-        """Paths escaping the staging directory are rejected."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir()
-
-        with pytest.raises(StageError, match="escapes staging directory"):
-            _safe_destination_path(staging_dir, "../evil/outside.txt")
+        assert result.powershell_help_dir == result.staging_dir / ps_module_name
 
     @HYPOTHESIS_SETTINGS
     @given(
         segments=st.lists(
-            st.text(
-                alphabet=st.characters(
-                    blacklist_characters='/\\\x00:*?"<>|',
-                    blacklist_categories=("Cs", "Cc", "Cn"),
-                    max_codepoint=0xFFFF,
-                ),
-                min_size=1,
-                max_size=8,
-            ).filter(lambda value: value not in {".", ".."}),
+            TEMPLATE_SAFE_PATH_SEGMENTS,
             min_size=1,
             max_size=4,
         )
     )
-    def test_safe_destination_paths_stay_under_staging_dir(
+    def test_safe_destination_paths_stay_under_staging_dir_through_staging(
         self, tmp_path: Path, segments: list[str]
     ) -> None:
         """Generated relative destinations remain under the staging directory."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir(exist_ok=True)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(exist_ok=True)
+        (workspace / "myapp").write_text("binary content", encoding="utf-8")
         destination = "/".join(segments)
+        config = self._make_linux_config(
+            workspace,
+            [
+                ArtefactConfig(
+                    source="myapp",
+                    destination=destination,
+                )
+            ],
+        )
 
-        result = _safe_destination_path(staging_dir, destination)
+        result = stage_artefacts(config)
 
-        assert result.is_relative_to(staging_dir.resolve())
+        assert result.staged_artefacts[0].is_relative_to(result.staging_dir)
 
     @HYPOTHESIS_SETTINGS
-    @given(
-        destination=st.text(
-            alphabet=st.characters(
-                blacklist_characters="\x00",
-                blacklist_categories=("Cs", "Cc", "Cn"),
-                max_codepoint=0xFFFF,
-            ),
-            min_size=1,
-            max_size=12,
-        )
-    )
-    def test_parent_traversal_destinations_are_rejected(
+    @given(destination=TRAVERSAL_DESTINATIONS)
+    def test_parent_traversal_destinations_are_rejected_through_staging(
         self, tmp_path: Path, destination: str
     ) -> None:
         """Generated parent traversal destinations cannot escape staging."""
-        staging_dir = tmp_path / "staging"
-        staging_dir.mkdir(exist_ok=True)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(exist_ok=True)
+        (workspace / "myapp").write_text("binary content", encoding="utf-8")
+        config = self._make_linux_config(
+            workspace,
+            [
+                ArtefactConfig(
+                    source="myapp",
+                    destination=f"../{destination}",
+                )
+            ],
+        )
 
         with pytest.raises(StageError, match="escapes staging directory"):
-            _safe_destination_path(staging_dir, f"../{destination}")
+            stage_artefacts(config)

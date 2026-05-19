@@ -52,13 +52,20 @@ jobs:
             uv run --python 3.13 python -c "from pathlib import Path; import tomllib; print(tomllib.loads(Path('Cargo.toml').read_text(encoding='utf-8'))['package']['version'])" \
           )
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Skip FreeBSD on hosted runners (informational)
+        if: ${{ endsWith(matrix.target, 'unknown-freebsd') }}
+        shell: bash
+        run: |
+          echo "::notice::Skipping target '${{ matrix.target }}' on GitHub-hosted '${{ runner.os }}' — FreeBSD builds require a self-hosted FreeBSD runner or a non-Docker backend that is unavailable here."
       - name: Build
+        if: ${{ !endsWith(matrix.target, 'unknown-freebsd') }}
         uses: ./.github/actions/rust-build-release
         with:
           target: ${{ matrix.target }}
           project-dir: rust-toy-app
       - name: Verify artefacts
         id: verify-artefacts
+        if: ${{ !endsWith(matrix.target, 'unknown-freebsd') }}
         run: |
           set -euo pipefail
           bin=rust-toy-app

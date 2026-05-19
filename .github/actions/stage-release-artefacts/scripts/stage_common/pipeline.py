@@ -45,6 +45,8 @@ __all__ = ["StageResult", "stage_artefacts"]
 
 logger = logging.getLogger(__name__)
 
+_CORR_ID_CONTEXT_KEY = "__corr_id"
+
 
 @dataclasses.dataclass(slots=True)
 class _RenderAttempt:
@@ -65,6 +67,13 @@ class StageResult:
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
+class StageEnv:
+    config: StagingConfig
+    staging_dir: Path
+    context: dict[str, typ.Any]
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
 class StagingDirs:
     """Bundle workspace and staging directory paths."""
 
@@ -82,10 +91,23 @@ class StagedArtefact:
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
-class _ResolvedArtefact:
+class ResolvedArtefact:
     artefact: ArtefactConfig
-    source_path: Path
-    destination_path: Path
+    source: Path
+    destination: Path
+
+
+@dataclasses.dataclass(slots=True)
+class StagingState:
+    staged_paths: list[Path]
+    outputs: dict[str, Path]
+    checksums: dict[str, str]
+    skipped_artefacts: list[str]
+
+
+def _corr_id(env: StageEnv) -> str:
+    """Return the staging correlation identifier carried in ``env``."""
+    return typ.cast("str", env.context.get(_CORR_ID_CONTEXT_KEY, ""))
 
 
 def _validate_staging_dir_safety(staging_dir: Path, workspace: Path) -> None:
@@ -108,12 +130,7 @@ def _initialize_staging_dir(staging_dir: Path, workspace: Path) -> None:
     staging_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _collect_artefacts(
-    config: StagingConfig,
-    staging_dir: Path,
-    context: dict[str, typ.Any],
-    corr_id: str,
-) -> tuple[list[Path], dict[str, Path], dict[str, str], list[str]]:
+def _collect_artefacts(env: StageEnv) -> StagingState:
     """Stage configured artefacts and return paths, outputs, checksums, skips.
 
     Raises
@@ -121,33 +138,13 @@ def _collect_artefacts(
     StageError
         Raised when no artefacts are staged.
     """
-    staged_paths: list[Path] = []
-    outputs: dict[str, Path] = {}
-    checksums: dict[str, str] = {}
-    skipped_artefacts: list[str] = []
+    state = StagingState([], {}, {}, [])
 
-    for artefact, source_path, destination_path in _iter_resolved_artefacts(
-        config,
-        staging_dir,
-        context,
-        skipped_artefacts=skipped_artefacts,
-        corr_id=corr_id,
-    ):
-        staged = _stage_resolved_artefact(
-            config,
-            artefact,
-            source_path,
-            destination_path,
-            corr_id,
-        )
-        staged_paths.append(staged.path)
-        relative_path = staged.path.relative_to(staging_dir).as_posix()
-        checksums[relative_path] = staged.checksum
-        if staged.artefact.output:
-            outputs[staged.artefact.output] = staged.path
+    for artefact in env.config.artefacts:
+        _stage_configured_artefact(env, artefact, state)
 
-    if not staged_paths:
-        artefact_count = len(config.artefacts)
+    if not state.staged_paths:
+        artefact_count = len(env.config.artefacts)
         msg = (
             f"No artefacts were staged. "
             f"Configuration defined {artefact_count} artefact(s), "
@@ -155,7 +152,7 @@ def _collect_artefacts(
         )
         raise StageError(msg)
 
-    return staged_paths, outputs, checksums, skipped_artefacts
+    return state
 
 
 def stage_artefacts(
@@ -188,7 +185,8 @@ def stage_artefacts(
     corr_id = corr_id or uuid.uuid4().hex
     started_at = time.perf_counter()
     staging_dir = config.staging_dir()
-    context = config.as_template_context()
+    context = config.as_template_context() | {_CORR_ID_CONTEXT_KEY: corr_id}
+    env = StageEnv(config, staging_dir, context)
     logger.info(
         "corr_id=%s Starting artefact staging: target=%s artefact_count=%d "
         "staging_dir=%s ps_module_name=%s",
@@ -201,13 +199,11 @@ def stage_artefacts(
 
     _initialize_staging_dir(staging_dir, config.workspace)
 
-    staged_paths, outputs, checksums, skipped_artefacts = _collect_artefacts(
-        config, staging_dir, context, corr_id
-    )
+    state = _collect_artefacts(env)
 
-    validate_no_reserved_key_collisions(outputs)
+    validate_no_reserved_key_collisions(state.outputs)
     powershell_help_dir = _resolve_powershell_help_dir(
-        staging_dir, staged_paths, ps_module_name, corr_id=corr_id
+        staging_dir, state.staged_paths, ps_module_name, corr_id=corr_id
     )
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info(
@@ -216,21 +212,21 @@ def stage_artefacts(
         "powershell_help_dir=%s elapsed_ms=%.2f",
         corr_id,
         config.target,
-        len(staged_paths),
-        len(skipped_artefacts),
-        len(checksums),
-        len(outputs),
+        len(state.staged_paths),
+        len(state.skipped_artefacts),
+        len(state.checksums),
+        len(state.outputs),
         powershell_help_dir.as_posix() if powershell_help_dir else "",
         elapsed_ms,
     )
 
     return StageResult(
         staging_dir,
-        staged_paths,
-        outputs,
-        checksums,
+        state.staged_paths,
+        state.outputs,
+        state.checksums,
         powershell_help_dir,
-        skipped_artefacts,
+        state.skipped_artefacts,
     )
 
 
@@ -298,13 +294,12 @@ def _resolve_powershell_help_dir(
 
 
 def _ensure_source_available(
-    source_path: Path | None,
+    env: StageEnv,
     artefact: ArtefactConfig,
-    attempts: list[_RenderAttempt],
-    workspace: Path,
-    corr_id: str,
+    candidate: tuple[Path | None, list[_RenderAttempt]],
 ) -> bool:
     """Return ``True`` when ``source_path`` exists, otherwise handle the miss."""
+    source_path, attempts = candidate
     if source_path is not None:
         return True
 
@@ -314,112 +309,80 @@ def _ensure_source_available(
         )
         msg = (
             "Required artefact not found. "
-            f"Workspace={workspace.as_posix()} "
+            f"Workspace={env.config.workspace.as_posix()} "
             f"Attempts=[{attempt_lines}]"
         )
         raise StageError(msg)
 
     logger.warning(
         "corr_id=%s Optional artefact missing: source=%s workspace=%s attempts=%d",
-        corr_id,
+        _corr_id(env),
         artefact.source,
-        workspace.as_posix(),
+        env.config.workspace.as_posix(),
         len(attempts),
     )
     return False
 
 
-def _stage_configured_artefact(
-    config: StagingConfig,
-    staging_dir: Path,
-    context: dict[str, typ.Any],
-    artefact: ArtefactConfig,
-    corr_id: str = "",
-) -> StagedArtefact | None:
-    """Stage one configured artefact or return ``None`` when optional missing."""
-    resolved = _resolve_configured_artefact(
-        config, staging_dir, context, artefact, corr_id
-    )
-    if resolved is None:
-        return None
-    return _stage_resolved_artefact(
-        config,
-        resolved.artefact,
-        resolved.source_path,
-        resolved.destination_path,
-        corr_id,
-    )
-
-
 def _resolve_configured_artefact(
-    config: StagingConfig,
-    staging_dir: Path,
-    context: dict[str, typ.Any],
+    env: StageEnv,
     artefact: ArtefactConfig,
-    corr_id: str,
-) -> _ResolvedArtefact | None:
+) -> typ.Iterator[ResolvedArtefact]:
     """Resolve source and destination paths for one configured artefact."""
-    source_path, attempts = _resolve_artefact_source(
-        config.workspace, artefact, context
-    )
-    if not _ensure_source_available(
-        source_path, artefact, attempts, config.workspace, corr_id
-    ):
-        return None
+    candidate = _resolve_artefact_source(env.config.workspace, artefact, env.context)
+    if not _ensure_source_available(env, artefact, candidate):
+        return
 
+    source_path, _ = candidate
     source_path = typ.cast("Path", source_path)
     destination_path = _resolve_destination_path(
-        staging_dir,
-        context,
+        env.staging_dir,
+        env.context,
         artefact.destination,
         source_path,
     )
-    return _ResolvedArtefact(artefact, source_path, destination_path)
+    yield ResolvedArtefact(artefact, source_path, destination_path)
 
 
-def _iter_resolved_artefacts(
-    config: StagingConfig,
-    staging_dir: Path,
-    context: dict[str, typ.Any],
-    *,
-    skipped_artefacts: list[str] | None = None,
-    corr_id: str = "",
-) -> typ.Iterator[tuple[ArtefactConfig, Path, Path]]:
+def _iter_resolved_artefacts(env: StageEnv) -> typ.Iterator[ResolvedArtefact]:
     """Yield artefacts with resolved source and destination paths."""
-    for artefact in config.artefacts:
-        resolved = _resolve_configured_artefact(
-            config, staging_dir, context, artefact, corr_id
-        )
-        if resolved is None:
-            if skipped_artefacts is not None:
-                skipped_artefacts.append(artefact.source)
-            continue
-        yield resolved.artefact, resolved.source_path, resolved.destination_path
+    for artefact in env.config.artefacts:
+        yield from _resolve_configured_artefact(env, artefact)
 
 
-def _stage_resolved_artefact(
-    config: StagingConfig,
-    artefact: ArtefactConfig,
-    source_path: Path,
-    destination_path: Path,
-    corr_id: str,
-) -> StagedArtefact:
+def _stage_resolved_artefact(env: StageEnv, ra: ResolvedArtefact) -> tuple[Path, str]:
     """Copy a resolved artefact and write its checksum sidecar."""
     _copy_resolved_artefact(
-        StagingDirs(config.workspace, config.staging_dir()),
-        source_path,
-        destination_path,
-        corr_id,
+        StagingDirs(env.config.workspace, env.staging_dir),
+        ra.source,
+        ra.destination,
+        _corr_id(env),
     )
-    digest = _write_checksum(destination_path, config.checksum_algorithm)
+    digest = _write_checksum(ra.destination, env.config.checksum_algorithm)
     logger.debug(
         "corr_id=%s staged %s -> %s checksum=%s",
-        corr_id,
-        source_path,
-        destination_path,
+        _corr_id(env),
+        ra.source,
+        ra.destination,
         digest,
     )
-    return StagedArtefact(destination_path, artefact, digest)
+    return ra.destination, digest
+
+
+def _stage_configured_artefact(
+    env: StageEnv, artefact: ArtefactConfig, state: StagingState
+) -> None:
+    """Stage one configured artefact and update ``state``."""
+    resolved = next(_resolve_configured_artefact(env, artefact), None)
+    if resolved is None:
+        state.skipped_artefacts.append(artefact.source)
+        return
+    path, digest = _stage_resolved_artefact(env, resolved)
+    state.staged_paths.append(path)
+    relative_path = path.relative_to(env.staging_dir).as_posix()
+    state.checksums[relative_path] = digest
+    if resolved.artefact.output:
+        state.outputs[resolved.artefact.output] = path
 
 
 def _iter_staged_artefacts(
@@ -428,16 +391,10 @@ def _iter_staged_artefacts(
     """Yield :class:`StagedArtefact` entries describing staged artefacts."""
     # TODO(#269): remove this compatibility wrapper after callers migrate to
     # _iter_resolved_artefacts or stage_artefacts.
-    for artefact, source_path, destination_path in _iter_resolved_artefacts(
-        config, staging_dir, context
-    ):
-        yield _stage_resolved_artefact(
-            config,
-            artefact,
-            source_path,
-            destination_path,
-            "",
-        )
+    env = StageEnv(config, staging_dir, context)
+    for resolved in _iter_resolved_artefacts(env):
+        path, digest = _stage_resolved_artefact(env, resolved)
+        yield StagedArtefact(path, resolved.artefact, digest)
 
 
 def _resolve_destination_path(

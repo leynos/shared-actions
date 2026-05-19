@@ -59,6 +59,26 @@ HYPOTHESIS_SETTINGS = settings(
 )
 
 
+def _assert_path_traversal_rejected(tmp_path: Path, destination: str) -> None:
+    """Arrange a minimal workspace and assert StageError for escaping destination."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(exist_ok=True)
+    (workspace / "myapp").write_text("binary content", encoding="utf-8")
+
+    config = TestStageArtefacts._make_linux_config(
+        workspace,
+        [
+            ArtefactConfig(
+                source="myapp",
+                destination=destination,
+            )
+        ],
+    )
+
+    with pytest.raises(StageError, match="escapes staging directory"):
+        stage_artefacts(config)
+
+
 class TestStageArtefacts:
     """Tests for the stage_artefacts function."""
 
@@ -375,21 +395,7 @@ class TestStageArtefacts:
         self, tmp_path: Path, destination: str
     ) -> None:
         """Destination paths escaping the staging directory raise StageError."""
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        (workspace / "myapp").write_text("binary content", encoding="utf-8")
-        config = self._make_linux_config(
-            workspace,
-            [
-                ArtefactConfig(
-                    source="myapp",
-                    destination=destination,
-                )
-            ],
-        )
-
-        with pytest.raises(StageError, match="escapes staging directory"):
-            stage_artefacts(config)
+        _assert_path_traversal_rejected(tmp_path, destination)
 
     @pytest.mark.parametrize(
         "ps_module_name",
@@ -472,18 +478,4 @@ class TestStageArtefacts:
         self, tmp_path: Path, destination: str
     ) -> None:
         """Generated parent traversal destinations cannot escape staging."""
-        workspace = tmp_path / "workspace"
-        workspace.mkdir(exist_ok=True)
-        (workspace / "myapp").write_text("binary content", encoding="utf-8")
-        config = self._make_linux_config(
-            workspace,
-            [
-                ArtefactConfig(
-                    source="myapp",
-                    destination=f"../{destination}",
-                )
-            ],
-        )
-
-        with pytest.raises(StageError, match="escapes staging directory"):
-            stage_artefacts(config)
+        _assert_path_traversal_rejected(tmp_path, f"../{destination}")

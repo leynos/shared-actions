@@ -46,7 +46,7 @@ TEMPLATE_SAFE_PATH_SEGMENTS = PATH_SEGMENTS.filter(
 )
 TRAVERSAL_DESTINATIONS = st.text(
     alphabet=st.characters(
-        blacklist_characters="\x00",
+        blacklist_characters='/\\\x00:*?"<>|',
         blacklist_categories=("Cs", "Cc", "Cn"),
         max_codepoint=0xFFFF,
     ),
@@ -224,20 +224,23 @@ class TestStageArtefacts:
             ),
         ]
 
+    @staticmethod
     def _make_windows_config(
-        self,
         workspace: Path,
         artefacts: list[ArtefactConfig] | None = None,
     ) -> StagingConfig:
         """Return a Windows StagingConfig for PowerShell sidecar tests."""
+        artefacts_to_use = (
+            artefacts
+            if artefacts is not None
+            else TestStageArtefacts._powershell_artefact_configs()
+        )
         return StagingConfig(
             workspace=workspace,
             bin_name="mytool",
             dist_dir="dist",
             checksum_algorithm="sha256",
-            artefacts=artefacts
-            if artefacts is not None
-            else self._powershell_artefact_configs(),
+            artefacts=artefacts_to_use,
             platform="windows",
             arch="x86_64",
             target="x86_64-pc-windows-msvc",

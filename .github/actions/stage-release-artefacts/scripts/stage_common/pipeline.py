@@ -183,6 +183,19 @@ def stage_artefacts(
     )
 
 
+def _is_disallowed_ps_module_name(
+    staging_root: Path, ps_module_name: str, module_dir: Path
+) -> bool:
+    """Return True when ``ps_module_name`` cannot name a direct module child."""
+    return (
+        ps_module_name in {".", ".."}
+        or os.path.sep in ps_module_name
+        or "/" in ps_module_name
+        or "\\" in ps_module_name
+        or module_dir.parent != staging_root
+    )
+
+
 def _resolve_powershell_help_dir(
     staging_dir: Path, staged_paths: list[Path], ps_module_name: str
 ) -> Path | None:
@@ -193,13 +206,7 @@ def _resolve_powershell_help_dir(
 
     staging_root = staging_dir.resolve()
     module_dir = (staging_dir / ps_module_name).resolve()
-    if (
-        ps_module_name in {".", ".."}
-        or os.path.sep in ps_module_name
-        or "/" in ps_module_name
-        or "\\" in ps_module_name
-        or module_dir.parent != staging_root
-    ):
+    if _is_disallowed_ps_module_name(staging_root, ps_module_name, module_dir):
         logger.info(
             "PowerShell help directory not resolved: invalid module name %r.",
             ps_module_name,

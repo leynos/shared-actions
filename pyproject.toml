@@ -37,6 +37,7 @@ dev = [
     "uuid6>=2025.0.1",
     "cmd-mox==0.2.0",
     "hypothesis>=6,<7",
+    "syrupy>=4,<5",
 ]
 
 [tool.ruff]

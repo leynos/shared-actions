@@ -9,11 +9,19 @@ from syspath_hack import prepend_to_syspath
 
 if typ.TYPE_CHECKING:
     import pytest
+    from syrupy.assertion import SnapshotAssertion
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 prepend_to_syspath(SCRIPTS_DIR)
 
 from stage import main
+
+
+def _redact_paths(text: str, *paths: Path) -> str:
+    """Replace volatile absolute paths with stable tokens."""
+    for i, path in enumerate(paths):
+        text = text.replace(path.as_posix(), f"<DIR_{i}>")
+    return text
 
 
 class TestStageCli:
@@ -27,7 +35,10 @@ class TestStageCli:
         return config_file
 
     def test_main_writes_empty_powershell_help_dir_for_absent_sidecar(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot: SnapshotAssertion,
     ) -> None:
         """CLI output keeps powershell_help_dir empty when no module is staged."""
         workspace = tmp_path / "workspace"
@@ -54,10 +65,17 @@ target = "x86_64-unknown-linux-gnu"
 
         main(str(config_file), "linux", ps_module_name="MyTool")
 
-        assert "powershell_help_dir=\n" in output_file.read_text(encoding="utf-8")
+        output = output_file.read_text(encoding="utf-8")
+        staging_dir = workspace / "dist" / "mytool_linux_x86_64"
+        assert _redact_paths(output, staging_dir.parent, staging_dir) == snapshot(
+            name="empty_powershell_help_dir"
+        )
 
     def test_main_writes_powershell_help_dir_when_module_is_staged(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot: SnapshotAssertion,
     ) -> None:
         """CLI output includes powershell_help_dir when ps_module_name matches."""
         workspace = tmp_path / "workspace"
@@ -87,5 +105,7 @@ destination = "MyTool/MyTool.psm1"
         main(str(config_file), "windows", ps_module_name="MyTool")
 
         output = output_file.read_text(encoding="utf-8")
-        expected = workspace / "dist" / "mytool_windows_x86_64" / "MyTool"
-        assert f"powershell_help_dir={expected.as_posix()}\n" in output
+        staging_dir = workspace / "dist" / "mytool_windows_x86_64"
+        assert _redact_paths(output, staging_dir.parent, staging_dir) == snapshot(
+            name="populated_powershell_help_dir"
+        )

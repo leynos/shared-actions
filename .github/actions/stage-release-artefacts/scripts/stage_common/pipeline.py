@@ -1,4 +1,23 @@
-"""Core artefact staging pipeline and supporting helpers."""
+"""Core artefact staging pipeline for release artefact workflows.
+
+This module turns a loaded :class:`stage_common.config.StagingConfig` into a
+domain result describing staged files, named outputs, checksum digests, skipped
+optional artefacts, and optional PowerShell sidecar metadata. It is deliberately
+independent from GitHub Actions output-file formatting; the CLI layer in
+``stage.py`` serializes :class:`StageResult` through ``stage_common.output``.
+
+Key relationships:
+- ``stage_common.config`` owns TOML parsing and target-specific configuration.
+- ``stage_common.resolution`` resolves source templates, direct paths, and
+  globs against the configured workspace.
+- ``stage_common.output`` formats and writes workflow outputs outside this
+  pipeline so staging logic can be tested without GitHub Actions files.
+
+Example usage::
+
+    config = load_config(config_path, "linux-x86_64", workspace=workspace)
+    result = stage_artefacts(config, ps_module_name="MyTool")
+"""
 
 from __future__ import annotations
 
@@ -6,6 +25,7 @@ import dataclasses
 import hashlib
 import logging
 import shutil
+import time
 import typing as typ
 
 from .errors import StageError
@@ -40,6 +60,7 @@ class StageResult:
     outputs: dict[str, Path]
     checksums: dict[str, str]
     powershell_help_dir: Path | None = None
+    skipped_artefacts: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
@@ -83,8 +104,8 @@ def _collect_artefacts(
     config: StagingConfig,
     staging_dir: Path,
     context: dict[str, typ.Any],
-) -> tuple[list[Path], dict[str, Path], dict[str, str]]:
-    """Stage all configured artefacts and return paths, outputs, and checksums.
+) -> tuple[list[Path], dict[str, Path], dict[str, str], list[str]]:
+    """Stage configured artefacts and return paths, outputs, checksums, skips.
 
     Raises
     ------
@@ -94,8 +115,13 @@ def _collect_artefacts(
     staged_paths: list[Path] = []
     outputs: dict[str, Path] = {}
     checksums: dict[str, str] = {}
+    skipped_artefacts: list[str] = []
 
-    for staged in _iter_staged_artefacts(config, staging_dir, context):
+    for artefact in config.artefacts:
+        staged = _stage_configured_artefact(config, staging_dir, context, artefact)
+        if staged is None:
+            skipped_artefacts.append(artefact.source)
+            continue
         staged_paths.append(staged.path)
         relative_path = staged.path.relative_to(staging_dir).as_posix()
         checksums[relative_path] = staged.checksum
@@ -111,7 +137,7 @@ def _collect_artefacts(
         )
         raise StageError(msg)
 
-    return staged_paths, outputs, checksums
+    return staged_paths, outputs, checksums, skipped_artefacts
 
 
 def stage_artefacts(
@@ -140,20 +166,46 @@ def stage_artefacts(
         Raised when required artefacts are missing or configuration templates
         render invalid destinations.
     """
+    started_at = time.perf_counter()
     staging_dir = config.staging_dir()
     context = config.as_template_context()
+    logger.info(
+        "Starting artefact staging: target=%s artefact_count=%d staging_dir=%s",
+        config.target,
+        len(config.artefacts),
+        staging_dir,
+    )
 
     _initialize_staging_dir(staging_dir, config.workspace)
 
-    staged_paths, outputs, checksums = _collect_artefacts(config, staging_dir, context)
+    staged_paths, outputs, checksums, skipped_artefacts = _collect_artefacts(
+        config, staging_dir, context
+    )
 
     validate_no_reserved_key_collisions(outputs)
     powershell_help_dir = _resolve_powershell_help_dir(
         staging_dir, staged_paths, ps_module_name
     )
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Completed artefact staging: target=%s staged_count=%d skipped_count=%d "
+        "checksum_count=%d output_count=%d powershell_help_dir=%s elapsed_ms=%.2f",
+        config.target,
+        len(staged_paths),
+        len(skipped_artefacts),
+        len(checksums),
+        len(outputs),
+        powershell_help_dir.as_posix() if powershell_help_dir else "",
+        elapsed_ms,
+    )
 
     return StageResult(
-        staging_dir, staged_paths, outputs, checksums, powershell_help_dir
+        staging_dir,
+        staged_paths,
+        outputs,
+        checksums,
+        powershell_help_dir,
+        skipped_artefacts,
     )
 
 
@@ -219,36 +271,46 @@ def _ensure_source_available(
         )
         raise StageError(msg)
 
-    print(
-        f"::warning title=Artefact Skipped::Optional artefact missing: "
-        f"{artefact.source}"
+    logger.warning(
+        "Optional artefact missing: source=%s workspace=%s attempts=%d",
+        artefact.source,
+        workspace.as_posix(),
+        len(attempts),
     )
-    logger.warning("Optional artefact missing: %s", artefact.source)
     return False
+
+
+def _stage_configured_artefact(
+    config: StagingConfig,
+    staging_dir: Path,
+    context: dict[str, typ.Any],
+    artefact: ArtefactConfig,
+) -> StagedArtefact | None:
+    """Stage one configured artefact or return ``None`` when optional missing."""
+    dirs = StagingDirs(config.workspace, staging_dir)
+    source_path, attempts = _resolve_artefact_source(
+        config.workspace, artefact, context
+    )
+    if not _ensure_source_available(source_path, artefact, attempts, config.workspace):
+        return None
+
+    destination_path = _stage_single_artefact(
+        dirs,
+        context,
+        artefact.destination,
+        typ.cast("Path", source_path),
+    )
+    digest = _write_checksum(destination_path, config.checksum_algorithm)
+    return StagedArtefact(destination_path, artefact, digest)
 
 
 def _iter_staged_artefacts(
     config: StagingConfig, staging_dir: Path, context: dict[str, typ.Any]
 ) -> typ.Iterator[StagedArtefact]:
     """Yield :class:`StagedArtefact` entries describing staged artefacts."""
-    dirs = StagingDirs(config.workspace, staging_dir)
     for artefact in config.artefacts:
-        source_path, attempts = _resolve_artefact_source(
-            config.workspace, artefact, context
-        )
-        if not _ensure_source_available(
-            source_path, artefact, attempts, config.workspace
-        ):
-            continue
-
-        destination_path = _stage_single_artefact(
-            dirs,
-            context,
-            artefact.destination,
-            typ.cast("Path", source_path),
-        )
-        digest = _write_checksum(destination_path, config.checksum_algorithm)
-        yield StagedArtefact(destination_path, artefact, digest)
+        if staged := _stage_configured_artefact(config, staging_dir, context, artefact):
+            yield staged
 
 
 def _stage_single_artefact(

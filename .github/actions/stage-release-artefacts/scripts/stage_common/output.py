@@ -1,4 +1,29 @@
-"""Utilities for preparing and writing staging workflow outputs."""
+"""GitHub Actions output formatting utilities for staged artefacts.
+
+This module is the infrastructure boundary between the staging domain and the
+``GITHUB_OUTPUT`` file protocol. The pipeline returns a
+``stage_common.pipeline.StageResult``; callers convert that result into
+:class:`StagingOutputData`, pass it to :func:`prepare_output_data`, and then
+write the prepared mapping with :func:`write_github_output`.
+
+Key behaviours:
+- Reserved output names are guarded by :func:`validate_no_reserved_key_collisions`.
+- Paths are serialized with ``Path.as_posix()`` for cross-platform stability.
+- Scalar values are escaped according to GitHub Actions output-file rules.
+- List values are emitted with heredoc syntax so staged file lists remain
+  readable and unambiguous.
+
+Example usage::
+
+    data = StagingOutputData(
+        staging_dir=result.staging_dir,
+        staged_paths=result.staged_artefacts,
+        outputs=result.outputs,
+        checksums=result.checksums,
+        powershell_help_dir=result.powershell_help_dir,
+    )
+    write_github_output(github_output, prepare_output_data(data))
+"""
 
 from __future__ import annotations
 

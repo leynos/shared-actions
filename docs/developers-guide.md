@@ -116,14 +116,16 @@ The `stage-release-artefacts` action is implemented by
 configuration and delegates staging to `stage_common.pipeline.stage_artefacts`.
 The pipeline renders configured source and destination templates, copies each
 matched artefact into the staging directory, writes checksum sidecar files, and
-exports GitHub Actions outputs.
+returns a `StageResult`. The CLI owns infrastructure concerns: it reads
+`GITHUB_WORKSPACE` and `GITHUB_OUTPUT`, emits GitHub Actions warning
+annotations for skipped optional artefacts, and writes workflow outputs.
 
 `_collect_artefacts` owns the collection phase. It iterates over the configured
 artefacts, records the staged paths, builds the map of named outputs, and
-collects checksums keyed by staged relative path. `stage_artefacts` then
-validates reserved output names, resolves optional PowerShell sidecar metadata,
-formats the final output payload, writes `GITHUB_OUTPUT`, and returns a
-`StageResult`.
+collects checksums keyed by staged relative path. `stage_artefacts` validates
+reserved output names, resolves optional PowerShell sidecar metadata, logs
+start and completion records with counts and elapsed time, and returns a
+`StageResult` without writing `GITHUB_OUTPUT`.
 
 ### Output Data
 
@@ -135,6 +137,11 @@ paths, named output paths, checksum map, and the optional
 `Path.as_posix()` so workflow outputs use forward slashes consistently across
 platforms.
 
+The CLI converts `StageResult` into `StagingOutputData` immediately before
+calling `write_github_output`. Tests that assert output-file structure redact
+absolute staging paths before snapshot comparison so path-sensitive output
+remains deterministic across runners.
+
 ### PowerShell Help Directory
 
 `_resolve_powershell_help_dir` only exports a PowerShell module directory when
@@ -143,6 +150,9 @@ least one staged file exists below that directory. Empty names, `"."`, `".."`
 and names containing path separators return `None`. The resolved module
 directory must also have `staging_dir.resolve()` as its parent, which prevents
 parent-directory traversal and nested module paths from being exported.
+The pipeline logs the reason a PowerShell directory was not exported, including
+empty input, invalid module names, and missing staged files below the module
+directory.
 
 The action metadata and README document the public `ps-module-name` input and
 `powershell_help_dir` output. Keep that public contract in sync with the

@@ -84,6 +84,15 @@ def _write_stage_outputs(
     )
 
 
+def _emit_skipped_artefact_warnings(result: StageResult) -> None:
+    """Emit GitHub Actions annotations for optional artefacts skipped by staging."""
+    for source in result.skipped_artefacts:
+        print(
+            f"::warning title=Artefact Skipped::Optional artefact missing: {source}",
+            file=sys.stderr,
+        )
+
+
 @app.default
 def main(
     config_file: str,
@@ -116,12 +125,14 @@ def main(
     try:
         config_path = Path(config_file)
         github_output = require_env_path("GITHUB_OUTPUT")
-        config = load_config(config_path, target)
+        workspace = require_env_path("GITHUB_WORKSPACE")
+        config = load_config(config_path, target, workspace=workspace)
         normalize = coerce_bool(normalize_windows_paths, default=False)
         result = stage_artefacts(
             config,
             ps_module_name=ps_module_name,
         )
+        _emit_skipped_artefact_warnings(result)
         _write_stage_outputs(
             github_output,
             result,

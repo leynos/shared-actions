@@ -173,6 +173,33 @@ target = "x86_64-unknown-linux-gnu"
         with pytest.raises(FileNotFoundError):
             load_config(missing, "linux-x86_64")
 
+    def test_accepts_workspace_parameter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """load_config can use an explicit workspace without environment access."""
+        config_file = self._setup_config(
+            tmp_path,
+            monkeypatch,
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "binary"
+
+[targets.linux]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+        workspace = tmp_path / "explicit-workspace"
+        monkeypatch.delenv("GITHUB_WORKSPACE")
+
+        config = load_config(config_file, "linux", workspace=workspace)
+
+        assert config.workspace == workspace
+
     def test_raises_for_missing_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

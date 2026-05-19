@@ -128,7 +128,7 @@ Linux and macOS runners can use the same staging configuration without failing
 when the files are absent.
 
 When a workflow provides `ps-module-name`, the action sets
-`powershell_help_dir` to the absolute path of `artifact_dir/<module>`, but only
+`powershell_help_dir` to the absolute path of `artifact-dir/<module>`, but only
 when at least one file was staged beneath that module directory. Leave
 `ps-module-name` empty for non-Windows targets. Downstream steps must guard on
 `powershell_help_dir` being non-empty before using it.

@@ -131,7 +131,7 @@ formats the final output payload, writes `GITHUB_OUTPUT`, and returns a
 `prepare_output_data`. It keeps the output formatter explicit without growing
 the function argument list. The object contains the staging directory, staged
 paths, named output paths, checksum map, and the optional
-`powershell_help_dir`. `prepare_output_data` serialises path values with
+`powershell_help_dir`. `prepare_output_data` serializes path values with
 `Path.as_posix()` so workflow outputs use forward slashes consistently across
 platforms.
 

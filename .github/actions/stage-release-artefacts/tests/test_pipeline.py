@@ -224,20 +224,30 @@ class TestStageArtefacts:
             ),
         ]
 
-    def test_stages_windows_powershell_help_dir(self, tmp_path: Path) -> None:
-        """Windows PowerShell sidecars are staged under the module directory."""
-        workspace, _ = self._make_powershell_workspace(tmp_path)
-
-        config = StagingConfig(
+    def _make_windows_config(
+        self,
+        workspace: Path,
+        artefacts: list[ArtefactConfig] | None = None,
+    ) -> StagingConfig:
+        """Return a Windows StagingConfig for PowerShell sidecar tests."""
+        return StagingConfig(
             workspace=workspace,
             bin_name="mytool",
             dist_dir="dist",
             checksum_algorithm="sha256",
-            artefacts=self._powershell_artefact_configs(),
+            artefacts=artefacts
+            if artefacts is not None
+            else self._powershell_artefact_configs(),
             platform="windows",
             arch="x86_64",
             target="x86_64-pc-windows-msvc",
         )
+
+    def test_stages_windows_powershell_help_dir(self, tmp_path: Path) -> None:
+        """Windows PowerShell sidecars are staged under the module directory."""
+        workspace, _ = self._make_powershell_workspace(tmp_path)
+
+        config = self._make_windows_config(workspace)
 
         result = stage_artefacts(config, ps_module_name="MyTool")
 
@@ -282,12 +292,9 @@ class TestStageArtefacts:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        config = StagingConfig(
-            workspace=workspace,
-            bin_name="mytool",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=[
+        config = self._make_windows_config(
+            workspace,
+            [
                 ArtefactConfig(
                     source=(
                         "target/orthohelp/{target}/release/powershell/"
@@ -296,9 +303,6 @@ class TestStageArtefacts:
                     destination="MyTool/MyTool.psm1",
                 ),
             ],
-            platform="windows",
-            arch="x86_64",
-            target="x86_64-pc-windows-msvc",
         )
 
         with pytest.raises(StageError, match=r"MyTool/MyTool\.psm1"):
@@ -314,20 +318,14 @@ class TestStageArtefacts:
         source_dir.mkdir(parents=True)
         (source_dir / "MyTool.psm1").write_text("module", encoding="utf-8")
 
-        config = StagingConfig(
-            workspace=workspace,
-            bin_name="mytool",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=[
+        config = self._make_windows_config(
+            workspace,
+            [
                 ArtefactConfig(
                     source="powershell/MyTool/MyTool.psm1",
                     destination="MyTool/MyTool.psm1",
                 ),
             ],
-            platform="windows",
-            arch="x86_64",
-            target="x86_64-pc-windows-msvc",
         )
 
         result = stage_artefacts(config)
@@ -404,16 +402,7 @@ class TestStageArtefacts:
     ) -> None:
         """Invalid module names are ignored by the public staging API."""
         workspace, _ = self._make_powershell_workspace(tmp_path)
-        config = StagingConfig(
-            workspace=workspace,
-            bin_name="mytool",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=self._powershell_artefact_configs(),
-            platform="windows",
-            arch="x86_64",
-            target="x86_64-pc-windows-msvc",
-        )
+        config = self._make_windows_config(workspace)
 
         result = stage_artefacts(config, ps_module_name=ps_module_name)
 
@@ -430,20 +419,14 @@ class TestStageArtefacts:
         source_dir = workspace / "powershell" / ps_module_name
         source_dir.mkdir(parents=True, exist_ok=True)
         (source_dir / "module.psm1").write_text("module", encoding="utf-8")
-        config = StagingConfig(
-            workspace=workspace,
-            bin_name="mytool",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=[
+        config = self._make_windows_config(
+            workspace,
+            [
                 ArtefactConfig(
                     source=f"powershell/{ps_module_name}/module.psm1",
                     destination=f"{ps_module_name}/module.psm1",
                 ),
             ],
-            platform="windows",
-            arch="x86_64",
-            target="x86_64-pc-windows-msvc",
         )
 
         result = stage_artefacts(config, ps_module_name=ps_module_name)

@@ -136,7 +136,7 @@ and rejects any module name containing path separators. It only accepts a
 single direct child module directory under `artifact-dir`; otherwise,
 `powershell_help_dir` remains empty. Leave `ps-module-name` empty for
 non-Windows targets. Downstream steps must guard on `powershell_help_dir`
-being non-empty before using it. The action log records why the value remains
+being non-empty before using it. The action logs why the value remains
 empty, including empty input, rejected module names, or no staged files under
 the requested module directory.
 

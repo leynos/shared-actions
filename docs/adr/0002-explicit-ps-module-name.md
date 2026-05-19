@@ -41,7 +41,7 @@ positives on case-insensitive filesystems.
 validation helpers reject invalid module names before checking the staged
 module directory.
 
-The workflow output layer normalises paths with `Path.as_posix()` so exported
+The workflow output layer normalizes paths with `Path.as_posix()` so exported
 paths use forward slashes consistently across platforms.
 
 ## References

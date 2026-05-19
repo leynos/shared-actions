@@ -305,7 +305,7 @@ class TestStageArtefacts:
 # and U+007F-U+009F) so generated names are valid on Windows and POSIX.
 PS_MODULE_NAMES = st.text(
     alphabet=st.characters(
-        blacklist_characters='/\\\x00:<>"|?*',
+        blacklist_characters='/\\\x00:*?"<>|',
         blacklist_categories=("Cs", "Cc"),
     ),
     min_size=1,
@@ -505,7 +505,7 @@ class TestSafeDestinationPath:
         segments=st.lists(
             st.text(
                 alphabet=st.characters(
-                    blacklist_characters='/\\\x00:<>"|?*',
+                    blacklist_characters='/\\\x00:*?"<>|',
                     blacklist_categories=("Cs", "Cc"),
                 ),
                 min_size=1,

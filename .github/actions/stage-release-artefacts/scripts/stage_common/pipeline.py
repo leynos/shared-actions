@@ -27,6 +27,7 @@ import logging
 import shutil
 import time
 import typing as typ
+import uuid
 
 from .errors import StageError
 
@@ -80,6 +81,13 @@ class StagedArtefact:
     checksum: str
 
 
+@dataclasses.dataclass(slots=True, frozen=True)
+class _ResolvedArtefact:
+    artefact: ArtefactConfig
+    source_path: Path
+    destination_path: Path
+
+
 def _validate_staging_dir_safety(staging_dir: Path, workspace: Path) -> None:
     """Ensure staging_dir is safe to delete by verifying it's under workspace."""
     resolved_staging = staging_dir.resolve()
@@ -104,6 +112,7 @@ def _collect_artefacts(
     config: StagingConfig,
     staging_dir: Path,
     context: dict[str, typ.Any],
+    corr_id: str,
 ) -> tuple[list[Path], dict[str, Path], dict[str, str], list[str]]:
     """Stage configured artefacts and return paths, outputs, checksums, skips.
 
@@ -117,11 +126,20 @@ def _collect_artefacts(
     checksums: dict[str, str] = {}
     skipped_artefacts: list[str] = []
 
-    for artefact in config.artefacts:
-        staged = _stage_configured_artefact(config, staging_dir, context, artefact)
-        if staged is None:
-            skipped_artefacts.append(artefact.source)
-            continue
+    for artefact, source_path, destination_path in _iter_resolved_artefacts(
+        config,
+        staging_dir,
+        context,
+        skipped_artefacts=skipped_artefacts,
+        corr_id=corr_id,
+    ):
+        staged = _stage_resolved_artefact(
+            config,
+            artefact,
+            source_path,
+            destination_path,
+            corr_id,
+        )
         staged_paths.append(staged.path)
         relative_path = staged.path.relative_to(staging_dir).as_posix()
         checksums[relative_path] = staged.checksum
@@ -144,6 +162,7 @@ def stage_artefacts(
     config: StagingConfig,
     *,
     ps_module_name: str = "",
+    corr_id: str | None = None,
 ) -> StageResult:
     """Copy artefacts into ``config``'s staging directory.
 
@@ -166,30 +185,36 @@ def stage_artefacts(
         Raised when required artefacts are missing or configuration templates
         render invalid destinations.
     """
+    corr_id = corr_id or uuid.uuid4().hex
     started_at = time.perf_counter()
     staging_dir = config.staging_dir()
     context = config.as_template_context()
     logger.info(
-        "Starting artefact staging: target=%s artefact_count=%d staging_dir=%s",
+        "corr_id=%s Starting artefact staging: target=%s artefact_count=%d "
+        "staging_dir=%s ps_module_name=%s",
+        corr_id,
         config.target,
         len(config.artefacts),
         staging_dir,
+        ps_module_name,
     )
 
     _initialize_staging_dir(staging_dir, config.workspace)
 
     staged_paths, outputs, checksums, skipped_artefacts = _collect_artefacts(
-        config, staging_dir, context
+        config, staging_dir, context, corr_id
     )
 
     validate_no_reserved_key_collisions(outputs)
     powershell_help_dir = _resolve_powershell_help_dir(
-        staging_dir, staged_paths, ps_module_name
+        staging_dir, staged_paths, ps_module_name, corr_id=corr_id
     )
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info(
-        "Completed artefact staging: target=%s staged_count=%d skipped_count=%d "
-        "checksum_count=%d output_count=%d powershell_help_dir=%s elapsed_ms=%.2f",
+        "corr_id=%s Completed artefact staging: target=%s staged_count=%d "
+        "skipped_count=%d checksum_count=%d output_count=%d "
+        "powershell_help_dir=%s elapsed_ms=%.2f",
+        corr_id,
         config.target,
         len(staged_paths),
         len(skipped_artefacts),
@@ -222,18 +247,35 @@ def _is_disallowed_ps_module_name(
 
 
 def _resolve_powershell_help_dir(
-    staging_dir: Path, staged_paths: list[Path], ps_module_name: str
+    staging_dir: Path,
+    staged_paths: list[Path],
+    ps_module_name: str,
+    *,
+    corr_id: str = "",
 ) -> Path | None:
     """Return the staged PowerShell module directory when explicitly named."""
     if not ps_module_name:
-        logger.info("PowerShell help directory not resolved: module name is empty.")
+        logger.info(
+            "corr_id=%s PowerShell help directory not resolved: module name is empty.",
+            corr_id,
+        )
         return None
 
     staging_root = staging_dir.resolve()
     module_dir = (staging_dir / ps_module_name).resolve()
+    logger.debug(
+        "corr_id=%s PowerShell module resolution check: module_dir=%s exists=%s "
+        "is_dir=%s",
+        corr_id,
+        module_dir,
+        module_dir.exists(),
+        module_dir.is_dir(),
+    )
     if _is_disallowed_ps_module_name(staging_root, ps_module_name, module_dir):
         logger.info(
-            "PowerShell help directory not resolved: invalid module name %r.",
+            "corr_id=%s PowerShell help directory not resolved: "
+            "invalid module name %r.",
+            corr_id,
             ps_module_name,
         )
         return None
@@ -241,10 +283,15 @@ def _resolve_powershell_help_dir(
     if module_dir.is_dir() and any(
         staged_path.resolve().is_relative_to(module_dir) for staged_path in staged_paths
     ):
-        logger.info("PowerShell help directory resolved to %s.", module_dir)
+        logger.info(
+            "corr_id=%s PowerShell help directory resolved to %s.",
+            corr_id,
+            module_dir,
+        )
         return module_dir
     logger.info(
-        "PowerShell help directory not resolved: no staged files under %s.",
+        "corr_id=%s PowerShell help directory not resolved: no staged files under %s.",
+        corr_id,
         module_dir,
     )
     return None
@@ -255,6 +302,7 @@ def _ensure_source_available(
     artefact: ArtefactConfig,
     attempts: list[_RenderAttempt],
     workspace: Path,
+    corr_id: str,
 ) -> bool:
     """Return ``True`` when ``source_path`` exists, otherwise handle the miss."""
     if source_path is not None:
@@ -272,7 +320,8 @@ def _ensure_source_available(
         raise StageError(msg)
 
     logger.warning(
-        "Optional artefact missing: source=%s workspace=%s attempts=%d",
+        "corr_id=%s Optional artefact missing: source=%s workspace=%s attempts=%d",
+        corr_id,
         artefact.source,
         workspace.as_posix(),
         len(attempts),
@@ -285,22 +334,91 @@ def _stage_configured_artefact(
     staging_dir: Path,
     context: dict[str, typ.Any],
     artefact: ArtefactConfig,
+    corr_id: str = "",
 ) -> StagedArtefact | None:
     """Stage one configured artefact or return ``None`` when optional missing."""
-    dirs = StagingDirs(config.workspace, staging_dir)
+    resolved = _resolve_configured_artefact(
+        config, staging_dir, context, artefact, corr_id
+    )
+    if resolved is None:
+        return None
+    return _stage_resolved_artefact(
+        config,
+        resolved.artefact,
+        resolved.source_path,
+        resolved.destination_path,
+        corr_id,
+    )
+
+
+def _resolve_configured_artefact(
+    config: StagingConfig,
+    staging_dir: Path,
+    context: dict[str, typ.Any],
+    artefact: ArtefactConfig,
+    corr_id: str,
+) -> _ResolvedArtefact | None:
+    """Resolve source and destination paths for one configured artefact."""
     source_path, attempts = _resolve_artefact_source(
         config.workspace, artefact, context
     )
-    if not _ensure_source_available(source_path, artefact, attempts, config.workspace):
+    if not _ensure_source_available(
+        source_path, artefact, attempts, config.workspace, corr_id
+    ):
         return None
 
-    destination_path = _stage_single_artefact(
-        dirs,
+    source_path = typ.cast("Path", source_path)
+    destination_path = _resolve_destination_path(
+        staging_dir,
         context,
         artefact.destination,
-        typ.cast("Path", source_path),
+        source_path,
+    )
+    return _ResolvedArtefact(artefact, source_path, destination_path)
+
+
+def _iter_resolved_artefacts(
+    config: StagingConfig,
+    staging_dir: Path,
+    context: dict[str, typ.Any],
+    *,
+    skipped_artefacts: list[str] | None = None,
+    corr_id: str = "",
+) -> typ.Iterator[tuple[ArtefactConfig, Path, Path]]:
+    """Yield artefacts with resolved source and destination paths."""
+    for artefact in config.artefacts:
+        resolved = _resolve_configured_artefact(
+            config, staging_dir, context, artefact, corr_id
+        )
+        if resolved is None:
+            if skipped_artefacts is not None:
+                skipped_artefacts.append(artefact.source)
+            continue
+        yield resolved.artefact, resolved.source_path, resolved.destination_path
+
+
+def _stage_resolved_artefact(
+    config: StagingConfig,
+    artefact: ArtefactConfig,
+    source_path: Path,
+    destination_path: Path,
+    corr_id: str,
+) -> StagedArtefact:
+    """Copy a resolved artefact and write its checksum sidecar."""
+    _copy_resolved_artefact(
+        StagingDirs(config.workspace, config.staging_dir()),
+        source_path,
+        destination_path,
+        corr_id,
     )
     digest = _write_checksum(destination_path, config.checksum_algorithm)
+    logger.debug(
+        "corr_id=%s staged %s -> %s checksum=%s",
+        corr_id,
+        source_path,
+        destination_path,
+        digest,
+    )
     return StagedArtefact(destination_path, artefact, digest)
 
 
@@ -308,18 +426,27 @@ def _iter_staged_artefacts(
     config: StagingConfig, staging_dir: Path, context: dict[str, typ.Any]
 ) -> typ.Iterator[StagedArtefact]:
     """Yield :class:`StagedArtefact` entries describing staged artefacts."""
-    for artefact in config.artefacts:
-        if staged := _stage_configured_artefact(config, staging_dir, context, artefact):
-            yield staged
+    # TODO(#269): remove this compatibility wrapper after callers migrate to
+    # _iter_resolved_artefacts or stage_artefacts.
+    for artefact, source_path, destination_path in _iter_resolved_artefacts(
+        config, staging_dir, context
+    ):
+        yield _stage_resolved_artefact(
+            config,
+            artefact,
+            source_path,
+            destination_path,
+            "",
+        )
 
 
-def _stage_single_artefact(
-    dirs: StagingDirs,
+def _resolve_destination_path(
+    staging_dir: Path,
     context: dict[str, typ.Any],
     artefact_destination: str | None,
     source_path: Path,
 ) -> Path:
-    """Copy ``source_path`` into ``dirs.staging_dir`` and return the staged path."""
+    """Resolve the staged destination path for ``source_path``."""
     artefact_context = context | {
         "source_path": source_path.as_posix(),
         "source_name": source_path.name,
@@ -330,17 +457,29 @@ def _stage_single_artefact(
         else source_path.name
     )
 
-    destination_path = _safe_destination_path(dirs.staging_dir, destination_text)
+    return _safe_destination_path(staging_dir, destination_text)
+
+
+def _copy_resolved_artefact(
+    dirs: StagingDirs,
+    source_path: Path,
+    destination_path: Path,
+    corr_id: str,
+) -> None:
+    """Copy ``source_path`` to a resolved staged destination path."""
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
     if destination_path.exists():
-        logger.info("Overwriting existing file: %s", destination_path)
+        logger.info(
+            "corr_id=%s Overwriting existing file: %s", corr_id, destination_path
+        )
         destination_path.unlink()
     shutil.copy2(source_path, destination_path)
     logger.info(
-        "Staged '%s' -> '%s'",
+        "corr_id=%s Staged '%s' -> '%s'",
+        corr_id,
         source_path.relative_to(dirs.workspace),
         destination_path.relative_to(dirs.workspace),
     )
-    return destination_path
 
 
 def _render_template(template: str, context: dict[str, typ.Any]) -> str:
@@ -379,7 +518,6 @@ def _safe_destination_path(staging_dir: Path, destination: str) -> Path:
             f"(resolved to {target}, staging_root={staging_root})"
         )
         raise StageError(msg)
-    target.parent.mkdir(parents=True, exist_ok=True)
     return target
 
 

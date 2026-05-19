@@ -73,22 +73,17 @@ class TestLoadConfig:
     @staticmethod
     def _setup_config(
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
         toml_content: str,
     ) -> Path:
-        """Write a config file and set GITHUB_WORKSPACE for load_config tests."""
-        monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+        """Write a config file for load_config tests."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(toml_content, encoding="utf-8")
         return config_file
 
-    def test_loads_valid_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_loads_valid_config(self, tmp_path: Path) -> None:
         """load_config parses valid TOML configuration."""
         config_file = self._setup_config(
             tmp_path,
-            monkeypatch,
             """
 [common]
 bin_name = "myapp"
@@ -103,19 +98,16 @@ target = "x86_64-unknown-linux-gnu"
 """,
         )
 
-        config = load_config(config_file, "linux-x86_64")
+        config = load_config(config_file, "linux-x86_64", workspace=tmp_path)
 
         assert config.bin_name == "myapp"
         assert config.platform == "linux"
         assert len(config.artefacts) == 1
 
-    def test_loads_target_artefacts_with_dest_alias(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_loads_target_artefacts_with_dest_alias(self, tmp_path: Path) -> None:
         """Target artefacts support optional entries and the dest alias."""
         config_file = self._setup_config(
             tmp_path,
-            monkeypatch,
             """
 [common]
 bin_name = "myapp"
@@ -135,19 +127,16 @@ required = false
 """,
         )
 
-        config = load_config(config_file, "windows")
+        config = load_config(config_file, "windows", workspace=tmp_path)
 
         assert len(config.artefacts) == 2
         assert config.artefacts[1].destination == "MyTool/MyTool.psm1"
         assert config.artefacts[1].required is False
 
-    def test_rejects_dest_and_destination_together(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_rejects_dest_and_destination_together(self, tmp_path: Path) -> None:
         """Artefact entries must not provide both destination spellings."""
         config_file = self._setup_config(
             tmp_path,
-            monkeypatch,
             """
 [common]
 bin_name = "myapp"
@@ -165,21 +154,18 @@ target = "x86_64-unknown-linux-gnu"
         )
 
         with pytest.raises(StageError, match="both 'destination' and 'dest'"):
-            load_config(config_file, "linux")
+            load_config(config_file, "linux", workspace=tmp_path)
 
     def test_raises_for_missing_file(self, tmp_path: Path) -> None:
         """load_config raises for missing configuration file."""
         missing = tmp_path / "missing.toml"
         with pytest.raises(FileNotFoundError):
-            load_config(missing, "linux-x86_64")
+            load_config(missing, "linux-x86_64", workspace=tmp_path)
 
-    def test_accepts_workspace_parameter(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """load_config can use an explicit workspace without environment access."""
+    def test_requires_workspace_parameter(self, tmp_path: Path) -> None:
+        """load_config uses the caller-supplied workspace."""
         config_file = self._setup_config(
             tmp_path,
-            monkeypatch,
             """
 [common]
 bin_name = "myapp"
@@ -194,19 +180,15 @@ target = "x86_64-unknown-linux-gnu"
 """,
         )
         workspace = tmp_path / "explicit-workspace"
-        monkeypatch.delenv("GITHUB_WORKSPACE")
 
         config = load_config(config_file, "linux", workspace=workspace)
 
         assert config.workspace == workspace
 
-    def test_raises_for_missing_target(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_raises_for_missing_target(self, tmp_path: Path) -> None:
         """load_config raises for missing target section."""
         config_file = self._setup_config(
             tmp_path,
-            monkeypatch,
             """
 [common]
 bin_name = "myapp"
@@ -219,4 +201,4 @@ target = "x86_64-unknown-linux-gnu"
         )
 
         with pytest.raises(StageError, match="Missing configuration key"):
-            load_config(config_file, "windows-x86_64")
+            load_config(config_file, "windows-x86_64", workspace=tmp_path)

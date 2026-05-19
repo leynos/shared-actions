@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 import cyclopts
@@ -54,6 +55,8 @@ prepend_project_root(start=_SCRIPT_DIR)
 
 from actions_common import normalize_input_env
 from bool_utils import coerce_bool
+
+logger = logging.getLogger(__name__)
 
 app: App = App(
     help="Stage release artefacts using a TOML configuration file.",
@@ -122,6 +125,7 @@ def main(
         error.
     """
     logging.basicConfig(level=logging.INFO)
+    corr_id = uuid.uuid4().hex
     try:
         config_path = Path(config_file)
         github_output = require_env_path("GITHUB_OUTPUT")
@@ -131,6 +135,7 @@ def main(
         result = stage_artefacts(
             config,
             ps_module_name=ps_module_name,
+            corr_id=corr_id,
         )
         _emit_skipped_artefact_warnings(result)
         _write_stage_outputs(
@@ -139,6 +144,7 @@ def main(
             normalize_windows_paths=normalize,
         )
     except (FileNotFoundError, StageError, ValueError) as exc:
+        logger.exception("corr_id=%s staging failed", corr_id)
         print(f"::error title=Staging Failure::{exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 

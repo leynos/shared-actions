@@ -13,7 +13,6 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
-from .environment import require_env_path
 from .errors import StageError
 
 __all__ = [
@@ -81,7 +80,7 @@ class StagingConfig:
 
 
 def load_config(
-    config_file: Path, target_key: str, *, workspace: Path | None = None
+    config_file: Path, target_key: str, *, workspace: Path
 ) -> StagingConfig:
     """Load staging configuration from ``config_file`` for ``target_key``.
 
@@ -92,8 +91,7 @@ def load_config(
     target_key
         Key identifying the target-specific configuration section to load.
     workspace
-        Optional workspace root supplied by the caller. When omitted,
-        ``GITHUB_WORKSPACE`` is read for backwards compatibility.
+        Mandatory workspace root supplied by the caller.
 
     Returns
     -------
@@ -120,9 +118,6 @@ def load_config(
         {"platform", "arch", "target"},
         f"targets.{target_key}",
         config_file,
-    )
-    workspace = (
-        workspace if workspace is not None else require_env_path("GITHUB_WORKSPACE")
     )
     algorithm = _validate_checksum(common.get("checksum_algorithm"))
     artefacts = _make_artefacts(common, target_cfg, config_file)

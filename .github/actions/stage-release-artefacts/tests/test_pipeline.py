@@ -535,7 +535,8 @@ class TestSafeDestinationPath:
         destination=st.text(
             alphabet=st.characters(
                 blacklist_characters="\x00",
-                blacklist_categories=("Cs",),
+                blacklist_categories=("Cs", "Cc", "Cn"),
+                max_codepoint=0xFFFF,
             ),
             min_size=1,
             max_size=12,

@@ -36,6 +36,7 @@ dev = [
     "ty>=0.0.1a20",
     "uuid6>=2025.0.1",
     "cmd-mox==0.2.0",
+    "hypothesis>=6,<7",
 ]
 
 [tool.ruff]

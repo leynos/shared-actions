@@ -130,6 +130,7 @@ when the files are absent.
 When a workflow provides `ps-module-name`, the action sets
 `powershell_help_dir` to the absolute path of `artifact-dir/<module>`, but only
 when at least one file was staged beneath that module directory.
+`ps-module-name` must be a single module directory name.
 `_resolve_powershell_help_dir` rejects values of `"."` and `".."`
 and rejects any name containing path separators. It only accepts a single
 direct child module directory under `artifact-dir`; otherwise,

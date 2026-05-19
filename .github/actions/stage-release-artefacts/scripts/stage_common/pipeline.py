@@ -13,12 +13,7 @@ from .errors import StageError
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-from .output import (
-    StagingOutputData,
-    prepare_output_data,
-    validate_no_reserved_key_collisions,
-    write_github_output,
-)
+from .output import validate_no_reserved_key_collisions
 from .resolution import match_candidate_path
 
 if typ.TYPE_CHECKING:
@@ -121,9 +116,7 @@ def _collect_artefacts(
 
 def stage_artefacts(
     config: StagingConfig,
-    github_output_file: Path,
     *,
-    normalize_windows_paths: bool = False,
     ps_module_name: str = "",
 ) -> StageResult:
     """Copy artefacts into ``config``'s staging directory.
@@ -132,10 +125,6 @@ def stage_artefacts(
     ----------
     config
         Fully resolved configuration describing the artefacts to stage.
-    github_output_file
-        Path to the ``GITHUB_OUTPUT`` file used to export workflow outputs.
-    normalize_windows_paths
-        When True, convert backslashes to forward slashes in output paths.
     ps_module_name
         Optional staged PowerShell module directory name.
 
@@ -161,20 +150,6 @@ def stage_artefacts(
     validate_no_reserved_key_collisions(outputs)
     powershell_help_dir = _resolve_powershell_help_dir(
         staging_dir, staged_paths, ps_module_name
-    )
-    exported_outputs = prepare_output_data(
-        StagingOutputData(
-            staging_dir=staging_dir,
-            staged_paths=staged_paths,
-            outputs=outputs,
-            checksums=checksums,
-            powershell_help_dir=powershell_help_dir,
-        )
-    )
-    write_github_output(
-        github_output_file,
-        exported_outputs,
-        normalize_windows_paths=normalize_windows_paths,
     )
 
     return StageResult(

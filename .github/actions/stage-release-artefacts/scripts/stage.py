@@ -24,6 +24,7 @@ variables::
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -35,7 +36,18 @@ from syspath_hack import prepend_project_root, prepend_to_syspath
 _SCRIPT_DIR = Path(__file__).resolve().parent
 prepend_to_syspath(_SCRIPT_DIR)
 
-from stage_common import StageError, load_config, require_env_path, stage_artefacts
+from stage_common import (
+    StageError,
+    StageResult,
+    load_config,
+    require_env_path,
+    stage_artefacts,
+)
+from stage_common.output import (
+    StagingOutputData,
+    prepare_output_data,
+    write_github_output,
+)
 
 # Add project root for bool_utils import
 prepend_project_root(start=_SCRIPT_DIR)
@@ -47,6 +59,29 @@ app: App = App(
     help="Stage release artefacts using a TOML configuration file.",
     config=cyclopts.config.Env("INPUT_", command=False),
 )
+
+
+def _write_stage_outputs(
+    github_output: Path,
+    result: StageResult,
+    *,
+    normalize_windows_paths: bool,
+) -> None:
+    """Write staged artefact outputs to the GitHub Actions output file."""
+    exported_outputs = prepare_output_data(
+        StagingOutputData(
+            staging_dir=result.staging_dir,
+            staged_paths=result.staged_artefacts,
+            outputs=result.outputs,
+            checksums=result.checksums,
+            powershell_help_dir=result.powershell_help_dir,
+        )
+    )
+    write_github_output(
+        github_output,
+        exported_outputs,
+        normalize_windows_paths=normalize_windows_paths,
+    )
 
 
 @app.default
@@ -77,6 +112,7 @@ def main(
         configuration file is missing or the staging pipeline reports an
         error.
     """
+    logging.basicConfig(level=logging.INFO)
     try:
         config_path = Path(config_file)
         github_output = require_env_path("GITHUB_OUTPUT")
@@ -84,9 +120,12 @@ def main(
         normalize = coerce_bool(normalize_windows_paths, default=False)
         result = stage_artefacts(
             config,
-            github_output,
-            normalize_windows_paths=normalize,
             ps_module_name=ps_module_name,
+        )
+        _write_stage_outputs(
+            github_output,
+            result,
+            normalize_windows_paths=normalize,
         )
     except (FileNotFoundError, StageError, ValueError) as exc:
         print(f"::error title=Staging Failure::{exc}", file=sys.stderr)

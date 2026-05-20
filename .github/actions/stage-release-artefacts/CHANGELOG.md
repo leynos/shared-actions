@@ -13,3 +13,5 @@ in this file.
 - Optional artefacts with fallback alternatives
 - Windows path normalisation option
 - Export staged paths and checksums as workflow outputs
+- Optional cargo-binstall tar.gz archive staging with checksum and
+  `binstall-archive-path` output

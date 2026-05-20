@@ -7,7 +7,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -442,8 +442,11 @@ Retrospective`.
   cargo-binstall job and the act behavioural recogniser checks the new public
   output. Focused local validation passes; local act execution is skipped
   because `act` or a container runtime is unavailable.
-- [ ] Milestone 5 complete: documentation, final gates, CodeRabbit review, and
-  final commits complete.
+- [x] 2026-05-20: Milestone 5 implementation complete: README and changelog
+  document cargo-binstall archive staging, the new output, and the manifest
+  metadata boundary.
+- [x] 2026-05-20: Milestone 5 complete: documentation, final gates, CodeRabbit
+  review, and final commits complete.
 
 ## Surprises & Discoveries
 
@@ -474,6 +477,11 @@ Retrospective`.
 - 2026-05-20: `act` is not installed or not runnable with a container runtime
   in this environment. The new opt-in act test collects and is skipped by the
   repository's existing `skip_unless_act` guard.
+- 2026-05-20: Updating both README and CHANGELOG would have exceeded the
+  12-file tolerance if `BinstallConfig` stayed exported from
+  `stage_common.__init__`. That export was unnecessary because internal tests
+  already import from `stage_common.config`, so it was removed and focused
+  stage tests still pass.
 
 ## Decision Log
 
@@ -495,10 +503,14 @@ Retrospective`.
   separate production module. Rationale: this keeps the touched file count
   within the ExecPlan tolerance and the new behaviour is still small enough to
   keep readable in the existing staging pipeline.
+- 2026-05-20: Do not export `BinstallConfig` from the `stage_common` package
+  facade. Rationale: the dataclass is an internal config detail, tests can
+  import it from `stage_common.config`, and this keeps documentation work
+  within the 12-file tolerance.
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. Milestones 1-3 have local focused validation:
+Implementation is complete. Milestones 1-3 have local focused validation:
 `uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist
 pytest .github/actions/stage-release-artefacts/tests/test_stage.py
 --snapshot-update -v` passed with 45 tests. `make check-fmt`, `make lint`, and
@@ -529,3 +541,24 @@ syrupy --with hypothesis pytest tests/workflows/test_action_behaviors.py -k
 skipped it because `act` or a container runtime is unavailable locally.
 `coderabbit review --agent` for milestone 4 also initially hit a recoverable
 rate limit, then passed with 0 findings after the requested wait.
+Milestone 5 documentation updates have been made to the action README and
+CHANGELOG. Final validation results:
+
+- `make check-fmt` passed.
+- `UV_PYTHON=3.13 make typecheck` passed.
+- `make lint` passed.
+- `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
+  --with pytest-xdist pytest
+  .github/actions/stage-release-artefacts/tests/test_stage.py
+  tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or
+  stage-release-artefacts or stage_artefacts or binstall' -v` passed with 45
+  passed, 3 skipped, and 8 deselected.
+- `UV_PYTHON=3.13 make test` still fails only in unrelated
+  `.github/actions/rust-build-release` tests, with 773 passed, 14 skipped, and
+  12 failed.
+- `make markdownlint` passed.
+- `coderabbit review --agent` initially hit a recoverable 1 minute 3 second
+  rate limit, then passed with 0 findings after the requested wait.
+
+Local act execution remains skipped because `act` or a container runtime is not
+available in this environment.

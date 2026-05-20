@@ -31,6 +31,7 @@ glob patterns, template variables, and optional artefacts.
 | `man-path` | Absolute path to the staged man page (when configured) |
 | `license-path` | Absolute path to the staged licence file (when configured) |
 | `powershell_help_dir` | Absolute path to the staged PowerShell module directory, or an empty string when no module was staged |
+| `binstall-archive-path` | Absolute path to the cargo-binstall archive, when enabled |
 
 ## Usage
 
@@ -120,6 +121,75 @@ The following variables are available in `source`, `destination`, and
 | `required` | bool | `true` | Whether missing source is an error |
 | `alternatives` | list | `[]` | Fallback patterns if source not found |
 
+### Cargo-Binstall Archives
+
+Set `[common.binstall]` or `[targets.<name>.binstall]` to create a tar.gz
+archive suitable for `cargo-binstall` release metadata. The feature is opt-in;
+targets without `enabled = true` keep the normal staging behaviour.
+
+```toml
+[common]
+bin_name = "myapp"
+dist_dir = "dist"
+checksum_algorithm = "sha256"
+
+[common.binstall]
+enabled = true
+manifest_path = "Cargo.toml"
+archive_name = "{package_name}-{version}-{target}.tar.gz"
+binary_source = "target/{target}/release/{bin_name}{bin_ext}"
+binary_name = "{bin_name}{bin_ext}"
+output = "binstall_archive_path"
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+```
+
+This creates an archive such as
+`dist/myapp_linux_x86_64/myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz`, writes a
+matching `.sha256` sidecar, and exports the path through
+`binstall-archive-path`.
+
+The Cargo manifest should publish compatible cargo-binstall metadata, for
+example:
+
+```toml
+[package.metadata.binstall.overrides.'cfg(target_os = "linux")']
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.tar.gz"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+```
+
+The action only creates release assets. It does not mutate `Cargo.toml`.
+
+#### Cargo-Binstall Options
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `enabled` | bool | `false` | Create the cargo-binstall archive |
+| `manifest_path` | string | `Cargo.toml` | Cargo manifest used for package name, version, and binary metadata |
+| `package_name` | string | manifest package name | Override package name used in templates |
+| `version` | string | manifest package version | Override package version used in templates |
+| `bin_name` | string | common `bin_name` | Override binary name used in templates |
+| `archive_name` | string | `{package_name}-{version}-{target}.tar.gz` | Archive filename in the staging directory |
+| `binary_source` | string | `target/{target}/release/{bin_name}{bin_ext}` | Binary path or glob to include in the archive |
+| `binary_name` | string | `{bin_name}{bin_ext}` | Archive member name for the binary |
+| `output` | string | `binstall_archive_path` | Internal GitHub output key mapped to `binstall-archive-path` |
+
+#### Cargo-Binstall Template Variables
+
+The cargo-binstall templates support all standard staging variables plus:
+
+| Variable | Description |
+| -------- | ----------- |
+| `{package_name}` | Cargo package name, or `package_name` override |
+| `{version}` | Cargo package version, including workspace-inherited versions |
+
+Archive member names are validated before writing the tarball. Empty names,
+absolute paths, parent traversal with `..`, and directory entries are rejected.
+
 ## PowerShell MAML sidecar artefacts
 
 Declare generated PowerShell MAML files as individual target-specific
@@ -200,7 +270,8 @@ steps must guard on `powershell_help_dir` being non-empty before using it.
    - Falls back to alternatives if primary source missing
 3. **Staging**: Copies matched files to the staging directory
 4. **Checksums**: Generates `.sha256` sidecar files for each staged artefact
-5. **Output**: Exports paths and metadata to `GITHUB_OUTPUT`
+5. **Cargo-binstall archive**: Optionally creates a tar.gz archive and checksum
+6. **Output**: Exports paths and metadata to `GITHUB_OUTPUT`
 
 ### Path Resolution
 
@@ -211,11 +282,12 @@ steps must guard on `powershell_help_dir` being non-empty before using it.
 ### Error Handling
 
 The action fails when:
-
 - Configuration file is missing or invalid
 - Required artefact sources are not found
 - Template variables reference undefined keys
 - Destination paths escape the staging directory
+- Cargo-binstall archive member names are unsafe
+- Cargo-binstall archive creation is enabled and the binary source is missing
 
 ## Release History
 

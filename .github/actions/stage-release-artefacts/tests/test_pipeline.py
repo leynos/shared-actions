@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import tarfile
+import typing as typ
 from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from pytest_bdd import given as bdd_given
+from pytest_bdd import parsers, scenario, then, when
 from syspath_hack import prepend_to_syspath
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
-from stage_common.config import ArtefactConfig, StagingConfig
-from stage_common.pipeline import stage_artefacts
+from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig
+from stage_common.pipeline import (
+    StageResult,
+    _validate_archive_member_name,
+    stage_artefacts,
+)
 
 # Restricted to the Basic Multilingual Plane (max_codepoint=0xFFFF) to avoid
 # macOS EILSEQ on supplementary characters. Excludes surrogates (Cs), C0/C1
@@ -57,6 +65,14 @@ HYPOTHESIS_SETTINGS = settings(
     max_examples=25,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+ARCHIVE_MEMBER_NAMES = st.text(
+    alphabet=st.characters(
+        blacklist_characters="/\\\0",
+        blacklist_categories=("Cs",),
+    ),
+    min_size=1,
+    max_size=40,
+).filter(lambda value: value not in {".", ".."})
 
 
 def _assert_path_traversal_rejected(tmp_path: Path, destination: str) -> None:
@@ -189,6 +205,164 @@ class TestStageArtefacts:
         assert checksum_file.exists()
         contents = checksum_file.read_text(encoding="utf-8")
         assert "myapp" in contents
+
+    def test_creates_binstall_archive(self, tmp_path: Path) -> None:
+        """Enabled cargo-binstall config creates an archive and checksum."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.2.3"\n',
+            encoding="utf-8",
+        )
+        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
+        release_dir.mkdir(parents=True)
+        (release_dir / "myapp").write_text("binary content", encoding="utf-8")
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="myapp",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[ArtefactConfig(source="target/{target}/release/{bin_name}")],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+            binstall=BinstallConfig(enabled=True),
+        )
+
+        result = stage_artefacts(config)
+
+        archive = result.staging_dir / "myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz"
+        assert archive.exists()
+        assert (archive.with_name(f"{archive.name}.sha256")).exists()
+        with tarfile.open(archive, "r:gz") as package:
+            assert package.getnames() == ["myapp"]
+            member = package.extractfile("myapp")
+            assert member is not None
+            assert member.read() == b"binary content"
+        assert result.outputs["binstall_archive_path"] == archive
+        assert archive.name in [path.name for path in result.staged_artefacts]
+
+    def test_binstall_archive_resolves_workspace_version(self, tmp_path: Path) -> None:
+        """Workspace-inherited Cargo versions are supported."""
+        workspace = tmp_path / "workspace"
+        crate_dir = workspace / "crates/myapp"
+        crate_dir.mkdir(parents=True)
+        (workspace / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/myapp"]\n'
+            '[workspace.package]\nversion = "2.0.0"\n',
+            encoding="utf-8",
+        )
+        (crate_dir / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion.workspace = true\n',
+            encoding="utf-8",
+        )
+        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
+        release_dir.mkdir(parents=True)
+        (release_dir / "myapp").write_text("binary content", encoding="utf-8")
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="myapp",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[ArtefactConfig(source="target/{target}/release/{bin_name}")],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+            binstall=BinstallConfig(
+                enabled=True,
+                manifest_path="crates/myapp/Cargo.toml",
+            ),
+        )
+
+        result = stage_artefacts(config)
+
+        assert (
+            result.staging_dir / "myapp-2.0.0-x86_64-unknown-linux-gnu.tar.gz"
+        ).exists()
+
+    def test_binstall_explicit_metadata_takes_precedence(self, tmp_path: Path) -> None:
+        """Explicit binstall metadata avoids Cargo manifest values."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Cargo.toml").write_text(
+            '[package]\nname = "manifest-name"\nversion = "0.0.1"\n',
+            encoding="utf-8",
+        )
+        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
+        release_dir.mkdir(parents=True)
+        (release_dir / "cli").write_text("binary content", encoding="utf-8")
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="cli",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+            binstall=BinstallConfig(
+                enabled=True,
+                package_name="configured-name",
+                version="9.9.9",
+                bin_name="cli",
+            ),
+        )
+
+        result = stage_artefacts(config)
+
+        assert (
+            result.staging_dir / "configured-name-9.9.9-x86_64-unknown-linux-gnu.tar.gz"
+        ).exists()
+
+    def test_binstall_archive_requires_source_binary(self, tmp_path: Path) -> None:
+        """Missing cargo-binstall binary source raises StageError."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.2.3"\n',
+            encoding="utf-8",
+        )
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="myapp",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+            binstall=BinstallConfig(enabled=True),
+        )
+
+        with pytest.raises(StageError, match="cargo-binstall binary source"):
+            stage_artefacts(config)
+
+    def test_binstall_checksum_map_includes_archive(self, tmp_path: Path) -> None:
+        """Archive digests are included in the checksum map."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.2.3"\n',
+            encoding="utf-8",
+        )
+        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
+        release_dir.mkdir(parents=True)
+        (release_dir / "myapp").write_text("binary content", encoding="utf-8")
+        config = StagingConfig(
+            workspace=workspace,
+            bin_name="myapp",
+            dist_dir="dist",
+            checksum_algorithm="sha256",
+            artefacts=[],
+            platform="linux",
+            arch="x86_64",
+            target="x86_64-unknown-linux-gnu",
+            binstall=BinstallConfig(enabled=True),
+        )
+
+        result = stage_artefacts(config)
+
+        assert "myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz" in result.checksums
 
     @staticmethod
     def _make_powershell_workspace(
@@ -480,3 +654,130 @@ class TestStageArtefacts:
     ) -> None:
         """Generated parent traversal destinations cannot escape staging."""
         _assert_path_traversal_rejected(tmp_path, f"../{destination}")
+
+
+class TestValidateArchiveMemberName:
+    """Tests for cargo-binstall archive member path validation."""
+
+    @HYPOTHESIS_SETTINGS
+    @given(member_name=ARCHIVE_MEMBER_NAMES)
+    def test_accepts_simple_relative_file_names(self, member_name: str) -> None:
+        """Simple relative member names are accepted."""
+        assert _validate_archive_member_name(member_name) == member_name
+
+    @pytest.mark.parametrize(
+        "member_name",
+        ["", "/myapp", "../myapp", "nested/../myapp", "myapp/"],
+    )
+    def test_rejects_unsafe_member_names(self, member_name: str) -> None:
+        """Unsafe archive member names are rejected."""
+        with pytest.raises(StageError):
+            _validate_archive_member_name(member_name)
+
+
+@pytest.fixture
+def bdd_context(tmp_path: Path) -> dict[str, object]:
+    """Return mutable context for pytest-bdd steps."""
+    return {"workspace": tmp_path / "workspace", "target": ""}
+
+
+@scenario(
+    "features/binstall_archive.feature",
+    "staging a Linux target creates a cargo-binstall archive",
+)
+def test_binstall_archive_feature() -> None:
+    """Run the cargo-binstall archive staging behaviour scenario."""
+
+
+@bdd_given(
+    parsers.parse(
+        'a workspace with a Cargo package named "{name}" at version "{version}"'
+    )
+)
+def bdd_workspace_with_cargo_package(
+    bdd_context: dict[str, object], name: str, version: str
+) -> None:
+    """Create a Cargo package manifest for the BDD scenario."""
+    workspace = typ.cast("Path", bdd_context["workspace"])
+    workspace.mkdir()
+    (workspace / "Cargo.toml").write_text(
+        f'[package]\nname = "{name}"\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
+    bdd_context["bin_name"] = name
+
+
+@bdd_given(parsers.parse('a release binary for target "{target}"'))
+def bdd_release_binary(bdd_context: dict[str, object], target: str) -> None:
+    """Create a release binary for the BDD scenario."""
+    workspace = typ.cast("Path", bdd_context["workspace"])
+    bin_name = typ.cast("str", bdd_context["bin_name"])
+    release_dir = workspace / "target" / target / "release"
+    release_dir.mkdir(parents=True)
+    (release_dir / bin_name).write_text("binary content", encoding="utf-8")
+    bdd_context["target"] = target
+
+
+@bdd_given("stage-release-artefacts has cargo-binstall archive creation enabled")
+def bdd_binstall_enabled(bdd_context: dict[str, object]) -> None:
+    """Configure cargo-binstall archive creation for the BDD scenario."""
+    workspace = typ.cast("Path", bdd_context["workspace"])
+    bin_name = typ.cast("str", bdd_context["bin_name"])
+    target = typ.cast("str", bdd_context["target"])
+    bdd_context["config"] = StagingConfig(
+        workspace=workspace,
+        bin_name=bin_name,
+        dist_dir="dist",
+        checksum_algorithm="sha256",
+        artefacts=[ArtefactConfig(source="target/{target}/release/{bin_name}")],
+        platform="linux",
+        arch="x86_64",
+        target=target,
+        target_key="linux-x86_64",
+        binstall=BinstallConfig(enabled=True),
+    )
+
+
+@when(parsers.parse('the staging action runs for target "{target_key}"'))
+def bdd_stage_runs(bdd_context: dict[str, object], target_key: str) -> None:
+    """Run stage_artefacts for the BDD scenario."""
+    config = typ.cast("StagingConfig", bdd_context["config"])
+    assert config.target_key == target_key
+    bdd_context["result"] = stage_artefacts(config)
+
+
+@then(parsers.parse('the staged files include "{archive_name}"'))
+def bdd_staged_files_include_archive(
+    bdd_context: dict[str, object], archive_name: str
+) -> None:
+    """Assert the expected archive was staged."""
+    result = typ.cast("StageResult", bdd_context["result"])
+    archive = result.staging_dir / archive_name
+    assert archive.exists()
+    bdd_context["archive"] = archive
+
+
+@then(parsers.parse('the archive contains "{member_name}" at the root'))
+def bdd_archive_contains_member(
+    bdd_context: dict[str, object], member_name: str
+) -> None:
+    """Assert the archive contains the expected root-level binary."""
+    archive = typ.cast("Path", bdd_context["archive"])
+    with tarfile.open(archive, "r:gz") as package:
+        assert package.getnames() == [member_name]
+
+
+@then("a SHA-256 sidecar exists for the archive")
+def bdd_archive_checksum_exists(bdd_context: dict[str, object]) -> None:
+    """Assert the archive checksum sidecar exists."""
+    archive = typ.cast("Path", bdd_context["archive"])
+    assert archive.with_name(f"{archive.name}.sha256").exists()
+
+
+@then(parsers.parse('the GitHub output includes "{output_name}"'))
+def bdd_output_includes_archive_path(
+    bdd_context: dict[str, object], output_name: str
+) -> None:
+    """Assert the staging result contains the binstall archive output key."""
+    result = typ.cast("StageResult", bdd_context["result"])
+    assert output_name in result.outputs

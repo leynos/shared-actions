@@ -11,7 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
-from stage_common.config import ArtefactConfig, StagingConfig, load_config
+from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig, load_config
 
 
 class TestArtefactConfig:
@@ -132,6 +132,76 @@ required = false
         assert len(config.artefacts) == 2
         assert config.artefacts[1].destination == "MyTool/MyTool.psm1"
         assert config.artefacts[1].required is False
+
+    def test_loads_binstall_config(self, tmp_path: Path) -> None:
+        """load_config parses optional cargo-binstall settings."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "binary"
+
+[common.binstall]
+enabled = true
+manifest_path = "crates/myapp/Cargo.toml"
+version = "1.2.3"
+archive_name = "{package_name}-{version}-{target}.tar.gz"
+binary_source = "target/{target}/release/{bin_name}{bin_ext}"
+binary_name = "{bin_name}{bin_ext}"
+output = "binstall_archive_path"
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+
+[targets.linux-x86_64.binstall]
+package_name = "target-package"
+""",
+        )
+
+        config = load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
+        assert config.binstall.enabled is True
+        assert config.binstall.manifest_path == "crates/myapp/Cargo.toml"
+        assert config.binstall.version == "1.2.3"
+        assert config.binstall.archive_name == (
+            "{package_name}-{version}-{target}.tar.gz"
+        )
+        assert config.binstall.package_name == "target-package"
+
+    def test_target_binstall_config_can_disable_common_default(
+        self, tmp_path: Path
+    ) -> None:
+        """Target-level binstall config overrides common defaults."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "binary"
+
+[common.binstall]
+enabled = true
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+
+[targets.linux-x86_64.binstall]
+enabled = false
+""",
+        )
+
+        config = load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
+        assert config.binstall == BinstallConfig(enabled=False)
 
     def test_rejects_dest_and_destination_together(self, tmp_path: Path) -> None:
         """Artefact entries must not provide both destination spellings."""

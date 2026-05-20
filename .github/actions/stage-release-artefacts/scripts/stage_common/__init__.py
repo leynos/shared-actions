@@ -7,13 +7,14 @@ and GitHub Actions output writing.
 
 from __future__ import annotations
 
-from .config import ArtefactConfig, StagingConfig, load_config
+from .config import ArtefactConfig, BinstallConfig, StagingConfig, load_config
 from .environment import require_env_path
 from .errors import StageError
 from .pipeline import StageResult, stage_artefacts
 
 __all__ = [
     "ArtefactConfig",
+    "BinstallConfig",
     "StageError",
     "StageResult",
     "StagingConfig",

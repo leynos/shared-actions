@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import typing as typ
 from pathlib import Path
 
@@ -110,6 +111,55 @@ destination = "MyTool/MyTool.psm1"
         assert _redact_paths(output, staging_dir.parent, staging_dir) == snapshot(
             name="populated_powershell_help_dir"
         )
+
+    def test_main_writes_binstall_archive_output(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        snapshot: SnapshotAssertion,
+    ) -> None:
+        """CLI output includes the cargo-binstall archive path when enabled."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "Cargo.toml").write_text(
+            '[package]\nname = "myapp"\nversion = "1.2.3"\n',
+            encoding="utf-8",
+        )
+        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
+        release_dir.mkdir(parents=True)
+        (release_dir / "myapp").write_text("binary content", encoding="utf-8")
+        output_file = tmp_path / "github-output"
+        monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        config_file = self._write_config(
+            tmp_path,
+            """
+[common]
+bin_name = "myapp"
+
+[[common.artefacts]]
+source = "target/{target}/release/{bin_name}"
+
+[common.binstall]
+enabled = true
+
+[targets.linux]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+
+        main(str(config_file), "linux")
+
+        output = output_file.read_text(encoding="utf-8")
+        staging_dir = workspace / "dist" / "myapp_linux_x86_64"
+        normalized = re.sub(
+            r'"[0-9a-f]{64}"',
+            '"<sha256>"',
+            _redact_paths(output, staging_dir.parent, staging_dir),
+        )
+        assert normalized == snapshot(name="binstall_archive_output")
 
     def test_emit_skipped_artefact_warnings(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

@@ -7,7 +7,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 ## Purpose / big picture
 
@@ -40,8 +40,8 @@ binstall enabled produces a staged archive such as
 matching `.sha256` file, a `binstall-archive-path` output, and an archive whose
 contents include `myapp` at the archive root.
 
-The initial ExecPlan is a draft. Do not implement it until the user explicitly
-approves the plan or requests revisions.
+The user approved implementation on 2026-05-20. Implementation is proceeding
+milestone-by-milestone with the tolerances in this plan.
 
 ## Repository orientation
 
@@ -430,11 +430,14 @@ Retrospective`.
   because it already owns staging, checksums, output maps, and workflow-visible
   artefacts.
 - [x] 2026-05-19: Drafted this ExecPlan.
-- [ ] Await explicit user approval before implementation.
-- [ ] Milestone 1 complete: dependencies and failing/specification tests in
+- [x] 2026-05-20: User approved implementation; status changed to
+  `IN PROGRESS`.
+- [x] 2026-05-20: Milestone 1 complete: dependencies and specification tests in
   place.
-- [ ] Milestone 2 complete: config model and metadata resolution implemented.
-- [ ] Milestone 3 complete: archive creation and outputs implemented.
+- [x] 2026-05-20: Milestone 2 complete: config model and metadata resolution
+  implemented.
+- [x] 2026-05-20: Milestone 3 complete: archive creation and outputs
+  implemented locally; focused stage-release tests pass with snapshots.
 - [ ] Milestone 4 complete: BDD and end-to-end workflow coverage implemented.
 - [ ] Milestone 5 complete: documentation, final gates, CodeRabbit review, and
   final commits complete.
@@ -450,6 +453,18 @@ Retrospective`.
 - 2026-05-19: `export-cargo-metadata` and `cargo_utils.py` already resolve
   workspace-inherited Cargo versions, so binstall archive naming does not need
   new manifest-parsing primitives.
+- 2026-05-20: The Makefile test target uses ad hoc `uv run --with` dependency
+  flags, so the requested test-only dependencies also need to be added there,
+  not only to `[dependency-groups].dev`.
+- 2026-05-20: The existing action output convention uses underscored internal
+  `GITHUB_OUTPUT` keys and hyphenated composite action outputs. The new
+  internal key is `binstall_archive_path`; the public action output is
+  `binstall-archive-path`.
+- 2026-05-20: `make test` currently fails in unrelated
+  `.github/actions/rust-build-release` tests even when rerun under Python 3.13.
+  The failures are outside the touched files and include direct Typer command
+  calls receiving `OptionInfo` defaults plus existing cross/runtime assertions.
+  The focused `stage-release-artefacts` test module passes.
 
 ## Decision Log
 
@@ -466,10 +481,25 @@ Retrospective`.
 - 2026-05-19: Use development dependencies for pytest-bdd, syrupy, and
   hypothesis. Rationale: the user explicitly requested those validation styles,
   and they are test-only tools.
+- 2026-05-20: Keep the cargo-binstall implementation inside the existing
+  `stage_common.config` and `stage_common.pipeline` modules instead of adding a
+  separate production module. Rationale: this keeps the touched file count
+  within the ExecPlan tolerance and the new behaviour is still small enough to
+  keep readable in the existing staging pipeline.
 
 ## Outcomes & Retrospective
 
-No implementation has started. The current outcome is a draft design and
-delivery plan awaiting user approval. When implementation proceeds, update this
-section with the final shipped behaviour, validation evidence, commits, lessons
-learned, and any skipped gates.
+Implementation is in progress. Milestones 1-3 have local focused validation:
+`uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist
+pytest .github/actions/stage-release-artefacts/tests/test_stage.py
+--snapshot-update -v` passed with 45 tests. `make check-fmt`, `make lint`, and
+`UV_PYTHON=3.13 make typecheck` pass. `UV_PYTHON=3.13 make test` fails in
+unrelated `rust-build-release` tests; this is recorded as a gate exception
+pending either a pre-existing-failure waiver or a separate fix outside the
+current feature scope. `coderabbit review --agent` initially hit a recoverable
+rate limit, then passed with 0 findings after the requested wait. The focused
+post-snapshot test command
+`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
+--with pytest-xdist pytest
+.github/actions/stage-release-artefacts/tests/test_stage.py -v` passed with 45
+tests and 1 snapshot.

@@ -17,6 +17,7 @@ from .errors import StageError
 
 __all__ = [
     "ArtefactConfig",
+    "BinstallConfig",
     "StagingConfig",
     "load_config",
 ]
@@ -32,7 +33,19 @@ class ArtefactConfig:
     destination: str | None = None
     alternatives: list[str] = dataclasses.field(default_factory=list)
 
+@dataclasses.dataclass(slots=True)
+class BinstallConfig:
+    """Describe optional cargo-binstall archive generation."""
 
+    enabled: bool = False
+    manifest_path: str = "Cargo.toml"
+    package_name: str | None = None
+    version: str | None = None
+    bin_name: str | None = None
+    archive_name: str = "{package_name}-{version}-{target}.tar.gz"
+    binary_source: str = "target/{target}/release/{bin_name}{bin_ext}"
+    binary_name: str = "{bin_name}{bin_ext}"
+    output: str = "binstall_archive_path"
 @dataclasses.dataclass(slots=True)
 class StagingConfig:
     """Concrete configuration produced by :func:`load_config`."""
@@ -48,6 +61,7 @@ class StagingConfig:
     bin_ext: str = ""
     staging_dir_template: str = "{bin_name}_{platform}_{arch}"
     target_key: str | None = None
+    binstall: BinstallConfig = dataclasses.field(default_factory=BinstallConfig)
 
     def staging_dir(self) -> Path:
         """Return the absolute staging directory path."""
@@ -71,6 +85,10 @@ class StagingConfig:
             "bin_ext": self.bin_ext or "",
             "target_key": self.target_key or "",
         }
+        if self.binstall.package_name is not None:
+            base_context["package_name"] = self.binstall.package_name
+        if self.binstall.version is not None:
+            base_context["version"] = self.binstall.version
         template_context = base_context | {
             "staging_dir_template": self.staging_dir_template
         }
@@ -137,6 +155,7 @@ def load_config(
             common.get("staging_dir_template", "{bin_name}_{platform}_{arch}"),
         ),
         target_key=target_key,
+        binstall=_make_binstall_config(common, target_cfg, config_file),
     )
 
 
@@ -209,7 +228,17 @@ def _optional_string_list(
             raise StageError(msg)
     return value
 
-
+def _optional_string(
+    entry: dict[str, typ.Any], key: str, prefix: str, default: str | None
+) -> str | None:
+    """Validate and return an optional string field."""
+    value = entry.get(key, default)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        msg = f"Artefact '{key}' must be a string, got {type(value).__name__} {prefix}"
+        raise StageError(msg)
+    return value
 def _parse_artefact_entry(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> ArtefactConfig:
@@ -249,7 +278,62 @@ def _make_artefacts(
         for index, entry in enumerate(entries, start=1)
     ]
 
+def _optional_mapping(
+    section: dict[str, typ.Any], key: str, label: str, config_path: Path
+) -> dict[str, typ.Any]:
+    """Return an optional nested mapping from a config section."""
+    value = section.get(key, {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        msg = f"Configuration key [{label}.{key}] in {config_path} must be a table"
+        raise StageError(msg)
+    return typ.cast("dict[str, typ.Any]", value)
 
+def _merge_binstall_entries(
+    common_entry: dict[str, typ.Any], target_entry: dict[str, typ.Any]
+) -> dict[str, typ.Any]:
+    """Merge common and target-specific binstall configuration."""
+    return common_entry | target_entry
+
+def _make_binstall_config(
+    common: dict[str, typ.Any], target_cfg: dict[str, typ.Any], config_path: Path
+) -> BinstallConfig:
+    """Build BinstallConfig from common and target-specific sections."""
+    common_entry = _optional_mapping(common, "binstall", "common", config_path)
+    target_entry = _optional_mapping(
+        target_cfg,
+        "binstall",
+        "targets.<target>",
+        config_path,
+    )
+    entry = _merge_binstall_entries(common_entry, target_entry)
+    prefix = f"in [binstall] configuration of {config_path}"
+    return BinstallConfig(
+        enabled=_optional_bool(entry, "enabled", prefix, default=False),
+        manifest_path=_optional_string(entry, "manifest_path", prefix, "Cargo.toml")
+        or "Cargo.toml",
+        package_name=_optional_string(entry, "package_name", prefix, None),
+        version=_optional_string(entry, "version", prefix, None),
+        bin_name=_optional_string(entry, "bin_name", prefix, None),
+        archive_name=_optional_string(
+            entry, "archive_name", prefix, "{package_name}-{version}-{target}.tar.gz"
+        )
+        or "{package_name}-{version}-{target}.tar.gz",
+        binary_source=_optional_string(
+            entry,
+            "binary_source",
+            prefix,
+            "target/{target}/release/{bin_name}{bin_ext}",
+        )
+        or "target/{target}/release/{bin_name}{bin_ext}",
+        binary_name=_optional_string(
+            entry, "binary_name", prefix, "{bin_name}{bin_ext}"
+        )
+        or "{bin_name}{bin_ext}",
+        output=_optional_string(entry, "output", prefix, "binstall_archive_path")
+        or "binstall_archive_path",
+    )
 def _require_keys(
     section: dict[str, typ.Any], keys: set[str], label: str, config_path: Path
 ) -> None:

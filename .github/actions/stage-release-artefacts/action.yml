@@ -53,6 +53,9 @@ outputs:
       no PowerShell artefacts are present. Callers must guard on this being
       non-empty before use.
     value: ${{ steps.run-stage.outputs.powershell_help_dir }}
+  binstall-archive-path:
+    description: Absolute path to the staged cargo-binstall archive, when enabled
+    value: ${{ steps.run-stage.outputs.binstall_archive_path }}
 
 runs:
   using: composite

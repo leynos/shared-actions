@@ -282,6 +282,7 @@ steps must guard on `powershell_help_dir` being non-empty before using it.
 ### Error Handling
 
 The action fails when:
+
 - Configuration file is missing or invalid
 - Required artefact sources are not found
 - Template variables reference undefined keys

@@ -558,7 +558,22 @@ CHANGELOG. Final validation results:
   12 failed.
 - `make markdownlint` passed.
 - `coderabbit review --agent` initially hit a recoverable 1 minute 3 second
-  rate limit, then passed with 0 findings after the requested wait.
+  rate limit, then passed with 0 findings after the requested wait. After
+  README markdownlint cleanup, the adjusted final review hit a recoverable
+  2 minute 46 second rate limit and then passed with 0 findings.
 
 Local act execution remains skipped because `act` or a container runtime is not
 available in this environment.
+
+Commits on `feat/binstall-metadata-audit`:
+
+- `f26860a` Plan cargo-binstall archive staging support
+- `48c09cc` Add cargo-binstall archive staging support
+- `126c539` Add cargo-binstall workflow coverage
+- `81e521c` Keep binstall config internal
+- `8f9f4e5` Document cargo-binstall archive staging
+- final checkpoint commit: records README markdownlint cleanup and this
+  validation update
+
+The final branch touches 12 non-snapshot files plus one syrupy snapshot,
+matching the file-count tolerance.

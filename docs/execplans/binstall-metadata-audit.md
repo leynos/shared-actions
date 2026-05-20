@@ -438,7 +438,10 @@ Retrospective`.
   implemented.
 - [x] 2026-05-20: Milestone 3 complete: archive creation and outputs
   implemented locally; focused stage-release tests pass with snapshots.
-- [ ] Milestone 4 complete: BDD and end-to-end workflow coverage implemented.
+- [x] 2026-05-20: Milestone 4 complete: the act workflow now has a
+  cargo-binstall job and the act behavioural recogniser checks the new public
+  output. Focused local validation passes; local act execution is skipped
+  because `act` or a container runtime is unavailable.
 - [ ] Milestone 5 complete: documentation, final gates, CodeRabbit review, and
   final commits complete.
 
@@ -465,6 +468,12 @@ Retrospective`.
   The failures are outside the touched files and include direct Typer command
   calls receiving `OptionInfo` defaults plus existing cross/runtime assertions.
   The focused `stage-release-artefacts` test module passes.
+- 2026-05-20: The existing act workflow tests assert outputs by matching log
+  text, so the cargo-binstall end-to-end case echoes `binstall-archive-path`
+  before asserting the archive and checksum sidecar on disk.
+- 2026-05-20: `act` is not installed or not runnable with a container runtime
+  in this environment. The new opt-in act test collects and is skipped by the
+  repository's existing `skip_unless_act` guard.
 
 ## Decision Log
 
@@ -496,10 +505,27 @@ pytest .github/actions/stage-release-artefacts/tests/test_stage.py
 `UV_PYTHON=3.13 make typecheck` pass. `UV_PYTHON=3.13 make test` fails in
 unrelated `rust-build-release` tests; this is recorded as a gate exception
 pending either a pre-existing-failure waiver or a separate fix outside the
-current feature scope. `coderabbit review --agent` initially hit a recoverable
-rate limit, then passed with 0 findings after the requested wait. The focused
-post-snapshot test command
+current feature scope. The latest full run reported 773 passed, 14 skipped, and
+12 failed, all in `.github/actions/rust-build-release`.
+`coderabbit review --agent` initially hit a recoverable rate limit, then passed
+with 0 findings after the requested wait. The focused post-snapshot test command
 `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
 --with pytest-xdist pytest
 .github/actions/stage-release-artefacts/tests/test_stage.py -v` passed with 45
-tests and 1 snapshot.
+tests and 1 snapshot. Milestone 4 added the
+`test-stage-artefacts-binstall` workflow job and an act behavioural assertion
+for `binstall-archive-path`. The focused changed-surface command
+`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
+--with pytest-xdist pytest
+.github/actions/stage-release-artefacts/tests/test_stage.py
+tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or
+stage-release-artefacts or stage_artefacts or binstall' -v` passed with 45
+tests, 1 snapshot, 3 skipped act tests, and 8 deselected. The opt-in act
+selection
+`ACT_WORKFLOW_TESTS=1 UV_PYTHON=3.13 uv run --with typer --with packaging
+--with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with
+syrupy --with hypothesis pytest tests/workflows/test_action_behaviors.py -k
+'stage-release-artefacts-binstall' -v` collected the new end-to-end case and
+skipped it because `act` or a container runtime is unavailable locally.
+`coderabbit review --agent` for milestone 4 also initially hit a recoverable
+rate limit, then passed with 0 findings after the requested wait.

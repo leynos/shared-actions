@@ -90,7 +90,11 @@ runs:
           exit 1
         fi
         bash "$INSTALLER_PATH"
-        cargo-binstall -V | grep -q "1.16.6"
+        if ! cargo-binstall -V | grep -q "1.16.6"; then
+          echo "cargo-binstall version verification failed: expected 1.16.6" >&2
+          cargo-binstall -V >&2
+          exit 1
+        fi
       shell: bash
     - name: Install uv
       # v6.4.3

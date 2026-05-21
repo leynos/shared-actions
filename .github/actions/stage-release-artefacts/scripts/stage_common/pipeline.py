@@ -32,7 +32,6 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from .errors import StageError
-
 from .output import validate_no_reserved_key_collisions
 from .resolution import match_candidate_path
 
@@ -152,9 +151,7 @@ def _collect_artefacts(env: StageEnv) -> StagingState:
         _stage_configured_artefact(env, artefact, state)
 
     if env.config.binstall.enabled:
-        archive_path = _stage_binstall_archive(
-            env.config, env.staging_dir, env.context
-        )
+        archive_path = _stage_binstall_archive(env.config, env.staging_dir, env.context)
         state.staged_paths.append(archive_path)
         relative_path = archive_path.relative_to(env.staging_dir).as_posix()
         state.checksums[relative_path] = _write_checksum(

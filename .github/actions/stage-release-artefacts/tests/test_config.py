@@ -11,7 +11,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 prepend_to_syspath(SCRIPTS_DIR)
 
 from stage_common import StageError
-from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig, load_config
+from stage_common.config import (
+    ArtefactConfig,
+    BinstallConfig,
+    StagingConfig,
+    load_config,
+)
 
 
 class TestArtefactConfig:

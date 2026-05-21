@@ -33,6 +33,7 @@ class ArtefactConfig:
     destination: str | None = None
     alternatives: list[str] = dataclasses.field(default_factory=list)
 
+
 @dataclasses.dataclass(slots=True)
 class BinstallConfig:
     """Describe optional cargo-binstall archive generation."""
@@ -46,6 +47,8 @@ class BinstallConfig:
     binary_source: str = "target/{target}/release/{bin_name}{bin_ext}"
     binary_name: str = "{bin_name}{bin_ext}"
     output: str = "binstall_archive_path"
+
+
 @dataclasses.dataclass(slots=True)
 class StagingConfig:
     """Concrete configuration produced by :func:`load_config`."""
@@ -228,6 +231,7 @@ def _optional_string_list(
             raise StageError(msg)
     return value
 
+
 def _optional_string(
     entry: dict[str, typ.Any], key: str, prefix: str, default: str | None
 ) -> str | None:
@@ -239,6 +243,8 @@ def _optional_string(
         msg = f"Artefact '{key}' must be a string, got {type(value).__name__} {prefix}"
         raise StageError(msg)
     return value
+
+
 def _parse_artefact_entry(
     entry: dict[str, typ.Any], index: int, config_path: Path
 ) -> ArtefactConfig:
@@ -278,6 +284,7 @@ def _make_artefacts(
         for index, entry in enumerate(entries, start=1)
     ]
 
+
 def _optional_mapping(
     section: dict[str, typ.Any], key: str, label: str, config_path: Path
 ) -> dict[str, typ.Any]:
@@ -290,11 +297,13 @@ def _optional_mapping(
         raise StageError(msg)
     return typ.cast("dict[str, typ.Any]", value)
 
+
 def _merge_binstall_entries(
     common_entry: dict[str, typ.Any], target_entry: dict[str, typ.Any]
 ) -> dict[str, typ.Any]:
     """Merge common and target-specific binstall configuration."""
     return common_entry | target_entry
+
 
 def _make_binstall_config(
     common: dict[str, typ.Any], target_cfg: dict[str, typ.Any], config_path: Path
@@ -334,6 +343,8 @@ def _make_binstall_config(
         output=_optional_string(entry, "output", prefix, "binstall_archive_path")
         or "binstall_archive_path",
     )
+
+
 def _require_keys(
     section: dict[str, typ.Any], keys: set[str], label: str, config_path: Path
 ) -> None:

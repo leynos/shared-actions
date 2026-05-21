@@ -1,4 +1,19 @@
 # serializer version: 1
+# name: TestStageCli.test_main_writes_binstall_archive_output[binstall_archive_output]
+  '''
+  artefact_map={"binstall_archive_path": "<DIR_0>/myapp_linux_x86_64/myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz"}
+  artifact_dir=<DIR_0>/myapp_linux_x86_64
+  binstall_archive_path=<DIR_0>/myapp_linux_x86_64/myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz
+  checksum_map={"myapp": "<sha256>", "myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz": "<sha256>"}
+  dist_dir=<DIR_0>
+  powershell_help_dir=
+  staged_files<<gh_STAGED_FILES
+  myapp
+  myapp-1.2.3-x86_64-unknown-linux-gnu.tar.gz
+  gh_STAGED_FILES
+  
+  '''
+# ---
 # name: TestStageCli.test_main_writes_empty_powershell_help_dir_for_absent_sidecar[empty_powershell_help_dir]
   '''
   artefact_map={}

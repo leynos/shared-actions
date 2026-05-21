@@ -38,9 +38,12 @@ uses: ./.github/actions/setup-rust@v1
 
 The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
 to skip this step. If you bump the pinned `cargo-binstall` version, update the
-corresponding SHA-256 in the action manifest at the same time. You can obtain
-the new checksum by replacing `VERSION` with the desired tag (for example,
-`v1.16.6`) and running:
+corresponding SHA-256 in the action manifest at the same time. Keep
+`BINSTALL_VERSION` exported in the install step: the downloaded installer runs
+in a child shell and reads `BINSTALL_VERSION` from the environment. A plain
+shell variable is not inherited, which makes the installer fall back to
+`releases/latest`. You can obtain the new checksum by replacing `VERSION` with
+the desired tag (for example, `v1.16.6`) and running:
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \

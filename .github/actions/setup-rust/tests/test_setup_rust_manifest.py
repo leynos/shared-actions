@@ -14,6 +14,16 @@ def _load_steps() -> list[dict[str, object]]:
     return manifest["runs"]["steps"]
 
 
+def _install_binstall_run_script() -> str:
+    steps = _load_steps()
+    install_step = next(
+        step for step in steps if step.get("name") == "Install cargo-binstall"
+    )
+    run_script = install_step.get("run")
+    assert isinstance(run_script, str)
+    return run_script
+
+
 def test_manifest_exposes_toolchain_input() -> None:
     """The action should accept a toolchain override input."""
     manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
@@ -45,3 +55,15 @@ def test_install_postgres_deps_windows_uses_choco() -> None:
     assert isinstance(condition, str)
     assert "runner.os == 'Windows'" in condition
     assert "inputs.install-postgres-deps == 'true'" in condition
+
+
+def test_install_binstall_exports_version_pin() -> None:
+    """The cargo-binstall installer should inherit the pinned version."""
+    run_script = _install_binstall_run_script()
+    assert 'export BINSTALL_VERSION="v1.16.6"' in run_script
+
+
+def test_install_binstall_verifies_installed_version() -> None:
+    """The cargo-binstall step should assert the installed pinned version."""
+    run_script = _install_binstall_run_script()
+    assert 'cargo-binstall -V | grep -q "1.16.6"' in run_script

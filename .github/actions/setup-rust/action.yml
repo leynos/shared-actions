@@ -95,6 +95,7 @@ runs:
           cargo-binstall -V >&2
           exit 1
         fi
+        echo "cargo-binstall $(cargo-binstall -V) verified"
       shell: bash
     - name: Install uv
       # v6.4.3

@@ -139,6 +139,44 @@ def _run_install_binstall_script(
     )
 
 
+def test_get_step_reports_missing_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Missing manifest steps should fail with a contextual assertion."""
+    monkeypatch.setattr(__name__ + "._load_steps", lambda: [{"name": "Other Step"}])
+
+    with pytest.raises(
+        AssertionError,
+        match="Missing setup-rust step: Nonexistent Step",
+    ):
+        _get_step("Nonexistent Step")
+
+
+def test_get_step_condition_requires_string_condition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Step conditions should be present and string-valued."""
+    step_name = "Install system dependencies"
+    monkeypatch.setattr(__name__ + "._load_steps", lambda: [{"name": step_name}])
+
+    with pytest.raises(AssertionError, match="Step has no string condition"):
+        _get_step_condition(step_name)
+
+
+def test_install_binstall_run_script_requires_string_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cargo-binstall step should expose a shell run script."""
+    monkeypatch.setattr(
+        __name__ + "._load_steps",
+        lambda: [{"name": "Install cargo-binstall"}],
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match="Install cargo-binstall step has no run script",
+    ):
+        _install_binstall_run_script()
+
+
 def test_manifest_exposes_toolchain_input() -> None:
     """The action should accept a toolchain override input."""
     manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))

@@ -111,6 +111,25 @@ Override example:
 make lint UV=uv MARKDOWNLINT_BASE=origin/develop
 ```
 
+## `setup-rust` cargo-binstall Pinning
+
+The `setup-rust` action pins `cargo-binstall` by downloading
+`install-from-binstall-release.sh` from a tagged cargo-binstall release and
+checking the installer script against a fixed SHA-256 digest. Treat the version
+tag and checksum as a pair: update both in the same change and keep the
+checksum tied to the installer script at that tag.
+
+`BINSTALL_VERSION` must be exported in the install step. The installer script
+is executed by a child `bash` process and reads `BINSTALL_VERSION` from its
+environment to decide whether to download from `releases/download/<version>/`
+or from `releases/latest/download/`. If the value is only a shell variable, the
+child process sees it as empty and silently uses `latest`, defeating the pin.
+
+After the installer runs, the action verifies the installed binary with
+`cargo-binstall -V` and fails with the actual version in the log if it does not
+match the pinned release. Keep that runtime check in sync with
+`BINSTALL_VERSION` whenever the pin changes.
+
 ## `stage-release-artefacts` Action Architecture
 
 ### Staging Pipeline

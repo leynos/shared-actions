@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import typing as typ
 
 import pytest
-from syspath_hack import prepend_to_syspath
-
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-prepend_to_syspath(SCRIPTS_DIR)
-
 from stage_common import StageError
 from stage_common.environment import require_env_path
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestRequireEnvPath:

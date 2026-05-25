@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import typing as typ
 
 import pytest
-from syspath_hack import prepend_to_syspath
-
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-prepend_to_syspath(SCRIPTS_DIR)
-
 from stage_common import StageError
 from stage_common.output import (
     StagingOutputData,
@@ -17,6 +12,9 @@ from stage_common.output import (
     validate_no_reserved_key_collisions,
     write_github_output,
 )
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestPrepareOutputData:

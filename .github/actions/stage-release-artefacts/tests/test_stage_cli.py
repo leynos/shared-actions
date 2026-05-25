@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import re
 import typing as typ
-from pathlib import Path
-
-from syspath_hack import prepend_to_syspath
 
 if typ.TYPE_CHECKING:
+    from pathlib import Path
+
     import pytest
     from syrupy.assertion import SnapshotAssertion
-
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-prepend_to_syspath(SCRIPTS_DIR)
 
 from stage import _emit_skipped_artefact_warnings, main
 from stage_common import StageResult

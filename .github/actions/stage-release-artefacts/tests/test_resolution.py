@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest  # noqa: F401
-from syspath_hack import prepend_to_syspath
-
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-prepend_to_syspath(SCRIPTS_DIR)
+import typing as typ
 
 from stage_common.resolution import match_candidate_path
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestMatchCandidatePath:

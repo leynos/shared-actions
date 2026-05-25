@@ -15,6 +15,8 @@ from pathlib import Path
 
 from .errors import StageError
 
+_T = typ.TypeVar("_T")
+
 __all__ = [
     "ArtefactConfig",
     "BinstallConfig",
@@ -203,15 +205,33 @@ def _require_string(entry: dict[str, typ.Any], key: str, prefix: str) -> str:
     return value
 
 
+def _optional_field(  # noqa: UP047
+    entry: dict[str, typ.Any],
+    key: str,
+    prefix: str,
+    expected_type: type[_T],
+    default: _T | None,
+) -> _T | None:
+    """Validate and return an optional typed field."""
+    value = entry.get(key, default)
+    if value is None:
+        return None
+    if not isinstance(value, expected_type):
+        msg = (
+            f"Artefact '{key}' must be a {expected_type.__name__},"
+            f" got {type(value).__name__} {prefix}"
+        )
+        raise StageError(msg)
+    return value
+
+
 def _optional_bool(
     entry: dict[str, typ.Any], key: str, prefix: str, *, default: bool
 ) -> bool:
     """Validate and return an optional boolean field with default."""
-    value = entry.get(key, default)
-    if not isinstance(value, bool):
-        msg = f"Artefact '{key}' must be a boolean, got {type(value).__name__} {prefix}"
-        raise StageError(msg)
-    return value
+    result = _optional_field(entry, key, prefix, bool, default)
+    assert result is not None  # noqa: S101  # default is always bool, never None
+    return result
 
 
 def _optional_string_list(
@@ -236,13 +256,7 @@ def _optional_string(
     entry: dict[str, typ.Any], key: str, prefix: str, default: str | None
 ) -> str | None:
     """Validate and return an optional string field."""
-    value = entry.get(key, default)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        msg = f"Artefact '{key}' must be a string, got {type(value).__name__} {prefix}"
-        raise StageError(msg)
-    return value
+    return _optional_field(entry, key, prefix, str, default)
 
 
 def _parse_artefact_entry(

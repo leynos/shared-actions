@@ -50,7 +50,7 @@ runs:
   using: composite
   steps:
     - name: Setup uv
-      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
     - name: Ensure macOS runner
       shell: bash
       run: uv run "${{ github.action_path }}/scripts/check_platform.py"

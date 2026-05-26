@@ -64,8 +64,7 @@ runs:
   using: composite
   steps:
     - name: Setup uv
-      # v6.4.3
-      uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
         cache-dependency-glob: |
           **/pyproject.toml

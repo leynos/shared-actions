@@ -17,7 +17,7 @@ runs:
   using: composite
   steps:
     - name: Setup uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
         uv-version: ">=0.7.19,<0.8.0"
         cache-dependency-glob: |

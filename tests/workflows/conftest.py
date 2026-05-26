@@ -52,7 +52,6 @@ def _act_available() -> bool:
     return _command_available(_act_command())
 
 
-
 def _default_podman_socket(environ: cabc.Mapping[str, str]) -> Path:
     """Return the default rootless Podman Docker-compatible socket path."""
     runtime_dir = environ.get("XDG_RUNTIME_DIR")

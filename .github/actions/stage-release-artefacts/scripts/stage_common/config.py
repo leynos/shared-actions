@@ -206,14 +206,12 @@ def _require_string(entry: dict[str, typ.Any], key: str, prefix: str) -> str:
 
 
 def _optional_field(  # noqa: UP047
-    entry: dict[str, typ.Any],
+    value: _T | None,
     key: str,
     prefix: str,
     expected_type: type[_T],
-    default: _T | None,
 ) -> _T | None:
     """Validate and return an optional typed field."""
-    value = entry.get(key, default)
     if value is None:
         return None
     if not isinstance(value, expected_type):
@@ -229,7 +227,7 @@ def _optional_bool(
     entry: dict[str, typ.Any], key: str, prefix: str, *, default: bool
 ) -> bool:
     """Validate and return an optional boolean field with default."""
-    result = _optional_field(entry, key, prefix, bool, default)
+    result = _optional_field(entry.get(key, default), key, prefix, bool)
     assert result is not None  # noqa: S101  # default is always bool, never None
     return result
 
@@ -256,7 +254,7 @@ def _optional_string(
     entry: dict[str, typ.Any], key: str, prefix: str, default: str | None
 ) -> str | None:
     """Validate and return an optional string field."""
-    return _optional_field(entry, key, prefix, str, default)
+    return _optional_field(entry.get(key, default), key, prefix, str)
 
 
 def _parse_artefact_entry(

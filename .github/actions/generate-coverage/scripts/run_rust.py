@@ -392,6 +392,18 @@ def _report_coverage(
         fh.write(f"percent={percent}\n")
 
 
+def _resolve_bool_input(
+    value: bool | None,  # noqa: FBT001
+    envvar: str,
+    *,
+    default: bool,
+) -> bool:
+    """Return *value* directly when set; otherwise read *envvar* from the environment."""  # noqa: E501
+    if value is not None:
+        return value
+    return _env_bool(envvar, default=default)
+
+
 def main(
     output_path: typ.Annotated[
         Path | None, typer.Option(envvar="INPUT_OUTPUT_PATH")
@@ -436,20 +448,14 @@ def main(
         "INPUT_CUCUMBER_RS_FEATURES", ""
     )
     cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
-    with_default = (
-        _env_bool("INPUT_WITH_DEFAULT_FEATURES", default=True)
-        if with_default is None
-        else with_default
+    with_default = _resolve_bool_input(
+        with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
     )
-    use_nextest = (
-        _env_bool("INPUT_USE_CARGO_NEXTEST", default=True)
-        if use_nextest is None
-        else use_nextest
+    use_nextest = _resolve_bool_input(
+        use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True
     )
-    with_cucumber_rs = (
-        _env_bool("INPUT_WITH_CUCUMBER_RS", default=False)
-        if with_cucumber_rs is None
-        else with_cucumber_rs
+    with_cucumber_rs = _resolve_bool_input(
+        with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
     )
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)

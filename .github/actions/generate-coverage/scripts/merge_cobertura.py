@@ -7,14 +7,15 @@
 
 from __future__ import annotations
 
-import typing as typ
 from pathlib import Path
+import typing as typ
 
-import typer
 from cmd_utils_loader import run_cmd
 from common import _required_env
 from plumbum.cmd import uvx
 from plumbum.commands.processes import ProcessExecutionError
+import os
+import typer
 
 
 def main(
@@ -58,3 +59,10 @@ def main(
 
 if __name__ == "__main__":
     typer.run(main)
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    typer.echo(f"Missing required environment variable: {name}", err=True)
+    raise typer.Exit(2)

@@ -73,6 +73,16 @@ class TestStagingConfig:
 class TestLoadConfig:
     """Tests for the load_config function."""
 
+    _MINIMAL_NO_ARTEFACTS_TOML = """
+[common]
+bin_name = "myapp"
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+"""
+
     @staticmethod
     def _setup_config(
         tmp_path: Path,
@@ -199,26 +209,6 @@ target = "x86_64-unknown-linux-gnu"
         assert config.artefacts == []
         assert config.binstall.enabled is True
 
-    def test_rejects_empty_artefacts_when_binstall_disabled(
-        self, tmp_path: Path
-    ) -> None:
-        """A target still needs artefacts unless cargo-binstall is enabled."""
-        config_file = self._setup_config(
-            tmp_path,
-            """
-[common]
-bin_name = "myapp"
-
-[targets.linux-x86_64]
-platform = "linux"
-arch = "x86_64"
-target = "x86_64-unknown-linux-gnu"
-""",
-        )
-
-        with pytest.raises(StageError, match="No artefacts configured to stage"):
-            load_config(config_file, "linux-x86_64", workspace=tmp_path)
-
     def test_target_binstall_config_can_disable_common_default(
         self, tmp_path: Path
     ) -> None:
@@ -301,20 +291,19 @@ target = "x86_64-unknown-linux-gnu"
 
         assert config.workspace == workspace
 
-    def test_raises_for_missing_target(self, tmp_path: Path) -> None:
-        """load_config raises for missing target section."""
-        config_file = self._setup_config(
-            tmp_path,
-            """
-[common]
-bin_name = "myapp"
+    @pytest.mark.parametrize(
+        ("target_key", "expected_error"),
+        [
+            ("linux-x86_64", "No artefacts configured to stage"),
+            ("windows-x86_64", "Missing configuration key"),
+        ],
+        ids=("binstall-disabled", "missing-target"),
+    )
+    def test_raises_for_invalid_load(
+        self, tmp_path: Path, target_key: str, expected_error: str
+    ) -> None:
+        """load_config raises StageError for a missing target or missing artefacts."""
+        config_file = self._setup_config(tmp_path, self._MINIMAL_NO_ARTEFACTS_TOML)
 
-[targets.linux-x86_64]
-platform = "linux"
-arch = "x86_64"
-target = "x86_64-unknown-linux-gnu"
-""",
-        )
-
-        with pytest.raises(StageError, match="Missing configuration key"):
-            load_config(config_file, "windows-x86_64", workspace=tmp_path)
+        with pytest.raises(StageError, match=expected_error):
+            load_config(config_file, target_key, workspace=tmp_path)

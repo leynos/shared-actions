@@ -166,13 +166,14 @@ def _target_is_windows(target: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in WINDOWS_TARGET_SUFFIXES)
 
 
-def should_probe_container(host_platform: str, target: str) -> bool:
+def should_probe_container(
+    host_platform: str, target: str, host_target: str = ""
+) -> bool:
     """Determine whether container runtimes should be probed."""
     if host_platform == "win32":
         return not _target_is_windows(target)
-    # Targets for the native Linux ABI can be installed via `rustup target add`
-    # without a container runtime; skip the probe to avoid spurious cross usage.
-    return "-unknown-linux-gnu" not in target
+    # Building for the host's own native target requires no container runtime.
+    return not (host_target and target.strip().lower() == host_target.strip().lower())
 
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
@@ -362,7 +363,7 @@ def _decide_cross_usage(
             break
     docker_present = False
     podman_present = False
-    if should_probe_container(sys.platform, target):
+    if should_probe_container(sys.platform, target, host_target):
         docker_present = _probe_runtime("docker")
         podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present

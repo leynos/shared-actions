@@ -746,25 +746,32 @@ def test_windows_host_probes_container_for_non_windows_targets(
 
 
 @pytest.mark.parametrize(
-    ("host_platform", "target", "should_probe"),
+    ("host_platform", "target", "host_target", "should_probe"),
     [
-        ("win32", "x86_64-pc-windows-msvc", False),
-        ("win32", "aarch64-pc-windows-gnu", False),
-        ("win32", "x86_64-uwp-windows-msvc", False),
-        ("win32", "x86_64-pc-windows-gnullvm", False),
-        ("win32", "x86_64-unknown-linux-gnu", True),
-        ("linux", "x86_64-pc-windows-msvc", True),
-        ("linux", "x86_64-unknown-linux-gnu", False),
+        ("win32", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", False),
+        ("win32", "aarch64-pc-windows-gnu", "x86_64-unknown-linux-gnu", False),
+        ("win32", "x86_64-uwp-windows-msvc", "x86_64-unknown-linux-gnu", False),
+        ("win32", "x86_64-pc-windows-gnullvm", "x86_64-unknown-linux-gnu", False),
+        ("win32", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", True),
+        ("linux", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", True),
+        # Native target: no container probe needed.
+        ("linux", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", False),
+        # Cross target on Linux: must probe for a container runtime.
+        ("linux", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", True),
     ],
 )
 def test_should_probe_container_handles_windows_targets(
     main_module: ModuleType,
     host_platform: str,
     target: str,
+    host_target: str,
     should_probe: bool,  # noqa: FBT001
 ) -> None:
     """Helper correctly decides when to probe container runtimes."""
-    assert main_module.should_probe_container(host_platform, target) is should_probe
+    assert (
+        main_module.should_probe_container(host_platform, target, host_target)
+        is should_probe
+    )
 
 
 def test_probe_runtime_returns_runtime_available(

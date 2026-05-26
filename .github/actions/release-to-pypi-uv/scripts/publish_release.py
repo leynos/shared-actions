@@ -11,6 +11,7 @@ import contextlib
 import os
 import shutil
 import sys
+import typing as typ
 from pathlib import Path
 
 import typer
@@ -61,12 +62,6 @@ _extend_sys_path()
 
 run_cmd = import_cmd_utils().run_cmd
 
-INDEX_OPTION = typer.Option(
-    "",
-    envvar="INPUT_UV_INDEX",
-    help="Optional index name or URL for uv publish.",
-)
-
 
 def main(index: str = "") -> None:
     """Publish the built distributions with uv.
@@ -84,9 +79,17 @@ def main(index: str = "") -> None:
         run_cmd(local["uv"]["publish"])
 
 
-def cli(index: str = INDEX_OPTION) -> None:
+def cli(
+    index: typ.Annotated[
+        str,
+        typer.Option(
+            envvar="INPUT_UV_INDEX",
+            help="Optional index name or URL for uv publish.",
+        ),
+    ] = "",
+) -> None:
     """CLI entrypoint."""
-    main(index=index)
+    main(index=index or os.getenv("INPUT_UV_INDEX", ""))
 
 
 if __name__ == "__main__":

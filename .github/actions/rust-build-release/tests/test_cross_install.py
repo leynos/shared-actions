@@ -21,7 +21,7 @@ if typ.TYPE_CHECKING:
 
     from shared_actions_conftest import CmdMox
 
-    from .conftest import HarnessFactory
+    from .conftest import CrossInstallContext, HarnessFactory
 
 
 @CMD_MOX_UNSUPPORTED
@@ -354,13 +354,15 @@ def test_install_cross_release_rejects_hash_mismatch(
 
 @CMD_MOX_UNSUPPORTED
 def test_installs_cross_without_container_runtime(
-    main_module: ModuleType,
-    cross_module: ModuleType,
-    module_harness: HarnessFactory,
+    cross_install_context: CrossInstallContext,
     cmd_mox: CmdMox,
-    setup_manifest: Path,
 ) -> None:
     """Installs cross even when no container runtime is available."""
+    main_module = cross_install_context.main_module
+    cross_module = cross_install_context.cross_module
+    module_harness = cross_install_context.module_harness
+    setup_manifest = cross_install_context.setup_manifest
+
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
     app_env.patch_attr("_resolve_manifest_path", lambda: setup_manifest)

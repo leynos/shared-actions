@@ -18,6 +18,38 @@ from stage_common.pipeline import (  # noqa: F401
 from conftest import ARCHIVE_MEMBER_NAMES, HYPOTHESIS_SETTINGS
 
 
+def _make_binstall_config(
+    tmp_path: Path,
+    *,
+    cargo_name: str,
+    cargo_version: str,
+    bin_name: str,
+    binstall: BinstallConfig,
+    target: str = "x86_64-unknown-linux-gnu",
+) -> StagingConfig:
+    """Set up a minimal binstall workspace and return its StagingConfig."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "Cargo.toml").write_text(
+        f'[package]\nname = "{cargo_name}"\nversion = "{cargo_version}"\n',
+        encoding="utf-8",
+    )
+    release_dir = workspace / f"target/{target}/release"
+    release_dir.mkdir(parents=True)
+    (release_dir / bin_name).write_text("binary content", encoding="utf-8")
+    return StagingConfig(
+        workspace=workspace,
+        bin_name=bin_name,
+        dist_dir="dist",
+        checksum_algorithm="sha256",
+        artefacts=[],
+        platform="linux",
+        arch="x86_64",
+        target=target,
+        binstall=binstall,
+    )
+
+
 class TestStageArtefactsBinstall:
     """Tests for cargo-binstall archive creation."""
 
@@ -97,24 +129,11 @@ class TestStageArtefactsBinstall:
 
     def test_binstall_explicit_metadata_takes_precedence(self, tmp_path: Path) -> None:
         """Explicit binstall metadata avoids Cargo manifest values."""
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        (workspace / "Cargo.toml").write_text(
-            '[package]\nname = "manifest-name"\nversion = "0.0.1"\n',
-            encoding="utf-8",
-        )
-        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
-        release_dir.mkdir(parents=True)
-        (release_dir / "cli").write_text("binary content", encoding="utf-8")
-        config = StagingConfig(
-            workspace=workspace,
+        config = _make_binstall_config(
+            tmp_path,
+            cargo_name="manifest-name",
+            cargo_version="0.0.1",
             bin_name="cli",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=[],
-            platform="linux",
-            arch="x86_64",
-            target="x86_64-unknown-linux-gnu",
             binstall=BinstallConfig(
                 enabled=True,
                 package_name="configured-name",
@@ -154,24 +173,11 @@ class TestStageArtefactsBinstall:
 
     def test_binstall_checksum_map_includes_archive(self, tmp_path: Path) -> None:
         """Archive digests are included in the checksum map."""
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-        (workspace / "Cargo.toml").write_text(
-            '[package]\nname = "myapp"\nversion = "1.2.3"\n',
-            encoding="utf-8",
-        )
-        release_dir = workspace / "target/x86_64-unknown-linux-gnu/release"
-        release_dir.mkdir(parents=True)
-        (release_dir / "myapp").write_text("binary content", encoding="utf-8")
-        config = StagingConfig(
-            workspace=workspace,
+        config = _make_binstall_config(
+            tmp_path,
+            cargo_name="myapp",
+            cargo_version="1.2.3",
             bin_name="myapp",
-            dist_dir="dist",
-            checksum_algorithm="sha256",
-            artefacts=[],
-            platform="linux",
-            arch="x86_64",
-            target="x86_64-unknown-linux-gnu",
             binstall=BinstallConfig(enabled=True),
         )
 

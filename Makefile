@@ -15,6 +15,7 @@ clean: ## Remove transient artefacts
 
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
+ACT ?= $(or $(firstword $(wildcard $(HOME)/go/bin/act) $(wildcard $(HOME)/.local/bin/act)),act)
 MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint),$(HOME)/.bun/bin/markdownlint,markdownlint)
 MARKDOWNLINT_BASE ?= origin/main
 NIXIE ?= nixie
@@ -25,7 +26,7 @@ test: .venv ## Run tests
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
-	ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
+	ACT='$(ACT)' ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
 endif
 
 .venv:

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import tarfile
 import typing as typ
+from pathlib import Path  # noqa: TC003
 
-from pytest_bdd import given, parsers, scenario, then, when
+from pytest_bdd import given as bdd_given
+from pytest_bdd import parsers, scenario, then, when
 from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig
 from stage_common.pipeline import StageResult, stage_artefacts
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
 
 
 @scenario(
@@ -21,7 +20,7 @@ def test_binstall_archive_feature() -> None:
     """Run the cargo-binstall archive staging behaviour scenario."""
 
 
-@given(
+@bdd_given(
     parsers.parse(
         'a workspace with a Cargo package named "{name}" at version "{version}"'
     )
@@ -39,7 +38,7 @@ def bdd_workspace_with_cargo_package(
     bdd_context["bin_name"] = name
 
 
-@given(parsers.parse('a release binary for target "{target}"'))
+@bdd_given(parsers.parse('a release binary for target "{target}"'))
 def bdd_release_binary(bdd_context: dict[str, object], target: str) -> None:
     """Create a release binary for the BDD scenario."""
     workspace = typ.cast("Path", bdd_context["workspace"])
@@ -50,7 +49,7 @@ def bdd_release_binary(bdd_context: dict[str, object], target: str) -> None:
     bdd_context["target"] = target
 
 
-@given("stage-release-artefacts has cargo-binstall archive creation enabled")
+@bdd_given("stage-release-artefacts has cargo-binstall archive creation enabled")
 def bdd_binstall_enabled(bdd_context: dict[str, object]) -> None:
     """Configure cargo-binstall archive creation for the BDD scenario."""
     workspace = typ.cast("Path", bdd_context["workspace"])

@@ -39,7 +39,7 @@ def _exit_code(exc: BaseException) -> int | None:
 
 
 def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
-    """Run ``script`` via ``uv run --script`` with ``env`` and return the result.
+    """Run ``script`` with ``env`` and return the result.
 
     Parameters
     ----------
@@ -48,7 +48,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
     env : dict[str, str]
         Environment variables to merge on top of the current environment.
     *args : str
-        Additional positional arguments appended to the ``uv run`` command.
+        Additional positional arguments appended to the Python command.
 
     Returns
     -------
@@ -61,7 +61,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
         This helper does not raise for non-zero exits; failures are conveyed
         via the returned exit code and stderr captured from the child process.
     """
-    command = local["uv"]["run", "--script", str(script)]
+    command = local[sys.executable][str(script)]
     if args:
         command = command[list(args)]
     root = Path(__file__).resolve().parents[4]

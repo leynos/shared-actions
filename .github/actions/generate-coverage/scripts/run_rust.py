@@ -78,19 +78,6 @@ if os.name == "nt":
         elif debug:
             logger.debug("%s has no buffer; leaving as-is", name)
 
-OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
-FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
-WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURES")
-USE_NEXTEST_OPT = typer.Option(default=True, envvar="INPUT_USE_CARGO_NEXTEST")
-LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
-FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
-MANIFEST_PATH_OPT = typer.Option(Path("Cargo.toml"), envvar="DETECTED_CARGO_MANIFEST")
-GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
-CUCUMBER_RS_FEATURES_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_FEATURES")
-CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
-WITH_CUCUMBER_RS_OPT = typer.Option(default=False, envvar="INPUT_WITH_CUCUMBER_RS")
-BASELINE_OPT = typer.Option(None, envvar="BASELINE_RUST_FILE")
-
 NEXTEST_CONFIG_PATH = Path(".config/nextest.toml")
 NEXTEST_DEFAULT_CONFIG = """[profile.default]
 # Default slow timeout is 180s; nextest sends SIGTERM after the period and
@@ -101,6 +88,21 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 # Put a hard ceiling on the whole run.
 global-timeout = "10m"
 """
+
+
+def _required_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    typer.echo(f"Missing required environment variable: {name}", err=True)
+    raise typer.Exit(2)
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _run_cargo(
@@ -360,21 +362,64 @@ def _resolve_nextest_config_path() -> Path:
 
 
 def main(
-    output_path: Path = OUTPUT_PATH_OPT,
-    features: str = FEATURES_OPT,
+    output_path: typ.Annotated[
+        Path | None, typer.Option(envvar="INPUT_OUTPUT_PATH")
+    ] = None,
+    features: typ.Annotated[str, typer.Option(envvar="INPUT_FEATURES")] = "",
     *,
-    with_default: bool = WITH_DEFAULT_OPT,
-    use_nextest: bool = USE_NEXTEST_OPT,
-    lang: str = LANG_OPT,
-    fmt: str = FMT_OPT,
-    manifest_path: Path = MANIFEST_PATH_OPT,
-    github_output: Path = GITHUB_OUTPUT_OPT,
-    cucumber_rs_features: str = CUCUMBER_RS_FEATURES_OPT,
-    cucumber_rs_args: str = CUCUMBER_RS_ARGS_OPT,
-    with_cucumber_rs: bool = WITH_CUCUMBER_RS_OPT,
-    baseline_file: Path | None = BASELINE_OPT,
+    with_default: typ.Annotated[
+        bool | None, typer.Option(envvar="INPUT_WITH_DEFAULT_FEATURES")
+    ] = None,
+    use_nextest: typ.Annotated[
+        bool | None, typer.Option(envvar="INPUT_USE_CARGO_NEXTEST")
+    ] = None,
+    lang: typ.Annotated[str | None, typer.Option(envvar="DETECTED_LANG")] = None,
+    fmt: typ.Annotated[str | None, typer.Option(envvar="DETECTED_FMT")] = None,
+    manifest_path: typ.Annotated[
+        Path, typer.Option(envvar="DETECTED_CARGO_MANIFEST")
+    ] = Path("Cargo.toml"),
+    github_output: typ.Annotated[
+        Path | None, typer.Option(envvar="GITHUB_OUTPUT")
+    ] = None,
+    cucumber_rs_features: typ.Annotated[
+        str, typer.Option(envvar="INPUT_CUCUMBER_RS_FEATURES")
+    ] = "",
+    cucumber_rs_args: typ.Annotated[
+        str, typer.Option(envvar="INPUT_CUCUMBER_RS_ARGS")
+    ] = "",
+    with_cucumber_rs: typ.Annotated[
+        bool | None, typer.Option(envvar="INPUT_WITH_CUCUMBER_RS")
+    ] = None,
+    baseline_file: typ.Annotated[
+        Path | None, typer.Option(envvar="BASELINE_RUST_FILE")
+    ] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
+    output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+    lang = lang or _required_env("DETECTED_LANG")
+    fmt = fmt or _required_env("DETECTED_FMT")
+    github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
+    features = features or os.getenv("INPUT_FEATURES", "")
+    manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", str(manifest_path)))
+    cucumber_rs_features = cucumber_rs_features or os.getenv(
+        "INPUT_CUCUMBER_RS_FEATURES", ""
+    )
+    cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
+    with_default = (
+        _env_bool("INPUT_WITH_DEFAULT_FEATURES", default=True)
+        if with_default is None
+        else with_default
+    )
+    use_nextest = (
+        _env_bool("INPUT_USE_CARGO_NEXTEST", default=True)
+        if use_nextest is None
+        else use_nextest
+    )
+    with_cucumber_rs = (
+        _env_bool("INPUT_WITH_CUCUMBER_RS", default=False)
+        if with_cucumber_rs is None
+        else with_cucumber_rs
+    )
     out = output_path
     if lang == "mixed":
         out = output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")

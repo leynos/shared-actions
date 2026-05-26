@@ -121,6 +121,15 @@ def _command_succeeds(command: str, *args: str) -> bool:
     return retcode == 0
 
 
+def _docker_daemon_available() -> bool:
+    """Return True when the Docker CLI is present and its daemon responds."""
+    return (
+        shutil.which("docker") is not None
+        and _command_succeeds("docker", "info")
+        and _command_succeeds("docker", "ps", "-a")
+    )
+
+
 def _probe_act_runtime(
     environ: cabc.Mapping[str, str] | None = None,
 ) -> ActRuntimeStatus:
@@ -138,15 +147,11 @@ def _probe_act_runtime(
         usable, reason = _docker_host_usable(docker_host)
         return ActRuntimeStatus(available=usable, reason=reason, env={})
 
-    if (
-        shutil.which("docker")
-        and _command_succeeds("docker", "info")
-        and _command_succeeds("docker", "ps", "-a")
-    ):
+    if _docker_daemon_available():
         return ActRuntimeStatus(available=True, reason="", env={})
 
     if not shutil.which("podman"):
-        return ActRuntimeStatus(
+
             available=False,
             reason="docker or podman runtime not available",
             env={},

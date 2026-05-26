@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tarfile
 from pathlib import Path  # noqa: TC003
 
@@ -18,35 +19,38 @@ from stage_common.pipeline import (  # noqa: F401
 from conftest import ARCHIVE_MEMBER_NAMES, HYPOTHESIS_SETTINGS
 
 
-def _make_binstall_config(
-    tmp_path: Path,
-    *,
-    cargo_name: str,
-    cargo_version: str,
-    bin_name: str,
-    binstall: BinstallConfig,
-    target: str = "x86_64-unknown-linux-gnu",
-) -> StagingConfig:
+@dataclasses.dataclass(frozen=True)
+class BinstallWorkspaceSpec:
+    """Parameter object describing a minimal binstall workspace for testing."""
+
+    cargo_name: str
+    cargo_version: str
+    bin_name: str
+    binstall: BinstallConfig
+    target: str = "x86_64-unknown-linux-gnu"
+
+
+def _make_binstall_config(tmp_path: Path, spec: BinstallWorkspaceSpec) -> StagingConfig:
     """Set up a minimal binstall workspace and return its StagingConfig."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "Cargo.toml").write_text(
-        f'[package]\nname = "{cargo_name}"\nversion = "{cargo_version}"\n',
+        f'[package]\nname = "{spec.cargo_name}"\nversion = "{spec.cargo_version}"\n',
         encoding="utf-8",
     )
-    release_dir = workspace / f"target/{target}/release"
+    release_dir = workspace / f"target/{spec.target}/release"
     release_dir.mkdir(parents=True)
-    (release_dir / bin_name).write_text("binary content", encoding="utf-8")
+    (release_dir / spec.bin_name).write_text("binary content", encoding="utf-8")
     return StagingConfig(
         workspace=workspace,
-        bin_name=bin_name,
+        bin_name=spec.bin_name,
         dist_dir="dist",
         checksum_algorithm="sha256",
         artefacts=[],
         platform="linux",
         arch="x86_64",
-        target=target,
-        binstall=binstall,
+        target=spec.target,
+        binstall=spec.binstall,
     )
 
 
@@ -131,14 +135,16 @@ class TestStageArtefactsBinstall:
         """Explicit binstall metadata avoids Cargo manifest values."""
         config = _make_binstall_config(
             tmp_path,
-            cargo_name="manifest-name",
-            cargo_version="0.0.1",
-            bin_name="cli",
-            binstall=BinstallConfig(
-                enabled=True,
-                package_name="configured-name",
-                version="9.9.9",
+            BinstallWorkspaceSpec(
+                cargo_name="manifest-name",
+                cargo_version="0.0.1",
                 bin_name="cli",
+                binstall=BinstallConfig(
+                    enabled=True,
+                    package_name="configured-name",
+                    version="9.9.9",
+                    bin_name="cli",
+                ),
             ),
         )
 
@@ -175,10 +181,12 @@ class TestStageArtefactsBinstall:
         """Archive digests are included in the checksum map."""
         config = _make_binstall_config(
             tmp_path,
-            cargo_name="myapp",
-            cargo_version="1.2.3",
-            bin_name="myapp",
-            binstall=BinstallConfig(enabled=True),
+            BinstallWorkspaceSpec(
+                cargo_name="myapp",
+                cargo_version="1.2.3",
+                bin_name="myapp",
+                binstall=BinstallConfig(enabled=True),
+            ),
         )
 
         result = stage_artefacts(config)

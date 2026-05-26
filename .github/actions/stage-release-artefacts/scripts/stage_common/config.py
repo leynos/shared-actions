@@ -143,7 +143,13 @@ def load_config(
         config_file,
     )
     algorithm = _validate_checksum(common.get("checksum_algorithm"))
-    artefacts = _make_artefacts(common, target_cfg, config_file)
+    binstall = _make_binstall_config(common, target_cfg, config_file)
+    artefacts = _make_artefacts(
+        common,
+        target_cfg,
+        config_file,
+        allow_empty=binstall.enabled,
+    )
 
     return StagingConfig(
         workspace=workspace,
@@ -160,7 +166,7 @@ def load_config(
             common.get("staging_dir_template", "{bin_name}_{platform}_{arch}"),
         ),
         target_key=target_key,
-        binstall=_make_binstall_config(common, target_cfg, config_file),
+        binstall=binstall,
     )
 
 
@@ -284,11 +290,17 @@ def _parse_artefact_entry(
 
 
 def _make_artefacts(
-    common: dict[str, typ.Any], target_cfg: dict[str, typ.Any], config_path: Path
+    common: dict[str, typ.Any],
+    target_cfg: dict[str, typ.Any],
+    config_path: Path,
+    *,
+    allow_empty: bool = False,
 ) -> list[ArtefactConfig]:
     """Build list of ArtefactConfig from common and target sections."""
     entries = [*common.get("artefacts", []), *target_cfg.get("artefacts", [])]
     if not entries:
+        if allow_empty:
+            return []
         msg = "No artefacts configured to stage."
         raise StageError(msg)
     return [

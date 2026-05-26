@@ -447,6 +447,9 @@ Retrospective`.
   metadata boundary.
 - [x] 2026-05-20: Milestone 5 complete: documentation, final gates, CodeRabbit
   review, and final commits complete.
+- [x] 2026-05-26: Fixed the `test-stage-artefacts-binstall` workflow
+  regression where a binstall-only staging configuration was rejected before
+  archive creation because no normal artefacts were configured.
 
 ## Surprises & Discoveries
 
@@ -482,6 +485,10 @@ Retrospective`.
   `stage_common.__init__`. That export was unnecessary because internal tests
   already import from `stage_common.config`, so it was removed and focused
   stage tests still pass.
+- 2026-05-26: The end-to-end cargo-binstall workflow intentionally stages only
+  the generated archive, not a duplicate normal binary artefact. The original
+  loader parsed artefacts before binstall config and rejected that valid
+  binstall-only shape with `No artefacts configured to stage`.
 
 ## Decision Log
 
@@ -507,6 +514,10 @@ Retrospective`.
   facade. Rationale: the dataclass is an internal config detail, tests can
   import it from `stage_common.config`, and this keeps documentation work
   within the 12-file tolerance.
+- 2026-05-26: Permit empty `artefacts` only when the resolved
+  `BinstallConfig.enabled` value is true. Rationale: binstall archive creation
+  is itself a staged release artefact, while existing non-binstall
+  configurations should still fail fast when they declare no staging inputs.
 
 ## Outcomes & Retrospective
 

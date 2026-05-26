@@ -133,9 +133,6 @@ destination = "MyTool/MyTool.psm1"
 [common]
 bin_name = "myapp"
 
-[[common.artefacts]]
-source = "target/{target}/release/{bin_name}"
-
 [common.binstall]
 enabled = true
 

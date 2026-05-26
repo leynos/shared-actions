@@ -176,6 +176,49 @@ package_name = "target-package"
         )
         assert config.binstall.package_name == "target-package"
 
+    def test_loads_binstall_only_config(self, tmp_path: Path) -> None:
+        """Enabled cargo-binstall config does not require normal artefacts."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+bin_name = "myapp"
+
+[common.binstall]
+enabled = true
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+
+        config = load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
+        assert config.artefacts == []
+        assert config.binstall.enabled is True
+
+    def test_rejects_empty_artefacts_when_binstall_disabled(
+        self, tmp_path: Path
+    ) -> None:
+        """A target still needs artefacts unless cargo-binstall is enabled."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+bin_name = "myapp"
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+
+        with pytest.raises(StageError, match="No artefacts configured to stage"):
+            load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
     def test_target_binstall_config_can_disable_common_default(
         self, tmp_path: Path
     ) -> None:

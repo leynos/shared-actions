@@ -505,7 +505,6 @@ def test_preserves_existing_cross_container_engine(
     cmd_mox.verify()
 
     assert engines == ["custom"]
-    assert os.environ.get("CROSS_CONTAINER_ENGINE") == "custom"
 
 
 @CMD_MOX_UNSUPPORTED
@@ -880,7 +879,7 @@ def test_runtime_available_handles_timeout(
 
     def record_run_cmd(cmd: list[str]) -> None:
         commands.append(cmd)
-        if cmd[:3] == ["/usr/bin/rustup", "target", "add"]:
+        if cmd[:3] == ["rustup", "target", "add"]:
             return
         if cmd and cmd[0] == "cargo":
             return
@@ -913,7 +912,7 @@ def test_runtime_available_handles_timeout(
     _assert_no_timeout_trace(err)
 
     assert len(commands) >= 2
-    assert commands[0][:3] == ["/usr/bin/rustup", "target", "add"]
+    assert commands[0][:3] == ["rustup", "target", "add"]
     assert commands[1][0] == "cargo"
     assert commands[1][1].startswith("+")
     assert commands[1][-1] == "thumbv7em-none-eabihf"

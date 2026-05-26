@@ -11,6 +11,7 @@ import collections.abc as cabc  # noqa: TC003
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -44,8 +45,6 @@ from utils import (
 )
 
 if typ.TYPE_CHECKING:
-    import subprocess
-
     from cmd_utils import SupportsFormulate
 
     class _SupportsEnvFormulate(SupportsFormulate, typ.Protocol):
@@ -169,9 +168,11 @@ def _target_is_windows(target: str) -> bool:
 
 def should_probe_container(host_platform: str, target: str) -> bool:
     """Determine whether container runtimes should be probed."""
-    if host_platform != "win32":
-        return True
-    return not _target_is_windows(target)
+    if host_platform == "win32":
+        return not _target_is_windows(target)
+    # Targets for the native Linux ABI can be installed via `rustup target add`
+    # without a container runtime; skip the probe to avoid spurious cross usage.
+    return "-unknown-linux-gnu" not in target
 
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
@@ -211,7 +212,7 @@ def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
         return runtime_available(name)
-    except ProcessTimedOut as exc:
+    except (ProcessTimedOut, subprocess.TimeoutExpired) as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
         message = (

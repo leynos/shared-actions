@@ -358,10 +358,13 @@ def test_installs_cross_without_container_runtime(
     cross_module: ModuleType,
     module_harness: HarnessFactory,
     cmd_mox: CmdMox,
+    setup_manifest: Path,
 ) -> None:
     """Installs cross even when no container runtime is available."""
     cross_env = module_harness(cross_module)
     app_env = module_harness(main_module)
+    app_env.patch_attr("_resolve_manifest_path", lambda: setup_manifest)
+    app_env.patch_attr("ensure_cross", cross_module.ensure_cross)
 
     default_toolchain = main_module.DEFAULT_TOOLCHAIN
     rustup_stdout = f"{default_toolchain}-x86_64-unknown-linux-gnu\n"
@@ -505,7 +508,7 @@ def test_returns_none_when_install_fails_on_windows(
     harness = module_harness(cross_module)
 
     def failing_run_cmd(cmd: list[str]) -> None:
-        raise subprocess.CalledProcessError(1, cmd)
+        raise cross_module.ProcessExecutionError(cmd, 1, "", "install failed")
 
     harness.patch_run_cmd(failing_run_cmd)
     harness.patch_attr("install_cross_release", lambda _: False)

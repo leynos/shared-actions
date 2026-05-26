@@ -361,6 +361,37 @@ def _resolve_nextest_config_path() -> Path:
     return NEXTEST_CONFIG_PATH
 
 
+def _resolve_output_path(output_path: Path, lang: str) -> Path:
+    """Return the effective output path, adjusted for mixed-language projects."""
+    if lang == "mixed":
+        return output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
+    return output_path
+
+
+def _compute_coverage_percent(fmt: str, out: Path, stdout: str) -> str:
+    """Return the coverage percentage for the given output format."""
+    if fmt == "lcov":
+        return get_line_coverage_percent_from_lcov(out)
+    if fmt == "cobertura":
+        return get_line_coverage_percent_from_cobertura(out)
+    return extract_percent(stdout)
+
+
+def _report_coverage(
+    percent: str,
+    previous: str | None,
+    github_output: Path,
+    out: Path,
+) -> None:
+    """Echo coverage figures and write them to GITHUB_OUTPUT."""
+    typer.echo(f"Current coverage: {percent}%")
+    if previous is not None:
+        typer.echo(f"Previous coverage: {previous}%")
+    with github_output.open("a") as fh:
+        fh.write(f"file={out}\n")
+        fh.write(f"percent={percent}\n")
+
+
 def main(
     output_path: typ.Annotated[
         Path | None, typer.Option(envvar="INPUT_OUTPUT_PATH")
@@ -420,9 +451,7 @@ def main(
         if with_cucumber_rs is None
         else with_cucumber_rs
     )
-    out = output_path
-    if lang == "mixed":
-        out = output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
+    out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     args = get_cargo_coverage_cmd(
@@ -456,21 +485,9 @@ def main(
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
             )
-    if fmt == "lcov":
-        percent = get_line_coverage_percent_from_lcov(out)
-    elif fmt == "cobertura":
-        percent = get_line_coverage_percent_from_cobertura(out)
-    else:
-        percent = extract_percent(stdout)
-
-    typer.echo(f"Current coverage: {percent}%")
+    percent = _compute_coverage_percent(fmt, out, stdout)
     previous = read_previous_coverage(baseline_file)
-    if previous is not None:
-        typer.echo(f"Previous coverage: {previous}%")
-
-    with github_output.open("a") as fh:
-        fh.write(f"file={out}\n")
-        fh.write(f"percent={percent}\n")
+    _report_coverage(percent, previous, github_output, out)
 
 
 if __name__ == "__main__":

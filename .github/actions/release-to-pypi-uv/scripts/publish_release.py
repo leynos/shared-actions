@@ -81,15 +81,14 @@ def main(index: str = "") -> None:
 
 def cli(
     index: typ.Annotated[
-        str,
+        str | None,
         typer.Option(
-            envvar="INPUT_UV_INDEX",
             help="Optional index name or URL for uv publish.",
         ),
-    ] = "",
+    ] = None,
 ) -> None:
     """CLI entrypoint."""
-    main(index=index or os.getenv("INPUT_UV_INDEX", ""))
+    main(index=index if index is not None else os.getenv("INPUT_UV_INDEX", ""))
 
 
 if __name__ == "__main__":

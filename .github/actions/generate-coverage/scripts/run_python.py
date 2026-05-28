@@ -18,6 +18,7 @@ from pathlib import Path
 
 import typer
 from cmd_utils_loader import run_cmd
+from common import _required_env
 from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum import local
 from plumbum.cmd import uv
@@ -51,14 +52,6 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(levelname)s %(name)s %(message)s",
 )
-
-
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if value:
-        return value
-    typer.echo(f"Missing required environment variable: {name}", err=True)
-    raise typer.Exit(2)
 
 
 def _coverage_python_candidates() -> tuple[Path, ...]:
@@ -415,15 +408,39 @@ def _run_coverage(fmt: str, out: Path) -> str:
 
 def main(
     output_path: typ.Annotated[
-        Path | None, typer.Option(envvar="INPUT_OUTPUT_PATH")
+        Path | None,
+        typer.Option(
+            envvar="INPUT_OUTPUT_PATH",
+            help="Destination path for the coverage output file.",
+        ),
     ] = None,
-    lang: typ.Annotated[str | None, typer.Option(envvar="DETECTED_LANG")] = None,
-    fmt: typ.Annotated[str | None, typer.Option(envvar="DETECTED_FMT")] = None,
+    lang: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="DETECTED_LANG",
+            help='Detected project language: "rust", "python", or "mixed".',
+        ),
+    ] = None,
+    fmt: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="DETECTED_FMT",
+            help='Coverage format: "slipcover", "coveragepy", etc.',
+        ),
+    ] = None,
     github_output: typ.Annotated[
-        Path | None, typer.Option(envvar="GITHUB_OUTPUT")
+        Path | None,
+        typer.Option(
+            envvar="GITHUB_OUTPUT",
+            help="Path to the GitHub Actions output file.",
+        ),
     ] = None,
     baseline_file: typ.Annotated[
-        Path | None, typer.Option(envvar="BASELINE_PYTHON_FILE")
+        Path | None,
+        typer.Option(
+            envvar="BASELINE_PYTHON_FILE",
+            help="Optional path to a previous coverage baseline file.",
+        ),
     ] = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.

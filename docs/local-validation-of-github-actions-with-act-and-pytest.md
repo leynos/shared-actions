@@ -30,7 +30,7 @@ command interception is intentionally avoided; containers execute in isolation.
   3. Commands that talk to the socket (such as `act …` or the pytest harness)
      run with permission to access it. In this repo, use
      `ACT_WORKFLOW_TESTS=1 sudo -E make test` to exercise the workflow harness
-     when your sandbox requires elevated runtime access.
+     when the sandbox requires elevated runtime access.
   4. The release workflow now redirects `uv` caches and the project virtualenv
      to `/tmp` when it detects it is running under `act`, so the container no
      longer leaves root-owned files in the workspace. If residue from older runs

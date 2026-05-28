@@ -107,7 +107,11 @@ def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
 
 
 def _container_runtime_available() -> bool:
-    """Return True if a container runtime (docker/podman) is available."""
+    """Return True if a container runtime (docker/podman) is available.
+
+    Probes lazily so callers that modify ACT, DOCKER_HOST or related
+    environment variables after import see the updated configuration.
+    """
     return _probe_act_runtime().available
 
 
@@ -178,7 +182,19 @@ def _probe_act_runtime(
     )
 
 
-_ACT_RUNTIME_STATUS = _probe_act_runtime()
+_ACT_RUNTIME_STATUS: ActRuntimeStatus | None = None
+
+
+def _get_act_runtime_status() -> ActRuntimeStatus:
+    """Return the runtime probe result, probing lazily on first call.
+
+    Probing is deferred so that tests that modify ACT, DOCKER_HOST
+    or related environment variables see the updated configuration.
+    """
+    global _ACT_RUNTIME_STATUS
+    if _ACT_RUNTIME_STATUS is None:
+        _ACT_RUNTIME_STATUS = _probe_act_runtime()
+    return _ACT_RUNTIME_STATUS
 
 
 def _workflow_tests_enabled() -> bool:
@@ -187,8 +203,8 @@ def _workflow_tests_enabled() -> bool:
 
 
 skip_unless_act = pytest.mark.skipif(
-    not _ACT_RUNTIME_STATUS.available,
-    reason=_ACT_RUNTIME_STATUS.reason or "act or container runtime not available",
+    not _get_act_runtime_status().available,
+    reason=_get_act_runtime_status().reason or "act or container runtime not available",
 )
 
 skip_unless_workflow_tests = pytest.mark.skipif(
@@ -297,7 +313,7 @@ def run_act(
     event_path = _resolve_event_path(config, event)
 
     run_env = os.environ.copy()
-    run_env.update(_ACT_RUNTIME_STATUS.env)
+    run_env.update(_get_act_runtime_status().env)
     if config.env:
         run_env.update(config.env)
 

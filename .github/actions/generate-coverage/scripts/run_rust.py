@@ -27,6 +27,7 @@ import typer
 from _cargo_runner import _run_cargo
 from _cranelift import _CARGO_COVERAGE_ENV_UNSETS, get_cargo_coverage_env
 from cmd_utils_loader import run_cmd
+from common import _env_bool, _required_env
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
@@ -88,21 +89,6 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 # Put a hard ceiling on the whole run.
 global-timeout = "10m"
 """
-
-
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if value:
-        return value
-    typer.echo(f"Missing required environment variable: {name}", err=True)
-    raise typer.Exit(2)
-
-
-def _env_bool(name: str, *, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _run_cargo(
@@ -405,37 +391,19 @@ def _resolve_bool_input(
 
 
 def main(
-    output_path: typ.Annotated[
-        Path | None, typer.Option(envvar="INPUT_OUTPUT_PATH")
-    ] = None,
-    features: typ.Annotated[str, typer.Option(envvar="INPUT_FEATURES")] = "",
+    output_path: typ.Annotated[Path | None, typer.Option()] = None,
+    features: typ.Annotated[str, typer.Option()] = "",
     *,
-    with_default: typ.Annotated[
-        bool | None, typer.Option(envvar="INPUT_WITH_DEFAULT_FEATURES")
-    ] = None,
-    use_nextest: typ.Annotated[
-        bool | None, typer.Option(envvar="INPUT_USE_CARGO_NEXTEST")
-    ] = None,
-    lang: typ.Annotated[str | None, typer.Option(envvar="DETECTED_LANG")] = None,
-    fmt: typ.Annotated[str | None, typer.Option(envvar="DETECTED_FMT")] = None,
-    manifest_path: typ.Annotated[
-        Path, typer.Option(envvar="DETECTED_CARGO_MANIFEST")
-    ] = Path("Cargo.toml"),
-    github_output: typ.Annotated[
-        Path | None, typer.Option(envvar="GITHUB_OUTPUT")
-    ] = None,
-    cucumber_rs_features: typ.Annotated[
-        str, typer.Option(envvar="INPUT_CUCUMBER_RS_FEATURES")
-    ] = "",
-    cucumber_rs_args: typ.Annotated[
-        str, typer.Option(envvar="INPUT_CUCUMBER_RS_ARGS")
-    ] = "",
-    with_cucumber_rs: typ.Annotated[
-        bool | None, typer.Option(envvar="INPUT_WITH_CUCUMBER_RS")
-    ] = None,
-    baseline_file: typ.Annotated[
-        Path | None, typer.Option(envvar="BASELINE_RUST_FILE")
-    ] = None,
+    with_default: typ.Annotated[bool | None, typer.Option()] = None,
+    use_nextest: typ.Annotated[bool | None, typer.Option()] = None,
+    lang: typ.Annotated[str | None, typer.Option()] = None,
+    fmt: typ.Annotated[str | None, typer.Option()] = None,
+    manifest_path: typ.Annotated[Path, typer.Option()] = Path("Cargo.toml"),
+    github_output: typ.Annotated[Path | None, typer.Option()] = None,
+    cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
+    cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
+    with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
+    baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))

@@ -23,13 +23,13 @@ command interception is intentionally avoided; containers execute in isolation.
   container runtime socket is reachable. On Fedora/Podman that normally means:
   1. `systemctl --user status podman.socket` reports `active (listening)`.
   2. The Docker-compatible Podman API can list all containers. The pytest
-     harness checks `GET /v1.41/containers/json?all=true`, because this is the
+     harness checks `GET /v1.41/containers/json?all=true` because this is the
      path `act` uses before starting a job. If the API returns
      `container not known`, repair or remove stale Podman containers stuck in
      `Removing` state before rerunning.
   3. Commands that talk to the socket (such as `act …` or the pytest harness)
-     run with permission to access it. In this repo, use
-     `ACT_WORKFLOW_TESTS=1 sudo -E make test` to exercise the workflow harness
+     run with permission to access it. In this repo,
+     `ACT_WORKFLOW_TESTS=1 sudo -E make test` exercises the workflow harness
      when the sandbox requires elevated runtime access.
   4. The release workflow now redirects `uv` caches and the project virtualenv
      to `/tmp` when it detects it is running under `act`, so the container no
@@ -188,7 +188,7 @@ def test_workflow_produces_expected_artefact_and_logs(tmp_path: Path) -> None:
 Because the test launches containers, it requires the same Podman/Docker setup
 described in the prerequisites. The harness skips automatically when the
 runtime, socket, or Docker-compatible container listing API is unavailable, but
-to _run_ it you must opt in:
+running it requires opting in:
 
 ```bash
 # Inside a sandbox where podman requires sudo:

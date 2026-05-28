@@ -78,11 +78,18 @@ def _read_unix_http(socket_path: Path, path: str) -> tuple[int, str]:
 
     response = b"".join(chunks)
     head, _separator, body = response.partition(b"\r\n\r\n")
-    status_line = head.splitlines()[0].decode("ascii", errors="replace")
+    head_lines = head.splitlines()
+    if not head_lines:
+        return 0, response.decode("utf-8", errors="replace")
+    status_line = head_lines[0].decode("ascii", errors="replace")
     parts = status_line.split(maxsplit=2)
     if len(parts) < 2:
         return 0, response.decode("utf-8", errors="replace")
-    return int(parts[1]), body.decode("utf-8", errors="replace")
+    try:
+        status_code = int(parts[1])
+    except ValueError:
+        return 0, response.decode("utf-8", errors="replace")
+    return status_code, body.decode("utf-8", errors="replace")
 
 
 def _docker_host_usable(docker_host: str) -> tuple[bool, str]:

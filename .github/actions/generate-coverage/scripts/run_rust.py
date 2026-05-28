@@ -411,7 +411,8 @@ def main(
     fmt = fmt or _required_env("DETECTED_FMT")
     github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
     features = features or os.getenv("INPUT_FEATURES", "")
-    manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", str(manifest_path)))
+    if manifest_path == Path("Cargo.toml"):
+        manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", str(manifest_path)))
     cucumber_rs_features = cucumber_rs_features or os.getenv(
         "INPUT_CUCUMBER_RS_FEATURES", ""
     )

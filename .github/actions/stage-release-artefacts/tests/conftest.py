@@ -10,15 +10,29 @@ from hypothesis import strategies as st
 from syspath_hack import prepend_to_syspath
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
-prepend_to_syspath(SCRIPTS_DIR)
 
-from stage_common import StageError
-from stage_common.config import (
-    ArtefactConfig,
-    BinstallConfig,  # noqa: F401
-    StagingConfig,
-)
-from stage_common.pipeline import StageResult, stage_artefacts  # noqa: F401
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Set up sys.path and re-export stage_common symbols before collection.
+
+    pytest invokes this hook after importing conftest.py but before
+    collecting and importing peer test modules. Both this conftest and
+    sibling test modules import ``stage_common`` at module top level, so
+    the scripts directory must be on ``sys.path`` before that collection
+    pass begins.
+    """
+    del config
+    prepend_to_syspath(SCRIPTS_DIR)
+    global ArtefactConfig, BinstallConfig, StagingConfig
+    global StageError, StageResult, stage_artefacts
+    from stage_common import StageError
+    from stage_common.config import (
+        ArtefactConfig,
+        BinstallConfig,
+        StagingConfig,
+    )
+    from stage_common.pipeline import StageResult, stage_artefacts
+
 
 # Restricted to the Basic Multilingual Plane (max_codepoint=0xFFFF) to avoid
 # macOS EILSEQ on supplementary characters. Excludes surrogates (Cs), C0/C1
@@ -69,12 +83,6 @@ ARCHIVE_MEMBER_NAMES = st.text(
     min_size=1,
     max_size=40,
 ).filter(lambda value: value not in {".", ".."})
-
-
-@pytest.fixture(scope="session", autouse=True)
-def _stage_release_artefacts_scripts_on_syspath() -> None:
-    """Ensure stage-release-artefacts scripts are importable by all tests."""
-    prepend_to_syspath(SCRIPTS_DIR)
 
 
 def make_linux_config(

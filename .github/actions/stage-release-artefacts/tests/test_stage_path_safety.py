@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path  # noqa: TC003
+import typing as typ
 
 import pytest
 from hypothesis import given
@@ -17,6 +17,9 @@ from conftest import (
     _assert_path_traversal_rejected,
     make_linux_config,
 )
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestStageArtefactsPathSafety:
@@ -67,7 +70,11 @@ class TestStageArtefactsPathSafety:
 
         result = stage_artefacts(config)
 
-        assert result.staged_artefacts[0].is_relative_to(result.staging_dir)
+        staged = result.staged_artefacts[0]
+        assert staged.is_relative_to(result.staging_dir), (
+            f"staged artefact path is not inside staging_dir: "
+            f"{staged} not relative to {result.staging_dir}"
+        )
 
     @HYPOTHESIS_SETTINGS
     @given(destination=TRAVERSAL_DESTINATIONS)

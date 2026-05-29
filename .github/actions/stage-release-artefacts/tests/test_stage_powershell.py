@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path  # noqa: TC003
+import typing as typ
 
 import pytest
 from hypothesis import given
@@ -17,6 +17,9 @@ from conftest import (
     make_powershell_workspace,
     make_windows_config,
 )
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestStageArtefactsPowerShell:

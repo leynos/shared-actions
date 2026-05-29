@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import tarfile
 import typing as typ
-from pathlib import Path  # noqa: TC003
 
 from pytest_bdd import given as bdd_given
 from pytest_bdd import parsers, scenario, then, when
 from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig
 from stage_common.pipeline import StageResult, stage_artefacts
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 @scenario(

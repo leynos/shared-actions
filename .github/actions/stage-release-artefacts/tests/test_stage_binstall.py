@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import tarfile
-from pathlib import Path  # noqa: TC003
+import typing as typ
 
 import pytest
 from hypothesis import given
@@ -17,6 +17,9 @@ from stage_common.pipeline import (  # noqa: F401
 )
 
 from conftest import ARCHIVE_MEMBER_NAMES, HYPOTHESIS_SETTINGS
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclasses.dataclass(frozen=True)

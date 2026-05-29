@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path  # noqa: TC003
+import typing as typ
 
 import pytest
 from stage_common import StageError
@@ -10,6 +10,9 @@ from stage_common.config import ArtefactConfig
 from stage_common.pipeline import stage_artefacts
 
 from conftest import make_linux_config
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestStageArtefactsCore:

@@ -11,6 +11,7 @@ import collections.abc as cabc  # noqa: TC003
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -44,8 +45,6 @@ from utils import (
 )
 
 if typ.TYPE_CHECKING:
-    import subprocess
-
     from cmd_utils import SupportsFormulate
 
     class _SupportsEnvFormulate(SupportsFormulate, typ.Protocol):
@@ -167,11 +166,14 @@ def _target_is_windows(target: str) -> bool:
     return any(normalized.endswith(suffix) for suffix in WINDOWS_TARGET_SUFFIXES)
 
 
-def should_probe_container(host_platform: str, target: str) -> bool:
+def should_probe_container(
+    host_platform: str, target: str, host_target: str = ""
+) -> bool:
     """Determine whether container runtimes should be probed."""
-    if host_platform != "win32":
-        return True
-    return not _target_is_windows(target)
+    if host_platform == "win32":
+        return not _target_is_windows(target)
+    # Building for the host's own native target requires no container runtime.
+    return not (host_target and target.strip().lower() == host_target.strip().lower())
 
 
 def _list_installed_toolchains(rustup_exec: str) -> list[str]:
@@ -211,7 +213,7 @@ def _probe_runtime(name: str) -> bool:
     """Return True when *name* runtime is available, tolerating probe timeouts."""
     try:
         return runtime_available(name)
-    except ProcessTimedOut as exc:
+    except (ProcessTimedOut, subprocess.TimeoutExpired) as exc:
         timeout = getattr(exc, "timeout", None)
         duration = f" after {timeout}s" if timeout else ""
         message = (
@@ -361,7 +363,7 @@ def _decide_cross_usage(
             break
     docker_present = False
     podman_present = False
-    if should_probe_container(sys.platform, target):
+    if should_probe_container(sys.platform, target, host_target):
         docker_present = _probe_runtime("docker")
         podman_present = _probe_runtime("podman")
     has_container = docker_present or podman_present

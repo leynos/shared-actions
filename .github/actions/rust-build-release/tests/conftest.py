@@ -560,6 +560,31 @@ def packaged_artefacts(
     )
 
 
+class CrossInstallContext(typ.NamedTuple):
+    """Bundled fixtures for tests that exercise cross installation via main()."""
+
+    main_module: ModuleType
+    cross_module: ModuleType
+    module_harness: HarnessFactory
+    setup_manifest: Path
+
+
+@pytest.fixture
+def cross_install_context(
+    main_module: ModuleType,
+    cross_module: ModuleType,
+    module_harness: HarnessFactory,
+    setup_manifest: Path,
+) -> CrossInstallContext:
+    """Composite fixture bundling cross-install test dependencies."""
+    return CrossInstallContext(
+        main_module=main_module,
+        cross_module=cross_module,
+        module_harness=module_harness,
+        setup_manifest=setup_manifest,
+    )
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:

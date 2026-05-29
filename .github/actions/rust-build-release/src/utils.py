@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import collections.abc as cabc  # noqa: TC003
-import os  # noqa: TC003
+import os
 import typing as typ
 from pathlib import Path
 
@@ -54,7 +54,9 @@ def ensure_allowed_executable(
     allowed = {name.lower() for name in allowed_names}
     if candidate not in allowed:
         raise UnexpectedExecutableError(exec_path)
-    return str(exec_path)
+    return os.fsdecode(
+        executable
+    )  # preserve caller's form; Path used for validation only
 
 
 @typ.overload

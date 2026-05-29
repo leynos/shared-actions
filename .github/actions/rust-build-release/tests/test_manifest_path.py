@@ -257,7 +257,7 @@ def test_main_passes_manifest_to_builder(
 
     harness.patch_attr("_decide_cross_usage", lambda *_, **__: decision)
 
-    context.main_module.main(config.target, toolchain=config.toolchain)
+    context.main_module.main(config.target, toolchain=config.toolchain, features="")
 
     assert captured["manifest"] == Path("Cargo.toml")
     assert captured["features"] == ""
@@ -319,7 +319,7 @@ def test_main_prefers_repo_declared_toolchain(
 
     harness.patch_attr("_build_cargo_command", fake_cargo)
 
-    context.main_module.main("aarch64-unknown-linux-gnu")
+    context.main_module.main("aarch64-unknown-linux-gnu", toolchain="", features="")
 
     assert captured["toolchain"] == "nightly-2026-03-26"
     assert captured["target"] == "aarch64-unknown-linux-gnu"
@@ -374,10 +374,12 @@ def test_main_cross_toolchain_environment(
 
     if explicit_toolchain is not None:
         context.main_module.main(
-            "aarch64-unknown-linux-gnu", toolchain=explicit_toolchain
+            "aarch64-unknown-linux-gnu",
+            toolchain=explicit_toolchain,
+            features="",
         )
     else:
-        context.main_module.main("aarch64-unknown-linux-gnu")
+        context.main_module.main("aarch64-unknown-linux-gnu", toolchain="", features="")
 
     parts = typ.cast("list[str]", captured["parts"])
     assert_no_toolchain_override(parts)
@@ -460,7 +462,7 @@ def test_main_cross_uses_repo_declared_nightly_without_env_override(
 
     harness.patch_attr("run_cmd", fake_run)
 
-    context.main_module.main("aarch64-unknown-linux-gnu")
+    context.main_module.main("aarch64-unknown-linux-gnu", toolchain="", features="")
 
     parts = typ.cast("list[str]", captured["parts"])
     assert captured["toolchain"] == "nightly-2026-03-26"

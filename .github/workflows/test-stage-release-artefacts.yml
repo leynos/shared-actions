@@ -180,3 +180,70 @@ jobs:
           [[ -d "${{ steps.stage.outputs.powershell_help_dir }}" ]]
           [[ -f "${{ steps.stage.outputs.powershell_help_dir }}/MyTool.psm1" ]]
           [[ -f "${{ steps.stage.outputs.powershell_help_dir }}/en-US/MyTool-help.xml" ]]
+
+  test-stage-artefacts-binstall:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Create test workspace
+        uses: ./.github/actions/create-test-artefacts
+        with:
+          workspace-suffix: binstall
+
+      - name: Create cargo-binstall inputs
+        run: |
+          mkdir -p "${TEST_WORKSPACE}/target/x86_64-unknown-linux-gnu/release"
+          cat > "${TEST_WORKSPACE}/Cargo.toml" << 'EOF'
+          [package]
+          name = "test-app"
+          version = "1.2.3"
+          edition = "2021"
+
+          [[bin]]
+          name = "test-app"
+          path = "src/main.rs"
+
+          [package.metadata.binstall.overrides.'cfg(target_os = "linux")']
+          pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.tar.gz"
+          bin-dir = "{ bin }{ binary-ext }"
+          pkg-fmt = "tgz"
+          EOF
+
+          cp "${TEST_WORKSPACE}/target/release/test-app" \
+            "${TEST_WORKSPACE}/target/x86_64-unknown-linux-gnu/release/test-app"
+
+          cat > "${TEST_WORKSPACE}/test-staging.toml" << 'EOF'
+          [common]
+          bin_name = "test-app"
+          dist_dir = "dist"
+          checksum_algorithm = "sha256"
+
+          [common.binstall]
+          enabled = true
+
+          [targets.linux-x86_64]
+          platform = "linux"
+          arch = "x86_64"
+          target = "x86_64-unknown-linux-gnu"
+          EOF
+
+      - name: Stage cargo-binstall archive
+        id: stage
+        uses: ./.github/actions/stage-release-artefacts
+        with:
+          config-file: ${{ env.TEST_WORKSPACE }}/test-staging.toml
+          target: linux-x86_64
+
+      - name: Verify cargo-binstall archive
+        run: |
+          archive="${{ steps.stage.outputs.binstall-archive-path }}"
+          echo "binstall-archive-path=${archive}"
+          [[ -n "${archive}" ]]
+          [[ -f "${archive}" ]]
+          [[ -f "${archive}.sha256" ]]
+          tar -tzf "${archive}" | grep -Fx "test-app"

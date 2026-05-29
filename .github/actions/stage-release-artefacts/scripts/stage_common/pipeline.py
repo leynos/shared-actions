@@ -25,15 +25,13 @@ import dataclasses
 import hashlib
 import logging
 import shutil
+import tarfile
 import time
 import typing as typ
 import uuid
+from pathlib import Path, PurePosixPath
 
 from .errors import StageError
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
 from .output import validate_no_reserved_key_collisions
 from .resolution import match_candidate_path
 
@@ -91,6 +89,15 @@ class StagedArtefact:
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
+class _BinstallMetadata:
+    """Resolved values used to render cargo-binstall archive templates."""
+
+    package_name: str
+    version: str
+    bin_name: str
+
+
+@dataclasses.dataclass(slots=True, frozen=True)
 class ResolvedArtefact:
     artefact: ArtefactConfig
     source: Path
@@ -142,6 +149,15 @@ def _collect_artefacts(env: StageEnv) -> StagingState:
 
     for artefact in env.config.artefacts:
         _stage_configured_artefact(env, artefact, state)
+
+    if env.config.binstall.enabled:
+        archive_path = _stage_binstall_archive(env.config, env.staging_dir, env.context)
+        state.staged_paths.append(archive_path)
+        relative_path = archive_path.relative_to(env.staging_dir).as_posix()
+        state.checksums[relative_path] = _write_checksum(
+            archive_path, env.config.checksum_algorithm
+        )
+        state.outputs[env.config.binstall.output] = archive_path
 
     if not state.staged_paths:
         artefact_count = len(env.config.artefacts)
@@ -476,6 +492,123 @@ def _safe_destination_path(staging_dir: Path, destination: str) -> Path:
         )
         raise StageError(msg)
     return target
+
+
+def _resolve_manifest_path(config: StagingConfig) -> Path:
+    """Resolve the configured Cargo manifest path."""
+    manifest_path = Path(config.binstall.manifest_path)
+    if manifest_path.is_absolute():
+        return manifest_path
+    return config.workspace / manifest_path
+
+
+def _read_manifest_metadata(config: StagingConfig) -> dict[str, typ.Any]:
+    """Read Cargo manifest metadata for binstall archive naming."""
+    from cargo_utils import ManifestError, read_manifest
+
+    manifest_path = _resolve_manifest_path(config)
+    try:
+        return read_manifest(manifest_path)
+    except ManifestError as exc:
+        msg = f"Unable to read cargo-binstall manifest metadata: {exc}"
+        raise StageError(msg) from exc
+
+
+def _resolve_binstall_metadata(config: StagingConfig) -> _BinstallMetadata:
+    """Resolve package, version, and binary names for cargo-binstall archives."""
+    from cargo_utils import ManifestError, get_package_field, resolve_version
+
+    manifest: dict[str, typ.Any] | None = None
+    manifest_path = _resolve_manifest_path(config)
+    binstall = config.binstall
+
+    def _manifest() -> dict[str, typ.Any]:
+        nonlocal manifest
+        if manifest is None:
+            manifest = _read_manifest_metadata(config)
+        return manifest
+
+    try:
+        package_name = binstall.package_name or get_package_field(
+            _manifest(), "name", manifest_path
+        )
+        version = binstall.version or resolve_version(_manifest(), manifest_path)
+    except ManifestError as exc:
+        msg = f"Unable to resolve cargo-binstall manifest metadata: {exc}"
+        raise StageError(msg) from exc
+
+    return _BinstallMetadata(
+        package_name=package_name,
+        version=version,
+        bin_name=binstall.bin_name or config.bin_name,
+    )
+
+
+def _binstall_template_context(
+    config: StagingConfig, metadata: _BinstallMetadata, base_context: dict[str, typ.Any]
+) -> dict[str, typ.Any]:
+    """Return template context extended with cargo-binstall metadata."""
+    return base_context | {
+        "package_name": metadata.package_name,
+        "version": metadata.version,
+        "bin_name": metadata.bin_name,
+    }
+
+
+def _validate_archive_member_name(member_name: str) -> str:
+    """Validate a tar archive member name and return it."""
+    if not member_name:
+        msg = "cargo-binstall archive member name must not be empty"
+        raise StageError(msg)
+    member = PurePosixPath(member_name)
+    if member.is_absolute() or ".." in member.parts:
+        msg = f"cargo-binstall archive member path is unsafe: {member_name!r}"
+        raise StageError(msg)
+    if member_name.endswith("/"):
+        msg = f"cargo-binstall archive member must be a file path: {member_name!r}"
+        raise StageError(msg)
+    return member.as_posix()
+
+
+def _resolve_binstall_binary_source(
+    config: StagingConfig, context: dict[str, typ.Any]
+) -> Path:
+    """Resolve the binary source used for cargo-binstall archive creation."""
+    rendered = _render_template(config.binstall.binary_source, context)
+    if (source_path := match_candidate_path(config.workspace, rendered)) is None:
+        msg = (
+            "cargo-binstall binary source not found. "
+            f"Workspace={config.workspace.as_posix()} "
+            f"Attempt={config.binstall.binary_source!r} -> {rendered!r}"
+        )
+        raise StageError(msg)
+    return source_path
+
+
+def _stage_binstall_archive(
+    config: StagingConfig, staging_dir: Path, base_context: dict[str, typ.Any]
+) -> Path:
+    """Create and stage a cargo-binstall archive."""
+    metadata = _resolve_binstall_metadata(config)
+    context = _binstall_template_context(config, metadata, base_context)
+    archive_name = _render_template(config.binstall.archive_name, context)
+    archive_path = _safe_destination_path(staging_dir, archive_name)
+    binary_source = _resolve_binstall_binary_source(config, context)
+    member_name = _validate_archive_member_name(
+        _render_template(config.binstall.binary_name, context)
+    )
+
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    if archive_path.exists():
+        archive_path.unlink()
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(binary_source, arcname=member_name)
+    logger.info(
+        "Staged cargo-binstall archive '%s' with member '%s'",
+        archive_path.relative_to(config.workspace),
+        member_name,
+    )
+    return archive_path
 
 
 def _write_checksum(path: Path, algorithm: str) -> str:

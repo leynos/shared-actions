@@ -22,10 +22,10 @@ RUFF_FIX_RULES ?= D202,I001
 UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
 
 test: .venv ## Run tests
-	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest -n auto --dist worksteal -v
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
-	ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist pytest tests/workflows -v
+	ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
 endif
 
 .venv:

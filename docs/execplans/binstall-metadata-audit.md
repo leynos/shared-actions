@@ -163,7 +163,7 @@ conflict in `Decision Log`, and ask for direction.
 - Risk: Snapshot tests may be noisy because absolute temporary paths vary.
   Severity: low.
   Likelihood: medium.
-  Mitigation: snapshot only stable output fragments or normalise temporary
+  Mitigation: snapshot only stable output fragments or normalize temporary
   roots before assertion.
 
 - Risk: The repository currently does not include `pytest-bdd`, `syrupy`, or
@@ -236,7 +236,7 @@ and manifest value resolution are separate from normal file copying.
 
 The staging pipeline should run in this order:
 
-1. Initialise the clean staging directory.
+1. Initialize the clean staging directory.
 2. Stage configured artefacts exactly as today.
 3. If binstall is enabled, resolve metadata, find the binary source, create the
    archive in the same staging directory, write its checksum sidecar, add the
@@ -343,7 +343,7 @@ and document it in the README.
 
 Unit tests must verify archive filename, archive member name, checksum content,
 output map key, disabled behaviour, and failure when the binary source is
-missing. The syrupy snapshot should pin the output file format after normalising
+missing. The syrupy snapshot should pin the output file format after normalizing
 temporary paths.
 
 Validation after this milestone:
@@ -375,7 +375,7 @@ binstall in the staging TOML, runs the composite action, and verifies:
 - `tar -tzf` shows the binary name at the archive root.
 
 Update `tests/workflows/test_action_behaviors.py` so the act-based behavioural
-test recognises the new workflow job and checks for the output in logs. This is
+test recognizes the new workflow job and checks for the output in logs. This is
 an end-to-end test because the change affects the externally observable
 composite-action contract.
 
@@ -439,7 +439,7 @@ Retrospective`.
 - [x] 2026-05-20: Milestone 3 complete: archive creation and outputs
   implemented locally; focused stage-release tests pass with snapshots.
 - [x] 2026-05-20: Milestone 4 complete: the act workflow now has a
-  cargo-binstall job and the act behavioural recogniser checks the new public
+  cargo-binstall job and the act behavioural recognizer checks the new public
   output. Focused local validation passes; local act execution is skipped
   because `act` or a container runtime is unavailable.
 - [x] 2026-05-20: Milestone 5 implementation complete: README and changelog

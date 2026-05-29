@@ -38,7 +38,42 @@ class ArtefactConfig:
 
 @dataclasses.dataclass(slots=True)
 class BinstallConfig:
-    """Describe optional cargo-binstall archive generation."""
+    """Optional cargo-binstall archive generation settings.
+
+    Describe the inputs and template defaults used by the staging pipeline
+    when packaging a release binary into a ``cargo-binstall``-compatible
+    archive alongside the standard staged artefacts.
+
+    Parameters
+    ----------
+    enabled : bool, default False
+        Toggle cargo-binstall archive generation for this target.
+    manifest_path : str, default "Cargo.toml"
+        Cargo manifest path relative to the workspace, or an absolute path.
+        Used to resolve the package name and version when they are not
+        provided explicitly.
+    package_name : str or None, default None
+        Override the package name from the Cargo manifest.
+    version : str or None, default None
+        Override the package version from the Cargo manifest.
+    bin_name : str or None, default None
+        Override the binary name resolved from :class:`StagingConfig`.
+    archive_name : str, default "{package_name}-{version}-{target}.tar.gz"
+        ``str.format`` template for the staged archive file name.
+    binary_source : str, default "target/{target}/release/{bin_name}{bin_ext}"
+        ``str.format`` template for the host-side binary path that is added
+        to the archive.
+    binary_name : str, default "{bin_name}{bin_ext}"
+        ``str.format`` template for the archive member name of the binary.
+    output : str, default "binstall_archive_path"
+        Output key under which the resolved archive path is exposed.
+
+    Notes
+    -----
+    All template fields are rendered with the staging context produced by
+    :meth:`StagingConfig.as_template_context`, extended with
+    ``package_name``, ``version``, and ``bin_name``.
+    """
 
     enabled: bool = False
     manifest_path: str = "Cargo.toml"
@@ -135,7 +170,6 @@ def load_config(
 
     data = _load_toml(config_file)
     common, target_cfg = _extract_sections(data, config_file, target_key)
-    _require_keys(common, {"bin_name"}, "common", config_file)
     _require_keys(
         target_cfg,
         {"platform", "arch", "target"},
@@ -144,6 +178,13 @@ def load_config(
     )
     algorithm = _validate_checksum(common.get("checksum_algorithm"))
     binstall = _make_binstall_config(common, target_cfg, config_file)
+    bin_name = common.get("bin_name") or binstall.bin_name
+    if not bin_name:
+        msg = (
+            f"Missing required key 'bin_name' in [common] section of {config_file}; "
+            "set common.bin_name or common.binstall.bin_name"
+        )
+        raise StageError(msg)
     artefacts = _make_artefacts(
         common,
         target_cfg,
@@ -153,7 +194,7 @@ def load_config(
 
     return StagingConfig(
         workspace=workspace,
-        bin_name=common["bin_name"],
+        bin_name=bin_name,
         dist_dir=common.get("dist_dir", "dist"),
         checksum_algorithm=algorithm,
         artefacts=artefacts,

@@ -209,6 +209,48 @@ target = "x86_64-unknown-linux-gnu"
         assert config.artefacts == []
         assert config.binstall.enabled is True
 
+    def test_binstall_bin_name_substitutes_for_common(self, tmp_path: Path) -> None:
+        """Binstall-only configs may set bin_name under [common.binstall]."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+
+[common.binstall]
+enabled = true
+bin_name = "mytool"
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+
+        config = load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
+        assert config.bin_name == "mytool"
+
+    def test_missing_bin_name_raises(self, tmp_path: Path) -> None:
+        """Configs that omit bin_name everywhere fail with a clear message."""
+        config_file = self._setup_config(
+            tmp_path,
+            """
+[common]
+
+[common.binstall]
+enabled = true
+
+[targets.linux-x86_64]
+platform = "linux"
+arch = "x86_64"
+target = "x86_64-unknown-linux-gnu"
+""",
+        )
+
+        with pytest.raises(StageError, match="bin_name"):
+            load_config(config_file, "linux-x86_64", workspace=tmp_path)
+
     def test_target_binstall_config_can_disable_common_default(
         self, tmp_path: Path
     ) -> None:

@@ -10,11 +10,7 @@ import pytest
 from hypothesis import given
 from stage_common import StageError
 from stage_common.config import ArtefactConfig, BinstallConfig, StagingConfig
-from stage_common.pipeline import (  # noqa: F401
-    StageResult,
-    _validate_archive_member_name,
-    stage_artefacts,
-)
+from stage_common.pipeline import _validate_archive_member_name, stage_artefacts
 
 from conftest import ARCHIVE_MEMBER_NAMES, HYPOTHESIS_SETTINGS
 

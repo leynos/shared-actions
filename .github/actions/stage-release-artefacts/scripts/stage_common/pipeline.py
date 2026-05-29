@@ -598,6 +598,7 @@ def _stage_binstall_archive(
         _render_template(config.binstall.binary_name, context)
     )
 
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
     if archive_path.exists():
         archive_path.unlink()
     with tarfile.open(archive_path, "w:gz") as archive:

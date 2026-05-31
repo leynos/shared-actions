@@ -137,6 +137,8 @@ def _load_module(
     deps: cabc.Sequence[tuple[str, str | None]] = (),
 ) -> ModuleType:
     prepend_to_syspath(SRC_DIR)
+    for sibling in ("cross_manager", "runtime", "toolchain", "utils"):
+        sys.modules.pop(sibling, None)
     for dep_name, attr in deps:
         _ensure_dependency(dep_name, attr)
     module_path = SRC_DIR / filename

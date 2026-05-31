@@ -620,6 +620,7 @@ def main(
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
+    features = features or os.getenv("RBR_FEATURES", "")
     manifest_path = _resolve_manifest_path()
     explicit_toolchain = toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import typing as typ
 
 if typ.TYPE_CHECKING:
@@ -80,8 +81,6 @@ def test_probe_honours_configured_act_command(monkeypatch: pytest.MonkeyPatch) -
 
 def test_docker_host_unix_socket_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """DOCKER_HOST=unix://... with a non-existent socket path reports a clear error."""
-    import os
-
     docker_host = "unix:///this/path/does/not/exist.sock"
     monkeypatch.setenv("DOCKER_HOST", docker_host)
 
@@ -96,8 +95,6 @@ def test_docker_host_unix_socket_unreachable(
     tmp_path: Path,
 ) -> None:
     """DOCKER_HOST=unix://... with an unreachable socket surfaces the OSError."""
-    import os
-
     socket_path = tmp_path / "docker.sock"
     socket_path.touch()
 
@@ -134,8 +131,6 @@ def test_probe_reports_unreachable_docker_host_socket(
     tmp_path: Path,
 ) -> None:
     """Probe surfaces an unreachable DOCKER_HOST Unix socket as unavailable."""
-    import os
-
     socket_path = tmp_path / "docker.sock"
     socket_path.touch()
 
@@ -148,7 +143,7 @@ def test_probe_reports_unreachable_docker_host_socket(
 
     monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
 
-    status = conftest._probe_act_runtime(os.environ.copy())
+    status = conftest._probe_act_runtime()
 
     assert not status.available
     assert "Docker API socket is not reachable:" in status.reason

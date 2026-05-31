@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import os
 import shutil
 import socket
@@ -189,19 +190,14 @@ def _probe_act_runtime(
     )
 
 
-_ACT_RUNTIME_STATUS: ActRuntimeStatus | None = None
-
-
+@functools.cache
 def _get_act_runtime_status() -> ActRuntimeStatus:
     """Return the runtime probe result, probing lazily on first call.
 
     Probing is deferred so that tests that modify ACT, DOCKER_HOST
     or related environment variables see the updated configuration.
     """
-    global _ACT_RUNTIME_STATUS
-    if _ACT_RUNTIME_STATUS is None:
-        _ACT_RUNTIME_STATUS = _probe_act_runtime()
-    return _ACT_RUNTIME_STATUS
+    return _probe_act_runtime()
 
 
 def _workflow_tests_enabled() -> bool:

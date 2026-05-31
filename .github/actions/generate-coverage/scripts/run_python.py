@@ -406,6 +406,28 @@ def _run_coverage(fmt: str, out: Path) -> str:
     return get_line_coverage_percent_from_cobertura(out)
 
 
+def _resolve_inputs(
+    output_path: Path | None,
+    lang: str | None,
+    fmt: str | None,
+    github_output: Path | None,
+) -> tuple[Path, str, Path]:
+    """Resolve CLI inputs and return the effective output path."""
+    resolved_output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+    resolved_lang = lang or _required_env("DETECTED_LANG")
+    resolved_fmt = fmt or _required_env("DETECTED_FMT")
+    resolved_github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
+    out = _resolve_output_path(resolved_output_path, resolved_lang)
+    return out, resolved_fmt, resolved_github_output
+
+
+def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
+    """Write coverage outputs for later GitHub Actions steps."""
+    with github_output.open("a") as fh:
+        fh.write(f"file={path}\n")
+        fh.write(f"percent={percent}\n")
+
+
 def main(
     output_path: typ.Annotated[
         Path | None,
@@ -469,20 +491,14 @@ def main(
         exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
         format mode.
     """
-    output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
-    lang = lang or _required_env("DETECTED_LANG")
-    fmt = fmt or _required_env("DETECTED_FMT")
-    github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
-    out = _resolve_output_path(output_path, lang)
+    out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     out.parent.mkdir(parents=True, exist_ok=True)
     percent = _run_coverage(fmt, out)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:
         typer.echo(f"Previous coverage: {previous}%")
-    with github_output.open("a") as fh:
-        fh.write(f"file={out}\n")
-        fh.write(f"percent={percent}\n")
+    _emit_github_output(out, percent, github_output)
 
 
 if __name__ == "__main__":

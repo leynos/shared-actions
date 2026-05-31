@@ -432,28 +432,24 @@ def main(
     output_path: typ.Annotated[
         Path | None,
         typer.Option(
-            envvar="INPUT_OUTPUT_PATH",
             help="Destination path for the coverage output file.",
         ),
     ] = None,
     lang: typ.Annotated[
         str | None,
         typer.Option(
-            envvar="DETECTED_LANG",
             help='Detected project language: "rust", "python", or "mixed".',
         ),
     ] = None,
     fmt: typ.Annotated[
         str | None,
         typer.Option(
-            envvar="DETECTED_FMT",
             help='Coverage format: "slipcover", "coveragepy", etc.',
         ),
     ] = None,
     github_output: typ.Annotated[
         Path | None,
         typer.Option(
-            envvar="GITHUB_OUTPUT",
             help="Path to the GitHub Actions output file.",
         ),
     ] = None,

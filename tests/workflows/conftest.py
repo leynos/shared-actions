@@ -205,15 +205,27 @@ def _workflow_tests_enabled() -> bool:
     return coerce_bool(os.environ.get("ACT_WORKFLOW_TESTS"), default=False)
 
 
-skip_unless_act = pytest.mark.skipif(
-    not _get_act_runtime_status().available,
-    reason=_get_act_runtime_status().reason or "act or container runtime not available",
-)
+skip_unless_act = pytest.mark.skip_unless_act
 
 skip_unless_workflow_tests = pytest.mark.skipif(
     not _workflow_tests_enabled(),
     reason="ACT_WORKFLOW_TESTS not set (opt-in required)",
 )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register workflow test markers."""
+    config.addinivalue_line("markers", "skip_unless_act: skip unless act can run")
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Skip act tests when the runtime probe fails."""
+    if "skip_unless_act" not in item.keywords:
+        return
+    _get_act_runtime_status.cache_clear()
+    status = _get_act_runtime_status()
+    if not status.available:
+        pytest.skip(status.reason or "act or container runtime not available")
 
 
 @pytest.fixture

@@ -398,7 +398,7 @@ def main(
     use_nextest: typ.Annotated[bool | None, typer.Option()] = None,
     lang: typ.Annotated[str | None, typer.Option()] = None,
     fmt: typ.Annotated[str | None, typer.Option()] = None,
-    manifest_path: typ.Annotated[Path, typer.Option()] = Path("Cargo.toml"),
+    manifest_path: typ.Annotated[Path | None, typer.Option()] = None,
     github_output: typ.Annotated[Path | None, typer.Option()] = None,
     cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
     cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
@@ -411,8 +411,8 @@ def main(
     fmt = fmt or _required_env("DETECTED_FMT")
     github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
     features = features or os.getenv("INPUT_FEATURES", "")
-    if manifest_path == Path("Cargo.toml"):
-        manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", str(manifest_path)))
+    if manifest_path is None:
+        manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", "Cargo.toml"))
     cucumber_rs_features = cucumber_rs_features or os.getenv(
         "INPUT_CUCUMBER_RS_FEATURES", ""
     )

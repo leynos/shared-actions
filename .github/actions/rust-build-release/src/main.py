@@ -607,21 +607,26 @@ def _manifest_argument(manifest_path: Path) -> Path:
 @app.command()
 def main(
     target: str = typer.Argument("", help="Target triple to build"),
-    toolchain: str = typer.Option(
-        "",
-        envvar="RBR_TOOLCHAIN",
-        help="Rust toolchain version override",
-    ),
-    features: str = typer.Option(
-        "",
-        envvar="RBR_FEATURES",
-        help="Comma-separated list of Cargo features to enable",
-    ),
+    toolchain: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="RBR_TOOLCHAIN",
+            help="Rust toolchain version override",
+        ),
+    ] = None,
+    features: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="RBR_FEATURES",
+            help="Comma-separated list of Cargo features to enable",
+        ),
+    ] = None,
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
-    features = features or os.getenv("RBR_FEATURES", "")
+    features = os.getenv("RBR_FEATURES", "") if features is None else features
     manifest_path = _resolve_manifest_path()
+    toolchain = os.getenv("RBR_TOOLCHAIN", "") if toolchain is None else toolchain
     explicit_toolchain = toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
         explicit_toolchain,

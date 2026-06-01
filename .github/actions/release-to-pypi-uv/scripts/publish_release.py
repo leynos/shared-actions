@@ -83,7 +83,10 @@ def cli(
     index: typ.Annotated[
         str | None,
         typer.Option(
-            help="Optional index name or URL for uv publish.",
+            help=(
+                "Optional index name or URL for uv publish. If not provided, "
+                "falls back to the INPUT_UV_INDEX environment variable."
+            ),
         ),
     ] = None,
 ) -> None:

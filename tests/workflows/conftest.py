@@ -48,11 +48,6 @@ def _command_available(command: str) -> bool:
     return shutil.which(command) is not None
 
 
-def _act_available() -> bool:
-    """Return True if act is installed and runnable."""
-    return _command_available(_act_command())
-
-
 def _default_podman_socket(environ: cabc.Mapping[str, str]) -> Path:
     """Return the default rootless Podman Docker-compatible socket path."""
     runtime_dir = environ.get("XDG_RUNTIME_DIR")
@@ -112,15 +107,6 @@ def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
         detail = body.strip() or f"HTTP {status}"
         return False, f"Docker API cannot list containers: {detail}"
     return True, ""
-
-
-def _container_runtime_available() -> bool:
-    """Return True if a container runtime (docker/podman) is available.
-
-    Probes lazily so callers that modify ACT, DOCKER_HOST or related
-    environment variables after import see the updated configuration.
-    """
-    return _probe_act_runtime().available
 
 
 def _command_succeeds(command: str, *args: str) -> bool:
@@ -198,6 +184,18 @@ def _get_act_runtime_status() -> ActRuntimeStatus:
     or related environment variables see the updated configuration.
     """
     return _probe_act_runtime()
+
+
+@pytest.fixture(autouse=True)
+def _reset_act_runtime_cache() -> typ.Generator[None, None, None]:
+    """Clear the cached act runtime probe result after each test.
+
+    Ensures that tests which modify ``ACT``, ``DOCKER_HOST``, or related
+    environment variables via monkeypatch do not have their changes obscured
+    by a stale cached result from a prior test.
+    """
+    yield
+    _get_act_runtime_status.cache_clear()
 
 
 def _workflow_tests_enabled() -> bool:

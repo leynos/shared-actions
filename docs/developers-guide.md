@@ -97,6 +97,7 @@ to bare names on `PATH`.
 | Variable | Default resolution order |
 | --- | --- |
 | `UV` | `~/.local/bin/uv` if present, otherwise `uv` |
+| `ACT` | `~/go/bin/act` if present, then `~/.local/bin/act` if present, otherwise `act` |
 | `ACTION_VALIDATOR` | Bun install, then Cargo install, then `PATH` |
 | `MDLINT` | `~/.bun/bin/markdownlint` if present, otherwise `markdownlint` |
 | `MARKDOWNLINT_BASE` | `origin/main` |
@@ -109,6 +110,7 @@ Override example:
 
 ```bash
 make lint UV=uv MARKDOWNLINT_BASE=origin/develop
+make test ACT=/usr/local/bin/act
 ```
 
 ## `setup-rust` cargo-binstall Pinning
@@ -217,6 +219,36 @@ enable DEBUG output during local investigation or CI repro jobs:
 ```bash
 pytest -o log_cli=true --log-level=DEBUG
 ```
+
+## Workflow Test Harness (`tests/workflows/conftest.py`)
+
+### Runtime Probing
+
+The workflow test harness determines whether `act` and a compatible container
+runtime are available before running tests. The probe result is represented by:
+
+| Symbol | Type | Role |
+|---|---|---|
+| `ActRuntimeStatus` | frozen dataclass | Holds `available: bool`, `reason: str`, `env: dict[str, str]`. |
+| `_probe_act_runtime` | `(environ?) -> ActRuntimeStatus` | Execute a fresh probe against the given environment mapping (defaults to `os.environ`). |
+| `_get_act_runtime_status` | `() -> ActRuntimeStatus` | Return the cached probe result, performing the probe on first call. |
+| `_act_command` | `(environ?) -> str` | Return the act executable path from the `ACT` environment variable, defaulting to `"act"`. |
+
+`_get_act_runtime_status` is decorated with `@functools.cache` so the probe
+runs at most once per process. Tests that need to observe a different runtime
+environment must call `_probe_act_runtime(environ)` directly with an explicit
+mapping, bypassing the cache.
+
+`ActRuntimeStatus.env` carries any additional environment variables that must
+be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
+when a healthy Podman socket is discovered automatically.
+
+### Skip Markers
+
+| Marker | Condition |
+|---|---|
+| `skip_unless_act` | Skip when `_get_act_runtime_status().available` is `False`. |
+| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
 
 ## Running the Test Suite
 

@@ -10,7 +10,7 @@ import typer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from common import _env_bool, _required_env  # noqa: I001
+from common import _env_bool, _required_env  # noqa: I001  # path must be patched first
 
 
 # ---------------------------------------------------------------------------

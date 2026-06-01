@@ -412,7 +412,8 @@ def main(
     github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
     features = features or os.getenv("INPUT_FEATURES", "")
     if manifest_path is None:
-        manifest_path = Path(os.getenv("DETECTED_CARGO_MANIFEST", "Cargo.toml"))
+        detected_manifest = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
+        manifest_path = Path(detected_manifest or "Cargo.toml")
     cucumber_rs_features = cucumber_rs_features or os.getenv(
         "INPUT_CUCUMBER_RS_FEATURES", ""
     )

@@ -182,7 +182,7 @@ stops short of that complexity.
 ### Purpose
 
 `common.py` is a shared utility module imported by `run_rust.py`,
-`run_python.py`, and `merge_cobertura.py`. It centralises environment-variable
+`run_python.py`, and `merge_cobertura.py`. It centralizes environment-variable
 handling so error messages and exit codes are consistent across all scripts.
 
 ### Public API
@@ -190,7 +190,7 @@ handling so error messages and exit codes are consistent across all scripts.
 | Symbol | Signature | Role |
 |---|---|---|
 | `_required_env` | `(name: str) -> str` | Return the non-empty value of a required env var or exit with code 2. |
-| `_env_bool` | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognised non-empty values. |
+| `_env_bool` | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognized non-empty values. |
 
 `_required_env` trims whitespace before testing emptiness so a variable set to
 only spaces is treated as absent.
@@ -203,18 +203,18 @@ exit with code 2.
 ### Design Rationale
 
 Prior to `common.py` each script declared its own inline `_required_env`
-helper, leading to divergent exit codes and error messages. Centralising the
+helper, leading to divergent exit codes and error messages. Centralizing the
 helper ensures that a missing required variable always produces a message of
 the form `Missing required environment variable: NAME` and exits with code 2,
 regardless of which script is running.
 
 Boolean environment variables similarly used Typer's built-in `envvar`
 binding, which silently accepted any non-empty string as truthy. `_env_bool`
-replaces that path to provide an explicit rejection of unrecognised values.
+replaces that path to provide an explicit rejection of unrecognized values.
 
 ## Roadmap
 
-- [x] Centralise environment-variable parsing helpers (`_required_env`,
+- [x] Centralize environment-variable parsing helpers (`_required_env`,
   `_env_bool`) into `common.py` so error messages and exit codes are
   consistent across all generate-coverage scripts.
 - [x] Extend artefact naming to include platform metadata and support custom

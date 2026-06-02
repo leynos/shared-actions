@@ -388,7 +388,8 @@ class TestFeaturesEnvVar:
         runner = CliRunner()
         result = runner.invoke(
             context.main_module.app,
-            [target, "--toolchain", "stable", "--features", "env-feature"],
+            [target, "--toolchain", "stable"],
+            env={"RBR_FEATURES": "env-feature"},
         )
 
         assert result.exit_code == 0

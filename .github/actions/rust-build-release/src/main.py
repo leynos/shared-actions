@@ -604,6 +604,13 @@ def _manifest_argument(manifest_path: Path) -> Path:
         return manifest_path
 
 
+def _resolve_env_backed_option(value: str | None, envvar: str) -> str:
+    """Return the explicit option value, or the environment fallback."""
+    if value is not None:
+        return value
+    return os.getenv(envvar, "")
+
+
 @app.command()
 def main(
     target: typ.Annotated[str, typer.Argument(help="Target triple to build")] = "",
@@ -625,8 +632,8 @@ def main(
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
     manifest_path = _resolve_manifest_path()
-    resolved_features: str = features if features is not None else ""
-    resolved_toolchain: str = toolchain if toolchain is not None else ""
+    resolved_features = _resolve_env_backed_option(features, "RBR_FEATURES")
+    resolved_toolchain = _resolve_env_backed_option(toolchain, "RBR_TOOLCHAIN")
     explicit_toolchain = resolved_toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
         explicit_toolchain,

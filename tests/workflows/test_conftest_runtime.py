@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import typing as typ
 
 import pytest
@@ -11,6 +12,36 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 from . import conftest
+
+
+def test_command_available_accepts_absolute_executable() -> None:
+    """Absolute executable paths are reported as available."""
+    assert conftest._command_available(sys.executable)
+
+
+def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
+    """Absolute non-executable files are not reported as available."""
+    path = tmp_path / "not-executable"
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    assert not conftest._command_available(str(path))
+
+
+def test_command_succeeds_reports_successful_command() -> None:
+    """Successful commands return True."""
+    assert conftest._command_succeeds(sys.executable, "-c", "pass")
+
+
+def test_command_succeeds_reports_failed_command() -> None:
+    """Non-zero commands return False."""
+    assert not conftest._command_succeeds(
+        sys.executable, "-c", "import sys; sys.exit(3)"
+    )
+
+
+def test_command_succeeds_reports_missing_command() -> None:
+    """Missing commands return False."""
+    assert not conftest._command_succeeds("definitely-not-a-real-command-for-tests")
 
 
 def test_probe_reports_unhealthy_podman_docker_api(

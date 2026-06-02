@@ -27,21 +27,31 @@ def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
     assert not conftest._command_available(str(path))
 
 
-def test_command_succeeds_reports_successful_command() -> None:
-    """Successful commands return True."""
-    assert conftest._command_succeeds(sys.executable, "-c", "pass")
-
-
-def test_command_succeeds_reports_failed_command() -> None:
-    """Non-zero commands return False."""
-    assert not conftest._command_succeeds(
-        sys.executable, "-c", "import sys; sys.exit(3)"
-    )
-
-
-def test_command_succeeds_reports_missing_command() -> None:
-    """Missing commands return False."""
-    assert not conftest._command_succeeds("definitely-not-a-real-command-for-tests")
+@pytest.mark.parametrize(
+    ("command", "args", "expected"),
+    [
+        pytest.param(sys.executable, ("-c", "pass"), True, id="successful"),
+        pytest.param(
+            sys.executable,
+            ("-c", "import sys; sys.exit(3)"),
+            False,
+            id="failed",
+        ),
+        pytest.param(
+            "definitely-not-a-real-command-for-tests",
+            (),
+            False,
+            id="missing",
+        ),
+    ],
+)
+def test_command_succeeds_reports_command_status(
+    command: str,
+    args: tuple[str, ...],
+    expected: bool,  # noqa: FBT001
+) -> None:
+    """Command success probes return the expected boolean."""
+    assert conftest._command_succeeds(command, *args) is expected
 
 
 def test_probe_reports_unhealthy_podman_docker_api(
@@ -110,74 +120,48 @@ def test_probe_honours_configured_act_command(monkeypatch: pytest.MonkeyPatch) -
     assert status.reason == "act executable not found: /custom/bin/act"
 
 
-def test_docker_host_unix_socket_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """DOCKER_HOST=unix://... with a non-existent socket path reports a clear error."""
-    docker_host = "unix:///this/path/does/not/exist.sock"
-    monkeypatch.setenv("DOCKER_HOST", docker_host)
-
-    usable, reason = conftest._docker_host_usable(os.environ["DOCKER_HOST"])
-
-    assert usable is False
-    assert reason.startswith("Docker API socket does not exist:")
-
-
-def test_docker_host_unix_socket_unreachable(
+@pytest.mark.parametrize(
+    ("failure", "expected_reason"),
+    [
+        pytest.param("missing", "Docker API socket does not exist:", id="missing"),
+        pytest.param(
+            "unreachable",
+            "Docker API socket is not reachable:",
+            id="unreachable",
+        ),
+    ],
+)
+def test_docker_host_failure_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    failure: str,
+    expected_reason: str,
 ) -> None:
-    """DOCKER_HOST=unix://... with an unreachable socket surfaces the OSError."""
-    socket_path = tmp_path / "docker.sock"
-    socket_path.touch()
+    """Docker host failures are reported consistently by helpers and probes."""
+    if failure == "missing":
+        docker_host = "unix:///nonexistent/path.sock"
+    else:
+        socket_path = tmp_path / "docker.sock"
+        socket_path.touch()
+        docker_host = f"unix://{socket_path}"
 
-    docker_host = f"unix://{socket_path}"
+        def _raise_oserror(*_args: object, **_kwargs: object) -> None:
+            msg = "test unreachable docker socket"
+            raise OSError(msg)
+
+        monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
+
     monkeypatch.setenv("DOCKER_HOST", docker_host)
-
-    def _raise_oserror(*_args: object, **_kwargs: object) -> None:
-        msg = "test unreachable docker socket"
-        raise OSError(msg)
-
-    monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
+    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
 
     usable, reason = conftest._docker_host_usable(os.environ["DOCKER_HOST"])
+    status = conftest._probe_act_runtime({"DOCKER_HOST": docker_host})
 
     assert usable is False
-    assert reason.startswith("Docker API socket is not reachable:")
-
-
-def test_probe_reports_missing_docker_host_socket(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Probe surfaces a missing DOCKER_HOST Unix socket as unavailable."""
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
-
-    status = conftest._probe_act_runtime(
-        {"DOCKER_HOST": "unix:///nonexistent/path.sock"}
-    )
+    assert expected_reason in reason
 
     assert not status.available
-    assert "Docker API socket does not exist:" in status.reason
-
-
-def test_probe_reports_unreachable_docker_host_socket(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Probe surfaces an unreachable DOCKER_HOST Unix socket as unavailable."""
-    socket_path = tmp_path / "docker.sock"
-    socket_path.touch()
-
-    monkeypatch.setattr(conftest, "_command_available", lambda _command: True)
-
-    def _raise_oserror(*_args: object, **_kwargs: object) -> None:
-        msg = "test unreachable docker socket"
-        raise OSError(msg)
-
-    monkeypatch.setattr(conftest, "_read_unix_http", _raise_oserror)
-
-    status = conftest._probe_act_runtime({"DOCKER_HOST": f"unix://{socket_path}"})
-
-    assert not status.available
-    assert "Docker API socket is not reachable:" in status.reason
+    assert expected_reason in status.reason
 
 
 def test_skip_marker_uses_act_runtime_probe(monkeypatch: pytest.MonkeyPatch) -> None:

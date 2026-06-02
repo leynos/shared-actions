@@ -606,7 +606,7 @@ def _manifest_argument(manifest_path: Path) -> Path:
 
 @app.command()
 def main(
-    target: str = typer.Argument("", help="Target triple to build"),
+    target: typ.Annotated[str, typer.Argument(help="Target triple to build")] = "",
     toolchain: typ.Annotated[
         str | None,
         typer.Option(
@@ -624,10 +624,10 @@ def main(
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
-    features = os.getenv("RBR_FEATURES", "") if features is None else features
     manifest_path = _resolve_manifest_path()
-    toolchain = os.getenv("RBR_TOOLCHAIN", "") if toolchain is None else toolchain
-    explicit_toolchain = toolchain.strip()
+    resolved_features: str = features if features is not None else ""
+    resolved_toolchain: str = toolchain if toolchain is not None else ""
+    explicit_toolchain = resolved_toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
         explicit_toolchain,
         project_dir=Path.cwd(),
@@ -666,7 +666,7 @@ def main(
     manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
         build_cmd = _build_cross_command(
-            decision, target_to_build, manifest_argument, features
+            decision, target_to_build, manifest_argument, resolved_features
         )
         if explicit_toolchain:
             build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
@@ -674,13 +674,16 @@ def main(
             )
     else:
         build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
+            decision.cargo_toolchain_spec,
+            target_to_build,
+            manifest_argument,
+            resolved_features,
         )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
         _handle_cross_container_error(
-            exc, decision, target_to_build, manifest_argument, features
+            exc, decision, target_to_build, manifest_argument, resolved_features
         )
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)

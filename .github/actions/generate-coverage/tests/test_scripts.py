@@ -24,6 +24,8 @@ from test_support.plumbum_helpers import run_plumbum_command
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
+    from syrupy.assertion import SnapshotAssertion
+
     from cmd_utils import RunResult
     from test_support.cmd_mox_stub_adapter import StubManager
 else:
@@ -2708,6 +2710,7 @@ def test_run_python_integration_cobertura_success(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
+    snapshot: SnapshotAssertion,
 ) -> None:
     """run_python.py creates the venv, syncs deps, installs tooling.
 
@@ -2733,12 +2736,12 @@ def test_run_python_integration_cobertura_success(
     assert "slipcover" in pip_args
     assert "pytest" in pip_args
     assert "coverage" in pip_args
-    # Verify GITHUB_OUTPUT was written with expected keys
     gh = tmp_path / "gh.txt"
     assert gh.exists(), "GITHUB_OUTPUT file must be written"
     gh_content = gh.read_text(encoding="utf-8")
-    assert "file=" in gh_content, "GITHUB_OUTPUT must contain file= key"
-    assert "percent=" in gh_content, "GITHUB_OUTPUT must contain percent= key"
+    assert gh_content.replace(tmp_path.as_posix(), "<TMP>") == snapshot(
+        name="run_python_cobertura_github_output"
+    )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")

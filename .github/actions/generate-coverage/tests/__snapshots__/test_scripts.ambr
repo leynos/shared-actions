@@ -1,0 +1,8 @@
+# serializer version: 1
+# name: test_run_python_integration_cobertura_success[run_python_cobertura_github_output]
+  '''
+  file=<TMP>/cov.xml
+  percent=100.00
+  
+  '''
+# ---

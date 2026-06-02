@@ -48,7 +48,7 @@ def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
 def test_command_succeeds_reports_command_status(
     command: str,
     args: tuple[str, ...],
-    expected: bool,  # noqa: FBT001
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
 ) -> None:
     """Command success probes return the expected boolean."""
     assert conftest._command_succeeds(command, *args) is expected

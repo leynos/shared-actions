@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import typing as typ
 
+import pytest
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 from . import conftest
 
@@ -147,3 +147,22 @@ def test_probe_reports_unreachable_docker_host_socket(
 
     assert not status.available
     assert "Docker API socket is not reachable:" in status.reason
+
+
+def test_skip_marker_uses_act_runtime_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Marked workflow tests are skipped when the act runtime probe is unavailable."""
+
+    class MarkedItem:
+        def __init__(self) -> None:
+            self.keywords = {"skip_unless_act": object()}
+
+    status = conftest.ActRuntimeStatus(
+        available=False,
+        reason="act unavailable in test",
+        env={},
+    )
+    monkeypatch.setattr(conftest, "_probe_act_runtime", lambda: status)
+    conftest._get_act_runtime_status.cache_clear()
+
+    with pytest.raises(pytest.skip.Exception, match="act unavailable in test"):
+        conftest.pytest_runtest_setup(typ.cast("pytest.Item", MarkedItem()))

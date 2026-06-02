@@ -113,6 +113,24 @@ make lint UV=uv MARKDOWNLINT_BASE=origin/develop
 make test ACT=/usr/local/bin/act
 ```
 
+## `setup-uv` Pinning
+
+Actions and workflows in this repository consume `astral-sh/setup-uv` by full
+commit SHA rather than by mutable version tags. This follows the repository
+security rule for third-party actions: callers should execute a reviewed Git
+object, not whatever a tag happens to resolve to later.
+
+Keep all `setup-uv` references on the same SHA unless there is a deliberate
+compatibility reason to split them. A pin update is repository-wide maintenance:
+search for `astral-sh/setup-uv@`, update every matching action or workflow
+reference together, and run the normal action test gates before review.
+
+When changing the pin, include the target SHA in the change description and
+verify affected act workflow tests where the action runs under `nektos/act`.
+If act cannot execute the real `setup-uv` path on the local runner, document
+the reason and keep the unit or manifest tests that assert the pinned reference
+in sync with the new SHA.
+
 ## `setup-rust` cargo-binstall Pinning
 
 The `setup-rust` action pins `cargo-binstall` by downloading

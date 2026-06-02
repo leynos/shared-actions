@@ -2,15 +2,43 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
 import typer
+from hypothesis import given
+from hypothesis import strategies as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from common import _env_bool, _required_env  # noqa: I001  # path must be patched first
+from common import _env_bool, _required_env
+
+_WHITESPACE = st.text(alphabet=[" ", "\t", "\n", "\r"], max_size=8)
+_VISIBLE_TEXT = st.text(
+    alphabet=st.characters(
+        blacklist_categories=("Cs",),
+        blacklist_characters="\x00",
+    ),
+    min_size=1,
+).filter(lambda value: bool(value.strip()))
+
+
+def _case_variants(values: list[str]) -> st.SearchStrategy[str]:
+    """Return generated upper/lower-case combinations for known values."""
+    return st.sampled_from(values).flatmap(
+        lambda value: st.lists(
+            st.booleans(),
+            min_size=len(value),
+            max_size=len(value),
+        ).map(
+            lambda flags: "".join(
+                char.upper() if make_upper else char.lower()
+                for char, make_upper in zip(value, flags, strict=True)
+            )
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +56,24 @@ def test_required_env_strips_whitespace(monkeypatch: pytest.MonkeyPatch) -> None
     """Leading and trailing whitespace is stripped from the returned value."""
     monkeypatch.setenv("TEST_VAR", "  value  ")
     assert _required_env("TEST_VAR") == "value"
+
+
+@given(prefix=_WHITESPACE, value=_VISIBLE_TEXT, suffix=_WHITESPACE)
+def test_required_env_strips_generated_whitespace(
+    prefix: str,
+    value: str,
+    suffix: str,
+) -> None:
+    """Generated surrounding whitespace is stripped from required env values."""
+    original = os.environ.get("TEST_VAR")
+    os.environ["TEST_VAR"] = f"{prefix}{value}{suffix}"
+    try:
+        assert _required_env("TEST_VAR") == value.strip()
+    finally:
+        if original is None:
+            os.environ.pop("TEST_VAR", None)
+        else:
+            os.environ["TEST_VAR"] = original
 
 
 def test_required_env_raises_on_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,6 +152,28 @@ def test_env_bool_truthy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> 
     assert _env_bool("TEST_BOOL", default=False) is True
 
 
+@given(
+    value=_case_variants(["1", "true", "yes", "on"]),
+    prefix=_WHITESPACE,
+    suffix=_WHITESPACE,
+)
+def test_env_bool_truthy_values_are_case_insensitive(
+    value: str,
+    prefix: str,
+    suffix: str,
+) -> None:
+    """Generated casing and surrounding whitespace keep truthy values true."""
+    original = os.environ.get("TEST_BOOL")
+    os.environ["TEST_BOOL"] = f"{prefix}{value}{suffix}"
+    try:
+        assert _env_bool("TEST_BOOL", default=False) is True
+    finally:
+        if original is None:
+            os.environ.pop("TEST_BOOL", None)
+        else:
+            os.environ["TEST_BOOL"] = original
+
+
 # ---------------------------------------------------------------------------
 # _env_bool - falsy values
 # ---------------------------------------------------------------------------
@@ -130,6 +198,28 @@ def test_env_bool_falsy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> N
     """All recognised falsy string representations return False."""
     monkeypatch.setenv("TEST_BOOL", value)
     assert _env_bool("TEST_BOOL", default=True) is False
+
+
+@given(
+    value=_case_variants(["0", "false", "no", "off"]),
+    prefix=_WHITESPACE,
+    suffix=_WHITESPACE,
+)
+def test_env_bool_falsy_values_are_case_insensitive(
+    value: str,
+    prefix: str,
+    suffix: str,
+) -> None:
+    """Generated casing and surrounding whitespace keep falsy values false."""
+    original = os.environ.get("TEST_BOOL")
+    os.environ["TEST_BOOL"] = f"{prefix}{value}{suffix}"
+    try:
+        assert _env_bool("TEST_BOOL", default=True) is False
+    finally:
+        if original is None:
+            os.environ.pop("TEST_BOOL", None)
+        else:
+            os.environ["TEST_BOOL"] = original
 
 
 # ---------------------------------------------------------------------------

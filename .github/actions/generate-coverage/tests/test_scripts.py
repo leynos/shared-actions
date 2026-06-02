@@ -411,6 +411,22 @@ def test_run_rust_uses_detected_manifest_path(
     assert "nextest" not in cargo_args
 
 
+def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted manifest CLI arg falls back to Cargo.toml for blank env values."""
+    cargo_args, _out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(use_nextest=False, manifest_path=" \t "),
+        monkeypatch=monkeypatch,
+    )
+    mp_idx = cargo_args.index("--manifest-path")
+    assert cargo_args[mp_idx + 1] == "Cargo.toml"
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -2723,6 +2739,24 @@ def test_run_python_integration_cobertura_success(
     gh_content = gh.read_text(encoding="utf-8")
     assert "file=" in gh_content, "GITHUB_OUTPUT must contain file= key"
     assert "percent=" in gh_content, "GITHUB_OUTPUT must contain percent= key"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_uses_env_fallbacks_for_omitted_cli_args(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted CLI args are resolved from GitHub Actions environment variables."""
+    bin_dir, _log = _write_fake_uv(tmp_path)
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
+    gh_content = (tmp_path / "gh.txt").read_text(encoding="utf-8").splitlines()
+    assert returncode == 0
+    assert f"file={tmp_path / 'cov.xml'}" in gh_content
+    assert "percent=100.00" in gh_content
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import os
 import shutil
+import socket
 import tempfile
+import typing as typ
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -13,28 +17,185 @@ from plumbum import CommandNotFound, ProcessTimedOut, local
 
 from bool_utils import coerce_bool
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_DOCKER_CONTAINERS_PATH = "/v1.41/containers/json?all=true"
+_DOCKER_API_TIMEOUT_SECONDS = 10.0
 
 
-def _act_available() -> bool:
-    """Return True if act is installed and runnable."""
-    return shutil.which("act") is not None
+@dataclasses.dataclass(frozen=True, slots=True)
+class ActRuntimeStatus:
+    """Availability result for the runtime path that act will actually use."""
+
+    available: bool
+    reason: str
+    env: dict[str, str]
 
 
-def _container_runtime_available() -> bool:
-    """Return True if a container runtime (docker/podman) is available."""
-    for runtime in ("docker", "podman"):
-        if shutil.which(runtime) is None:
-            continue
-        try:
-            cmd = local[runtime]
-            retcode, _, _ = cmd["info"].run(timeout=10, retcode=None)
-        except (ProcessTimedOut, CommandNotFound, OSError):
-            continue
-        else:
-            if retcode == 0:
-                return True
-    return False
+def _act_command(environ: cabc.Mapping[str, str] | None = None) -> str:
+    """Return the act executable configured for workflow tests."""
+    source = os.environ if environ is None else environ
+    return source.get("ACT", "act")
+
+
+def _command_available(command: str) -> bool:
+    """Return True when *command* names an executable file or PATH command."""
+    command_path = Path(command)
+    if command_path.parent != Path():
+        return command_path.is_file() and os.access(command_path, os.X_OK)
+    return shutil.which(command) is not None
+
+
+def _default_podman_socket(environ: cabc.Mapping[str, str]) -> Path:
+    """Return the default rootless Podman Docker-compatible socket path."""
+    runtime_dir = environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "podman" / "podman.sock"
+    return Path("/run/user") / str(os.getuid()) / "podman" / "podman.sock"
+
+
+def _read_unix_http(socket_path: Path, path: str) -> tuple[int, str]:
+    """Issue a small HTTP request over a Unix socket and return status/body."""
+    request = (
+        f"GET {path} HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n"
+    ).encode("ascii")
+    chunks: list[bytes] = []
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(_DOCKER_API_TIMEOUT_SECONDS)
+        client.connect(str(socket_path))
+        client.sendall(request)
+        while True:
+            chunk = client.recv(64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+    response = b"".join(chunks)
+    head, _separator, body = response.partition(b"\r\n\r\n")
+    head_lines = head.splitlines()
+    if not head_lines:
+        return 0, response.decode("utf-8", errors="replace")
+    status_line = head_lines[0].decode("ascii", errors="replace")
+    parts = status_line.split(maxsplit=2)
+    if len(parts) < 2:
+        return 0, response.decode("utf-8", errors="replace")
+    try:
+        status_code = int(parts[1])
+    except ValueError:
+        return 0, response.decode("utf-8", errors="replace")
+    return status_code, body.decode("utf-8", errors="replace")
+
+
+def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
+    """Return whether act can list containers through *docker_host*."""
+    parsed = urllib.parse.urlparse(docker_host)
+    if parsed.scheme != "unix":
+        return True, ""
+
+    socket_path = Path(urllib.parse.unquote(parsed.path))
+    if not socket_path.exists():
+        return False, f"Docker API socket does not exist: {socket_path}"
+
+    try:
+        status, body = _read_unix_http(socket_path, _DOCKER_CONTAINERS_PATH)
+    except OSError as exc:
+        return False, f"Docker API socket is not reachable: {exc}"
+
+    if status != 200:
+        detail = body.strip() or f"HTTP {status}"
+        return False, f"Docker API cannot list containers: {detail}"
+    return True, ""
+
+
+def _command_succeeds(command: str, *args: str) -> bool:
+    """Return True when a command exits successfully within the probe timeout."""
+    try:
+        cmd = local[command]
+        retcode, _, _ = cmd[list(args)].run(timeout=10, retcode=None)
+    except (ProcessTimedOut, CommandNotFound, OSError):
+        return False
+    return retcode == 0
+
+
+def _docker_cli_available() -> bool:
+    """Return True when the Docker CLI is present and the daemon is reachable."""
+    return (
+        shutil.which("docker") is not None
+        and _command_succeeds("docker", "info")
+        and _command_succeeds("docker", "ps", "-a")
+    )
+
+
+def _probe_act_runtime(
+    environ: cabc.Mapping[str, str] | None = None,
+) -> ActRuntimeStatus:
+    """Probe the container runtime path used by act workflow tests."""
+    source = os.environ if environ is None else environ
+    act_command = _act_command(source)
+    if not _command_available(act_command):
+        return ActRuntimeStatus(
+            available=False,
+            reason=f"act executable not found: {act_command}",
+            env={},
+        )
+
+    if docker_host := source.get("DOCKER_HOST"):
+        usable, reason = _docker_host_usable(docker_host)
+        return ActRuntimeStatus(available=usable, reason=reason, env={})
+
+    if _docker_cli_available():
+        return ActRuntimeStatus(available=True, reason="", env={})
+
+    if not shutil.which("podman"):
+        return ActRuntimeStatus(
+            available=False,
+            reason="docker or podman runtime not available",
+            env={},
+        )
+
+    podman_socket = _default_podman_socket(source)
+    docker_host = f"unix://{podman_socket}"
+    usable, reason = _docker_host_usable(docker_host)
+    if not usable:
+        return ActRuntimeStatus(
+            available=False,
+            reason=(
+                f"podman Docker API is not usable for act: {reason}. "
+                "Start the user podman.socket if the socket is missing. If the "
+                "API reports 'container not known', repair or remove stale "
+                "Podman containers stuck in Removing state before rerunning."
+            ),
+            env={},
+        )
+    return ActRuntimeStatus(
+        available=True,
+        reason="",
+        env={"DOCKER_HOST": docker_host},
+    )
+
+
+@functools.cache
+def _get_act_runtime_status() -> ActRuntimeStatus:
+    """Return the runtime probe result, probing lazily on first call.
+
+    Probing is deferred so that tests that modify ACT, DOCKER_HOST
+    or related environment variables see the updated configuration.
+    """
+    return _probe_act_runtime()
+
+
+@pytest.fixture(autouse=True)
+def _reset_act_runtime_cache() -> typ.Generator[None, None, None]:
+    """Clear the cached act runtime probe result after each test.
+
+    Ensures that tests which modify ``ACT``, ``DOCKER_HOST``, or related
+    environment variables via monkeypatch do not have their changes obscured
+    by a stale cached result from a prior test.
+    """
+    yield
+    _get_act_runtime_status.cache_clear()
 
 
 def _workflow_tests_enabled() -> bool:
@@ -42,15 +203,27 @@ def _workflow_tests_enabled() -> bool:
     return coerce_bool(os.environ.get("ACT_WORKFLOW_TESTS"), default=False)
 
 
-skip_unless_act = pytest.mark.skipif(
-    not (_act_available() and _container_runtime_available()),
-    reason="act or container runtime not available",
-)
+skip_unless_act = pytest.mark.skip_unless_act
 
 skip_unless_workflow_tests = pytest.mark.skipif(
     not _workflow_tests_enabled(),
     reason="ACT_WORKFLOW_TESTS not set (opt-in required)",
 )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register workflow test markers."""
+    config.addinivalue_line("markers", "skip_unless_act: skip unless act can run")
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Skip act tests when the runtime probe fails."""
+    if "skip_unless_act" not in item.keywords:
+        return
+    _get_act_runtime_status.cache_clear()
+    status = _get_act_runtime_status()
+    if not status.available:
+        pytest.skip(status.reason or "act or container runtime not available")
 
 
 @pytest.fixture
@@ -153,6 +326,7 @@ def run_act(
     event_path = _resolve_event_path(config, event)
 
     run_env = os.environ.copy()
+    run_env.update(_get_act_runtime_status().env)
     if config.env:
         run_env.update(config.env)
 
@@ -167,7 +341,7 @@ def run_act(
     )
     args = _build_act_args(invocation)
 
-    act = local["act"]
+    act = local[_act_command(run_env)]
     cmd = act
     for arg in args:
         cmd = cmd[arg]

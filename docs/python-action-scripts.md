@@ -48,3 +48,18 @@ parameters, so the scripts remain declarative and free of ad-hoc parsing logic.
 The [plumbum](https://plumbum.readthedocs.io/) library is used for invoking
 external commands through the shared `run_cmd` helper, which prints each command
 before execution to aid debugging.
+
+## Testing Action Scripts
+
+Action scripts are tested by the pytest suite in their action's `tests/`
+directory. The test helper `run_script` in
+`.github/actions/generate-coverage/tests/test_scripts.py` executes scripts
+directly with the current test interpreter (`sys.executable`) rather than via
+`uv run --script`. This ensures that the `cmd_mox` IPC stubs registered by the
+test fixture are available inside the script process, because the script
+inherits the same virtual environment that pytest is running in.
+
+Scripts still declare their runtime requirements in a PEP 723 `/// script`
+header for production use via `uv run --script`. All dependencies declared
+there must also be present in the project's development virtual environment so
+both production and test execution paths work correctly.

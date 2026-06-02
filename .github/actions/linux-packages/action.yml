@@ -132,7 +132,7 @@ runs:
             | tar xf - -C _self
         fi
     - name: Setup uv
-      uses: astral-sh/setup-uv@557e51de59eb14aaaba2ed9621916900a91d50c6
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
     - name: Install nfpm
       uses: ./_self/.github/actions/install-nfpm
     - name: Build Linux packages

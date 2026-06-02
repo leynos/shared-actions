@@ -97,6 +97,9 @@ to bare names on `PATH`.
 | Variable | Default resolution order |
 | --- | --- |
 | `UV` | `~/.local/bin/uv` if present, otherwise `uv` |
+<!-- markdownlint-disable MD013 -->
+| `ACT` | `~/go/bin/act` if present, then `~/.local/bin/act` if present, otherwise `act` |
+<!-- markdownlint-enable MD013 -->
 | `ACTION_VALIDATOR` | Bun install, then Cargo install, then `PATH` |
 | `MDLINT` | `~/.bun/bin/markdownlint` if present, otherwise `markdownlint` |
 | `MARKDOWNLINT_BASE` | `origin/main` |
@@ -109,7 +112,26 @@ Override example:
 
 ```bash
 make lint UV=uv MARKDOWNLINT_BASE=origin/develop
+make test ACT=/usr/local/bin/act
 ```
+
+## `setup-uv` Pinning
+
+Actions and workflows in this repository consume `astral-sh/setup-uv` by full
+commit SHA rather than by mutable version tags. This follows the repository
+security rule for third-party actions: callers should execute a reviewed Git
+object, not whatever a tag happens to resolve to later.
+
+Keep all `setup-uv` references on the same SHA unless there is a deliberate
+compatibility reason to split them. A pin update is repository-wide maintenance:
+search for `astral-sh/setup-uv@`, update every matching action or workflow
+reference together, and run the normal action test gates before review.
+
+When changing the pin, include the target SHA in the change description and
+verify affected act workflow tests where the action runs under `nektos/act`.
+If act cannot execute the real `setup-uv` path on the local runner, document
+the reason and keep the unit or manifest tests that assert the pinned reference
+in sync with the new SHA.
 
 ## `setup-rust` cargo-binstall Pinning
 
@@ -218,6 +240,40 @@ enable DEBUG output during local investigation or CI repro jobs:
 pytest -o log_cli=true --log-level=DEBUG
 ```
 
+## Workflow Test Harness (`tests/workflows/conftest.py`)
+
+### Runtime Probing
+
+The workflow test harness determines whether `act` and a compatible container
+runtime are available before running tests. The probe result is represented by:
+
+<!-- markdownlint-disable MD013 -->
+| Symbol | Type | Role |
+| --- | --- | --- |
+| `ActRuntimeStatus` | frozen dataclass | Holds `available: bool`, `reason: str`, `env: dict[str, str]`. |
+| `_probe_act_runtime` | `(environ?) -> ActRuntimeStatus` | Execute a fresh probe against the given environment mapping (defaults to `os.environ`). |
+| `_get_act_runtime_status` | `() -> ActRuntimeStatus` | Return the cached probe result, performing the probe on first call. |
+| `_act_command` | `(environ?) -> str` | Return the act executable path from the `ACT` environment variable, defaulting to `"act"`. |
+<!-- markdownlint-enable MD013 -->
+
+`_get_act_runtime_status` is decorated with `@functools.cache` so the probe
+runs at most once per process. Tests that need to observe a different runtime
+environment must call `_probe_act_runtime(environ)` directly with an explicit
+mapping, bypassing the cache.
+
+`ActRuntimeStatus.env` carries any additional environment variables that must
+be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
+when a healthy Podman socket is discovered automatically.
+
+### Skip Markers
+
+<!-- markdownlint-disable MD013 -->
+| Marker | Condition |
+| --- | --- |
+| `skip_unless_act` | Skip when `_get_act_runtime_status().available` is `False`. |
+| `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
+<!-- markdownlint-enable MD013 -->
+
 ## Running the Test Suite
 
 ```bash
@@ -262,7 +318,7 @@ change in the Docker bind-mount target directory (e.g. between cached and
 uncached CI runs) forces the build script to rerun and regenerate the man page
 at the correct stable path.
 
-### Observability
+### Build Observability
 
 `build.rs` emits a `cargo:warning=writing man page to ...` diagnostic so that
 the chosen stable path is visible in the `cargo build` log. The staging step

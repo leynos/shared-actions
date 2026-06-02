@@ -177,8 +177,48 @@ If the repository ever needs finer-grained handling, the next step would be a
 real TOML parser plus table-aware resolution. The current design intentionally
 stops short of that complexity.
 
+## Shared Script Helpers (`common.py`)
+
+### Purpose
+
+`common.py` is a shared utility module imported by `run_rust.py`,
+`run_python.py`, and `merge_cobertura.py`. It centralizes environment-variable
+handling so error messages and exit codes are consistent across all scripts.
+
+### Public API
+
+<!-- markdownlint-disable MD013 -->
+| Symbol | Signature | Role |
+| --- | --- | --- |
+| `_required_env` | `(name: str) -> str` | Return the non-empty value of a required env var or exit with code 2. |
+| `_env_bool` | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognized non-empty values. |
+<!-- markdownlint-enable MD013 -->
+
+`_required_env` trims whitespace before testing emptiness so a variable set to
+only spaces is treated as absent.
+
+`_env_bool` accepts the following case-insensitive truthy values: `1`, `true`,
+`yes`, `on`; and the following falsy values: `0`, `false`, `no`, `off`. Any
+other non-empty value causes the script to print a diagnostic to stderr and
+exit with code 2.
+
+### Design Rationale
+
+Prior to `common.py` each script declared its own inline `_required_env`
+helper, leading to divergent exit codes and error messages. Centralizing the
+helper ensures that a missing required variable always produces a message of
+the form `Missing required environment variable: NAME` and exits with code 2,
+regardless of which script is running.
+
+Boolean environment variables similarly used Typer's built-in `envvar`
+binding, which silently accepted any non-empty string as truthy. `_env_bool`
+replaces that path to provide an explicit rejection of unrecognized values.
+
 ## Roadmap
 
+- [x] Centralize environment-variable parsing helpers (`_required_env`,
+  `_env_bool`) into `common.py` so error messages and exit codes are
+  consistent across all generate-coverage scripts.
 - [x] Extend artefact naming to include platform metadata and support custom
   suffixes.
 - [x] Document the Rust coverage environment-override design for
@@ -229,7 +269,7 @@ GitHub Actions executes action steps sequentially in a single thread. The
 `functools.lru_cache` memoized `_coverage_python_cmd()` accessor therefore
 requires no explicit synchronization.
 
-### Public API
+### Coverage Venv API
 
 <!-- markdownlint-disable MD013 MD060 -->
 | Symbol | Role |

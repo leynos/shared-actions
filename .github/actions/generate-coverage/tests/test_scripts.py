@@ -24,6 +24,8 @@ from test_support.plumbum_helpers import run_plumbum_command
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
 
+    from syrupy.assertion import SnapshotAssertion
+
     from cmd_utils import RunResult
     from test_support.cmd_mox_stub_adapter import StubManager
 else:
@@ -39,7 +41,7 @@ def _exit_code(exc: BaseException) -> int | None:
 
 
 def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
-    """Run ``script`` via ``uv run --script`` with ``env`` and return the result.
+    """Run ``script`` with ``env`` and return the result.
 
     Parameters
     ----------
@@ -48,7 +50,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
     env : dict[str, str]
         Environment variables to merge on top of the current environment.
     *args : str
-        Additional positional arguments appended to the ``uv run`` command.
+        Additional positional arguments appended to the Python command.
 
     Returns
     -------
@@ -61,7 +63,7 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
         This helper does not raise for non-zero exits; failures are conveyed
         via the returned exit code and stderr captured from the child process.
     """
-    command = local["uv"]["run", "--script", str(script)]
+    command = local[sys.executable][str(script)]
     if args:
         command = command[list(args)]
     root = Path(__file__).resolve().parents[4]
@@ -409,6 +411,22 @@ def test_run_rust_uses_detected_manifest_path(
     mp_idx = cargo_args.index("--manifest-path")
     assert cargo_args[mp_idx + 1] == "rust-toy-app/Cargo.toml"
     assert "nextest" not in cargo_args
+
+
+def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted manifest CLI arg falls back to Cargo.toml for blank env values."""
+    cargo_args, _out, _gh = _run_rust_coverage_test(
+        tmp_path,
+        shell_stubs,
+        RustCoverageConfig(use_nextest=False, manifest_path=" \t "),
+        monkeypatch=monkeypatch,
+    )
+    mp_idx = cargo_args.index("--manifest-path")
+    assert cargo_args[mp_idx + 1] == "Cargo.toml"
 
 
 @pytest.mark.parametrize(
@@ -2692,6 +2710,7 @@ def test_run_python_integration_cobertura_success(
     tmp_path: Path,
     shell_stubs: StubManager,
     monkeypatch: pytest.MonkeyPatch,
+    snapshot: SnapshotAssertion,
 ) -> None:
     """run_python.py creates the venv, syncs deps, installs tooling.
 
@@ -2717,12 +2736,30 @@ def test_run_python_integration_cobertura_success(
     assert "slipcover" in pip_args
     assert "pytest" in pip_args
     assert "coverage" in pip_args
-    # Verify GITHUB_OUTPUT was written with expected keys
     gh = tmp_path / "gh.txt"
     assert gh.exists(), "GITHUB_OUTPUT file must be written"
     gh_content = gh.read_text(encoding="utf-8")
-    assert "file=" in gh_content, "GITHUB_OUTPUT must contain file= key"
-    assert "percent=" in gh_content, "GITHUB_OUTPUT must contain percent= key"
+    assert gh_content.replace(tmp_path.as_posix(), "<TMP>") == snapshot(
+        name="run_python_cobertura_github_output"
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_uses_env_fallbacks_for_omitted_cli_args(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Omitted CLI args are resolved from GitHub Actions environment variables."""
+    bin_dir, _log = _write_fake_uv(tmp_path)
+    returncode, _stdout, _stderr = _run_integration_script(
+        tmp_path, shell_stubs, bin_dir, monkeypatch
+    )
+
+    gh_content = (tmp_path / "gh.txt").read_text(encoding="utf-8").splitlines()
+    assert returncode == 0
+    assert f"file={tmp_path / 'cov.xml'}" in gh_content
+    assert "percent=100.00" in gh_content
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")

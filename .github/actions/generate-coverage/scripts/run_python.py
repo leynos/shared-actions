@@ -18,6 +18,7 @@ from pathlib import Path
 
 import typer
 from cmd_utils_loader import run_cmd
+from common import _required_env
 from coverage_parsers import get_line_coverage_percent_from_cobertura
 from plumbum import local
 from plumbum.cmd import uv
@@ -29,11 +30,6 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
 
 logger = logging.getLogger(__name__)
 
-OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
-LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
-FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
-GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
-BASELINE_OPT = typer.Option(None, envvar="BASELINE_PYTHON_FILE")
 # COVERAGE_VENV is a process-scoped constant.  It is consumed by
 # _ensure_coverage_venv() and _coverage_python_cmd(), both of which are
 # called from a single-threaded GitHub Actions step.
@@ -410,12 +406,60 @@ def _run_coverage(fmt: str, out: Path) -> str:
     return get_line_coverage_percent_from_cobertura(out)
 
 
+def _resolve_inputs(
+    output_path: Path | None,
+    lang: str | None,
+    fmt: str | None,
+    github_output: Path | None,
+) -> tuple[Path, str, Path]:
+    """Resolve CLI inputs and return the effective output path."""
+    resolved_output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+    resolved_lang = lang or _required_env("DETECTED_LANG")
+    resolved_fmt = fmt or _required_env("DETECTED_FMT")
+    resolved_github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
+    out = _resolve_output_path(resolved_output_path, resolved_lang)
+    return out, resolved_fmt, resolved_github_output
+
+
+def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
+    """Write coverage outputs for later GitHub Actions steps."""
+    with github_output.open("a") as fh:
+        fh.write(f"file={path}\n")
+        fh.write(f"percent={percent}\n")
+
+
 def main(
-    output_path: Path = OUTPUT_PATH_OPT,
-    lang: str = LANG_OPT,
-    fmt: str = FMT_OPT,
-    github_output: Path = GITHUB_OUTPUT_OPT,
-    baseline_file: Path | None = BASELINE_OPT,
+    output_path: typ.Annotated[
+        Path | None,
+        typer.Option(
+            help="Destination path for the coverage output file.",
+        ),
+    ] = None,
+    lang: typ.Annotated[
+        str | None,
+        typer.Option(
+            help='Detected project language: "rust", "python", or "mixed".',
+        ),
+    ] = None,
+    fmt: typ.Annotated[
+        str | None,
+        typer.Option(
+            help='Coverage format: "slipcover", "coveragepy", etc.',
+        ),
+    ] = None,
+    github_output: typ.Annotated[
+        Path | None,
+        typer.Option(
+            help="Path to the GitHub Actions output file.",
+        ),
+    ] = None,
+    baseline_file: typ.Annotated[
+        Path | None,
+        typer.Option(
+            envvar="BASELINE_PYTHON_FILE",
+            help="Optional path to a previous coverage baseline file.",
+        ),
+    ] = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
 
@@ -443,16 +487,14 @@ def main(
         exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
         format mode.
     """
-    out = _resolve_output_path(output_path, lang)
+    out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     out.parent.mkdir(parents=True, exist_ok=True)
     percent = _run_coverage(fmt, out)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:
         typer.echo(f"Previous coverage: {previous}%")
-    with github_output.open("a") as fh:
-        fh.write(f"file={out}\n")
-        fh.write(f"percent={percent}\n")
+    _emit_github_output(out, percent, github_output)
 
 
 if __name__ == "__main__":

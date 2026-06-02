@@ -6,6 +6,7 @@ import dataclasses
 import typing as typ
 
 import pytest
+import typer
 from plumbum.commands.processes import ProcessExecutionError
 from rust_build_release_test_helpers import assert_no_toolchain_override
 
@@ -357,15 +358,12 @@ class TestFeaturesEnvVar:
     def test_features_from_environment(
         self,
         main_features_context: MainFeaturesContext,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Features can be set via RBR_FEATURES environment variable."""
         context = main_features_context
         harness = context.harness
         captured: dict[str, object] = {}
         target = "x86_64-unknown-linux-gnu"
-
-        monkeypatch.setenv("RBR_FEATURES", "env-feature")
 
         decision = context.cross_decision_factory(context.main_module, use_cross=False)
         harness.patch_attr("_resolve_target_argument", lambda _value: target)
@@ -379,13 +377,22 @@ class TestFeaturesEnvVar:
 
         harness.patch_attr("_build_cargo_command", fake_cargo)
 
-        # Invoke via typer app to properly read environment variables
         from typer.testing import CliRunner
 
-        runner = CliRunner()
-        runner.invoke(context.main_module.app, [target, "--toolchain", "stable"])
+        command = typer.main.get_command(context.main_module.app)
+        features_option = next(
+            param for param in command.params if param.name == "features"
+        )
+        assert features_option.envvar == "RBR_FEATURES"
 
-        # The environment variable should be used - check captured value
+        runner = CliRunner()
+        result = runner.invoke(
+            context.main_module.app,
+            [target, "--toolchain", "stable"],
+            env={"RBR_FEATURES": "env-feature"},
+        )
+
+        assert result.exit_code == 0
         assert captured.get("features") == "env-feature"
 
 

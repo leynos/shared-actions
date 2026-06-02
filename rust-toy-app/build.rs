@@ -5,10 +5,6 @@ use std::env;
 use std::path::PathBuf;
 use time::OffsetDateTime;
 
-#[expect(
-    dead_code,
-    reason = "the build script includes the CLI module only to render clap metadata"
-)]
 #[path = "src/cli.rs"]
 mod cli;
 

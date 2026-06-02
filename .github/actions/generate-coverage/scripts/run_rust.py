@@ -27,6 +27,7 @@ import typer
 from _cargo_runner import _run_cargo
 from _cranelift import _CARGO_COVERAGE_ENV_UNSETS, get_cargo_coverage_env
 from cmd_utils_loader import run_cmd
+from common import _env_bool, _required_env
 from coverage_parsers import get_line_coverage_percent_from_lcov
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
@@ -77,19 +78,6 @@ if os.name == "nt":
                     logger.debug("Failed to wrap %s: %s", name, exc)
         elif debug:
             logger.debug("%s has no buffer; leaving as-is", name)
-
-OUTPUT_PATH_OPT = typer.Option(..., envvar="INPUT_OUTPUT_PATH")
-FEATURES_OPT = typer.Option("", envvar="INPUT_FEATURES")
-WITH_DEFAULT_OPT = typer.Option(default=True, envvar="INPUT_WITH_DEFAULT_FEATURES")
-USE_NEXTEST_OPT = typer.Option(default=True, envvar="INPUT_USE_CARGO_NEXTEST")
-LANG_OPT = typer.Option(..., envvar="DETECTED_LANG")
-FMT_OPT = typer.Option(..., envvar="DETECTED_FMT")
-MANIFEST_PATH_OPT = typer.Option(Path("Cargo.toml"), envvar="DETECTED_CARGO_MANIFEST")
-GITHUB_OUTPUT_OPT = typer.Option(..., envvar="GITHUB_OUTPUT")
-CUCUMBER_RS_FEATURES_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_FEATURES")
-CUCUMBER_RS_ARGS_OPT = typer.Option("", envvar="INPUT_CUCUMBER_RS_ARGS")
-WITH_CUCUMBER_RS_OPT = typer.Option(default=False, envvar="INPUT_WITH_CUCUMBER_RS")
-BASELINE_OPT = typer.Option(None, envvar="BASELINE_RUST_FILE")
 
 NEXTEST_CONFIG_PATH = Path(".config/nextest.toml")
 NEXTEST_DEFAULT_CONFIG = """[profile.default]
@@ -359,25 +347,87 @@ def _resolve_nextest_config_path() -> Path:
     return NEXTEST_CONFIG_PATH
 
 
-def main(
-    output_path: Path = OUTPUT_PATH_OPT,
-    features: str = FEATURES_OPT,
+def _resolve_output_path(output_path: Path, lang: str) -> Path:
+    """Return the effective output path, adjusted for mixed-language projects."""
+    if lang == "mixed":
+        return output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
+    return output_path
+
+
+def _compute_coverage_percent(fmt: str, out: Path, stdout: str) -> str:
+    """Return the coverage percentage for the given output format."""
+    if fmt == "lcov":
+        return get_line_coverage_percent_from_lcov(out)
+    if fmt == "cobertura":
+        return get_line_coverage_percent_from_cobertura(out)
+    return extract_percent(stdout)
+
+
+def _report_coverage(
+    percent: str,
+    previous: str | None,
+    github_output: Path,
+    out: Path,
+) -> None:
+    """Echo coverage figures and write them to GITHUB_OUTPUT."""
+    typer.echo(f"Current coverage: {percent}%")
+    if previous is not None:
+        typer.echo(f"Previous coverage: {previous}%")
+    with github_output.open("a") as fh:
+        fh.write(f"file={out}\n")
+        fh.write(f"percent={percent}\n")
+
+
+def _resolve_bool_input(
+    value: bool | None,  # noqa: FBT001
+    envvar: str,
     *,
-    with_default: bool = WITH_DEFAULT_OPT,
-    use_nextest: bool = USE_NEXTEST_OPT,
-    lang: str = LANG_OPT,
-    fmt: str = FMT_OPT,
-    manifest_path: Path = MANIFEST_PATH_OPT,
-    github_output: Path = GITHUB_OUTPUT_OPT,
-    cucumber_rs_features: str = CUCUMBER_RS_FEATURES_OPT,
-    cucumber_rs_args: str = CUCUMBER_RS_ARGS_OPT,
-    with_cucumber_rs: bool = WITH_CUCUMBER_RS_OPT,
-    baseline_file: Path | None = BASELINE_OPT,
+    default: bool,
+) -> bool:
+    """Return *value* directly when set; otherwise read *envvar* from the environment."""  # noqa: E501
+    if value is not None:
+        return value
+    return _env_bool(envvar, default=default)
+
+
+def main(
+    output_path: typ.Annotated[Path | None, typer.Option()] = None,
+    features: typ.Annotated[str, typer.Option()] = "",
+    *,
+    with_default: typ.Annotated[bool | None, typer.Option()] = None,
+    use_nextest: typ.Annotated[bool | None, typer.Option()] = None,
+    lang: typ.Annotated[str | None, typer.Option()] = None,
+    fmt: typ.Annotated[str | None, typer.Option()] = None,
+    manifest_path: typ.Annotated[Path | None, typer.Option()] = None,
+    github_output: typ.Annotated[Path | None, typer.Option()] = None,
+    cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
+    cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
+    with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
+    baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
-    out = output_path
-    if lang == "mixed":
-        out = output_path.with_name(f"{output_path.stem}.rust{output_path.suffix}")
+    output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+    lang = lang or _required_env("DETECTED_LANG")
+    fmt = fmt or _required_env("DETECTED_FMT")
+    github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
+    features = features or os.getenv("INPUT_FEATURES", "")
+    if manifest_path is None:
+        detected_manifest = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
+        manifest_path = Path(detected_manifest or "Cargo.toml")
+    cucumber_rs_features = cucumber_rs_features or os.getenv(
+        "INPUT_CUCUMBER_RS_FEATURES", ""
+    )
+    cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
+    with_default = _resolve_bool_input(
+        with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
+    )
+    use_nextest = _resolve_bool_input(
+        use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True
+    )
+    with_cucumber_rs = _resolve_bool_input(
+        with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
+    )
+    out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     args = get_cargo_coverage_cmd(
@@ -411,21 +461,9 @@ def main(
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
             )
-    if fmt == "lcov":
-        percent = get_line_coverage_percent_from_lcov(out)
-    elif fmt == "cobertura":
-        percent = get_line_coverage_percent_from_cobertura(out)
-    else:
-        percent = extract_percent(stdout)
-
-    typer.echo(f"Current coverage: {percent}%")
+    percent = _compute_coverage_percent(fmt, out, stdout)
     previous = read_previous_coverage(baseline_file)
-    if previous is not None:
-        typer.echo(f"Previous coverage: {previous}%")
-
-    with github_output.open("a") as fh:
-        fh.write(f"file={out}\n")
-        fh.write(f"percent={percent}\n")
+    _report_coverage(percent, previous, github_output, out)
 
 
 if __name__ == "__main__":

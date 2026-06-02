@@ -604,24 +604,37 @@ def _manifest_argument(manifest_path: Path) -> Path:
         return manifest_path
 
 
+def _resolve_env_backed_option(value: str | None, envvar: str) -> str:
+    """Return the explicit option value, or the environment fallback."""
+    if value is not None:
+        return value
+    return os.getenv(envvar, "")
+
+
 @app.command()
 def main(
-    target: str = typer.Argument("", help="Target triple to build"),
-    toolchain: str = typer.Option(
-        "",
-        envvar="RBR_TOOLCHAIN",
-        help="Rust toolchain version override",
-    ),
-    features: str = typer.Option(
-        "",
-        envvar="RBR_FEATURES",
-        help="Comma-separated list of Cargo features to enable",
-    ),
+    target: typ.Annotated[str, typer.Argument(help="Target triple to build")] = "",
+    toolchain: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="RBR_TOOLCHAIN",
+            help="Rust toolchain version override",
+        ),
+    ] = None,
+    features: typ.Annotated[
+        str | None,
+        typer.Option(
+            envvar="RBR_FEATURES",
+            help="Comma-separated list of Cargo features to enable",
+        ),
+    ] = None,
 ) -> None:
     """Build the project for *target* using *toolchain*."""
     target_to_build = _resolve_target_argument(target)
     manifest_path = _resolve_manifest_path()
-    explicit_toolchain = toolchain.strip()
+    resolved_features = _resolve_env_backed_option(features, "RBR_FEATURES")
+    resolved_toolchain = _resolve_env_backed_option(toolchain, "RBR_TOOLCHAIN")
+    explicit_toolchain = resolved_toolchain.strip()
     requested_toolchain = explicit_toolchain or resolve_requested_toolchain(
         explicit_toolchain,
         project_dir=Path.cwd(),
@@ -660,7 +673,7 @@ def main(
     manifest_argument = _manifest_argument(manifest_path)
     if decision.use_cross:
         build_cmd = _build_cross_command(
-            decision, target_to_build, manifest_argument, features
+            decision, target_to_build, manifest_argument, resolved_features
         )
         if explicit_toolchain:
             build_cmd = typ.cast("_SupportsEnvFormulate", build_cmd).with_env(
@@ -668,13 +681,16 @@ def main(
             )
     else:
         build_cmd = _build_cargo_command(
-            decision.cargo_toolchain_spec, target_to_build, manifest_argument, features
+            decision.cargo_toolchain_spec,
+            target_to_build,
+            manifest_argument,
+            resolved_features,
         )
     try:
         run_cmd(build_cmd)
     except ProcessExecutionError as exc:
         _handle_cross_container_error(
-            exc, decision, target_to_build, manifest_argument, features
+            exc, decision, target_to_build, manifest_argument, resolved_features
         )
     finally:
         _restore_container_engine(previous_engine, applied_engine=applied_engine)

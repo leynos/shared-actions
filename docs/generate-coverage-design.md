@@ -187,10 +187,12 @@ handling so error messages and exit codes are consistent across all scripts.
 
 ### Public API
 
+<!-- markdownlint-disable MD013 -->
 | Symbol | Signature | Role |
-|---|---|---|
+| --- | --- | --- |
 | `_required_env` | `(name: str) -> str` | Return the non-empty value of a required env var or exit with code 2. |
 | `_env_bool` | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognized non-empty values. |
+<!-- markdownlint-enable MD013 -->
 
 `_required_env` trims whitespace before testing emptiness so a variable set to
 only spaces is treated as absent.
@@ -267,7 +269,7 @@ GitHub Actions executes action steps sequentially in a single thread. The
 `functools.lru_cache` memoized `_coverage_python_cmd()` accessor therefore
 requires no explicit synchronization.
 
-### Public API
+### Coverage Venv API
 
 <!-- markdownlint-disable MD013 MD060 -->
 | Symbol | Role |

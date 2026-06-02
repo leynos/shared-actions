@@ -97,7 +97,9 @@ to bare names on `PATH`.
 | Variable | Default resolution order |
 | --- | --- |
 | `UV` | `~/.local/bin/uv` if present, otherwise `uv` |
+<!-- markdownlint-disable MD013 -->
 | `ACT` | `~/go/bin/act` if present, then `~/.local/bin/act` if present, otherwise `act` |
+<!-- markdownlint-enable MD013 -->
 | `ACTION_VALIDATOR` | Bun install, then Cargo install, then `PATH` |
 | `MDLINT` | `~/.bun/bin/markdownlint` if present, otherwise `markdownlint` |
 | `MARKDOWNLINT_BASE` | `origin/main` |
@@ -245,12 +247,14 @@ pytest -o log_cli=true --log-level=DEBUG
 The workflow test harness determines whether `act` and a compatible container
 runtime are available before running tests. The probe result is represented by:
 
+<!-- markdownlint-disable MD013 -->
 | Symbol | Type | Role |
-|---|---|---|
+| --- | --- | --- |
 | `ActRuntimeStatus` | frozen dataclass | Holds `available: bool`, `reason: str`, `env: dict[str, str]`. |
 | `_probe_act_runtime` | `(environ?) -> ActRuntimeStatus` | Execute a fresh probe against the given environment mapping (defaults to `os.environ`). |
 | `_get_act_runtime_status` | `() -> ActRuntimeStatus` | Return the cached probe result, performing the probe on first call. |
 | `_act_command` | `(environ?) -> str` | Return the act executable path from the `ACT` environment variable, defaulting to `"act"`. |
+<!-- markdownlint-enable MD013 -->
 
 `_get_act_runtime_status` is decorated with `@functools.cache` so the probe
 runs at most once per process. Tests that need to observe a different runtime
@@ -263,10 +267,12 @@ when a healthy Podman socket is discovered automatically.
 
 ### Skip Markers
 
+<!-- markdownlint-disable MD013 -->
 | Marker | Condition |
-|---|---|
+| --- | --- |
 | `skip_unless_act` | Skip when `_get_act_runtime_status().available` is `False`. |
 | `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
+<!-- markdownlint-enable MD013 -->
 
 ## Running the Test Suite
 
@@ -312,7 +318,7 @@ change in the Docker bind-mount target directory (e.g. between cached and
 uncached CI runs) forces the build script to rerun and regenerate the man page
 at the correct stable path.
 
-### Observability
+### Build Observability
 
 `build.rs` emits a `cargo:warning=writing man page to ...` diagnostic so that
 the chosen stable path is visible in the `cargo build` log. The staging step

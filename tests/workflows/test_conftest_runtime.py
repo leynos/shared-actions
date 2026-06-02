@@ -51,7 +51,9 @@ def test_command_succeeds_reports_command_status(
     expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
 ) -> None:
     """Command success probes return the expected boolean."""
-    assert conftest._command_succeeds(command, *args) is expected
+    assert conftest._command_succeeds(command, *args) is expected, (
+        f"_command_succeeds({command!r}, *{args}) != {expected}"
+    )
 
 
 def test_probe_reports_unhealthy_podman_docker_api(

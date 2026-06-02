@@ -153,16 +153,14 @@ def test_env_bool_truthy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> 
 
 
 def _assert_bool_case_insensitive(
-    value: str,
-    prefix: str,
-    suffix: str,
+    formatted_value: str,
     *,
     default: bool,
     expected: bool,
 ) -> None:
     """Assert _env_bool handles case variants and surrounding whitespace."""
     original = os.environ.get("TEST_BOOL")
-    os.environ["TEST_BOOL"] = f"{prefix}{value}{suffix}"
+    os.environ["TEST_BOOL"] = formatted_value
     try:
         assert _env_bool("TEST_BOOL", default=default) is expected
     finally:
@@ -183,7 +181,9 @@ def test_env_bool_truthy_values_are_case_insensitive(
     suffix: str,
 ) -> None:
     """Generated casing and surrounding whitespace keep truthy values true."""
-    _assert_bool_case_insensitive(value, prefix, suffix, default=False, expected=True)
+    _assert_bool_case_insensitive(
+        f"{prefix}{value}{suffix}", default=False, expected=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +223,9 @@ def test_env_bool_falsy_values_are_case_insensitive(
     suffix: str,
 ) -> None:
     """Generated casing and surrounding whitespace keep falsy values false."""
-    _assert_bool_case_insensitive(value, prefix, suffix, default=True, expected=False)
+    _assert_bool_case_insensitive(
+        f"{prefix}{value}{suffix}", default=True, expected=False
+    )
 
 
 # ---------------------------------------------------------------------------

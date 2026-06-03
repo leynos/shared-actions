@@ -143,6 +143,7 @@ Known limitations:
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
+| pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts an integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
 <!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
@@ -228,6 +229,36 @@ Disable cargo-nextest:
     output-path: coverage.xml
     use-cargo-nextest: false
 ```
+
+Run pytest serially (disable pytest-xdist):
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    pytest-workers: ""
+```
+
+### Parallel Python tests via pytest-xdist
+
+Python coverage runs through `pytest-xdist` by default (`pytest-workers: auto`),
+and slipcover 1.0.18+ merges the per-worker coverage transparently. Set
+`pytest-workers` to an integer for a fixed worker count, to `logical` to use
+logical CPU count, or to `""` to keep the historical serial behaviour.
+
+> [!WARNING]
+> **Co-located tests + `--omit` regression in slipcover xdist workers.**
+> slipcover 1.0.18's xdist plugin does not propagate `--omit` to worker
+> processes. Projects that lay tests **inside** the source package (e.g.
+> `mypkg/unittests/test_*.py`, relying on
+> `--source=./mypkg --omit="*/unittests/*"`) will see their reported line-rate
+> drop sharply once xdist is enabled, because the co-located test files are
+> reported at 0% coverage. The production-code coverage values themselves are
+> unchanged; only the omit list is dropped on the worker side. Projects that
+> keep tests **outside** the source package (e.g. `tests/` next to
+> `src/mypkg/`) are unaffected. If you rely on `--omit` to exclude in-package
+> tests, either move the tests out of the package or set `pytest-workers: ""`
+> until the upstream plugin is fixed.
 
 Use a nested Cargo manifest:
 

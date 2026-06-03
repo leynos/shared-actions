@@ -34,7 +34,12 @@ logger = logging.getLogger(__name__)
 # _ensure_coverage_venv() and _coverage_python_cmd(), both of which are
 # called from a single-threaded GitHub Actions step.
 COVERAGE_VENV = Path(".venv-coverage")
-TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
+TOOLING_PACKAGES: tuple[str, ...] = (
+    "slipcover",
+    "pytest",
+    "pytest-xdist",
+    "coverage",
+)
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
@@ -47,6 +52,7 @@ PYTEST_ARGS: tuple[str, ...] = (
     "pytest",
     "-v",
 )
+DEFAULT_PYTEST_WORKERS = "auto"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -273,17 +279,47 @@ def _coverage_python_cmd() -> BoundCommand:
     return local[python]
 
 
-def _coverage_args(fmt: str, out: Path) -> list[str]:
+_VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
+
+
+def _normalise_pytest_workers(raw: str | None) -> str:
+    """Validate and normalise the ``pytest-workers`` input value.
+
+    Accepts ``"auto"``, ``"logical"``, a non-negative integer string, or an
+    empty value (which disables parallelism). Whitespace is stripped before
+    validation. Any other value raises :class:`typer.Exit` with code 2.
+    """
+    if raw is None:
+        return ""
+    value = raw.strip()
+    if not value:
+        return ""
+    lowered = value.lower()
+    if lowered in _VALID_NAMED_WORKERS:
+        return lowered
+    if value.isdigit():
+        return value
+    typer.echo(
+        f"Invalid pytest-workers value: {raw!r}. Expected an integer, "
+        '"auto", "logical", or "" to disable parallelism.',
+        err=True,
+    )
+    raise typer.Exit(2)
+
+
+def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:
     """Return the slipcover/pytest argv for the requested format."""
     args: list[str] = [*SLIPCOVER_ARGS]
     if fmt == "cobertura":
         # slipcover treats --xml as a boolean flag; --out sets the report path
         args.extend(["--xml", "--out", str(out)])
     args.extend(PYTEST_ARGS)
+    if workers:
+        args.extend(["-n", workers])
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
+def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand:
     """Return the slipcover command for the requested coverage format.
 
     Parameters
@@ -295,6 +331,10 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     out : Path
         Destination path for the coverage output file; passed to slipcover's
         ``--out`` argument when ``fmt == "cobertura"``.
+    workers : str
+        Worker count for pytest-xdist's ``-n`` flag. Empty disables xdist;
+        otherwise must already be a validated value such as ``"auto"`` or a
+        non-negative integer string.
 
     Returns
     -------
@@ -302,7 +342,7 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd()
-    return python_cmd[_coverage_args(fmt, out)]
+    return python_cmd[_coverage_args(fmt, out, workers)]
 
 
 @contextlib.contextmanager
@@ -367,7 +407,7 @@ def _resolve_output_path(output_path: Path, lang: str) -> Path:
     return output_path
 
 
-def _run_coverage(fmt: str, out: Path) -> str:
+def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
     """Run slipcover and return the line coverage percentage.
 
     Parameters
@@ -376,6 +416,8 @@ def _run_coverage(fmt: str, out: Path) -> str:
         Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
     out : Path
         Destination path for the coverage output file.
+    workers : str
+        Worker count for pytest-xdist's ``-n`` flag; empty disables xdist.
 
     Returns
     -------
@@ -390,7 +432,7 @@ def _run_coverage(fmt: str, out: Path) -> str:
         ``coveragepy`` format mode.
     """
     try:
-        cmd = coverage_cmd_for_fmt(fmt, out)
+        cmd = coverage_cmd_for_fmt(fmt, out, workers)
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
@@ -406,19 +448,37 @@ def _run_coverage(fmt: str, out: Path) -> str:
     return get_line_coverage_percent_from_cobertura(out)
 
 
+def _resolve_pytest_workers(pytest_workers: str | None) -> str:
+    """Return the validated pytest-workers value, falling back to the env var.
+
+    ``None`` indicates the CLI option was omitted, so the value is sourced
+    from ``INPUT_PYTEST_WORKERS``; when that is also unset the default of
+    ``"auto"`` is used. An explicit empty string disables parallelism.
+    """
+    if pytest_workers is None:
+        raw = os.getenv("INPUT_PYTEST_WORKERS")
+        if raw is None:
+            raw = DEFAULT_PYTEST_WORKERS
+    else:
+        raw = pytest_workers
+    return _normalise_pytest_workers(raw)
+
+
 def _resolve_inputs(
     output_path: Path | None,
     lang: str | None,
     fmt: str | None,
     github_output: Path | None,
-) -> tuple[Path, str, Path]:
+    pytest_workers: str | None,
+) -> tuple[Path, str, Path, str]:
     """Resolve CLI inputs and return the effective output path."""
     resolved_output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
     resolved_lang = lang or _required_env("DETECTED_LANG")
     resolved_fmt = fmt or _required_env("DETECTED_FMT")
     resolved_github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
+    resolved_workers = _resolve_pytest_workers(pytest_workers)
     out = _resolve_output_path(resolved_output_path, resolved_lang)
-    return out, resolved_fmt, resolved_github_output
+    return out, resolved_fmt, resolved_github_output, resolved_workers
 
 
 def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
@@ -460,6 +520,15 @@ def main(
             help="Optional path to a previous coverage baseline file.",
         ),
     ] = None,
+    pytest_workers: typ.Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                'Worker count for pytest-xdist (-n). Use an integer, "auto", '
+                '"logical", or "" to disable parallelism. Defaults to "auto".'
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
 
@@ -479,6 +548,10 @@ def main(
     baseline_file : Path or None
         Optional path to a previous coverage baseline file.  When present,
         the previous percentage is echoed to the log.
+    pytest_workers : str or None
+        Worker count for pytest-xdist's ``-n`` flag. ``None`` falls back to
+        the ``INPUT_PYTEST_WORKERS`` environment variable, and finally to
+        ``"auto"``. An empty value disables parallelism.
 
     Raises
     ------
@@ -487,9 +560,11 @@ def main(
         exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
         format mode.
     """
-    out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
+    out, fmt, github_output, workers = _resolve_inputs(
+        output_path, lang, fmt, github_output, pytest_workers
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
-    percent = _run_coverage(fmt, out)
+    percent = _run_coverage(fmt, out, workers)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:

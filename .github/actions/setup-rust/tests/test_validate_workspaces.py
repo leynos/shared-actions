@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import typing as typ
 from pathlib import Path
@@ -20,20 +21,26 @@ else:
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_workspaces.py"
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def _clean_stderr(stderr: str) -> str:
-    """Strip uv virtual environment warnings from *stderr*."""
-    lines = [
+    """Strip uv virtual environment warnings from *stderr*.
+
+    uv may emit coloured output, so ANSI escape sequences are stripped before
+    matching the well-known noise prefixes.
+    """
+    lines = [_ANSI_ESCAPE_RE.sub("", line) for line in stderr.splitlines()]
+    filtered = [
         line
-        for line in stderr.splitlines()
+        for line in lines
         if not line.startswith("warning: `VIRTUAL_ENV=")
         and not line.startswith("Building shared-actions @ file://")
         and not line.startswith("Built shared-actions @ file://")
         and not line.startswith("Uninstalled shared-actions")
         and not line.startswith("Installed shared-actions")
     ]
-    return "\n".join(lines)
+    return "\n".join(filtered)
 
 
 def run_validator(workspaces: str) -> RunResult:

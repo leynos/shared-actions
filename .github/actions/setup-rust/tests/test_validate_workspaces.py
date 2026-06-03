@@ -24,7 +24,11 @@ UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
 
 def _clean_stderr(stderr: str) -> str:
-    """Strip uv virtual environment warnings from *stderr*."""
+    """Strip uv virtual environment warnings from *stderr*.
+
+    uv may emit coloured output, so ANSI escape sequences are stripped before
+    matching the well-known noise prefixes.
+    """
     lines = [strip_ansi(line) for line in stderr.splitlines()]
     filtered = [
         line

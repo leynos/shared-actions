@@ -90,12 +90,21 @@ runs:
           exit 1
         fi
         bash "$INSTALLER_PATH"
-        if ! cargo-binstall -V | grep -q "1.16.6"; then
+        cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+        if [ -n "${GITHUB_PATH:-}" ]; then
+          echo "$cargo_home_bin" >> "$GITHUB_PATH"
+        fi
+        case ":$PATH:" in
+          *":$cargo_home_bin:"*) ;;
+          *) export PATH="$cargo_home_bin:$PATH" ;;
+        esac
+        cargo_binstall="$cargo_home_bin/cargo-binstall"
+        if ! "$cargo_binstall" -V | grep -q "1.16.6"; then
           echo "cargo-binstall version verification failed: expected 1.16.6" >&2
-          cargo-binstall -V >&2
+          "$cargo_binstall" -V >&2
           exit 1
         fi
-        echo "cargo-binstall $(cargo-binstall -V) verified"
+        echo "cargo-binstall $("$cargo_binstall" -V) verified"
       shell: bash
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b

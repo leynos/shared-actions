@@ -62,12 +62,11 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _write_binstall_stubs(tmp_path: Path) -> Path:
+def _write_binstall_stubs(stubs_dir: Path) -> None:
     """Create command stubs used by the cargo-binstall install fragment."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    stubs_dir.mkdir(parents=True, exist_ok=True)
     _write_executable(
-        bin_dir / "curl",
+        stubs_dir / "curl",
         """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$@" > "$FAKE_CURL_ARGS"
@@ -88,6 +87,7 @@ cat > "$output_path" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "${BINSTALL_VERSION:-}" > "$FAKE_INSTALLER_VERSION"
+mkdir -p "$FAKE_BIN_DIR"
 cat > "$FAKE_BIN_DIR/cargo-binstall" <<'BINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -104,31 +104,41 @@ chmod +x "$output_path"
 """,
     )
     _write_executable(
-        bin_dir / "sha256sum",
+        stubs_dir / "sha256sum",
         f"""#!/usr/bin/env bash
 set -euo pipefail
 printf '{PINNED_BINSTALL_SHA256}  %s\\n' "$1"
 """,
     )
-    return bin_dir
 
 
 def _run_install_binstall_script(
     tmp_path: Path,
     *,
     installed_version: str = PINNED_BINSTALL_VERSION,
+    cargo_home: Path | None = None,
+    github_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the cargo-binstall install fragment with deterministic stubs."""
     bash = _requires_bash()
-    bin_dir = _write_binstall_stubs(tmp_path)
+    stubs_dir = tmp_path / "stubs"
+    _write_binstall_stubs(stubs_dir)
+    resolved_cargo_home = cargo_home if cargo_home is not None else tmp_path / ".cargo"
+    cargo_home_bin = resolved_cargo_home / "bin"
     env = {
         **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "FAKE_BIN_DIR": bin_dir.as_posix(),
+        "HOME": tmp_path.as_posix(),
+        "PATH": f"{stubs_dir}{os.pathsep}{os.environ['PATH']}",
+        "CARGO_HOME": resolved_cargo_home.as_posix(),
+        "FAKE_BIN_DIR": cargo_home_bin.as_posix(),
         "FAKE_BINSTALL_VERSION": installed_version,
         "FAKE_CURL_ARGS": (tmp_path / "curl-args").as_posix(),
         "FAKE_INSTALLER_VERSION": (tmp_path / "installer-version").as_posix(),
     }
+    if github_path is not None:
+        env["GITHUB_PATH"] = github_path.as_posix()
+    else:
+        env.pop("GITHUB_PATH", None)
     return subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
         [bash, "-c", _install_binstall_run_script()],
         cwd=tmp_path,
@@ -210,9 +220,17 @@ def test_install_binstall_verifies_installed_version() -> None:
     run_script = _install_binstall_run_script()
     run_lines = {line.strip() for line in run_script.splitlines()}
     assert (
-        f'if ! cargo-binstall -V | grep -q "{PINNED_BINSTALL_VERSION}"; then'
+        f'if ! "$cargo_binstall" -V | grep -q "{PINNED_BINSTALL_VERSION}"; then'
         in run_lines
     )
+
+
+def test_install_binstall_resolves_cargo_home_bin() -> None:
+    """The script should resolve the active Cargo bin directory."""
+    run_script = _install_binstall_run_script()
+    run_lines = {line.strip() for line in run_script.splitlines()}
+    assert 'cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"' in run_lines
+    assert 'cargo_binstall="$cargo_home_bin/cargo-binstall"' in run_lines
 
 
 def test_install_binstall_script_exports_pin_to_installer(tmp_path: Path) -> None:
@@ -256,3 +274,42 @@ def test_install_binstall_script_fails_on_version_mismatch(tmp_path: Path) -> No
     )
     assert expected_error in result.stderr
     assert "1.99.0" in result.stderr
+
+
+def test_install_binstall_script_verifies_with_custom_cargo_home(
+    tmp_path: Path,
+) -> None:
+    """The install fragment should verify cargo-binstall under a custom CARGO_HOME."""
+    custom_cargo_home = tmp_path / "isolated-cargo"
+    result = _run_install_binstall_script(tmp_path, cargo_home=custom_cargo_home)
+
+    assert result.returncode == 0, result.stderr
+    assert (custom_cargo_home / "bin" / "cargo-binstall").is_file()
+    assert f"cargo-binstall {PINNED_BINSTALL_VERSION} verified" in result.stdout
+
+
+def test_install_binstall_script_appends_cargo_bin_to_github_path(
+    tmp_path: Path,
+) -> None:
+    """The fragment should append the active Cargo bin dir to GITHUB_PATH."""
+    custom_cargo_home = tmp_path / "isolated-cargo"
+    github_path = tmp_path / "github-path"
+    github_path.touch()
+    result = _run_install_binstall_script(
+        tmp_path,
+        cargo_home=custom_cargo_home,
+        github_path=github_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    entries = github_path.read_text(encoding="utf-8").splitlines()
+    assert (custom_cargo_home / "bin").as_posix() in entries
+
+
+def test_install_binstall_script_skips_github_path_when_unset(
+    tmp_path: Path,
+) -> None:
+    """The fragment should tolerate a missing GITHUB_PATH (set -u safety)."""
+    result = _run_install_binstall_script(tmp_path)
+
+    assert result.returncode == 0, result.stderr

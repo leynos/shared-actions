@@ -1809,7 +1809,8 @@ def _assert_python_command_structure(parts: list[str]) -> None:
     assert Path(parts[0]).stem == "python"
     slip_idx = parts.index("-m", 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
-    assert parts[-3:] == ["-m", "pytest", "-v"]
+    pytest_idx = parts.index("pytest")
+    assert parts[pytest_idx - 1 : pytest_idx + 2] == ["-m", "pytest", "-v"]
 
 
 def _assert_coverage_python_path(actual: str, expected: str) -> None:
@@ -2298,6 +2299,121 @@ def test_non_cobertura_formats_do_not_emit_cobertura_flags(
     assert "--out" not in parts
 
 
+def test_pytest_xdist_is_installed_with_tooling(
+    run_python_module: ModuleType,
+) -> None:
+    """``pytest-xdist`` ships alongside slipcover so ``-n`` is available."""
+    assert "pytest-xdist" in run_python_module.TOOLING_PACKAGES
+
+
+def test_coverage_args_omits_workers_when_empty(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """An empty workers value preserves the historical serial pytest call."""
+    args = run_python_module._coverage_args("cobertura", tmp_path / "cov.xml", "")
+    assert "-n" not in args
+
+
+@pytest.mark.parametrize("workers", ["auto", "logical", "4", "0"])
+def test_coverage_args_appends_workers_flag(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    workers: str,
+) -> None:
+    """Non-empty workers values append ``-n <workers>`` after pytest args."""
+    args = run_python_module._coverage_args("cobertura", tmp_path / "cov.xml", workers)
+    assert args[-2:] == ["-n", workers]
+    pytest_idx = args.index("pytest")
+    n_idx = args.index("-n")
+    assert pytest_idx < n_idx
+
+
+def test_coverage_cmd_for_fmt_threads_workers_through(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """coverage_cmd_for_fmt forwards ``workers`` into the slipcover argv."""
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt("cobertura", tmp_path / "cov.xml", "2")
+    parts = list(cmd.formulate())
+    assert parts[-2:] == ["-n", "2"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("auto", "auto"),
+        ("AUTO", "auto"),
+        (" logical ", "logical"),
+        ("4", "4"),
+        ("0", "0"),
+    ],
+)
+def test_normalise_pytest_workers_accepts_valid_values(
+    run_python_module: ModuleType,
+    raw: str | None,
+    expected: str,
+) -> None:
+    """Valid worker values normalise to the lowercase/stripped form."""
+    assert run_python_module._normalise_pytest_workers(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two"])
+def test_normalise_pytest_workers_rejects_invalid_values(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Junk worker values exit with the configuration-error code."""
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module._normalise_pytest_workers(raw)
+    assert _exit_code(excinfo.value) == 2
+
+
+def test_resolve_pytest_workers_defaults_to_auto_when_env_unset(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No CLI override and no env var falls back to the documented default."""
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+    assert (
+        run_python_module._resolve_pytest_workers(None)
+        == run_python_module.DEFAULT_PYTEST_WORKERS
+    )
+
+
+def test_resolve_pytest_workers_reads_env_var(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The env var supplies the value when the CLI option is omitted."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "3")
+    assert run_python_module._resolve_pytest_workers(None) == "3"
+
+
+def test_resolve_pytest_workers_empty_env_disables_xdist(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty env value disables parallelism (does not fall back to auto)."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "")
+    assert run_python_module._resolve_pytest_workers(None) == ""
+
+
+def test_resolve_pytest_workers_cli_overrides_env(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI option takes precedence over the env var when supplied."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "auto")
+    assert run_python_module._resolve_pytest_workers("") == ""
+    assert run_python_module._resolve_pytest_workers("8") == "8"
+
+
 def test_tmp_coveragepy_xml_invokes_venv_python(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -2677,6 +2793,7 @@ def _python_integration_env(
     assert python_env["DETECTED_LANG"] == "${{ steps.detect.outputs.lang }}"
     assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
     assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
+    assert python_env["INPUT_PYTEST_WORKERS"] == "${{ inputs.pytest-workers }}"
     out = tmp_path / "cov.xml"
     gh = tmp_path / "gh.txt"
     out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
@@ -2735,6 +2852,7 @@ def test_run_python_integration_cobertura_success(
     assert "--system" not in pip_args
     assert "slipcover" in pip_args
     assert "pytest" in pip_args
+    assert "pytest-xdist" in pip_args
     assert "coverage" in pip_args
     gh = tmp_path / "gh.txt"
     assert gh.exists(), "GITHUB_OUTPUT file must be written"

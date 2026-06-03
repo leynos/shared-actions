@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Run the Python coverage suite under `pytest-xdist` by default. The new
+  `pytest-workers` input (default `auto`) is forwarded to slipcover's
+  `pytest -n` flag; set it to `""` to restore serial execution. `pytest-xdist`
+  is installed alongside `slipcover`, `pytest`, and `coverage`. Note that
+  slipcover 1.0.18's xdist plugin drops `--omit` on worker processes — see
+  README for the implication for projects with co-located in-package tests.
+
 ## v1.3.15 (2026-04-30)
 
 - Preserve the `.venv-coverage/bin/python` path when installing coverage

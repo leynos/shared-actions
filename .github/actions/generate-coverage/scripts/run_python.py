@@ -488,51 +488,51 @@ def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
         fh.write(f"percent={percent}\n")
 
 
+_OutputPathOpt = typ.Annotated[
+    Path | None,
+    typer.Option(help="Destination path for the coverage output file."),
+]
+_LangOpt = typ.Annotated[
+    str | None,
+    typer.Option(help='Detected project language: "rust", "python", or "mixed".'),
+]
+_FmtOpt = typ.Annotated[
+    str | None,
+    typer.Option(help='Coverage format: "slipcover", "coveragepy", etc.'),
+]
+_GithubOutputOpt = typ.Annotated[
+    Path | None,
+    typer.Option(help="Path to the GitHub Actions output file."),
+]
+_BaselineFileOpt = typ.Annotated[
+    Path | None,
+    typer.Option(
+        envvar="BASELINE_PYTHON_FILE",
+        help="Optional path to a previous coverage baseline file.",
+    ),
+]
+_PytestWorkersOpt = typ.Annotated[
+    str | None,
+    typer.Option(
+        help=(
+            'Worker count for pytest-xdist (-n). Use an integer, "auto", '
+            '"logical", or "" to disable parallelism. Defaults to "auto".'
+        ),
+    ),
+]
+
+
 def main(
-    output_path: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Destination path for the coverage output file.",
-        ),
-    ] = None,
-    lang: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Detected project language: "rust", "python", or "mixed".',
-        ),
-    ] = None,
-    fmt: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Coverage format: "slipcover", "coveragepy", etc.',
-        ),
-    ] = None,
-    github_output: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Path to the GitHub Actions output file.",
-        ),
-    ] = None,
-    baseline_file: typ.Annotated[
-        Path | None,
-        typer.Option(
-            envvar="BASELINE_PYTHON_FILE",
-            help="Optional path to a previous coverage baseline file.",
-        ),
-    ] = None,
-    pytest_workers: typ.Annotated[
-        str | None,
-        typer.Option(
-            help=(
-                'Worker count for pytest-xdist (-n). Use an integer, "auto", '
-                '"logical", or "" to disable parallelism. Defaults to "auto".'
-            ),
-        ),
-    ] = None,
+    output_path: _OutputPathOpt = None,
+    lang: _LangOpt = None,
+    fmt: _FmtOpt = None,
+    github_output: _GithubOutputOpt = None,
+    baseline_file: _BaselineFileOpt = None,
+    pytest_workers: _PytestWorkersOpt = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
 
-    Parameters
+
     ----------
     output_path : Path
         Destination path for the coverage output file.

@@ -488,78 +488,57 @@ def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
         fh.write(f"percent={percent}\n")
 
 
+_OutputPathOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        help="Destination path for the coverage output file.",
+    ),
+]
+_LangOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help='Detected project language: "rust", "python", or "mixed".',
+    ),
+]
+_FmtOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help='Coverage format: "slipcover", "coveragepy", etc.',
+    ),
+]
+_GithubOutputOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        help="Path to the GitHub Actions output file.",
+    ),
+]
+_BaselineFileOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        envvar="BASELINE_PYTHON_FILE",
+        help="Optional path to a previous coverage baseline file.",
+    ),
+]
+_PytestWorkersOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help=(
+            'Worker count for pytest-xdist (-n). Use an integer, "auto", '
+            '"logical", or "" to disable parallelism. Defaults to "auto".'
+        ),
+    ),
+]
+
+
 def main(
-    output_path: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Destination path for the coverage output file.",
-        ),
-    ] = None,
-    lang: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Detected project language: "rust", "python", or "mixed".',
-        ),
-    ] = None,
-    fmt: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Coverage format: "slipcover", "coveragepy", etc.',
-        ),
-    ] = None,
-    github_output: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Path to the GitHub Actions output file.",
-        ),
-    ] = None,
-    baseline_file: typ.Annotated[
-        Path | None,
-        typer.Option(
-            envvar="BASELINE_PYTHON_FILE",
-            help="Optional path to a previous coverage baseline file.",
-        ),
-    ] = None,
-    pytest_workers: typ.Annotated[
-        str | None,
-        typer.Option(
-            help=(
-                'Worker count for pytest-xdist (-n). Use an integer, "auto", '
-                '"logical", or "" to disable parallelism. Defaults to "auto".'
-            ),
-        ),
-    ] = None,
+    output_path: _OutputPathOption = None,
+    lang: _LangOption = None,
+    fmt: _FmtOption = None,
+    github_output: _GithubOutputOption = None,
+    baseline_file: _BaselineFileOption = None,
+    pytest_workers: _PytestWorkersOption = None,
 ) -> None:
-    """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
-
-    Parameters
-    ----------
-    output_path : Path
-        Destination path for the coverage output file.
-    lang : str
-        Detected project language (``"rust"``, ``"python"``, or
-        ``"mixed"``).  When ``"mixed"``, the output file is renamed to
-        include a ``.python`` infix.
-    fmt : str
-        Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
-    github_output : Path
-        Path to the ``GITHUB_OUTPUT`` append file where ``file=`` and
-        ``percent=`` are written.
-    baseline_file : Path or None
-        Optional path to a previous coverage baseline file.  When present,
-        the previous percentage is echoed to the log.
-    pytest_workers : str or None
-        Worker count for pytest-xdist's ``-n`` flag. ``None`` falls back to
-        the ``INPUT_PYTEST_WORKERS`` environment variable, and finally to
-        ``"auto"``. An empty value disables parallelism.
-
-    Raises
-    ------
-    typer.Exit
-        With the subprocess return code when the slipcover/coverage command
-        exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
-        format mode.
-    """
+    """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
     out, fmt, github_output, workers = _resolve_inputs(
         output_path, lang, fmt, github_output, pytest_workers
     )

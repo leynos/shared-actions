@@ -152,6 +152,31 @@ After the installer runs, the action verifies the installed binary with
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
 
+### CARGO_HOME resolution and PATH handling
+
+The install step derives the active Cargo bin directory at runtime:
+
+```
+cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+```
+
+This respects any custom `CARGO_HOME` set by the caller. The resolved path is
+used for three purposes:
+
+1. **GITHUB_PATH** – when `GITHUB_PATH` is set, the resolved bin directory is
+   appended so that subsequent workflow steps see the binary on their `PATH`.
+2. **Current-step PATH** – the bin directory is prepended to the *current*
+   shell's `PATH` (guarded by a `case ":$PATH:"` check to avoid duplication)
+   so that in-step commands can also find the binary.
+3. **Absolute-path verification** – `cargo-binstall` is invoked via its
+   resolved absolute path (`"$cargo_binstall"`) rather than as an unqualified
+   command, ensuring that verification succeeds even when the bin directory has
+   not yet been propagated to the shell's `PATH` by other means.
+
+Keep `cargo_home_bin` resolution and the `BINSTALL_VERSION` pin in sync: both
+must reflect the same intended installation location and version whenever the
+pin is updated.
+
 ## `stage-release-artefacts` Action Architecture
 
 ### Staging Pipeline

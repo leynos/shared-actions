@@ -112,24 +112,28 @@ printf '{PINNED_BINSTALL_SHA256}  %s\\n' "$1"
     )
 
 
+def _default_cargo_home(tmp_path: Path) -> Path:
+    """Return the default isolated CARGO_HOME for a test run."""
+    return tmp_path / ".cargo"
+
+
 def _run_install_binstall_script(
     tmp_path: Path,
+    cargo_home: Path,
+    github_path: Path | None,
     *,
     installed_version: str = PINNED_BINSTALL_VERSION,
-    cargo_home: Path | None = None,
-    github_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the cargo-binstall install fragment with deterministic stubs."""
     bash = _requires_bash()
     stubs_dir = tmp_path / "stubs"
     _write_binstall_stubs(stubs_dir)
-    resolved_cargo_home = cargo_home if cargo_home is not None else tmp_path / ".cargo"
-    cargo_home_bin = resolved_cargo_home / "bin"
+    cargo_home_bin = cargo_home / "bin"
     env = {
         **os.environ,
         "HOME": tmp_path.as_posix(),
         "PATH": f"{stubs_dir}{os.pathsep}{os.environ['PATH']}",
-        "CARGO_HOME": resolved_cargo_home.as_posix(),
+        "CARGO_HOME": cargo_home.as_posix(),
         "FAKE_BIN_DIR": cargo_home_bin.as_posix(),
         "FAKE_BINSTALL_VERSION": installed_version,
         "FAKE_CURL_ARGS": (tmp_path / "curl-args").as_posix(),
@@ -233,7 +237,7 @@ def test_install_binstall_resolves_cargo_home_bin() -> None:
 
 def test_install_binstall_script_exports_pin_to_installer(tmp_path: Path) -> None:
     """The install fragment should pass the pinned version to the child installer."""
-    result = _run_install_binstall_script(tmp_path)
+    result = _run_install_binstall_script(tmp_path, _default_cargo_home(tmp_path), None)
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "installer-version").read_text(encoding="utf-8").strip() == (
@@ -243,7 +247,7 @@ def test_install_binstall_script_exports_pin_to_installer(tmp_path: Path) -> Non
 
 def test_install_binstall_script_uses_pinned_installer_url(tmp_path: Path) -> None:
     """The install fragment should download the installer from the pinned tag."""
-    result = _run_install_binstall_script(tmp_path)
+    result = _run_install_binstall_script(tmp_path, _default_cargo_home(tmp_path), None)
 
     assert result.returncode == 0, result.stderr
     curl_args = (tmp_path / "curl-args").read_text(encoding="utf-8")
@@ -255,7 +259,7 @@ def test_install_binstall_script_uses_pinned_installer_url(tmp_path: Path) -> No
 
 def test_install_binstall_script_logs_verified_version(tmp_path: Path) -> None:
     """The install fragment should log the verified cargo-binstall version."""
-    result = _run_install_binstall_script(tmp_path)
+    result = _run_install_binstall_script(tmp_path, _default_cargo_home(tmp_path), None)
 
     assert result.returncode == 0, result.stderr
     assert f"cargo-binstall {PINNED_BINSTALL_VERSION} verified" in result.stdout
@@ -263,7 +267,12 @@ def test_install_binstall_script_logs_verified_version(tmp_path: Path) -> None:
 
 def test_install_binstall_script_fails_on_version_mismatch(tmp_path: Path) -> None:
     """The install fragment should fail clearly when the installed version differs."""
-    result = _run_install_binstall_script(tmp_path, installed_version="1.99.0")
+    result = _run_install_binstall_script(
+        tmp_path,
+        _default_cargo_home(tmp_path),
+        None,
+        installed_version="1.99.0",
+    )
 
     assert result.returncode != 0
     expected_error = (
@@ -279,7 +288,7 @@ def test_install_binstall_script_verifies_with_custom_cargo_home(
 ) -> None:
     """The install fragment should verify cargo-binstall under a custom CARGO_HOME."""
     custom_cargo_home = tmp_path / "isolated-cargo"
-    result = _run_install_binstall_script(tmp_path, cargo_home=custom_cargo_home)
+    result = _run_install_binstall_script(tmp_path, custom_cargo_home, None)
 
     assert result.returncode == 0, result.stderr
     assert (custom_cargo_home / "bin" / "cargo-binstall").is_file()
@@ -294,11 +303,7 @@ def test_install_binstall_script_appends_cargo_bin_to_github_path(
     github_path = tmp_path / "github-path"
     existing_entry = "/preexisting/path"
     github_path.write_text(f"{existing_entry}\n", encoding="utf-8")
-    result = _run_install_binstall_script(
-        tmp_path,
-        cargo_home=custom_cargo_home,
-        github_path=github_path,
-    )
+    result = _run_install_binstall_script(tmp_path, custom_cargo_home, github_path)
 
     assert result.returncode == 0, result.stderr
     entries = github_path.read_text(encoding="utf-8").splitlines()
@@ -310,6 +315,63 @@ def test_install_binstall_script_skips_github_path_when_unset(
     tmp_path: Path,
 ) -> None:
     """The fragment should tolerate a missing GITHUB_PATH (set -u safety)."""
-    result = _run_install_binstall_script(tmp_path)
+    result = _run_install_binstall_script(tmp_path, _default_cargo_home(tmp_path), None)
 
     assert result.returncode == 0, result.stderr
+
+
+def test_install_binstall_script_does_not_duplicate_path_entry(
+    tmp_path: Path,
+) -> None:
+    """The PATH deduplication guard must not add the bin dir a second time."""
+    cargo_home = tmp_path / ".cargo"
+    cargo_home_bin = (cargo_home / "bin").as_posix()
+    bash = _requires_bash()
+    stubs_dir = tmp_path / "stubs"
+    _write_binstall_stubs(stubs_dir)
+    parent_path = os.environ["PATH"]
+    env = {
+        **os.environ,
+        "HOME": tmp_path.as_posix(),
+        "PATH": os.pathsep.join([cargo_home_bin, str(stubs_dir), parent_path]),
+        "CARGO_HOME": cargo_home.as_posix(),
+        "FAKE_BIN_DIR": cargo_home_bin,
+        "FAKE_BINSTALL_VERSION": PINNED_BINSTALL_VERSION,
+        "FAKE_CURL_ARGS": (tmp_path / "curl-args").as_posix(),
+        "FAKE_INSTALLER_VERSION": (tmp_path / "installer-version").as_posix(),
+    }
+    env.pop("GITHUB_PATH", None)
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
+        [bash, "-c", _install_binstall_run_script()],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    # The bin dir was already on PATH; re-run with a trailing echo to capture
+    # the post-script PATH and confirm no duplicate entry was introduced.
+    inspect_script = _install_binstall_run_script() + '\necho "RESULT_PATH=$PATH"'
+    result2 = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
+        [bash, "-c", inspect_script],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result2.returncode == 0, result2.stderr
+    path_line = next(
+        (
+            line
+            for line in result2.stdout.splitlines()
+            if line.startswith("RESULT_PATH=")
+        ),
+        "",
+    )
+    resulting_path = path_line.removeprefix("RESULT_PATH=")
+    entries = resulting_path.split(os.pathsep)
+    assert entries.count(cargo_home_bin) == 1, (
+        f"Expected {cargo_home_bin!r} to appear exactly once; got: {resulting_path!r}"
+    )

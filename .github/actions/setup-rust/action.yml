@@ -94,12 +94,21 @@ runs:
         # cargo-binstall into ${CARGO_HOME:-$HOME/.cargo}/bin, so the same
         # resolution gives us the absolute path to the freshly installed binary.
         cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+        echo "cargo-binstall: resolved cargo_home_bin=${cargo_home_bin}"
         if [ -n "${GITHUB_PATH:-}" ]; then
           echo "$cargo_home_bin" >> "$GITHUB_PATH"
+          echo "cargo-binstall: appended ${cargo_home_bin} to GITHUB_PATH"
+        else
+          echo "cargo-binstall: GITHUB_PATH not set; skipping GITHUB_PATH append"
         fi
         case ":$PATH:" in
-          *":$cargo_home_bin:"*) ;;
-          *) export PATH="$cargo_home_bin:$PATH" ;;
+          *":$cargo_home_bin:"*)
+            echo "cargo-binstall: ${cargo_home_bin} already on PATH; skipping prepend"
+            ;;
+          *)
+            export PATH="$cargo_home_bin:$PATH"
+            echo "cargo-binstall: prepended ${cargo_home_bin} to PATH"
+            ;;
         esac
         cargo_binstall="$cargo_home_bin/cargo-binstall"
         binstall_ver="${BINSTALL_VERSION#v}"

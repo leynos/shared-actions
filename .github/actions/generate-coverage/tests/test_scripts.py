@@ -2850,7 +2850,11 @@ def test_run_python_integration_cobertura_success(
     pip_args = pip_calls[0].split()
     assert "--python" in pip_args
     assert "--system" not in pip_args
-    assert "slipcover" in pip_args
+    # Slipcover must carry a version floor so that an older slipcover already
+    # installed by `uv sync` gets upgraded for the xdist plugin support.
+    assert any(arg.startswith("slipcover>=") for arg in pip_args), (
+        f"slipcover must be pinned with a version floor in {pip_args!r}"
+    )
     assert "pytest" in pip_args
     assert "pytest-xdist" in pip_args
     assert "coverage" in pip_args

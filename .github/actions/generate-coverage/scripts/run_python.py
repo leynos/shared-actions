@@ -35,7 +35,9 @@ logger = logging.getLogger(__name__)
 # called from a single-threaded GitHub Actions step.
 COVERAGE_VENV = Path(".venv-coverage")
 TOOLING_PACKAGES: tuple[str, ...] = (
-    "slipcover",
+    # 1.0.18 is the first release with the xdist plugin that lets the
+    # default `pytest -n auto` runs merge worker coverage correctly.
+    "slipcover>=1.0.18",
     "pytest",
     "pytest-xdist",
     "coverage",

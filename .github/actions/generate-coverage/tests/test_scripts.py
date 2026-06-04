@@ -2516,15 +2516,15 @@ def test_run_python_cobertura_passes_out_flag(
 def _run_main_with_workers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     run_python_module: ModuleType,
     workers: str,
-) -> tuple[list[str], str]:
-    """Invoke ``main`` under a fake coverage command and return (argv_parts, stdout).
+) -> list[str]:
+    """Invoke ``main`` under a fake coverage command and return the recorded argv.
 
     Sets up the Cobertura XML stub, patches ``run_cmd`` to record the invocation,
     patches the coverage-venv Python command, and clears ``INPUT_PYTEST_WORKERS``
-    so the supplied *workers* value is the sole source of truth.
+    so the supplied *workers* value is the sole source of truth. Stdout capture
+    is left to the caller via ``capsys``.
     """
     output = tmp_path / "cov.xml"
     output.write_text(
@@ -2546,7 +2546,7 @@ def _run_main_with_workers(
     assert len(recorded) == 1, (
         f"expected exactly one coverage invocation, got {len(recorded)}"
     )
-    return recorded[0], capsys.readouterr().out
+    return recorded[0]
 
 
 def test_main_threads_pytest_workers_into_slipcover_argv(
@@ -2556,9 +2556,8 @@ def test_main_threads_pytest_workers_into_slipcover_argv(
     run_python_module: ModuleType,
 ) -> None:
     """``main`` forwards the resolved workers value to slipcover's pytest argv."""
-    parts, stdout = _run_main_with_workers(
-        tmp_path, monkeypatch, capsys, run_python_module, "3"
-    )
+    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "3")
+    stdout = capsys.readouterr().out
     assert parts[-2:] == ["-n", "3"], (
         f"workers value must reach slipcover's pytest argv, got {parts!r}"
     )
@@ -2572,9 +2571,8 @@ def test_main_logs_serial_run_when_workers_disabled(
     run_python_module: ModuleType,
 ) -> None:
     """An empty workers value logs the serial-run notice and omits ``-n``."""
-    parts, stdout = _run_main_with_workers(
-        tmp_path, monkeypatch, capsys, run_python_module, ""
-    )
+    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "")
+    stdout = capsys.readouterr().out
     assert "-n" not in parts
     assert "Pytest workers: disabled (serial pytest run)" in stdout
 

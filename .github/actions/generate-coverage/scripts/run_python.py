@@ -474,16 +474,14 @@ def _resolve_inputs(
     lang: str | None,
     fmt: str | None,
     github_output: Path | None,
-    pytest_workers: str | None,
-) -> tuple[Path, str, Path, str]:
+) -> tuple[Path, str, Path]:
     """Resolve CLI inputs and return the effective output path."""
     resolved_output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
     resolved_lang = lang or _required_env("DETECTED_LANG")
     resolved_fmt = fmt or _required_env("DETECTED_FMT")
     resolved_github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
-    resolved_workers = _resolve_pytest_workers(pytest_workers)
     out = _resolve_output_path(resolved_output_path, resolved_lang)
-    return out, resolved_fmt, resolved_github_output, resolved_workers
+    return out, resolved_fmt, resolved_github_output
 
 
 def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
@@ -545,9 +543,8 @@ def main(
     pytest_workers: _PytestWorkersOption = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
-    out, fmt, github_output, workers = _resolve_inputs(
-        output_path, lang, fmt, github_output, pytest_workers
-    )
+    out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
+    workers = _resolve_pytest_workers(pytest_workers)
     out.parent.mkdir(parents=True, exist_ok=True)
     percent = _run_coverage(fmt, out, workers)
     typer.echo(f"Current coverage: {percent}%")

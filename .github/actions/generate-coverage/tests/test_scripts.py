@@ -2476,6 +2476,81 @@ def test_run_python_cobertura_passes_out_flag(
     assert "percent=100.00" in data
 
 
+def test_main_threads_pytest_workers_into_slipcover_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` forwards the resolved workers value to slipcover's pytest argv."""
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+
+    run_python_module.main(
+        output,
+        "python",
+        "cobertura",
+        github_output,
+        None,
+        "3",
+    )
+
+    assert len(recorded) == 1
+    parts = recorded[0]
+    assert parts[-2:] == ["-n", "3"], (
+        f"workers value must reach slipcover's pytest argv, got {parts!r}"
+    )
+    assert "Pytest workers: 3 (parallel via pytest-xdist)" in capsys.readouterr().out
+
+
+def test_main_logs_serial_run_when_workers_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """An empty workers value logs the serial-run notice and omits ``-n``."""
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+
+    run_python_module.main(
+        output,
+        "python",
+        "cobertura",
+        github_output,
+        None,
+        "",
+    )
+
+    parts = recorded[0]
+    assert "-n" not in parts
+    assert "Pytest workers: disabled (serial pytest run)" in capsys.readouterr().out
+
+
 def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:
     """``get_line_coverage_percent_from_cobertura`` handles per-line detail."""
     xml = tmp_path / "cov.xml"

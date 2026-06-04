@@ -545,6 +545,10 @@ def main(
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     workers = _resolve_pytest_workers(pytest_workers)
+    if workers:
+        typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
+    else:
+        typer.echo("Pytest workers: disabled (serial pytest run)")
     out.parent.mkdir(parents=True, exist_ok=True)
     percent = _run_coverage(fmt, out, workers)
     typer.echo(f"Current coverage: {percent}%")

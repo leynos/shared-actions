@@ -2804,6 +2804,9 @@ def _python_integration_env(
         "DETECTED_FMT": "cobertura",
         "BASELINE_PYTHON_FILE": str(tmp_path / "baseline-python.txt"),
         "GITHUB_OUTPUT": str(gh),
+        # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
+        # also makes the test independent of the action.yml default.
+        "INPUT_PYTEST_WORKERS": "2",
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     return env

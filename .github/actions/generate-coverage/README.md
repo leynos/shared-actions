@@ -253,7 +253,7 @@ historical serial behaviour.
 > processes. Projects that lay tests **inside** the source package (e.g.
 > `mypkg/unittests/test_*.py`, relying on
 > `--source=./mypkg --omit="*/unittests/*"`) will see their reported line-rate
-> drop sharply once xdist is enabled, because the co-located test files are
+> drop sharply once xdist is enabled because the co-located test files are
 > reported at 0% coverage. The production-code coverage values themselves are
 > unchanged; only the omit list is dropped on the worker side. Projects that
 > keep tests **outside** the source package (e.g. `tests/` next to

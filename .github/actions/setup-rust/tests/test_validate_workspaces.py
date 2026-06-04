@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import os
 import shutil
 import typing as typ
-from pathlib import Path
 
-import pytest
 from plumbum import local
+import pytest
 
 from cmd_utils_importer import import_cmd_utils
 from test_support.ansi import strip_ansi
@@ -99,3 +99,20 @@ def test_requires_non_empty_target() -> None:
     result = run_validator("crate ->   ")
     assert result.returncode == 1
     assert "empty target" in result.stderr
+
+def test_clean_stderr_strips_ansi_and_filters_known_noise() -> None:
+    """ANSI escapes are stripped before noise prefixes are matched."""
+    raw = (
+        "\x1b[1m\x1b[33mwarning\x1b[0m\x1b[1m:\x1b[0m "
+        "\x1b[1m`VIRTUAL_ENV=/tmp/x` does not match the project environment"
+        "\x1b[0m\n"
+        "real error line\n"
+    )
+
+    cleaned = _clean_stderr(raw)
+
+    assert not _ANSI_PATTERN.search(cleaned), (
+        f"ANSI escape sequences must be removed from {cleaned!r}"
+    )
+    assert "VIRTUAL_ENV" not in cleaned
+    assert "real error line" in cleaned

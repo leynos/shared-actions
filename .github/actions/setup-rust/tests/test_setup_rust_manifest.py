@@ -294,7 +294,8 @@ def test_install_binstall_script_appends_cargo_bin_to_github_path(
     """The fragment should append the active Cargo bin dir to GITHUB_PATH."""
     custom_cargo_home = tmp_path / "isolated-cargo"
     github_path = tmp_path / "github-path"
-    github_path.touch()
+    existing_entry = "/preexisting/path"
+    github_path.write_text(f"{existing_entry}\n", encoding="utf-8")
     result = _run_install_binstall_script(
         tmp_path,
         cargo_home=custom_cargo_home,
@@ -303,7 +304,8 @@ def test_install_binstall_script_appends_cargo_bin_to_github_path(
 
     assert result.returncode == 0, result.stderr
     entries = github_path.read_text(encoding="utf-8").splitlines()
-    assert (custom_cargo_home / "bin").as_posix() in entries
+    expected_entry = (custom_cargo_home / "bin").as_posix()
+    assert entries == [existing_entry, expected_entry]
 
 
 def test_install_binstall_script_skips_github_path_when_unset(

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import typing as typ
 from pathlib import Path
@@ -12,6 +11,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
+from test_support.ansi import strip_ansi
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
@@ -21,12 +21,11 @@ else:
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_workspaces.py"
 UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
-_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def _clean_stderr(stderr: str) -> str:
     """Strip uv virtual environment warnings from *stderr*."""
-    lines = [_ANSI_ESCAPE_RE.sub("", line) for line in stderr.splitlines()]
+    lines = [strip_ansi(line) for line in stderr.splitlines()]
     filtered = [
         line
         for line in lines

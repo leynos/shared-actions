@@ -219,10 +219,8 @@ def test_install_binstall_verifies_installed_version() -> None:
     """The cargo-binstall step should assert the installed pinned version."""
     run_script = _install_binstall_run_script()
     run_lines = {line.strip() for line in run_script.splitlines()}
-    assert (
-        f'if ! "$cargo_binstall" -V | grep -q "{PINNED_BINSTALL_VERSION}"; then'
-        in run_lines
-    )
+    assert 'binstall_ver="${BINSTALL_VERSION#v}"' in run_lines
+    assert 'if ! "$cargo_binstall" -V | grep -qF "$binstall_ver"; then' in run_lines
 
 
 def test_install_binstall_resolves_cargo_home_bin() -> None:

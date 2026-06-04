@@ -244,7 +244,8 @@ Run pytest serially (disable pytest-xdist):
 Python coverage runs through `pytest-xdist` by default (`pytest-workers: auto`),
 and slipcover 1.0.18+ merges the per-worker coverage transparently. Set
 `pytest-workers` to an integer for a fixed worker count, to `logical` to use
-logical CPU count, or to `""` to keep the historical serial behaviour.
+the logical central processing unit (CPU) count, or to `""` to keep the
+historical serial behaviour.
 
 > [!WARNING]
 > **Co-located tests + `--omit` regression in slipcover xdist workers.**
@@ -256,9 +257,9 @@ logical CPU count, or to `""` to keep the historical serial behaviour.
 > reported at 0% coverage. The production-code coverage values themselves are
 > unchanged; only the omit list is dropped on the worker side. Projects that
 > keep tests **outside** the source package (e.g. `tests/` next to
-> `src/mypkg/`) are unaffected. If you rely on `--omit` to exclude in-package
-> tests, either move the tests out of the package or set `pytest-workers: ""`
-> until the upstream plugin is fixed.
+> `src/mypkg/`) are unaffected. Projects that rely on `--omit` to exclude
+> in-package tests should either move the tests out of the package or set
+> `pytest-workers: ""` until the upstream plugin is fixed.
 
 Use a nested Cargo manifest:
 

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import os
 import shutil
 import typing as typ
+from pathlib import Path
 
-from plumbum import local
 import pytest
+from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
-from test_support.ansi import strip_ansi
+from test_support.ansi import ANSI_ESCAPE_RE, strip_ansi
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
@@ -100,6 +100,7 @@ def test_requires_non_empty_target() -> None:
     assert result.returncode == 1
     assert "empty target" in result.stderr
 
+
 def test_clean_stderr_strips_ansi_and_filters_known_noise() -> None:
     """ANSI escapes are stripped before noise prefixes are matched."""
     raw = (
@@ -111,7 +112,7 @@ def test_clean_stderr_strips_ansi_and_filters_known_noise() -> None:
 
     cleaned = _clean_stderr(raw)
 
-    assert not _ANSI_PATTERN.search(cleaned), (
+    assert not ANSI_ESCAPE_RE.search(cleaned), (
         f"ANSI escape sequences must be removed from {cleaned!r}"
     )
     assert "VIRTUAL_ENV" not in cleaned

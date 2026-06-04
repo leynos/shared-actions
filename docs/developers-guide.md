@@ -156,7 +156,7 @@ match the pinned release. Keep that runtime check in sync with
 
 The install step derives the active Cargo bin directory at runtime:
 
-```
+```bash
 cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
 ```
 

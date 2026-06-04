@@ -284,15 +284,11 @@ def _coverage_python_cmd() -> BoundCommand:
 _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
 
 
-def _normalise_pytest_workers(raw: str | None) -> str:
-    """Validate and normalise the ``pytest-workers`` input value.
+def _parse_pytest_workers(raw: str | None) -> str:
+    """Parse and validate the pytest-workers value; raise ValueError on bad input.
 
-    Accepts ``"auto"``, ``"logical"``, a positive integer string, or an
-    empty value (which disables parallelism). Whitespace is stripped before
-    validation. ``"0"`` is rejected so that ``""`` remains the single
-    canonical way to opt out of parallelism — pytest-xdist treats ``-n 0``
-    as a no-op but the action's contract documents only the empty value.
-    Any other input raises :class:`typer.Exit` with code 2.
+    This function is pure: it performs no I/O and has no side-effects.
+    Callers that need CLI error handling should use _normalise_pytest_workers.
     """
     if raw is None:
         return ""
@@ -304,12 +300,26 @@ def _normalise_pytest_workers(raw: str | None) -> str:
         return lowered
     if value.isdigit() and int(value) > 0:
         return value
-    typer.echo(
+    message = (
         f"Invalid pytest-workers value: {raw!r}. Expected a positive integer, "
-        '"auto", "logical", or "" to disable parallelism.',
-        err=True,
+        '"auto", "logical", or "" to disable parallelism.'
     )
-    raise typer.Exit(2)
+    raise ValueError(message)
+
+
+def _normalise_pytest_workers(raw: str | None) -> str:
+    """Validate and normalise the pytest-workers value, exiting on invalid input.
+
+    Delegates pure validation to _parse_pytest_workers.  Any ValueError
+    raised there is converted into a CLI error message on stderr and
+    typer.Exit with code 2 — making this function's side-effects explicit
+    by design.
+    """
+    try:
+        return _parse_pytest_workers(raw)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
 
 
 def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:

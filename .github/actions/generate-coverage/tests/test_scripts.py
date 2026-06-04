@@ -2374,6 +2374,43 @@ def test_normalise_pytest_workers_rejects_invalid_values(
     assert _exit_code(excinfo.value) == 2
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("auto", "auto"),
+        ("AUTO", "auto"),
+        (" logical ", "logical"),
+        ("4", "4"),
+        ("1", "1"),
+    ],
+)
+def test_parse_pytest_workers_returns_normalised_value(
+    run_python_module: ModuleType,
+    raw: str | None,
+    expected: str,
+) -> None:
+    """The pure parser returns the same normalised value as the Typer wrapper."""
+    assert run_python_module._parse_pytest_workers(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
+def test_parse_pytest_workers_raises_value_error_on_invalid(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Invalid inputs raise ValueError without any Typer side-effects."""
+    with pytest.raises(ValueError, match="Invalid pytest-workers value") as excinfo:
+        run_python_module._parse_pytest_workers(raw)
+    message = str(excinfo.value)
+    assert repr(raw) in message
+    assert "positive integer" in message
+    assert '"auto"' in message
+    assert '"logical"' in message
+
+
 def test_resolve_pytest_workers_defaults_to_auto_when_env_unset(
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,

@@ -11,6 +11,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
+from test_support.ansi import strip_ansi
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
@@ -24,16 +25,17 @@ UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
 def _clean_stderr(stderr: str) -> str:
     """Strip uv virtual environment warnings from *stderr*."""
-    lines = [
+    lines = [strip_ansi(line) for line in stderr.splitlines()]
+    filtered = [
         line
-        for line in stderr.splitlines()
+        for line in lines
         if not line.startswith("warning: `VIRTUAL_ENV=")
         and not line.startswith("Building shared-actions @ file://")
         and not line.startswith("Built shared-actions @ file://")
         and not line.startswith("Uninstalled shared-actions")
         and not line.startswith("Installed shared-actions")
     ]
-    return "\n".join(lines)
+    return "\n".join(filtered)
 
 
 def run_validator(workspaces: str) -> RunResult:

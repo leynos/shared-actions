@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import re
 import shutil
 import textwrap
 import typing as typ
@@ -14,6 +13,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils import RunResult, run_cmd
+from test_support.ansi import strip_ansi
 
 if typ.TYPE_CHECKING:
     from collections import abc as cabc
@@ -40,8 +40,6 @@ if POWERSHELL is None:  # pragma: no cover - exercised only when PowerShell is m
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "resolve_version.ps1"
-
-_ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
 def _invoke_get_msi_version(candidate: str) -> str | None:
@@ -70,14 +68,9 @@ def _run_script(env: dict[str, str]) -> RunResult:
     return typ.cast("RunResult", run_cmd(ps_command, method="run", env=env))
 
 
-def _strip_ansi(value: str) -> str:
-    """Remove ANSI escape sequences from *value* for reliable assertions."""
-    return _ANSI_ESCAPE.sub("", value)
-
-
 def _combined_stream(result: RunResult) -> str:
     """Return stdout and stderr concatenated without colour control codes."""
-    return _strip_ansi(f"{result.stdout}\n{result.stderr}")
+    return strip_ansi(f"{result.stdout}\n{result.stderr}")
 
 
 def _read_outputs(path: Path) -> dict[str, str]:

@@ -158,5 +158,8 @@ target/
 # Crush AI agent
 .crush/
 
+# Claude Code AI agent
+.claude/
+
 # Context pack MCP server
 /.agents/mcp/context_pack/packs/

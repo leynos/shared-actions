@@ -50,8 +50,8 @@ inputs:
   pytest-workers:
     description: |
       Value passed to pytest-xdist's `-n` flag for the Python coverage run.
-      Accepts an integer, "auto", "logical", or "" (empty) to disable
-      parallelism and keep the historical serial pytest behaviour.
+      Accepts a positive integer, "auto", "logical", or "" (empty) to
+      disable parallelism and keep the historical serial pytest behaviour.
     required: false
     default: auto
 outputs:

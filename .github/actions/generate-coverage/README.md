@@ -143,7 +143,7 @@ Known limitations:
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
-| pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts an integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
+| pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
 <!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
@@ -243,9 +243,9 @@ Run pytest serially (disable pytest-xdist):
 
 Python coverage runs through `pytest-xdist` by default (`pytest-workers: auto`),
 and slipcover 1.0.18+ merges the per-worker coverage transparently. Set
-`pytest-workers` to an integer for a fixed worker count, to `logical` to use
-the logical central processing unit (CPU) count, or to `""` to keep the
-historical serial behaviour.
+`pytest-workers` to a positive integer for a fixed worker count, to `logical`
+to use the logical central processing unit (CPU) count, or to `""` to keep
+the historical serial behaviour.
 
 > [!WARNING]
 > **Co-located tests + `--omit` regression in slipcover xdist workers.**

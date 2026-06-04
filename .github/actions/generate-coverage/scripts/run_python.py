@@ -287,9 +287,12 @@ _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
 def _normalise_pytest_workers(raw: str | None) -> str:
     """Validate and normalise the ``pytest-workers`` input value.
 
-    Accepts ``"auto"``, ``"logical"``, a non-negative integer string, or an
+    Accepts ``"auto"``, ``"logical"``, a positive integer string, or an
     empty value (which disables parallelism). Whitespace is stripped before
-    validation. Any other value raises :class:`typer.Exit` with code 2.
+    validation. ``"0"`` is rejected so that ``""`` remains the single
+    canonical way to opt out of parallelism — pytest-xdist treats ``-n 0``
+    as a no-op but the action's contract documents only the empty value.
+    Any other input raises :class:`typer.Exit` with code 2.
     """
     if raw is None:
         return ""
@@ -299,10 +302,10 @@ def _normalise_pytest_workers(raw: str | None) -> str:
     lowered = value.lower()
     if lowered in _VALID_NAMED_WORKERS:
         return lowered
-    if value.isdigit():
+    if value.isdigit() and int(value) > 0:
         return value
     typer.echo(
-        f"Invalid pytest-workers value: {raw!r}. Expected an integer, "
+        f"Invalid pytest-workers value: {raw!r}. Expected a positive integer, "
         '"auto", "logical", or "" to disable parallelism.',
         err=True,
     )
@@ -525,8 +528,9 @@ _PytestWorkersOption = typ.Annotated[
     str | None,
     typer.Option(
         help=(
-            'Worker count for pytest-xdist (-n). Use an integer, "auto", '
-            '"logical", or "" to disable parallelism. Defaults to "auto".'
+            "Worker count for pytest-xdist (-n). Use a positive integer, "
+            '"auto", "logical", or "" to disable parallelism. Defaults to '
+            '"auto".'
         ),
     ),
 ]

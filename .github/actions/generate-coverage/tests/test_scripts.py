@@ -2315,7 +2315,7 @@ def test_coverage_args_omits_workers_when_empty(
     assert "-n" not in args
 
 
-@pytest.mark.parametrize("workers", ["auto", "logical", "4", "0"])
+@pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
 def test_coverage_args_appends_workers_flag(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -2351,7 +2351,7 @@ def test_coverage_cmd_for_fmt_threads_workers_through(
         ("AUTO", "auto"),
         (" logical ", "logical"),
         ("4", "4"),
-        ("0", "0"),
+        ("1", "1"),
     ],
 )
 def test_normalise_pytest_workers_accepts_valid_values(
@@ -2363,7 +2363,7 @@ def test_normalise_pytest_workers_accepts_valid_values(
     assert run_python_module._normalise_pytest_workers(raw) == expected
 
 
-@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two"])
+@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
 def test_normalise_pytest_workers_rejects_invalid_values(
     run_python_module: ModuleType,
     raw: str,

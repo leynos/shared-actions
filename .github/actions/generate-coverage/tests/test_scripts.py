@@ -2426,17 +2426,16 @@ _WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
 @given(
     name=st.sampled_from(["auto", "logical"]),
     upper_mask=st.integers(min_value=0, max_value=(1 << 7) - 1),
-    leading=_WHITESPACE_ST,
-    trailing=_WHITESPACE_ST,
+    pad_pair=st.tuples(_WHITESPACE_ST, _WHITESPACE_ST),
 )
 def test_parse_pytest_workers_normalises_named_values(
     run_python_module: ModuleType,
     name: str,
     upper_mask: int,
-    leading: str,
-    trailing: str,
+    pad_pair: tuple[str, str],
 ) -> None:
     """Named values normalise to lowercase regardless of casing or padding."""
+    leading, trailing = pad_pair
     mixed = "".join(
         ch.upper() if (upper_mask >> i) & 1 else ch for i, ch in enumerate(name)
     )

@@ -58,7 +58,7 @@ command for `<venv_python>` thereafter.
 <!-- markdownlint-enable MD013 -->
 
 `coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format. When
-`workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelises
+`workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelizes
 the run; an empty string preserves the historical serial pytest invocation.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit.
 `main` resolves `pytest_workers` from the CLI option, falling back to the

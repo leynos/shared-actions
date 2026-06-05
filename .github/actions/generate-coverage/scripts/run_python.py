@@ -469,19 +469,20 @@ def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
 
 
 def _resolve_pytest_workers(pytest_workers: str | None) -> str:
-    """Return the validated pytest-workers value, falling back to the env var.
+    """Resolve and validate the pytest-workers value; raise ValueError on invalid.
 
-    ``None`` indicates the CLI option was omitted, so the value is sourced
-    from ``INPUT_PYTEST_WORKERS``; when that is also unset the default of
-    ``"auto"`` is used. An explicit empty string disables parallelism.
+    Sources the raw value from the CLI option, the ``INPUT_PYTEST_WORKERS``
+    env var, or ``DEFAULT_PYTEST_WORKERS``.  Validation is delegated to the
+    pure :func:`_parse_pytest_workers`.  CLI side-effects (``typer.echo`` /
+    ``typer.Exit``) are the caller's responsibility.
     """
     if pytest_workers is None:
-        raw = os.getenv("INPUT_PYTEST_WORKERS")
+        raw: str | None = os.getenv("INPUT_PYTEST_WORKERS")
         if raw is None:
             raw = DEFAULT_PYTEST_WORKERS
     else:
         raw = pytest_workers
-    return _normalise_pytest_workers(raw)
+    return _parse_pytest_workers(raw)
 
 
 def _resolve_inputs(
@@ -559,7 +560,11 @@ def main(
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
-    workers = _resolve_pytest_workers(pytest_workers)
+    try:
+        workers = _resolve_pytest_workers(pytest_workers)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
     if workers:
         typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
     else:

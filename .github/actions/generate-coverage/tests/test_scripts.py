@@ -2523,6 +2523,45 @@ def test_resolve_pytest_workers_cli_overrides_env(
     assert run_python_module._resolve_pytest_workers("8") == "8"
 
 
+def test_resolve_pytest_workers_raises_value_error_on_invalid_env(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid inputs propagate ValueError without Typer side-effects."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "banana")
+    with pytest.raises(ValueError, match="Invalid pytest-workers value"):
+        run_python_module._resolve_pytest_workers(None)
+
+
+def test_main_translates_invalid_workers_into_typer_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` is the sole CLI boundary that converts ValueError into Exit(2)."""
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when worker validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(
+            output, "python", "cobertura", github_output, None, "banana"
+        )
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid pytest-workers value" in capsys.readouterr().err
+
+
 def test_tmp_coveragepy_xml_invokes_venv_python(
     tmp_path: Path,
     run_python_module: ModuleType,

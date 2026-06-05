@@ -298,7 +298,12 @@ def _parse_pytest_workers(raw: str | None) -> str:
     lowered = value.lower()
     if lowered in _VALID_NAMED_WORKERS:
         return lowered
-    if value.isdigit() and int(value) > 0:
+    # `str.isdecimal()` matches `int()`'s acceptance set (decimal-numeric
+    # Unicode digits, "Nd"). Plain `str.isdigit()` also returns True for
+    # forms like the superscript "²" which `int()` rejects, so the int()
+    # call below would crash with a cryptic Python message instead of the
+    # canonical "Invalid pytest-workers value" error.
+    if value.isdecimal() and int(value) > 0:
         return value
     message = (
         f"Invalid pytest-workers value: {raw!r}. Expected a positive integer, "

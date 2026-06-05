@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -2409,6 +2411,77 @@ def test_parse_pytest_workers_raises_value_error_on_invalid(
     assert "positive integer" in message
     assert '"auto"' in message
     assert '"logical"' in message
+
+
+_PYTEST_PARSER_SETTINGS = settings(
+    max_examples=200,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+_WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    name=st.sampled_from(["auto", "logical"]),
+    upper_mask=st.integers(min_value=0, max_value=(1 << 7) - 1),
+    leading=_WHITESPACE_ST,
+    trailing=_WHITESPACE_ST,
+)
+def test_parse_pytest_workers_normalises_named_values(
+    run_python_module: ModuleType,
+    name: str,
+    upper_mask: int,
+    leading: str,
+    trailing: str,
+) -> None:
+    """Named values normalise to lowercase regardless of casing or padding."""
+    mixed = "".join(
+        ch.upper() if (upper_mask >> i) & 1 else ch for i, ch in enumerate(name)
+    )
+    raw = f"{leading}{mixed}{trailing}"
+    assert run_python_module._parse_pytest_workers(raw) == name
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    value=st.integers(min_value=1, max_value=10**9),
+    leading=_WHITESPACE_ST,
+    trailing=_WHITESPACE_ST,
+)
+def test_parse_pytest_workers_round_trips_positive_integers(
+    run_python_module: ModuleType,
+    value: int,
+    leading: str,
+    trailing: str,
+) -> None:
+    """Positive integer strings round-trip through the parser unchanged."""
+    digits = str(value)
+    raw = f"{leading}{digits}{trailing}"
+    assert run_python_module._parse_pytest_workers(raw) == digits
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(blank=_WHITESPACE_ST)
+def test_parse_pytest_workers_treats_whitespace_only_as_empty(
+    run_python_module: ModuleType,
+    blank: str,
+) -> None:
+    """Whitespace-only strings (and the empty string) disable parallelism."""
+    assert run_python_module._parse_pytest_workers(blank) == ""
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(value=st.integers(max_value=0))
+def test_parse_pytest_workers_rejects_non_positive_integers(
+    run_python_module: ModuleType,
+    value: int,
+) -> None:
+    """Zero and negative integers raise ValueError with the canonical message."""
+    raw = str(value)
+    with pytest.raises(ValueError, match="Invalid pytest-workers value"):
+        run_python_module._parse_pytest_workers(raw)
 
 
 def test_resolve_pytest_workers_defaults_to_auto_when_env_unset(

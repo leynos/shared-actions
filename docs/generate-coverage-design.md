@@ -30,6 +30,20 @@ action and the evolution of its supporting scripts.
   install environment and trips externally-managed-interpreter protections.
   The action must pass the venv path itself to uv, and it logs the candidate
   paths, resolved targets, and selected uv command interpreter for diagnosis.
+- *2026-06-04* — Python coverage runs adopt `pytest-xdist` by default. A new
+  `pytest-workers` input (default `auto`) is forwarded as `-n <workers>` to
+  slipcover's pytest invocation, and `pytest-xdist` is installed alongside
+  the existing coverage tooling. The slipcover tooling spec is pinned to
+  `slipcover>=1.0.18` — the first release whose xdist plugin merges
+  per-worker coverage transparently — so an older slipcover already present
+  in the project's environment is upgraded by uv rather than left in place.
+  The validator rejects `"0"` to keep `""` the single canonical way to
+  disable parallelism: pytest-xdist treats `-n 0` as a no-op but the
+  action's public contract documents only the empty value. Known caveat:
+  slipcover 1.0.18's xdist plugin does not propagate `--omit` to worker
+  processes, so projects whose tests live inside the source package see
+  their reported line-rate drop until they relocate tests or set
+  `pytest-workers: ""`. This is documented in the action's README.
 
 ## Rust Coverage Environment Overrides
 
@@ -248,10 +262,13 @@ the same job, and discarded when the runner workspace is cleaned up.
 2. `_ensure_coverage_venv()` syncs the current project into the venv with
    `uv sync --inexact --python <venv-python>` so tests can import project
    dependencies.
-3. `_ensure_coverage_venv()` performs installation of `slipcover`, `pytest`,
-   and `coverage` into the venv using
+3. `_ensure_coverage_venv()` performs installation of `slipcover>=1.0.18`,
+   `pytest`, `pytest-xdist`, and `coverage` into the venv using
    `uv pip install --python <venv-python>`. The `--system` flag is deliberately
-   excluded to keep the installation isolated.
+   excluded to keep the installation isolated. The `slipcover>=1.0.18` floor
+   forces uv to upgrade any older slipcover already installed by `uv sync`,
+   so the xdist plugin needed for `pytest -n <workers>` coverage merging is
+   guaranteed present.
 4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
    cached value on all subsequent calls within the same process.

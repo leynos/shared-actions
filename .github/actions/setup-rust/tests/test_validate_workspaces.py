@@ -11,7 +11,7 @@ import pytest
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
-from test_support.ansi import strip_ansi
+from test_support.ansi import ANSI_ESCAPE_RE, strip_ansi
 from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:
@@ -24,7 +24,11 @@ UV_NOT_FOUND_MESSAGE = "uv executable not found on PATH"
 
 
 def _clean_stderr(stderr: str) -> str:
-    """Strip uv virtual environment warnings from *stderr*."""
+    """Strip uv virtual environment warnings from *stderr*.
+
+    uv may emit coloured output, so ANSI escape sequences are stripped before
+    matching the well-known noise prefixes.
+    """
     lines = [strip_ansi(line) for line in stderr.splitlines()]
     filtered = [
         line
@@ -95,3 +99,21 @@ def test_requires_non_empty_target() -> None:
     result = run_validator("crate ->   ")
     assert result.returncode == 1
     assert "empty target" in result.stderr
+
+
+def test_clean_stderr_strips_ansi_and_filters_known_noise() -> None:
+    """ANSI escapes are stripped before noise prefixes are matched."""
+    raw = (
+        "\x1b[1m\x1b[33mwarning\x1b[0m\x1b[1m:\x1b[0m "
+        "\x1b[1m`VIRTUAL_ENV=/tmp/x` does not match the project environment"
+        "\x1b[0m\n"
+        "real error line\n"
+    )
+
+    cleaned = _clean_stderr(raw)
+
+    assert not ANSI_ESCAPE_RE.search(cleaned), (
+        f"ANSI escape sequences must be removed from {cleaned!r}"
+    )
+    assert "VIRTUAL_ENV" not in cleaned
+    assert "real error line" in cleaned

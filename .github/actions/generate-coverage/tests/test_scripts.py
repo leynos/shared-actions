@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -1809,7 +1811,8 @@ def _assert_python_command_structure(parts: list[str]) -> None:
     assert Path(parts[0]).stem == "python"
     slip_idx = parts.index("-m", 1)
     assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
-    assert parts[-3:] == ["-m", "pytest", "-v"]
+    pytest_idx = parts.index("pytest")
+    assert parts[pytest_idx - 1 : pytest_idx + 2] == ["-m", "pytest", "-v"]
 
 
 def _assert_coverage_python_path(actual: str, expected: str) -> None:
@@ -2298,6 +2301,267 @@ def test_non_cobertura_formats_do_not_emit_cobertura_flags(
     assert "--out" not in parts
 
 
+def test_pytest_xdist_is_installed_with_tooling(
+    run_python_module: ModuleType,
+) -> None:
+    """``pytest-xdist`` ships alongside slipcover so ``-n`` is available."""
+    assert "pytest-xdist" in run_python_module.TOOLING_PACKAGES
+
+
+def test_coverage_args_omits_workers_when_empty(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """An empty workers value preserves the historical serial pytest call."""
+    args = run_python_module._coverage_args("cobertura", tmp_path / "cov.xml", "")
+    assert "-n" not in args
+
+
+@pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
+def test_coverage_args_appends_workers_flag(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    workers: str,
+) -> None:
+    """Non-empty workers values append ``-n <workers>`` after pytest args."""
+    args = run_python_module._coverage_args("cobertura", tmp_path / "cov.xml", workers)
+    assert args[-2:] == ["-n", workers]
+    pytest_idx = args.index("pytest")
+    n_idx = args.index("-n")
+    assert pytest_idx < n_idx
+
+
+def test_coverage_cmd_for_fmt_threads_workers_through(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """coverage_cmd_for_fmt forwards ``workers`` into the slipcover argv."""
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    cmd = run_python_module.coverage_cmd_for_fmt("cobertura", tmp_path / "cov.xml", "2")
+    parts = list(cmd.formulate())
+    assert parts[-2:] == ["-n", "2"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("auto", "auto"),
+        ("AUTO", "auto"),
+        (" logical ", "logical"),
+        ("4", "4"),
+        ("1", "1"),
+    ],
+)
+def test_normalise_pytest_workers_accepts_valid_values(
+    run_python_module: ModuleType,
+    raw: str | None,
+    expected: str,
+) -> None:
+    """Valid worker values normalise to the lowercase/stripped form."""
+    assert run_python_module._normalise_pytest_workers(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
+def test_normalise_pytest_workers_rejects_invalid_values(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Junk worker values exit with the configuration-error code."""
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module._normalise_pytest_workers(raw)
+    assert _exit_code(excinfo.value) == 2
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("   ", ""),
+        ("auto", "auto"),
+        ("AUTO", "auto"),
+        (" logical ", "logical"),
+        ("4", "4"),
+        ("1", "1"),
+    ],
+)
+def test_parse_pytest_workers_returns_normalised_value(
+    run_python_module: ModuleType,
+    raw: str | None,
+    expected: str,
+) -> None:
+    """The pure parser returns the same normalised value as the Typer wrapper."""
+    assert run_python_module._parse_pytest_workers(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
+def test_parse_pytest_workers_raises_value_error_on_invalid(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Invalid inputs raise ValueError without any Typer side-effects."""
+    with pytest.raises(ValueError, match="Invalid pytest-workers value") as excinfo:
+        run_python_module._parse_pytest_workers(raw)
+    message = str(excinfo.value)
+    assert repr(raw) in message
+    assert "positive integer" in message
+    assert '"auto"' in message
+    assert '"logical"' in message
+
+
+_PYTEST_PARSER_SETTINGS = settings(
+    max_examples=200,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+_WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    name=st.sampled_from(["auto", "logical"]),
+    upper_mask=st.integers(min_value=0, max_value=(1 << 7) - 1),
+    pad_pair=st.tuples(_WHITESPACE_ST, _WHITESPACE_ST),
+)
+def test_parse_pytest_workers_normalises_named_values(
+    run_python_module: ModuleType,
+    name: str,
+    upper_mask: int,
+    pad_pair: tuple[str, str],
+) -> None:
+    """Named values normalise to lowercase regardless of casing or padding."""
+    leading, trailing = pad_pair
+    mixed = "".join(
+        ch.upper() if (upper_mask >> i) & 1 else ch for i, ch in enumerate(name)
+    )
+    raw = f"{leading}{mixed}{trailing}"
+    assert run_python_module._parse_pytest_workers(raw) == name
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    value=st.integers(min_value=1, max_value=10**9),
+    leading=_WHITESPACE_ST,
+    trailing=_WHITESPACE_ST,
+)
+def test_parse_pytest_workers_round_trips_positive_integers(
+    run_python_module: ModuleType,
+    value: int,
+    leading: str,
+    trailing: str,
+) -> None:
+    """Positive integer strings round-trip through the parser unchanged."""
+    digits = str(value)
+    raw = f"{leading}{digits}{trailing}"
+    assert run_python_module._parse_pytest_workers(raw) == digits
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(blank=_WHITESPACE_ST)
+def test_parse_pytest_workers_treats_whitespace_only_as_empty(
+    run_python_module: ModuleType,
+    blank: str,
+) -> None:
+    """Whitespace-only strings (and the empty string) disable parallelism."""
+    assert run_python_module._parse_pytest_workers(blank) == ""
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(value=st.integers(max_value=0))
+def test_parse_pytest_workers_rejects_non_positive_integers(
+    run_python_module: ModuleType,
+    value: int,
+) -> None:
+    """Zero and negative integers raise ValueError with the canonical message."""
+    raw = str(value)
+    with pytest.raises(ValueError, match="Invalid pytest-workers value"):
+        run_python_module._parse_pytest_workers(raw)
+
+
+def test_resolve_pytest_workers_defaults_to_auto_when_env_unset(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No CLI override and no env var falls back to the documented default."""
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+    assert (
+        run_python_module._resolve_pytest_workers(None)
+        == run_python_module.DEFAULT_PYTEST_WORKERS
+    )
+
+
+def test_resolve_pytest_workers_reads_env_var(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The env var supplies the value when the CLI option is omitted."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "3")
+    assert run_python_module._resolve_pytest_workers(None) == "3"
+
+
+def test_resolve_pytest_workers_empty_env_disables_xdist(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty env value disables parallelism (does not fall back to auto)."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "")
+    assert run_python_module._resolve_pytest_workers(None) == ""
+
+
+def test_resolve_pytest_workers_cli_overrides_env(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI option takes precedence over the env var when supplied."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "auto")
+    assert run_python_module._resolve_pytest_workers("") == ""
+    assert run_python_module._resolve_pytest_workers("8") == "8"
+
+
+def test_resolve_pytest_workers_raises_value_error_on_invalid_env(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid inputs propagate ValueError without Typer side-effects."""
+    monkeypatch.setenv("INPUT_PYTEST_WORKERS", "banana")
+    with pytest.raises(ValueError, match="Invalid pytest-workers value"):
+        run_python_module._resolve_pytest_workers(None)
+
+
+def test_main_translates_invalid_workers_into_typer_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` is the sole CLI boundary that converts ValueError into Exit(2)."""
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when worker validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(
+            output, "python", "cobertura", github_output, None, "banana"
+        )
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid pytest-workers value" in capsys.readouterr().err
+
+
 def test_tmp_coveragepy_xml_invokes_venv_python(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -2358,6 +2622,70 @@ def test_run_python_cobertura_passes_out_flag(
     data = github_output.read_text().splitlines()
     assert f"file={output}" in data
     assert "percent=100.00" in data
+
+
+def _run_main_with_workers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    workers: str,
+) -> list[str]:
+    """Invoke ``main`` under a fake coverage command and return the recorded argv.
+
+    Sets up the Cobertura XML stub, patches ``run_cmd`` to record the invocation,
+    patches the coverage-venv Python command, and clears ``INPUT_PYTEST_WORKERS``
+    so the supplied *workers* value is the sole source of truth. Stdout capture
+    is left to the caller via ``capsys``.
+    """
+    output = tmp_path / "cov.xml"
+    output.write_text(
+        "<coverage lines-covered='1' lines-valid='1' />",
+        encoding="utf-8",
+    )
+    github_output = tmp_path / "gh.txt"
+    recorded: list[list[str]] = []
+
+    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
+        recorded.append(list(cmd.formulate()))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+
+    run_python_module.main(output, "python", "cobertura", github_output, None, workers)
+
+    assert len(recorded) == 1, (
+        f"expected exactly one coverage invocation, got {len(recorded)}"
+    )
+    return recorded[0]
+
+
+def test_main_threads_pytest_workers_into_slipcover_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` forwards the resolved workers value to slipcover's pytest argv."""
+    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "3")
+    stdout = capsys.readouterr().out
+    assert parts[-2:] == ["-n", "3"], (
+        f"workers value must reach slipcover's pytest argv, got {parts!r}"
+    )
+    assert "Pytest workers: 3 (parallel via pytest-xdist)" in stdout
+
+
+def test_main_logs_serial_run_when_workers_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """An empty workers value logs the serial-run notice and omits ``-n``."""
+    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "")
+    stdout = capsys.readouterr().out
+    assert "-n" not in parts
+    assert "Pytest workers: disabled (serial pytest run)" in stdout
 
 
 def test_cobertura_detail(tmp_path: Path, run_python_module: ModuleType) -> None:
@@ -2677,6 +3005,7 @@ def _python_integration_env(
     assert python_env["DETECTED_LANG"] == "${{ steps.detect.outputs.lang }}"
     assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
     assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
+    assert python_env["INPUT_PYTEST_WORKERS"] == "${{ inputs.pytest-workers }}"
     out = tmp_path / "cov.xml"
     gh = tmp_path / "gh.txt"
     out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
@@ -2687,6 +3016,9 @@ def _python_integration_env(
         "DETECTED_FMT": "cobertura",
         "BASELINE_PYTHON_FILE": str(tmp_path / "baseline-python.txt"),
         "GITHUB_OUTPUT": str(gh),
+        # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
+        # also makes the test independent of the action.yml default.
+        "INPUT_PYTEST_WORKERS": "2",
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     return env
@@ -2733,8 +3065,13 @@ def test_run_python_integration_cobertura_success(
     pip_args = pip_calls[0].split()
     assert "--python" in pip_args
     assert "--system" not in pip_args
-    assert "slipcover" in pip_args
+    # Slipcover must carry a version floor so that an older slipcover already
+    # installed by `uv sync` gets upgraded for the xdist plugin support.
+    assert any(arg.startswith("slipcover>=") for arg in pip_args), (
+        f"slipcover must be pinned with a version floor in {pip_args!r}"
+    )
     assert "pytest" in pip_args
+    assert "pytest-xdist" in pip_args
     assert "coverage" in pip_args
     gh = tmp_path / "gh.txt"
     assert gh.exists(), "GITHUB_OUTPUT file must be written"

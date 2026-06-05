@@ -37,7 +37,11 @@ uses `shutil.rmtree` for directories and `Path.unlink` for files or symlinks.
 `_recreate_coverage_venv()` raises `RuntimeError` if the executable is still
 absent after creation. `_ensure_coverage_venv()` runs
 `uv sync --inexact --python <venv_python>` and
-`uv pip install --python <venv_python> slipcover pytest coverage`.
+`uv pip install --python <venv_python> slipcover>=1.0.18 pytest pytest-xdist coverage`.
+The `slipcover>=1.0.18` floor ensures the xdist plugin is present so
+`pytest -n <workers>` runs merge per-worker coverage transparently; the
+constraint also forces uv to upgrade any older slipcover installed earlier by
+`uv sync`.
 `<venv_python>` is the absolute path inside `.venv-coverage`; it is not
 resolved through symlinks before being passed to uv.
 `_coverage_python_cmd()` uses `@lru_cache(maxsize=1)` and returns the cached
@@ -45,15 +49,24 @@ command for `<venv_python>` thereafter.
 
 ### Public API
 
+<!-- markdownlint-disable MD013 -->
 | Symbol | Signature | Role |
 | --- | --- | --- |
-| `coverage_cmd_for_fmt` | `(fmt, out)` | Build a slipcover command. |
+| `coverage_cmd_for_fmt` | `(fmt, out, workers="")` | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist. |
 | `tmp_coveragepy_xml` | `(out)` | Generate temporary Cobertura XML. |
-| `main` | `(output_path, lang, fmt, github_output, baseline_file)` | Run. |
+| `main` | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None)` | Run. |
+<!-- markdownlint-enable MD013 -->
 
-`coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format.
+`coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format. When
+`workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelizes
+the run; an empty string preserves the historical serial pytest invocation.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit.
-`main` runs slipcover, parses coverage, and writes `GITHUB_OUTPUT`.
+`main` resolves `pytest_workers` from the CLI option, falling back to the
+`INPUT_PYTEST_WORKERS` environment variable and finally to `"auto"`. Accepted
+values are `"auto"`, `"logical"`, a positive integer string, or `""` to
+disable parallelism — `"0"` is rejected so that `""` stays the single
+canonical disable mechanism. `main` then runs slipcover, parses coverage, and
+writes `GITHUB_OUTPUT`.
 
 ### Concurrency Model
 

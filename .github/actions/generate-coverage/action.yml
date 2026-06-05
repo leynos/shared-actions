@@ -47,6 +47,13 @@ inputs:
   cucumber-rs-args:
     description: Extra arguments for cucumber
     required: false
+  pytest-workers:
+    description: |
+      Value passed to pytest-xdist's `-n` flag for the Python coverage run.
+      Accepts a positive integer, "auto", "logical", or "" (empty) to
+      disable parallelism and keep the historical serial pytest behaviour.
+    required: false
+    default: auto
 outputs:
   file:
     description: Path to the generated coverage file
@@ -193,6 +200,7 @@ runs:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         BASELINE_PYTHON_FILE: ${{ inputs.baseline-python-file }}
+        INPUT_PYTEST_WORKERS: ${{ inputs.pytest-workers }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"

@@ -34,7 +34,14 @@ logger = logging.getLogger(__name__)
 # _ensure_coverage_venv() and _coverage_python_cmd(), both of which are
 # called from a single-threaded GitHub Actions step.
 COVERAGE_VENV = Path(".venv-coverage")
-TOOLING_PACKAGES: tuple[str, ...] = ("slipcover", "pytest", "coverage")
+TOOLING_PACKAGES: tuple[str, ...] = (
+    # 1.0.18 is the first release with the xdist plugin that lets the
+    # default `pytest -n auto` runs merge worker coverage correctly.
+    "slipcover>=1.0.18",
+    "pytest",
+    "pytest-xdist",
+    "coverage",
+)
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
 
 SLIPCOVER_ARGS: tuple[str, ...] = (
@@ -47,6 +54,7 @@ PYTEST_ARGS: tuple[str, ...] = (
     "pytest",
     "-v",
 )
+DEFAULT_PYTEST_WORKERS = "auto"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -273,17 +281,65 @@ def _coverage_python_cmd() -> BoundCommand:
     return local[python]
 
 
-def _coverage_args(fmt: str, out: Path) -> list[str]:
+_VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
+
+
+def _parse_pytest_workers(raw: str | None) -> str:
+    """Parse and validate the pytest-workers value; raise ValueError on bad input.
+
+    This function is pure: it performs no I/O and has no side-effects.
+    Callers that need CLI error handling should use _normalise_pytest_workers.
+    """
+    if raw is None:
+        return ""
+    value = raw.strip()
+    if not value:
+        return ""
+    lowered = value.lower()
+    if lowered in _VALID_NAMED_WORKERS:
+        return lowered
+    # `str.isdecimal()` matches `int()`'s acceptance set (decimal-numeric
+    # Unicode digits, "Nd"). Plain `str.isdigit()` also returns True for
+    # forms like the superscript "²" which `int()` rejects, so the int()
+    # call below would crash with a cryptic Python message instead of the
+    # canonical "Invalid pytest-workers value" error.
+    if value.isdecimal() and int(value) > 0:
+        return value
+    message = (
+        f"Invalid pytest-workers value: {raw!r}. Expected a positive integer, "
+        '"auto", "logical", or "" to disable parallelism.'
+    )
+    raise ValueError(message)
+
+
+def _normalise_pytest_workers(raw: str | None) -> str:
+    """Validate and normalise the pytest-workers value, exiting on invalid input.
+
+    Delegates pure validation to _parse_pytest_workers.  Any ValueError
+    raised there is converted into a CLI error message on stderr and
+    typer.Exit with code 2 — making this function's side-effects explicit
+    by design.
+    """
+    try:
+        return _parse_pytest_workers(raw)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+
+def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:
     """Return the slipcover/pytest argv for the requested format."""
     args: list[str] = [*SLIPCOVER_ARGS]
     if fmt == "cobertura":
         # slipcover treats --xml as a boolean flag; --out sets the report path
         args.extend(["--xml", "--out", str(out)])
     args.extend(PYTEST_ARGS)
+    if workers:
+        args.extend(["-n", workers])
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
+def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand:
     """Return the slipcover command for the requested coverage format.
 
     Parameters
@@ -295,6 +351,10 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
     out : Path
         Destination path for the coverage output file; passed to slipcover's
         ``--out`` argument when ``fmt == "cobertura"``.
+    workers : str
+        Worker count for pytest-xdist's ``-n`` flag. Empty disables xdist;
+        otherwise must already be a validated value such as ``"auto"`` or a
+        non-negative integer string.
 
     Returns
     -------
@@ -302,7 +362,7 @@ def coverage_cmd_for_fmt(fmt: str, out: Path) -> BoundCommand:
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd()
-    return python_cmd[_coverage_args(fmt, out)]
+    return python_cmd[_coverage_args(fmt, out, workers)]
 
 
 @contextlib.contextmanager
@@ -367,7 +427,7 @@ def _resolve_output_path(output_path: Path, lang: str) -> Path:
     return output_path
 
 
-def _run_coverage(fmt: str, out: Path) -> str:
+def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
     """Run slipcover and return the line coverage percentage.
 
     Parameters
@@ -376,6 +436,8 @@ def _run_coverage(fmt: str, out: Path) -> str:
         Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
     out : Path
         Destination path for the coverage output file.
+    workers : str
+        Worker count for pytest-xdist's ``-n`` flag; empty disables xdist.
 
     Returns
     -------
@@ -390,7 +452,7 @@ def _run_coverage(fmt: str, out: Path) -> str:
         ``coveragepy`` format mode.
     """
     try:
-        cmd = coverage_cmd_for_fmt(fmt, out)
+        cmd = coverage_cmd_for_fmt(fmt, out, workers)
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
@@ -404,6 +466,23 @@ def _run_coverage(fmt: str, out: Path) -> str:
         Path(".coverage").replace(out)
         return percent
     return get_line_coverage_percent_from_cobertura(out)
+
+
+def _resolve_pytest_workers(pytest_workers: str | None) -> str:
+    """Resolve and validate the pytest-workers value; raise ValueError on invalid.
+
+    Sources the raw value from the CLI option, the ``INPUT_PYTEST_WORKERS``
+    env var, or ``DEFAULT_PYTEST_WORKERS``.  Validation is delegated to the
+    pure :func:`_parse_pytest_workers`.  CLI side-effects (``typer.echo`` /
+    ``typer.Exit``) are the caller's responsibility.
+    """
+    if pytest_workers is None:
+        raw: str | None = os.getenv("INPUT_PYTEST_WORKERS")
+        if raw is None:
+            raw = DEFAULT_PYTEST_WORKERS
+    else:
+        raw = pytest_workers
+    return _parse_pytest_workers(raw)
 
 
 def _resolve_inputs(
@@ -428,68 +507,70 @@ def _emit_github_output(path: Path, percent: str, github_output: Path) -> None:
         fh.write(f"percent={percent}\n")
 
 
+_OutputPathOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        help="Destination path for the coverage output file.",
+    ),
+]
+_LangOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help='Detected project language: "rust", "python", or "mixed".',
+    ),
+]
+_FmtOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help='Coverage format: "slipcover", "coveragepy", etc.',
+    ),
+]
+_GithubOutputOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        help="Path to the GitHub Actions output file.",
+    ),
+]
+_BaselineFileOption = typ.Annotated[
+    Path | None,
+    typer.Option(
+        envvar="BASELINE_PYTHON_FILE",
+        help="Optional path to a previous coverage baseline file.",
+    ),
+]
+_PytestWorkersOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help=(
+            "Worker count for pytest-xdist (-n). Use a positive integer, "
+            '"auto", "logical", or "" to disable parallelism. Defaults to '
+            '"auto".'
+        ),
+    ),
+]
+
+
 def main(
-    output_path: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Destination path for the coverage output file.",
-        ),
-    ] = None,
-    lang: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Detected project language: "rust", "python", or "mixed".',
-        ),
-    ] = None,
-    fmt: typ.Annotated[
-        str | None,
-        typer.Option(
-            help='Coverage format: "slipcover", "coveragepy", etc.',
-        ),
-    ] = None,
-    github_output: typ.Annotated[
-        Path | None,
-        typer.Option(
-            help="Path to the GitHub Actions output file.",
-        ),
-    ] = None,
-    baseline_file: typ.Annotated[
-        Path | None,
-        typer.Option(
-            envvar="BASELINE_PYTHON_FILE",
-            help="Optional path to a previous coverage baseline file.",
-        ),
-    ] = None,
+    output_path: _OutputPathOption = None,
+    lang: _LangOption = None,
+    fmt: _FmtOption = None,
+    github_output: _GithubOutputOption = None,
+    baseline_file: _BaselineFileOption = None,
+    pytest_workers: _PytestWorkersOption = None,
 ) -> None:
-    """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``.
-
-    Parameters
-    ----------
-    output_path : Path
-        Destination path for the coverage output file.
-    lang : str
-        Detected project language (``"rust"``, ``"python"``, or
-        ``"mixed"``).  When ``"mixed"``, the output file is renamed to
-        include a ``.python`` infix.
-    fmt : str
-        Coverage format identifier passed to :func:`coverage_cmd_for_fmt`.
-    github_output : Path
-        Path to the ``GITHUB_OUTPUT`` append file where ``file=`` and
-        ``percent=`` are written.
-    baseline_file : Path or None
-        Optional path to a previous coverage baseline file.  When present,
-        the previous percentage is echoed to the log.
-
-    Raises
-    ------
-    typer.Exit
-        With the subprocess return code when the slipcover/coverage command
-        exits non-zero, or when ``coverage xml`` fails in ``coveragepy``
-        format mode.
-    """
+    """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
+    try:
+        workers = _resolve_pytest_workers(pytest_workers)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if workers:
+        typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
+    else:
+        typer.echo("Pytest workers: disabled (serial pytest run)")
     out.parent.mkdir(parents=True, exist_ok=True)
-    percent = _run_coverage(fmt, out)
+    percent = _run_coverage(fmt, out, workers)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:

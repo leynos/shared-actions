@@ -496,9 +496,9 @@ pub enum TestRunner {
 ## Reference Links
 
 - [GitHub Actions Conditional Execution](
-  https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idif)
-- [Ninja Build System](https://ninja-build.org/)
-- [rstest Documentation](https://docs.rs/rstest/latest/rstest/)
-- [insta Snapshot Testing](https://insta.rs/)
-- [proptest Documentation](https://docs.rs/proptest/latest/proptest/)
-- [Kani Bounded Model Checker](https://model-checking.github.io/kani/)
+  [https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idif](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idif))
+- [Ninja Build System]([https://ninja-build.org/](https://ninja-build.org/))
+- [rstest Documentation]([https://docs.rs/rstest/latest/rstest/](https://docs.rs/rstest/latest/rstest/))
+- [insta Snapshot Testing]([https://insta.rs/](https://insta.rs/))
+- [proptest Documentation]([https://docs.rs/proptest/latest/proptest/](https://docs.rs/proptest/latest/proptest/))
+- [Kani Bounded Model Checker]([https://model-checking.github.io/kani/](https://model-checking.github.io/kani/))

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import contextlib
 import dataclasses
 import hashlib
@@ -12,12 +11,13 @@ import itertools
 import os
 import sys
 import typing as typ
+from pathlib import Path
 
+import pytest
+import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from plumbum import local
-import pytest
-import yaml
 
 from cmd_utils_importer import import_cmd_utils
 from test_support.cmd_mox_stub_adapter import Call, DefaultResponse
@@ -266,6 +266,7 @@ class RustMainConfig:
     use_nextest: bool
     manifest_path: Path = Path("Cargo.toml")
 
+
 def _fake_libc(*, include_version: bool = True) -> object:
     """Create a libc stub for ``_is_musl`` unit tests."""
 
@@ -274,6 +275,8 @@ def _fake_libc(*, include_version: bool = True) -> object:
             return "2.31" if include_version else ""
 
     return lambda _library_name: _FakeLibc()
+
+
 def _run_rust_coverage_test(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -1489,6 +1492,7 @@ def test_platform_key_variants(
     )
     assert install_nextest_module._platform_key() == expected
 
+
 def test_platform_key_uses_musl_for_linux(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -1504,9 +1508,11 @@ def test_platform_key_uses_musl_for_linux(
 
     assert install_nextest_module._platform_key() == "linux-x86_64-musl"
 
+
 def test_is_musl_detects_gnu(install_nextest_module: ModuleType) -> None:
     """GNU libc is detected when ``gnu_get_libc_version`` exists."""
     assert not install_nextest_module._is_musl(ctypes_cdll=_fake_libc())
+
 
 def test_is_musl_detects_musl(install_nextest_module: ModuleType) -> None:
     """Musl libc is detected when the GNU version symbol is missing."""
@@ -1517,6 +1523,7 @@ def test_is_musl_detects_musl(install_nextest_module: ModuleType) -> None:
 
     assert install_nextest_module._is_musl(ctypes_cdll=lambda _: _FakeLibc())
 
+
 def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> None:
     """Load failures from the libc probe are propagated to callers."""
 
@@ -1526,6 +1533,8 @@ def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> N
 
     with pytest.raises(OSError, match="boom"):
         install_nextest_module._is_musl(ctypes_cdll=raise_oserror)
+
+
 @pytest.mark.parametrize(
     "key",
     [

@@ -580,10 +580,3 @@ def main(
 
 if __name__ == "__main__":
     typer.run(main)
-
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if value:
-        return value
-    typer.echo(f"Missing required environment variable: {name}", err=True)
-    raise typer.Exit(2)

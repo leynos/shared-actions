@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import dataclasses
 import functools
 import os
@@ -11,9 +10,10 @@ import socket
 import tempfile
 import typing as typ
 import urllib.parse
+from pathlib import Path
 
-from plumbum import CommandNotFound, ProcessTimedOut, local
 import pytest
+from plumbum import CommandNotFound, ProcessTimedOut, local
 
 from bool_utils import coerce_bool
 
@@ -46,6 +46,7 @@ def _command_available(command: str) -> bool:
     if command_path.parent != Path():
         return command_path.is_file() and os.access(command_path, os.X_OK)
     return shutil.which(command) is not None
+
 
 def _act_available() -> bool:
     """Return True if act is installed and runnable."""
@@ -111,6 +112,7 @@ def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
         detail = body.strip() or f"HTTP {status}"
         return False, f"Docker API cannot list containers: {detail}"
     return True, ""
+
 
 def _container_runtime_available() -> bool:
     """Return True if a container runtime (docker/podman) is available."""

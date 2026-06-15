@@ -404,7 +404,7 @@ def main(
     cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
-    ) -> None:
+) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
     output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
     lang = lang or _required_env("DETECTED_LANG")
@@ -468,16 +468,3 @@ def main(
 
 if __name__ == "__main__":
     typer.run(main)
-
-def _required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if value:
-        return value
-    typer.echo(f"Missing required environment variable: {name}", err=True)
-    raise typer.Exit(2)
-
-def _env_bool(name: str, *, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}

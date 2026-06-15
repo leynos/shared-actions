@@ -47,6 +47,7 @@ def _command_available(command: str) -> bool:
         return command_path.is_file() and os.access(command_path, os.X_OK)
     return shutil.which(command) is not None
 
+
 def _act_available() -> bool:
     """Return True if act is installed and runnable."""
     return _command_available(_act_command())
@@ -116,6 +117,7 @@ def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
         detail = body.strip() or f"HTTP {status}"
         return False, f"Docker API cannot list containers: {detail}"
     return True, ""
+
 
 def _container_runtime_available() -> bool:
     """Return True if a container runtime (docker/podman) is available."""

@@ -60,6 +60,7 @@ def main(
 if __name__ == "__main__":
     typer.run(main)
 
+
 def _required_env(name: str) -> str:
     value = os.getenv(name, "").strip()
     if value:

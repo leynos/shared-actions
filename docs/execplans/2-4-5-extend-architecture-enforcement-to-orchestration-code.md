@@ -7,6 +7,7 @@ proceeds.
 
 Status: DRAFT
 
+
 ## Purpose / big picture
 
 The Episodic podcast generation system enforces Hexagonal Architecture via Hecate,
@@ -29,6 +30,7 @@ violations at lint time, running `make test` will include property-based checks
 that prove checkpoint payloads preserve domain boundaries across serialization
 cycles, and the orchestration graph construction will fail fast with a clear
 error if a node function is accidentally declared in an adapter module.
+
 
 ## Constraints
 
@@ -57,6 +59,7 @@ Hard invariants that must hold throughout implementation.
   (e.g., `ast-grep` patterns), it must be purely additive and not alter the
   existing Hecate setup.
 
+
 ## Tolerances (exception triggers)
 
 Thresholds that trigger escalation when breached.
@@ -79,6 +82,7 @@ Thresholds that trigger escalation when breached.
 - **Documentation gaps**: If architectural decisions cannot be recorded in ADR or
   design documents within the scope of this plan, escalate.
 
+
 ## Risks
 
 Known uncertainties that might affect the plan.
@@ -91,6 +95,7 @@ Known uncertainties that might affect the plan.
   Likelihood: medium
   Mitigation: Document the dynamic import gap in ADR-014; add a runtime check
   at graph construction time that introspects node functions for violations.
+
 - **Risk**: Property-based tests for checkpoint payloads may be slow if the
   Hypothesis strategy is too broad or if serialization is expensive. Tests may
   timeout in CI.
@@ -99,6 +104,7 @@ Known uncertainties that might affect the plan.
   Mitigation: Start with focused strategies that generate representative
   payloads (e.g., a bounded set of DTOs); profile test execution time before
   committing.
+
 - **Risk**: The runtime guard at graph construction time might trigger false
   positives if node functions are wrapped or dynamically registered in ways
   that obscure their module origin.
@@ -114,6 +120,7 @@ Known uncertainties that might affect the plan.
   Mitigation: Audit the serialization format in `_checkpoint_payload.py` early.
   If opaque formats are used, pivot to schema-based assertions (e.g., JSON Schema
   validation) instead of type-purity property tests.
+
 
 ## Progress
 
@@ -190,10 +197,12 @@ Use a list with checkboxes to summarise granular steps.
   - [ ] Run `coderabbit review --agent` and address any review concerns.
   - [ ] Create a git commit with clear commit message summarizing the changes.
 
+
 ## Surprises & discoveries
 
 Unexpected findings during implementation that were not anticipated as risks.
 To be filled in as work proceeds.
+
 
 ## Decision log
 
@@ -208,9 +217,11 @@ Record every significant decision made while working on the plan.
   external dependencies.
   Date: 2026-06-15
 
+
 ## Outcomes & retrospective
 
 To be completed upon finishing the plan.
+
 
 ## Context and orientation
 
@@ -251,6 +262,7 @@ catches imports at the module level but cannot see into individual functions.
 Test-based enforcement validates that serialized checkpoints do not leak
 canonical domain objects. Runtime guards provide a fast-fail mechanism at graph
 construction time.
+
 
 ## Plan of work
 
@@ -413,12 +425,12 @@ all tests pass.
        module_path = func.__module__
        allowed_prefixes = ("episodic.orchestration",)
        if not any(module_path.startswith(prefix) for prefix in allowed_prefixes):
-           msg = (
-               f"LangGraph node '{node_name}' defined in '{module_path}', "
-               f"not 'episodic.orchestration'. Node functions must be in "
-               f"orchestration modules only. See ADR-014."
+           raise ArchitectureBoundaryError(
+               f"LangGraph node '{node_name}' is defined in module '{module_path}', "
+               f"which is not under 'episodic.orchestration'. "
+               f"Node functions must be defined in orchestration modules only. "
+               f"See ADR-014 for architectural constraints."
            )
-           raise ArchitectureBoundaryError(msg)
    ```
 
 2. Call this guard in `build_generation_orchestration_graph()` whenever a node
@@ -525,10 +537,11 @@ existing orchestration tests are unaffected.
 - `make check-fmt` returns exit code 0.
 - `make lint` returns exit code 0.
 - `make typecheck` returns exit code 0.
-- `make test` passes with at least `[N]` new tests for checkpoint payloads and
+- `make test` passes with at least <N> new tests for checkpoint payloads and
   LangGraph guard (to be confirmed during implementation).
 - No regressions in existing tests.
 - Code review feedback addressed and approved.
+
 
 ## Concrete steps
 
@@ -629,6 +642,7 @@ coderabbit review --agent
 # Expected: Review completed with no critical concerns
 ```
 
+
 ## Validation and acceptance
 
 ### Code-based acceptance criteria
@@ -686,6 +700,7 @@ After this change:
 4. Future developers can read ADR-014 and `developers-guide.md` to understand
    the enforcement rules and expectations for orchestration code.
 
+
 ## Idempotence and recovery
 
 All steps in this plan are idempotent: re-running a stage does not cause
@@ -709,6 +724,7 @@ If a stage fails:
 If a tolerance threshold is breached (e.g., test complexity exceeds 300 lines),
 pause and escalate to the team before continuing.
 
+
 ## Artifacts and notes
 
 Key artifacts produced during this plan (to be populated as work proceeds):
@@ -722,6 +738,7 @@ Key artifacts produced during this plan (to be populated as work proceeds):
 - Modified file: `episodic/orchestration/_protocols.py` (add
   `ArchitectureBoundaryError` type; estimated 5–10 new lines).
 - Updated ADR-014 and design documents (estimated 50–100 new lines combined).
+
 
 ## Interfaces and dependencies
 
@@ -786,3 +803,4 @@ in as work proceeds" and in the `Progress` section. Key updates will note:
 - Any surprises or discoveries that alter the scope.
 - Decision log entries for design choices made during implementation.
 - Final outcomes and retrospective findings upon completion.
+

@@ -42,6 +42,7 @@ dev = [
 
 [tool.ruff]
 line-length = 88
+exclude = ["episodic-work"]
 
 [tool.ruff.lint]
 select = [

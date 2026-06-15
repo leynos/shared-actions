@@ -3,14 +3,22 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
-"""Install cargo-nextest via cargo-binstall and verify its checksum."""
+"""Install and verify cargo-nextest for generate-coverage GitHub Actions runs.
+
+The generate-coverage pipeline calls this helper before Rust coverage when
+`use-cargo-nextest` is enabled so `cargo llvm-cov nextest` can run with a
+known-good, pinned toolchain binary. The installed binary is validated with a
+platform-specific SHA-256 checksum before the action continues.
+"""
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import os
 import platform
 import shutil
+import typing as typ
 from pathlib import Path
 
 import typer
@@ -18,10 +26,22 @@ from cmd_utils_loader import run_cmd
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 # Keep CARGO_NEXTEST_VERSION and CARGO_NEXTEST_SHA256 in sync; update together.
+# linux-x86_64-gnu  : SHA of the extracted binary from the
+#   -x86_64-unknown-linux-gnu.tar.gz release
+# linux-x86_64-musl : SHA of the extracted binary from the
+#   -x86_64-unknown-linux-musl.tar.gz release
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
-    "linux-x86_64": "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14",
+    "linux-x86_64-gnu": (
+        "73c7eb58e6507c10821998de343586cdcd37f99129f69dd0ec5605fd6d7eb291"
+    ),
+    "linux-x86_64-musl": (
+        "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
+    ),
     "linux-aarch64": "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e",
     "mac-universal": "d9f8aa57f88ea948ee68629cfc22a0a86ccd0d0143139983753dcb5f167085b8",
     "windows-x86_64": (
@@ -34,6 +54,7 @@ CARGO_NEXTEST_SHA256 = {
 
 
 def _normalize_machine(machine: str) -> str:
+    """Normalize platform machine names to cargo-nextest release keys."""
     name = machine.lower()
     if name in {"x86_64", "amd64"}:
         return "x86_64"
@@ -42,10 +63,32 @@ def _normalize_machine(machine: str) -> str:
     return name
 
 
+def _probe_libc_is_musl(cdll: cabc.Callable[[typ.Any], typ.Any]) -> bool:
+    """Return True when probing libc finds musl or cannot find glibc symbols."""
+    try:
+        libc = cdll(None)
+        # glibc exposes gnu_get_libc_version(); musl does not.
+        libc.gnu_get_libc_version.restype = ctypes.c_char_p
+        libc.gnu_get_libc_version()
+    except (OSError, AttributeError):
+        return True
+    else:
+        return False
+
+
+def _is_musl() -> bool:
+    """Return True when the running libc is musl rather than glibc."""
+    return _probe_libc_is_musl(ctypes.CDLL)
+
+
 def _platform_key() -> str:
+    """Return the cargo-nextest checksum key for the current platform."""
     system = platform.system()
     machine = _normalize_machine(platform.machine())
     if system == "Linux":
+        if machine == "x86_64":
+            suffix = "musl" if _is_musl() else "gnu"
+            return f"linux-x86_64-{suffix}"
         return f"linux-{machine}"
     if system == "Darwin":
         return "mac-universal"
@@ -54,8 +97,19 @@ def _platform_key() -> str:
     return f"{system.lower()}-{machine}"
 
 
+def _report_platform_key(key: str) -> None:
+    """Report the selected cargo-nextest platform key."""
+    if key == "linux-x86_64-musl":
+        typer.echo("Detected libc for cargo-nextest: musl")
+    elif key == "linux-x86_64-gnu":
+        typer.echo("Detected libc for cargo-nextest: glibc")
+    typer.echo(f"Selected cargo-nextest platform key: {key}")
+
+
 def _expected_sha_for_platform() -> str:
+    """Return the pinned cargo-nextest checksum for the current platform."""
     key = _platform_key()
+    _report_platform_key(key)
     try:
         return CARGO_NEXTEST_SHA256[key]
     except KeyError as exc:
@@ -64,6 +118,7 @@ def _expected_sha_for_platform() -> str:
 
 
 def _sha256_path(path: Path) -> str:
+    """Return the SHA-256 digest for a file path."""
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8192), b""):
@@ -72,6 +127,7 @@ def _sha256_path(path: Path) -> str:
 
 
 def _resolve_nextest_binary() -> Path | None:
+    """Return the cargo-nextest binary path when it already exists."""
     resolved = shutil.which("cargo-nextest")
     if resolved:
         return Path(resolved)
@@ -81,6 +137,7 @@ def _resolve_nextest_binary() -> Path | None:
 
 
 def _find_nextest_binary() -> Path:
+    """Return the installed cargo-nextest binary path or exit with an error."""
     resolved = _resolve_nextest_binary()
     if resolved is not None:
         return resolved

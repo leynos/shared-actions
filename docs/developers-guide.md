@@ -190,6 +190,21 @@ Keep `cargo_home_bin` resolution and the `BINSTALL_VERSION` pin in sync: both
 must reflect the same intended installation location and version whenever the
 pin is updated.
 
+## `generate-coverage` nextest checksum strategy
+
+`generate-coverage` delegates Rust nextest installation to
+`.github/actions/generate-coverage/scripts/install_cargo_nextest.py`.
+
+The helper validates a pinned `cargo-nextest` version and picks the expected SHA-256
+using a platform key. Linux x86_64 is split into two keys:
+
+- `linux-x86_64-gnu` for the `-x86_64-unknown-linux-gnu` archive.
+- `linux-x86_64-musl` for the `-x86_64-unknown-linux-musl` archive.
+
+This distinction is intentional because the upstream artefacts are built against
+different libc ABIs, and validating against the wrong digest can block installs
+even when the same version number is used.
+
 ## `stage-release-artefacts` Action Architecture
 
 ### Staging Pipeline

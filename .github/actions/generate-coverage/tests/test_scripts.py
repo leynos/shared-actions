@@ -1,4 +1,10 @@
-"""Tests for coverage utility scripts."""
+"""Tests for generate-coverage utility scripts.
+
+This module exercises helper modules that are executed as separate script entry
+points (`run_rust`, `run_python`, `install_cargo_nextest`) and validates their
+interdependencies. It documents how script-level helpers are composed inside the
+GitHub Action runtime for Rust and Python coverage flows.
+"""
 
 from __future__ import annotations
 
@@ -1459,29 +1465,106 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
 @pytest.mark.parametrize(
     "case",
     [
-        ("Linux", "x86_64", "linux-x86_64"),
-        ("Linux", "aarch64", "linux-aarch64"),
-        ("Darwin", "arm64", "mac-universal"),
-        ("Windows", "AMD64", "windows-x86_64"),
-        ("Windows", "ARM64", "windows-aarch64"),
+        ("Linux", "x86_64", False, "linux-x86_64-gnu"),
+        ("Linux", "x86_64", True, "linux-x86_64-musl"),
+        ("Linux", "aarch64", False, "linux-aarch64"),
+        ("Darwin", "arm64", False, "mac-universal"),
+        ("Windows", "AMD64", False, "windows-x86_64"),
+        ("Windows", "ARM64", False, "windows-aarch64"),
     ],
 )
 def test_platform_key_variants(
-    case: tuple[str, str, str],
+    case: tuple[str, str, bool, str],
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Platform key mapping normalises common OS/arch combinations."""
-    system, machine, expected = case
+    system, machine, is_musl, expected = case
     monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
     monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
+    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: is_musl)
     assert install_nextest_module._platform_key() == expected
+
+
+def test_probe_libc_is_musl_detects_glibc(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing returns False when the glibc version symbol is available."""
+
+    class GnuGetLibcVersion:
+        """Callable libc symbol stub that accepts a configured restype."""
+
+        restype: object = None
+
+        def __call__(self) -> bytes:
+            """Return a glibc-style version payload."""
+            return b"2.39"
+
+    class Glibc:
+        """Libc stub exposing the glibc-only version symbol."""
+
+        gnu_get_libc_version = GnuGetLibcVersion()
+
+    def load_libc(name: object) -> Glibc:
+        """Return the fake glibc object for the process-global libc handle."""
+        assert name is None
+        return Glibc()
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is False
+
+
+def test_probe_libc_is_musl_detects_missing_glibc_symbol(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing treats a missing glibc version symbol as musl."""
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> Musl:
+        """Return the fake musl object for the process-global libc handle."""
+        assert name is None
+        return Musl()
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is True
+
+
+def test_probe_libc_is_musl_detects_cdll_failure(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing treats CDLL load failures as musl-compatible."""
+
+    def load_libc(name: object) -> object:
+        """Raise the same error shape ctypes can raise for a failed load."""
+        assert name is None
+        raise OSError
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is True
+
+
+def test_is_musl_uses_ctypes_probe(
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public libc helper exercises its ctypes.CDLL probe dependency."""
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> Musl:
+        """Return the fake musl object for the process-global libc handle."""
+        assert name is None
+        return Musl()
+
+    monkeypatch.setattr(install_nextest_module.ctypes, "CDLL", load_libc)
+    assert install_nextest_module._is_musl() is True
 
 
 @pytest.mark.parametrize(
     "key",
     [
-        "linux-x86_64",
+        "linux-x86_64-gnu",
+        "linux-x86_64-musl",
         "linux-aarch64",
         "mac-universal",
         "windows-x86_64",
@@ -1504,6 +1587,8 @@ def test_expected_sha_for_supported_platforms(
 def test_expected_sha_for_unsupported_platform(
     monkeypatch: pytest.MonkeyPatch,
     install_nextest_module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    snapshot: SnapshotAssertion,
 ) -> None:
     """Unsupported platforms raise a Typer exit."""
     monkeypatch.setattr(
@@ -1516,6 +1601,7 @@ def test_expected_sha_for_unsupported_platform(
         install_nextest_module._expected_sha_for_platform()
 
     assert _exit_code(excinfo.value) == 1
+    assert capsys.readouterr().err == snapshot
 
 
 def test_find_nextest_binary_prefers_path(
@@ -1642,6 +1728,80 @@ def test_install_nextest_invokes_binstall(
     ]
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("glibc", False, "linux-x86_64-gnu"),
+        ("musl", True, "linux-x86_64-musl"),
+    ],
+)
+def test_install_nextest_main_detects_libc_platform_key(
+    case: tuple[str, bool, str],
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Installer main resolves SHA through the real libc detection chain."""
+    libc_name, is_musl, expected_key = case
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    install_calls: list[bool] = []
+    verified: dict[str, str] = {}
+
+    class GnuGetLibcVersion:
+        """Callable libc symbol stub that accepts a configured restype."""
+
+        restype: object = None
+
+        def __call__(self) -> bytes:
+            """Return a glibc-style version payload."""
+            return b"2.39"
+
+    class Glibc:
+        """Libc stub exposing the glibc-only version symbol."""
+
+        gnu_get_libc_version = GnuGetLibcVersion()
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> object:
+        """Return the selected fake process-global libc handle."""
+        assert name is None
+        return Musl() if is_musl else Glibc()
+
+    def fake_install() -> None:
+        """Record that installation would be performed."""
+        install_calls.append(True)
+
+    def fake_verify(path: Path, sha: str) -> bool:
+        """Capture the checksum selected by the real platform chain."""
+        assert path == binary
+        verified["sha"] = sha
+        return True
+
+    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(install_nextest_module.ctypes, "CDLL", load_libc)
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
+    monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
+    monkeypatch.setattr(install_nextest_module, "install_cargo_nextest", fake_install)
+    monkeypatch.setattr(install_nextest_module, "verify_nextest_binary", fake_verify)
+
+    install_nextest_module.main()
+
+    assert install_calls == [True]
+    assert verified == {
+        "sha": install_nextest_module.CARGO_NEXTEST_SHA256[expected_key],
+    }
+    assert capsys.readouterr().out.splitlines() == [
+        f"Detected libc for cargo-nextest: {libc_name}",
+        f"Selected cargo-nextest platform key: {expected_key}",
+        "cargo-nextest installed and verified",
+    ]
+
+
 def test_install_nextest_binstall_failure(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -1689,12 +1849,15 @@ def test_install_nextest_checksum_match(
 def test_install_nextest_checksum_mismatch(
     tmp_path: Path,
     install_nextest_module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    snapshot: SnapshotAssertion,
 ) -> None:
-    """Checksum mismatches raise a Typer exit."""
+    """Checksum mismatches produce stable stderr output."""
     binary = tmp_path / "cargo-nextest"
     binary.write_bytes(b"payload")
 
     assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
+    assert capsys.readouterr().err == snapshot
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

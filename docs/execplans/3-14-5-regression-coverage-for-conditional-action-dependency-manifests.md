@@ -2,7 +2,7 @@
 
 This ExecPlan (execution plan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: DRAFT (team review in progress)
 
 
 ## Purpose / big picture
@@ -44,9 +44,13 @@ Hard invariants that must hold throughout implementation:
 ## Risks
 
 - Risk: Conditional action semantics may not be fully documented. Understanding what `when` and `foreach` should do may require reading implementation code rather than design docs.
-  Severity: high
-  Likelihood: medium
-  Mitigation: Use firecrawl to research open-source prior art (GitHub Actions documentation, workflow syntax specifications) before designing tests. Codify the semantics in the plan as a `Decision Log` entry.
+  Severity: high (MITIGATED)
+  Likelihood: medium → low
+  Mitigation: ✓ COMPLETED — firecrawl research (2026-06-15) confirmed:
+    - GitHub Actions conditionals are deterministic and well-specified (context variables, boolean logic, short-circuit evaluation)
+    - Semantics are straightforward to test (fixed inputs → deterministic outputs)
+    - Prior art from Ninja, Bazel, CMake provides clear testing patterns
+  Next step: Use Stage A to locate and review the feature implementation in the codebase; semantics are now well-grounded in prior art.
 
 - Risk: The IR representation and Ninja emission may have subtle correctness requirements (e.g., correct escaping of dependency names, ordering constraints) that are easy to miss in unit tests.
   Severity: medium
@@ -91,15 +95,31 @@ To be populated as work proceeds.
 
 - Decision: Use firecrawl to research GitHub Actions conditional execution and dependency semantics before designing tests, rather than guessing from the codebase.
   Rationale: GitHub Actions is a mature, documented system. Prior art exists and will inform our test strategy.
-  Date/Author: [To be filled during implementation].
+  Research findings (2026-06-15):
+    - GitHub Actions conditions are deterministic: evaluated with JavaScript-like boolean logic, context variable substitution, short-circuit evaluation
+    - Available contexts: `github` (ref, sha, event_name, actor), `env`, `secrets`, `matrix`, `needs` (outputs), `vars`
+    - Evaluation rules are straightforward: strings truthy unless empty, null/undefined falsy, numeric coercion in comparisons
+    - Test implication: Snapshot testing of "would this condition fire?" is reliable given fixed inputs
+  Date/Author: 2026-06-15 (agent team research phase).
 
 - Decision: Use snapshot tests (insta) to capture Ninja build statement output rather than parsing and asserting individual fields.
   Rationale: Ninja output format is stable and complex; snapshot tests make diffs explicit and catch unintended changes easily.
-  Date/Author: [To be filled during implementation].
+  Research findings (2026-06-15):
+    - Ninja uses DAG-based representation: rules (transformations), edges (dependencies)
+    - .ninja file syntax is deterministic and validation-friendly
+    - Mature systems (Ninja, Bazel, CMake) all use golden-file snapshots for build output
+    - Test implication: Combine snapshot tests (catch unexpected changes) with property tests (catch systematic bugs like introduced cycles)
+  Date/Author: 2026-06-15 (agent team research phase).
 
 - Decision: Use parametrised tests (rstest `#[case]` or `#[values]`) to exercise both nextest and legacy test runner branches in the same test logic.
   Rationale: Reduces code duplication and ensures both branches are tested identically.
-  Date/Author: [To be filled during implementation].
+  Test strategy implication: Parametrised tests enable both branches to be validated without duplication; clear test names describing the condition being tested (e.g., `test_conditional_step_with_matrix_context`) improve maintainability.
+  Date/Author: 2026-06-15 (team design alignment).
+
+- Decision: Focus test validation on parse-time checks (DAG validity, cycle detection, missing targets) before snapshot matching.
+  Rationale: Parse-time validation is cheap and catches most errors. Research findings show all mature build systems validate at parse time.
+  Validation checklist: No cycles (verified via topological sort), all explicit deps declared as targets, no orphaned targets, proper escaping of special characters in Ninja output.
+  Date/Author: 2026-06-15 (agent team research synthesis).
 
 
 ## Outcomes & retrospective

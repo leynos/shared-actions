@@ -192,7 +192,7 @@ pin is updated.
 
 ## `generate-coverage` nextest checksum strategy
 
-`generate-coverage` delegates rust nextest installation to
+`generate-coverage` delegates Rust nextest installation to
 `.github/actions/generate-coverage/scripts/install_cargo_nextest.py`.
 
 The helper validates a pinned `cargo-nextest` version and picks the expected SHA-256

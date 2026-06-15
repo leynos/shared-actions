@@ -163,3 +163,6 @@ target/
 
 # Context pack MCP server
 /.agents/mcp/context_pack/packs/
+
+# Episodic nested repository (separate git history)
+/episodic-work/

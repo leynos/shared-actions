@@ -1459,29 +1459,32 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
 @pytest.mark.parametrize(
     "case",
     [
-        ("Linux", "x86_64", "linux-x86_64"),
-        ("Linux", "aarch64", "linux-aarch64"),
-        ("Darwin", "arm64", "mac-universal"),
-        ("Windows", "AMD64", "windows-x86_64"),
-        ("Windows", "ARM64", "windows-aarch64"),
+        ("Linux", "x86_64", False, "linux-x86_64-gnu"),
+        ("Linux", "x86_64", True, "linux-x86_64-musl"),
+        ("Linux", "aarch64", False, "linux-aarch64"),
+        ("Darwin", "arm64", False, "mac-universal"),
+        ("Windows", "AMD64", False, "windows-x86_64"),
+        ("Windows", "ARM64", False, "windows-aarch64"),
     ],
 )
 def test_platform_key_variants(
-    case: tuple[str, str, str],
+    case: tuple[str, str, bool, str],
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Platform key mapping normalises common OS/arch combinations."""
-    system, machine, expected = case
+    system, machine, is_musl, expected = case
     monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
     monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
+    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: is_musl)
     assert install_nextest_module._platform_key() == expected
 
 
 @pytest.mark.parametrize(
     "key",
     [
-        "linux-x86_64",
+        "linux-x86_64-gnu",
+        "linux-x86_64-musl",
         "linux-aarch64",
         "mac-universal",
         "windows-x86_64",

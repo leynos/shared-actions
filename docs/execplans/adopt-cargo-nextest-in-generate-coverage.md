@@ -52,6 +52,8 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
     - [x] (2026-01-12 01:30Z) Implemented nextest install/config/run behaviour with cleanup.
     - [x] (2026-01-12 01:45Z) Added unit/behavioural tests and updated docs.
     - [x] (2026-01-12 02:30Z) Run required Makefile gateways and commit.
+    - [x] (2026-06-16 09:00Z) Hardened Linux checksum-key selection in
+      `install_cargo_nextest.py` with libc family detection and logging.
 
 ## Surprises & Discoveries
 
@@ -67,6 +69,11 @@ The generate-coverage GitHub Action should be able to run Rust coverage with `ca
     - Decision: Pin cargo-nextest to 0.9.120 with platform-specific binary SHA-256 values for Linux, macOS (universal), and Windows (x86_64/aarch64).
       Rationale: Ensures deterministic installs and checksum validation across supported runners.
       Date/Author: 2026-01-12 (Codex)
+    - Decision: Treat Linux checksum selection as libc-family-aware with
+      `_is_musl()` selecting `linux-<arch>-musl` or `linux-<arch>-gnu` keys.
+      Rationale: This preserves deterministic installs while keeping musl and GNU
+      runners distinct and diagnosable in installer logs.
+      Date/Author: 2026-06-16 (Codex)
 
 ## Outcomes & Retrospective
 

@@ -3,18 +3,19 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
-"""Install and verify cargo-nextest for generate-coverage GitHub Actions runs.
+"""Install cargo-nextest via cargo-binstall and verify its checksum.
 
-The generate-coverage pipeline calls this helper before Rust coverage when
-`use-cargo-nextest` is enabled so `cargo llvm-cov nextest` can run with a
-known-good, pinned toolchain binary. The installed binary is validated with a
-platform-specific SHA-256 checksum before the action continues.
+This script is executed by the ``generate-coverage`` action before Rust coverage
+steps. It is responsible for selecting the correct checksum key for the current
+runner platform, invoking ``cargo binstall`` when needed, and guarding against
+binary replacement by verifying the SHA-256 digest.
 """
 
 from __future__ import annotations
 
 import ctypes
 import hashlib
+import logging
 import os
 import platform
 import shutil
@@ -26,23 +27,17 @@ from cmd_utils_loader import run_cmd
 from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 
-if typ.TYPE_CHECKING:
-    import collections.abc as cabc
+logger = logging.getLogger(__name__)
 
 # Keep CARGO_NEXTEST_VERSION and CARGO_NEXTEST_SHA256 in sync; update together.
-# linux-x86_64-gnu  : SHA of the extracted binary from the
-#   -x86_64-unknown-linux-gnu.tar.gz release
-# linux-x86_64-musl : SHA of the extracted binary from the
-#   -x86_64-unknown-linux-musl.tar.gz release
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
-        "73c7eb58e6507c10821998de343586cdcd37f99129f69dd0ec5605fd6d7eb291"
-    ),
-    "linux-x86_64-musl": (
         "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
     ),
-    "linux-aarch64": "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e",
+    "linux-aarch64-gnu": (
+        "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e"
+    ),
     "mac-universal": "d9f8aa57f88ea948ee68629cfc22a0a86ccd0d0143139983753dcb5f167085b8",
     "windows-x86_64": (
         "8e4160a8d710e753fd21a725e1771d20d948dbfa5d3472b57ee331f16c237af4"
@@ -53,8 +48,54 @@ CARGO_NEXTEST_SHA256 = {
 }
 
 
+def _is_musl(
+    *,
+    library_name: str = "libc.so.6",
+    ctypes_cdll: typ.Callable[[str], typ.Any] = ctypes.CDLL,
+) -> bool:
+    """Return ``True`` when the libc runtime appears to be musl.
+
+    Parameters
+    ----------
+    library_name : str
+        The libc shared-object name to probe with ``ctypes.CDLL``.
+    ctypes_cdll : Callable[[str], object]
+        Injectable dependency used only for tests.
+
+    Returns
+    -------
+    bool
+        ``True`` when musl is detected, ``False`` for GNU libc.
+
+    Raises
+    ------
+    OSError
+        Propagated when the libc probe fails before symbol resolution.
+    """
+    try:
+        libc = ctypes_cdll(library_name)
+    except OSError:
+        logger.exception(
+            "Failed to load libc for libc-family detection using %s",
+            library_name,
+        )
+        raise
+
+    try:
+        version_fn = libc.gnu_get_libc_version
+    except AttributeError:
+        logger.info("Detected musl libc (missing gnu_get_libc_version symbol)")
+        return True
+
+    version = version_fn()
+    if hasattr(version, "decode"):
+        version = version.decode()
+    logger.debug("Detected GNU libc version marker %s", version)
+    return False
+
+
 def _normalize_machine(machine: str) -> str:
-    """Normalize platform machine names to cargo-nextest release keys."""
+    """Normalise runner architecture labels for checksum lookup keys."""
     name = machine.lower()
     if name in {"x86_64", "amd64"}:
         return "x86_64"
@@ -63,62 +104,46 @@ def _normalize_machine(machine: str) -> str:
     return name
 
 
-def _probe_libc_is_musl(cdll: cabc.Callable[[typ.Any], typ.Any]) -> bool:
-    """Return True when probing libc finds musl or cannot find glibc symbols."""
-    try:
-        libc = cdll(None)
-        # glibc exposes gnu_get_libc_version(); musl does not.
-        libc.gnu_get_libc_version.restype = ctypes.c_char_p
-        libc.gnu_get_libc_version()
-    except (OSError, AttributeError):
-        return True
-    else:
-        return False
-
-
-def _is_musl() -> bool:
-    """Return True when the running libc is musl rather than glibc."""
-    return _probe_libc_is_musl(ctypes.CDLL)
-
-
 def _platform_key() -> str:
-    """Return the cargo-nextest checksum key for the current platform."""
+    """Return the platform key used to resolve the expected checksum."""
     system = platform.system()
     machine = _normalize_machine(platform.machine())
     if system == "Linux":
-        if machine == "x86_64":
-            suffix = "musl" if _is_musl() else "gnu"
-            return f"linux-x86_64-{suffix}"
-        return f"linux-{machine}"
+        libc = "musl" if _is_musl() else "gnu"
+        key = f"linux-{machine}-{libc}"
+        logger.info("Selecting libc-aware platform key: %s", key)
+        return key
     if system == "Darwin":
-        return "mac-universal"
-    if system == "Windows":
-        return f"windows-{machine}"
-    return f"{system.lower()}-{machine}"
+        key = "mac-universal"
+    elif system == "Windows":
+        key = f"windows-{machine}"
+    else:
+        key = f"{system.lower()}-{machine}"
 
-
-def _report_platform_key(key: str) -> None:
-    """Report the selected cargo-nextest platform key."""
-    if key == "linux-x86_64-musl":
-        typer.echo("Detected libc for cargo-nextest: musl")
-    elif key == "linux-x86_64-gnu":
-        typer.echo("Detected libc for cargo-nextest: glibc")
-    typer.echo(f"Selected cargo-nextest platform key: {key}")
+    logger.info("Selecting platform key: %s", key)
+    return key
 
 
 def _expected_sha_for_platform() -> str:
-    """Return the pinned cargo-nextest checksum for the current platform."""
+    """Resolve the expected checksum for the current platform.
+
+    Raises
+    ------
+    typer.Exit
+        If the platform key is unsupported in ``CARGO_NEXTEST_SHA256``.
+    """
     key = _platform_key()
-    _report_platform_key(key)
     try:
         return CARGO_NEXTEST_SHA256[key]
     except KeyError as exc:
-        typer.echo(f"Unsupported platform for cargo-nextest: {key}", err=True)
+        msg = f"Unsupported platform for cargo-nextest: {key}"
+        typer.echo(msg, err=True)
+        logger.exception("Unsupported platform for cargo-nextest: %s", key)
         raise typer.Exit(1) from exc
 
 
 def _sha256_path(path: Path) -> str:
-    """Return the SHA-256 digest for a file path."""
+    """Compute the SHA-256 digest for ``path``."""
     hasher = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(8192), b""):
@@ -127,7 +152,7 @@ def _sha256_path(path: Path) -> str:
 
 
 def _resolve_nextest_binary() -> Path | None:
-    """Return the cargo-nextest binary path when it already exists."""
+    """Return a resolved ``cargo-nextest`` executable if one exists."""
     resolved = shutil.which("cargo-nextest")
     if resolved:
         return Path(resolved)
@@ -137,11 +162,12 @@ def _resolve_nextest_binary() -> Path | None:
 
 
 def _find_nextest_binary() -> Path:
-    """Return the installed cargo-nextest binary path or exit with an error."""
+    """Resolve the installed ``cargo-nextest`` or exit with code 1."""
     resolved = _resolve_nextest_binary()
     if resolved is not None:
         return resolved
     typer.echo("cargo-nextest not found after installation", err=True)
+    logger.error("cargo-nextest binary could not be located after installation")
     raise typer.Exit(1)
 
 
@@ -171,6 +197,12 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
     """Verify the cargo-nextest binary against the expected SHA-256."""
     actual_sha = _sha256_path(path)
     if actual_sha != expected_sha:
+        logger.error(
+            "cargo-nextest checksum mismatch for %s: expected %s, got %s",
+            path,
+            expected_sha,
+            actual_sha,
+        )
         typer.echo(
             "cargo-nextest checksum mismatch: "
             f"expected {expected_sha}, got {actual_sha}",
@@ -185,6 +217,7 @@ def main() -> None:
     expected_sha = _expected_sha_for_platform()
     existing = _resolve_nextest_binary()
     if existing is not None and verify_nextest_binary(existing, expected_sha):
+        logger.info("Using preinstalled cargo-nextest at %s", existing)
         typer.echo("cargo-nextest already installed and verified")
         return
 
@@ -192,6 +225,7 @@ def main() -> None:
     binary_path = _find_nextest_binary()
     if not verify_nextest_binary(binary_path, expected_sha):
         raise typer.Exit(1)
+    logger.info("cargo-nextest installation and verification succeeded")
     typer.echo("cargo-nextest installed and verified")
 
 

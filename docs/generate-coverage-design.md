@@ -30,6 +30,10 @@ action and the evolution of its supporting scripts.
   install environment and trips externally-managed-interpreter protections.
   The action must pass the venv path itself to uv, and it logs the candidate
   paths, resolved targets, and selected uv command interpreter for diagnosis.
+- *2026-06-16* — `install_cargo_nextest.py` now distinguishes GNU and musl
+  Linux runtimes when selecting checksum keys. `_platform_key` delegates to
+  `_is_musl`, which probes libc through `ctypes.CDLL` and logs the detected
+  libc family so failures can be diagnosed from output logs.
 - *2026-06-04* — Python coverage runs adopt `pytest-xdist` by default. A new
   `pytest-workers` input (default `auto`) is forwarded as `-n <workers>` to
   slipcover's pytest invocation, and `pytest-xdist` is installed alongside
@@ -44,6 +48,10 @@ action and the evolution of its supporting scripts.
   processes, so projects whose tests live inside the source package see
   their reported line-rate drop until they relocate tests or set
   `pytest-workers: ""`. This is documented in the action's README.
+- *2026-06-16* — `install_cargo_nextest.py` now distinguishes GNU and musl
+  Linux runtimes when selecting checksum keys. `_platform_key` delegates to
+  `_is_musl`, which probes libc through `ctypes.CDLL` and logs the detected
+  libc family so failures can be diagnosed from output logs.
 
 ## Rust Coverage Environment Overrides
 

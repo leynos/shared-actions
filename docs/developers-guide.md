@@ -165,6 +165,19 @@ After the installer runs, the action verifies the installed binary with
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
 
+
+## `generate-coverage` `cargo-nextest` Installation
+
+`install_cargo_nextest.py` resolves expected checksums using
+`_platform_key()`. On Linux, `_platform_key()` calls `_is_musl()` to choose
+between `linux-<arch>-gnu` and `linux-<arch>-musl` keys before looking up
+`CARGO_NEXTEST_SHA256`.
+
+`_is_musl()` wraps libc probing in one place via injectable
+`ctypes.CDLL`/symbol lookup and surfaces probe failures through the normal
+error path, so orchestrating code consumes a concrete `typer.Exit` from
+`_expected_sha_for_platform()` and keeps loader details local to the installer.
+
 ### CARGO_HOME resolution and PATH handling
 
 The install step derives the active Cargo bin directory at runtime:

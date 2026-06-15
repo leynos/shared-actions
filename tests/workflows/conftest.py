@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import dataclasses
 import functools
 import os
@@ -11,9 +10,10 @@ import socket
 import tempfile
 import typing as typ
 import urllib.parse
+from pathlib import Path
 
-from plumbum import CommandNotFound, ProcessTimedOut, local
 import pytest
+from plumbum import CommandNotFound, ProcessTimedOut, local
 
 from bool_utils import coerce_bool
 

@@ -1545,7 +1545,6 @@ def test_probe_libc_is_musl_detects_cdll_failure(
 def test_is_musl_uses_ctypes_probe(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """The public libc helper exercises its ctypes.CDLL probe dependency."""
 
@@ -1559,7 +1558,6 @@ def test_is_musl_uses_ctypes_probe(
 
     monkeypatch.setattr(install_nextest_module.ctypes, "CDLL", load_libc)
     assert install_nextest_module._is_musl() is True
-    assert capsys.readouterr().out == "Detected libc for cargo-nextest: musl\n"
 
 
 @pytest.mark.parametrize(
@@ -1727,6 +1725,80 @@ def test_install_nextest_invokes_binstall(
         "--locked",
         "--no-confirm",
         "--force",
+    ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("glibc", False, "linux-x86_64-gnu"),
+        ("musl", True, "linux-x86_64-musl"),
+    ],
+)
+def test_install_nextest_main_detects_libc_platform_key(
+    case: tuple[str, bool, str],
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Installer main resolves SHA through the real libc detection chain."""
+    libc_name, is_musl, expected_key = case
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+    install_calls: list[bool] = []
+    verified: dict[str, str] = {}
+
+    class GnuGetLibcVersion:
+        """Callable libc symbol stub that accepts a configured restype."""
+
+        restype: object = None
+
+        def __call__(self) -> bytes:
+            """Return a glibc-style version payload."""
+            return b"2.39"
+
+    class Glibc:
+        """Libc stub exposing the glibc-only version symbol."""
+
+        gnu_get_libc_version = GnuGetLibcVersion()
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> object:
+        """Return the selected fake process-global libc handle."""
+        assert name is None
+        return Musl() if is_musl else Glibc()
+
+    def fake_install() -> None:
+        """Record that installation would be performed."""
+        install_calls.append(True)
+
+    def fake_verify(path: Path, sha: str) -> bool:
+        """Capture the checksum selected by the real platform chain."""
+        assert path == binary
+        verified["sha"] = sha
+        return True
+
+    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(install_nextest_module.ctypes, "CDLL", load_libc)
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
+    monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
+    monkeypatch.setattr(install_nextest_module, "install_cargo_nextest", fake_install)
+    monkeypatch.setattr(install_nextest_module, "verify_nextest_binary", fake_verify)
+
+    install_nextest_module.main()
+
+    assert install_calls == [True]
+    assert verified == {
+        "sha": install_nextest_module.CARGO_NEXTEST_SHA256[expected_key],
+    }
+    assert capsys.readouterr().out.splitlines() == [
+        f"Detected libc for cargo-nextest: {libc_name}",
+        f"Selected cargo-nextest platform key: {expected_key}",
+        "cargo-nextest installed and verified",
     ]
 
 

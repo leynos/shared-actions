@@ -78,9 +78,7 @@ def _probe_libc_is_musl(cdll: cabc.Callable[[typ.Any], typ.Any]) -> bool:
 
 def _is_musl() -> bool:
     """Return True when the running libc is musl rather than glibc."""
-    is_musl = _probe_libc_is_musl(ctypes.CDLL)
-    typer.echo(f"Detected libc for cargo-nextest: {'musl' if is_musl else 'glibc'}")
-    return is_musl
+    return _probe_libc_is_musl(ctypes.CDLL)
 
 
 def _platform_key() -> str:
@@ -90,9 +88,7 @@ def _platform_key() -> str:
     if system == "Linux":
         if machine == "x86_64":
             suffix = "musl" if _is_musl() else "gnu"
-            key = f"linux-x86_64-{suffix}"
-            typer.echo(f"Selected cargo-nextest platform key: {key}")
-            return key
+            return f"linux-x86_64-{suffix}"
         return f"linux-{machine}"
     if system == "Darwin":
         return "mac-universal"
@@ -101,9 +97,19 @@ def _platform_key() -> str:
     return f"{system.lower()}-{machine}"
 
 
+def _report_platform_key(key: str) -> None:
+    """Report the selected cargo-nextest platform key."""
+    if key == "linux-x86_64-musl":
+        typer.echo("Detected libc for cargo-nextest: musl")
+    elif key == "linux-x86_64-gnu":
+        typer.echo("Detected libc for cargo-nextest: glibc")
+    typer.echo(f"Selected cargo-nextest platform key: {key}")
+
+
 def _expected_sha_for_platform() -> str:
     """Return the pinned cargo-nextest checksum for the current platform."""
     key = _platform_key()
+    _report_platform_key(key)
     try:
         return CARGO_NEXTEST_SHA256[key]
     except KeyError as exc:

@@ -201,7 +201,7 @@ using a platform key. Linux x86_64 is split into two keys:
 - `linux-x86_64-gnu` for the `-x86_64-unknown-linux-gnu` archive.
 - `linux-x86_64-musl` for the `-x86_64-unknown-linux-musl` archive.
 
-This distinction is intentional because the upstream artifacts are built against
+This distinction is intentional because the upstream artefacts are built against
 different libc ABIs, and validating against the wrong digest can block installs
 even when the same version number is used.
 

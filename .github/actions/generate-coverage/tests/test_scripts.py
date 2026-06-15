@@ -1,4 +1,10 @@
-"""Tests for coverage utility scripts."""
+"""Tests for generate-coverage utility scripts.
+
+This module exercises helper modules that are executed as separate script entry
+points (`run_rust`, `run_python`, `install_cargo_nextest`) and validates their
+interdependencies. It documents how script-level helpers are composed inside the
+GitHub Action runtime for Rust and Python coverage flows.
+"""
 
 from __future__ import annotations
 
@@ -1480,6 +1486,82 @@ def test_platform_key_variants(
     assert install_nextest_module._platform_key() == expected
 
 
+def test_probe_libc_is_musl_detects_glibc(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing returns False when the glibc version symbol is available."""
+
+    class GnuGetLibcVersion:
+        """Callable libc symbol stub that accepts a configured restype."""
+
+        restype: object = None
+
+        def __call__(self) -> bytes:
+            """Return a glibc-style version payload."""
+            return b"2.39"
+
+    class Glibc:
+        """Libc stub exposing the glibc-only version symbol."""
+
+        gnu_get_libc_version = GnuGetLibcVersion()
+
+    def load_libc(name: object) -> Glibc:
+        """Return the fake glibc object for the process-global libc handle."""
+        assert name is None
+        return Glibc()
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is False
+
+
+def test_probe_libc_is_musl_detects_missing_glibc_symbol(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing treats a missing glibc version symbol as musl."""
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> Musl:
+        """Return the fake musl object for the process-global libc handle."""
+        assert name is None
+        return Musl()
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is True
+
+
+def test_probe_libc_is_musl_detects_cdll_failure(
+    install_nextest_module: ModuleType,
+) -> None:
+    """Libc probing treats CDLL load failures as musl-compatible."""
+
+    def load_libc(name: object) -> object:
+        """Raise the same error shape ctypes can raise for a failed load."""
+        assert name is None
+        raise OSError
+
+    assert install_nextest_module._probe_libc_is_musl(load_libc) is True
+
+
+def test_is_musl_uses_ctypes_probe(
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The public libc helper exercises its ctypes.CDLL probe dependency."""
+
+    class Musl:
+        """Libc stub without glibc-only symbols."""
+
+    def load_libc(name: object) -> Musl:
+        """Return the fake musl object for the process-global libc handle."""
+        assert name is None
+        return Musl()
+
+    monkeypatch.setattr(install_nextest_module.ctypes, "CDLL", load_libc)
+    assert install_nextest_module._is_musl() is True
+    assert capsys.readouterr().out == "Detected libc for cargo-nextest: musl\n"
+
+
 @pytest.mark.parametrize(
     "key",
     [
@@ -1507,6 +1589,8 @@ def test_expected_sha_for_supported_platforms(
 def test_expected_sha_for_unsupported_platform(
     monkeypatch: pytest.MonkeyPatch,
     install_nextest_module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    snapshot: SnapshotAssertion,
 ) -> None:
     """Unsupported platforms raise a Typer exit."""
     monkeypatch.setattr(
@@ -1519,6 +1603,7 @@ def test_expected_sha_for_unsupported_platform(
         install_nextest_module._expected_sha_for_platform()
 
     assert _exit_code(excinfo.value) == 1
+    assert capsys.readouterr().err == snapshot
 
 
 def test_find_nextest_binary_prefers_path(
@@ -1692,12 +1777,15 @@ def test_install_nextest_checksum_match(
 def test_install_nextest_checksum_mismatch(
     tmp_path: Path,
     install_nextest_module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    snapshot: SnapshotAssertion,
 ) -> None:
-    """Checksum mismatches raise a Typer exit."""
+    """Checksum mismatches produce stable stderr output."""
     binary = tmp_path / "cargo-nextest"
     binary.write_bytes(b"payload")
 
     assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
+    assert capsys.readouterr().err == snapshot
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

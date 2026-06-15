@@ -1,4 +1,16 @@
 # serializer version: 1
+# name: test_expected_sha_for_unsupported_platform
+  '''
+  Unsupported platform for cargo-nextest: unsupported-platform
+  
+  '''
+# ---
+# name: test_install_nextest_checksum_mismatch
+  '''
+  cargo-nextest checksum mismatch: expected deadbeef, got 239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5
+  
+  '''
+# ---
 # name: test_run_python_integration_cobertura_success[run_python_cobertura_github_output]
   '''
   file=<TMP>/cov.xml

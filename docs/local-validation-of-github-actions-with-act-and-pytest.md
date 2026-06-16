@@ -23,7 +23,6 @@ command interception is intentionally avoided; containers execute in isolation.
   container runtime socket is reachable. On Fedora/Podman that normally means:
   1. `systemctl --user status podman.socket` reports `active (listening)`.
   2. The Docker-compatible Podman API can list all containers. The pytest
-  2. The Docker-compatible Podman API can list all containers. The pytest
      harness checks `GET /v1.41/containers/json?all=true` because this is the
      path `act` uses before starting a job. If the API returns
      `container not known`, repair or remove stale Podman containers stuck in

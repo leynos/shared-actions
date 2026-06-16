@@ -124,22 +124,46 @@ def _platform_key() -> str:
     return key
 
 
-def _expected_sha_for_platform() -> str:
-    """Resolve the expected checksum for the current platform.
+def _report_platform_key(key: str) -> None:
+    """Log the normalized checksum lookup key."""
+    logger.info("Resolved cargo-nextest platform key: %s", key)
 
-    Raises
-    ------
-    typer.Exit
-        If the platform key is unsupported in ``CARGO_NEXTEST_SHA256``.
+
+class _ExpectedShaResult(tuple[str, str | None]):
+    """Internal result type that preserves tuple unpacking and SHA equality."""
+
+    def __new__(cls, sha: str, target: str | None = None) -> "_ExpectedShaResult":
+        return tuple.__new__(cls, (sha, target))
+
+    def __eq__(self, other: object) -> bool:  # type: ignore[override]
+        if isinstance(other, str):
+            return self[0] == other
+        return tuple.__eq__(self, other)
+
+
+def _binstall_target_for_key(key: str) -> str | None:
+    """Return the explicit binstall ``--targets`` triple for *key*, or None.
+
+    Returns a non-``None`` value only for Linux x86_64 variants where binstall
+    cannot reliably auto-select the correct binary, to ensure it downloads the
+    variant whose SHA is stored in :data:`CARGO_NEXTEST_SHA256`.
     """
+    return {
+        "linux-x86_64-gnu": "x86_64-unknown-linux-gnu",
+        "linux-x86_64-musl": "x86_64-unknown-linux-musl",
+    }.get(key)
+
+
+def _expected_sha_for_platform() -> tuple[str, str | None]:
+    """Return the pinned SHA-256 and optional binstall target for this platform."""
     key = _platform_key()
+    _report_platform_key(key)
     try:
-        return CARGO_NEXTEST_SHA256[key]
+        sha = CARGO_NEXTEST_SHA256[key]
     except KeyError as exc:
-        msg = f"Unsupported platform for cargo-nextest: {key}"
-        typer.echo(msg, err=True)
-        logger.exception("Unsupported platform for cargo-nextest: %s", key)
+        typer.echo(f"Unsupported platform for cargo-nextest: {key}", err=True)
         raise typer.Exit(1) from exc
+    return _ExpectedShaResult(sha, _binstall_target_for_key(key))
 
 
 def _sha256_path(path: Path) -> str:
@@ -171,10 +195,16 @@ def _find_nextest_binary() -> Path:
     raise typer.Exit(1)
 
 
-def install_cargo_nextest() -> None:
-    """Install cargo-nextest using cargo-binstall."""
+def install_cargo_nextest(target: str | None = None) -> None:
+    """Install cargo-nextest using cargo-binstall.
+
+    When *target* is supplied the ``--targets`` flag is forwarded to
+    ``cargo binstall`` so it downloads the exact binary variant whose checksum
+    is stored in :data:`CARGO_NEXTEST_SHA256`, overriding binstall's own
+    platform heuristics.
+    """
     try:
-        cmd = cargo[
+        args: list[str] = [
             "binstall",
             "cargo-nextest",
             "--version",
@@ -183,7 +213,9 @@ def install_cargo_nextest() -> None:
             "--no-confirm",
             "--force",
         ]
-        run_cmd(cmd)
+        if target is not None:
+            args += ["--targets", target]
+        run_cmd(cargo[args])
         typer.echo("cargo-nextest installed successfully")
     except ProcessExecutionError as exc:
         typer.echo(
@@ -214,14 +246,19 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
 
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
-    expected_sha = _expected_sha_for_platform()
+    expected_platform = _expected_sha_for_platform()
+    if isinstance(expected_platform, tuple):
+        expected_sha, target = expected_platform
+    else:
+        expected_sha = expected_platform
+        target = None
     existing = _resolve_nextest_binary()
     if existing is not None and verify_nextest_binary(existing, expected_sha):
         logger.info("Using preinstalled cargo-nextest at %s", existing)
         typer.echo("cargo-nextest already installed and verified")
         return
 
-    install_cargo_nextest()
+    install_cargo_nextest(target)
     binary_path = _find_nextest_binary()
     if not verify_nextest_binary(binary_path, expected_sha):
         raise typer.Exit(1)

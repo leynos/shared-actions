@@ -48,10 +48,6 @@ action and the evolution of its supporting scripts.
   processes, so projects whose tests live inside the source package see
   their reported line-rate drop until they relocate tests or set
   `pytest-workers: ""`. This is documented in the action's README.
-- *2026-06-16* — `install_cargo_nextest.py` now distinguishes GNU and musl
-  Linux runtimes when selecting checksum keys. `_platform_key` delegates to
-  `_is_musl`, which probes libc through `ctypes.CDLL` and logs the detected
-  libc family so failures can be diagnosed from output logs.
 
 ## Rust Coverage Environment Overrides
 

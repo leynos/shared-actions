@@ -1,4 +1,10 @@
-"""Tests for coverage utility scripts."""
+"""Tests for generate-coverage utility scripts.
+
+This module exercises helper modules that are executed as separate script entry
+points (`run_rust`, `run_python`, `install_cargo_nextest`) and validates their
+interdependencies. It documents how script-level helpers are composed inside the
+GitHub Action runtime for Rust and Python coverage flows.
+"""
 
 from __future__ import annotations
 
@@ -1536,26 +1542,45 @@ def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> N
 
 
 @pytest.mark.parametrize(
-    "key",
+    ("key", "expected_target"),
     [
-        "linux-x86_64-gnu",
-        "linux-aarch64-gnu",
-        "mac-universal",
-        "windows-x86_64",
-        "windows-aarch64",
+        ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
+        ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
+        ("linux-aarch64-gnu", None),
+        ("mac-universal", None),
+        ("windows-x86_64", None),
+        ("windows-aarch64", None),
     ],
 )
 def test_expected_sha_for_supported_platforms(
     key: str,
+    expected_target: str | None,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Expected SHA lookup matches the platform mapping."""
     monkeypatch.setattr(install_nextest_module, "_platform_key", lambda: key)
-    assert (
-        install_nextest_module._expected_sha_for_platform()
-        == install_nextest_module.CARGO_NEXTEST_SHA256[key]
-    )
+    sha, target = install_nextest_module._expected_sha_for_platform()
+    assert sha == install_nextest_module.CARGO_NEXTEST_SHA256[key]
+    assert target == expected_target
+
+
+@pytest.mark.parametrize(
+    ("key", "expected_target"),
+    [
+        ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
+        ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
+        ("linux-aarch64-gnu", None),
+        ("mac-universal", None),
+    ],
+)
+def test_binstall_target_for_key(
+    key: str,
+    expected_target: str | None,
+    install_nextest_module: ModuleType,
+) -> None:
+    """Binstall targets are explicit only for Linux x86_64 libc variants."""
+    assert install_nextest_module._binstall_target_for_key(key) == expected_target
 
 
 def test_expected_sha_for_unsupported_platform(
@@ -1653,7 +1678,7 @@ def test_install_nextest_skips_when_verified(
         raise AssertionError
 
     monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: expected
+        install_nextest_module, "_expected_sha_for_platform", lambda: (expected, None)
     )
     monkeypatch.setattr(
         install_nextest_module, "_resolve_nextest_binary", lambda: binary
@@ -1683,7 +1708,9 @@ def test_install_nextest_invokes_binstall(
     monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
     monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
     monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: expected
+        install_nextest_module,
+        "_expected_sha_for_platform",
+        lambda: (expected, "x86_64-unknown-linux-gnu"),
     )
 
     install_nextest_module.main()
@@ -1700,6 +1727,8 @@ def test_install_nextest_invokes_binstall(
         "--locked",
         "--no-confirm",
         "--force",
+        "--targets",
+        "x86_64-unknown-linux-gnu",
     ]
 
 
@@ -1723,7 +1752,7 @@ def test_install_nextest_binstall_failure(
     monkeypatch.setattr(install_nextest_module, "run_cmd", fail_run_cmd)
     monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
     monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: "deadbeef"
+        install_nextest_module, "_expected_sha_for_platform", lambda: ("deadbeef", None)
     )
 
     with pytest.raises(install_nextest_module.typer.Exit) as excinfo:

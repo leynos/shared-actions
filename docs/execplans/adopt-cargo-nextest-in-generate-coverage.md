@@ -88,16 +88,16 @@ without requiring repository-level nextest configuration.
 
 - Decision: Use `cargo-binstall` to install `cargo-nextest` with a pinned
   version and SHA-256, then run `cargo llvm-cov nextest`. Rationale: Satisfies
-  the requirement to use binstall and provides deterministic, verifiable
-  installs. Date/Author: 2026-01-12 (Codex)
+  the requirement to use binstall and provides deterministic, verifiable binary
+  installation. Date/Author: 2026-01-12 (Codex)
 - Decision: Pin cargo-nextest to 0.9.120 with platform-specific binary SHA-256
   values for Linux, macOS (universal), and Windows (x86_64/aarch64). Rationale:
-  Ensures deterministic installs and checksum validation across supported
+  Ensures deterministic installation and checksum validation across supported
   runners. Date/Author: 2026-01-12 (Codex)
 - Decision: Treat Linux checksum selection as libc-family-aware with
   `_is_musl()` selecting `linux-<arch>-musl` or `linux-<arch>-gnu` keys.
-  Rationale: This preserves deterministic installs while keeping musl and GNU
-  runners distinct and diagnosable in installer logs. Date/Author: 2026-06-16
+  Rationale: This preserves determinism whilst keeping musl and GNU runners
+  distinct and diagnosable in installer logs. Date/Author: 2026-06-16
   (Codex)
 
 ## Outcomes & Retrospective

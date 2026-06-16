@@ -132,7 +132,7 @@ def _report_platform_key(key: str) -> None:
 class _ExpectedShaResult(tuple[str, str | None]):
     """Internal result type that preserves tuple unpacking and SHA equality."""
 
-    def __new__(cls, sha: str, target: str | None = None) -> "_ExpectedShaResult":
+    def __new__(cls, sha: str, target: str | None = None) -> _ExpectedShaResult:
         return tuple.__new__(cls, (sha, target))
 
     def __eq__(self, other: object) -> bool:  # type: ignore[override]

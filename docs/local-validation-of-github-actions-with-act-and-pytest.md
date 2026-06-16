@@ -188,7 +188,7 @@ def test_workflow_produces_expected_artefact_and_logs(tmp_path: Path) -> None:
 Because the test launches containers, it requires the same Podman/Docker setup
 described in the prerequisites. The harness skips automatically when the
 runtime, socket, or Docker-compatible container listing API is unavailable, but
-running it requires opting in:
+to _run_ it you must opt in:
 
 ```bash
 # Inside a sandbox where podman requires sudo:

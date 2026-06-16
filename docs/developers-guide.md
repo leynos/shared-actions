@@ -165,7 +165,6 @@ After the installer runs, the action verifies the installed binary with
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
 
-
 ## `generate-coverage` `cargo-nextest` Installation
 
 `install_cargo_nextest.py` resolves expected checksums using

@@ -1,6 +1,5 @@
 # Benchmarking and Optimization Phase Design
 
-
 This ExecPlan (execution plan) is a living document. The sections
 
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -9,17 +8,13 @@ This ExecPlan (execution plan) is a living document. The sections
 
 proceeds.
 
-
 Status: APPROVED
 
-
 ## Purpose / big picture
-
 
 This work establishes femtologging's benchmarking and performance optimization
 
 strategy as a first-class roadmap phase. After completion, the team will have:
-
 
 1. A comprehensive roadmap document detailing the benchmarking and
 
@@ -39,9 +34,7 @@ femtologging's caller-latency advantage against stdlib `logging`,
 
 optimization work toward the highest-impact bottlenecks.
 
-
 ## Constraints
-
 
 - All benchmarking must enforce architectural parity: queue-based and
 
@@ -72,7 +65,6 @@ optimization work toward the highest-impact bottlenecks.
 
 ## Tolerances (exception triggers)
 
-
 - Scope: if the roadmap or design documents exceed 2000 lines of
 
   substantive content (combined), stop and escalate to prioritise.
@@ -89,7 +81,6 @@ optimization work toward the highest-impact bottlenecks.
   note the gap and proceed with documented assumptions.
 
 ## Risks
-
 
 - Risk: loguru's `enqueue=True` drain semantics may differ from documented
 
@@ -125,7 +116,6 @@ optimization work toward the highest-impact bottlenecks.
 
 ## Progress
 
-
 - [x] (2026-06-17 14:00Z) Research phase: gathered information on pyperf,
 
   picologging, loguru enqueue, and Python QueueHandler/QueueListener patterns
@@ -147,15 +137,11 @@ optimization work toward the highest-impact bottlenecks.
 
 - [ ] Fix markdown lint failures (line length, table alignment, code blocks).
 
-
 ## Surprises & discoveries
-
 
 None yet; research phase confirmed expected information.
 
-
 ## Decision log
-
 
 - Decision: Structure the design around three separate leaderboards (caller latency, end-to-end, diagnostic internals) rather than a single unified benchmark.
 
@@ -174,14 +160,11 @@ None yet; research phase confirmed expected information.
 
 ## Outcomes & retrospective
 
-
 Work in progress; this section will be completed upon finishing the roadmap and
 
 design documents.
 
-
 ## Context and orientation
-
 
 Femtologging is a high-performance async Python logging library built on
 
@@ -193,11 +176,9 @@ that handle formatting and I/O. The library aims to minimise caller-side
 
 latency whilst providing predictable end-to-end logging behaviour.
 
-
 The user has provided extensive specifications for benchmarking strategy,
 
 including:
-
 
 - Architecture-aware comparison (queue vs. synchronous direct handlers
 
@@ -240,7 +221,6 @@ including:
 
 Key files referenced:
 
-
 - Existing: `rust_extension/benches/config.rs` (Criterion configuration
 
   benchmarks).
@@ -252,14 +232,11 @@ Key files referenced:
 
 ## Plan of work
 
-
 ### Stage A: Create roadmap document
-
 
 The roadmap document serves as a high-level strategic view of how benchmarking
 
 and optimization fit into femtologging's evolution. It will:
-
 
 1. Position benchmarking and optimization as a distinct roadmap phase.
 
@@ -267,25 +244,21 @@ and optimization fit into femtologging's evolution. It will:
 
 regression gates, public reporting.
 
-3. Explain the three-leaderboard philosophy and why it prevents benchmark
+1. Explain the three-leaderboard philosophy and why it prevents benchmark
 
 misinterpretation.
 
-4. Outline success criteria and measurement strategy.
+1. Outline success criteria and measurement strategy.
 
-5. Reference the companion technical design document for implementation details.
-
+2. Reference the companion technical design document for implementation details.
 
 Use the roadmap-doc skill to author `docs/roadmap.md` in standard structure
 
 (goals, phases, milestones, dependencies, risks, success metrics).
 
-
 ### Stage B: Create technical design document
 
-
 The design document is the executable specification. It will:
-
 
 1. Deep-dive into benchmark philosophy and the three-leaderboard model.
 
@@ -297,24 +270,23 @@ The design document is the executable specification. It will:
 
 disabled-log handling).
 
-5. Provide measurement protocols (warm-up, pyperf, correctness verification,
+1. Provide measurement protocols (warm-up, pyperf, correctness verification,
 
 JSON/markdown export).
 
-6. Detail concrete benchmark groups (disabled hot path, enabled null, I/O,
+1. Detail concrete benchmark groups (disabled hot path, enabled null, I/O,
 
 batching, socket, saturation, configuration).
 
-7. Include the optimization playbook: bottleneck classification and targeted
+1. Include the optimization playbook: bottleneck classification and targeted
 
 fixes.
 
-8. Specify regression policy (thresholds by category, rolling baseline).
+1. Specify regression policy (thresholds by category, rolling baseline).
 
-9. Document reporting format (raw JSON, Criterion output, summary tables).
+2. Document reporting format (raw JSON, Criterion output, summary tables).
 
-10. Provide an immediate v0 implementation plan.
-
+3. Provide an immediate v0 implementation plan.
 
 Use the tech-design-doc skill to author
 
@@ -322,12 +294,9 @@ Use the tech-design-doc skill to author
 
 philosophy, design details, acceptance criteria, appendices).
 
-
 ### Stage C: Apply British English and Oxford dictionary style
 
-
 Use the en-gb-oxendict skill to scan both documents and apply:
-
 
 - British spelling (optimise, realise, etc.).
 
@@ -337,9 +306,7 @@ Use the en-gb-oxendict skill to scan both documents and apply:
 
 - Formal tone and register suitable for technical design documents.
 
-
 ### Stage D: Branch switch and PR creation
-
 
 1. Ensure all uncommitted changes are staged (roadmap and design documents).
 
@@ -347,21 +314,18 @@ Use the en-gb-oxendict skill to scan both documents and apply:
 
 `origin/optimization-phase-design`.
 
-3. Commit changes with a meaningful commit message.
+1. Commit changes with a meaningful commit message.
 
-4. Use pr-creation skill to create a pull request with:
+2. Use pr-creation skill to create a pull request with:
 
    - Title: "Benchmarking and Optimization Phase Design"
    - Body: Summary of roadmap and design, key decisions, strategic success criteria.
    - Reference: Lody session link.
-5. Ensure the PR passes Makefile gates (lint, format check).
-
+3. Ensure the PR passes Makefile gates (lint, format check).
 
 ## Concrete steps
 
-
 ### Roadmap document
-
 
 1. Create or update `docs/roadmap.md`.
 
@@ -375,9 +339,7 @@ Use the en-gb-oxendict skill to scan both documents and apply:
 
 benchmarking.
 
-
 ### Technical design document
-
 
 1. Create or update `docs/tech/benchmarking-and-optimization.md`.
 
@@ -397,19 +359,15 @@ benchmarking.
    - V0 Implementation Plan (narrow scope, phased expansion).
 3. Include concrete code examples for adapter interface and metrics schema.
 
-
 ### British English correction
-
 
 1. Run en-gb-oxendict skill on both `docs/roadmap.md` and
 
 `docs/tech/benchmarking-and-optimization.md`.
 
-2. Review changes and accept or customize as needed.
-
+1. Review changes and accept or customize as needed.
 
 ### Branch and PR
-
 
 1. Verify current branch via `git branch --show-current`.
 
@@ -446,12 +404,9 @@ benchmarking.
    ```
 7. Ensure PR passes CI checks.
 
-
 ## Validation and acceptance
 
-
 ### Roadmap document acceptance
-
 
 - [ ] Document is present at `docs/roadmap.md`.
 
@@ -467,9 +422,7 @@ benchmarking.
 
 - [ ] Document passes British English style check.
 
-
 ### Technical design document acceptance
-
 
 - [ ] Document is present at `docs/tech/benchmarking-and-optimization.md`.
 
@@ -499,9 +452,7 @@ benchmarking.
 
 - [ ] Document passes British English style check.
 
-
 ### PR acceptance
-
 
 - [ ] PR is created and visible on GitHub.
 
@@ -515,9 +466,7 @@ benchmarking.
 
 - [ ] All documents are properly staged and committed.
 
-
 ## Idempotence and recovery
-
 
 - All steps are idempotent: re-running them does not introduce drift or conflicts.
 
@@ -527,12 +476,9 @@ benchmarking.
 
 - If the PR creation fails, the branch and commits remain valid and the PR can be created manually using the GitHub web interface.
 
-
 ## Artifacts and notes
 
-
 **Key references from user specification:**
-
 
 - Three leaderboards: caller-visible cost, end-to-end completion, diagnostic internals.
 
@@ -542,9 +488,7 @@ benchmarking.
 
 - V0 suite: disabled_literal, disabled_args, enabled_literal_null, enabled_args_null, file 1/8/32-thread sync vs. queue, burst_then_flush, slow_consumer_saturation, config benchmarks.
 
-
 **Firecrawl research findings:**
-
 
 - pyperf: automatic calibration, multiple worker processes, instability detection, JSON format, metadata collection, comparison tooling. Recommended for Python benchmarks.
 
@@ -554,12 +498,9 @@ benchmarking.
 
 - Python stdlib: QueueHandler and QueueListener available since Python 3.2; QueueListener spawns an internal thread listening to the queue.
 
-
 ## Interfaces and dependencies
 
-
 **Core dependencies for benchmarking code:**
-
 
 - pyperf: for Python benchmarks (calibration, JSON output, comparison).
 
@@ -569,19 +510,15 @@ benchmarking.
 
 - MessagePack: for socket serialization benchmarks (if not already a dependency, review for inclusion).
 
-
 **Module interfaces to define:**
 
-
 In `benchmarks/femtobench/adapters/base.py`:
-
 
 ```python
 
 from abc import ABC, abstractmethod
 
 from typing import Dict, Any, List
-
 
 class LoggingAdapter(ABC):
 
@@ -608,16 +545,13 @@ class LoggingAdapter(ABC):
         pass
 ```bash
 
-
 In `benchmarks/femtobench/schema.py`:
-
 
 ```python
 
 from dataclasses import dataclass
 
 from typing import Dict, Any, List
-
 
 @dataclass
 
@@ -649,12 +583,9 @@ class BenchmarkMetrics:
     batch_capacity: int
 ```bash
 
-
 ---
 
-
 ## Revision note
-
 
 Initial draft completed 2026-06-17. Plan covers research, document creation,
 

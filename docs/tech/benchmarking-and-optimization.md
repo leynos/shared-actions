@@ -15,8 +15,10 @@ The three leaderboards are:
 
 1. **Caller-visible cost:** Time spent inside the logging call on producer
 threads (where femtologging should excel).
+
 2. **End-to-end completion:** Wall-clock time from first log call to final
 flush and drain (prevents asynchronous libraries from hiding work).
+
 3. **Diagnostic internals:** Granular costs (record creation, channel send,
 formatter, worker drain) guiding optimizations.
 
@@ -378,12 +380,16 @@ Each adapter must:
 
 1. **Enforce semantic equivalence:** Same level, format string, and output
 destination as other frameworks.
+
 2. **Measure honestly:** Don't bypass the framework's normal path to save
 latency.
+
 3. **Handle queue draining:** Queue-based frameworks must fully drain in
 flush_and_close().
+
 4. **Verify correctness:** Record count, no unexpected drops, no malformed
 output.
+
 5. **Collect metrics:** Record caller latency, throughput, memory, and
 framework-specific diagnostics.
 
@@ -445,6 +451,7 @@ Benchmarks must account for this:
 1. **Disabled literal:** `debug("constant")` — no arguments to evaluate.
 2. **Disabled cheap args:** `debug("x=%s", x)` — argument exists but is cheap
 (variable reference).
+
 3. **Disabled eager f-string:** `debug(f"x={expensive()}")` — demonstrates
 user-side eagerness, not framework overhead. Label this as "user expression
 cost", not framework cost.
@@ -463,6 +470,7 @@ Before each benchmark:
 1. Run the workload once without timing (warm-up cache, scheduler).
 2. Let pyperf calibrate the number of iterations to reach a target runtime
 (default: 1 second per run).
+
 3. Repeat the benchmark multiple times with pyperf managing iteration count and
 worker processes.
 
@@ -634,6 +642,7 @@ Recovery is clean.
 
 **Cases:** Extend existing Criterion benches in
 rust_extension/benches/config.rs. Add Python pyperf cases:
+
 - femtologging_basicConfig
 - femtologging_dictConfig
 - femtologging_builder
@@ -658,8 +667,10 @@ and implementation.
 
 1. **Measure level lookup.** Is the effective level check fast? Cache misses?
 Python interpreter overhead?
+
 2. **Optimise level check first.** Use integer comparison, avoid frame
 inspection or context lookups until after level check.
+
 3. **Disable timestamp and metadata allocation** until after level check
 (already required by design).
 
@@ -667,16 +678,20 @@ inspection or context lookups until after level check.
 
 1. **Profile allocations.** PyO3 conversions? RecordMetadata allocation?
 BTreeMap creation for empty key-value?
+
 2. **Use lazy metadata.** Store None/empty singleton for fields until a
 formatter or handler requires them.
+
 3. **Avoid BTreeMap for zero or single fields.** Use SmallVec or inline small
 map.
+
 4. **Reuse buffers.** Python string creation in tight loops is expensive.
 
 ### 10.3 Multi-threaded enqueue slows down
 
 1. **Benchmark channel capacity and contention.** crossbeam-channel performance
 degrades under high contention.
+
 2. **Try in order:**
    - Increase queue capacity (reduce lock contention).
    - Tune batch drain capacity.
@@ -693,6 +708,7 @@ reasons; a swap is a last resort.
 3. **Avoid `format!` in loops.** Use write! into an existing buffer.
 4. **Defer timestamp formatting.** Capture timestamp as a number; format only
 if the formatter requests it.
+
 5. **Specialise integer/float formatting.** Standard library formatting is
 general-purpose; numeric-only paths are faster.
 
@@ -700,8 +716,10 @@ general-purpose; numeric-only paths are faster.
 
 1. **Eliminate accidental per-record flushes.** File::flush() after every write
 kills throughput.
+
 2. **Batch writes.** Collect multiple formatted records into a single write
 call (ADR 004 treat this as follow-on work).
+
 3. **Measure syscalls/record** (perf stat). If high, batching is the target.
 4. **After batching, revisit vectored I/O.** write_vectored() can further
 reduce syscall count.
@@ -728,8 +746,10 @@ boundary; benchmark them separately.
 
 1. **Add a long-running soak test.** 10 minutes at fixed log rate, periodic
 bursts. Measure RSS every second.
+
 2. **Profile allocations.** Queue capacity retained? Buffers not reclaimed?
 Exception payloads pinned?
+
 3. **Consider pooling records (later, not now).** ADR 004 treats this as an
 advanced optimization.
 
@@ -754,8 +774,10 @@ advanced optimization.
 
 1. **Establish baseline** on pinned hardware (minimal load) for each benchmark
 group.
+
 2. **Store baseline JSON** in version control (e.g.,
 `results/baseline-2026-06.json`).
+
 3. **On each PR**, run smoke suite against baseline; report relative change %.
 4. **Quarterly,** re-baseline on fresh hardware to account for system changes.
 

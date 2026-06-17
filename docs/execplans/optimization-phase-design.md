@@ -19,9 +19,11 @@ strategy as a first-class roadmap phase. After completion, the team will have:
 1. A comprehensive roadmap document detailing the benchmarking and
 
    optimization phases.
+
 2. A technical design document specifying fair comparison methodology,
 
    benchmark architecture, and optimization guidance.
+
 3. A foundation for measurable performance improvements guided by evidence
 
    rather than intuition.
@@ -40,25 +42,32 @@ optimization work toward the highest-impact bottlenecks.
 
   synchronous handler patterns must be compared separately, never conflated
   in a single bar chart.
+
 - The design must support Python 3.12+; comparisons run only on supported
 
   CPython versions.
+
 - Benchmarking code must use pyperf for Python cases (calibration, multiple
 
   workers, instability detection, JSON output) and Criterion for Rust
   internals.
+
 - The roadmap document must live in `docs/roadmap.md` and use the
 
   roadmap-doc skill's style.
+
 - The tech design document must live in `docs/tech/benchmarking-and-
 
   optimization.md` and use tech-design-doc skill's style.
+
 - All text must follow British English (en-gb-oxendict) conventions,
 
   including Oxford comma application only when it improves clarity.
+
 - The branch must be named `optimization-phase-design`, tracking
 
   `origin/optimization-phase-design`.
+
 - A PR must be created using the pr-creation skill before this task is
 
   considered complete.
@@ -68,13 +77,16 @@ optimization work toward the highest-impact bottlenecks.
 - Scope: if the roadmap or design documents exceed 2000 lines of
 
   substantive content (combined), stop and escalate to prioritise.
+
 - Dependencies: if external libraries beyond pyperf and Criterion are
 
   required for v0 benchmarking, stop and escalate.
+
 - Ambiguity: if the distinction between "public suite" and "internal lab"
 
   benchmarks becomes unclear during drafting, stop and present
   clarifications.
+
 - Research gaps: if key information on loguru's `enqueue=True` drain
 
   behaviour or picologging queue modes cannot be confirmed via firecrawl,
@@ -120,19 +132,23 @@ optimization work toward the highest-impact bottlenecks.
 
   picologging, loguru enqueue, and Python QueueHandler/QueueListener patterns
   via firecrawl.
+
 - [x] Write execution plan (this document).
 
 - [x] Create roadmap document using roadmap-doc skill covering benchmarking
 
   and optimization phases with milestones.
+
 - [x] Create technical design document using tech-design-doc skill detailing
 
   benchmark strategy, fairness rules, and optimization playbook.
+
 - [x] Apply en-gb-oxendict style corrections across both documents.
 
 - [x] Switch to `optimization-phase-design` branch and track
 
   `origin/optimization-phase-design`.
+
 - [x] Create pull request using pr-creation skill with lody session reference.
 
 - [ ] Fix markdown lint failures (line length, table alignment, code blocks).
@@ -183,32 +199,41 @@ including:
 - Architecture-aware comparison (queue vs. synchronous direct handlers
 
   compared separately).
+
 - Three distinct leaderboards (caller latency, end-to-end completion,
 
   diagnostic internals).
+
 - Specific comparison targets (stdlib logging, stdlib
 
   QueueHandler/QueueListener, picologging, loguru with enqueue=True,
   femtologging variants).
+
 - Benchmark dimensions (framework, handler, workload, concurrency,
 
   queue/batch settings).
+
 - Metrics to collect (caller_ns_per_call, records_enqueued/drained_per_
 
   second, end-to-end latencies, flush time, memory, allocations, context
   switches, syscalls).
+
 - Repository structure for benchmarks (adapters, cases, sinks, runner,
 
   schema, compare, report).
+
 - Fairness rules (equivalent semantics, idiomatic vs. parity modes,
 
   disabled-log handling).
+
 - Measurement protocols (warm-up, pyperf, correctness verification, JSON
 
   export, markdown tables).
+
 - Concrete benchmark groups (disabled hot path, enabled null, direct I/O vs.
 
   queued, file batching, socket, saturation, configuration).
+
 - Regression policy with thresholds by category.
 
 - Optimisation playbook keyed to failing benchmarks.
@@ -224,6 +249,7 @@ Key files referenced:
 - Existing: `rust_extension/benches/config.rs` (Criterion configuration
 
   benchmarks).
+
 - New: `benchmarks/` directory with Python benchmarking suite.
 
 - Documents: `docs/roadmap.md` (roadmap),
@@ -381,16 +407,19 @@ benchmarking.
    git checkout -b optimization-phase-design
    git push -u origin optimization-phase-design
    ```
+
 3. Stage the documents:
 
    ```bash
    git add docs/roadmap.md docs/tech/benchmarking-and-optimization.md
    ```
+
 4. Commit:
 
    ```bash
    git commit -m "Create benchmarking and optimization phase design"
    ```
+
 5. Use pr-creation skill to create the PR:
 
    - Title: "Benchmarking and Optimization Phase Design".
@@ -402,6 +431,7 @@ benchmarking.
    make lint
    make format-check
    ```
+
 7. Ensure PR passes CI checks.
 
 ## Validation and acceptance

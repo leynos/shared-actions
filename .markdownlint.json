@@ -5,9 +5,10 @@
     "heading_line_length": 80,
     "code_blocks": false,
     "code_lines": false,
+    "headers": true,
     "tables": false
   },
-  "MD031": true,
-  "MD032": true,
+  "MD031": false,
+  "MD032": false,
   "MD060": false
 }

@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
+        "73c7eb58e6507c10821998de343586cdcd37f99129f69dd0ec5605fd6d7eb291"
+    ),
+    "linux-x86_64-musl": (
         "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
     ),
     "linux-aarch64-gnu": (

@@ -1,69 +1,108 @@
 # Benchmarking and Optimization Phase Design
 
-This ExecPlan (execution plan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+This ExecPlan (execution plan) is a living document. The sections
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
+proceeds.
 
 Status: APPROVED
 
 ## Purpose / big picture
 
-This work establishes femtologging's benchmarking and performance optimization strategy as a first-class roadmap phase. After completion, the team will have:
+This work establishes femtologging's benchmarking and performance optimization
+strategy as a first-class roadmap phase. After completion, the team will have:
 
-1. A comprehensive roadmap document detailing the benchmarking and optimization phases.
-2. A technical design document specifying fair comparison methodology, benchmark architecture, and optimization guidance.
-3. A foundation for measurable performance improvements guided by evidence rather than intuition.
+1. A comprehensive roadmap document detailing the benchmarking and
+   optimization phases.
+2. A technical design document specifying fair comparison methodology,
+   benchmark architecture, and optimization guidance.
+3. A foundation for measurable performance improvements guided by evidence
+   rather than intuition.
 
-The user-visible outcome is a credible public comparison suite showing femtologging's caller-latency advantage against stdlib `logging`, `picologging`, and `loguru`, paired with an internal laboratory for guiding optimization work toward the highest-impact bottlenecks.
+The user-visible outcome is a credible public comparison suite showing
+femtologging's caller-latency advantage against stdlib `logging`,
+`picologging`, and `loguru`, paired with an internal laboratory for guiding
+optimization work toward the highest-impact bottlenecks.
 
 ## Constraints
 
-- All benchmarking must enforce architectural parity: queue-based and synchronous handler patterns must be compared separately, never conflated in a single bar chart.
-- The design must support Python 3.12+; comparisons run only on supported CPython versions.
-- Benchmarking code must use pyperf for Python cases (calibration, multiple workers, instability detection, JSON output) and Criterion for Rust internals.
-- The roadmap document must live in `docs/roadmap.md` and use the roadmap-doc skill's style.
-- The tech design document must live in `docs/tech/benchmarking-and-optimization.md` and use tech-design-doc skill's style.
-- All text must follow British English (en-gb-oxendict) conventions, including Oxford comma application only when it improves clarity.
-- The branch must be named `optimization-phase-design`, tracking `origin/optimization-phase-design`.
-- A PR must be created using the pr-creation skill before this task is considered complete.
+- All benchmarking must enforce architectural parity: queue-based and
+  synchronous handler patterns must be compared separately, never conflated
+  in a single bar chart.
+- The design must support Python 3.12+; comparisons run only on supported
+  CPython versions.
+- Benchmarking code must use pyperf for Python cases (calibration, multiple
+  workers, instability detection, JSON output) and Criterion for Rust
+  internals.
+- The roadmap document must live in `docs/roadmap.md` and use the
+  roadmap-doc skill's style.
+- The tech design document must live in `docs/tech/benchmarking-and-
+  optimization.md` and use tech-design-doc skill's style.
+- All text must follow British English (en-gb-oxendict) conventions,
+  including Oxford comma application only when it improves clarity.
+- The branch must be named `optimization-phase-design`, tracking
+  `origin/optimization-phase-design`.
+- A PR must be created using the pr-creation skill before this task is
+  considered complete.
 
 ## Tolerances (exception triggers)
 
-- Scope: if the roadmap or design documents exceed 2000 lines of substantive content (combined), stop and escalate to prioritize.
-- Dependencies: if external libraries beyond pyperf and Criterion are required for v0 benchmarking, stop and escalate.
-- Ambiguity: if the distinction between "public suite" and "internal lab" benchmarks becomes unclear during drafting, stop and present clarifications.
-- Research gaps: if key information on loguru's `enqueue=True` drain behaviour or picologging queue modes cannot be confirmed via firecrawl, note the gap and proceed with documented assumptions.
+- Scope: if the roadmap or design documents exceed 2000 lines of
+  substantive content (combined), stop and escalate to prioritise.
+- Dependencies: if external libraries beyond pyperf and Criterion are
+  required for v0 benchmarking, stop and escalate.
+- Ambiguity: if the distinction between "public suite" and "internal lab"
+  benchmarks becomes unclear during drafting, stop and present
+  clarifications.
+- Research gaps: if key information on loguru's `enqueue=True` drain
+  behaviour or picologging queue modes cannot be confirmed via firecrawl,
+  note the gap and proceed with documented assumptions.
 
 ## Risks
 
-- Risk: loguru's `enqueue=True` drain semantics may differ from documented behaviour when the logger is destroyed or `complete()` is called.
+- Risk: loguru's `enqueue=True` drain semantics may differ from documented
+  behaviour when the logger is destroyed or `complete()` is called.
   Severity: medium
   Likelihood: low
-  Mitigation: The design document will call this out as a verification point for the v0 benchmark; initial runs will probe exact semantics.
+  Mitigation: The design document will call this out as a verification point
+  for the v0 benchmark; initial runs will probe exact semantics.
 
-- Risk: picologging queue mode may not exist or may have incompatible API relative to stdlib QueueHandler.
+- Risk: picologging queue mode may not exist or may have incompatible API
+  relative to stdlib QueueHandler.
   Severity: medium
   Likelihood: medium
-  Mitigation: Design includes picologging queue mode as "optional if available"; v0 starts with sync only and adds queue mode post-verification.
+  Mitigation: Design includes picologging queue mode as "optional if
+  available"; v0 starts with sync only and adds queue mode post-verification.
 
-- Risk: The three-leaderboard model (caller latency, end-to-end, diagnostic internals) may be perceived as overcomplicated by external users.
+- Risk: The three-leaderboard model (caller latency, end-to-end, diagnostic
+  internals) may be perceived as overcomplicated by external users.
   Severity: low
   Likelihood: medium
-  Mitigation: The design document includes a "benchmark meaning" primer explaining why three leaderboards prevent misleading comparisons.
+  Mitigation: The design document includes a "benchmark meaning" primer
+  explaining why three leaderboards prevent misleading comparisons.
 
-- Risk: Rust internal benchmarks (Criterion) may show noise on the shared CI runner, making regressions hard to gate.
+- Risk: Rust internal benchmarks (Criterion) may show noise on the shared CI
+  runner, making regressions hard to gate.
   Severity: medium
   Likelihood: high
-  Mitigation: The design recommends running Criterion on pinned bare-metal or mostly-idle hardware, not shared CI; CI runs a smoke variant.
+  Mitigation: The design recommends running Criterion on pinned bare-metal
+  or mostly-idle hardware, not shared CI; CI runs a smoke variant.
 
 ## Progress
 
-- [x] (2026-06-17 14:00Z) Research phase: gathered information on pyperf, picologging, loguru enqueue, and Python QueueHandler/QueueListener patterns via firecrawl.
-- [ ] Write execution plan (this document).
-- [ ] Create roadmap document using roadmap-doc skill covering benchmarking and optimization phases with milestones.
-- [ ] Create technical design document using tech-design-doc skill detailing benchmark strategy, fairness rules, and optimization playbook.
-- [ ] Apply en-gb-oxendict style corrections across both documents.
-- [ ] Switch to `optimization-phase-design` branch and track `origin/optimization-phase-design`.
-- [ ] Create pull request using pr-creation skill with lody session reference.
-- [ ] Gate PR with lint/format checks via Makefile.
+- [x] (2026-06-17 14:00Z) Research phase: gathered information on pyperf,
+  picologging, loguru enqueue, and Python QueueHandler/QueueListener patterns
+  via firecrawl.
+- [x] Write execution plan (this document).
+- [x] Create roadmap document using roadmap-doc skill covering benchmarking
+  and optimization phases with milestones.
+- [x] Create technical design document using tech-design-doc skill detailing
+  benchmark strategy, fairness rules, and optimization playbook.
+- [x] Apply en-gb-oxendict style corrections across both documents.
+- [x] Switch to `optimization-phase-design` branch and track
+  `origin/optimization-phase-design`.
+- [x] Create pull request using pr-creation skill with lody session reference.
+- [ ] Fix markdown lint failures (line length, table alignment, code blocks).
 
 ## Surprises & discoveries
 
@@ -85,44 +124,72 @@ None yet; research phase confirmed expected information.
 
 ## Outcomes & retrospective
 
-Work in progress; this section will be completed upon finishing the roadmap and design documents.
+Work in progress; this section will be completed upon finishing the roadmap and
+design documents.
 
 ## Context and orientation
 
-Femtologging is a high-performance async Python logging library built on Rust with an MPSC queue architecture. Log records created on producer threads are enqueued and processed by dedicated consumer threads (Rust-based workers) that handle formatting and I/O. The library aims to minimize caller-side latency while providing predictable end-to-end logging behaviour.
+Femtologging is a high-performance async Python logging library built on
+Rust with an MPSC queue architecture. Log records created on producer threads
+are enqueued and processed by dedicated consumer threads (Rust-based workers)
+that handle formatting and I/O. The library aims to minimise caller-side
+latency whilst providing predictable end-to-end logging behaviour.
 
-The user has provided extensive specifications for benchmarking strategy, including:
-- Architecture-aware comparison (queue vs. synchronous direct handlers compared separately).
-- Three distinct leaderboards (caller latency, end-to-end completion, diagnostic internals).
-- Specific comparison targets (stdlib logging, stdlib QueueHandler/QueueListener, picologging, loguru with enqueue=True, femtologging variants).
-- Benchmark dimensions (framework, handler, workload, concurrency, queue/batch settings).
-- Metrics to collect (caller_ns_per_call, records_enqueued/drained_per_second, end-to-end latencies, flush time, memory, allocations, context switches, syscalls).
-- Repository structure for benchmarks (adapters, cases, sinks, runner, schema, compare, report).
-- Fairness rules (equivalent semantics, idiomatic vs. parity modes, disabled-log handling).
-- Measurement protocols (warm-up, pyperf, correctness verification, JSON export, markdown tables).
-- Concrete benchmark groups (disabled hot path, enabled null, direct I/O vs. queued, file batching, socket, saturation, configuration).
+The user has provided extensive specifications for benchmarking strategy,
+including:
+
+- Architecture-aware comparison (queue vs. synchronous direct handlers
+  compared separately).
+- Three distinct leaderboards (caller latency, end-to-end completion,
+  diagnostic internals).
+- Specific comparison targets (stdlib logging, stdlib
+  QueueHandler/QueueListener, picologging, loguru with enqueue=True,
+  femtologging variants).
+- Benchmark dimensions (framework, handler, workload, concurrency,
+  queue/batch settings).
+- Metrics to collect (caller_ns_per_call, records_enqueued/drained_per_
+  second, end-to-end latencies, flush time, memory, allocations, context
+  switches, syscalls).
+- Repository structure for benchmarks (adapters, cases, sinks, runner,
+  schema, compare, report).
+- Fairness rules (equivalent semantics, idiomatic vs. parity modes,
+  disabled-log handling).
+- Measurement protocols (warm-up, pyperf, correctness verification, JSON
+  export, markdown tables).
+- Concrete benchmark groups (disabled hot path, enabled null, direct I/O vs.
+  queued, file batching, socket, saturation, configuration).
 - Regression policy with thresholds by category.
-- Optimization playbook keyed to failing benchmarks.
-- Strategic success criteria (must win: caller latency with I/O, multi-threaded throughput, predictable drain, low/zero drops; nice to win: single-threaded null, config speed; do not contort: eager f-strings, terminal output, per-record flush).
+- Optimisation playbook keyed to failing benchmarks.
+- Strategic success criteria (must win: caller latency with I/O,
+  multi-threaded throughput, predictable drain, low/zero drops; nice to win:
+  single-threaded null, config speed; do not contort: eager f-strings,
+  terminal output, per-record flush).
 
 Key files referenced:
-- Existing: `rust_extension/benches/config.rs` (Criterion configuration benchmarks).
+
+- Existing: `rust_extension/benches/config.rs` (Criterion configuration
+  benchmarks).
 - New: `benchmarks/` directory with Python benchmarking suite.
-- Documents: `docs/roadmap.md` (roadmap), `docs/tech/benchmarking-and-optimization.md` (design).
+- Documents: `docs/roadmap.md` (roadmap),
+  `docs/tech/benchmarking-and-optimization.md` (design).
 
 ## Plan of work
 
 ### Stage A: Create roadmap document
 
-The roadmap document serves as a high-level strategic view of how benchmarking and optimization fit into femtologging's evolution. It will:
+The roadmap document serves as a high-level strategic view of how benchmarking
+and optimization fit into femtologging's evolution. It will:
 
 1. Position benchmarking and optimization as a distinct roadmap phase.
-2. List key milestones: v0 smoke suite, full Python matrix, Rust internal lab, regression gates, public reporting.
-3. Explain the three-leaderboard philosophy and why it prevents benchmark misinterpretation.
+2. List key milestones: v0 smoke suite, full Python matrix, Rust internal lab,
+regression gates, public reporting.
+3. Explain the three-leaderboard philosophy and why it prevents benchmark
+misinterpretation.
 4. Outline success criteria and measurement strategy.
 5. Reference the companion technical design document for implementation details.
 
-Use the roadmap-doc skill to author `docs/roadmap.md` in standard structure (goals, phases, milestones, dependencies, risks, success metrics).
+Use the roadmap-doc skill to author `docs/roadmap.md` in standard structure
+(goals, phases, milestones, dependencies, risks, success metrics).
 
 ### Stage B: Create technical design document
 
@@ -131,15 +198,21 @@ The design document is the executable specification. It will:
 1. Deep-dive into benchmark philosophy and the three-leaderboard model.
 2. Specify comparison targets, benchmark dimensions, and metric schema.
 3. Outline repository structure for the benchmarking code.
-4. Document fairness rules (architectural parity, idiomatic vs. parity modes, disabled-log handling).
-5. Provide measurement protocols (warm-up, pyperf, correctness verification, JSON/markdown export).
-6. Detail concrete benchmark groups (disabled hot path, enabled null, I/O, batching, socket, saturation, configuration).
-7. Include the optimization playbook: bottleneck classification and targeted fixes.
+4. Document fairness rules (architectural parity, idiomatic vs. parity modes,
+disabled-log handling).
+5. Provide measurement protocols (warm-up, pyperf, correctness verification,
+JSON/markdown export).
+6. Detail concrete benchmark groups (disabled hot path, enabled null, I/O,
+batching, socket, saturation, configuration).
+7. Include the optimization playbook: bottleneck classification and targeted
+fixes.
 8. Specify regression policy (thresholds by category, rolling baseline).
 9. Document reporting format (raw JSON, Criterion output, summary tables).
 10. Provide an immediate v0 implementation plan.
 
-Use the tech-design-doc skill to author `docs/tech/benchmarking-and-optimization.md` in standard structure (overview, philosophy, design details, acceptance criteria, appendices).
+Use the tech-design-doc skill to author
+`docs/tech/benchmarking-and-optimization.md` in standard structure (overview,
+philosophy, design details, acceptance criteria, appendices).
 
 ### Stage C: Apply British English and Oxford dictionary style
 
@@ -153,7 +226,8 @@ Use the en-gb-oxendict skill to scan both documents and apply:
 ### Stage D: Branch switch and PR creation
 
 1. Ensure all uncommitted changes are staged (roadmap and design documents).
-2. Switch to or create branch `optimization-phase-design` tracking `origin/optimization-phase-design`.
+2. Switch to or create branch `optimization-phase-design` tracking
+`origin/optimization-phase-design`.
 3. Commit changes with a meaningful commit message.
 4. Use pr-creation skill to create a pull request with:
    - Title: "Benchmarking and Optimization Phase Design"
@@ -171,7 +245,8 @@ Use the en-gb-oxendict skill to scan both documents and apply:
    - Phase 2: Expansion (full Python matrix, multi-threaded concurrency sweep, Rust internals).
    - Phase 3: Regression gates and public reporting (establish baselines, CI gates, public comparison tools).
    - Phase 4: Optimization loop (target high-impact bottlenecks, implement, measure, regression gate).
-3. Include milestones, dependencies, and success criteria specific to benchmarking.
+3. Include milestones, dependencies, and success criteria specific to
+benchmarking.
 
 ### Technical design document
 
@@ -193,7 +268,8 @@ Use the en-gb-oxendict skill to scan both documents and apply:
 
 ### British English correction
 
-1. Run en-gb-oxendict skill on both `docs/roadmap.md` and `docs/tech/benchmarking-and-optimization.md`.
+1. Run en-gb-oxendict skill on both `docs/roadmap.md` and
+`docs/tech/benchmarking-and-optimization.md`.
 2. Review changes and accept or customize as needed.
 
 ### Branch and PR
@@ -327,7 +403,7 @@ class LoggingAdapter(ABC):
     def get_metrics(self) -> Dict[str, Any]:
         """Return a dict of metrics collected during the run."""
         pass
-```
+```bash
 
 In `benchmarks/femtobench/schema.py`:
 
@@ -361,10 +437,12 @@ class BenchmarkMetrics:
     concurrency: int
     queue_capacity: int
     batch_capacity: int
-```
+```bash
 
 ---
 
 ## Revision note
 
-Initial draft completed 2026-06-17. Plan covers research, document creation, style correction, branch management, and PR creation. Status is APPROVED and ready for execution.
+Initial draft completed 2026-06-17. Plan covers research, document creation,
+style correction, branch management, and PR creation. Status is APPROVED and
+ready for execution.

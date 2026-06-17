@@ -6,15 +6,23 @@ Last Updated: 2026-06-17
 
 ## Executive summary
 
-Femtologging's queue-based architecture fundamentally differs from synchronous logging libraries. This design document specifies a three-leaderboard benchmarking methodology, fair comparison targets, and an optimization playbook to guide performance improvements.
+Femtologging's queue-based architecture fundamentally differs from synchronous
+logging libraries. This design document specifies a three-leaderboard
+benchmarking methodology, fair comparison targets, and an optimization playbook
+to guide performance improvements.
 
 The three leaderboards are:
 
-1. **Caller-visible cost:** Time spent inside the logging call on producer threads (where femtologging should excel).
-2. **End-to-end completion:** Wall-clock time from first log call to final flush and drain (prevents asynchronous libraries from hiding work).
-3. **Diagnostic internals:** Granular costs (record creation, channel send, formatter, worker drain) guiding optimizations.
+1. **Caller-visible cost:** Time spent inside the logging call on producer
+threads (where femtologging should excel).
+2. **End-to-end completion:** Wall-clock time from first log call to final
+flush and drain (prevents asynchronous libraries from hiding work).
+3. **Diagnostic internals:** Granular costs (record creation, channel send,
+formatter, worker drain) guiding optimizations.
 
-Using pyperf for Python and Criterion for Rust, this strategy measures architecture-aware fairness, establishes regression gates, and provides the evidence base for optimization PRs.
+Using pyperf for Python and Criterion for Rust, this strategy measures
+architecture-aware fairness, establishes regression gates, and provides the
+evidence base for optimization PRs.
 
 ---
 
@@ -22,7 +30,10 @@ Using pyperf for Python and Criterion for Rust, this strategy measures architect
 
 ### 1.1 The three-leaderboard model
 
-**Problem:** A single benchmark conflates asynchronous caller latency with end-to-end work, producing misleading rankings. An asynchronous library might report fast caller latency while hiding a mountain of work in background threads.
+**Problem:** A single benchmark conflates asynchronous caller latency with
+end-to-end work, producing misleading rankings. An asynchronous library might
+report fast caller latency while hiding a mountain of work in background
+threads.
 
 **Solution:** Three separate leaderboards prevent this conflation.
 
@@ -30,7 +41,10 @@ Using pyperf for Python and Criterion for Rust, this strategy measures architect
 
 **Measures:** How long the application thread spends inside the logging call.
 
-**Why it matters:** Femtologging's design pushes formatting and I/O to consumer threads through MPSC queues, minimising producer thread time. For frameworks using queue modes (stdlib QueueHandler/QueueListener, loguru enqueue=True), this is the fair comparison.
+**Why it matters:** Femtologging's design pushes formatting and I/O to consumer
+threads through MPSC queues, minimising producer thread time. For frameworks
+using queue modes (stdlib QueueHandler/QueueListener, loguru enqueue=True), this
+is the fair comparison.
 
 **Interpretation:**
 - Femtologging should dominate here when compared fairly against queue-capable frameworks.
@@ -42,9 +56,12 @@ Using pyperf for Python and Criterion for Rust, this strategy measures architect
 
 #### Leaderboard 2: End-to-end completion
 
-**Measures:** Wall-clock time from the first log call until all records have reached the sink and the logger has flushed or drained.
+**Measures:** Wall-clock time from the first log call until all records have
+reached the sink and the logger has flushed or drained.
 
-**Why it matters:** Prevents asynchronous libraries from winning by hiding cost. For femtologging, this means "enqueue all records, flush, drain, verify all records reached output."
+**Why it matters:** Prevents asynchronous libraries from winning by hiding
+cost. For femtologging, this means "enqueue all records, flush, drain, verify
+all records reached output."
 
 **Interpretation:**
 - Synchronous frameworks with efficient formatting may win here (no queue overhead, single pass).
@@ -58,9 +75,12 @@ Using pyperf for Python and Criterion for Rust, this strategy measures architect
 
 #### Leaderboard 3: Diagnostic internals
 
-**Measures:** Granular costs of individual operations (record creation, channel send, formatter, worker drain) and resource metrics (memory, allocations, context switches, syscalls).
+**Measures:** Granular costs of individual operations (record creation, channel
+send, formatter, worker drain) and resource metrics (memory, allocations,
+context switches, syscalls).
 
-**Why it matters:** Guides optimization work without re-running the full suite for every hypothesis. Points to the hot metal.
+**Why it matters:** Guides optimization work without re-running the full suite
+for every hypothesis. Points to the hot metal.
 
 **Interpretation:**
 - Not directly comparable across frameworks (each may measure different things).
@@ -69,7 +89,9 @@ Using pyperf for Python and Criterion for Rust, this strategy measures architect
 
 ### 1.2 Architectural awareness
 
-Frameworks supporting async-via-queue have fundamentally different latency trade-offs. Comparing a synchronous direct handler with an async queue handler produces meaningless results.
+Frameworks supporting async-via-queue have fundamentally different latency
+trade-offs. Comparing a synchronous direct handler with an async queue handler
+produces meaningless results.
 
 **Architectural classification:**
 
@@ -82,7 +104,9 @@ Frameworks supporting async-via-queue have fundamentally different latency trade
 | loguru          | enqueue=True         | Enqueues only   | Background      | With stdlib QueueHandler and femtologging      |
 | femtologging    | Default              | Enqueues only   | Rust workers    | With stdlib QueueHandler and loguru enqueue=True |
 
-**Fairness rule:** Never put a queue-based framework's caller latency on the same chart as a synchronous framework's end-to-end time. Label the leaderboard clearly so a reader cannot make that mistake.
+**Fairness rule:** Never put a queue-based framework's caller latency on the
+same chart as a synchronous framework's end-to-end time. Label the leaderboard
+clearly so a reader cannot make that mistake.
 
 ---
 
@@ -103,7 +127,8 @@ Frameworks supporting async-via-queue have fundamentally different latency trade
 
 ### 2.2 Implementation guidance for adapters
 
-Each adapter must enforce semantic equivalence whilst allowing architectural honesty.
+Each adapter must enforce semantic equivalence whilst allowing architectural
+honesty.
 
 **Disabled logs (level too low to generate a record):**
 - Level check must happen first; no record creation, no timestamp, no metadata.
@@ -132,7 +157,8 @@ Each adapter must enforce semantic equivalence whilst allowing architectural hon
 
 ## 3. Benchmark Dimensions
 
-The core matrix varies framework, handler, workload, concurrency, and queue/batch settings.
+The core matrix varies framework, handler, workload, concurrency, and
+queue/batch settings.
 
 ### 3.1 Framework
 
@@ -243,13 +269,13 @@ Every benchmark result must include:
     "timestamp": "2026-06-17T14:30:00Z"
   }
 }
-```
+```python
 
 ---
 
 ## 5. Repository Structure
 
-```
+```python
 benchmarks/
 ├── README.md                           # Benchmarking guide
 ├── pyproject.toml                      # Python project config
@@ -290,7 +316,7 @@ benchmarks/
 ├── results/
 │   └── .gitkeep
 └── Makefile                            # Targets: bench-smoke, bench-python, bench-rust, bench-compare
-```
+```python
 
 ---
 
@@ -344,17 +370,22 @@ class LoggingAdapter(ABC):
     def get_metrics(self) -> Dict[str, Any]:
         """Return metrics collected during the run."""
         pass
-```
+```python
 
 ### 6.2 Implementation expectations
 
 Each adapter must:
 
-1. **Enforce semantic equivalence:** Same level, format string, and output destination as other frameworks.
-2. **Measure honestly:** Don't bypass the framework's normal path to save latency.
-3. **Handle queue draining:** Queue-based frameworks must fully drain in flush_and_close().
-4. **Verify correctness:** Record count, no unexpected drops, no malformed output.
-5. **Collect metrics:** Record caller latency, throughput, memory, and framework-specific diagnostics.
+1. **Enforce semantic equivalence:** Same level, format string, and output
+destination as other frameworks.
+2. **Measure honestly:** Don't bypass the framework's normal path to save
+latency.
+3. **Handle queue draining:** Queue-based frameworks must fully drain in
+flush_and_close().
+4. **Verify correctness:** Record count, no unexpected drops, no malformed
+output.
+5. **Collect metrics:** Record caller latency, throughput, memory, and
+framework-specific diagnostics.
 
 ### 6.3 Fairness checks
 
@@ -372,7 +403,8 @@ Before every benchmark run:
 
 ### 7.1 Architectural parity
 
-Queue-based and synchronous handlers are fundamentally different. Fairness requires honest representation of both.
+Queue-based and synchronous handlers are fundamentally different. Fairness
+requires honest representation of both.
 
 **For synchronous (direct) handlers:**
 - Formatter and I/O happen on the caller thread.
@@ -404,15 +436,21 @@ Report both; parity mode data informs performance comparison.
 
 ### 7.3 Disabled-log argument handling
 
-Python evaluates function arguments before the function is called. `logger.debug("x=%s", expensive())` calls `expensive()` even if the log level disables the record.
+Python evaluates function arguments before the function is called.
+`logger.debug("x=%s", expensive())` calls `expensive()` even if the log level
+disables the record.
 
 Benchmarks must account for this:
 
 1. **Disabled literal:** `debug("constant")` — no arguments to evaluate.
-2. **Disabled cheap args:** `debug("x=%s", x)` — argument exists but is cheap (variable reference).
-3. **Disabled eager f-string:** `debug(f"x={expensive()}")` — demonstrates user-side eagerness, not framework overhead. Label this as "user expression cost", not framework cost.
+2. **Disabled cheap args:** `debug("x=%s", x)` — argument exists but is cheap
+(variable reference).
+3. **Disabled eager f-string:** `debug(f"x={expensive()}")` — demonstrates
+user-side eagerness, not framework overhead. Label this as "user expression
+cost", not framework cost.
 
-Framework comparison should focus on disabled literal and disabled cheap args; eager f-strings are a user choice.
+Framework comparison should focus on disabled literal and disabled cheap args;
+eager f-strings are a user choice.
 
 ---
 
@@ -423,8 +461,10 @@ Framework comparison should focus on disabled literal and disabled cheap args; e
 Before each benchmark:
 
 1. Run the workload once without timing (warm-up cache, scheduler).
-2. Let pyperf calibrate the number of iterations to reach a target runtime (default: 1 second per run).
-3. Repeat the benchmark multiple times with pyperf managing iteration count and worker processes.
+2. Let pyperf calibrate the number of iterations to reach a target runtime
+(default: 1 second per run).
+3. Repeat the benchmark multiple times with pyperf managing iteration count and
+worker processes.
 
 ### 8.2 pyperf invocation
 
@@ -440,7 +480,7 @@ runner.bench_func('benchmark_name', bench_func, *args)
 # - Calibrate iteration count automatically
 # - Detect instability and warn if CV > 10%
 # - Export JSON with metadata
-```
+```python
 
 ### 8.3 Correctness verification
 
@@ -457,7 +497,7 @@ def verify_correctness(adapter, expected_records: int, expected_bytes: int) -> N
         f"Unexpected drops: {metrics['drops']}"
     assert metrics['bytes_written'] >= expected_bytes * 0.9, \
         f"Output size too small: {metrics['bytes_written']} < {expected_bytes * 0.9}"
-```
+```python
 
 ### 8.4 JSON export and markdown generation
 
@@ -486,7 +526,7 @@ print("| Framework | Caller latency (µs) | E2E latency (µs) |")
 print("|---|---|---|")
 for framework, metrics in results.items():
     print(f"| {framework} | {metrics['caller_ns_per_call']/1000:.2f} | ...")
-```
+```python
 
 ---
 
@@ -504,7 +544,8 @@ for framework, metrics in results.items():
 
 **Metrics:** caller_ns_per_call, allocations, context switches.
 
-**Expected:** <50 ns/call for frameworks with efficient level checks. Expensive args case should be faster if guarded.
+**Expected:** <50 ns/call for frameworks with efficient level checks. Expensive
+args case should be faster if guarded.
 
 ### 9.2 Group B: Enabled no-output path
 
@@ -518,9 +559,12 @@ for framework, metrics in results.items():
 - enabled_filter_accept_null: filter evaluates and returns True
 - enabled_filter_reject_null: filter evaluates and returns False
 
-**Metrics:** caller_ns_per_call, allocations_per_record, records_enqueued_per_second.
+**Metrics:** caller_ns_per_call, allocations_per_record,
+records_enqueued_per_second.
 
-**Expected:** Femtologging shows minimal caller latency. Picologging sync and loguru enqueue=False show higher latency (formatting overhead). Stdlib shows baseline.
+**Expected:** Femtologging shows minimal caller latency. Picologging sync and
+loguru enqueue=False show higher latency (formatting overhead). Stdlib shows
+baseline.
 
 ### 9.3 Group C: Direct I/O vs. queued I/O
 
@@ -534,27 +578,35 @@ for framework, metrics in results.items():
 - file_real_disk_sync
 - file_real_disk_queue
 
-**Metrics:** caller_ns_per_call, end_to_end_ns_p50/p99, records_drained_per_second, bytes_written_per_second.
+**Metrics:** caller_ns_per_call, end_to_end_ns_p50/p99,
+records_drained_per_second, bytes_written_per_second.
 
-**Expected:** Sync handlers show high caller latency; queue handlers show lower caller latency and higher end-to-end. Femtologging should lead in caller latency; end-to-end depends on worker efficiency.
+**Expected:** Sync handlers show high caller latency; queue handlers show lower
+caller latency and higher end-to-end. Femtologging should lead in caller
+latency; end-to-end depends on worker efficiency.
 
 ### 9.4 Group D: File batching
 
 **Goal:** Optimise femtologging's consumer workers.
 
-**Cases:** Vary batch_capacity (1, 4, 16, 64, 256) and producer_threads (1, 4, 16, 64) with file sink on tmpfs.
+**Cases:** Vary batch_capacity (1, 4, 16, 64, 256) and producer_threads (1, 4,
+16, 64) with file sink on tmpfs.
 
-**Metrics:** records_per_second, syscalls_per_record, flush_ns, shutdown_drain_ns, p99 caller latency.
+**Metrics:** records_per_second, syscalls_per_record, flush_ns,
+shutdown_drain_ns, p99 caller latency.
 
-**Expected:** Larger batch capacity improves throughput but may increase tail latency under saturation. Trade-off data informs batching strategy.
+**Expected:** Larger batch capacity improves throughput but may increase tail
+latency under saturation. Trade-off data informs batching strategy.
 
 ### 9.5 Group E: Socket handler
 
 **Goal:** Test serialisation and reconnection without network randomness.
 
-**Cases:** TCP loopback and Unix socket, payload sizes 32 B / 128 B / 1 KiB, batch capacity sweep.
+**Cases:** TCP loopback and Unix socket, payload sizes 32 B / 128 B / 1 KiB,
+batch capacity sweep.
 
-**Metrics:** caller_ns_per_call, serialisation latency, frame correctness (validate four-byte length prefix and MessagePack payload).
+**Metrics:** caller_ns_per_call, serialisation latency, frame correctness
+(validate four-byte length prefix and MessagePack payload).
 
 **Expected:** Socket overhead is predictable. Frame format is correct.
 
@@ -570,15 +622,18 @@ for framework, metrics in results.items():
 - producer_spike_while_rotating (measure interference)
 - socket_disconnected_then_reconnect
 
-**Metrics:** caller_ns_p50/p99/p999, drops, blocked_time_ns, drain_ns, memory_growth_bytes.
+**Metrics:** caller_ns_p50/p99/p999, drops, blocked_time_ns, drain_ns,
+memory_growth_bytes.
 
-**Expected:** Bounded and predictable behaviour. Drops only when policy allows. Recovery is clean.
+**Expected:** Bounded and predictable behaviour. Drops only when policy allows.
+Recovery is clean.
 
 ### 9.7 Group G: Configuration benchmarks
 
 **Goal:** Measure startup cost.
 
-**Cases:** Extend existing Criterion benches in rust_extension/benches/config.rs. Add Python pyperf cases:
+**Cases:** Extend existing Criterion benches in
+rust_extension/benches/config.rs. Add Python pyperf cases:
 - femtologging_basicConfig
 - femtologging_dictConfig
 - femtologging_builder
@@ -589,52 +644,67 @@ for framework, metrics in results.items():
 
 **Metrics:** Configuration time (ms).
 
-**Expected:** Configuration is not the hot path, but fast startup aids adoption. Femtologging builder should be competitive.
+**Expected:** Configuration is not the hot path, but fast startup aids
+adoption. Femtologging builder should be competitive.
 
 ---
 
 ## 10. Optimization Playbook
 
-When benchmarks reveal a bottleneck, use this playbook to guide investigation and implementation.
+When benchmarks reveal a bottleneck, use this playbook to guide investigation
+and implementation.
 
 ### 10.1 Disabled logs are too slow (>50 ns/call expected baseline)
 
-1. **Measure level lookup.** Is the effective level check fast? Cache misses? Python interpreter overhead?
-2. **Optimise level check first.** Use integer comparison, avoid frame inspection or context lookups until after level check.
-3. **Disable timestamp and metadata allocation** until after level check (already required by design).
+1. **Measure level lookup.** Is the effective level check fast? Cache misses?
+Python interpreter overhead?
+2. **Optimise level check first.** Use integer comparison, avoid frame
+inspection or context lookups until after level check.
+3. **Disable timestamp and metadata allocation** until after level check
+(already required by design).
 
 ### 10.2 Enabled NullHandler is too slow
 
-1. **Profile allocations.** PyO3 conversions? RecordMetadata allocation? BTreeMap creation for empty key-value?
-2. **Use lazy metadata.** Store None/empty singleton for fields until a formatter or handler requires them.
-3. **Avoid BTreeMap for zero or single fields.** Use SmallVec or inline small map.
+1. **Profile allocations.** PyO3 conversions? RecordMetadata allocation?
+BTreeMap creation for empty key-value?
+2. **Use lazy metadata.** Store None/empty singleton for fields until a
+formatter or handler requires them.
+3. **Avoid BTreeMap for zero or single fields.** Use SmallVec or inline small
+map.
 4. **Reuse buffers.** Python string creation in tight loops is expensive.
 
 ### 10.3 Multi-threaded enqueue slows down
 
-1. **Benchmark channel capacity and contention.** crossbeam-channel performance degrades under high contention.
+1. **Benchmark channel capacity and contention.** crossbeam-channel performance
+degrades under high contention.
 2. **Try in order:**
    - Increase queue capacity (reduce lock contention).
    - Tune batch drain capacity.
    - Try non-blocking send with explicit drop accounting.
    - Shard queue by thread ID (if contention is the issue).
    - Profile context switches (perf stat).
-3. **Do not swap channel crates.** ADR 004 chose crossbeam-channel for good reasons; a swap is a last resort.
+3. **Do not swap channel crates.** ADR 004 chose crossbeam-channel for good
+reasons; a swap is a last resort.
 
 ### 10.4 Formatting dominates
 
 1. **Preparse format strings.** Cache the parsed format template.
 2. **Reuse buffers.** Allocate once per worker, write into the same buffer.
 3. **Avoid `format!` in loops.** Use write! into an existing buffer.
-4. **Defer timestamp formatting.** Capture timestamp as a number; format only if the formatter requests it.
-5. **Specialise integer/float formatting.** Standard library formatting is general-purpose; numeric-only paths are faster.
+4. **Defer timestamp formatting.** Capture timestamp as a number; format only
+if the formatter requests it.
+5. **Specialise integer/float formatting.** Standard library formatting is
+general-purpose; numeric-only paths are faster.
 
 ### 10.5 File throughput lags
 
-1. **Eliminate accidental per-record flushes.** File::flush() after every write kills throughput.
-2. **Batch writes.** Collect multiple formatted records into a single write call (ADR 004 treat this as follow-on work).
+1. **Eliminate accidental per-record flushes.** File::flush() after every write
+kills throughput.
+2. **Batch writes.** Collect multiple formatted records into a single write
+call (ADR 004 treat this as follow-on work).
 3. **Measure syscalls/record** (perf stat). If high, batching is the target.
-4. **After batching, revisit vectored I/O.** write_vectored() can further reduce syscall count.
+4. **After batching, revisit vectored I/O.** write_vectored() can further
+reduce syscall count.
 
 ### 10.6 Socket throughput lags
 
@@ -644,19 +714,24 @@ When benchmarks reveal a bottleneck, use this playbook to guide investigation an
    - Combine them to find the bottleneck.
 2. **Reuse serialisation buffers.** Allocate once per worker; clear and reuse.
 3. **Batch frames.** Collect multiple serialised records into one write call.
-4. **Avoid per-record frame-header allocation.** Reuse a template for the four-byte length prefix.
+4. **Avoid per-record frame-header allocation.** Reuse a template for the
+four-byte length prefix.
 
 ### 10.7 Filters are expensive
 
 1. **Keep fast path brutally plain.** Level check → filters. No other branches.
 2. **Store filter collections in Arc<[...]>.** Readers do not need a lock.
-3. **Split Rust-native filters from Python callbacks.** Callbacks cross PyO3 boundary; benchmark them separately.
+3. **Split Rust-native filters from Python callbacks.** Callbacks cross PyO3
+boundary; benchmark them separately.
 
 ### 10.8 Memory grows under bursts
 
-1. **Add a long-running soak test.** 10 minutes at fixed log rate, periodic bursts. Measure RSS every second.
-2. **Profile allocations.** Queue capacity retained? Buffers not reclaimed? Exception payloads pinned?
-3. **Consider pooling records (later, not now).** ADR 004 treats this as an advanced optimization.
+1. **Add a long-running soak test.** 10 minutes at fixed log rate, periodic
+bursts. Measure RSS every second.
+2. **Profile allocations.** Queue capacity retained? Buffers not reclaimed?
+Exception payloads pinned?
+3. **Consider pooling records (later, not now).** ADR 004 treats this as an
+advanced optimization.
 
 ---
 
@@ -677,8 +752,10 @@ When benchmarks reveal a bottleneck, use this playbook to guide investigation an
 
 ### 11.2 Baseline and rolling updates
 
-1. **Establish baseline** on pinned hardware (minimal load) for each benchmark group.
-2. **Store baseline JSON** in version control (e.g., `results/baseline-2026-06.json`).
+1. **Establish baseline** on pinned hardware (minimal load) for each benchmark
+group.
+2. **Store baseline JSON** in version control (e.g.,
+`results/baseline-2026-06.json`).
 3. **On each PR**, run smoke suite against baseline; report relative change %.
 4. **Quarterly,** re-baseline on fresh hardware to account for system changes.
 
@@ -697,14 +774,14 @@ When benchmarks reveal a bottleneck, use this playbook to guide investigation an
 
 Each benchmark run produces:
 
-```
+```python
 results/<date>/<commit>/
 ├── raw.pyperf.json              # pyperf native output
 ├── criterion/                   # Criterion HTML reports (if run)
 ├── summary.json                 # Canonical metrics schema
 ├── summary.md                   # Markdown summary table
 └── metadata.json                # System configuration, commit info
-```
+```python
 
 ### 12.2 Summary table format
 
@@ -716,11 +793,12 @@ results/<date>/<commit>/
 | enabled file tmpfs      | loguru       | enqueue=False | 0.9          | 2.3              | 6            | 0     |
 | enabled file tmpfs      | loguru       | enqueue=True  | 0.12         | 1.8              | 9            | 0     |
 | enabled file tmpfs      | femtologging | async  | 0.08                | 1.7              | 7            | 0     |
-```
+```python
 
 ### 12.3 Benchmark meaning primer
 
-Include a section explaining what each leaderboard measures and when to trust it:
+Include a section explaining what each leaderboard measures and when to trust
+it:
 
 ```markdown
 ## Understanding the benchmark results
@@ -741,7 +819,7 @@ indicates a leak or inefficient buffering.
 
 **Drops:** Records lost due to queue overflow. Must be zero except in
 explicitly-tested saturation scenarios.
-```
+```python
 
 ---
 
@@ -749,9 +827,10 @@ explicitly-tested saturation scenarios.
 
 ### 13.1 Narrow v0 scope
 
-Start with benchmarks that validate methodology without overwhelming implementation:
+Start with benchmarks that validate methodology without overwhelming
+implementation:
 
-```
+```python
 Disabled hot path:
   - disabled_literal (1 thread)
   
@@ -769,7 +848,7 @@ Saturation:
   
 Configuration:
   - basicConfig, dictConfig, builder
-```
+```python
 
 ### 13.2 V0 comparison targets
 
@@ -817,7 +896,9 @@ Add picologging queue mode and femtologging variants post-v0.
 
 ### 14.2 External artefact listings
 
-Schemata, interface definitions, and architecture diagrams are defined in separate files under `benchmarks/femtobench/` and referenced by the implementation.
+Schemata, interface definitions, and architecture diagrams are defined in
+separate files under `benchmarks/femtobench/` and referenced by the
+implementation.
 
 ---
 
@@ -825,24 +906,37 @@ Schemata, interface definitions, and architecture diagrams are defined in separa
 
 This design document specifies:
 
-1. **Three-leaderboard philosophy:** Caller latency, end-to-end completion, diagnostic internals. Each leaderboard answers a different question and prevents misleading comparisons.
+1. **Three-leaderboard philosophy:** Caller latency, end-to-end completion,
+diagnostic internals. Each leaderboard answers a different question and prevents
+misleading comparisons.
 
-2. **Fair comparison targets:** Frameworks and modes classified by architecture, so queue-based libraries are compared fairly.
+2. **Fair comparison targets:** Frameworks and modes classified by
+architecture, so queue-based libraries are compared fairly.
 
-3. **Benchmark dimensions:** Comprehensive matrix covering framework, handler, workload, concurrency, and tuning parameters.
+3. **Benchmark dimensions:** Comprehensive matrix covering framework, handler,
+workload, concurrency, and tuning parameters.
 
-4. **Metrics schema:** Canonical JSON structure for all results, enabling statistical comparison and trend analysis.
+4. **Metrics schema:** Canonical JSON structure for all results, enabling
+statistical comparison and trend analysis.
 
-5. **Adapter layer:** Clean interface for each framework, enforcing semantic equivalence and honest representation.
+5. **Adapter layer:** Clean interface for each framework, enforcing semantic
+equivalence and honest representation.
 
-6. **Measurement protocols:** pyperf for Python, Criterion for Rust, with correctness verification and JSON export.
+6. **Measurement protocols:** pyperf for Python, Criterion for Rust, with
+correctness verification and JSON export.
 
-7. **Seven concrete benchmark groups:** Disabled hot path, enabled null, I/O, batching, socket, saturation, configuration.
+7. **Seven concrete benchmark groups:** Disabled hot path, enabled null, I/O,
+batching, socket, saturation, configuration.
 
-8. **Optimization playbook:** Bottleneck classification and targeted fixes for future improvements.
+8. **Optimization playbook:** Bottleneck classification and targeted fixes for
+future improvements.
 
-9. **Regression policy:** Per-category thresholds and CI integration to prevent performance degradation.
+9. **Regression policy:** Per-category thresholds and CI integration to prevent
+performance degradation.
 
-10. **V0 scope:** Narrow but meaningful starting suite, with clear expansion roadmap.
+10. **V0 scope:** Narrow but meaningful starting suite, with clear expansion
+roadmap.
 
-Femtologging's queue-based architecture deserves an architecture-aware benchmarking strategy. This design provides the evidence base for credible public comparisons and guided internal optimizations.
+Femtologging's queue-based architecture deserves an architecture-aware
+benchmarking strategy. This design provides the evidence base for credible
+public comparisons and guided internal optimizations.

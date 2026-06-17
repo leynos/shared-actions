@@ -34,10 +34,10 @@ logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(messag
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
-        "73c7eb58e6507c10821998de343586cdcd37f99129f69dd0ec5605fd6d7eb291"
+        "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
     ),
     "linux-x86_64-musl": (
-        "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
+        "b05373ac79d5a1e200627ffd780c9cec96d7547311ac585d6c277d6394c2cd28"
     ),
     "linux-aarch64-gnu": (
         "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e"

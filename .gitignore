@@ -158,6 +158,9 @@ target/
 # Crush AI agent
 .crush/
 
+# Leta local workspace state
+.memdb/
+
 # Claude Code AI agent
 .claude/
 

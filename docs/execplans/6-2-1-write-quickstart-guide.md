@@ -292,7 +292,7 @@ package, and release workflows for Rust and Python projects.
 - **Makefile**: Contains targets like `fmt`, `lint`, `test`. The `lint` target
   runs action-validator.
 
-#### Key actions for this guide
+**Key actions for this guide:**
 
 1. **setup-rust**: Installs Rust toolchain, cargo-binstall, optional DB dev
    libraries, cross-compilers.
@@ -306,7 +306,7 @@ package, and release workflows for Rust and Python projects.
 6. **dependabot-automerge**: Reusable workflow for automatically merging
    Dependabot PRs.
 
-#### Current documentation gaps
+### Current documentation gaps
 
 - No narrative guide showing how to compose actions into a realistic
   end-to-end workflow.
@@ -315,7 +315,7 @@ package, and release workflows for Rust and Python projects.
 - Examples exist in ci.yml but are not surfaced or explained to new users.
 - Individual action READMEs are reference docs, not tutorials.
 
-#### Target audience
+### Target audience
 
 - First-time users of GitHub Actions or shared-actions specifically (estimated
   background: basic GitHub familiarity).
@@ -345,7 +345,7 @@ validation before proceeding to the next.
 
 **Goal:** Resolve the 6 gaps identified in expert review before writing begins.
 
-#### Phase 1 Steps
+### Phase 1 Steps
 
 1. Create a dependency matrix distinguishing:
    - Always-required actions (e.g., setup-rust before rust-build-release)
@@ -373,7 +373,7 @@ and updates). Document in execplan Outcomes section once identified.
    - Scenario C (Coverage): for any project measuring code coverage
    - Scenario D (Dependabot auto-merge): for any project using Dependabot
 
-#### Phase 1 Go/no-go gate
+### Phase 1 Go/no-go gate
 
 - All 5 items above are completed and documented.
 - Author confirms the scope and 4-action list.
@@ -389,7 +389,7 @@ Phase 2.
 **Goal:** Draft the guide structure without writing full prose, ensuring
 coverage and flow.
 
-#### Phase 2 Steps
+### Phase 2 Steps
 
 1. Create a detailed outline of all sections:
    - Hero section (1-liner, audience, key features)
@@ -419,7 +419,7 @@ action READMEs, etc.) and verify they exist.
 
 5. Draft section headers and sub-headers in a skeleton .md file.
 
-#### Phase 2 Go/no-go gate
+### Phase 2 Go/no-go gate
 
 - Outline is complete with all sections clearly named.
 - All internal doc links are verified to exist.
@@ -436,7 +436,7 @@ action mappings.
 **Goal:** Write all narrative and code sections, validating YAML syntax as you
 go.
 
-#### Phase 3 Steps
+### Phase 3 Steps
 
 1. **Hero & Prerequisites section** (30 min):
    - Write 1-line description: "Reusable GitHub Actions for Rust and Python
@@ -535,7 +535,7 @@ go.
       - Artefacts (staging)
       - Slipcover
 
-#### Phase 3 Go/no-go gate
+### Phase 3 Go/no-go gate
 
 - All prose sections are written.
 - All YAML examples pass `make lint` (action-validator).
@@ -550,7 +550,7 @@ go.
 
 **Goal:** Ensure all examples are correct, testable, and discoverable.
 
-#### Phase 4 Steps
+### Phase 4 Steps
 
 1. **YAML Validation** (30 min):
    - Run `make lint` from repository root.
@@ -585,7 +585,7 @@ go.
    - Flag any sections that are confusing or require external context.
    - Incorporate feedback.
 
-#### Phase 4 Go/no-go gate
+### Phase 4 Go/no-go gate
 
 - All YAML passes `make lint`.
 - All links are correct.
@@ -601,7 +601,7 @@ review notes.
 
 **Goal:** Finalize the guide, update root README, and merge to main branch.
 
-#### Phase 5 Steps
+### Phase 5 Steps
 
 1. **Update root README.md** (15 min):
    - Add a link in the README.md hero or "Next Steps" section pointing to
@@ -632,7 +632,7 @@ review notes.
    - Mark PR as ready for review.
    - Await approval and merge to main.
 
-#### Phase 5 Go/no-go gate
+### Phase 5 Go/no-go gate
 
 - All phases 1–4 are complete and validated.
 - PR is open and all CI gates pass.
@@ -850,7 +850,7 @@ features, nFPM configuration).
 
 ### Quality criteria
 
-#### Content
+### Content
 
 - [ ] Guide is between 600–1,200 lines (excluding code examples).
 - [ ] Includes at least 4 distinct use-case scenarios (Rust, Python, coverage,
@@ -859,7 +859,7 @@ features, nFPM configuration).
 - [ ] All internal doc links are correct and point to existing files.
 - [ ] Glossary covers at least 5 key terms.
 
-#### Examples
+### Examples
 
 - [ ] Each YAML example is copy-paste runnable (no manual edits beyond
   project-specific fields like binary name).
@@ -869,7 +869,7 @@ features, nFPM configuration).
 - [ ] Examples include realistic input values and comments explaining how to
   customize.
 
-#### Validation
+### Validation
 
 - [ ] `make lint` passes (no markdown or YAML errors).
 - [ ] Peer review by a maintainer unfamiliar with shared-actions is complete
@@ -877,7 +877,7 @@ features, nFPM configuration).
 - [ ] No broken internal or external links.
 - [ ] Platform-specific notes (if any) are clearly marked.
 
-#### Integration
+### Integration
 
 - [ ] Root README.md updated to link to quickstart.
 - [ ] AGENTS.md updated to reference quickstart in "Getting Started" or
@@ -954,7 +954,7 @@ this execplan.
 
 ## Interfaces and dependencies
 
-#### External dependencies
+### External dependencies
 
 - GitHub Actions: Users' workflows will `uses` the actions defined in
   `.github/actions/`.
@@ -963,7 +963,7 @@ this execplan.
 
 No new interfaces or dependencies are created by this plan.
 
-#### Validation tools
+### Validation tools
 
 - `make lint` — Runs action-validator to check YAML syntax.
 - `act` (local execution tool) — Optional, for smoke testing workflows

@@ -16,7 +16,7 @@ one or more Cargo manifests.
 | Name | Description |
 | ---- | ----------- |
 | `version` | Version from tag (prefix removed) |
-| `crate-version` | Version from first manifest (with workspace inheritance resolved) |
+| `crate-version` | Version from first manifest |
 | `crate-name` | Package name from first manifest path |
 
 ## Usage

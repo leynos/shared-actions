@@ -652,7 +652,8 @@ ls -1 docs/{developers-guide,composite-actions,generate-coverage}*.md | head -5
 ```
 
 Expected output:
-```
+
+```text
 Skeleton created at docs/quickstart.md
 docs/composite-actions-vs-full-workflows.md
 docs/developers-guide.md
@@ -676,7 +677,8 @@ make lint 2>&1 | tee /tmp/lint-output.txt | head -20
 ```
 
 Expected output if no errors:
-```
+
+```text
 [OK] All actions validated successfully.
 ```
 
@@ -700,7 +702,8 @@ done
 ```
 
 Expected output:
-```
+
+```text
 ✓ AGENTS.md exists
 ✓ developers-guide.md exists
 ✓ composite-actions-vs-full-workflows.md exists

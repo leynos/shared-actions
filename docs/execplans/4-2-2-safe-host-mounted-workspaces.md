@@ -22,9 +22,11 @@ rejected even under adversarial conditions.
 
 Success is observable when:
 
-1. Running `cargo test` in `tests/workspace_mounts_tests.rs` shows ≥40 tests passing with ≥90% coverage
+1. Running `cargo test` in `tests/workspace_mounts_tests.rs` shows ≥40 tests
+   passing with ≥90% coverage
 2. BDD scenarios in `tests/bdd/workspace_mounts.feature` all pass
-3. Documentation in `docs/users-guide.md` and `docs/developers-guide.md` describes configuration and threat model
+3. Documentation in `docs/users-guide.md` and `docs/developers-guide.md`
+   describes configuration and threat model
 4. `make check-fmt`, `make lint`, and `make test` all pass without errors
 5. A PR against main is created with all gates passing
 
@@ -32,55 +34,91 @@ Success is observable when:
 
 Hard invariants that must hold throughout implementation.
 
-- **No public API breaking changes**: Existing container launch signatures must remain stable. New validation functions are internal to workspace_mounts module.
-- **No new external crate dependencies**: Use only Rust std::fs, std::path, and existing project dependencies (thiserror for error handling, tracing for logging).
-- **Rootless Podman compatibility**: All validation must work correctly in rootless namespaces without requiring uid 0.
-- **Backward compatibility**: Existing workspace configurations must continue to work; validation is additive.
-- **Zero symlinks in validated paths**: After canonicalization, no symlinks may exist in any component of the validated path.
-- **Domain logic has no I/O**: All filesystem operations pass through FilesystemPort trait; domain validator is pure logic, all I/O happens in adapters.
-- **Hexagonal architecture maintained**: Dependency graph must point inward; ports defined at domain boundary; adapters implement ports, never call each other.
-- **All errors are domain-owned**: WorkspaceMountError enum is exhaustive; infrastructure errors converted to domain errors at adapter boundaries.
+- **No public API breaking changes**: Existing container launch signatures must
+  remain stable. New validation functions are internal to workspace_mounts
+  module.
+- **No new external crate dependencies**: Use only Rust std::fs, std::path, and
+  existing project dependencies (thiserror for error handling, tracing for
+  logging).
+- **Rootless Podman compatibility**: All validation must work correctly in
+  rootless namespaces without requiring uid 0.
+- **Backward compatibility**: Existing workspace configurations must continue to
+  work; validation is additive.
+- **Zero symlinks in validated paths**: After canonicalization, no symlinks may
+  exist in any component of the validated path.
+- **Domain logic has no I/O**: All filesystem operations pass through
+  FilesystemPort trait; domain validator is pure logic, all I/O happens in
+  adapters.
+- **Hexagonal architecture maintained**: Dependency graph must point inward;
+  ports defined at domain boundary; adapters implement ports, never call each
+  other.
+- **All errors are domain-owned**: WorkspaceMountError enum is exhaustive;
+  infrastructure errors converted to domain errors at adapter boundaries.
 
 ## Tolerances (exception triggers)
 
 Thresholds that trigger escalation when breached.
 
-- **Scope**: ≤20 files modified, ≤3000 net lines of code added. If exceeded, stop and present impact analysis.
-- **Dependencies**: Any new external crate must be escalated. Standard library only, unless project already uses a crate (e.g., thiserror, tracing).
-- **Interface changes**: If any public API signature in existing modules must change, stop and escalate with rationale.
-- **Test coverage**: Domain logic must reach ≥90% line coverage and ≥90% branch coverage. If coverage gaps exist after Phase 5, stop and investigate.
-- **Build/test failures**: If make test, make lint, or make check-fmt fails after implementation, stop and fix before proceeding.
-- **Threat model disagreement**: If during implementation the threat model interpretation differs materially from the documented 7 attack vectors, escalate with evidence.
-- **Time**: If any single phase takes >6 hours, document progress and reassess plan feasibility.
+- **Scope**: ≤20 files modified, ≤3000 net lines of code added. If exceeded,
+  stop and present impact analysis.
+- **Dependencies**: Any new external crate must be escalated. Standard library
+  only, unless project already uses a crate (e.g., thiserror, tracing).
+- **Interface changes**: If any public API signature in existing modules must
+  change, stop and escalate with rationale.
+- **Test coverage**: Domain logic must reach ≥90% line coverage and ≥90% branch
+  coverage. If coverage gaps exist after Phase 5, stop and investigate.
+- **Build/test failures**: If make test, make lint, or make check-fmt fails
+  after implementation, stop and fix before proceeding.
+- **Threat model disagreement**: If during implementation the threat model
+  interpretation differs materially from the documented 7 attack vectors,
+  escalate with evidence.
+- **Time**: If any single phase takes >6 hours, document progress and reassess
+  plan feasibility.
 
 ## Risks
 
 Known uncertainties that might affect the plan.
 
 - **TOCTOU race: symlink added after validation but before mount**
-  Severity: High | Likelihood: Medium | Mitigation: Minimize validation window; use `canonicalize()` + re-check symlinks immediately before mount; document assumption that operator controls allowlist roots
-  
-- **Permission validation unreliable in rootless: UID/GID remapping**
-  Severity: High | Likelihood: High | Mitigation: Add RootlessPermissionAdapter that uses `libc::geteuid()` and `libc::getegid()` to validate namespace context; write integration tests with `podman unshare`
-  
-- **Symlink cycles cause infinite loop during depth traversal**
-  Severity: Medium | Likelihood: Low | Mitigation: Set hard limit of 40 components per path; detect cycles explicitly in OsFilesystemAdapter.has_symlinks()
-  
-- **Allowlist prefix attacks: /tmp/workspaces_evil matches /tmp/workspaces**
-  Severity: High | Likelihood: Low | Mitigation: Validate component boundaries, not just string prefix; use `path.starts_with(root) && (path.len() == root.len() || path[root.len()] == b'/')` pattern
-  
-- **Mount flag escapes via remount/shared flags**
-  Severity: Medium | Likelihood: Low | Mitigation: Future enhancement; document in roadmap; for now assume container runtime enforces safe flags
-  
-- **Test suite insufficient**: Coverage tools may miss branches
-  Severity: Medium | Likelihood: Medium | Mitigation: Use `cargo tarpaulin --out Html` for detailed branch coverage; manually inspect untested paths; use property tests (proptest) for idempotence guarantees
+  Severity: High | Likelihood: Medium | Mitigation: Minimize validation
+  window; use `canonicalize()` + re-check symlinks immediately before mount;
+  document assumption that operator controls allowlist roots
 
-- **Integration test environment differences**: Tests pass locally but fail in CI with different rootless setup
-  Severity: Medium | Likelihood: Medium | Mitigation: Test both as regular user and with `podman unshare`; document platform assumptions; skip tests that require rootless if not available
+- **Permission validation unreliable in rootless: UID/GID remapping**
+  Severity: High | Likelihood: High | Mitigation: Add
+  RootlessPermissionAdapter that uses `libc::geteuid()` and
+  `libc::getegid()` to validate namespace context; write integration tests
+  with `podman unshare`
+
+- **Symlink cycles cause infinite loop during depth traversal**
+  Severity: Medium | Likelihood: Low | Mitigation: Set hard limit of 40
+  components per path; detect cycles explicitly in
+  OsFilesystemAdapter.has_symlinks()
+
+- **Allowlist prefix attacks: /tmp/workspaces_evil matches /tmp/workspaces**
+  Severity: High | Likelihood: Low | Mitigation: Validate component
+  boundaries, not just string prefix; use `path.starts_with(root) &&
+  (path.len() == root.len() || path[root.len()] == b'/')` pattern
+
+- **Mount flag escapes via remount/shared flags**
+  Severity: Medium | Likelihood: Low | Mitigation: Future enhancement;
+  document in roadmap; for now assume container runtime enforces safe flags
+
+- **Test suite insufficient**: Coverage tools may miss branches
+  Severity: Medium | Likelihood: Medium | Mitigation: Use `cargo tarpaulin
+  --out Html` for detailed branch coverage; manually inspect untested paths;
+  use property tests (proptest) for idempotence guarantees
+
+- **Integration test environment differences**: Tests pass locally but fail in
+  CI with different rootless setup
+  Severity: Medium | Likelihood: Medium | Mitigation: Test both as regular
+  user and with `podman unshare`; document platform assumptions; skip tests
+  that require rootless if not available
 
 ## Progress
 
-Use checkboxes to track granular steps with timestamps. Each stage must complete validation before proceeding.
+Use checkboxes to track granular steps with timestamps. Each stage must
+complete validation before proceeding.
 
 - [ ] **Stage 1: Threat model & architecture documentation** (Est. 2-3 hours)
   - [ ] (TBD) Create docs/architecture/04-workspace-mounts-threat-model.md
@@ -90,35 +128,46 @@ Use checkboxes to track granular steps with timestamps. Each stage must complete
 
 - [ ] **Stage 2: Module structure & port traits** (Est. 1-2 hours)
   - [ ] (TBD) Create src/workspace_mounts/ directory structure
-  - [ ] (TBD) Define all port traits (Filesystem, Permission, Config, ThreatReporter)
+  - [ ] (TBD) Define all port traits (Filesystem, Permission, Config,
+    ThreatReporter)
   - [ ] (TBD) Define value object stubs
   - [ ] (TBD) Validation: `cargo check` passes
 
-- [ ] **Stage 3: Error type & value objects (Red-Green-Refactor)** (Est. 1-2 hours)
+- [ ] **Stage 3: Error type & value objects (Red-Green-Refactor)** (Est. 1-2
+  hours)
   - [ ] (TBD) Write Red: Unit tests for all 10 error variants
-  - [ ] (TBD) Write Green: Implement WorkspaceMountError, ValidatedWorkspacePath, AllowedWorkspaceRoot
+  - [ ] (TBD) Write Green: Implement WorkspaceMountError,
+    ValidatedWorkspacePath, AllowedWorkspaceRoot
   - [ ] (TBD) Refactor: Document and improve error messages
   - [ ] (TBD) Validation: `cargo test --lib workspace_mounts` all pass
 
-- [ ] **Stage 4: FilesystemPort & OsFilesystemAdapter (Red-Green-Refactor)** (Est. 2-3 hours)
-  - [ ] (TBD) Write Red: Unit & integration tests for symlink detection, depth limit, cycles
-  - [ ] (TBD) Write Green: Implement OsFilesystemAdapter with canonicalize, has_symlinks, metadata checks
+- [ ] **Stage 4: FilesystemPort & OsFilesystemAdapter (Red-Green-Refactor)**
+  (Est. 2-3 hours)
+  - [ ] (TBD) Write Red: Unit & integration tests for symlink detection,
+    depth limit, cycles
+  - [ ] (TBD) Write Green: Implement OsFilesystemAdapter with canonicalize,
+    has_symlinks, metadata checks
   - [ ] (TBD) Refactor: Extract helpers, add property tests
-  - [ ] (TBD) Validation: `cargo test --test integration` passes, ≥90% coverage
+  - [ ] (TBD) Validation: `cargo test --test integration` passes, ≥90%
+    coverage
 
-- [ ] **Stage 5: PermissionPort & RootlessPermissionAdapter (Red-Green-Refactor)** (Est. 2-3 hours)
-  - [ ] (TBD) Write Red: Unit & integration tests for mode bits, UID/GID checks
+- [ ] **Stage 5: PermissionPort & RootlessPermissionAdapter**
+  **(Red-Green-Refactor)** (Est. 2-3 hours)
+  - [ ] (TBD) Write Red: Unit & integration tests for mode bits, UID/GID
+    checks
   - [ ] (TBD) Write Green: Implement RootlessPermissionAdapter using libc
   - [ ] (TBD) Add rootless integration tests
   - [ ] (TBD) Validation: Works in both regular and rootless environments
 
-- [ ] **Stage 6: Domain Validator (Pure logic, Red-Green-Refactor)** (Est. 3-4 hours)
+- [ ] **Stage 6: Domain Validator (Pure logic, Red-Green-Refactor)** (Est. 3-4
+  hours)
   - [ ] (TBD) Write Red: Unit tests for all attack vectors, property tests for idempotence
   - [ ] (TBD) Write Green: Implement WorkspacePathValidator::validate()
   - [ ] (TBD) Refactor: Extract pure helpers, document assumptions
   - [ ] (TBD) Validation: ≥90% branch coverage, property tests pass
 
-- [ ] **Stage 7: Integration, BDD scenarios, & application service (Red-Green-Refactor)** (Est. 3-4 hours)
+- [ ] **Stage 7: Integration, BDD scenarios, & application service
+  (Red-Green-Refactor)** (Est. 3-4 hours)
   - [ ] (TBD) Write Red: BDD scenarios in tests/bdd/workspace_mounts.feature
   - [ ] (TBD) Write Green: Implement WorkspaceMountServiceImpl, BDD steps
   - [ ] (TBD) Add snapshot tests, stress tests
@@ -176,13 +225,17 @@ This section is populated at major milestones and at completion.
 
 ### Current state
 
-Podbot is a container orchestration tool organized around composing container launches from reusable request/plan primitives. The codebase currently lacks specialized workspace mount validation, which is a gap for safe host-mounted workspace support.
+Podbot is a container orchestration tool organized around composing
+container launches from reusable request/plan primitives. The codebase
+currently lacks specialized workspace mount validation, which is a gap for
+safe host-mounted workspace support.
 
 **Related existing infrastructure**:
 
 - `src/config.rs` — Configuration loading and validation
 - `src/container.rs` — Container launch and execution
-- `Cargo.toml` — Dependencies (thiserror for errors, tracing for logging likely available)
+- `Cargo.toml` — Dependencies (thiserror for errors, tracing for logging likely
+  available)
 - Tests framework: cargo test (unit and integration)
 
 **Current limitations**:
@@ -191,20 +244,26 @@ Podbot is a container orchestration tool organized around composing container la
 - No allowlist enforcement
 - No validation of mount permissions
 - No threat model documentation
-- Risk: Operators could accidentally mount dangerous paths (symlinks, parent dirs, read-only dirs)
+- Risk: Operators could accidentally mount dangerous paths (symlinks, parent
+  dirs, read-only dirs)
 
 ### Project structure
 
-The Podbot codebase uses a modular approach with clear separation between config, domain logic, and container execution.
+The Podbot codebase uses a modular approach with clear separation between
+config, domain logic, and container execution.
 
 ### Implementation approach: Hexagonal architecture
 
-This task uses **hexagonal architecture** (ports & adapters) to maintain clean separation:
+This task uses **hexagonal architecture** (ports & adapters) to maintain clean
+separation:
 
 - **Domain** (`src/workspace_mounts/domain/`) — Pure business logic, no I/O
-- **Ports** (`src/workspace_mounts/domain/ports/`) — Abstract interfaces (what domain requires from infrastructure)
-- **Adapters** (`src/workspace_mounts/adapters/`) — Concrete implementations (filesystem I/O, permission checks, config loading)
-- **Application Service** (`src/workspace_mounts/lib.rs`) — Orchestrates domain + adapters for callers
+- **Ports** (`src/workspace_mounts/domain/ports/`) — Abstract interfaces (what
+  domain requires from infrastructure)
+- **Adapters** (`src/workspace_mounts/adapters/`) — Concrete implementations
+  (filesystem I/O, permission checks, config loading)
+- **Application Service** (`src/workspace_mounts/lib.rs`) — Orchestrates
+  domain + adapters for callers
 
 This design ensures:
 
@@ -217,63 +276,86 @@ This design ensures:
 
 **Domain logic** (no I/O):
 
-- `src/workspace_mounts/domain/errors.rs` — WorkspaceMountError enum (10 variants)
-- `src/workspace_mounts/domain/model.rs` — Value objects: ValidatedWorkspacePath, AllowedWorkspaceRoot, WorkspaceConfig
-- `src/workspace_mounts/domain/validator.rs` — WorkspacePathValidator (pure logic)
+- `src/workspace_mounts/domain/errors.rs` — WorkspaceMountError enum (10
+  variants)
+- `src/workspace_mounts/domain/model.rs` — Value objects:
+  ValidatedWorkspacePath, AllowedWorkspaceRoot, WorkspaceConfig
+- `src/workspace_mounts/domain/validator.rs` — WorkspacePathValidator (pure
+  logic)
 - `src/workspace_mounts/domain/ports/filesystem.rs` — FilesystemPort trait
 - `src/workspace_mounts/domain/ports/permission.rs` — PermissionPort trait
 - `src/workspace_mounts/domain/ports/config.rs` — WorkspaceConfigPort trait
-- `src/workspace_mounts/domain/ports/threat_reporter.rs` — ThreatReportPort trait
+- `src/workspace_mounts/domain/ports/threat_reporter.rs` — ThreatReportPort
+  trait
 
 **Adapters** (with I/O):
 
-- `src/workspace_mounts/adapters/os_filesystem.rs` — OsFilesystemAdapter (std::fs wrapper)
-- `src/workspace_mounts/adapters/permission.rs` — RootlessPermissionAdapter (libc wrapper)
-- `src/workspace_mounts/adapters/yaml_config.rs` — YamlConfigAdapter (YAML config loader)
-- `src/workspace_mounts/adapters/logging.rs` — LoggingThreatReporter (tracing integration)
+- `src/workspace_mounts/adapters/os_filesystem.rs` — OsFilesystemAdapter
+  (std::fs wrapper)
+- `src/workspace_mounts/adapters/permission.rs` — RootlessPermissionAdapter
+  (libc wrapper)
+- `src/workspace_mounts/adapters/yaml_config.rs` — YamlConfigAdapter (YAML
+  config loader)
+- `src/workspace_mounts/adapters/logging.rs` — LoggingThreatReporter (tracing
+  integration)
 
 **Application service** (boundary):
 
-- `src/workspace_mounts/lib.rs` — WorkspaceMountServiceImpl (orchestrates domain + adapters)
+- `src/workspace_mounts/lib.rs` — WorkspaceMountServiceImpl (orchestrates
+  domain + adapters)
 
 **Tests**:
 
 - `tests/workspace_mounts_tests.rs` — Unit tests with mocks
-- `tests/workspace_mounts_integration_tests.rs` — Integration tests with real filesystem
+- `tests/workspace_mounts_integration_tests.rs` — Integration tests with real
+  filesystem
 - `tests/bdd/workspace_mounts.feature` — Behavior-driven scenarios
 - `tests/bdd/workspace_mounts_steps.rs` — BDD step implementations
 
 **Documentation**:
 
-- `docs/architecture/04-workspace-mounts-threat-model.md` — Security threat model
-- `docs/architecture/05-workspace-mounts-hexagonal-design.md` — Architecture diagram & design
+- `docs/architecture/04-workspace-mounts-threat-model.md` — Security threat
+  model
+- `docs/architecture/05-workspace-mounts-hexagonal-design.md` — Architecture
+  diagram & design
 - `docs/adr/0003-workspace-mount-validation.md` — Architecture decision record
 - `docs/users-guide.md` — Updated with configuration section
 - `docs/developers-guide.md` — Updated with testing & architecture guidance
 
 ## Plan of work
 
-Implementation proceeds through seven stages with explicit Red-Green-Refactor validation at each domain logic milestone. All code changes are small, testable, and committed after each stage passes quality gates.
+Implementation proceeds through seven stages with explicit Red-Green-Refactor
+validation at each domain logic milestone. All code changes are small,
+testable, and committed after each stage passes quality gates.
 
 ### Stage 1: Threat model & architecture documentation
 
-**Objective**: Design the domain model, ports, and adapters before writing code.
+**Objective**: Design the domain model, ports, and adapters before writing
+code.
 
 **Work**:
 
-1. Create `docs/architecture/04-workspace-mounts-threat-model.md` documenting:
-   - All 7 attack vectors (symlink escape, TOCTOU, path traversal, allowlist prefix bypass, permission escalation, rootless UID/GID mismatch, symlink cycles)
+1. Create `docs/architecture/04-workspace-mounts-threat-model.md`
+   documenting:
+   - All 7 attack vectors (symlink escape, TOCTOU, path traversal, allowlist
+     prefix bypass, permission escalation, rootless UID/GID mismatch, symlink
+     cycles)
    - Prevention mechanisms for each
    - Explicit threat boundaries (what we control vs. what we delegate)
    - Assumptions (operator correctness, POSIX filesystem, atomic mounts)
 2. Create `docs/architecture/05-workspace-mounts-hexagonal-design.md` with:
-   - Domain model (WorkspaceMountError, ValidatedWorkspacePath, AllowedWorkspaceRoot, WorkspaceConfig)
-   - Ports (FilesystemPort, PermissionPort, WorkspaceConfigPort, ThreatReportPort)
-   - Adapters (OsFilesystemAdapter, RootlessPermissionAdapter, YamlConfigAdapter, LoggingThreatReporter)
+   - Domain model (WorkspaceMountError, ValidatedWorkspacePath,
+     AllowedWorkspaceRoot, WorkspaceConfig)
+   - Ports (FilesystemPort, PermissionPort, WorkspaceConfigPort,
+     ThreatReportPort)
+   - Adapters (OsFilesystemAdapter, RootlessPermissionAdapter,
+     YamlConfigAdapter, LoggingThreatReporter)
    - Hexagonal diagram
-3. Create `docs/adr/0003-workspace-mount-validation.md` recording architecture decisions
+3. Create `docs/adr/0003-workspace-mount-validation.md` recording
+   architecture decisions
 
-**Validation**: Threat model is unambiguous; hexagonal diagram is reviewed; no implementation has begun.
+**Validation**: Threat model is unambiguous; hexagonal diagram is reviewed;
+no implementation has begun.
 
 **Estimated effort**: 2-3 hours
 
@@ -286,7 +368,8 @@ Implementation proceeds through seven stages with explicit Red-Green-Refactor va
 1. Create new module `src/workspace_mounts/` directory with:
    - `mod.rs` — exports public API
    - `domain/errors.rs` — WorkspaceMountError enum (10 variants)
-   - `domain/model.rs` — Value objects (ValidatedWorkspacePath, AllowedWorkspaceRoot, WorkspaceConfig)
+   - `domain/model.rs` — Value objects (ValidatedWorkspacePath,
+     AllowedWorkspaceRoot, WorkspaceConfig)
    - `domain/validator.rs` — Pure-logic domain service (WorkspacePathValidator)
    - `domain/ports/filesystem.rs` — FilesystemPort trait
    - `domain/ports/permission.rs` — PermissionPort trait
@@ -296,17 +379,21 @@ Implementation proceeds through seven stages with explicit Red-Green-Refactor va
    - `adapters/permission.rs` — RootlessPermissionAdapter
    - `adapters/yaml_config.rs` — YamlConfigAdapter
    - `adapters/logging.rs` — LoggingThreatReporter
-   - `lib.rs` or public types in `mod.rs` — WorkspaceMountServiceImpl (application service)
+   - `lib.rs` or public types in `mod.rs` — WorkspaceMountServiceImpl
+     (application service)
 
-2. Write all trait signatures and struct definitions (no implementation bodies yet)
+2. Write all trait signatures and struct definitions (no implementation bodies
+   yet)
 
-**Validation**: `cargo check` passes; no missing trait methods; module structure matches hexagonal design.
+**Validation**: `cargo check` passes; no missing trait methods; module structure
+matches hexagonal design.
 
 **Estimated effort**: 1-2 hours
 
 ### Stage 3: Error type & value objects (Red-Green-Refactor)
 
-**Objective**: Define exhaustive error type and invariant-enforcing value objects.
+**Objective**: Define exhaustive error type and invariant-enforcing value
+objects.
 
 **Red**: Write unit tests in `tests/workspace_mounts_tests.rs` that:
 
@@ -316,14 +403,19 @@ Implementation proceeds through seven stages with explicit Red-Green-Refactor va
 
 **Green**: Implement:
 
-- WorkspaceMountError with `#[derive(Debug, Clone, PartialEq)]` and thiserror::Error
-- ValidatedWorkspacePath as newtype with private constructor; `pub fn new_unchecked()` for validator only
-- AllowedWorkspaceRoot with validation at construction (path exists, is directory, is absolute)
+- WorkspaceMountError with `#[derive(Debug, Clone, PartialEq)]` and
+  thiserror::Error
+- ValidatedWorkspacePath as newtype with private constructor; `pub fn
+  new_unchecked()` for validator only
+- AllowedWorkspaceRoot with validation at construction (path exists, is
+  directory, is absolute)
 - WorkspaceConfig as aggregate root (holds list of AllowedWorkspaceRoot)
 
-**Refactor**: Ensure error Display messages are actionable; document each variant with example.
+**Refactor**: Ensure error Display messages are actionable; document each
+variant with example.
 
-**Validation**: `cargo test --lib workspace_mounts` passes; 100% error type coverage; all error messages are tested.
+**Validation**: `cargo test --lib workspace_mounts` passes; 100% error type
+coverage; all error messages are tested.
 
 **Estimated effort**: 1-2 hours
 
@@ -347,20 +439,24 @@ Write integration tests with real filesystem (using tempfile):
 
 **Green**: Implement:
 
-- FilesystemPort trait with methods: `canonicalize()`, `has_symlinks()`, `read_metadata_nofollow()`, `exists()`
+- FilesystemPort trait with methods: `canonicalize()`, `has_symlinks()`,
+  `read_metadata_nofollow()`, `exists()`
 - OsFilesystemAdapter using std::fs, std::path, fs::read_link()
 - Depth limit constant (40 components)
 - Cycle detection via visited set
 
-**Refactor**: Extract helper functions; document assumptions; add property tests for idempotence.
+**Refactor**: Extract helper functions; document assumptions; add property tests
+for idempotence.
 
-**Validation**: `cargo test --test integration filesystem` passes; `cargo tarpaulin` shows ≥90% branch coverage for adapter.
+**Validation**: `cargo test --test integration filesystem` passes; `cargo
+tarpaulin` shows ≥90% branch coverage for adapter.
 
 **Estimated effort**: 2-3 hours
 
 ### Stage 5: PermissionPort & RootlessPermissionAdapter (Red-Green-Refactor)
 
-**Objective**: Implement permission validation compatible with rootless containers.
+**Objective**: Implement permission validation compatible with rootless
+containers.
 
 **Red**: Write unit tests with mocks:
 
@@ -376,13 +472,16 @@ Write integration tests:
 
 **Green**: Implement:
 
-- PermissionPort trait with methods: `is_writable()`, `container_ids()`, `check_security_context()`
+- PermissionPort trait with methods: `is_writable()`, `container_ids()`,
+  `check_security_context()`
 - RootlessPermissionAdapter using libc::geteuid(), libc::getegid()
 - Mode bit checking: `(stat.st_mode & 0o200) != 0`
 
-**Refactor**: Document namespace assumptions; add error context showing actual vs. expected UID.
+**Refactor**: Document namespace assumptions; add error context showing actual
+vs. expected UID.
 
-**Validation**: `cargo test --test integration permission` passes; works in both regular and rootless environments.
+**Validation**: `cargo test --test integration permission` passes; works in both
+regular and rootless environments.
 
 **Estimated effort**: 2-3 hours
 
@@ -423,13 +522,17 @@ pub fn validate(&self, path: &Path) -> Result<ValidatedWorkspacePath> {
 }
 ```
 
-**Refactor**: Extract pure helper methods; document assumptions; add error context.
+**Refactor**: Extract pure helper methods; document assumptions; add error
+context.
 
-**Validation**: `cargo test --lib validator` passes; ≥90% branch coverage; property tests pass.
+**Validation**: `cargo test --lib validator` passes; ≥90% branch coverage;
+property tests pass.
 
 **Estimated effort**: 3-4 hours
 
-### Stage 7: Integration, BDD scenarios, & application service (Red-Green-Refactor)
+### Stage 7: Integration, BDD scenarios, application service
+
+(Red-Green-Refactor)
 
 **Objective**: Integrate all components; write E2E tests; expose public API.
 
@@ -468,7 +571,7 @@ pub struct WorkspaceMountServiceImpl {
 impl WorkspaceMountServiceImpl {
     pub fn new(config, filesystem, permission, threat_reporter) -> Self { ... }
     pub fn validate_mount(&self, path: &Path) -> Result<PathBuf> { ... }
-    pub fn validate_mounts(&self, paths: &[PathBuf]) 
+    pub fn validate_mounts(&self, paths: &[PathBuf])
         -> Result<Vec<PathBuf>, Vec<(PathBuf, WorkspaceMountError)>> { ... }
 }
 ```
@@ -479,9 +582,11 @@ Add snapshot tests showing error message formatting for each error variant.
 
 Add stress tests: validate 1000 paths with various attacks.
 
-**Refactor**: Ensure error messages are consistent; add structured logging via ThreatReportPort; document composition pattern.
+**Refactor**: Ensure error messages are consistent; add structured logging via
+ThreatReportPort; document composition pattern.
 
-**Validation**: `cargo test --test bdd` all scenarios pass; `cargo test --test integration` all integration tests pass; `cargo test --lib` all unit tests pass.
+**Validation**: `cargo test --test bdd` all scenarios pass; `cargo test --test
+integration` all integration tests pass; `cargo test --lib` all unit tests pass.
 
 **Estimated effort**: 3-4 hours
 
@@ -503,9 +608,11 @@ Add stress tests: validate 1000 paths with various attacks.
    - Testing guidelines (unit, integration, BDD)
    - Security review checklist
 
-3. Create `docs/adr/0004-workspace-mount-validation-rationale.md` with decisions and trade-offs
+3. Create `docs/adr/0004-workspace-mount-validation-rationale.md` with
+   decisions and trade-offs
 
-**Validation**: Documentation builds without errors; examples are tested (copy-paste works).
+**Validation**: Documentation builds without errors; examples are tested
+(copy-paste works).
 
 **Estimated effort**: 2-3 hours
 
@@ -532,27 +639,39 @@ Add stress tests: validate 1000 paths with various attacks.
 
 ### Acceptance criteria (all must be satisfied)
 
-1. **Test coverage**: `cargo tarpaulin --out Html` shows ≥90% line coverage and ≥90% branch coverage for all workspace_mounts code
-2. **Unit tests pass**: `cargo test --lib workspace_mounts` runs with no failures; tests exercise all 10 error variants
-3. **Integration tests pass**: `cargo test --test integration workspace_mounts` passes; tests use real filesystem and tempfile
-4. **BDD scenarios pass**: `cargo test --test bdd workspace_mounts` passes; all Gherkin scenarios in `tests/bdd/workspace_mounts.feature` pass
-5. **Property tests pass**: Idempotence properties validated; `validate(validate(path))` always returns same result
+1. **Test coverage**: `cargo tarpaulin --out Html` shows ≥90% line coverage and
+   ≥90% branch coverage for all workspace_mounts code
+2. **Unit tests pass**: `cargo test --lib workspace_mounts` runs with no
+   failures; tests exercise all 10 error variants
+3. **Integration tests pass**: `cargo test --test integration workspace_mounts`
+   passes; tests use real filesystem and tempfile
+4. **BDD scenarios pass**: `cargo test --test bdd workspace_mounts` passes; all
+   Gherkin scenarios in `tests/bdd/workspace_mounts.feature` pass
+5. **Property tests pass**: Idempotence properties validated;
+   `validate(validate(path))` always returns same result
 6. **Quality gates**:
    - `make check-fmt` passes (all workspace_mounts code is formatted)
    - `make lint` passes (no clippy warnings)
    - `cargo test` (full suite) passes with no failures
 7. **Documentation complete**:
-   - `docs/users-guide.md` includes configuration section with examples
-   - `docs/developers-guide.md` describes module architecture and testing strategy
-   - `docs/architecture/04-workspace-mounts-threat-model.md` documents all threat vectors
+   - `docs/users-guide.md` includes configuration section with
+     examples
+   - `docs/developers-guide.md` describes module architecture and testing
+     strategy
+   - `docs/architecture/04-workspace-mounts-threat-model.md` documents all
+     threat vectors
    - `docs/adr/0003-workspace-mount-validation.md` records design decisions
-8. **Configuration integration**: Podbot config loading accepts workspace_mounts configuration and validates at startup
-9. **Rootless compatibility**: Tests pass in both regular and rootless (via `podman unshare`) environments
-10. **PR created**: Branch pushed; PR created against main with all checks passing; CodeRabbit review completed
+8. **Configuration integration**: Podbot config loading accepts
+   workspace_mounts configuration and validates at startup
+9. **Rootless compatibility**: Tests pass in both regular and rootless (via
+   `podman unshare`) environments
+10. **PR created**: Branch pushed; PR created against main with all checks
+   passing; CodeRabbit review completed
 
 ### Quality method: Red-Green-Refactor
 
-For each domain logic component (error type, validator, adapters), follow this discipline:
+For each domain logic component (error type, validator, adapters), follow this
+discipline:
 
 **Red phase**:
 
@@ -597,7 +716,8 @@ cargo tarpaulin --out Html --timeout 300 --exclude-files 'tests/*'
 open tarpaulin-report.html  # or your browser
 ```
 
-If coverage is <90%, investigate untested branches and add tests before proceeding.
+If coverage is <90%, investigate untested branches and add tests before
+proceeding.
 
 ### Quality method: Integration testing with real filesystem
 
@@ -720,15 +840,15 @@ Build succeeded ✓
 
 The threat model identifies and mitigates seven major attack vectors:
 
-| # | Attack Vector | Prevention | Test |
-|---|---|---|---|
-| 1 | **Symlink Escape**: Mount `/tmp/ws/link→/etc` as `/workspace` | Canonicalize; reject symlinks; re-check immediately before mount | `test_symlink_escape_prevented` |
-| 2 | **TOCTOU Race**: Symlink added after validation but before mount | Minimize validation window; canonicalize + re-check in atomic operation | `prop_validation_repeatable` |
-| 3 | **Symlink Cycle DoS**: `/tmp/ws/a→b/b→a` causes infinite loop during traversal | Limit depth to 40 components; detect visited nodes | `test_symlink_cycle_detected` |
-| 4 | **Path Traversal**: `/tmp/ws/../../../../etc/passwd` escapes root | Canonicalization resolves `..` and `.` | `test_path_traversal_prevented` |
-| 5 | **Allowlist Prefix Bypass**: `/tmp/workspaces_evil` matches `/tmp/workspaces` | Validate component boundaries: `path.starts_with(root) && (len_match \|\| next_char == '/')` | `test_allowlist_prefix_attack_prevented` |
-| 6 | **Permission Escalation**: Mount read-only directory (0o444) as writable | Pre-mount permission check: `(mode & 0o200) != 0` | `test_permission_check_read_only_rejected` |
-| 7 | **Rootless UID/GID Mismatch**: Namespace remapping enables escape | Validate UID/GID in actual container namespace using `libc::geteuid()` and `libc::getegid()` | `test_rootless_permission_validation` |
+| # | Attack Vector | Prevention |
+| --- | --- | --- |
+| 1 | Symlink Escape | Canonicalize + reject |
+| 2 | TOCTOU Race | Minimize window |
+| 3 | Symlink Cycle DoS | Depth limit (40) |
+| 4 | Path Traversal | Canonicalize `..` |
+| 5 | Allowlist Prefix Bypass | Boundary check |
+| 6 | Permission Escalation | Writable check |
+| 7 | Rootless UID/GID Mismatch | Namespace ID check |
 
 **Out of scope** (delegated to container runtime):
 
@@ -841,7 +961,7 @@ pub struct WorkspaceMountServiceImpl { ... }
 impl WorkspaceMountServiceImpl {
     pub fn new(config, filesystem, permission, threat_reporter) -> Self { ... }
     pub fn validate_mount(&self, path: &Path) -> Result<PathBuf> { ... }
-    pub fn validate_mounts(&self, paths: &[PathBuf]) 
+    pub fn validate_mounts(&self, paths: &[PathBuf])
         -> Result<Vec<PathBuf>, Vec<(PathBuf, WorkspaceMountError)>> { ... }
 }
 ```

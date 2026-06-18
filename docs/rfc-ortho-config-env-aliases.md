@@ -742,13 +742,11 @@ Before stabilizing, we need to measure:
 
 ## References
 
-- [12-Factor App: Config](https://12factor.net/config) — environment-first
+- [12-Factor App Config](https://12factor.net/config) - environment-first
   principle
-- [Rust RFC 2407: Anonymous struct
-  fields](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html) —
-  related feature design
-- [dotenv-rs](https://github.com/dotenv-rs/dotenv-rs) — prior art in Rust env
+- [Rust RFC 2407 Anonymous struct fields](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html)
+  - related feature design
+- [dotenv-rs](https://github.com/dotenv-rs/dotenv-rs) - prior art in Rust env
   handling
-- [Kubernetes environment variable
-  naming](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/)
-  — real-world naming patterns
+- [Kubernetes environment variables](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/)
+  - real-world naming patterns

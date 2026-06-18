@@ -17,9 +17,9 @@ type and optional input overrides.
 
 | Name | Description |
 | ---- | ----------- |
-| `dry-run` | Dry-run mode (`"true"` or `"false"`) |
-| `should-publish` | Publish flag (`"true"` or `"false"`) |
-| `should-upload-workflow-artifacts` | Upload artifacts (`"true"` or `"false"`) |
+| `dry-run` | Dry-run (`"true"` or `"false"`) |
+| `should-publish` | Publish (`"true"` or `"false"`) |
+| `should-upload-workflow-artifacts` | Upload (`"true"` or `"false"`) |
 
 ## Usage
 

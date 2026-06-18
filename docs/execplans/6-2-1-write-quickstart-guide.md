@@ -215,7 +215,6 @@ Unexpected findings during implementation that were not anticipated as risks. To
 
 (No surprises yet; implementation has not begun.)
 
-
 ## Decision log
 
 Record every significant decision made while working on the plan.
@@ -242,13 +241,11 @@ Record every significant decision made while working on the plan.
 
 (Additional decisions to be recorded as implementation proceeds.)
 
-
 ## Outcomes & retrospective
 
 To be updated at major milestones or completion. Compare result against purpose and note lessons learned.
 
 (Outcomes to be recorded upon completion.)
-
 
 ## Context and orientation
 
@@ -562,7 +559,6 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 
 **Artifacts:** Merged docs/quickstart.md, updated README.md and AGENTS.md, merged PR.
 
-
 ## Concrete steps
 
 **Working directory:** `/tmp/lody-title-agent` (the shared-actions repository).
@@ -601,7 +597,8 @@ echo "Matrix created."
 ```
 
 Expected output:
-```
+
+```text
 -rw-r--r--. 1 leynos leynos  822 Jun 18 xx:xx docs/execplans/6-2-1-dependency-matrix.txt
 Matrix created.
 ```

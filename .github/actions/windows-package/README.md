@@ -46,15 +46,15 @@ the `application-path` and `additional-files` inputs.
 | `additional-files` | no | `''` | Extra files to include |
 | `product-name` | no | `''` | Product name |
 | `manufacturer` | no | `''` | Manufacturer name |
-| `install-dir-name` | no | `''` | Install directory (defaults to sanitised product name) |
-| `description` | no | `''` | Installer description for MSI summary |
-| `upgrade-code` | no | `''` | UpgradeCode GUID (auto-generated if omitted) |
-| `architecture` | no | `x64` | Target architecture (`x86`, `x64`, or `arm64`) |
-| `version` | no | _auto_ | MSI version (defaults to tag-derived or `0.0.0`) |
-| `dotnet-version` | no | `8.0.x` | .NET SDK version to install before WiX |
-| `wix-tool-version` | no | _latest_ | Specific `wix` tool version to install |
-| `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension to load |
-| `wix-extension-version` | no | `''` | Extension version suffix (auto-matches WiX major if omitted) |
+| `install-dir-name` | no | `''` | Install directory name |
+| `description` | no | `''` | MSI description |
+| `upgrade-code` | no | `''` | UpgradeCode GUID |
+| `architecture` | no | `x64` | Architecture |
+| `version` | no | _auto_ | MSI version |
+| `dotnet-version` | no | `8.0.x` | .NET version |
+| `wix-tool-version` | no | _latest_ | WiX version |
+| `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension |
+| `wix-extension-version` | no | `''` | Extension version |
 | `output-basename` | no | `MyApp` | Base name for generated MSI file |
 | `output-directory` | no | `out` | Directory for MSI output |
 | `license-plaintext-path` | no | `''` | UTF-8 license to convert to RTF |

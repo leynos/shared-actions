@@ -1,8 +1,8 @@
 # Enable Dependabot Auto-Merge When Merge State Is UNSTABLE
 
-This execution plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -16,9 +16,10 @@ the workflow enables GitHub auto-merge earlier (while checks are pending or not
 yet green), and GitHub then performs the final merge only after branch protection
 and required checks are satisfied.
 
-Success is observable in workflow logs: an eligible Dependabot pull request (PR) with
-`automerge_merge_state=UNSTABLE` should now emit `automerge_status=enabled`
-instead of `automerge_status=skipped` with `merge-state-unstable`.
+Success is observable in workflow logs: an eligible Dependabot pull request
+(PR) with `automerge_merge_state=UNSTABLE` should now emit
+`automerge_status=enabled` instead of `automerge_status=skipped` with
+`merge-state-unstable`.
 
 ## Constraints
 
@@ -94,9 +95,9 @@ silently broadening scope.
 
 - Discovery: The current repository has no `PLANS.md`, so this ExecPlan is
   governed by the `execplans` skill format and `AGENTS.md` instructions.
-- Discovery: Qdrant memory Model Context Protocol (MCP) tools (`qdrant-find`, `qdrant-store`) are not
-  exposed in this execution environment; no remote project-memory lookup was
-  possible from this session.
+- Discovery: Qdrant memory Model Context Protocol (MCP) tools (`qdrant-find`,
+  `qdrant-store`) are not exposed in this execution environment; no remote
+  project-memory lookup was possible from this session.
 - Discovery: The existing unit suite already has a dedicated test asserting
   `UNSTABLE` is skipped (`merge_state_unstable_skips`), which will need to be
   inverted rather than adding entirely new harness plumbing.

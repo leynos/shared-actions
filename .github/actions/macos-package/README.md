@@ -12,24 +12,24 @@ executing any packaging commands.
 
 | Name | Description | Required | Default |
 | ---- | ----------- | -------- | ------- |
-| `name` | Display name of the packaged CLI (also used for output filenames). | yes | – |
-| `identifier` | Reverse-DNS package identifier (for example `com.example.tool`). | yes | – |
-| `install-prefix` | Installation prefix within the target filesystem. | no | `/usr/local` |
-| `binary` | Path to the compiled binary to install. | yes | – |
-| `manpage` | Optional path to a man page (`.1`, `.1.gz`, etc.) to embed. | no | empty |
-| `license-file` | Path to the license text copied into the package and optional UI. | no | `LICENSE` |
-| `include-license-panel` | Show the license text inside the installer UI (requires `license-file`). | no | `false` |
-| `version` | Override the package version. Defaults to the Git tag (`v*`) or falls back to the commit SHA. | no | derived |
-| `developer-id-installer` | Developer ID Installer identity used with `productsign` for notarized packages. | no | empty |
+| `name` | Display name | yes | – |
+| `identifier` | Reverse-DNS identifier | yes | – |
+| `install-prefix` | Install prefix | no | `/usr/local` |
+| `binary` | Binary path | yes | – |
+| `manpage` | Man page path | no | empty |
+| `license-file` | License file path | no | `LICENSE` |
+| `include-license-panel` | Show license in UI | no | `false` |
+| `version` | Version override | no | derived |
+| `developer-id-installer` | Developer ID identity | no | empty |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| `version` | Resolved version used for the package metadata. |
-| `version-build-metadata` | Short commit SHA recorded when falling back to a default version. |
-| `pkg-path` | Path to the generated installer archive (`dist/<name>-<version>.pkg`). |
-| `signed-pkg-path` | Path to the signed installer archive when signing succeeds; empty otherwise. |
+| `version` | Resolved package version |
+| `version-build-metadata` | Commit SHA (fallback) |
+| `pkg-path` | Installer package path |
+| `signed-pkg-path` | Signed package path |
 
 ## Usage
 

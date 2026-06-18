@@ -73,8 +73,10 @@ local validation path via `pytest` + `act`.
 - [x] (2026-01-12 00:00Z) Add unit tests for the helper script.
 - [x] (2026-01-12 00:00Z) Add workflow integration test via `act` harness.
 - [x] (2026-01-12 00:00Z) Update documentation with usage guidance.
-- [x] (2026-01-12 00:00Z) Reordered dry-run validation to require event payload before PR number resolution.
-- [x] (2026-01-12 00:00Z) Adjusted linux-packages worktree repo-root test to accept `.git` files.
+- [x] (2026-01-12 00:00Z) Reordered dry-run validation to require event
+  payload before PR number resolution.
+- [x] (2026-01-12 00:00Z) Adjusted linux-packages worktree repo-root test to
+  accept `.git` files.
 - [x] (2026-01-12 00:00Z) Ran format, lint, typecheck, and test gates.
 - [x] (2026-01-12 00:00Z) Committed implementation changes.
 

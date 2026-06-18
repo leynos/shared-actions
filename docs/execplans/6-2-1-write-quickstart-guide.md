@@ -272,7 +272,7 @@ The shared-actions repository is a GitHub-hosted collection of 17 reusable
 GitHub Actions and 1 reusable workflow, focused on automating build, test,
 package, and release workflows for Rust and Python projects.
 
-**Key files:**
+### Key files
 
 - **README.md** (root): Master table of 17 actions with major version and
   path. This is the entry point users see.
@@ -292,7 +292,7 @@ package, and release workflows for Rust and Python projects.
 - **Makefile**: Contains targets like `fmt`, `lint`, `test`. The `lint` target
   runs action-validator.
 
-**Key actions for this guide:**
+### Key actions for this guide
 
 1. **setup-rust**: Installs Rust toolchain, cargo-binstall, optional DB dev
    libraries, cross-compilers.

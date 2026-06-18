@@ -150,6 +150,7 @@ Known uncertainties that might affect the plan.
   Likelihood: medium
   Mitigation: Include a brief comparison section early in the guide. Link to
   existing doc: docs/composite-actions-vs-full-workflows.md.
+
 - **Risk:** Users skip the quickstart and go directly to individual action
   READMEs, missing the narrative context.
   Severity: low
@@ -166,17 +167,20 @@ Known uncertainties that might affect the plan.
 
 ## Progress
 
-Use a list with checkboxes to summarise granular steps. Every stopping point must be documented here.
+Use a list with checkboxes to summarise granular steps. Every stopping point
+must be documented here.
 
 - [ ] (TBD) Phase 1: Research & scope clarification
   - [ ] Confirm Rust-primary vs equal coverage decision
   - [ ] Create dependency matrix for actions
-  - [ ] Finalize file path and location (docs/quickstart.md vs docs/getting-started.md)
+  - [ ] Finalize file path and location (docs/quickstart.md vs
+  docs/getting-started.md)
   - [ ] Define maintenance owner and update process
 
 - [ ] (TBD) Phase 2: Outline & structure
   - [ ] Draft the guide outline section by section
-  - [ ] Select 3–4 representative scenarios (Rust build, Python release, coverage, auto-merge)
+  - [ ] Select 3–4 representative scenarios (Rust build, Python release,
+  coverage, auto-merge)
   - [ ] Create a spreadsheet of action categories and dependencies
   - [ ] Identify which existing docs to link vs which content to inline
 
@@ -211,7 +215,8 @@ Use a list with checkboxes to summarise granular steps. Every stopping point mus
 
 ## Surprises & discoveries
 
-Unexpected findings during implementation that were not anticipated as risks. To be updated as work proceeds.
+Unexpected findings during implementation that were not anticipated as risks. To
+be updated as work proceeds.
 
 (No surprises yet; implementation has not begun.)
 
@@ -219,86 +224,122 @@ Unexpected findings during implementation that were not anticipated as risks. To
 
 Record every significant decision made while working on the plan.
 
-- **Decision:** Prioritize Rust-primary content with Python as secondary example.
-  Rationale: The action catalog contains 16 Rust-specific actions and only 1 Python-specific action (release-to-pypi-uv). A guide treating both equally would create asymmetric expectations. Python users can reference external PyPI docs; Rust users have minimal alternatives within shared-actions.
+- **Decision:** Prioritize Rust-primary content with Python as secondary
+example.
+  Rationale: The action catalog contains 16 Rust-specific actions and only 1
+  Python-specific action (release-to-pypi-uv). A guide treating both equally
+  would create asymmetric expectations. Python users can reference external PyPI
+  docs; Rust users have minimal alternatives within shared-actions.
   Date/Author: 2026-06-18 / execplan research phase.
 
-- **Decision:** Limit examples to 4 actions (setup-rust, rust-build-release, linux-packages, release-to-pypi-uv).
-  Rationale: Prevents scope creep. All other actions receive mention + link. A user seeking deeper guidance on a specific action reads that action's individual README.
+- **Decision:** Limit examples to 4 actions (setup-rust, rust-build-release,
+linux-packages, release-to-pypi-uv).
+  Rationale: Prevents scope creep. All other actions receive mention + link. A
+  user seeking deeper guidance on a specific action reads that action's
+  individual README.
   Date/Author: 2026-06-18 / expert review gap #3.
 
 - **Decision:** Create dependency matrix before writing examples.
-  Rationale: Addresses expert review gap #1. Actions have conditional dependencies (setup-rust is optional if user already has Rust; linux-packages is only needed for release builds). A matrix clarifies when each action is required vs optional.
+  Rationale: Addresses expert review gap #1. Actions have conditional
+  dependencies (setup-rust is optional if user already has Rust; linux-packages
+  is only needed for release builds). A matrix clarifies when each action is
+  required vs optional.
   Date/Author: 2026-06-18 / expert review gap #1.
 
 - **Decision:** Assign explicit maintenance owner.
-  Rationale: Addresses expert review gap #6. Guide must be kept current as actions evolve. Owner is responsible for quarterly review and updating examples when action defaults change materially.
+  Rationale: Addresses expert review gap #6. Guide must be kept current as
+  actions evolve. Owner is responsible for quarterly review and updating
+  examples when action defaults change materially.
   Date/Author: 2026-06-18 / expert review gap #6.
 
 - **Decision:** Use `docs/quickstart.md` as the filename.
-  Rationale: Consistent with GitHub's documentation convention. Discoverable from docs/ directory and linkable from README.md.
+  Rationale: Consistent with GitHub's documentation convention. Discoverable
+  from docs/ directory and linkable from README.md.
   Date/Author: 2026-06-18 / expert review gap #6.
 
 (Additional decisions to be recorded as implementation proceeds.)
 
 ## Outcomes & retrospective
 
-To be updated at major milestones or completion. Compare result against purpose and note lessons learned.
+To be updated at major milestones or completion. Compare result against purpose
+and note lessons learned.
 
 (Outcomes to be recorded upon completion.)
 
 ## Context and orientation
 
-The shared-actions repository is a GitHub-hosted collection of 17 reusable GitHub Actions and 1 reusable workflow, focused on automating build, test, package, and release workflows for Rust and Python projects.
+The shared-actions repository is a GitHub-hosted collection of 17 reusable
+GitHub Actions and 1 reusable workflow, focused on automating build, test,
+package, and release workflows for Rust and Python projects.
 
 **Key files:**
 
-- **README.md** (root): Master table of 17 actions with major version and path. This is the entry point users see.
-- **docs/developers-guide.md**: Internal architecture for contributors. Covers concurrency assumptions, venv management, caching strategies.
-- **docs/composite-actions-vs-full-workflows.md**: Explains when to use actions vs workflows.
-- **docs/generate-coverage-design.md**: Deep dive into coverage tooling (slipcover, pytest-xdist).
-- **docs/rust-build-release-pipeline.md**: Detailed guide to Rust build/package/release sequencing.
+- **README.md** (root): Master table of 17 actions with major version and path.
+This is the entry point users see.
+- **docs/developers-guide.md**: Internal architecture for contributors. Covers
+concurrency assumptions, venv management, caching strategies.
+- **docs/composite-actions-vs-full-workflows.md**: Explains when to use actions
+vs workflows.
+- **docs/generate-coverage-design.md**: Deep dive into coverage tooling
+(slipcover, pytest-xdist).
+- **docs/rust-build-release-pipeline.md**: Detailed guide to Rust
+build/package/release sequencing.
 - **AGENTS.md**: Foundational constraints, tool resolution, CI/CD strategies.
-- **.github/actions/**: Directory containing 17 action subdirectories, each with action.yml and README.md.
-- **.github/workflows/**: CI workflows (ci.yml, dependabot-automerge.yml) that exemplify action usage.
-- **Makefile**: Contains targets like `fmt`, `lint`, `test`. The `lint` target runs action-validator.
+- **.github/actions/**: Directory containing 17 action subdirectories, each with
+action.yml and README.md.
+- **.github/workflows/**: CI workflows (ci.yml, dependabot-automerge.yml) that
+exemplify action usage.
+- **Makefile**: Contains targets like `fmt`, `lint`, `test`. The `lint` target
+runs action-validator.
 
 **Key actions for this guide:**
 
-1. **setup-rust**: Installs Rust toolchain, cargo-binstall, optional DB dev libraries, cross-compilers.
-2. **rust-build-release**: Builds Rust binaries with configurable features and targets. Outputs staging paths for packagers.
-3. **linux-packages**: Creates .deb and .rpm packages using nFPM from staged binaries.
+1. **setup-rust**: Installs Rust toolchain, cargo-binstall, optional DB dev
+libraries, cross-compilers.
+2. **rust-build-release**: Builds Rust binaries with configurable features and
+targets. Outputs staging paths for packagers.
+3. **linux-packages**: Creates .deb and .rpm packages using nFPM from staged
+binaries.
 4. **release-to-pypi-uv**: Publishes Python packages to PyPI using uv.
-5. **generate-coverage**: Measures code coverage with slipcover (Python) or cargo-tarpaulin (Rust).
-6. **dependabot-automerge**: Reusable workflow for automatically merging Dependabot PRs.
+5. **generate-coverage**: Measures code coverage with slipcover (Python) or
+cargo-tarpaulin (Rust).
+6. **dependabot-automerge**: Reusable workflow for automatically merging
+Dependabot PRs.
 
 **Current documentation gaps:**
 
-- No narrative guide showing how to compose actions into a realistic end-to-end workflow.
-- No clear decision tree for users ("Am I building a Rust binary? A Python package? Both?").
+- No narrative guide showing how to compose actions into a realistic end-to-end
+workflow.
+- No clear decision tree for users ("Am I building a Rust binary? A Python
+package? Both?").
 - Examples exist in ci.yml but are not surfaced or explained to new users.
 - Individual action READMEs are reference docs, not tutorials.
 
 **Target audience:**
 
-- First-time users of GitHub Actions or shared-actions specifically (estimated background: basic GitHub familiarity).
+- First-time users of GitHub Actions or shared-actions specifically (estimated
+background: basic GitHub familiarity).
 - Maintainers of mono-repositories needing templated CI/CD.
 - DevOps engineers building composite workflows.
 - Project owners evaluating whether shared-actions fits their pipeline.
 
 **Success criteria (observable):**
 
-1. A new user can read the quickstart in ≤10 minutes and understand: what these actions do, which ones solve their problem, how to use a chosen action in their workflow.
-2. At least one complete Rust example (setup-rust → rust-build-release → linux-packages → release asset upload) is provided and validated.
+1. A new user can read the quickstart in ≤10 minutes and understand: what these
+actions do, which ones solve their problem, how to use a chosen action in their
+workflow.
+2. At least one complete Rust example (setup-rust → rust-build-release →
+linux-packages → release asset upload) is provided and validated.
 3. At least one Python example (release-to-pypi-uv) is provided and validated.
 4. All YAML examples pass `make lint` (action-validator).
 5. All internal doc links are correct.
-6. A peer reviewer unfamiliar with shared-actions can follow the guide without external context.
-
+6. A peer reviewer unfamiliar with shared-actions can follow the guide without
+external context.
 
 ## Plan of work
 
-The work consists of five sequential phases. Each phase has defined go/no-go validation before proceeding to the next.
+The work consists of five sequential phases. Each phase has defined go/no-go
+validation before proceeding to the next.
 
 ### Phase 1: Research & Scope Clarification (2 hours)
 
@@ -308,16 +349,23 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 
 1. Create a dependency matrix distinguishing:
    - Always-required actions (e.g., setup-rust before rust-build-release)
-   - Conditionally-required actions (e.g., linux-packages only for release builds with packaging)
+   - Conditionally-required actions (e.g., linux-packages only for release
+   builds with packaging)
    - Optional actions (e.g., generate-coverage can run independently)
-   
-   Document this matrix in a plaintext file (e.g., `docs/execplans/6-2-1-dependency-matrix.txt`) so it's visible during implementation.
 
-2. Finalize the 4-action scope: setup-rust, rust-build-release, linux-packages, release-to-pypi-uv. Confirm this list aligns with the author's intent. If not, escalate.
+   Document this matrix in a plaintext file (e.g.,
+   `docs/execplans/6-2-1-dependency-matrix.txt`) so it's visible during
+   implementation.
 
-3. Decide on file location and hierarchy. File will be `docs/quickstart.md`. Confirm this path and update this execplan if different.
+2. Finalize the 4-action scope: setup-rust, rust-build-release, linux-packages,
+release-to-pypi-uv. Confirm this list aligns with the author's intent. If not,
+escalate.
 
-4. Identify maintenance owner (a person or team responsible for quarterly review and updates). Document in execplan Outcomes section once identified.
+3. Decide on file location and hierarchy. File will be `docs/quickstart.md`.
+Confirm this path and update this execplan if different.
+
+4. Identify maintenance owner (a person or team responsible for quarterly review
+and updates). Document in execplan Outcomes section once identified.
 
 5. Review the four scenarios and their representative use cases:
    - Scenario A (Rust build + release): for maintainers releasing Rust binaries
@@ -329,7 +377,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 
 - All 5 items above are completed and documented.
 - Author confirms the scope and 4-action list.
-- If any item is ambiguous, escalate for clarification before proceeding to Phase 2.
+- If any item is ambiguous, escalate for clarification before proceeding to
+Phase 2.
 
 **Artifacts:** dependency-matrix.txt, updated execplan Decision Log.
 
@@ -337,7 +386,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 
 ### Phase 2: Outline & Structure (2 hours)
 
-**Goal:** Draft the guide structure without writing full prose, ensuring coverage and flow.
+**Goal:** Draft the guide structure without writing full prose, ensuring
+coverage and flow.
 
 **Steps:**
 
@@ -364,7 +414,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 3. Create a spreadsheet mapping:
    - Use case → Actions involved → Individual README links → Where in guide
 
-4. Identify all internal doc links (AGENTS.md, developers-guide.md, individual action READMEs, etc.) and verify they exist.
+4. Identify all internal doc links (AGENTS.md, developers-guide.md, individual
+action READMEs, etc.) and verify they exist.
 
 5. Draft section headers and sub-headers in a skeleton .md file.
 
@@ -375,35 +426,43 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 - The 4-action scope is reflected consistently in the outline.
 - Author reviews outline and confirms structure.
 
-**Artifacts:** Skeleton `docs/quickstart.md` with headers only; spreadsheet of action mappings.
+**Artifacts:** Skeleton `docs/quickstart.md` with headers only; spreadsheet of
+action mappings.
 
 ---
 
 ### Phase 3: Content Creation (4–5 hours)
 
-**Goal:** Write all narrative and code sections, validating YAML syntax as you go.
+**Goal:** Write all narrative and code sections, validating YAML syntax as you
+go.
 
 **Steps:**
 
 1. **Hero & Prerequisites section** (30 min):
-   - Write 1-line description: "Reusable GitHub Actions for Rust and Python projects."
+   - Write 1-line description: "Reusable GitHub Actions for Rust and Python
+   projects."
    - Explain who this guide is for.
    - List 3–4 key features (build, test, package, release).
-   - Explain prerequisites (GitHub Actions familiarity, .github/workflows/ directory structure).
+   - Explain prerequisites (GitHub Actions familiarity, .github/workflows/
+   directory structure).
 
 2. **What's Inside section** (30 min):
-   - Provide a category-based overview (Build, Test, Package, Release, Utilities).
+   - Provide a category-based overview (Build, Test, Package, Release,
+   Utilities).
    - Create a small table mapping categories to representative actions.
-   - Add a decision tree: "Are you building Rust, Python, or both? → Go to Scenario A/B/C/D."
+   - Add a decision tree: "Are you building Rust, Python, or both? → Go to
+   Scenario A/B/C/D."
 
 3. **Scenario A: Rust Binary Build + Release** (60 min):
    - Write prose explaining the use case.
-   - Provide a minimal workflow.yml YAML snippet (checkout → setup-rust → rust-build-release → linux-packages → upload-release-assets).
+   - Provide a minimal workflow.yml YAML snippet (checkout → setup-rust →
+   rust-build-release → linux-packages → upload-release-assets).
    - Annotate the YAML with comments explaining each step.
    - Show typical input values and how to customize.
    - Explain the output (staging directory, release assets).
    - Link to individual action READMEs for deeper customization.
-   - **Validation**: Run this YAML through `make lint` (action-validator) and verify it passes.
+   - **Validation**: Run this YAML through `make lint` (action-validator) and
+   verify it passes.
 
 4. **Scenario B: Python Package to PyPI** (30 min):
    - Write prose explaining the use case.
@@ -415,36 +474,47 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 
 5. **Scenario C: Coverage Measurement** (30 min):
    - Explain the use case (measure code coverage across Rust and Python).
-   - Provide a workflow snippet showing generate-coverage with lang=rust and lang=python in separate jobs.
+   - Provide a workflow snippet showing generate-coverage with lang=rust and
+   lang=python in separate jobs.
    - Link to docs/generate-coverage-design.md for deep dive.
    - **Validation**: Run YAML through `make lint`.
 
 6. **Scenario D: Dependabot Auto-Merge** (20 min):
    - Explain the reusable workflow pattern.
    - Show how to reference the workflow in a user's repository.
-   - Link to docs/composite-actions-vs-full-workflows.md and the dependabot-automerge.yml workflow file.
+   - Link to docs/composite-actions-vs-full-workflows.md and the
+   dependabot-automerge.yml workflow file.
    - No new YAML needed (workflow already exists in repo).
 
 7. **Understanding Action Dependencies section** (20 min):
-   - Present the dependency matrix in prose form (not a table; use bullet points).
-   - Example: "setup-rust must run before rust-build-release, but is optional if your runner already has Rust installed."
+   - Present the dependency matrix in prose form (not a table; use bullet
+   points).
+   - Example: "setup-rust must run before rust-build-release, but is optional if
+   your runner already has Rust installed."
    - Explain sequencing rules and when actions can run in parallel.
    - Reference the matrix created in Phase 1.
 
 8. **Common Patterns section** (20 min):
-   - Show: local vs remote usage (`./.github/actions/setup-rust` vs `owner/shared-actions/.github/actions/setup-rust@v1`).
+   - Show: local vs remote usage (`./.github/actions/setup-rust` vs
+   `owner/shared-actions/.github/actions/setup-rust@v1`).
    - Show: matrix builds across platforms.
    - Show: conditional step execution.
    - Link to developers-guide.md for caching details.
-   - **Note:** Keep these as brief examples; deeper guidance lives in linked docs.
+   - **Note:** Keep these as brief examples; deeper guidance lives in linked
+   docs.
 
 9. **Troubleshooting section** (20 min):
    - Provide 3–5 common issues and resolutions:
-     1. "My build failed in the action but worked locally" → Explain runner differences, link to act documentation.
-     2. "How do I debug an action step?" → Explain GitHub Actions debug logs and ACTIONS_STEP_DEBUG.
-     3. "Can I use just one of these actions without the others?" → Yes, they're composable; show cherry-pick example.
-     4. "My Dependabot PR didn't auto-merge" → Check permissions, token, branch protection rules.
-     5. "I need to package for Windows, but windows-package is v0" → Explain versioning strategy, point to action README.
+     1. "My build failed in the action but worked locally" → Explain runner
+     differences, link to act documentation.
+     2. "How do I debug an action step?" → Explain GitHub Actions debug logs and
+     ACTIONS_STEP_DEBUG.
+     3. "Can I use just one of these actions without the others?" → Yes, they're
+     composable; show cherry-pick example.
+     4. "My Dependabot PR didn't auto-merge" → Check permissions, token, branch
+     protection rules.
+     5. "I need to package for Windows, but windows-package is v0" → Explain
+     versioning strategy, point to action README.
    - Link to local-validation-of-github-actions-with-act-and-pytest.md.
 
 10. **Next Steps section** (15 min):
@@ -488,14 +558,19 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
    - Fix any indentation, syntax, or reference errors.
 
 2. **Link Verification** (30 min):
-   - Verify all internal links (to AGENTS.md, developers-guide.md, individual action READMEs, etc.) exist and are correct.
+   - Verify all internal links (to AGENTS.md, developers-guide.md, individual
+   action READMEs, etc.) exist and are correct.
    - Use grep or a link checker to catch broken paths.
-   - Example: `grep -n "AGENTS.md" docs/quickstart.md` should return valid file references.
+   - Example: `grep -n "AGENTS.md" docs/quickstart.md` should return valid file
+   references.
 
 3. **Composability Smoke Tests** (60 min):
-   - For Scenario A (Rust build + release): Create a minimal test workflow that runs setup-rust → rust-build-release with a fixture Rust project.
-   - For Scenario B (Python PyPI): Create a test workflow that runs release-to-pypi-uv with a mock PyPI endpoint or dry-run flag (if supported).
-   - For Scenario C (Coverage): Create a test workflow that runs generate-coverage with both lang=rust and lang=python.
+   - For Scenario A (Rust build + release): Create a minimal test workflow that
+   runs setup-rust → rust-build-release with a fixture Rust project.
+   - For Scenario B (Python PyPI): Create a test workflow that runs
+   release-to-pypi-uv with a mock PyPI endpoint or dry-run flag (if supported).
+   - For Scenario C (Coverage): Create a test workflow that runs
+   generate-coverage with both lang=rust and lang=python.
    - Run each test workflow locally with `act` or in CI.
    - Verify that actions produce expected outputs and no runtime errors occur.
 
@@ -517,7 +592,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 - Smoke tests run without errors on ubuntu-latest.
 - Peer review is complete with no major clarity issues.
 
-**Artifacts:** Validated `docs/quickstart.md`, smoke-test workflow files, peer review notes.
+**Artifacts:** Validated `docs/quickstart.md`, smoke-test workflow files, peer
+review notes.
 
 ---
 
@@ -528,11 +604,14 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 **Steps:**
 
 1. **Update root README.md** (15 min):
-   - Add a link in the README.md hero or "Next Steps" section pointing to docs/quickstart.md.
-   - Example: "New to shared-actions? Start with the [Quickstart Guide](docs/quickstart.md)."
+   - Add a link in the README.md hero or "Next Steps" section pointing to
+   docs/quickstart.md.
+   - Example: "New to shared-actions? Start with the [Quickstart
+   Guide](docs/quickstart.md)."
 
 2. **Update AGENTS.md** (5 min):
-   - Add a link to docs/quickstart.md in the "Getting Started" or "Documentation" section.
+   - Add a link to docs/quickstart.md in the "Getting Started" or
+   "Documentation" section.
 
 3. **Document maintenance** (10 min):
    - Update this execplan's Outcomes section with:
@@ -543,7 +622,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 4. **Create draft PR** (15 min):
    - Commit changes (docs/quickstart.md, updated README.md, updated AGENTS.md).
    - Push to branch `6-2-1-write-quickstart-guide`.
-   - Create a draft PR with title: "(6.2.1) Write Quickstart Guide for shared-actions".
+   - Create a draft PR with title: "(6.2.1) Write Quickstart Guide for
+   shared-actions".
    - In PR description, link to this execplan and summarize what was delivered.
    - Include a "References" section with the lody session link.
 
@@ -557,7 +637,8 @@ The work consists of five sequential phases. Each phase has defined go/no-go val
 - All phases 1–4 are complete and validated.
 - PR is open and all CI gates pass.
 
-**Artifacts:** Merged docs/quickstart.md, updated README.md and AGENTS.md, merged PR.
+**Artifacts:** Merged docs/quickstart.md, updated README.md and AGENTS.md,
+merged PR.
 
 ## Concrete steps
 
@@ -571,14 +652,16 @@ cat > docs/execplans/6-2-1-dependency-matrix.txt << 'EOF'
 ACTION DEPENDENCY MATRIX
 
 Always-required (must run before dependent actions):
-- setup-rust → rust-build-release (setup-rust installs Rust; rust-build-release requires it)
+- setup-rust → rust-build-release (setup-rust installs Rust;
+  rust-build-release requires it)
 
 Conditionally-required (needed only for specific workflows):
 - rust-build-release → linux-packages (only if you want to create .deb/.rpm packages)
 - rust-build-release → macos-package (only if you want to create macOS .pkg)
 - rust-build-release → windows-package (only if you want to create Windows .msi/.zip)
 - Any build action → generate-coverage (only if measuring coverage)
-- generate-coverage → ... (optional; produces artifacts but doesn't affect other actions)
+- generate-coverage → ... (optional; produces artifacts but doesn't
+  affect other actions)
 
 Optional (can run independently):
 - setup-rust (if runner already has Rust, can skip)
@@ -603,7 +686,8 @@ Expected output:
 Matrix created.
 ```
 
-**Go/no-go:** Proceed to Phase 2 if all 5 items from Phase 1 steps are completed and documented in this execplan's Decision Log.
+**Go/no-go:** Proceed to Phase 2 if all 5 items from Phase 1 steps are completed
+and documented in this execplan's Decision Log.
 
 ---
 
@@ -660,13 +744,15 @@ docs/developers-guide.md
 docs/generate-coverage-design.md
 ```
 
-**Go/no-go:** Skeleton exists with all section headers. Outline is complete. Author confirms structure before proceeding.
+**Go/no-go:** Skeleton exists with all section headers. Outline is complete.
+Author confirms structure before proceeding.
 
 ---
 
 ### Phase 3: Content Creation
 
-This phase involves writing prose for each section. Example validation during Scenario A:
+This phase involves writing prose for each section. Example validation during
+Scenario A:
 
 ```bash
 # After writing Scenario A YAML, extract and validate it
@@ -690,7 +776,8 @@ If errors occur, fix YAML indentation and rerun until passing.
 
 ```bash
 # Verify all internal links exist
-for link in AGENTS.md developers-guide.md composite-actions-vs-full-workflows.md generate-coverage-design.md; do
+for link in AGENTS.md developers-guide.md \
+    composite-actions-vs-full-workflows.md generate-coverage-design.md; do
   if grep -q "$link" docs/quickstart.md; then
     if [ -f "docs/$link" ] || [ -f "$link" ]; then
       echo "✓ $link exists"
@@ -745,38 +832,56 @@ Expected: Commit message, successful push, PR created.
 
 After following the guide, a new user should be able to:
 
-1. **Understand the purpose:** Run through "What's Inside" section and correctly identify that setup-rust + rust-build-release is the path for Rust binary projects.
+1. **Understand the purpose:** Run through "What's Inside" section and correctly
+identify that setup-rust + rust-build-release is the path for Rust binary
+projects.
 
-2. **Run a complete example:** Copy the Scenario A YAML into their repository at `.github/workflows/release.yml`, adjust project-specific fields (binary name, target platforms), push to GitHub, and see a successful build and release workflow execute.
+2. **Run a complete example:** Copy the Scenario A YAML into their repository at
+`.github/workflows/release.yml`, adjust project-specific fields (binary name,
+target platforms), push to GitHub, and see a successful build and release
+workflow execute.
 
-3. **Understand dependencies:** Read the "Understanding Action Dependencies" section and predict which actions must run in sequence and which are optional.
+3. **Understand dependencies:** Read the "Understanding Action Dependencies"
+section and predict which actions must run in sequence and which are optional.
 
-4. **Find deeper docs:** Locate links to individual action READMEs and architectural deep-dives for topics they want to customize (e.g., Cargo features, nFPM configuration).
+4. **Find deeper docs:** Locate links to individual action READMEs and
+architectural deep-dives for topics they want to customize (e.g., Cargo
+features, nFPM configuration).
 
 ### Quality criteria
 
 **Content:**
+
 - [ ] Guide is between 600–1,200 lines (excluding code examples).
-- [ ] Includes at least 4 distinct use-case scenarios (Rust, Python, coverage, Dependabot).
+- [ ] Includes at least 4 distinct use-case scenarios (Rust, Python, coverage,
+Dependabot).
 - [ ] All YAML examples pass `make lint`.
 - [ ] All internal doc links are correct and point to existing files.
 - [ ] Glossary covers at least 5 key terms.
 
 **Examples:**
-- [ ] Each YAML example is copy-paste runnable (no manual edits beyond project-specific fields like binary name).
-- [ ] Examples are validated against corresponding action.yml files and existing workflows (ci.yml).
+
+- [ ] Each YAML example is copy-paste runnable (no manual edits beyond
+project-specific fields like binary name).
+- [ ] Examples are validated against corresponding action.yml files and existing
+workflows (ci.yml).
 - [ ] At least one Rust example and one Python example are present.
-- [ ] Examples include realistic input values and comments explaining how to customize.
+- [ ] Examples include realistic input values and comments explaining how to
+customize.
 
 **Validation:**
+
 - [ ] `make lint` passes (no markdown or YAML errors).
-- [ ] Peer review by a maintainer unfamiliar with shared-actions is complete with no unresolved clarity issues.
+- [ ] Peer review by a maintainer unfamiliar with shared-actions is complete
+with no unresolved clarity issues.
 - [ ] No broken internal or external links.
 - [ ] Platform-specific notes (if any) are clearly marked.
 
 **Integration:**
+
 - [ ] Root README.md updated to link to quickstart.
-- [ ] AGENTS.md updated to reference quickstart in "Getting Started" or similar section.
+- [ ] AGENTS.md updated to reference quickstart in "Getting Started" or similar
+section.
 - [ ] New file is discoverable (linked from README.md and AGENTS.md).
 - [ ] All CI/CD gates pass with the new file added.
 
@@ -811,55 +916,68 @@ Delivery is complete when:
 5. All CI/CD gates pass.
 6. A draft PR is open with a reference to this execplan and the lody session.
 
-
 ## Idempotence and recovery
 
 All steps in this plan are idempotent. If a phase fails or is incomplete:
 
-- **Phase 1–2:** Delete and recreate the files (dependency-matrix.txt, skeleton docs/quickstart.md). No external systems are affected.
+- **Phase 1–2:** Delete and recreate the files (dependency-matrix.txt, skeleton
+docs/quickstart.md). No external systems are affected.
 
-- **Phase 3:** Rewrite the prose or YAML sections. Validation in Phase 4 will catch errors.
+- **Phase 3:** Rewrite the prose or YAML sections. Validation in Phase 4 will
+catch errors.
 
-- **Phase 4:** Re-run validation steps. Link checks and YAML validation are re-runnable.
+- **Phase 4:** Re-run validation steps. Link checks and YAML validation are
+re-runnable.
 
-- **Phase 5:** If commit or push fails, fix the issue and retry. If PR creation fails, create manually.
+- **Phase 5:** If commit or push fails, fix the issue and retry. If PR creation
+fails, create manually.
 
-If a tolerance threshold is breached (e.g., YAML fails validation), stop immediately and escalate rather than working around the error.
+If a tolerance threshold is breached (e.g., YAML fails validation), stop
+immediately and escalate rather than working around the error.
 
 ## Artifacts and notes
 
 Key artifacts produced:
 
-1. **docs/quickstart.md** — The main deliverable. Scenario-driven guide with 4 examples, ~800–1,000 lines.
+1. **docs/quickstart.md** — The main deliverable. Scenario-driven guide with 4
+examples, ~800–1,000 lines.
 
-2. **docs/execplans/6-2-1-dependency-matrix.txt** — Clarity on which actions are always-required vs optional.
+2. **docs/execplans/6-2-1-dependency-matrix.txt** — Clarity on which actions are
+always-required vs optional.
 
 3. **Updated README.md** — Added link to quickstart.
 
 4. **Updated AGENTS.md** — Added reference in "Getting Started" section.
 
-5. **Draft PR** — (6.2.1) Write Quickstart Guide for shared-actions, linking to this execplan.
+5. **Draft PR** — (6.2.1) Write Quickstart Guide for shared-actions, linking to
+this execplan.
 
 ## Interfaces and dependencies
 
 **External dependencies:**
 
-- GitHub Actions: Users' workflows will `uses` the actions defined in `.github/actions/`.
-- Documentation: Links to existing docs (AGENTS.md, developers-guide.md, individual action READMEs).
+- GitHub Actions: Users' workflows will `uses` the actions defined in
+`.github/actions/`.
+- Documentation: Links to existing docs (AGENTS.md, developers-guide.md,
+individual action READMEs).
 
 **No new interfaces or dependencies are created by this plan.**
 
 **Validation tools:**
 
 - `make lint` — Runs action-validator to check YAML syntax.
-- `act` (local execution tool) — Optional, for smoke testing workflows locally before CI.
+- `act` (local execution tool) — Optional, for smoke testing workflows locally
+before CI.
 - `grep` / link checkers — For validating documentation links.
 
 ---
 
-**Status: DRAFT**
+## Status: DRAFT
 
-This ExecPlan is ready for review and approval. It addresses the 6 expert review gaps and provides a clear roadmap for writing a scenario-driven quickstart guide that reduces friction for new users of shared-actions while preserving deep reference documentation for advanced customization.
+This ExecPlan is ready for review and approval. It addresses the 6 expert review
+gaps and provides a clear roadmap for writing a scenario-driven quickstart guide
+that reduces friction for new users of shared-actions while preserving deep
+reference documentation for advanced customization.
 
 To proceed, the user must:
 
@@ -868,4 +986,5 @@ To proceed, the user must:
 3. Identify the maintenance owner for quarterly reviews.
 4. Approve proceeding to Phase 1.
 
-Upon approval, implementation will proceed milestone-by-milestone with clear go/no-go gates at each phase.
+Upon approval, implementation will proceed milestone-by-milestone with clear
+go/no-go gates at each phase.

@@ -2,7 +2,8 @@
 
 ## Title
 
-Environment Variable Aliases for ortho-config: Support Dynamic Aliasing and Precedence-Based Fallback
+Environment Variable Aliases for ortho-config: Support Dynamic Aliasing and
+Precedence-Based Fallback
 
 ## Status
 
@@ -14,40 +15,60 @@ Draft
 
 ## Summary
 
-This RFC proposes adding support for environment variable aliases in ortho-config, allowing multiple names to resolve to the same configuration parameter. The design supports both compile-time alias declaration (via procedural derive macros) and runtime alias registration, with a clear precedence model that respects canonical names over aliases. This feature enables smoother migration for projects like vk and podbot that need to support legacy variable names while standardizing on canonical ones.
+This RFC proposes adding support for environment variable aliases in
+ortho-config, allowing multiple names to resolve to the same configuration
+parameter. The design supports both compile-time alias declaration (via
+procedural derive macros) and runtime alias registration, with a clear
+precedence model that respects canonical names over aliases. This feature
+enables smoother migration for projects like vk and podbot that need to support
+legacy variable names while standardizing on canonical ones.
 
 ## Motivation
 
 ### Use Case: vk
 
-The vk project maintains configuration across multiple deployment environments. As vk evolves, environment variable naming conventions may change or consolidate. For example:
+The vk project maintains configuration across multiple deployment environments.
+As vk evolves, environment variable naming conventions may change or
+consolidate. For example:
 
 - Old convention: `VK_DATABASE_HOST`, `VK_DB_HOST` (inconsistent naming)
 - New convention: `VK_DATABASE_HOST` (single canonical name)
 
 Without alias support, vk must either:
-1. Hardcode checks for multiple variable names throughout the codebase, creating maintenance burden
+
+1. Hardcode checks for multiple variable names throughout the codebase,
+creating maintenance burden
 2. Perform manual pre-processing of environment variables at startup
 3. Maintain two parallel configuration systems indefinitely
 
-With aliases, vk can declare `VK_DB_HOST` as an alias for `VK_DATABASE_HOST`, automatically falling back to the old name when the canonical name is unset. This enables gradual migration without code duplication.
+With aliases, vk can declare `VK_DB_HOST` as an alias for
+`VK_DATABASE_HOST`, automatically falling back to the old name when the
+canonical name is unset. This enables gradual migration without code
+duplication.
 
 ### Use Case: podbot
 
-Podbot integrates ortho-config for multi-tenant audio processing configuration. As the platform matures:
+Podbot integrates ortho-config for multi-tenant audio processing configuration.
+As the platform matures:
 
 - Original var names used underscores: `PODBOT_AUDIO_SAMPLE_RATE_HZ`
 - Standardization effort switches to kebab-case in configuration: `podbot.audio.sample-rate-hz`
 - Internal library names differ from external configuration names
 
 Aliases allow podbot to:
+
 1. Define the production canonical name in configuration
-2. Declare aliases for legacy environment variables, documentation names, and integration points
-3. Support multiple deployment scenarios (legacy CI/CD, containers, Kubernetes) without code changes
+2. Declare aliases for legacy environment variables, documentation names, and
+integration points
+3. Support multiple deployment scenarios (legacy CI/CD, containers, Kubernetes)
+without code changes
 
 ### Core Problem
 
-Both projects face this pattern: environment-first systems need to support **backward compatibility** while **migrating to new naming schemes**. Current solutions are ad-hoc and spread throughout application code. A standardized mechanism in ortho-config would:
+Both projects face this pattern: environment-first systems need to support
+**backward compatibility** while **migrating to new naming schemes**. Current
+solutions are ad-hoc and spread throughout application code. A standardized
+mechanism in ortho-config would:
 
 - Centralize alias definitions at the configuration struct definition site
 - Enable zero-cost aliases (checked at compile time where possible)
@@ -82,6 +103,7 @@ struct DbConfig {
 ```
 
 Expansion semantics:
+
 - `DATABASE_HOST` (canonical) is checked first
 - If unset, `DB_HOST` is checked
 - If unset, `DBHOST` is checked
@@ -126,13 +148,13 @@ field: String,
 
 Resolution with environment state:
 
-| State | Resolved Value | Source |
-|-------|---|---|
-| `FOO=a, BAR=b, BAZ=c` | `a` | Canonical name (highest priority) |
-| `BAR=b, BAZ=c` | `b` | First alias that exists |
-| `BAZ=c` | `c` | Second alias |
-| `(none)` + `default="d"` | `d` | Default value |
-| `(none)` + no default | Error | No source found |
+| State                      | Resolved Value | Source                |
+| -------------------------- | -------------- | --------------------- |
+| `FOO=a, BAR=b, BAZ=c`      | `a`            | Canonical (highest)   |
+| `BAR=b, BAZ=c`             | `b`            | First alias           |
+| `BAZ=c`                    | `c`            | Second alias          |
+| `(none)` + `default="d"`   | `d`            | Default value         |
+| `(none)` + no default      | Error          | No source found       |
 
 ## Detailed Design
 
@@ -164,7 +186,8 @@ let database_host = env::var("VK_DATABASE_HOST")
 
 #### Runtime Registration
 
-For scenarios where aliases cannot be known at compile time, a `#[ortho_config(runtime_aliases)]` mode allows registration:
+For scenarios where aliases cannot be known at compile time, a
+`#[ortho_config(runtime_aliases)]` mode allows registration:
 
 ```rust
 #[derive(Config)]
@@ -192,7 +215,11 @@ pub struct AliasesBuilder { /* ... */ }
 impl AliasesBuilder {
     /// Register that `alias_name` is an alias for `canonical_name`
     /// Both names are tested; canonical is tried first
-    pub fn alias(mut self, alias_name: &str, canonical_name: &str) -> Result<Self> {
+    pub fn alias(
+        mut self,
+        alias_name: &str,
+        canonical_name: &str,
+    ) -> Result<Self> {
         // Validation: neither can be empty
         // Validation: alias != canonical
         // Validation: no cycles (A->B, B->A)
@@ -248,19 +275,19 @@ The resolution engine applies aliases at multiple levels:
 
 For each field:
 
-```
+```rust
 fn resolve_field(field_name, field_spec, aliases):
     // field_spec = {env_name, aliases, default, ...}
-    
+
     canonical = env_prefix + field_spec.env_name
     candidates = [canonical] + [env_prefix + a for a in field_spec.aliases]
-    
+
     for candidate in candidates:
         if runtime_aliases provided:
             candidate = runtime_aliases.resolve(candidate)
         if env_var_exists(candidate):
             return parse(env_var(candidate))
-    
+
     if field_spec.default:
         return field_spec.default
     else:
@@ -372,6 +399,7 @@ When configuration fails, errors clearly indicate all names tried:
 Error: failed to load configuration field 'database_host'
 
 Tried in order:
+
   1. VK_DATABASE_HOST (canonical)
   2. VK_DB_HOST (alias)
   3. VK_DBHOST (alias)
@@ -380,7 +408,8 @@ No value found and no default set.
 
 Suggestion: Set one of the above environment variables.
 
-Learn more: [https://docs.example.com/vk/config#database_host](https://docs.example.com/vk/config#database_host)
+Learn more:
+[https://docs.example.com/vk/config#database_host](https://docs.example.com/vk/config#database_host)
 ```
 
 ## Migration Path
@@ -392,6 +421,7 @@ Learn more: [https://docs.example.com/vk/config#database_host](https://docs.exam
    - List all legacy names used historically
 
 2. **Declare aliases** in config structs
+
    ```rust
    #[ortho_config(env_name = "DATABASE_HOST", aliases = ["DB_HOST", "DBHOST"])]
    database_host: String,
@@ -413,18 +443,19 @@ Learn more: [https://docs.example.com/vk/config#database_host](https://docs.exam
    - External/legacy: `PODBOT_AUDIO_SR`, `LEGACY_MODE`, etc.
 
 2. **Implement runtime alias registration**
+
    ```rust
    let mut aliases = Aliases::builder();
-   
+
    // Legacy external integrations
    aliases.alias("PODBOT_AUDIO_SR", "PODBOT_AUDIO_SAMPLE_RATE_HZ")?;
    aliases.alias("LEGACY_MODE", "PODBOT_MODE")?;
-   
+
    // Container/Kubernetes secrets using different scheme
    if is_container_env() {
        aliases.alias("AUDIO_RATE", "PODBOT_AUDIO_SAMPLE_RATE_HZ")?;
    }
-   
+
    let config = PodBotConfig::from_env_with_aliases(aliases.build())?;
    ```
 
@@ -436,6 +467,7 @@ Learn more: [https://docs.example.com/vk/config#database_host](https://docs.exam
 ### Phase 3: Community Adoption
 
 vk and podbot publish:
+
 - Migration guides
 - Before/after comparisons
 - Case studies showing maintenance reduction
@@ -446,7 +478,8 @@ Other projects adopt aliases for their own configurations.
 
 ### Alternative 1: Raw Environment Scanning at Startup
 
-**Approach**: Projects scan for multiple variable names and rename them before initialization.
+**Approach**: Projects scan for multiple variable names and rename them before
+initialization.
 
 ```rust
 // Anti-pattern: scattered throughout codebase
@@ -462,10 +495,12 @@ fn load_config() -> Result<Config> {
 }
 ```
 
-**Pros**: 
+**Pros**:
+
 - No framework changes needed
 
 **Cons**:
+
 - Duplicated across projects
 - Error-prone (easy to miss names)
 - Hidden logic outside config struct definition
@@ -475,7 +510,8 @@ fn load_config() -> Result<Config> {
 
 ### Alternative 2: Separate Configuration Layer
 
-**Approach**: Add a "pre-processing" layer that normalizes environment before passing to ortho-config.
+**Approach**: Add a "pre-processing" layer that normalizes environment before
+passing to ortho-config.
 
 ```rust
 struct LegacyEnvMapper {
@@ -494,10 +530,12 @@ impl LegacyEnvMapper {
 ```
 
 **Pros**:
+
 - Loosely coupled to ortho-config
 - Could be reused in other contexts
 
 **Cons**:
+
 - Requires explicit invocation before `from_env()`
 - Easy to forget or misconfigure
 - Still duplicates logic across projects
@@ -516,10 +554,12 @@ ALIAS PODBOT_AUDIO_SR -> PODBOT_AUDIO_SAMPLE_RATE_HZ
 ```
 
 **Pros**:
+
 - Centralized
 - Can be version-controlled
 
 **Cons**:
+
 - Another file to manage and synchronize
 - Breaks single source of truth (separate from config struct)
 - Requires parsing at runtime for every lookup
@@ -529,7 +569,9 @@ ALIAS PODBOT_AUDIO_SR -> PODBOT_AUDIO_SAMPLE_RATE_HZ
 ### Why This RFC is Better
 
 The proposed approach:
-1. **Colocates** alias definitions with field definitions (single source of truth)
+
+1. **Colocates** alias definitions with field definitions (single source of
+truth)
 2. **Provides** compile-time validation and optimization
 3. **Supports** both compile-time and runtime aliases (flexible)
 4. **Generates** documentation automatically
@@ -548,17 +590,20 @@ The macro expansion adds non-trivial code to each field with aliases:
 // Negligible impact on compile time, but worth benchmarking
 ```
 
-**Mitigation**: 
+**Mitigation**:
+
 - Profile macro expansion
 - Offer `lazy = true` option if needed (defer to runtime resolution)
 
 ### Documentation Burden
 
 Projects must maintain alias lists in two places:
+
 1. Source code (as attributes)
 2. User documentation (manually)
 
 **Mitigation**:
+
 - Auto-generate `config-reference.md` from macro attributes
 - Include generated docs in CI validation
 
@@ -575,6 +620,7 @@ field: String,
 ```
 
 **Mitigation**:
+
 - Lint warning when >3 aliases per field
 - Documentation recommends max 2-3
 - Migration guide emphasizes retiring old names
@@ -594,6 +640,7 @@ let config = Config::from_env_with_aliases(
 ```
 
 **Mitigation**:
+
 - Provide builder method: `Config::with_runtime_aliases(|a| a.alias(...)?)`
 - Document common patterns
 - Examples for typical scenarios
@@ -602,7 +649,7 @@ let config = Config::from_env_with_aliases(
 
 ### 1. Case Sensitivity
 
-Should aliases be **case-sensitive**? 
+Should aliases be **case-sensitive**?
 
 - **Current proposal**: Yes, case-sensitive (standard for Unix env vars)
 - **Alternative**: Case-insensitive matching option
@@ -664,6 +711,7 @@ struct Parent {
 ### 6. Performance Profiling
 
 Before stabilizing, we need to measure:
+
 - Macro expansion overhead
 - Runtime lookup performance vs. simple `env::var()`
 - Memory overhead of Aliases struct
@@ -694,7 +742,13 @@ Before stabilizing, we need to measure:
 
 ## References
 
-- [12-Factor App: Config]([https://12factor.net/config](https://12factor.net/config)) — environment-first principle
-- [Rust RFC 2407: Anonymous struct fields]([https://rust-lang.github.io/rfcs/2407-anonymous-fields.html](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html)) — related feature design
-- [dotenv-rs]([https://github.com/dotenv-rs/dotenv-rs](https://github.com/dotenv-rs/dotenv-rs)) — prior art in Rust env handling
-- [Kubernetes environment variable naming]([https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/)) — real-world naming patterns
+- [12-Factor App: Config](https://12factor.net/config) — environment-first
+  principle
+- [Rust RFC 2407: Anonymous struct
+  fields](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html) —
+  related feature design
+- [dotenv-rs](https://github.com/dotenv-rs/dotenv-rs) — prior art in Rust env
+  handling
+- [Kubernetes environment variable
+  naming](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/)
+  — real-world naming patterns

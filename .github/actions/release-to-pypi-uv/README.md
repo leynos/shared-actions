@@ -7,16 +7,16 @@ Build and publish Python distributions via
 
 | Name | Description | Required | Default |
 | --- | --- | --- | --- |
-| tag | Tag to release (e.g. `v1.2.3`). Required when the workflow is not running on a tag ref. | no | _(empty)_ |
-| require-confirmation | Require a manual confirmation string before publishing. | no | `false` |
-| confirm | Confirmation string. Must equal `release <tag>` when `require-confirmation` is true. | no | _(empty)_ |
-| environment-name | GitHub environment to reference in the release summary. | no | `pypi` |
-| uv-index | Optional uv index name to publish to (e.g. `testpypi`). Must exist in `tool.uv.index`. | no | _(empty)_ |
-| toml-glob | Glob used to discover `pyproject.toml` files for version validation. | no | `**/pyproject.toml` |
-| skip-directories | Comma- or newline-separated directory names to skip during discovery. | no | _(empty)_ |
-| fail-on-dynamic-version | Fail when a project declares a dynamic PEP 621 version instead of a literal string. | no | `false` |
-| fail-on-empty | Fail when no `pyproject.toml` files match the discovery glob. | no | `false` |
-| python-version | Python version to install and use for all uv commands. | no | `3.13` |
+| tag | Tag to release (e.g. `v1.2.3`) | no | _(empty)_ |
+| require-confirmation | Require manual confirmation | no | `false` |
+| confirm | Confirmation string | no | _(empty)_ |
+| environment-name | GitHub environment name | no | `pypi` |
+| uv-index | uv index name (e.g. `testpypi`) | no | _(empty)_ |
+| toml-glob | Glob for `pyproject.toml` discovery | no | `**/pyproject.toml` |
+| skip-directories | Directories to skip | no | _(empty)_ |
+| fail-on-dynamic-version | Fail on dynamic PEP 621 version | no | `false` |
+| fail-on-empty | Fail on empty discovery | no | `false` |
+| python-version | Python version | no | `3.13` |
 
 The composite action installs the interpreter requested through `python-version`
 before invoking any uv commands, ensuring builds run against the expected

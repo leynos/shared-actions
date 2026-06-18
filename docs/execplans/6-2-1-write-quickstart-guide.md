@@ -274,8 +274,8 @@ package, and release workflows for Rust and Python projects.
 
 **Key files:**
 
-- **README.md** (root): Master table of 17 actions with major version and path.
-This is the entry point users see.
+- **README.md** (root): Master table of 17 actions with major version and
+path. This is the entry point users see.
 - **docs/developers-guide.md**: Internal architecture for contributors. Covers
 concurrency assumptions, venv management, caching strategies.
 - **docs/composite-actions-vs-full-workflows.md**: Explains when to use actions
@@ -345,7 +345,7 @@ validation before proceeding to the next.
 
 **Goal:** Resolve the 6 gaps identified in expert review before writing begins.
 
-**Steps:**
+#### Steps
 
 1. Create a dependency matrix distinguishing:
    - Always-required actions (e.g., setup-rust before rust-build-release)
@@ -373,7 +373,7 @@ and updates). Document in execplan Outcomes section once identified.
    - Scenario C (Coverage): for any project measuring code coverage
    - Scenario D (Dependabot auto-merge): for any project using Dependabot
 
-**Go/no-go gate:**
+#### Go/no-go gate
 
 - All 5 items above are completed and documented.
 - Author confirms the scope and 4-action list.
@@ -389,7 +389,7 @@ Phase 2.
 **Goal:** Draft the guide structure without writing full prose, ensuring
 coverage and flow.
 
-**Steps:**
+#### Steps
 
 1. Create a detailed outline of all sections:
    - Hero section (1-liner, audience, key features)
@@ -419,7 +419,7 @@ action READMEs, etc.) and verify they exist.
 
 5. Draft section headers and sub-headers in a skeleton .md file.
 
-**Go/no-go gate:**
+#### Go/no-go gate
 
 - Outline is complete with all sections clearly named.
 - All internal doc links are verified to exist.
@@ -436,7 +436,7 @@ action mappings.
 **Goal:** Write all narrative and code sections, validating YAML syntax as you
 go.
 
-**Steps:**
+#### Steps
 
 1. **Hero & Prerequisites section** (30 min):
    - Write 1-line description: "Reusable GitHub Actions for Rust and Python
@@ -535,7 +535,7 @@ go.
       - Artefacts (staging)
       - Slipcover
 
-**Go/no-go gate:**
+#### Go/no-go gate
 
 - All prose sections are written.
 - All YAML examples pass `make lint` (action-validator).
@@ -550,7 +550,7 @@ go.
 
 **Goal:** Ensure all examples are correct, testable, and discoverable.
 
-**Steps:**
+#### Steps
 
 1. **YAML Validation** (30 min):
    - Run `make lint` from repository root.
@@ -585,7 +585,7 @@ go.
    - Flag any sections that are confusing or require external context.
    - Incorporate feedback.
 
-**Go/no-go gate:**
+#### Go/no-go gate
 
 - All YAML passes `make lint`.
 - All links are correct.
@@ -601,7 +601,7 @@ review notes.
 
 **Goal:** Finalize the guide, update root README, and merge to main branch.
 
-**Steps:**
+#### Steps
 
 1. **Update root README.md** (15 min):
    - Add a link in the README.md hero or "Next Steps" section pointing to
@@ -632,7 +632,7 @@ review notes.
    - Mark PR as ready for review.
    - Await approval and merge to main.
 
-**Go/no-go gate:**
+#### Go/no-go gate
 
 - All phases 1–4 are complete and validated.
 - PR is open and all CI gates pass.

@@ -9,8 +9,9 @@ one composite call.
 
 - Installs the WiX CLI and UI extension on the runner.
 - Resolves the MSI version from an explicit input or a tagged Git reference.
-- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a generated template that
-  installs the provided application and supporting files.
+- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a
+  generated template that installs the provided application and supporting
+  files.
 - Optionally uploads the generated MSI via `actions/upload-artifact`.
 
 > [!IMPORTANT]
@@ -32,9 +33,9 @@ inputs):
    └─ README.pdf               # documentation shipped with the installer
 ```
 
-The `installer/Package.wxs` authoring is optional—omit it when using the default template and
-provide the executable (and optional additional files) via the `application-path` and
-`additional-files` inputs.
+The `installer/Package.wxs` authoring is optional—omit it when using the
+default template and provide the executable (and optional additional files) via
+the `application-path` and `additional-files` inputs.
 
 ## Inputs
 
@@ -56,11 +57,8 @@ provide the executable (and optional additional files) via the `application-path
 | `wix-extension-version` | no | `''` | Version suffix appended to the extension coordinate. When omitted, the action auto-matches the installed WiX CLI major version (for example `WixToolset.UI.wixext/7` with WiX v7). |
 | `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
 | `output-directory` | no | `out` | Directory where the MSI artefact is created. |
-| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license |
-|                          |    |      | that will be converted to RTF using the default Calibri 11 pt |
-|                          |    |      | template. |
-| `license-rtf-path`       | no | `''` | Output path for the generated license RTF when converting from |
-|                          |    |      | plain text. Defaults to replacing the input suffix with `.rtf`. |
+| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 plain text license that will be converted to RTF using the default Calibri 11 pt template. |
+| `license-rtf-path` | no | `''` | Output path for the generated license RTF when converting from plain text. Defaults to replacing the input suffix with `.rtf`. |
 | `upload-artefact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
 | `artefact-name` | no | `msi` | Name of the uploaded artefact. |
 

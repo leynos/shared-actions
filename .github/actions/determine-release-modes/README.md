@@ -10,8 +10,8 @@ type and optional input overrides.
 
 | Name | Description | Required | Default |
 | ---- | ----------- | -------- | ------- |
-| `dry-run` | Override dry-run mode (auto-detected from event when empty) | no | `""` |
-| `publish` | Override publish flag (auto-detected from event when empty) | no | `""` |
+| `dry-run` | Override dry-run (auto-detected) | no | `""` |
+| `publish` | Override publish flag (auto-detected) | no | `""` |
 
 ## Outputs
 
@@ -56,7 +56,7 @@ type and optional input overrides.
 The action derives modes based on the GitHub event type:
 
 | Event | Default dry-run | Default publish | Artefacts |
-|-------|-----------------|-----------------|-----------|
+| --- | --- | --- | --- |
 | `push` (tag) | `false` | `true` | Uploaded |
 | `workflow_call` | From inputs | From inputs | If not dry-run |
 | `pull_request` | `true` | `false` | None |

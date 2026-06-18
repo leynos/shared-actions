@@ -1,6 +1,7 @@
 # ensure-cargo-version
 
-Validate that the Git tag triggering a release workflow matches the version in one or more Cargo manifests.
+Validate that the Git tag triggering a release workflow matches the version in
+one or more Cargo manifests.
 
 ## Inputs
 

@@ -90,7 +90,8 @@ Files in nested directories are namespaced with their path prefix, replacing
 
 1. **Discovery**: Recursively scan `dist-dir` for matching artefacts
 2. **Validation**: Verify files are non-empty and have unique asset names
-3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in dry-run mode)
+3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in
+   dry-run mode)
 
 ### Error Handling
 

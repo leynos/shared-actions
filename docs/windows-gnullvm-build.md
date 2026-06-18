@@ -48,7 +48,8 @@ passed through to the setup script.
       working-directory: ${{ inputs.project-dir }}
       run: |
         set -euo pipefail
-        uv run --script "$GITHUB_ACTION_PATH/src/setup_gnullvm.py" --target "${{ inputs.target }}"
+        uv run --script "$GITHUB_ACTION_PATH/src/setup_gnullvm.py" \
+          --target "${{ inputs.target }}"
     - name: Build release
 # ...
 ```

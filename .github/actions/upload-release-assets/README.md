@@ -14,7 +14,7 @@ release state.
 | `release-tag` | Git tag identifying the release to publish to | yes | - |
 | `bin-name` | Binary name used to derive artefact names | yes | - |
 | `dist-dir` | Directory containing staged artefacts | no | `dist` |
-| `dry-run` | When true, only validate artefacts and print the upload plan | no | `"false"` |
+| `dry-run` | Validate artefacts without uploading | no | `"false"` |
 | `clobber` | Overwrite existing assets with the same name | no | `"true"` |
 
 ## Outputs

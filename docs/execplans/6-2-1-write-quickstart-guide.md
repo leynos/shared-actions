@@ -1,61 +1,117 @@
 # Write Quickstart Guide for shared-actions (6.2.1)
 
-This ExecPlan (execution plan) is a living document. The sections `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+## Status
 
+DRAFT
 
 ## Purpose / big picture
 
-The shared-actions repository contains 17 reusable GitHub Actions focused on Rust and Python build, test, package, and release automation. Today, new users face a steep discovery curve: the README provides only a bare table listing actions with no guidance on which ones to use, how they fit together, or how to compose them into working workflows. Individual action READMEs exist but are isolated reference docs showing single-action usage patterns, not realistic end-to-end pipelines.
+The shared-actions repository contains 17 reusable GitHub Actions focused on
+Rust and Python build, test, package, and release automation. Today, new users
+face a steep discovery curve: the README provides only a bare table listing
+actions with no guidance on which ones to use, how they fit together, or how to
+compose them into working workflows. Individual action READMEs exist but are
+isolated reference docs showing single-action usage patterns, not realistic
+end-to-end pipelines.
 
-This ExecPlan will deliver `docs/quickstart.md`, a scenario-driven onboarding guide that bridges the gap between the action table and deep reference documentation. After following this guide, a user new to shared-actions will be able to:
+This ExecPlan will deliver `docs/quickstart.md`, a scenario-driven onboarding
+guide that bridges the gap between the action table and deep reference
+documentation. After following this guide, a user new to shared-actions will be
+able to:
 
-1. Understand what these actions do and which ones solve their problem (within 5 minutes of reading)
-2. See a complete, runnable workflow example for their use case (Rust build+release, Python PyPI publish, coverage measurement, or Dependabot auto-merge)
-3. Know how to customize the example for their project and where to find deeper docs
-4. Understand common pitfalls and security considerations when using GitHub Actions
+1. Understand what these actions do and which ones solve their problem
+   (within 5 minutes of reading)
+2. See a complete, runnable workflow example for their use case (Rust
+   build+release, Python PyPI publish, coverage measurement, or Dependabot
+   auto-merge)
+3. Know how to customize the example for their project and where to find
+   deeper docs
+4. Understand common pitfalls and security considerations when using GitHub
+   Actions
 
-The guide will be validated by running all provided YAML examples through the project's existing action-validator tool and composability smoke tests to ensure they produce expected outputs and work end-to-end.
-
+The guide will be validated by running all provided YAML examples through the
+project's existing action-validator tool and composability smoke tests to
+ensure they produce expected outputs and work end-to-end.
 
 ## Constraints
 
 Hard invariants that must hold throughout implementation.
 
-- **Scope:** The guide must remain a quickstart (max 1,200 lines including YAML examples). Complex topics (Cargo configuration, nFPM templating, platform-specific cross-compilation) link to existing deep-dive documentation rather than being explained in full.
+- **Scope:** The guide must remain a quickstart (max 1,200 lines including
+  YAML examples). Complex topics (Cargo configuration, nFPM templating,
+  platform-specific cross-compilation) link to existing deep-dive
+  documentation rather than being explained in full.
 
-- **Content source:** Every action mentioned in the guide already exists in this repository. No new actions are created as part of this task. All examples derive from or are validated against existing action tests and documented workflows (`.github/workflows/ci.yml`, test fixtures).
+- **Content source:** Every action mentioned in the guide already exists in
+  this repository. No new actions are created as part of this task. All
+  examples derive from or are validated against existing action tests and
+  documented workflows (`.github/workflows/ci.yml`, test fixtures).
 
-- **Linking over duplication:** When explaining concepts (composite actions, reusable workflows, caching, GitHub token permissions), link to existing reference docs (AGENTS.md, developers-guide.md, individual action READMEs) rather than duplicating explanation.
+- **Linking over duplication:** When explaining concepts (composite actions,
+  reusable workflows, caching, GitHub token permissions), link to existing
+  reference docs (AGENTS.md, developers-guide.md, individual action READMEs)
+  rather than duplicating explanation.
 
-- **Single source of truth:** The master table of actions remains in the root README.md. The quickstart guide adds narrative and examples but does not replace that table.
+- **Single source of truth:** The master table of actions remains in the root
+  README.md. The quickstart guide adds narrative and examples but does not
+  replace that table.
 
-- **Action versioning:** Examples use published major-version tags for remote usage (e.g., `owner/shared-actions/.github/actions/setup-rust@v1`) and local-path syntax for development (`./.github/actions/setup-rust`). Examples must match the current semantic versioning strategy documented in AGENTS.md.
+- **Action versioning:** Examples use published major-version tags for remote
+  usage (e.g., `owner/shared-actions/.github/actions/setup-rust@v1`) and
+  local-path syntax for development (`./.github/actions/setup-rust`).
+  Examples must match the current semantic versioning strategy documented in
+  AGENTS.md.
 
-- **Platform coverage:** Examples must be valid YAML and runnable on at least ubuntu-latest. Platform-specific gotchas (Windows GUI tools, macOS cross-compilation, Linux systemd services) must be explicitly noted or omitted.
+- **Platform coverage:** Examples must be valid YAML and runnable on at least
+  ubuntu-latest. Platform-specific gotchas (Windows GUI tools, macOS
+  cross-compilation, Linux systemd services) must be explicitly noted or
+  omitted.
 
-- **No breaking changes:** Implementing this guide must not require changes to existing actions, workflows, or tooling. If such changes are discovered to be necessary, stop and escalate.
-
+- **No breaking changes:** Implementing this guide must not require changes to
+  existing actions, workflows, or tooling. If such changes are discovered to
+  be necessary, stop and escalate.
 
 ## Tolerances (exception triggers)
 
 Thresholds that trigger escalation when breached.
 
-- **Scope creep:** If the guide grows beyond 1,200 lines (excluding code examples) or requires adding more than 4 complete YAML scenario examples, stop and escalate.
+- **Scope creep:** If the guide grows beyond 1,200 lines (excluding code
+  examples) or requires adding more than 4 complete YAML scenario examples,
+  stop and escalate.
 
-- **Example validation failure:** If any provided YAML example fails `action-validator` or would fail on a representative CI runner (ubuntu-latest), stop with error logs and escalate.
+- **Example validation failure:** If any provided YAML example fails
+  `action-validator` or would fail on a representative CI runner
+  (ubuntu-latest), stop with error logs and escalate.
 
-- **Design inconsistencies:** If writing examples reveals that following the guide's recommended action sequence would fail at runtime on a specific OS or with specific inputs (even if no documentation contradiction exists), file an issue with a minimal reproduction and escalate. Do not work around the inconsistency with undocumented workarounds.
+- **Design inconsistencies:** If writing examples reveals that following the
+  guide's recommended action sequence would fail at runtime on a specific OS
+  or with specific inputs (even if no documentation contradiction exists),
+  file an issue with a minimal reproduction and escalate. Do not work around
+  the inconsistency with undocumented workarounds.
 
-- **Documentation conflicts:** If two action READMEs contradict each other (e.g., conflicting input defaults, incompatible output formats), file a GitHub issue and escalate rather than proceeding.
+- **Documentation conflicts:** If two action READMEs contradict each other
+  (e.g., conflicting input defaults, incompatible output formats), file a
+  GitHub issue and escalate rather than proceeding.
 
-- **Ambiguous target audience:** If it becomes unclear whether the guide should prioritize Rust users, Python users, or equal coverage, escalate. The current decision is: Rust-primary, with Python as a secondary example, since shared-actions is primarily a Rust tooling library.
+- **Ambiguous target audience:** If it becomes unclear whether the guide
+  should prioritize Rust users, Python users, or equal coverage, escalate.
+  The current decision is: Rust-primary, with Python as a secondary example,
+  since shared-actions is primarily a Rust tooling library.
 
-- **Missing testing infrastructure:** If the guide requires inventing new test fixtures, CI workflows, or smoke-test infrastructure not already present in the repository, escalate.
+- **Missing testing infrastructure:** If the guide requires inventing new test
+  fixtures, CI workflows, or smoke-test infrastructure not already present in
+  the repository, escalate.
 
-- **Scope definition:** The quickstart will include full, runnable YAML examples for exactly these actions: (1) `setup-rust`, (2) `rust-build-release`, (3) one platform packager (`linux-packages` preferred), (4) `release-to-pypi-uv`. All other actions receive 1-line descriptions + links to individual READMEs. Deviations from this list trigger scope-creep escalation.
-
+- **Scope definition:** The quickstart will include full, runnable YAML
+  examples for exactly these actions: (1) `setup-rust`, (2)
+  `rust-build-release`, (3) one platform packager (`linux-packages`
+  preferred), (4) `release-to-pypi-uv`. All other actions receive 1-line
+  descriptions + links to individual READMEs. Deviations from this list
+  trigger scope-creep escalation.
 
 ## Risks
 
@@ -64,33 +120,49 @@ Known uncertainties that might affect the plan.
 - **Risk:** Examples become stale as actions evolve.
   Severity: high
   Likelihood: high
-  Mitigation: Cross-reference each example against corresponding `action.yml` files. Add comments pinpointing exact input versions. Include a validation date in the guide (e.g., "validated against shared-actions v1.2.3, 2026-06-18"). Establish a quarterly review cadence to refresh examples against the latest action defaults.
+  Mitigation: Cross-reference each example against corresponding `action.yml`
+  files. Add comments pinpointing exact input versions. Include a validation
+  date in the guide (e.g., "validated against shared-actions v1.2.3,
+  2026-06-18"). Establish a quarterly review cadence to refresh examples
+  against the latest action defaults.
 
 - **Risk:** Action interdependencies are more complex than documented.
   Severity: high
   Likelihood: high
-  Mitigation: Before writing examples, create a dependency matrix distinguishing: (a) always-required (e.g., `setup-rust` before compilation), (b) conditionally-required (e.g., `linux-packages` only for release builds), (c) optional (e.g., coverage generation). Document this matrix upfront in the guide to set correct expectations.
+  Mitigation: Before writing examples, create a dependency matrix
+  distinguishing: (a) always-required (e.g., `setup-rust` before compilation),
+  (b) conditionally-required (e.g., `linux-packages` only for release builds),
+  (c) optional (e.g., coverage generation). Document this matrix upfront in
+  the guide to set correct expectations.
 
-- **Risk:** Examples work on ubuntu-latest but fail on macOS or Windows runners.
+- **Risk:** Examples work on ubuntu-latest but fail on macOS or Windows
+  runners.
   Severity: medium
   Likelihood: medium
-  Mitigation: Validate Rust examples on ubuntu-latest and macos-latest if feasible. For platform-specific actions (e.g., `windows-package`), test locally or note the limitation. Clearly annotate platform-specific sections in the guide.
+  Mitigation: Validate Rust examples on ubuntu-latest and macos-latest if
+  feasible. For platform-specific actions (e.g., `windows-package`), test
+  locally or note the limitation. Clearly annotate platform-specific sections
+  in the guide.
 
-- **Risk:** First-time users are confused by the difference between actions (reusable steps) and reusable workflows (full workflow files).
+- **Risk:** First-time users are confused by the difference between actions
+  (reusable steps) and reusable workflows (full workflow files).
   Severity: medium
   Likelihood: medium
-  Mitigation: Include a brief comparison section early in the guide. Link to existing doc: docs/composite-actions-vs-full-workflows.md.
-
-- **Risk:** Users skip the quickstart and go directly to individual action READMEs, missing the narrative context.
+  Mitigation: Include a brief comparison section early in the guide. Link to
+  existing doc: docs/composite-actions-vs-full-workflows.md.
+- **Risk:** Users skip the quickstart and go directly to individual action
+  READMEs, missing the narrative context.
   Severity: low
   Likelihood: medium
-  Mitigation: Add a prominent "Start here" link in the root README.md pointing to the new quickstart.
+  Mitigation: Add a prominent "Start here" link in the root README.md pointing
+  to the new quickstart.
 
 - **Risk:** Glossary terms are unfamiliar to GitHub Actions newcomers.
   Severity: low
   Likelihood: medium
-  Mitigation: Include a "Glossary" section at the end of the guide. Define: composite action, reusable workflow, runner, sccache, nextest, nFPM, artefacts, staging.
-
+  Mitigation: Include a "Glossary" section at the end of the guide. Define:
+  composite action, reusable workflow, runner, sccache, nextest, nFPM,
+  artefacts, staging.
 
 ## Progress
 
@@ -136,7 +208,6 @@ Use a list with checkboxes to summarise granular steps. Every stopping point mus
   - [ ] Create draft PR with comment linking to this execplan
   - [ ] Incorporate review feedback
   - [ ] Merge with all CI gates passing
-
 
 ## Surprises & discoveries
 

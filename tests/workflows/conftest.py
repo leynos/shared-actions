@@ -53,6 +53,11 @@ def _act_available() -> bool:
     return _command_available(_act_command())
 
 
+def _act_available() -> bool:
+    """Return True if act is installed and runnable."""
+    return _command_available(_act_command())
+
+
 def _default_podman_socket(environ: cabc.Mapping[str, str]) -> Path:
     """Return the default rootless Podman Docker-compatible socket path."""
     runtime_dir = environ.get("XDG_RUNTIME_DIR")
@@ -112,6 +117,11 @@ def _docker_host_usable(docker_host: str) -> tuple[bool, str]:
         detail = body.strip() or f"HTTP {status}"
         return False, f"Docker API cannot list containers: {detail}"
     return True, ""
+
+
+def _container_runtime_available() -> bool:
+    """Return True if a container runtime (docker/podman) is available."""
+    return _probe_act_runtime().available
 
 
 def _container_runtime_available() -> bool:

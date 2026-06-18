@@ -10,16 +10,16 @@ type and optional input overrides.
 
 | Name | Description | Required | Default |
 | ---- | ----------- | -------- | ------- |
-| `dry-run` | Override dry-run mode (auto-detected from event when empty) | no | `""` |
-| `publish` | Override publish flag (auto-detected from event when empty) | no | `""` |
+| `dry-run` | Override dry-run (auto-detected) | no | `""` |
+| `publish` | Override publish flag (auto-detected) | no | `""` |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| `dry-run` | `"true"` or `"false"` indicating dry-run mode |
-| `should-publish` | `"true"` or `"false"` indicating whether to publish to a release |
-| `should-upload-workflow-artifacts` | `"true"` or `"false"` indicating whether to upload workflow artefacts |
+| `dry-run` | Dry-run (`"true"` or `"false"`) |
+| `should-publish` | Publish (`"true"` or `"false"`) |
+| `should-upload-workflow-artifacts` | Upload (`"true"` or `"false"`) |
 
 ## Usage
 
@@ -56,7 +56,7 @@ type and optional input overrides.
 The action derives modes based on the GitHub event type:
 
 | Event | Default dry-run | Default publish | Artefacts |
-|-------|-----------------|-----------------|-----------|
+| --- | --- | --- | --- |
 | `push` (tag) | `false` | `true` | Uploaded |
 | `workflow_call` | From inputs | From inputs | If not dry-run |
 | `pull_request` | `true` | `false` | None |

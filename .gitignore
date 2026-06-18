@@ -166,3 +166,4 @@ target/
 
 # Episodic nested repository (separate git history)
 /episodic-work/
+docs/architecture/

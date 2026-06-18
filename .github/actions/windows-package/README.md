@@ -9,8 +9,9 @@ one composite call.
 
 - Installs the WiX CLI and UI extension on the runner.
 - Resolves the MSI version from an explicit input or a tagged Git reference.
-- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a generated template that
-  installs the provided application and supporting files.
+- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a
+  generated template that installs the provided application and supporting
+  files.
 - Optionally uploads the generated MSI via `actions/upload-artifact`.
 
 > [!IMPORTANT]
@@ -32,37 +33,34 @@ inputs):
    └─ README.pdf               # documentation shipped with the installer
 ```
 
-The `installer/Package.wxs` authoring is optional—omit it when using the default template and
-provide the executable (and optional additional files) via the `application-path` and
-`additional-files` inputs.
+The `installer/Package.wxs` authoring is optional—omit it when using the
+default template and provide the executable (and optional additional files) via
+the `application-path` and `additional-files` inputs.
 
 ## Inputs
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `wxs-path` | no | `''` | Path to the WiX authoring file used to build the MSI. When omitted a default template is rendered. |
-| `application-path` | no | `''` | Main executable or bundle to install. Append `\|relative\\path` to customise the install location. |
-| `additional-files` | no | `''` | Additional `source\|relative\\path` mappings (one per line) to include in the installer. |
-| `product-name` | no | `''` | Product name used by the generated template when `wxs-path` is omitted. |
-| `manufacturer` | no | `''` | Manufacturer string embedded by the generated template. |
-| `install-dir-name` | no | `''` | Optional install directory name (defaults to a sanitised product name). |
-| `description` | no | `''` | Installer description stored in MSI summary information when templating. |
-| `upgrade-code` | no | `''` | Optional UpgradeCode GUID. A deterministic GUID is derived when omitted. |
-| `architecture` | no | `x64` | Architecture supplied to `wix build` (`x86`, `x64`, or `arm64`). |
-| `version` | no | _auto_ | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`. |
-| `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
-| `wix-tool-version` | no | _latest_ | Specific version of the `wix` .NET global tool to install. |
-| `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension coordinate loaded during the build. |
-| `wix-extension-version` | no | `''` | Version suffix appended to the extension coordinate. When omitted, the action auto-matches the installed WiX CLI major version (for example `WixToolset.UI.wixext/7` with WiX v7). |
-| `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
-| `output-directory` | no | `out` | Directory where the MSI artefact is created. |
-| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license |
-|                          |    |      | that will be converted to RTF using the default Calibri 11 pt |
-|                          |    |      | template. |
-| `license-rtf-path`       | no | `''` | Output path for the generated license RTF when converting from |
-|                          |    |      | plain text. Defaults to replacing the input suffix with `.rtf`. |
-| `upload-artefact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
-| `artefact-name` | no | `msi` | Name of the uploaded artefact. |
+| `wxs-path` | no | `''` | WiX authoring file path |
+| `application-path` | no | `''` | Main executable path |
+| `additional-files` | no | `''` | Extra files to include |
+| `product-name` | no | `''` | Product name |
+| `manufacturer` | no | `''` | Manufacturer name |
+| `install-dir-name` | no | `''` | Install directory name |
+| `description` | no | `''` | MSI description |
+| `upgrade-code` | no | `''` | UpgradeCode GUID |
+| `architecture` | no | `x64` | Architecture |
+| `version` | no | _auto_ | MSI version |
+| `dotnet-version` | no | `8.0.x` | .NET version |
+| `wix-tool-version` | no | _latest_ | WiX version |
+| `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension |
+| `wix-extension-version` | no | `''` | Extension version |
+| `output-basename` | no | `MyApp` | Base name for generated MSI file |
+| `output-directory` | no | `out` | Directory for MSI output |
+| `license-plaintext-path` | no | `''` | UTF-8 license to convert to RTF |
+| `license-rtf-path` | no | `''` | Output path for RTF license |
+| `upload-artefact` | no | `true` | Upload MSI via `actions/upload-artifact` |
+| `artefact-name` | no | `msi` | Name of uploaded artefact |
 
 ## Outputs
 
@@ -102,27 +100,29 @@ preprocessor:
 <Package Version="$(var.Version)">
 ```
 
-The `$(var.Version)` preprocessor expression resolves to the version string the
-action passes via `-dVersion=...`, ensuring the MSI `Package` uses the same
-value that appears in the generated filename.
+The `$(var.Version)` preprocessor expression resolves to the version
+string the action passes via `-dVersion=...`, ensuring the MSI `Package`
+uses the same value that appears in the generated filename.
 
 When `version` is omitted the action inspects `GITHUB_REF_TYPE` and
-`GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>` (the
-minor and build segments are optional) are used to derive the MSI version. All
-other refs—including branches and tags with non-numeric suffixes—fall back to
-`0.0.0`.
+`GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>`
+(the minor and build segments are optional) are used to derive the MSI
+version. All other refs—including branches and tags with non-numeric
+suffixes—fall back to `0.0.0`.
 
 MSI ProductVersion components must be integers where the major and minor
-segments are `0–255` and the build segment is `0–65535`. Values outside those
-ranges cause the action to fail fast so that WiX receives a valid version.
+segments are `0–255` and the build segment is `0–65535`. Values outside
+those ranges cause the action to fail fast so that WiX receives a valid
+version.
 
-To display a license in the installer UI, either provide an RTF file directly
-or add a UTF-8 plain text document and set `license-plaintext-path` so the
-action converts it to RTF prior to invoking WiX. UTF-8 input with or without a
-byte-order mark is accepted—the converter strips any BOM and renders the text
-using Calibri 11 pt by default. When no explicit `license-rtf-path` is set the
-generated file replaces the source suffix with `.rtf`, making it easy to refer
-to a stable path from WiX authoring. For example:
+To display a license in the installer UI, either provide an RTF file
+directly or add a UTF-8 plain text document and set
+`license-plaintext-path` so the action converts it to RTF prior to invoking
+WiX. UTF-8 input with or without a byte-order mark is accepted—the
+converter strips any BOM and renders the text using Calibri 11 pt by
+default. When no explicit `license-rtf-path` is set the generated file
+replaces the source suffix with `.rtf`, making it easy to refer to a stable
+path from WiX authoring. For example:
 
 ```xml
 <WixVariable Id="WixUILicenseRtf" Value="assets\LICENSE.rtf" />

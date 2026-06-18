@@ -368,7 +368,7 @@ struct MyConfig {
 
 When configuration fails, errors clearly indicate all names tried:
 
-```
+```text
 Error: failed to load configuration field 'database_host'
 
 Tried in order:
@@ -380,7 +380,7 @@ No value found and no default set.
 
 Suggestion: Set one of the above environment variables.
 
-Learn more: https://docs.example.com/vk/config#database_host
+Learn more: [https://docs.example.com/vk/config#database_host](https://docs.example.com/vk/config#database_host)
 ```
 
 ## Migration Path
@@ -694,7 +694,7 @@ Before stabilizing, we need to measure:
 
 ## References
 
-- [12-Factor App: Config](https://12factor.net/config) — environment-first principle
-- [Rust RFC 2407: Anonymous struct fields](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html) — related feature design
-- [dotenv-rs](https://github.com/dotenv-rs/dotenv-rs) — prior art in Rust env handling
-- [Kubernetes environment variable naming](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/) — real-world naming patterns
+- [12-Factor App: Config]([https://12factor.net/config](https://12factor.net/config)) — environment-first principle
+- [Rust RFC 2407: Anonymous struct fields]([https://rust-lang.github.io/rfcs/2407-anonymous-fields.html](https://rust-lang.github.io/rfcs/2407-anonymous-fields.html)) — related feature design
+- [dotenv-rs]([https://github.com/dotenv-rs/dotenv-rs](https://github.com/dotenv-rs/dotenv-rs)) — prior art in Rust env handling
+- [Kubernetes environment variable naming]([https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/](https://kubernetes.io/docs/tasks/configure-pod-container/define-environment-variable-container/)) — real-world naming patterns

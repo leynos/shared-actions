@@ -653,7 +653,7 @@ cargo test --test bdd workspace_mounts -- --nocapture
 
 **After Stage 3 (error type)**:
 
-```
+```text
 running 10 tests
 test domain::errors::tests::error_variant_symlink_detected ... ok
 test domain::errors::tests::error_variant_not_in_allowlist ... ok
@@ -663,7 +663,7 @@ test result: ok. 10 passed; 0 failed
 
 **After Stage 4 (filesystem adapter)**:
 
-```
+```text
 running 25 tests (15 unit + 10 integration)
 ... filesystem canonicalization tests
 ... symlink detection tests
@@ -674,7 +674,7 @@ coverage: 92% (24/26 branches)
 
 **After Stage 6 (domain validator)**:
 
-```
+```text
 running 30 tests (20 unit + 10 property)
 test domain::validator::tests::validate_accepts_allowlisted_path ... ok
 test domain::validator::tests::validate_rejects_symlink_escape ... ok
@@ -685,7 +685,7 @@ test result: ok. 30 passed; 0 failed
 
 **After Stage 7 (full integration)**:
 
-```
+```text
 running 50 tests (20 unit + 15 integration + 15 BDD)
 test tests::workspace_mounts_tests::* ... ok
 test tests::workspace_mounts_integration_tests::* ... ok
@@ -783,7 +783,7 @@ The threat model identifies and mitigates seven major attack vectors:
 - Configuration loading and validation
 - Error messages are actionable
 
-**Stress Tests (1+)**
+## Stress Tests (1+)
 
 - Validate 1000 paths with various attacks
 - Measure canonicalization performance
@@ -848,7 +848,7 @@ impl WorkspaceMountServiceImpl {
 
 ### Internal module structure
 
-```
+```text
 src/workspace_mounts/
 ├── mod.rs                                      # Public exports
 ├── lib.rs                                      # Application service
@@ -1001,7 +1001,7 @@ This task depends on and integrates with:
 
 **Data flow**:
 
-```
+```text
 HTTP/CLI/MCP request
     ↓
 WorkspaceMountServiceImpl::validate_mount()
@@ -1081,9 +1081,10 @@ git log --oneline -10
 git push -u origin 4-2-2-safe-host-mounted-workspaces
 
 # Create PR (use gh or GitHub web interface)
-gh pr create --title "Implement safe host-mounted workspaces (task 4.2.2)" \
+gh pr create \
+  --title "Implement safe host-mounted workspaces (task 4.2.2)" \
   --body "Closes #<issue_number>
-  
+
 ## Summary
 - Implement WorkspaceMountService with hexagonal architecture
 - Add validation for canonicalization, allowlist, permissions
@@ -1103,9 +1104,12 @@ gh pr create --title "Implement safe host-mounted workspaces (task 4.2.2)" \
 
 All stages are idempotent:
 
-- **Tests are idempotent**: Run `cargo test` multiple times, expect same results
-- **Code changes are additive**: Each stage adds new modules or functions; no destructive refactoring of existing code
-- **Configuration is immutable at runtime**: Once loaded, config is never modified
+- **Tests are idempotent**: Run `cargo test` multiple times, expect same
+  results
+- **Code changes are additive**: Each stage adds new modules or functions;
+  no destructive refactoring of existing code
+- **Configuration is immutable at runtime**: Once loaded, config is never
+  modified
 - **Test fixtures are cleaned up**: Use `tempfile::TempDir` to auto-cleanup
 
 **If a stage fails partway through**:
@@ -1125,19 +1129,27 @@ All stages are idempotent:
 
 ### Key design decisions
 
-1. **Hexagonal architecture** — Isolates domain logic from I/O; enables testing without infrastructure; simplifies future enhancements (e.g., SELinux checks)
+1. **Hexagonal architecture** — Isolates domain logic from I/O; enables
+   testing without infrastructure; simplifies future enhancements (e.g.,
+   SELinux checks)
 
-2. **Canonicalization always rejects symlinks** — Stricter security posture; no symlinks in validated paths ever
+2. **Canonicalization always rejects symlinks** — Stricter security posture;
+   no symlinks in validated paths ever
 
-3. **Allowlist is configuration-based** — Operators control explicitly via YAML; validated at startup (fail-fast)
+3. **Allowlist is configuration-based** — Operators control explicitly via
+   YAML; validated at startup (fail-fast)
 
-4. **Permission validation is strict** — Read-only directories are rejected; prevents mount-time failures
+4. **Permission validation is strict** — Read-only directories are rejected;
+   prevents mount-time failures
 
-5. **Error type is exhaustive** — 10 variants, each with actionable context; all errors are domain-owned
+5. **Error type is exhaustive** — 10 variants, each with actionable context;
+   all errors are domain-owned
 
-6. **Three-stage validation** — Canonicalize → Allowlist → Permissions; each stage is independent and testable
+6. **Three-stage validation** — Canonicalize → Allowlist → Permissions; each
+   stage is independent and testable
 
-7. **Shared service across launch paths** — Same WorkspaceMountServiceImpl used by HTTP, CLI, MCP; prevents validation bypass
+7. **Shared service across launch paths** — Same WorkspaceMountServiceImpl
+   used by HTTP, CLI, MCP; prevents validation bypass
 
 ### Example configuration
 
@@ -1152,7 +1164,7 @@ podbot:
 
 ### Example error flow
 
-**Invalid path: symlink escape**
+## Invalid path: symlink escape
 
 ```rust
 // Input: /tmp/workspaces/link → /etc
@@ -1164,7 +1176,8 @@ Error::SymlinkDetected { path, component: Some("link") }
     ↓
 ThreatReporter::report_mount_rejection()
     ↓
-Response to operator: "Mount rejected: symlink detected at /tmp/workspaces/link (component: link)"
+Response to operator: "Mount rejected: symlink detected at
+/tmp/workspaces/link (component: link)"
 ```
 
 ## Invalid path: outside allowlist
@@ -1180,7 +1193,8 @@ check_in_allowlist() → not a member
     ↓
 Error::NotInAllowlist { path, allowed_roots: [/tmp/workspaces] }
     ↓
-Response: "Mount rejected: /home/attacker/workspace not in allowlist [/tmp/workspaces]"
+Response: "Mount rejected: /home/attacker/workspace not in allowlist
+[/tmp/workspaces]"
 ```
 
 ---

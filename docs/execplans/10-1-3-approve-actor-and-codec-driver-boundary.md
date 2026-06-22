@@ -46,7 +46,6 @@ Hard invariants that must hold throughout implementation.
   details) must pass markdown linting and comply with documentation
   standards in `docs/developers-guide.md`.
 
-
 ## Tolerances (exception triggers)
 
 Thresholds that trigger escalation when breached.
@@ -65,7 +64,6 @@ Thresholds that trigger escalation when breached.
   architectural discussion is needed.
 - **Dependencies**: If the design requires breaking changes to
   runtime interfaces, stop and escalate.
-
 
 ## Risks
 
@@ -102,7 +100,6 @@ Known uncertainties that might affect the plan.
   Check for design decisions recorded in prior ADRs or issue
   discussions.
 
-
 ## Progress
 
 Use a list with checkboxes to summarise granular steps. Every
@@ -119,14 +116,12 @@ stopping point is documented here.
 - [ ] Stage 7: Prepare for implementation (mark as APPROVED, create
   PR).
 
-
 ## Surprises & discoveries
 
 Unexpected findings during implementation that were not anticipated as
 risks. This section will be populated as work proceeds.
 
 (To be filled in as work progresses)
-
 
 ## Decision log
 
@@ -136,13 +131,11 @@ Record every significant decision made while working on the plan.
   Rationale: (to be filled in)
   Date/Author: (to be filled in)
 
-
 ## Outcomes & retrospective
 
 Summarize outcomes, gaps, and lessons learned at major milestones or at completion.
 
 (To be filled in at completion)
-
 
 ## Context and orientation
 
@@ -179,7 +172,6 @@ the north star for:
    deliberate).
 3. New codec-driver implementations (following the boundary
    contract).
-
 
 ## Plan of work
 
@@ -321,7 +313,6 @@ summary of the decision for stakeholders.
 **Validation**: PR is created, reviews are requested, and stakeholders
 confirm the design is ready for implementation.
 
-
 ## Concrete steps
 
 Exact commands to run and where to run them (working directory:
@@ -389,7 +380,6 @@ git push -u origin \
   10-1-3-approve-actor-and-codec-driver-boundary
 ```
 
-
 ## Validation and acceptance
 
 ### Red-Green-Refactor (Design Document Edition)
@@ -434,7 +424,6 @@ The design is accepted when:
 2. Stakeholders have reviewed and approved the boundary definition.
 3. The PR is created and awaits final merge/approval.
 
-
 ## Idempotence and recovery
 
 All steps are idempotent:
@@ -450,7 +439,6 @@ If a stage fails:
 1. Document the failure in `Surprises & Discoveries`.
 2. Escalate if the failure touches a tolerance threshold.
 3. Otherwise, fix the issue and retry the stage validation.
-
 
 ## Artifacts and notes
 
@@ -472,7 +460,6 @@ Key artifacts produced by this plan:
    - Tracks progress and decisions.
 
 4. **PR**: Draft PR with design artifacts and link to Lody session.
-
 
 ## Interfaces and dependencies
 

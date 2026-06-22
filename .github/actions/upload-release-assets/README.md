@@ -14,7 +14,7 @@ release state.
 | `release-tag` | Git tag identifying the release to publish to | yes | - |
 | `bin-name` | Binary name used to derive artefact names | yes | - |
 | `dist-dir` | Directory containing staged artefacts | no | `dist` |
-| `dry-run` | When true, only validate artefacts and print the upload plan | no | `"false"` |
+| `dry-run` | Validate artefacts without uploading | no | `"false"` |
 | `clobber` | Overwrite existing assets with the same name | no | `"true"` |
 
 ## Outputs
@@ -90,7 +90,8 @@ Files in nested directories are namespaced with their path prefix, replacing
 
 1. **Discovery**: Recursively scan `dist-dir` for matching artefacts
 2. **Validation**: Verify files are non-empty and have unique asset names
-3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in dry-run mode)
+3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in
+   dry-run mode)
 
 ### Error Handling
 

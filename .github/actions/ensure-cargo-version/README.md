@@ -1,22 +1,23 @@
 # ensure-cargo-version
 
-Validate that the Git tag triggering a release workflow matches the version in one or more Cargo manifests.
+Validate that the Git tag triggering a release workflow matches the version in
+one or more Cargo manifests.
 
 ## Inputs
 
 | Name | Required | Default | Description |
 | ---- | -------- | ------- | ----------- |
-| `manifests` | No | `Cargo.toml` | Newline or whitespace separated list of Cargo manifest paths to check. Paths are resolved relative to the GitHub workspace. |
-| `tag-prefix` | No | `v` | Prefix stripped from the Git reference name before comparing against manifest versions. Use an empty string to disable prefix removal. |
-| `check-tag` | No | `true` | Disable tag comparison by supplying a falsey value (case-insensitive `false`, `0`, `no`, `off`, or an empty string). Truthy values (`true`, `1`, `yes`, `on`) enable comparison while still attempting to read the tag for output purposes. |
+| `manifests` | No | `Cargo.toml` | Manifest paths (newline separated) |
+| `tag-prefix` | No | `v` | Git tag prefix to strip |
+| `check-tag` | No | `true` | Enable tag comparison |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| `version` | Version extracted from the tag reference after removing the configured prefix. |
-| `crate-version` | Version read from the first manifest path provided (after resolution) after resolving workspace inheritance. |
-| `crate-name` | Package name read from the first manifest path provided (after resolution). |
+| `version` | Version from tag (prefix removed) |
+| `crate-version` | Version from first manifest |
+| `crate-name` | Package name from first manifest path |
 
 ## Usage
 

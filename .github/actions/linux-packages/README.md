@@ -11,27 +11,27 @@ nFPM.
 
 | Name | Type | Default | Description | Required |
 | ---- | ---- | ------- | ----------- | -------- |
-| project-dir | string | `.` | Directory containing the compiled binary, man pages and optional license file. | no |
-| package-name | string | _empty_ | Package identifier written to the nFPM manifest. Defaults to `bin-name` when omitted. | no |
-| bin-name | string | — | Name of the release binary to package. | yes |
-| target | string | `x86_64-unknown-linux-gnu` | Rust target triple used for the build. | no |
-| version | string | — | Version number recorded in the package metadata (for example `1.2.3`). | yes |
-| formats | string | `deb` | Comma-, space-, or newline-separated list of package formats (for example `deb,rpm` or a multi-line value). | no |
-| release | string | _empty_ | Package release or revision override. Uses the packaging helper default when omitted. | no |
-| arch | string | _empty_ | Override the nFPM/GOARCH architecture. Auto-detected from `target` when not set. | no |
-| maintainer | string | _empty_ | Maintainer entry for the generated package metadata. | no |
-| homepage | string | _empty_ | Homepage URL recorded in package metadata. | no |
-| license | string | _empty_ | Software license declared in the package metadata. | no |
-| section | string | _empty_ | Package section/category used by Debian-based distributions. | no |
-| description | string | _empty_ | Long description stored in the package metadata. | no |
-| man-paths | string | _empty_ | Comma-, space-, or newline-separated list of man page paths relative to `project-dir`. | no |
-| man-section | string | _empty_ | Default man section applied when a path lacks a suffix (for example `1`). | no |
-| man-stage | string | _empty_ | Directory used to stage gzipped man pages before invoking nFPM. | no |
-| binary-dir | string | _empty_ | Cargo `target` directory containing build artefacts. | no |
-| outdir | string | _empty_ | Directory where packages will be written. | no |
-| config-path | string | _empty_ | Location to write the generated `nfpm.yaml` configuration. | no |
-| deb-depends | string | _empty_ | Comma-, space-, or newline-separated Debian runtime dependencies (each entry becomes a separate dependency in the generated manifest). | no |
-| rpm-depends | string | _empty_ | Comma-, space-, or newline-separated RPM runtime dependencies. Falls back to Debian deps when omitted. | no |
+| project-dir | string | `.` | Binary, man, license dir | no |
+| package-name | string | _empty_ | Package ID (defaults to bin) | no |
+| bin-name | string | — | Binary name | yes |
+| target | string | `x86_64-unknown-linux-gnu` | Rust target triple | no |
+| version | string | — | Package version | yes |
+| formats | string | `deb` | Formats (e.g. `deb,rpm`) | no |
+| release | string | _empty_ | Release/revision override | no |
+| arch | string | _empty_ | Architecture (auto-detected) | no |
+| maintainer | string | _empty_ | Package maintainer | no |
+| homepage | string | _empty_ | Homepage URL | no |
+| license | string | _empty_ | Software license | no |
+| section | string | _empty_ | Package section | no |
+| description | string | _empty_ | Package description | no |
+| man-paths | string | _empty_ | Man page paths | no |
+| man-section | string | _empty_ | Default man section | no |
+| man-stage | string | _empty_ | Man staging directory | no |
+| binary-dir | string | _empty_ | Cargo target directory | no |
+| outdir | string | _empty_ | Output directory | no |
+| config-path | string | _empty_ | nfpm config path | no |
+| deb-depends | string | _empty_ | Debian dependencies | no |
+| rpm-depends | string | _empty_ | RPM dependencies | no |
 
 Before invoking sibling actions the composite mirrors the repository snapshot
 that GitHub already downloaded for the action into a local `_self/` directory.

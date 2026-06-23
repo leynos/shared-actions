@@ -3027,13 +3027,64 @@ def _generate_coverage_action() -> dict[str, object]:
     return loaded
 
 
-def _python_step_env_contract() -> dict[str, str]:
-    """Return the env contract for the Python coverage step."""
-    action = _generate_coverage_action()
-    runs = action.get("runs")
+def _generate_coverage_steps() -> list[dict[str, object]]:
+    """Return the generate-coverage action steps."""
+    runs = _generate_coverage_action().get("runs")
     assert isinstance(runs, dict)
     steps = runs.get("steps")
     assert isinstance(steps, list)
+    assert all(isinstance(step, dict) for step in steps)
+    return typ.cast("list[dict[str, object]]", steps)
+
+
+def _generate_coverage_step(step_name: str) -> dict[str, object]:
+    """Return a named generate-coverage action step."""
+    step = next(
+        (
+            step
+            for step in _generate_coverage_steps()
+            if isinstance(step, dict) and step.get("name") == step_name
+        ),
+        None,
+    )
+    assert step is not None, f"Missing generate-coverage step: {step_name}"
+    return step
+
+
+def test_generate_coverage_ensures_binstall_before_llvm_cov() -> None:
+    """cargo-binstall must exist before cargo-llvm-cov invokes cargo binstall."""
+    steps = _generate_coverage_steps()
+    step_names = [step.get("name") for step in steps]
+
+    assert step_names.index("Ensure cargo-binstall") < step_names.index(
+        "Install cargo-llvm-cov"
+    )
+
+
+def test_generate_coverage_binstall_is_not_nextest_only() -> None:
+    """cargo-llvm-cov also needs cargo-binstall when nextest is disabled."""
+    step = _generate_coverage_step("Ensure cargo-binstall")
+    condition = step.get("if")
+
+    assert isinstance(condition, str)
+    assert "steps.detect.outputs.lang == 'rust'" in condition
+    assert "steps.detect.outputs.lang == 'mixed'" in condition
+    assert "use-cargo-nextest" not in condition
+
+
+def test_generate_coverage_binstall_install_is_idempotent() -> None:
+    """The action should use setup-rust's cargo-binstall when already present."""
+    step = _generate_coverage_step("Ensure cargo-binstall")
+    run_script = step.get("run")
+
+    assert isinstance(run_script, str)
+    assert "command -v cargo-binstall" in run_script
+    assert "cargo-binstall already installed" in run_script
+
+
+def _python_step_env_contract() -> dict[str, str]:
+    """Return the env contract for the Python coverage step."""
+    steps = _generate_coverage_steps()
     python_step = next(
         step for step in steps if isinstance(step, dict) and step.get("id") == "python"
     )

@@ -118,14 +118,14 @@ runs:
         key: ${{ runner.os }}-llvmcov-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-llvmcov-
-    - name: Install cargo-llvm-cov
+    - name: Ensure cargo-binstall
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
-      run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
-      shell: bash
-    - name: Install cargo-binstall
-      if: (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed') && inputs.use-cargo-nextest == 'true'
       run: |
         set -euo pipefail
+        if command -v cargo-binstall >/dev/null 2>&1; then
+          echo "cargo-binstall already installed: $(cargo-binstall -V)"
+          exit 0
+        fi
         # NOTE: BINSTALL_SHA256 pins and validates only the installer script
         # (install-from-binstall-release.sh), not the cargo-binstall binary that
         # the script subsequently downloads and executes.
@@ -156,6 +156,22 @@ runs:
           exit 1
         fi
         bash "$INSTALLER_PATH"
+        cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+        if [ -n "${GITHUB_PATH:-}" ]; then
+          echo "$cargo_home_bin" >> "$GITHUB_PATH"
+        fi
+        cargo_binstall="$cargo_home_bin/cargo-binstall"
+        binstall_ver="${BINSTALL_VERSION#v}"
+        if ! "$cargo_binstall" -V | grep -qF "$binstall_ver"; then
+          echo "cargo-binstall version verification failed: expected $binstall_ver" >&2
+          "$cargo_binstall" -V >&2
+          exit 1
+        fi
+        echo "cargo-binstall $("$cargo_binstall" -V) verified"
+      shell: bash
+    - name: Install cargo-llvm-cov
+      if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
+      run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"
       shell: bash
     - name: Install cargo-nextest
       if: (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed') && inputs.use-cargo-nextest == 'true'

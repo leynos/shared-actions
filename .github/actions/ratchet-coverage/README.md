@@ -5,10 +5,10 @@ coverage percentage falls below a stored baseline.
 
 ## Inputs
 
-| Name          | Description                                                        | Required | Default              |
-| ------------- | ------------------------------------------------------------------ | -------- | -------------------- |
-| baseline-file | File used to persist the baseline coverage percentage between runs | no       | `.coverage-baseline` |
-| args          | Additional arguments passed to `cargo llvm-cov`                    | no       | `''`                 |
+| Name | Description | Required | Default |
+| --- | --- | --- | --- |
+| baseline-file | Baseline coverage file | no | `.coverage-baseline` |
+| args | Additional cargo llvm-cov args | no | `''` |
 
 ## Outputs
 

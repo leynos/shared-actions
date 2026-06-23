@@ -15,10 +15,10 @@ manifest and export as GitHub Actions outputs and environment variables.
 
 | Name | Description |
 | ---- | ----------- |
-| `name` | Package name from `[package].name` |
-| `version` | Package version from `[package].version` (resolves workspace inheritance) |
-| `bin-name` | Binary name from first `[[bin]].name` or `[package].name` |
-| `description` | Package description from `[package].description` |
+| `name` | Package name |
+| `version` | Package version |
+| `bin-name` | Binary name |
+| `description` | Package description |
 
 ## Usage
 

@@ -6,7 +6,6 @@ Retrospective` must be kept up to date as work proceeds.
 
 Status: DRAFT
 
-
 ## Purpose / big picture
 
 This work records a foundational architectural decision for the Statelet project
@@ -34,7 +33,6 @@ Success is observable when:
 4. The decision is cross-referenced in `docs/design.md`
 5. `make lint` passes on the ADR document
 
-
 ## Constraints
 
 Hard invariants that must hold throughout this work.
@@ -52,7 +50,6 @@ Hard invariants that must hold throughout this work.
 - **Markdown linting**: The final document must pass
   `make lint` without errors.
 
-
 ## Tolerances (exception triggers)
 
 Thresholds that trigger escalation when breached.
@@ -69,7 +66,6 @@ Thresholds that trigger escalation when breached.
   If lint issues require design changes, escalate.
 - **Cross-reference conflicts**: If updating `docs/design.md` requires changes
   incompatible with the ADR, escalate with evidence of the conflict.
-
 
 ## Risks
 
@@ -97,8 +93,8 @@ Known uncertainties that might affect the plan.
 - **Risk**: ADR format expectations may differ from what the project uses.
   Severity: low
   Likelihood: low (standard ADR templates are well-established)
-  Mitigation: Check for existing ADRs in `docs/adr/` and mirror their structure.
-
+  Mitigation: Check for existing ADRs in `docs/adr/` and mirror their
+  structure.
 
 ## Progress
 
@@ -115,20 +111,17 @@ breaches.
 - [ ] Phase 7: Lint validation and cleanup
 - [ ] Phase 8: Create draft PR and await approval before roadmap update
 
-
 ## Surprises & Discoveries
 
 Unexpected findings during work. To be updated as plan proceeds.
 
 (None yet.)
 
-
 ## Decision Log
 
 Significant decisions made while working on this plan.
 
 (None yet; initial decisions occur in Phase 0 context gathering.)
-
 
 ## Outcomes & Retrospective
 
@@ -137,9 +130,7 @@ completion.
 
 (To be filled in upon completion.)
 
-
 ---
-
 
 ## Context and Orientation
 
@@ -148,6 +139,7 @@ and kill gates). Phases 1.1.1 through 1.2+ define what the crate will and will
 not do before any runtime code is written.
 
 **Key files** (to be verified in Phase 0):
+
 - `docs/terms-of-reference.md` — rationale and stakeholder requirements
 - `docs/design.md` — high-level design sketches and decisions
 - `docs/adr/` — existing ADR collection (to understand local conventions)
@@ -161,14 +153,15 @@ the crate level, providing a scope gate for all later work.
 **Audience**: Internal stakeholders, future contributors, and anyone evaluating
 whether Statelet is suitable for their use case.
 
-
 ## Plan of Work
 
 ### Phase 0: Context Gathering (no edits, decision only)
 
 Locate and verify the source documents that define the scope decision:
+
 - `docs/terms-of-reference.md` §§1-6 (stakeholder requirements)
-- `docs/design.md` §§1-3 (design overview) and §§11.1, 13.6-13.7 (scope sketches)
+- `docs/design.md` §§1-3 (design overview) and §§11.1, 13.6-13.7 (scope
+  sketches)
 
 If these documents exist and are complete, proceed to Phase 1. If any are
 missing or unclear, escalate with the missing pieces. This is a gate: do not
@@ -180,6 +173,7 @@ boundaries? If not, escalate.
 ### Phase 1: ADR Skeleton and Motivation
 
 Create `docs/adr/0001-statelet-ownership-boundary.md` with:
+
 1. Title: "Statelet marks transition boundaries but does not own dispatch,
    events, storage, transition tables, or graph safety"
 2. Status section (initially DRAFT, pending review)
@@ -190,12 +184,14 @@ Create `docs/adr/0001-statelet-ownership-boundary.md` with:
 The decision section must include:
 
 **Statelet owns:**
+
 - Defining and marking state transition boundaries in domain code
 - Providing types and traits to identify transitions and validate their
   well-formedness
 - Integrating with user-provided dispatch, storage, and event routing
 
 **Statelet does not own:**
+
 - Dispatch logic (routing transitions to handlers)
 - Event creation, propagation, or serialization
 - State storage or persistence mechanisms
@@ -206,6 +202,7 @@ The decision section must include:
 ### Phase 2: Write Consequences and Implications
 
 Expand the Consequences section to describe:
+
 1. What dependent code must provide (dispatch mechanism, event types, storage)
 2. What patterns Statelet supports (state machines, workflow engines, etc.)
 3. What patterns Statelet does not support or leaves to user code (distributed
@@ -216,6 +213,7 @@ Expand the Consequences section to describe:
 
 Submit the draft ADR for review by at least one stakeholder. The reviewer should
 verify:
+
 - Scope boundaries match the original intent
 - No critical ownership is missing or misassigned
 - Wording is clear to someone new to the project
@@ -228,7 +226,8 @@ feedback requests substantial rewrites, document in Decision Log and escalate.
 ### Phase 4: Update Design Cross-References
 
 Edit `docs/design.md` to add a cross-reference to the new ADR:
-```plaintext
+
+```markdown
 ## Scope and Ownership
 
 See ADR 0001: Statelet marks transition boundaries but does not own dispatch,
@@ -248,26 +247,32 @@ marking complete.
 ### Phase 6: Create Draft PR
 
 Rename the current git branch (if needed) to track the task:
+
 ```bash
-git branch -m 1-1-1-record-the-transition-boundary-scope-decision-as-an-adr
+git branch -m \
+  1-1-1-record-the-transition-boundary-scope-decision-as-an-adr
 ```
 
 Commit the ADR and cross-reference:
+
 ```bash
 git add docs/adr/0001-statelet-ownership-boundary.md docs/design.md
-git commit -m "docs(1.1.1): Record transition-boundary scope decision as ADR"
+git commit -m \
+  "docs(1.1.1): Record transition-boundary scope decision as ADR"
 ```
 
 Push to the remote and create a draft PR:
+
 ```bash
-git push -u origin 1-1-1-record-the-transition-boundary-scope-decision-as-an-adr
+git push -u origin \
+  1-1-1-record-the-transition-boundary-scope-decision-as-an-adr
 ```
 
-Create the PR with title: `(10.1.3) Record transition-boundary scope decision as ADR`
+Create the PR with title: `(10.1.3) Record transition-boundary scope decision
+as ADR`
 
 Include the lody session link in the PR description (to be obtained from
 environment variable `${LODY_SESSION_ID}`).
-
 
 ## Concrete Steps
 
@@ -280,7 +285,8 @@ ls -la docs/terms-of-reference.md docs/design.md
 ```
 
 Expected output:
-```
+
+```text
 -rw-r--r-- ... docs/terms-of-reference.md
 -rw-r--r-- ... docs/design.md
 ```
@@ -305,7 +311,7 @@ exists, read that too.
 
 Using the skeleton in Phases 1–2, write:
 
-```plaintext
+```text
 docs/adr/0001-statelet-ownership-boundary.md
 ```
 
@@ -350,7 +356,6 @@ does not own dispatch, events, storage, transition tables, or graph safety.
   --draft
 ```
 
-
 ## Validation and Acceptance
 
 **Quality criteria**:
@@ -366,14 +371,16 @@ does not own dispatch, events, storage, transition tables, or graph safety.
 
 ```bash
 # Verify file exists
-test -f docs/adr/0001-statelet-ownership-boundary.md && echo "✓ ADR file exists"
+test -f docs/adr/0001-statelet-ownership-boundary.md && \
+  echo "✓ ADR file exists"
 
 # Run lint
 make lint
 # Expected: no errors
 
 # Verify cross-reference
-grep -q "ADR 0001" docs/design.md && echo "✓ Cross-reference exists"
+grep -q "ADR 0001" docs/design.md && \
+  echo "✓ Cross-reference exists"
 
 # Check git status
 git status --short
@@ -383,7 +390,6 @@ git status --short
 **Acceptance**: All quality criteria pass, expert review is complete (feedback
 incorporated), and the draft PR is awaiting approval.
 
-
 ## Idempotence and Recovery
 
 Creating or editing the ADR is idempotent: re-running the steps will either
@@ -392,21 +398,22 @@ created and later rejected, simply update the document on the branch and
 re-push; GitHub will update the PR.
 
 If lint fails and you need to retry:
+
 1. Fix the reported lint issue.
 2. Run `make lint` again to verify.
 3. Stage, commit, and push the fix.
 
 If the expert reviewer requests changes:
+
 1. Update the ADR and design.md with feedback.
 2. Commit and push (same branch).
 3. Notify the reviewer of updates.
-
 
 ## Artifacts and Notes
 
 ### Expected ADR Skeleton
 
-```plaintext
+```markdown
 # ADR 0001: Statelet Marks Transition Boundaries
 
 ## Status
@@ -452,7 +459,8 @@ In `docs/design.md`, add near the top:
 ```markdown
 ## Scope and Ownership
 
-See [ADR 0001: Statelet Marks Transition Boundaries](./adr/0001-statelet-ownership-boundary.md)
+See [ADR 0001: Statelet Marks Transition Boundaries]
+(./adr/0001-statelet-ownership-boundary.md)
 for the foundational scope decision that shapes all architecture and API
 design. This boundary is enforced in all phases.
 ```
@@ -465,6 +473,7 @@ design. This boundary is enforced in all phases.
 milestone. The ADR document itself is the artifact.
 
 **Dependencies**:
+
 - The project's `make lint` command must work correctly.
 - Markdown linting rules must be consistent with existing documentation.
 - Domain experts or stakeholders must be available for review within
@@ -478,9 +487,10 @@ milestone. The ADR document itself is the artifact.
 
 ---
 
-**Next Steps After Approval**
+## Next Steps After Approval
 
 Once this ADR is approved and the draft PR is reviewed:
+
 1. Merge the PR (with sign-off from stakeholders).
 2. Mark the roadmap entry (10.1.3) as "done" in `docs/roadmap.md`.
 3. Proceed to task 1.1.2 (ratify kill-gate criteria) or 1.2+ as planned.

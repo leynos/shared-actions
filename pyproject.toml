@@ -38,7 +38,7 @@ dev = [
     "cmd-mox==0.2.0",
     "hypothesis>=6,<7",
     "pytest-bdd>=8.0,<9.0",
-    "syrupy>=4,<5",
+    "syrupy>=4,<6",
 ]
 
 [tool.ruff]

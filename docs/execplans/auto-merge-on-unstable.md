@@ -103,6 +103,16 @@ silently broadening scope.
 - Discovery: `make typecheck` emits an existing non-fatal warning in
   `.github/actions/windows-package/scripts/generate_wxs.py` about an unused
   `type: ignore`; this warning does not fail the gate.
+- Discovery (2026-07-02, post-completion): the ambiguity tolerance fired in
+  production. GitHub rejects `enablePullRequestAutoMerge` for `UNSTABLE`
+  pull requests with `UNPROCESSABLE: Pull request is in unstable status`
+  (observed in `leynos/pg-embed-setup-unpriv` run 28580757554). GitHub only
+  permits arming auto-merge while merging is blocked by unsatisfied required
+  rules (`BLOCKED`). The approach in this plan was therefore superseded:
+  `CLEAN`/`HAS_HOOKS`/`UNSTABLE` now merge directly (mirroring
+  `gh pr merge --auto` semantics), `BLOCKED` arms auto-merge, and target
+  repositories must configure required status checks. See
+  `docs/dependabot-automerge-workflow.md` for the current behaviour.
 
 ## Decision Log
 

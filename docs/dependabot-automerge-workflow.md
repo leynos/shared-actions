@@ -23,12 +23,28 @@ across platforms.
 
 After author/draft/label checks pass, the helper evaluates GitHub merge state:
 
-- `UNSTABLE` is treated as eligible for enabling auto-merge.
-- `DIRTY`, `BLOCKED`, `BEHIND`, and `CONFLICTING` are skipped.
+- `BLOCKED` arms auto-merge. This is the primary path: required status checks
+  are still pending (or other required rules are unsatisfied), so GitHub
+  merges the PR automatically once they pass.
+- `CLEAN`, `HAS_HOOKS`, and `UNSTABLE` merge the PR directly. GitHub rejects
+  `enablePullRequestAutoMerge` on an already-mergeable PR ("Pull request is in
+  clean/unstable status"), so the helper performs the merge itself — matching
+  what auto-merge would do, because all *required* rules are already
+  satisfied.
+- `DIRTY`, `BEHIND`, `MERGED`, and `CONFLICTING` are skipped.
 - `UNKNOWN` mergeability is retried with backoff before a final decision.
 
-Enabling auto-merge on `UNSTABLE` does not force an immediate merge. GitHub still
-waits for required checks and branch protection rules to pass before merging.
+## Prerequisite: required status checks
+
+The target repository **must** protect its default branch with required status
+checks (via a classic branch protection rule or a repository ruleset). Without
+them, a freshly opened Dependabot PR is immediately mergeable while its CI is
+still running (`UNSTABLE`), and merging it would bypass CI entirely. With
+required checks configured, the PR stays `BLOCKED` until CI passes, auto-merge
+can be armed, and GitHub only merges when the required checks succeed.
+
+Auto-merge must also be enabled in the repository settings
+(**Settings → General → Allow auto-merge**).
 
 ## Required permissions
 

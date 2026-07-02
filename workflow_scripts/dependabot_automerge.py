@@ -18,6 +18,14 @@ Auto-merge is enabled only when all conditions are met:
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
 
+Merge-state handling: auto-merge is armed while the PR is blocked by
+required rules (``BLOCKED``). If the PR is already mergeable (``CLEAN``,
+``HAS_HOOKS``, or ``UNSTABLE``), GitHub rejects enabling auto-merge, so the
+PR is merged directly instead — matching what auto-merge itself would do,
+because all required rules are already satisfied. Repositories should
+configure required status checks (branch protection or rulesets) so that CI
+genuinely gates merging.
+
 Environment Variables
 ---------------------
 INPUT_GITHUB_TOKEN : str
@@ -48,7 +56,8 @@ In a GitHub Actions workflow::
 Side Effects
 ------------
 When not in dry-run mode, this script calls the GitHub GraphQL API to enable
-auto-merge on the target pull request. This modifies the PR's auto-merge state.
+auto-merge on the target pull request, or to merge it directly when it is
+already in a mergeable state.
 
 See Also
 --------
@@ -164,6 +173,19 @@ mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMeth
 }
 """
 
+MERGE_PULL_REQUEST_MUTATION = """
+mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+  mergePullRequest(
+    input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
+  ) {
+    pullRequest {
+      number
+      merged
+    }
+  }
+}
+"""
+
 app = App()
 
 
@@ -210,8 +232,19 @@ class PullRequestContext:
 MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
     {
         MergeStateStatus.DIRTY: "merge-state-dirty",
-        MergeStateStatus.BLOCKED: "merge-state-blocked",
         MergeStateStatus.BEHIND: "merge-state-behind",
+        MergeStateStatus.MERGED: "already-merged",
+    }
+)
+# States where the PR is already mergeable. GitHub rejects
+# enablePullRequestAutoMerge here ("Pull request is in clean/unstable
+# status"), so the PR is merged directly instead — mirroring what
+# auto-merge would do, since all *required* rules are already satisfied.
+MERGE_STATE_DIRECT_MERGE: frozenset[MergeStateStatus] = frozenset(
+    {
+        MergeStateStatus.CLEAN,
+        MergeStateStatus.HAS_HOOKS,
+        MergeStateStatus.UNSTABLE,
     }
 )
 MERGEABLE_SKIP_REASONS: typ.Mapping[MergeableState, str] = MappingProxyType(
@@ -230,7 +263,7 @@ MERGE_STATE_MAX_ATTEMPTS_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
 MERGE_STATE_BASE_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
 MERGE_STATE_MAX_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
 
-type MergeStateClassification = typ.Literal["ok", "skip", "retry"]
+type MergeStateClassification = typ.Literal["ok", "merge", "skip", "retry"]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -240,7 +273,8 @@ class Decision:
     Attributes
     ----------
     status : str
-        The decision status: ``skipped``, ``ready``, ``enabled``, or ``error``.
+        The decision status: ``skipped``, ``ready``, ``enabled``, ``merged``,
+        or ``error``.
     reason : str
         Human-readable reason for the decision, e.g. ``author-not-dependabot``.
     """
@@ -586,11 +620,19 @@ def _fetch_pull_request(
 def _classify_merge_state(
     merge_state: MergeStateStatus, mergeable_state: MergeableState
 ) -> tuple[MergeStateClassification, str | None]:
-    """Classify merge state as ok, skip, or retry with a reason."""
+    """Classify merge state as ok, merge, skip, or retry with a reason.
+
+    ``ok`` means auto-merge can be armed (notably ``BLOCKED``, where required
+    checks are still pending). ``merge`` means the PR is already mergeable, so
+    it must be merged directly because GitHub rejects
+    ``enablePullRequestAutoMerge`` on an already-mergeable pull request.
+    """
     if mergeable_state in MERGEABLE_SKIP_REASONS:
         return "skip", MERGEABLE_SKIP_REASONS[mergeable_state]
     if merge_state in MERGE_STATE_SKIP_REASONS:
         return "skip", MERGE_STATE_SKIP_REASONS[merge_state]
+    if merge_state in MERGE_STATE_DIRECT_MERGE:
+        return "merge", "already-mergeable"
     if merge_state in MERGE_STATE_RETRYABLE or mergeable_state in MERGEABLE_RETRYABLE:
         return "retry", "merge-state-unknown"
     return "ok", None
@@ -689,6 +731,15 @@ def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> No
     )
 
 
+def _merge_pull_request(token: str, pull_request_id: str, merge_method: str) -> None:
+    """Merge a pull request directly via the GitHub GraphQL API."""
+    request_graphql(
+        token,
+        MERGE_PULL_REQUEST_MUTATION,
+        {"pullRequestId": pull_request_id, "mergeMethod": merge_method},
+    )
+
+
 def _handle_dry_run(
     event: dict[str, JsonValue] | None,
     repo_full_name: str,
@@ -768,6 +819,15 @@ def _handle_live_execution(
 
     if not pr.node_id:
         fail("Pull request node ID missing from GitHub response.")
+
+    if state == "merge":
+        _merge_pull_request(github_token, pr.node_id, config.merge_method)
+        _emit_decision(
+            pr,
+            Decision(status="merged", reason="merged-directly"),
+            config=config,
+        )
+        return
 
     _enable_automerge(github_token, pr.node_id, config.merge_method)
     _emit_decision(

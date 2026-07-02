@@ -39,6 +39,7 @@ class LiveExecutionTestCase:
     expected_status: str
     expected_reason: str
     test_id: str
+    should_merge: bool = False
 
 
 def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
@@ -65,7 +66,7 @@ def _build_live_execution_mock(
     test_case: LiveExecutionTestCase,
 ) -> typ.Callable[[str, str, dict[str, object]], dict[str, object]]:
     """Build a mock GraphQL handler for live execution tests."""
-    calls = {"enable": 0}
+    calls = {"enable": 0, "merge": 0}
 
     def handler(
         _token: str, query: str, _variables: dict[str, object]
@@ -75,6 +76,13 @@ def _build_live_execution_mock(
             return {
                 "enablePullRequestAutoMerge": {
                     "pullRequest": {"number": test_case.pr_number}
+                }
+            }
+        if "mergePullRequest" in query:
+            calls["merge"] += 1
+            return {
+                "mergePullRequest": {
+                    "pullRequest": {"number": test_case.pr_number, "merged": True}
                 }
             }
         return {
@@ -415,10 +423,11 @@ def test_dry_run_eligible_dependabot(
             merge_state_status="HAS_HOOKS",
             mergeable="MERGEABLE",
             auto_merge_request=None,
-            should_enable=True,
-            expected_status="enabled",
-            expected_reason="enabled",
-            test_id="eligible_enables",
+            should_enable=False,
+            expected_status="merged",
+            expected_reason="merged-directly",
+            test_id="merge_state_has_hooks_merges_directly",
+            should_merge=True,
         ),
         LiveExecutionTestCase(
             pr_number=13,
@@ -435,10 +444,10 @@ def test_dry_run_eligible_dependabot(
             merge_state_status="BLOCKED",
             mergeable="MERGEABLE",
             auto_merge_request=None,
-            should_enable=False,
-            expected_status="skipped",
-            expected_reason="merge-state-blocked",
-            test_id="merge_state_blocked_skips",
+            should_enable=True,
+            expected_status="enabled",
+            expected_reason="enabled",
+            test_id="merge_state_blocked_enables",
         ),
         LiveExecutionTestCase(
             pr_number=15,
@@ -455,10 +464,32 @@ def test_dry_run_eligible_dependabot(
             merge_state_status="UNSTABLE",
             mergeable="MERGEABLE",
             auto_merge_request=None,
-            should_enable=True,
-            expected_status="enabled",
-            expected_reason="enabled",
-            test_id="merge_state_unstable_enables",
+            should_enable=False,
+            expected_status="merged",
+            expected_reason="merged-directly",
+            test_id="merge_state_unstable_merges_directly",
+            should_merge=True,
+        ),
+        LiveExecutionTestCase(
+            pr_number=24,
+            merge_state_status="CLEAN",
+            mergeable="MERGEABLE",
+            auto_merge_request=None,
+            should_enable=False,
+            expected_status="merged",
+            expected_reason="merged-directly",
+            test_id="merge_state_clean_merges_directly",
+            should_merge=True,
+        ),
+        LiveExecutionTestCase(
+            pr_number=25,
+            merge_state_status="MERGED",
+            mergeable="UNKNOWN",
+            auto_merge_request=None,
+            should_enable=False,
+            expected_status="skipped",
+            expected_reason="already-merged",
+            test_id="merge_state_merged_skips",
         ),
         LiveExecutionTestCase(
             pr_number=23,
@@ -516,6 +547,11 @@ def test_live_execution_scenarios(
     assert enable_calls == expected_calls, (
         f"[{test_case.test_id}] Expected enable calls to be {expected_calls}"
     )
+    merge_calls = handler.calls["merge"]  # type: ignore[attr-defined]
+    expected_merge_calls = 1 if test_case.should_merge else 0
+    assert merge_calls == expected_merge_calls, (
+        f"[{test_case.test_id}] Expected merge calls to be {expected_merge_calls}"
+    )
 
 
 def test_retries_until_merge_state_known(
@@ -531,7 +567,7 @@ def test_retries_until_merge_state_known(
         if "enablePullRequestAutoMerge" in query:
             return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 21}}}
         calls["fetch"] += 1
-        merge_state = "UNKNOWN" if calls["fetch"] == 1 else "HAS_HOOKS"
+        merge_state = "UNKNOWN" if calls["fetch"] == 1 else "BLOCKED"
         mergeable_state = "UNKNOWN" if calls["fetch"] == 1 else "MERGEABLE"
         return {
             "repository": {

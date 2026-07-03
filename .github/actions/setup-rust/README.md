@@ -43,7 +43,7 @@ corresponding SHA-256 in the action manifest at the same time. Keep
 in a child shell and reads `BINSTALL_VERSION` from the environment. A plain
 shell variable is not inherited, which makes the installer fall back to
 `releases/latest`. You can obtain the new checksum by replacing `VERSION` with
-the desired tag (for example, `v1.16.6`) and running:
+the desired tag (for example, `v1.19.1`) and running:
 
 ```bash
 curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \

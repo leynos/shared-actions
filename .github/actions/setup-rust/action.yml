@@ -70,8 +70,8 @@ runs:
         set -euo pipefail
         # Keep BINSTALL_VERSION and BINSTALL_SHA256 in sync; update both together.
         # To refresh the checksum: curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
-        export BINSTALL_VERSION="v1.16.6"
-        BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+        export BINSTALL_VERSION="v1.19.1"
+        BINSTALL_SHA256="d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
         INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
         INSTALLER_PATH="$(mktemp)"
         trap 'rm -f "$INSTALLER_PATH"' EXIT

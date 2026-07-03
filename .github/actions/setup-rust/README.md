@@ -6,6 +6,8 @@ require them, and set up macOS or OpenBSD cross-compilers.
 
 ## Inputs
 
+<!-- markdownlint-disable MD013 -->
+
 | Name                  | Description                                                                                                                                                                  | Required | Default                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------- |
 | toolchain             | Rust toolchain to install (e.g., `stable`, `nightly`, `1.70.0`). If omitted, uses `.rust-toolchain.toml` when present, otherwise `stable`.                                   | no       | _see description_                     |
@@ -18,6 +20,8 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
 | with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
 | openbsd-nightly       | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Outputs
 
@@ -46,7 +50,9 @@ shell variable is not inherited, which makes the installer fall back to
 the desired tag (for example, `v1.19.1`) and running:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/VERSION/install-from-binstall-release.sh" \
+VERSION="v1.19.1"
+BASE_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall"
+curl -fsSL "${BASE_URL}/${VERSION}/install-from-binstall-release.sh" \
   | shasum -a 256 | awk '{print $1}'
 ```
 

@@ -122,10 +122,6 @@ runs:
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: |
         set -euo pipefail
-        if command -v cargo-binstall >/dev/null 2>&1; then
-          echo "cargo-binstall already installed: $(cargo-binstall -V)"
-          exit 0
-        fi
         # NOTE: BINSTALL_SHA256 pins and validates only the installer script
         # (install-from-binstall-release.sh), not the cargo-binstall binary that
         # the script subsequently downloads and executes.
@@ -137,6 +133,15 @@ runs:
         # extend this step to also verify the checksum of the downloaded cargo-binstall
         # artefact before invoking it, assuming such checksums are available upstream.
         BINSTALL_VERSION="v1.16.6"
+        binstall_ver="${BINSTALL_VERSION#v}"
+        if command -v cargo-binstall >/dev/null 2>&1; then
+          existing_version="$(cargo-binstall -V)"
+          if printf '%s\n' "$existing_version" | grep -qF "$binstall_ver"; then
+            echo "cargo-binstall already installed: $existing_version"
+            exit 0
+          fi
+          echo "cargo-binstall version mismatch: expected $binstall_ver, found $existing_version; reinstalling pinned version" >&2
+        fi
         BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
         INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
         INSTALLER_PATH="$(mktemp)"
@@ -161,7 +166,6 @@ runs:
           echo "$cargo_home_bin" >> "$GITHUB_PATH"
         fi
         cargo_binstall="$cargo_home_bin/cargo-binstall"
-        binstall_ver="${BINSTALL_VERSION#v}"
         if ! "$cargo_binstall" -V | grep -qF "$binstall_ver"; then
           echo "cargo-binstall version verification failed: expected $binstall_ver" >&2
           "$cargo_binstall" -V >&2

@@ -40,14 +40,15 @@ uses: ./.github/actions/setup-rust@v1
     with-openbsd: true
 ```
 
-The action installs `cargo-binstall` by default. Set `install-binstall: 'false'`
-to skip this step. If you bump the pinned `cargo-binstall` version, update the
-corresponding SHA-256 in the action manifest at the same time. Keep
-`BINSTALL_VERSION` exported in the install step: the downloaded installer runs
-in a child shell and reads `BINSTALL_VERSION` from the environment. A plain
-shell variable is not inherited, which makes the installer fall back to
-`releases/latest`. You can obtain the new checksum by replacing `VERSION` with
-the desired tag (for example, `v1.19.1`) and running:
+The action installs `cargo-binstall` by default. Set
+`install-binstall: 'false'` to skip this step. If you bump the pinned
+`cargo-binstall` version, update the corresponding SHA-256 in the action
+manifest at the same time. Keep `BINSTALL_VERSION` exported in the install
+step: the downloaded installer runs in a child shell and reads
+`BINSTALL_VERSION` from the environment. A plain shell variable is not
+inherited, which makes the installer fall back to `releases/latest`. You can
+obtain the new checksum by replacing `VERSION` with the desired tag (for
+example, `v1.19.1`) and running:
 
 ```bash
 VERSION="v1.19.1"

@@ -14,8 +14,8 @@ Create a reusable workflow that enables safe, auditable auto-merge of
 Dependabot pull requests, with a small Python script (Cyclopts + env vars) that
 handles gating rules and the GitHub API calls. Success looks like a caller
 workflow being able to reference a single workflow file in this repo and have
-Dependabot PRs auto-merged once policy gates are satisfied, with a deterministic
-local validation path via `pytest` + `act`.
+Dependabot PRs auto-merged once policy gates are satisfied, with a
+deterministic local validation path via `pytest` + `act`.
 
 ## Constraints
 
@@ -23,7 +23,8 @@ local validation path via `pytest` + `act`.
   script block, Cyclopts env-first config, pathlib usage, and no ad-hoc shell
   parsing).
 - Follow `docs/local-validation-of-github-actions-with-act-and-pytest.md` for
-  workflow integration tests (black-box, `act --json`, artefacts/log assertions).
+  workflow integration tests (black-box, `act --json`, artefacts/log
+  assertions).
 - Pin all third-party actions to a full commit SHA.
 - Use least-privilege workflow permissions and avoid elevating permissions in
   callers (document required permissions explicitly).
@@ -47,23 +48,18 @@ local validation path via `pytest` + `act`.
 ## Risks
 
 - Risk: The workflow could merge a PR that is not authored by Dependabot if the
-  event payload differs from expectations.
-  Severity: high
-  Likelihood: low
+  event payload differs from expectations. Severity: high Likelihood: low
   Mitigation: check `pull_request.user.login` in the event payload and re-check
   via API before enabling auto-merge.
 
 - Risk: Auto-merge enablement fails due to missing permissions or repo settings.
-  Severity: medium
-  Likelihood: medium
-  Mitigation: detect and log explicit errors; surface a clear, non-zero exit
-  with remediation instructions; document required permissions in README/docs.
+  Severity: medium Likelihood: medium Mitigation: detect and log explicit
+  errors; surface a clear, non-zero exit with remediation instructions;
+  document required permissions in README/docs.
 
 - Risk: Local `act` tests diverge from GitHub runner behaviour.
-  Severity: medium
-  Likelihood: medium
-  Mitigation: keep `act` tests in dry-run mode and document that GitHub runner
-  validation is authoritative.
+  Severity: medium Likelihood: medium Mitigation: keep `act` tests in dry-run
+  mode and document that GitHub runner validation is authoritative.
 
 ## Progress
 
@@ -73,46 +69,45 @@ local validation path via `pytest` + `act`.
 - [x] (2026-01-12 00:00Z) Add unit tests for the helper script.
 - [x] (2026-01-12 00:00Z) Add workflow integration test via `act` harness.
 - [x] (2026-01-12 00:00Z) Update documentation with usage guidance.
-- [x] (2026-01-12 00:00Z) Reordered dry-run validation to require event payload before PR number resolution.
-- [x] (2026-01-12 00:00Z) Adjusted linux-packages worktree repo-root test to accept `.git` files.
+- [x] (2026-01-12 00:00Z) Reordered dry-run validation to require event payload
+      before PR number resolution.
+- [x] (2026-01-12 00:00Z) Adjusted linux-packages worktree repo-root test to
+      accept `.git` files.
 - [x] (2026-01-12 00:00Z) Ran format, lint, typecheck, and test gates.
 - [x] (2026-01-12 00:00Z) Committed implementation changes.
 
 ## Surprises & Discoveries
 
 - Observation: Creating a top-level `scripts/` package conflicts with action
-  test imports that rely on the `scripts` module name.
-  Evidence: `make test` errors in release-to-pypi-uv and validate-linux-packages
-  when `scripts` resolved to the new root package.
-  Impact: Move the helper script to a distinct `workflow_scripts/` package.
+  test imports that rely on the `scripts` module name. Evidence: `make test`
+  errors in release-to-pypi-uv and validate-linux-packages when `scripts`
+  resolved to the new root package. Impact: Move the helper script to a distinct
+  `workflow_scripts/` package.
 
-- Observation: Worktree checkouts use a `.git` file instead of a `.git` directory,
-  causing repo-root detection to fail in linux-packages tests.
+- Observation: Worktree checkouts use a `.git` file instead of a `.git`
+  directory, causing repo-root detection to fail in linux-packages tests.
   Evidence: `make test` failure in
   `.github/actions/linux-packages/tests/test_action_workdir.py` when `.git` was
-  a file.
-  Impact: Broaden repo-root detection to accept `.git` files.
+  a file. Impact: Broaden repo-root detection to accept `.git` files.
 
 - Observation: `act` runs failed with `setup-uv` under Node 18 and with pip's
-  PEP 668 protections when installing uv.
-  Evidence: `ACT_WORKFLOW_TESTS=1 make test` failures in the reusable workflow
-  job during the `setup-uv` and `pip install uv` steps.
-  Impact: Use act-specific installation (pip with `--break-system-packages`),
-  and redirect uv's environment/cache to `/tmp` during act runs.
+  PEP 668 protections when installing uv. Evidence:
+  `ACT_WORKFLOW_TESTS=1 make test` failures in the reusable workflow job during
+  the `setup-uv` and `pip install uv` steps. Impact: Use act-specific
+  installation (pip with `--break-system-packages`), and redirect uv's
+  environment/cache to `/tmp` during act runs.
 
 ## Decision Log
 
 - Decision: Implement auto-merge enablement via GitHub GraphQL API
-  (`enablePullRequestAutoMerge`) rather than immediate merge.
-  Rationale: GraphQL auto-merge defers the merge until checks pass and branch
-  protections are satisfied, reducing race conditions and simplifying check
-  evaluation logic.
-  Date/Author: 2026-01-12 (assistant).
+  (`enablePullRequestAutoMerge`) rather than immediate merge. Rationale:
+  GraphQL auto-merge defers the merge until checks pass and branch protections
+  are satisfied, reducing race conditions and simplifying check evaluation
+  logic. Date/Author: 2026-01-12 (assistant).
 
 - Decision: Provide a dry-run mode for tests and local validation.
   Rationale: avoids network dependency in `act`/pytest while still exercising
-  workflow wiring and logic paths.
-  Date/Author: 2026-01-12 (assistant).
+  workflow wiring and logic paths. Date/Author: 2026-01-12 (assistant).
 
 - Decision: Checkout the reusable workflow repository at runtime using
   `github.workflow_ref` so the job can execute the versioned helper script.
@@ -121,33 +116,29 @@ local validation path via `pytest` + `act`.
   Date/Author: 2026-01-12 (assistant).
 
 - Decision: Store the helper script under `workflow_scripts/` instead of a
-  top-level `scripts/` package.
-  Rationale: avoids shadowing action-level `scripts` modules used in existing
-  tests and keeps action imports stable.
+  top-level `scripts/` package. Rationale: avoids shadowing action-level
+  `scripts` modules used in existing tests and keeps action imports stable.
   Date/Author: 2026-01-12 (assistant).
 
 - Decision: Add `workflow_scripts/tests` to pytest discovery.
   Rationale: ensures the new helper script unit tests run under the default
-  `make test` target.
-  Date/Author: 2026-01-12 (assistant).
+  `make test` target. Date/Author: 2026-01-12 (assistant).
 
 - Decision: Treat a `.git` file as a valid repo-root indicator in worktree
-  environments.
-  Rationale: git worktrees store metadata in a file, and tests should pass in
-  that layout.
-  Date/Author: 2026-01-12 (assistant).
+  environments. Rationale: git worktrees store metadata in a file, and tests
+  should pass in that layout. Date/Author: 2026-01-12 (assistant).
 
 - Decision: Add act-only workflow branches to skip `setup-uv`, install uv via
   pip with `--break-system-packages`, and redirect uv paths to `/tmp`.
   Rationale: act uses Node 18 and Debian PEP 668 defaults; this keeps workflow
-  tests green without affecting GitHub runner behaviour.
-  Date/Author: 2026-01-12 (assistant).
+  tests green without affecting GitHub runner behaviour. Date/Author:
+  2026-01-12 (assistant).
 
 ## Outcomes & Retrospective
 
 - Delivered a reusable Dependabot auto-merge workflow, a Cyclopts-based helper
-  script with dry-run support, unit tests, and `act`-driven workflow tests, plus
-  documentation and README updates.
+  script with dry-run support, unit tests, and `act`-driven workflow tests,
+  plus documentation and README updates.
 - Quality gates completed: `make fmt`, `make check-fmt`, `make lint`,
   `make typecheck`, and `make test` passed (typecheck emitted an existing
   warning in `.github/actions/windows-package/scripts/generate_wxs.py`).
@@ -220,7 +211,8 @@ Each stage ends with validation; do not proceed if validation fails.
 
 ## Concrete Steps
 
-All commands run from repository root: `/data/leynos/Projects/shared-actions.worktrees/dependabot-auto-merge`.
+All commands run from repository root:
+`/data/leynos/Projects/shared-actions.worktrees/dependabot-auto-merge`.
 
 1) Create the script and unit tests.
 
@@ -246,19 +238,19 @@ All commands run from repository root: `/data/leynos/Projects/shared-actions.wor
     - `make lint 2>&1 | tee /tmp/lint.log`
     - `make test 2>&1 | tee /tmp/test.log`
 
-    If `act` tests are required and Docker/Podman needs sudo:
+If `act` tests are required and Docker/Podman needs sudo:
 
-    - `ACT_WORKFLOW_TESTS=1 sudo -E make test 2>&1 | tee /tmp/test-act.log`
+- `ACT_WORKFLOW_TESTS=1 sudo -E make test 2>&1 | tee /tmp/test-act.log`
 
-5) Commit in small steps, gating each commit with relevant checks.
+1) Commit in small steps, gating each commit with relevant checks.
 
 ## Validation and Acceptance
 
 Behavioural acceptance:
 
 - A consuming repo can call the workflow via `jobs.<id>.uses` and see the job
-  skip non-Dependabot PRs, skip drafts, and enable auto-merge for Dependabot PRs
-  when label requirements are met.
+  skip non-Dependabot PRs, skip drafts, and enable auto-merge for Dependabot
+  PRs when label requirements are met.
 - Logs include deterministic markers (e.g. `automerge_status=enabled` or
   `automerge_status=skipped`) that tests can assert on.
 
@@ -281,13 +273,17 @@ Quality criteria:
 
 Expected log snippets (examples to align tests):
 
-    automerge_status=enabled
-    automerge_reason=label:dependencies
+```text
+automerge_status=enabled
+automerge_reason=label:dependencies
+```
 
 Or for skips:
 
-    automerge_status=skipped
-    automerge_reason=author-not-dependabot
+```text
+automerge_status=skipped
+automerge_reason=author-not-dependabot
+```
 
 ## Interfaces and Dependencies
 
@@ -328,8 +324,7 @@ so it does not shadow existing action scripts.
 Revision 2026-01-12: Added the reusable workflow, test workflow, and act-based
 integration test coverage.
 
-Revision 2026-01-12: Updated repository documentation for the reusable
-workflow.
+Revision 2026-01-12: Updated repository documentation for the reusable workflow.
 
 Revision 2026-01-12: Added workflow_scripts tests to pytest discovery so helper
 unit tests run by default.
@@ -339,5 +334,5 @@ handling; captured gate runs and decisions.
 
 Revision 2026-01-12: Marked plan complete and summarized outcomes.
 
-Revision 2026-01-12: Added act-only uv installation and cache redirection
-notes based on workflow test failures.
+Revision 2026-01-12: Added act-only uv installation and cache redirection notes
+based on workflow test failures.

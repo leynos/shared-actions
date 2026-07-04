@@ -2,10 +2,9 @@
 
 <!-- markdownlint-disable MD013 -->
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -13,9 +12,9 @@ Status: COMPLETE
 
 Projects that publish Rust command-line binaries often want `cargo-binstall` to
 install prebuilt release assets instead of compiling from source.
-`cargo-binstall` reads `[package.metadata.binstall]` from the crate manifest and
-then downloads a release archive whose URL and internal binary path match that
-metadata. Today this repository can build Rust binaries with
+`cargo-binstall` reads `[package.metadata.binstall]` from the crate manifest
+and then downloads a release archive whose URL and internal binary path match
+that metadata. Today this repository can build Rust binaries with
 `.github/actions/rust-build-release` and can stage release files with
 `.github/actions/stage-release-artefacts`, but it cannot create the
 `{package}-{version}-{target}.tar.gz` archive shape used by the `dear-diary`
@@ -46,8 +45,8 @@ milestone-by-milestone with the tolerances in this plan.
 ## Repository orientation
 
 The target action is `.github/actions/stage-release-artefacts`. Its composite
-action entrypoint is `.github/actions/stage-release-artefacts/action.yml`, which
-runs `.github/actions/stage-release-artefacts/scripts/stage.py`.
+action entrypoint is `.github/actions/stage-release-artefacts/action.yml`,
+which runs `.github/actions/stage-release-artefacts/scripts/stage.py`.
 Configuration parsing lives in
 `.github/actions/stage-release-artefacts/scripts/stage_common/config.py`.
 Copying, checksumming, and output emission live in
@@ -57,19 +56,19 @@ Current unit tests are in
 `.github/actions/stage-release-artefacts/tests/test_stage.py`.
 
 Useful shared Cargo manifest helpers already exist in `cargo_utils.py`.
-`export-cargo-metadata` uses those helpers to resolve package name, binary name,
-and workspace-inherited version. The new staging feature should reuse those
-helpers where manifest-derived values are needed rather than duplicating Cargo
-TOML parsing.
+`export-cargo-metadata` uses those helpers to resolve package name, binary
+name, and workspace-inherited version. The new staging feature should reuse
+those helpers where manifest-derived values are needed rather than duplicating
+Cargo TOML parsing.
 
 The relevant external behaviour came from `dear-diary`: its crate manifest
 declares a binstall override whose `pkg-url` ends with
-`{ name }-{ version }-{ target }.tar.gz`, `bin-dir` is
-`{ bin }{ binary-ext }`, and `pkg-fmt` is `tgz`. Its release helper writes a
-tar.gz archive with the binary at the archive root and writes SHA-256 sidecars.
-The upstream cargo-binstall documentation says metadata is optional, defaults
-exist, but `pkg-url`, `bin-dir`, `pkg-fmt`, and target overrides are the right
-metadata when a project needs explicit release asset layout.
+`{ name }-{ version }-{ target }.tar.gz`, `bin-dir` is `{ bin }{ binary-ext }`,
+and `pkg-fmt` is `tgz`. Its release helper writes a tar.gz archive with the
+binary at the archive root and writes SHA-256 sidecars. The upstream
+cargo-binstall documentation says metadata is optional, defaults exist, but
+`pkg-url`, `bin-dir`, `pkg-fmt`, and target overrides are the right metadata
+when a project needs explicit release asset layout.
 
 Relevant documentation and skills to signpost during implementation:
 
@@ -92,8 +91,8 @@ Relevant documentation and skills to signpost during implementation:
 ## Constraints
 
 - Keep `rust-build-release` focused on compiling Rust code. Do not move release
-  packaging into that action unless implementation proves `stage-release-artefacts`
-  cannot own the behaviour.
+  packaging into that action unless implementation proves
+  `stage-release-artefacts` cannot own the behaviour.
 - Preserve all existing `stage-release-artefacts` configuration and outputs.
   Current users must not need to change their TOML files.
 - Make binstall archive creation opt-in. A target without binstall config must
@@ -146,40 +145,31 @@ conflict in `Decision Log`, and ask for direction.
 ## Risks
 
 - Risk: The staging action may become overloaded if it learns too much about
-  Cargo manifests.
-  Severity: medium.
-  Likelihood: medium.
-  Mitigation: keep manifest use narrow: package name, binary name, version, and
-  target only. Use optional explicit config overrides so non-Cargo projects can
-  still use the action.
+  Cargo manifests. Severity: medium. Likelihood: medium. Mitigation: keep
+  manifest use narrow: package name, binary name, version, and target only. Use
+  optional explicit config overrides so non-Cargo projects can still use the
+  action.
 
 - Risk: Template configuration could allow unsafe archive member names.
-  Severity: high.
-  Likelihood: low.
-  Mitigation: validate archive member names with the same path-escape discipline
-  used for staged destinations. Reject absolute paths, `..`, and empty names.
-  Add property tests over generated path fragments.
+  Severity: high. Likelihood: low. Mitigation: validate archive member names
+  with the same path-escape discipline used for staged destinations. Reject
+  absolute paths, `..`, and empty names. Add property tests over generated path
+  fragments.
 
 - Risk: Snapshot tests may be noisy because absolute temporary paths vary.
-  Severity: low.
-  Likelihood: medium.
-  Mitigation: snapshot only stable output fragments or normalize temporary
-  roots before assertion.
+  Severity: low. Likelihood: medium. Mitigation: snapshot only stable output
+  fragments or normalize temporary roots before assertion.
 
 - Risk: The repository currently does not include `pytest-bdd`, `syrupy`, or
-  `hypothesis` in the development dependency group.
-  Severity: medium.
-  Likelihood: high.
-  Mitigation: add them to `[dependency-groups].dev` and update the Makefile
-  `make test` inline `uv run --with ...` command only if required for the
-  non-venv test path.
+  `hypothesis` in the development dependency group. Severity: medium.
+  Likelihood: high. Mitigation: add them to `[dependency-groups].dev` and
+  update the Makefile `make test` inline `uv run --with ...` command only if
+  required for the non-venv test path.
 
 - Risk: End-to-end `act` tests may be slow or skipped on machines without a
-  container runtime.
-  Severity: low.
-  Likelihood: medium.
-  Mitigation: follow the existing opt-in `ACT_WORKFLOW_TESTS=1` convention and
-  add a workflow-level test that is skipped unless the environment supports it.
+  container runtime. Severity: low. Likelihood: medium. Mitigation: follow the
+  existing opt-in `ACT_WORKFLOW_TESTS=1` convention and add a workflow-level
+  test that is skipped unless the environment supports it.
 
 ## Design
 
@@ -216,8 +206,8 @@ enabled = true
 `manifest_path` defaults to `Cargo.toml` and resolves relative to
 `GITHUB_WORKSPACE`. `archive_name` defaults to
 `{package_name}-{version}-{target}.tar.gz`. `binary_source` defaults to the
-target release binary path. `binary_name` defaults to `{bin_name}{bin_ext}`.
-The `output` key defaults to `binstall_archive_path` and is included in the
+target release binary path. `binary_name` defaults to `{bin_name}{bin_ext}`. The
+`output` key defaults to `binstall_archive_path` and is included in the
 existing `artefact-map` machinery under the output name exposed by the action as
 `binstall-archive-path`.
 
@@ -343,8 +333,8 @@ and document it in the README.
 
 Unit tests must verify archive filename, archive member name, checksum content,
 output map key, disabled behaviour, and failure when the binary source is
-missing. The syrupy snapshot should pin the output file format after normalizing
-temporary paths.
+missing. The syrupy snapshot should pin the output file format after
+normalizing temporary paths.
 
 Validation after this milestone:
 
@@ -404,8 +394,9 @@ matches cargo-binstall metadata. Mention that the Cargo manifest must publish
 compatible `[package.metadata.binstall]` metadata; the action creates release
 assets, it does not mutate the crate manifest.
 
-Update `.github/actions/stage-release-artefacts/CHANGELOG.md` with an unreleased
-entry. If root documentation lists capabilities for the action, update it too.
+Update `.github/actions/stage-release-artefacts/CHANGELOG.md` with an
+unreleased entry. If root documentation lists capabilities for the action,
+update it too.
 
 Run final gates sequentially:
 
@@ -419,8 +410,8 @@ coderabbit review --agent
 ```
 
 Commit the final documentation and cleanup milestone. Record the final commit
-IDs, validation commands, and any skipped validations in `Outcomes &
-Retrospective`.
+IDs, validation commands, and any skipped validations in
+`Outcomes & Retrospective`.
 
 ## Progress
 
@@ -522,9 +513,8 @@ Retrospective`.
 ## Outcomes & Retrospective
 
 Implementation is complete. Milestones 1-3 have local focused validation:
-`uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist
-pytest .github/actions/stage-release-artefacts/tests/test_stage.py
---snapshot-update -v` passed with 45 tests. `make check-fmt`, `make lint`, and
+`uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py --snapshot-update -v`
+passed with 45 tests. `make check-fmt`, `make lint`, and
 `UV_PYTHON=3.13 make typecheck` pass. `UV_PYTHON=3.13 make test` fails in
 unrelated `rust-build-release` tests; this is recorded as a gate exception
 pending either a pre-existing-failure waiver or a separate fix outside the
@@ -532,46 +522,33 @@ current feature scope. The latest full run reported 773 passed, 14 skipped, and
 12 failed, all in `.github/actions/rust-build-release`.
 `coderabbit review --agent` initially hit a recoverable rate limit, then passed
 with 0 findings after the requested wait. The focused post-snapshot test command
-`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
---with pytest-xdist pytest
-.github/actions/stage-release-artefacts/tests/test_stage.py -v` passed with 45
-tests and 1 snapshot. Milestone 4 added the
+`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py -v`
+passed with 45 tests and 1 snapshot. Milestone 4 added the
 `test-stage-artefacts-binstall` workflow job and an act behavioural assertion
 for `binstall-archive-path`. The focused changed-surface command
-`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
---with pytest-xdist pytest
-.github/actions/stage-release-artefacts/tests/test_stage.py
-tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or
-stage-release-artefacts or stage_artefacts or binstall' -v` passed with 45
-tests, 1 snapshot, 3 skipped act tests, and 8 deselected. The opt-in act
-selection
-`ACT_WORKFLOW_TESTS=1 UV_PYTHON=3.13 uv run --with typer --with packaging
---with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with
-syrupy --with hypothesis pytest tests/workflows/test_action_behaviors.py -k
-'stage-release-artefacts-binstall' -v` collected the new end-to-end case and
-skipped it because `act` or a container runtime is unavailable locally.
-`coderabbit review --agent` for milestone 4 also initially hit a recoverable
-rate limit, then passed with 0 findings after the requested wait.
-Milestone 5 documentation updates have been made to the action README and
-CHANGELOG. Final validation results:
+`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
+passed with 45 tests, 1 snapshot, 3 skipped act tests, and 8 deselected. The
+opt-in act selection
+`ACT_WORKFLOW_TESTS=1 UV_PYTHON=3.13 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows/test_action_behaviors.py -k 'stage-release-artefacts-binstall' -v`
+collected the new end-to-end case and skipped it because `act` or a container
+runtime is unavailable locally. `coderabbit review --agent` for milestone 4
+also initially hit a recoverable rate limit, then passed with 0 findings after
+the requested wait. Milestone 5 documentation updates have been made to the
+action README and CHANGELOG. Final validation results:
 
 - `make check-fmt` passed.
 - `UV_PYTHON=3.13 make typecheck` passed.
 - `make lint` passed.
-- `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis
-  --with pytest-xdist pytest
-  .github/actions/stage-release-artefacts/tests/test_stage.py
-  tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or
-  stage-release-artefacts or stage_artefacts or binstall' -v` passed with 45
-  passed, 3 skipped, and 8 deselected.
+- `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
+  passed with 45 passed, 3 skipped, and 8 deselected.
 - `UV_PYTHON=3.13 make test` still fails only in unrelated
   `.github/actions/rust-build-release` tests, with 773 passed, 14 skipped, and
   12 failed.
 - `make markdownlint` passed.
 - `coderabbit review --agent` initially hit a recoverable 1 minute 3 second
   rate limit, then passed with 0 findings after the requested wait. After
-  README markdownlint cleanup, the adjusted final review hit a recoverable
-  2 minute 46 second rate limit and then passed with 0 findings.
+  README markdownlint cleanup, the adjusted final review hit a recoverable 2
+  minute 46 second rate limit and then passed with 0 findings.
 
 Local act execution remains skipped because `act` or a container runtime is not
 available in this environment.

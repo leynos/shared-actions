@@ -112,12 +112,12 @@ The `Makefile` resolves optional local tool installations before falling back
 to bare names on `PATH`. The following variables are set at the top of
 `Makefile` and may be overridden on the command line:
 
-| Variable            | Default resolution order                                                                                   |
-| ------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `UV`                | `~/.local/bin/uv`, otherwise `uv`                                                                          |
-| `ACTION_VALIDATOR`  | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` (on `PATH`)   |
-| `MDLINT`            | `~/.bun/bin/markdownlint`, then `PATH`                                                                     |
-| `MARKDOWNLINT_BASE` | `origin/main` for the markdownlint diff base                                                               |
+| Variable            | Default resolution order                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------- |
+| `UV`                | `~/.local/bin/uv`, otherwise `uv`                                                                        |
+| `ACTION_VALIDATOR`  | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` (on `PATH`) |
+| `MDLINT`            | `~/.bun/bin/markdownlint`, then `PATH`                                                                   |
+| `MARKDOWNLINT_BASE` | `origin/main` for the markdownlint diff base                                                             |
 
 For `ACTION_VALIDATOR`, the concrete lookup order is
 `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then
@@ -174,12 +174,12 @@ make lint UV=uv MARKDOWNLINT_BASE=origin/develop
 
 ## 8  Maintenance & Ownership
 
-| Responsibility     | Minimum cadence                        |
-| ------------------ | -------------------------------------- |
-| Issue triage       | Weekly                                 |
-| Dependency updates | Dependabot auto‑merge on green tests   |
-| Release notes      | Included in every tag / GH Release     |
-| Security audit     | Quarterly                              |
+| Responsibility     | Minimum cadence                      |
+| ------------------ | ------------------------------------ |
+| Issue triage       | Weekly                               |
+| Dependency updates | Dependabot auto‑merge on green tests |
+| Release notes      | Included in every tag / GH Release   |
+| Security audit     | Quarterly                            |
 
 Each action’s `CODEOWNERS` entry must name **at least one** current maintainer.
 

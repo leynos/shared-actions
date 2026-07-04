@@ -10,7 +10,8 @@ runtime is detected, the action exports `CROSS_CONTAINER_ENGINE` for the
 duration of the build so that `cross` automatically uses the available engine.
 
 > [!NOTE]
-> This action builds release binaries only. Package creation should be handled by
+> This action builds release binaries only. Package creation should be handled
+> by
 > the platform-specific composite actions:
 >
 > - Linux: [`linux-packages`](../linux-packages)
@@ -30,15 +31,15 @@ manifest `rust-version`, then the action's bundled fallback version.
 
 ## Inputs
 
-| Name | Type | Default | Description | Required |
-| ---- | ---- | ------- | ----------- | -------- |
-| target | string | `x86_64-unknown-linux-gnu` | Target triple to build | no |
-| toolchain | string | (empty) | Explicit Rust toolchain override | no |
-| project-dir | string | `.` | Path to the Rust project to build | no |
-| manifest-path | string | `Cargo.toml` | Cargo manifest path | no |
-| bin-name | string | `rust-toy-app` | Binary name produced by the build | no |
-| features | string | (empty) | Comma-separated Cargo features | no |
-| skip-man-page-discovery | boolean | `false` | Post-build man opt-out | no |
+| Name                    | Type    | Default                    | Description                       | Required |
+| ----------------------- | ------- | -------------------------- | --------------------------------- | -------- |
+| target                  | string  | `x86_64-unknown-linux-gnu` | Target triple to build            | no       |
+| toolchain               | string  | (empty)                    | Explicit Rust toolchain override  | no       |
+| project-dir             | string  | `.`                        | Path to the Rust project to build | no       |
+| manifest-path           | string  | `Cargo.toml`               | Cargo manifest path               | no       |
+| bin-name                | string  | `rust-toy-app`             | Binary name produced by the build | no       |
+| features                | string  | (empty)                    | Comma-separated Cargo features    | no       |
+| skip-man-page-discovery | boolean | `false`                    | Post-build man opt-out            | no       |
 
 When `toolchain` is empty, the action resolves the toolchain from the target
 repository before falling back to the action default. `manifest-path` may be

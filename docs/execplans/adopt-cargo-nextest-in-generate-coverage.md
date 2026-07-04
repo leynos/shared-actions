@@ -58,8 +58,8 @@ without requiring repository-level nextest configuration.
 - Risk: Creating a temporary `nextest.toml` could override a repository’s
   intended configuration or conflict with existing config detection. Severity:
   medium Likelihood: low Mitigation: only create the file when
-  `.config/nextest.toml` is absent; ensure the temp file is isolated and removed
-  after use.
+  `.config/nextest.toml` is absent; ensure the temp file is isolated and
+  removed after use.
 
 - Risk: `cargo llvm-cov nextest` requires additional environment or tooling vs
   `cargo llvm-cov` and may fail on some runners. Severity: medium Likelihood:
@@ -97,15 +97,14 @@ without requiring repository-level nextest configuration.
 - Decision: Treat Linux checksum selection as libc-family-aware with
   `_is_musl()` selecting `linux-<arch>-musl` or `linux-<arch>-gnu` keys.
   Rationale: This preserves determinism whilst keeping musl and GNU runners
-  distinct and diagnosable in installer logs. Date/Author: 2026-06-16
-  (Codex)
+  distinct and diagnosable in installer logs. Date/Author: 2026-06-16 (Codex)
 
 ## Outcomes & Retrospective
 
 Delivered cargo-nextest support for the generate-coverage action with a new
 `use-cargo-nextest` input (default true), nextest installation and checksum
-verification, and temporary config handling when none is present. Added unit and
-behavioural tests covering nextest command selection, config creation, and
+verification, and temporary config handling when none is present. Added unit
+and behavioural tests covering nextest command selection, config creation, and
 install verification. All required Makefile gateways completed successfully.
 
 ## Context and Orientation
@@ -113,39 +112,40 @@ install verification. All required Makefile gateways completed successfully.
 The generate-coverage action lives under `.github/actions/generate-coverage/`
 and should contain `action.yml`, `README.md`, `src/`, `tests/`, and
 `CHANGELOG.md`. The action likely invokes Python scripts in the repo root (for
-example, modules like `actions_common.py`, `cargo_utils.py`, or `cmd_utils.py`).
-This plan treats the action as a GitHub Action that may call Python helpers to
-assemble commands. A “nextest config” refers to `.config/nextest.toml`, a
-configuration file for `cargo nextest` that controls timeouts and execution
-behaviour. The new input allows callers to opt out of nextest and continue using
-the existing `cargo llvm-cov` path.
+example, modules like `actions_common.py`, `cargo_utils.py`, or
+`cmd_utils.py`). This plan treats the action as a GitHub Action that may call
+Python helpers to assemble commands. A “nextest config” refers to
+`.config/nextest.toml`, a configuration file for `cargo nextest` that controls
+timeouts and execution behaviour. The new input allows callers to opt out of
+nextest and continue using the existing `cargo llvm-cov` path.
 
 ## Plan of Work
 
-Stage A: Understand current generate-coverage behaviour. Find the action folder,
-inspect `action.yml`, README, and implementation scripts to see how Rust
-coverage is executed today. Identify where inputs are parsed and where
-`cargo llvm-cov` is invoked. Confirm existing test structure and how behavioural
-tests mock or assert commands. Do not modify code yet.
+Stage A: Understand current generate-coverage behaviour. Find the action
+folder, inspect `action.yml`, README, and implementation scripts to see how
+Rust coverage is executed today. Identify where inputs are parsed and where
+`cargo llvm-cov` is invoked. Confirm existing test structure and how
+behavioural tests mock or assert commands. Do not modify code yet.
 
-Stage B: Define the new input and tests. Add `use-cargo-nextest` to `action.yml`
-with default `true`, document it in the action README input table, and update
-any config schemas. Add unit tests for input parsing and behaviour switches. Add
-behavioural tests that assert the correct command paths and that temp nextest
-config creation is conditional. Ensure tests fail before implementation and pass
-after.
+Stage B: Define the new input and tests. Add `use-cargo-nextest` to
+`action.yml` with default `true`, document it in the action README input table,
+and update any config schemas. Add unit tests for input parsing and behaviour
+switches. Add behavioural tests that assert the correct command paths and that
+temp nextest config creation is conditional. Ensure tests fail before
+implementation and pass after.
 
 Stage C: Implement nextest support. Add logic to install `cargo-nextest` when
-`use-cargo-nextest=true`, using `cargo binstall` and validating against a pinned
-SHA-256. Add a helper to detect `.config/nextest.toml` and, when missing, create
-a temporary config with the provided defaults; ensure the file is removed after
-use. Switch Rust coverage execution to `cargo llvm-cov nextest` when enabled.
-Preserve the existing `cargo llvm-cov` path when disabled.
+`use-cargo-nextest=true`, using `cargo binstall` and validating against a
+pinned SHA-256. Add a helper to detect `.config/nextest.toml` and, when
+missing, create a temporary config with the provided defaults; ensure the file
+is removed after use. Switch Rust coverage execution to
+`cargo llvm-cov nextest` when enabled. Preserve the existing `cargo llvm-cov`
+path when disabled.
 
-Stage D: Hardening and docs. Update CHANGELOG for the action, ensure root README
-table is updated if required by repo standards, and verify that documentation
-clearly explains the new input and defaults. Run the required Makefile gateways
-with logs captured via `tee`. Commit changes after tests pass.
+Stage D: Hardening and docs. Update CHANGELOG for the action, ensure root
+README table is updated if required by repo standards, and verify that
+documentation clearly explains the new input and defaults. Run the required
+Makefile gateways with logs captured via `tee`. Commit changes after tests pass.
 
 Each stage ends with validation using the project’s Makefile targets and, where
 applicable, specific tests for the action.

@@ -1,8 +1,8 @@
 # Enable Dependabot Auto-Merge When Merge State Is UNSTABLE
 
-This execution plan (ExecPlan) is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -10,15 +10,16 @@ PLANS.md: none found in this repository.
 
 ## Purpose / Big Picture
 
-Adjust the reusable Dependabot auto-merge workflow so it does not hard-skip pull
-requests in `UNSTABLE` merge state. The intended user-visible behaviour is that
-the workflow enables GitHub auto-merge earlier (while checks are pending or not
-yet green), and GitHub then performs the final merge only after branch protection
-and required checks are satisfied.
+Adjust the reusable Dependabot auto-merge workflow so it does not hard-skip
+pull requests in `UNSTABLE` merge state. The intended user-visible behaviour is
+that the workflow enables GitHub auto-merge earlier (while checks are pending
+or not yet green), and GitHub then performs the final merge only after branch
+protection and required checks are satisfied.
 
-Success is observable in workflow logs: an eligible Dependabot pull request (PR) with
-`automerge_merge_state=UNSTABLE` should now emit `automerge_status=enabled`
-instead of `automerge_status=skipped` with `merge-state-unstable`.
+Success is observable in workflow logs: an eligible Dependabot pull request
+(PR) with `automerge_merge_state=UNSTABLE` should now emit
+`automerge_status=enabled` instead of `automerge_status=skipped` with
+`merge-state-unstable`.
 
 ## Constraints
 
@@ -34,8 +35,8 @@ instead of `automerge_status=skipped` with `merge-state-unstable`.
   `automerge_merge_state`, `automerge_mergeable_state`) so downstream consumers
   and tests continue to work.
 
-If any required change violates these constraints, stop and escalate rather than
-silently broadening scope.
+If any required change violates these constraints, stop and escalate rather
+than silently broadening scope.
 
 ## Tolerances (Exception Triggers)
 
@@ -53,24 +54,19 @@ silently broadening scope.
 ## Risks
 
 - Risk: Enabling auto-merge at `UNSTABLE` may reintroduce failure modes that led
-  to the stricter gating added in commit `3200763`.
-  Severity: medium
-  Likelihood: medium
-  Mitigation: keep all other merge-state skip gates, add targeted unit coverage,
-  and validate logs from a representative test case.
+  to the stricter gating added in commit `3200763`. Severity: medium
+  Likelihood: medium Mitigation: keep all other merge-state skip gates, add
+  targeted unit coverage, and validate logs from a representative test case.
 
 - Risk: Some repositories disable auto-merge or have rules that reject enabling
-  auto-merge in specific transient states.
-  Severity: medium
-  Likelihood: low
-  Mitigation: keep existing error propagation and ensure diagnostics still expose
-  merge state and reason.
+  auto-merge in specific transient states. Severity: medium Likelihood: low
+  Mitigation: keep existing error propagation and ensure diagnostics still
+  expose merge state and reason.
 
 - Risk: Behavioural drift between docs and implementation.
-  Severity: low
-  Likelihood: medium
-  Mitigation: update `docs/dependabot-automerge-workflow.md` alongside logic and
-  tests in the same change set.
+  Severity: low Likelihood: medium Mitigation: update
+  `docs/dependabot-automerge-workflow.md` alongside logic and tests in the same
+  change set.
 
 ## Progress
 
@@ -94,9 +90,9 @@ silently broadening scope.
 
 - Discovery: The current repository has no `PLANS.md`, so this ExecPlan is
   governed by the `execplans` skill format and `AGENTS.md` instructions.
-- Discovery: Qdrant memory Model Context Protocol (MCP) tools (`qdrant-find`, `qdrant-store`) are not
-  exposed in this execution environment; no remote project-memory lookup was
-  possible from this session.
+- Discovery: Qdrant memory Model Context Protocol (MCP) tools (`qdrant-find`,
+  `qdrant-store`) are not exposed in this execution environment; no remote
+  project-memory lookup was possible from this session.
 - Discovery: The existing unit suite already has a dedicated test asserting
   `UNSTABLE` is skipped (`merge_state_unstable_skips`), which will need to be
   inverted rather than adding entirely new harness plumbing.
@@ -124,14 +120,12 @@ silently broadening scope.
 
 - Decision: Keep `UNKNOWN` as retry-only and keep non-mergeable states as skip.
   Rationale: retains conservative handling for ambiguous/unsafe states while
-  removing only the single gate requested.
-  Date/Author: 2026-02-12 (assistant).
+  removing only the single gate requested. Date/Author: 2026-02-12 (assistant).
 
 - Decision: Validate primarily via existing Python unit tests and repository
   quality gates, not by expanding workflow trigger matrix in this change.
   Rationale: minimizes blast radius and keeps this change focused on policy
-  semantics.
-  Date/Author: 2026-02-12 (assistant).
+  semantics. Date/Author: 2026-02-12 (assistant).
 
 ## Context and Orientation
 
@@ -141,8 +135,8 @@ Primary implementation files:
   enable/skip decision logic.
 - `workflow_scripts/tests/test_dependabot_automerge.py`: unit coverage for live
   execution scenarios, including the current `UNSTABLE` skip assertion.
-- `docs/dependabot-automerge-workflow.md`: reusable workflow behaviour and policy
-  documentation.
+- `docs/dependabot-automerge-workflow.md`: reusable workflow behaviour and
+  policy documentation.
 
 Relevant pre-change behaviour (captured during planning):
 
@@ -184,10 +178,12 @@ Stage D: Validate and capture evidence.
 
 - Run all required quality gates from repo root with `pipefail` and `tee`:
 
-      set -o pipefail; make check-fmt 2>&1 | tee /tmp/check-fmt.log
-      set -o pipefail; make typecheck 2>&1 | tee /tmp/typecheck.log
-      set -o pipefail; make lint 2>&1 | tee /tmp/lint.log
-      set -o pipefail; make test 2>&1 | tee /tmp/test.log
+```sh
+set -o pipefail; make check-fmt 2>&1 | tee /tmp/check-fmt.log
+set -o pipefail; make typecheck 2>&1 | tee /tmp/typecheck.log
+set -o pipefail; make lint 2>&1 | tee /tmp/lint.log
+set -o pipefail; make test 2>&1 | tee /tmp/test.log
+```
 
 - If any gate fails, inspect the corresponding `/tmp/*.log`, apply a minimal
   corrective fix, and rerun the failed gate(s). If two attempts fail, escalate.
@@ -221,7 +217,8 @@ Execution acceptance criteria:
 
 ## Outcomes & Retrospective
 
-Implemented exactly the planned `UNSTABLE` policy change with no scope expansion.
+Implemented exactly the planned `UNSTABLE` policy change with no scope
+expansion.
 
 Actual files changed:
 

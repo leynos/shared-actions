@@ -10,11 +10,10 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required.
-When Rust coverage is required, `cargo-llvm-cov` and `cargo-nextest` are
-installed automatically. If both configuration files are present, coverage is
-run for each language and the Cobertura reports are merged using
-`uvx merge-cobertura`.
+are required. When Rust coverage is required, `cargo-llvm-cov` and
+`cargo-nextest` are installed automatically. If both configuration files are
+present, coverage is run for each language and the Cobertura reports are merged
+using `uvx merge-cobertura`.
 
 ## Flow
 
@@ -241,11 +240,11 @@ Run pytest serially (disable pytest-xdist):
 
 ### Parallel Python tests via pytest-xdist
 
-Python coverage runs through `pytest-xdist` by default (`pytest-workers: auto`),
-and slipcover 1.0.18+ merges the per-worker coverage transparently. Set
-`pytest-workers` to a positive integer for a fixed worker count, to `logical`
-to use the logical central processing unit (CPU) count, or to `""` to keep
-the historical serial behaviour.
+Python coverage runs through `pytest-xdist` by default
+(`pytest-workers: auto`), and slipcover 1.0.18+ merges the per-worker coverage
+transparently. Set `pytest-workers` to a positive integer for a fixed worker
+count, to `logical` to use the logical central processing unit (CPU) count, or
+to `""` to keep the historical serial behaviour.
 
 > [!WARNING]
 > **Co-located tests + `--omit` regression in slipcover xdist workers.**
@@ -275,10 +274,10 @@ The action prints the current coverage percentage to the log. When
 percentage is shown as well.
 
 Coverage reports are archived as workflow artefacts named
-``<format>-<job>-<index>-<os>-<arch>`` by default. When
-`artefact-name-suffix` is provided, the suffix is appended after the
-`<os>-<arch>` segment. This prevents collisions across matrix jobs and
-distinguishes runs on different platforms.
+``<format>-<job>-<index>-<os>-<arch>`` by default. When `artefact-name-suffix`
+is provided, the suffix is appended after the `<os>-<arch>` segment. This
+prevents collisions across matrix jobs and distinguishes runs on different
+platforms.
 
 Developer-facing design notes, including the rationale for Cranelift coverage
 environment overrides, are available in

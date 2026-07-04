@@ -1,34 +1,34 @@
 # Extend Architecture Enforcement to Orchestration Code (2.4.5)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: DRAFT
 
 ## Purpose / big picture
 
-The Episodic podcast generation system enforces Hexagonal Architecture via Hecate,
-a static import-direction checker. However, Hecate operates at the module level
-and cannot validate that individual LangGraph node functions or Celery task
-functions depend only on domain services and ports — never on adapter
-implementations. Additionally, checkpoint payloads that serialize orchestration
-state are not audited to ensure they contain only orchestration metadata and not
-canonical domain objects.
+The Episodic podcast generation system enforces Hexagonal Architecture via
+Hecate, a static import-direction checker. However, Hecate operates at the
+module level and cannot validate that individual LangGraph node functions or
+Celery task functions depend only on domain services and ports — never on
+adapter implementations. Additionally, checkpoint payloads that serialize
+orchestration state are not audited to ensure they contain only orchestration
+metadata and not canonical domain objects.
 
 This plan extends architecture enforcement to close three gaps: (1) static
-validation that LangGraph nodes and Celery task modules are correctly classified
-and free from adapter dependencies, (2) property-based test coverage that
-checkpoint payloads remain boundary-pure under serialization and deserialization,
-and (3) a lightweight runtime guard that detects when node functions are
-accidentally defined outside the orchestration boundary.
+validation that LangGraph nodes and Celery task modules are correctly
+classified and free from adapter dependencies, (2) property-based test coverage
+that checkpoint payloads remain boundary-pure under serialization and
+deserialization, and (3) a lightweight runtime guard that detects when node
+functions are accidentally defined outside the orchestration boundary.
 
-After this change, running `make check` will detect LangGraph and Celery boundary
-violations at lint time, running `make test` will include property-based checks
-that prove checkpoint payloads preserve domain boundaries across serialization
-cycles, and the orchestration graph construction will fail fast with a clear
-error if a node function is accidentally declared in an adapter module.
+After this change, running `make check` will detect LangGraph and Celery
+boundary violations at lint time, running `make test` will include
+property-based checks that prove checkpoint payloads preserve domain boundaries
+across serialization cycles, and the orchestration graph construction will fail
+fast with a clear error if a node function is accidentally declared in an
+adapter module.
 
 ## Constraints
 
@@ -40,8 +40,9 @@ Hard invariants that must hold throughout implementation.
   current architecture enforcement.
 
 - The Episodic core domain and port contracts must not depend on orchestration
-  code. The domain layer (under `episodic.canonical.domain.*`, `episodic.cost.*`,
-  `episodic.llm.ports`, etc.) must remain orchestration-agnostic.
+  code. The domain layer (under `episodic.canonical.domain.*`,
+  `episodic.cost.*`, `episodic.llm.ports`, etc.) must remain
+  orchestration-agnostic.
 
 - Checkpoint serialization must remain round-trip compatible. The functions in
   `episodic/orchestration/_checkpoint_payload.py` must continue to serialize
@@ -73,11 +74,12 @@ Thresholds that trigger escalation when breached.
   to discuss test structure.
 
 - **Breaking changes**: If any change causes existing tests in
-  `test_architecture_enforcement.py`, `test_orchestration_langgraph_properties.py`,
-  or related BDD scenarios to fail, escalate before modifying those tests.
+  `test_architecture_enforcement.py`,
+  `test_orchestration_langgraph_properties.py`, or related BDD scenarios to
+  fail, escalate before modifying those tests.
 
-- **Documentation gaps**: If architectural decisions cannot be recorded in ADR or
-  design documents within the scope of this plan, escalate.
+- **Documentation gaps**: If architectural decisions cannot be recorded in ADR
+  or design documents within the scope of this plan, escalate.
 
 ## Risks
 
@@ -86,34 +88,26 @@ Known uncertainties that might affect the plan.
 - **Risk**: Dynamic imports in `episodic/orchestration/langgraph.py` (line 70)
   and `_checkpoint_payload.py` (line 28) are invisible to Hecate. A future
   developer might use `importlib.import_module()` to import from an adapter
-  module, bypassing static checks.
-  Severity: medium
-  Likelihood: medium
+  module, bypassing static checks. Severity: medium Likelihood: medium
   Mitigation: Document the dynamic import gap in ADR-014; add a runtime check
   at graph construction time that introspects node functions for violations.
 - **Risk**: Property-based tests for checkpoint payloads may be slow if the
   Hypothesis strategy is too broad or if serialization is expensive. Tests may
-  timeout in CI.
-  Severity: low
-  Likelihood: low
-  Mitigation: Start with focused strategies that generate representative
-  payloads (e.g., a bounded set of DTOs); profile test execution time before
-  committing.
+  timeout in CI. Severity: low Likelihood: low Mitigation: Start with focused
+  strategies that generate representative payloads (e.g., a bounded set of
+  DTOs); profile test execution time before committing.
 - **Risk**: The runtime guard at graph construction time might trigger false
   positives if node functions are wrapped or dynamically registered in ways
-  that obscure their module origin.
-  Severity: low
-  Likelihood: low
-  Mitigation: Implement the guard as a clear, inspectable check; emit a
-  detailed error message if triggered; test with existing graph builders.
+  that obscure their module origin. Severity: low Likelihood: low Mitigation:
+  Implement the guard as a clear, inspectable check; emit a detailed error
+  message if triggered; test with existing graph builders.
 
 - **Risk**: Checkpoint payloads might contain pickle'd objects or other opaque
-  serialization formats that property-based tests cannot inspect.
-  Severity: medium
-  Likelihood: low
-  Mitigation: Audit the serialization format in `_checkpoint_payload.py` early.
-  If opaque formats are used, pivot to schema-based assertions (e.g., JSON Schema
-  validation) instead of type-purity property tests.
+  serialization formats that property-based tests cannot inspect. Severity:
+  medium Likelihood: low Mitigation: Audit the serialization format in
+  `_checkpoint_payload.py` early. If opaque formats are used, pivot to
+  schema-based assertions (e.g., JSON Schema validation) instead of type-purity
+  property tests.
 
 ## Progress
 
@@ -155,7 +149,8 @@ Use a list with checkboxes to summarise granular steps.
     checkpoint round-trip preserves data and contains no adapter-scoped types.
   - [ ] Confirm test fails for the expected reason (if current payloads violate
     the property, add fixtures or accept the current state and document why).
-  - [ ] Green: implement any necessary changes to payload serialization to ensure
+  - [ ] Green: implement any necessary changes to payload serialization to
+        ensure
     property holds (if needed).
   - [ ] Run the test and confirm it passes; run full test suite with
     `make test`.
@@ -183,7 +178,8 @@ Use a list with checkboxes to summarise granular steps.
 
 - [ ] **Validation gates and final verification**.
   - [ ] Run `make check-fmt` and confirm all formatting passes.
-  - [ ] Run `make lint` and confirm all linting passes (including any new rules).
+  - [ ] Run `make lint` and confirm all linting passes (including any new
+        rules).
   - [ ] Run `make typecheck` and confirm no type errors.
   - [ ] Run `make test` and confirm all tests pass, including new tests for
     checkpoint payloads and LangGraph guard.
@@ -201,12 +197,10 @@ Record every significant decision made while working on the plan.
 
 - **Decision**: Use a three-layer enforcement strategy: static (Hecate group
   review), test-based (Hypothesis property tests), and runtime (lightweight
-  introspection guard).
-  Rationale: Hecate is already established and handles module-level enforcement
-  well; property tests are the standard approach for boundary-purity validation
-  in async systems; a runtime guard provides defense in depth without adding
-  external dependencies.
-  Date: 2026-06-15
+  introspection guard). Rationale: Hecate is already established and handles
+  module-level enforcement well; property tests are the standard approach for
+  boundary-purity validation in async systems; a runtime guard provides defense
+  in depth without adding external dependencies. Date: 2026-06-15
 
 ## Outcomes & retrospective
 
@@ -228,8 +222,8 @@ static import-direction checker that reads module group definitions from
 - `episodic/orchestration/langgraph.py` — LangGraph state graph builder. Nodes
   are functions that call port protocols (e.g., `protocols.PlannerPort`).
 - `episodic/orchestration/_checkpoint_payload.py` — Serializes and deserializes
-  checkpoint state to/from dicts. Functions:
-  `_planner_result_to_payload()` and `_planner_result_from_payload()`.
+  checkpoint state to/from dicts. Functions: `_planner_result_to_payload()` and
+  `_planner_result_from_payload()`.
 - `episodic/worker/tasks.py` — Celery task definitions. Tasks use injected
   callables from `WorkerDependencies` rather than importing adapters directly.
 - `episodic/worker/runtime.py` — Celery composition root.
@@ -243,14 +237,14 @@ static import-direction checker that reads module group definitions from
 
 **Why this matters**:
 
-Long-running orchestration workflows (LangGraph graphs resuming from checkpoints,
-Celery tasks retrying) can introduce architectural drift: a node function or task
-might accumulate direct dependencies on storage adapters or external service
-clients over time, violating the domain's purity. Static enforcement (Hecate)
-catches imports at the module level but cannot see into individual functions.
-Test-based enforcement validates that serialized checkpoints do not leak
-canonical domain objects. Runtime guards provide a fast-fail mechanism at graph
-construction time.
+Long-running orchestration workflows (LangGraph graphs resuming from
+checkpoints, Celery tasks retrying) can introduce architectural drift: a node
+function or task might accumulate direct dependencies on storage adapters or
+external service clients over time, violating the domain's purity. Static
+enforcement (Hecate) catches imports at the module level but cannot see into
+individual functions. Test-based enforcement validates that serialized
+checkpoints do not leak canonical domain objects. Runtime guards provide a
+fast-fail mechanism at graph construction time.
 
 ## Plan of work
 
@@ -270,8 +264,8 @@ guards. Each stage includes explicit validation steps.
    - The `inbound_adapter` group rules forbid imports from `outbound_adapter`.
 
 2. Read ADR-014 and the `adopt-hecate` execplan to understand the current
-   enforcement design and the deliberate gaps (e.g., dynamic imports, node-level
-   policies).
+   enforcement design and the deliberate gaps (e.g., dynamic imports,
+   node-level policies).
 
 3. Inspect `episodic/orchestration/langgraph.py` to understand:
    - How node functions are defined and registered (e.g., `graph.add_node(...)`,
@@ -361,7 +355,8 @@ regressions.
 
 **Activities (code changes)**:
 
-1. Create a new test file: `tests/test_orchestration_checkpoint_payload_properties.py`.
+1. Create a new test file:
+   `tests/test_orchestration_checkpoint_payload_properties.py`.
 
 2. Define a Hypothesis strategy that generates representative checkpoint
    payloads:
@@ -388,8 +383,8 @@ regressions.
 **Red-Green-Refactor**:
 
 - **Red**: Write property test with `@pytest.mark.xfail(strict=True)` if you
-  expect it to fail initially. Run test; confirm failure for the expected reason
-  (if using xfail).
+  expect it to fail initially. Run test; confirm failure for the expected
+  reason (if using xfail).
 
 - **Green**: Implement changes to payload serialization (if needed) to satisfy
   the property. Run test; confirm it passes.
@@ -439,7 +434,8 @@ all tests pass.
 3. Define `ArchitectureBoundaryError` in `episodic/orchestration/_protocols.py`
    as a domain error type (not a generic `RuntimeError`).
 
-4. Write unit tests in a new file `tests/test_orchestration_langgraph_enforcement.py`:
+4. Write unit tests in a new file
+   `tests/test_orchestration_langgraph_enforcement.py`:
    - Test that the guard passes for node functions defined in
      `episodic.orchestration`.
    - Test that the guard raises `ArchitectureBoundaryError` for a mock node
@@ -465,7 +461,8 @@ existing orchestration tests are unaffected.
 **Activities (documentation changes)**:
 
 1. Update ADR-014 (`docs/adr/adr-014-hexagonal-architecture-enforcement.md`):
-   - Add a section titled "Orchestration Code Enforcement (2.4.5)" that documents
+   - Add a section titled "Orchestration Code Enforcement (2.4.5)" that
+     documents
      the three-layer approach: static (Hecate group rules), test-based
      (Hypothesis property tests), and runtime (graph construction guard).
    - Explain what each layer enforces and its limitations (e.g., static layer
@@ -637,8 +634,9 @@ The implementation is complete when all of the following are true:
 
 1. **Static enforcement**: A test in `test_architecture_enforcement.py` (or
    `test_architecture_orchestration_enforcement.py`) asserts that Hecate finds
-   no violations in orchestration and task modules. The test explicitly documents
-   what it checks (e.g., "no outbound_adapter imports in task modules").
+   no violations in orchestration and task modules. The test explicitly
+   documents what it checks (e.g., "no outbound_adapter imports in task
+   modules").
 
 2. **Test-based checkpoint validation**: A property-based test in
    `test_orchestration_checkpoint_payload_properties.py` asserts that:
@@ -657,9 +655,9 @@ The implementation is complete when all of the following are true:
    - Error messages are clear and actionable.
 
 4. **Documentation**: ADR-014 is updated with a new "Orchestration Code
-   Enforcement" section. `episodic-podcast-generation-system-design.md` mentions
-   the three-layer approach. `docs/developers-guide.md` includes guidance for
-   writing orchestration code.
+   Enforcement" section. `episodic-podcast-generation-system-design.md`
+   mentions the three-layer approach. `docs/developers-guide.md` includes
+   guidance for writing orchestration code.
 
 5. **Quality gates**: All of the following pass:
    - `make check-fmt` (exit code 0)
@@ -694,8 +692,8 @@ unintended side effects.
 - **Tests**: Re-running test stages will re-run the tests; if they pass, no
   changes occur. If they fail, the failure is deterministic.
 - **Code changes**: File edits are all additions or modifications to existing
-  structures. There are no deletions or destructive refactors that would require
-  rollback.
+  structures. There are no deletions or destructive refactors that would
+  require rollback.
 - **Documentation**: Edits to ADR and design docs are additive; no prior
   sections are deleted.
 
@@ -749,7 +747,8 @@ def _validate_node_module(func: Callable, node_name: str) -> None:
     # Implementation TBD
 ```
 
-**Property test strategy in `tests/test_orchestration_checkpoint_payload_properties.py`**:
+**Property test strategy in
+`tests/test_orchestration_checkpoint_payload_properties.py`**:
 
 ```python
 from hypothesis import given, strategies as st
@@ -775,12 +774,13 @@ No external dependencies beyond those already in `pyproject.toml` are required.
 Hypothesis is already pinned; Hecate is already pinned. The only additions are
 pure Python code.
 
----
+______________________________________________________________________
 
 ## Revision note (for future updates)
 
-As work proceeds, this plan will be updated in the sections marked "To be filled
-in as work proceeds" and in the `Progress` section. Key updates will note:
+As work proceeds, this plan will be updated in the sections marked "To be
+filled in as work proceeds" and in the `Progress` section. Key updates will
+note:
 
 - When stage gates are passed or breached.
 - Any surprises or discoveries that alter the scope.

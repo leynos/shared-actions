@@ -1,9 +1,8 @@
 # Force LLVM codegen backend for coverage and test Cranelift override
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -13,17 +12,17 @@ Rust projects that use the Cranelift codegen backend for faster compile times
 cannot generate Low Level Virtual Machine (LLVM) source-based code coverage
 because the `-C instrument-coverage` flag is an LLVM-only feature. When a
 project sets `codegen-backend = "cranelift"` in its `.cargo/config.toml` (or
-`.cargo/config`) and then runs `cargo llvm-cov`, the build fails or produces
-no coverage data.
+`.cargo/config`) and then runs `cargo llvm-cov`, the build fails or produces no
+coverage data.
 
-After this change, the generate-coverage action will detect whether the
-project configures the Cranelift codegen backend (by searching for
-`.cargo/config.toml` and `.cargo/config` from the manifest directory upward)
-and, only when Cranelift is detected, explicitly force the LLVM codegen
-backend for both `dev` and `test` profiles when invoking `cargo llvm-cov`.
-This ensures coverage generation works even when the project normally compiles
-with Cranelift, without affecting stable-toolchain projects that do not use
-Cranelift (since `codegen-backend` is an unstable Cargo profile key).
+After this change, the generate-coverage action will detect whether the project
+configures the Cranelift codegen backend (by searching for `.cargo/config.toml`
+and `.cargo/config` from the manifest directory upward) and, only when
+Cranelift is detected, explicitly force the LLVM codegen backend for both `dev`
+and `test` profiles when invoking `cargo llvm-cov`. This ensures coverage
+generation works even when the project normally compiles with Cranelift,
+without affecting stable-toolchain projects that do not use Cranelift (since
+`codegen-backend` is an unstable Cargo profile key).
 
 A new behavioural test validates this by creating a temporary directory with a
 `.cargo/config.toml` that configures Cranelift, stubbing the `cargo` executable
@@ -38,9 +37,9 @@ detected.
 
 ## Constraints
 
-- Follow repository policy in `AGENTS.md`: run `make check-fmt`, `make
-  typecheck`, `make lint`, and `make test` before each commit that touches
-  GitHub Action logic or Python code.
+- Follow repository policy in `AGENTS.md`: run `make check-fmt`,
+  `make typecheck`, `make lint`, and `make test` before each commit that
+  touches GitHub Action logic or Python code.
 - Use `tee` and `set -o pipefail` to capture long command output into temporary
   log files for review after completion.
 - Preserve the existing public interface of the generate-coverage action. No
@@ -53,8 +52,10 @@ detected.
 - The `--config` flags must be placed as top-level cargo arguments (before the
   `llvm-cov` subcommand), because `cargo llvm-cov` does not accept `--config`
   as its own flag. The syntax is:
-  `cargo --config 'profile.dev.codegen-backend="llvm"' --config
-  'profile.test.codegen-backend="llvm"' llvm-cov ...`.
+
+  ```sh
+  cargo --config 'profile.dev.codegen-backend="llvm"' --config 'profile.test.codegen-backend="llvm"' llvm-cov ...
+  ```
 
 ## Tolerances (exception triggers)
 
@@ -74,44 +75,39 @@ detected.
 - Risk: `cargo --config 'profile.dev.codegen-backend="llvm"'` may behave
   differently across Rust toolchain versions, or the `codegen-backend` key may
   require the unstable `codegen-backend` feature flag on some toolchains.
-  Severity: medium
-  Likelihood: low
-  Mitigation: the generate-coverage action already pins toolchain versions via
-  `rust-toolchain.toml` in consuming projects. Cargo still treats
-  `codegen-backend` as an unstable feature, so any workflow that exercises it
-  must use a nightly override such as `cargo +nightly ...` (or an equivalent
-  `rustup override` / `rust-toolchain.toml` setup) and enable it with
-  `-Z codegen-backend` or `[unstable].codegen-backend = true`. When a workflow
-  also depends on unstable CLI-only options, it must pass
-  `-Z unstable-options` as required by Cargo's unstable-feature rules. The
-  `--config` flag itself is stable, and the action's continuous integration
-  (CI) tests validate only the placement of the override arguments. Even if the
-  override is evaluated on an LLVM-only toolchain, that is harmless because
-  LLVM is already the active backend.
+  Severity: medium Likelihood: low Mitigation: the generate-coverage action
+  already pins toolchain versions via `rust-toolchain.toml` in consuming
+  projects. Cargo still treats `codegen-backend` as an unstable feature, so any
+  workflow that exercises it must use a nightly override such as
+  `cargo +nightly ...` (or an equivalent `rustup override` /
+  `rust-toolchain.toml` setup) and enable it with `-Z codegen-backend` or
+  `[unstable].codegen-backend = true`. When a workflow also depends on unstable
+  CLI-only options, it must pass `-Z unstable-options` as required by Cargo's
+  unstable-feature rules. The `--config` flag itself is stable, and the
+  action's continuous integration (CI) tests validate only the placement of the
+  override arguments. Even if the override is evaluated on an LLVM-only
+  toolchain, that is harmless because LLVM is already the active backend.
 
 - Risk: installing the `rustc-codegen-cranelift-preview` component may fail on
   some platforms or toolchains (it is only available on nightly, or on stable
-  as of Rust 1.73+ on limited platforms).
-  Severity: medium
-  Likelihood: medium
+  as of Rust 1.73+ on limited platforms). Severity: medium Likelihood: medium
   Mitigation: the behavioural test only needs the component to be referenced in
-  `.cargo/config.toml` to prove the override works. Since the test uses
-  cmd-mox to stub `cargo`, the actual Cranelift component does not need to be
-  installed on the test runner. The stub validates that the correct `--config`
-  flags appear in the cargo arguments. If a future integration test (outside
-  this plan's scope) needs the real component, it can be skipped on platforms
-  where it is unavailable.
+  `.cargo/config.toml` to prove the override works. Since the test uses cmd-mox
+  to stub `cargo`, the actual Cranelift component does not need to be installed
+  on the test runner. The stub validates that the correct `--config` flags
+  appear in the cargo arguments. If a future integration test (outside this
+  plan's scope) needs the real component, it can be skipped on platforms where
+  it is unavailable.
 
 - Risk: prepending `--config` args before `llvm-cov` in the argument list could
-  break existing tests that assert exact argument sequences.
-  Severity: medium
-  Likelihood: high
-  Mitigation: because the `--config` flags are only prepended when Cranelift is
-  detected, most existing tests (which do not create `.cargo/config.toml` with
-  Cranelift settings) are unaffected. Only the new Cranelift-specific test
-  asserts the presence of the prefix. Tests with rigid positional assertions
-  (like `args[:3]`) are updated to use semantic checks (like finding the index
-  of `"--manifest-path"`) so they work regardless of prefix presence.
+  break existing tests that assert exact argument sequences. Severity: medium
+  Likelihood: high Mitigation: because the `--config` flags are only prepended
+  when Cranelift is detected, most existing tests (which do not create
+  `.cargo/config.toml` with Cranelift settings) are unaffected. Only the new
+  Cranelift-specific test asserts the presence of the prefix. Tests with rigid
+  positional assertions (like `args[:3]`) are updated to use semantic checks
+  (like finding the index of `"--manifest-path"`) so they work regardless of
+  prefix presence.
 
 ## Progress
 
@@ -123,8 +119,10 @@ detected.
       expect the conditional `--config` flags in the cargo argument list,
       while non-Cranelift tests kept their existing argv expectations to stay
       aligned with Stage B and the acceptance criteria.
-- [x] (2026-04-15 00:20Z) Added new behavioural test for Cranelift-configured project.
-- [x] (2026-04-15 00:30Z) Ran required Makefile gateways: `make check-fmt` (passed),
+- [x] (2026-04-15 00:20Z) Added new behavioural test for Cranelift-configured
+      project.
+- [x] (2026-04-15 00:30Z) Ran required Makefile gateways: `make check-fmt`
+      (passed),
       `make lint` (passed), `make test` (643 passed, 86 skipped). `make
       typecheck` had a pre-existing error in `generate_wxs.py` (since resolved).
 - [x] (2026-04-16) All four Makefile gates pass: `make check-fmt`, `make
@@ -133,36 +131,33 @@ detected.
 ## Surprises & discoveries
 
 - Observation: `make typecheck` initially failed with a pre-existing error in
-  `generate_wxs.py` unrelated to this change.
-  Evidence: error[unresolved-import]: Module `cyclopts.exceptions` has no
-  member `UsageError` at `.github/actions/windows-package/scripts/generate_wxs.py:17:37`.
-  The code had a fallback import pattern that the `ty` type checker (from the
-  Ruff project) could not resolve.
-  Resolution: the import was simplified to a direct `from
-  cyclopts.exceptions import CycloptsError as UsageError` (guaranteed by the
-  pinned `cyclopts>=3.24` minimum). `make typecheck` now passes.
+  `generate_wxs.py` unrelated to this change. Evidence: error[
+  unresolved-import]: Module `cyclopts.exceptions` has no member `UsageError` at
+  `.github/actions/windows-package/scripts/generate_wxs.py:17:37`. The code
+  had a fallback import pattern that the `ty` type checker (from the Ruff
+  project) could not resolve. Resolution: the import was simplified to a direct
+  `from cyclopts.exceptions import CycloptsError as UsageError` (guaranteed by
+  the pinned `cyclopts>=3.24` minimum). `make typecheck` now passes.
 
 ## Decision log
 
 - Decision: place `--config` flags as top-level cargo args before `llvm-cov`,
-  not as `cargo llvm-cov` flags.
-  Rationale: `cargo llvm-cov` does not recognize `--config` as its own flag
-  (tested: `cargo llvm-cov --config '...'` returns `error: invalid option
-  '--config'`). However, `cargo --config '...' llvm-cov ...` works because
-  `--config` is a top-level cargo option processed before subcommand dispatch.
-  In plumbum terms, `cargo["--config", "...", "--config", "...", "llvm-cov",
-  ...]` produces the correct invocation.
-  Date/Author: 2026-04-14 (DevBoxer)
+  not as `cargo llvm-cov` flags. Rationale: `cargo llvm-cov` does not recognize
+  `--config` as its own flag (tested: `cargo llvm-cov --config '...'` returns
+  `error: invalid option '--config'`). However,
+  `cargo --config '...' llvm-cov ...` works because `--config` is a top-level
+  cargo option processed before subcommand dispatch. In plumbum terms,
+  `cargo["--config", "...", "--config", "...", "llvm-cov", ...]` produces the
+  correct invocation. Date/Author: 2026-04-14 (DevBoxer)
 
 - Decision: use cmd-mox stubs (not real cargo invocations) for the behavioural
-  test.
-  Rationale: the existing test infrastructure uses cmd-mox to stub shell
+  test. Rationale: the existing test infrastructure uses cmd-mox to stub shell
   commands. This approach is consistent with all other tests in
   `test_scripts.py`, avoids requiring the Cranelift component on CI runners,
   and keeps tests fast and deterministic. The test validates that the
   `--config` flags appear in the cargo argument list, which is sufficient to
-  prove the override will take effect at runtime.
-  Date/Author: 2026-04-14 (DevBoxer)
+  prove the override will take effect at runtime. Date/Author: 2026-04-14
+  (DevBoxer)
 
 ## Outcomes & retrospective
 
@@ -171,14 +166,14 @@ generate-coverage action. The new `_uses_cranelift_backend()` function detects
 whether a project configures the Cranelift codegen backend by searching from
 the manifest directory upward for `.cargo/config.toml` (or `.cargo/config`)
 containing `codegen-backend` and `cranelift`. When detected,
-`get_cargo_coverage_cmd()` prepends `--config
-'profile.dev.codegen-backend="llvm"'` and `--config
-'profile.test.codegen-backend="llvm"'` before the `llvm-cov` subcommand.
-Projects that do not use Cranelift are unaffected.
+`get_cargo_coverage_cmd()` prepends
+`--config 'profile.dev.codegen-backend="llvm"'` and
+`--config 'profile.test.codegen-backend="llvm"'` before the `llvm-cov`
+subcommand. Projects that do not use Cranelift are unaffected.
 
-The new test `test_run_rust_cranelift_project_uses_llvm_codegen` validates
-that the LLVM override flags are present when a project has Cranelift
-configured. All other tests verify normal behaviour without the override.
+The new test `test_run_rust_cranelift_project_uses_llvm_codegen` validates that
+the LLVM override flags are present when a project has Cranelift configured.
+All other tests verify normal behaviour without the override.
 
 Key learnings:
 
@@ -196,10 +191,10 @@ The implementation is complete and ready for commit.
 
 ## Context and orientation
 
-The generate-coverage action lives at
-`.github/actions/generate-coverage/` and is a composite GitHub Action that runs
-test coverage for Rust, Python, and mixed projects. For Rust projects, it
-invokes `cargo llvm-cov` (optionally with `nextest`) via the Python script
+The generate-coverage action lives at `.github/actions/generate-coverage/` and
+is a composite GitHub Action that runs test coverage for Rust, Python, and
+mixed projects. For Rust projects, it invokes `cargo llvm-cov` (optionally with
+`nextest`) via the Python script
 `.github/actions/generate-coverage/scripts/run_rust.py`.
 
 The `get_cargo_coverage_cmd()` function in
@@ -226,15 +221,15 @@ cargo --config 'profile.dev.codegen-backend="llvm"' \
       llvm-cov nextest --manifest-path Cargo.toml ...
 ```
 
-For projects that do not use Cranelift, the invocation remains unchanged
-(no `--config` flags are prepended).
+For projects that do not use Cranelift, the invocation remains unchanged (no
+`--config` flags are prepended).
 
 The Rust coverage tests live in
-`.github/actions/generate-coverage/tests/test_scripts.py`. They use cmd-mox
-via the `shell_stubs` fixture from
+`.github/actions/generate-coverage/tests/test_scripts.py`. They use cmd-mox via
+the `shell_stubs` fixture from
 `.github/actions/generate-coverage/tests/conftest.py` to stub the `cargo`
-command and capture the argument list. The `_run_rust_coverage_test` helper
-runs `run_rust.py` via `uv run --script` and then inspects
+command and capture the argument list. The `_run_rust_coverage_test` helper runs
+`run_rust.py` via `uv run --script` and then inspects
 `shell_stubs.calls_of("cargo")` to assert the exact argument list passed.
 
 The `RustCoverageConfig` and `RustMainConfig` dataclasses configure test
@@ -242,11 +237,11 @@ variants. The `_run_rust_main_variant` helper exercises the `main()` entry
 point directly with a monkeypatched `_run_cargo`.
 
 The toy Rust fixture at `rust-toy-app/` is a simple command-line interface
-(CLI) application used as a test fixture. It has no `.cargo/config.toml`
-file. For the new behavioural test, the test writes `.cargo/config.toml`
-directly into `tmp_path/.cargo/config.toml` to simulate a Cranelift-configured
-project, then validates the resulting cargo argv through cmd-mox stubs instead
-of operating on a copied `rust-toy-app` fixture.
+(CLI) application used as a test fixture. It has no `.cargo/config.toml` file.
+For the new behavioural test, the test writes `.cargo/config.toml` directly into
+`tmp_path/.cargo/config.toml` to simulate a Cranelift-configured project, then
+validates the resulting cargo argv through cmd-mox stubs instead of operating
+on a copied `rust-toy-app` fixture.
 
 Cranelift is an alternative codegen backend for the Rust compiler. It is faster
 than LLVM for debug builds but does not support LLVM-specific features like
@@ -261,10 +256,10 @@ codegen-backend = true
 codegen-backend = "cranelift"
 ```
 
-When `cargo llvm-cov` is run on such a project, it fails because the
-Cranelift backend does not support instrumentation. The fix is to override the
-codegen backend to LLVM via `--config` flags on the cargo command line, which
-take precedence over `.cargo/config.toml` settings.
+When `cargo llvm-cov` is run on such a project, it fails because the Cranelift
+backend does not support instrumentation. The fix is to override the codegen
+backend to LLVM via `--config` flags on the cargo command line, which take
+precedence over `.cargo/config.toml` settings.
 
 ## Plan of work
 
@@ -307,10 +302,10 @@ the prefix is present.
 
 Because the `--config` prefix is conditional (only injected when Cranelift is
 detected), existing tests that do not create a `.cargo/config.toml` with
-Cranelift settings do **not** include the four leading override elements.
-Only the dedicated Cranelift test (`test_run_rust_cranelift_project_uses_llvm_codegen`)
-asserts that the prefix (`"--config"`,
-`'profile.dev.codegen-backend="llvm"'`, `"--config"`,
+Cranelift settings do **not** include the four leading override elements. Only
+the dedicated Cranelift test
+(`test_run_rust_cranelift_project_uses_llvm_codegen`) asserts that the prefix
+(`"--config"`, `'profile.dev.codegen-backend="llvm"'`, `"--config"`,
 `'profile.test.codegen-backend="llvm"'`) appears before `"llvm-cov"`.
 
 Because the prefix is conditional, existing tests (which do not create a
@@ -364,7 +359,8 @@ end-to-end coverage generation):
    helper uses `monkeypatch.chdir(tmp_path)` so the script finds the
    `.cargo/config.toml`.
 
-3. Capture the stubbed cargo invocation's argv from `shell_stubs.calls_of("cargo")`.
+3. Capture the stubbed cargo invocation's argv from
+   `shell_stubs.calls_of("cargo")`.
 
 4. Assert that the captured `cargo_args[:len(_LLVM_CONFIG_PREFIX)]` equals
    `_LLVM_CONFIG_PREFIX` (the four `--config` override elements), followed by
@@ -377,9 +373,10 @@ constructs the correct cargo argument list when Cranelift is detected. The
 actual command-line override (cargo's `--config` precedence) is cargo's
 documented behaviour and does not need testing here.
 
-The test's docstring notes that in a real scenario, `rustup component add
-rustc-codegen-cranelift-preview` would be required, but the unit test validates
-only argument construction, not component installation or coverage generation.
+The test's docstring notes that in a real scenario,
+`rustup component add rustc-codegen-cranelift-preview` would be required, but
+the unit test validates only argument construction, not component installation
+or coverage generation.
 
 Validation: run `make test` and confirm the new test passes. The new test
 should be visible in the pytest output as
@@ -449,15 +446,16 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
    ```
 
 4. Update tests with rigid positional assertions (like `cargo_args[0:3]`) to
-   use semantic checks instead. For example, `test_run_rust_uses_detected_manifest_path`
-   should find the index of `"--manifest-path"` and assert the next element is
-   the expected path, rather than asserting `cargo_args[0:3]` equals a fixed list.
-   This makes tests resilient to the conditional prefix.
+   use semantic checks instead. For example,
+   `test_run_rust_uses_detected_manifest_path` should find the index of
+   `"--manifest-path"` and assert the next element is the expected path, rather
+   than asserting `cargo_args[0:3]` equals a fixed list. This makes tests
+   resilient to the conditional prefix.
 
-5. Update `test_run_rust_with_cucumber_nextest` to replace loose `"nextest" in
-   calls[N].argv` checks with positional assertions like `calls[N].argv[0] ==
-   "llvm-cov"` and `calls[N].argv[1] == "nextest"` to enforce the subcommand
-   boundary.
+5. Update `test_run_rust_with_cucumber_nextest` to replace loose
+   `"nextest" in calls[N].argv` checks with positional assertions like
+   `calls[N].argv[0] == "llvm-cov"` and `calls[N].argv[1] == "nextest"` to
+   enforce the subcommand boundary.
 
 6. Update `test_run_rust_main_nextest_variants` else-branch to replace
    `args[:1] == ["llvm-cov"]` with `"llvm-cov" in args` for semantic checking.

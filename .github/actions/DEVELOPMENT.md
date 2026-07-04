@@ -26,9 +26,9 @@ parent directory, and returns the first matching toolchain declaration it finds.
 
 `_iter_toolchain_search_dirs` performs the upward walk. It yields each search
 directory in order, stopping at the first `.git` directory it encounters, at
-the filesystem root, or at the optional `stop_at` boundary when one is
-provided. `read_repo_toolchain` passes the project directory as that boundary so
-the search stays inside the checked-out repository.
+the filesystem root, or at the optional `stop_at` boundary when one is provided.
+`read_repo_toolchain` passes the project directory as that boundary so the
+search stays inside the checked-out repository.
 
 `_parse_toolchain_file` reads each candidate file. It parses TOML
 `rust-toolchain.toml` files via `tomllib`, and only falls back to the legacy

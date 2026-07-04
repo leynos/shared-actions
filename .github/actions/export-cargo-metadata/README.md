@@ -5,20 +5,20 @@ manifest and export as GitHub Actions outputs and environment variables.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-| ---- | ----------- | -------- | ------- |
-| `manifest-path` | Path to Cargo.toml | no | `Cargo.toml` |
-| `fields` | Comma-separated list of fields to extract | no | `name,version` |
-| `export-to-env` | Also export fields to GITHUB_ENV | no | `true` |
+| Name            | Description                               | Required | Default        |
+| --------------- | ----------------------------------------- | -------- | -------------- |
+| `manifest-path` | Path to Cargo.toml                        | no       | `Cargo.toml`   |
+| `fields`        | Comma-separated list of fields to extract | no       | `name,version` |
+| `export-to-env` | Also export fields to GITHUB_ENV          | no       | `true`         |
 
 ## Outputs
 
-| Name | Description |
-| ---- | ----------- |
-| `name` | Package name from `[package].name` |
-| `version` | Package version from `[package].version` (resolves workspace inheritance) |
-| `bin-name` | Binary name from first `[[bin]].name` or `[package].name` |
-| `description` | Package description from `[package].description` |
+| Name          | Description                                                               |
+| ------------- | ------------------------------------------------------------------------- |
+| `name`        | Package name from `[package].name`                                        |
+| `version`     | Package version from `[package].version` (resolves workspace inheritance) |
+| `bin-name`    | Binary name from first `[[bin]].name` or `[package].name`                 |
+| `description` | Package description from `[package].description`                          |
 
 ## Usage
 
@@ -79,8 +79,8 @@ When `export-to-env: true` (the default), fields are also exported to
   resolves the version from `[workspace.package].version`.
 
 - **Binary name detection**: The `bin-name` field checks for the first
-  `[[bin]].name` entry and falls back to `[package].name` if no explicit
-  binary is declared.
+  `[[bin]].name` entry and falls back to `[package].name` if no explicit binary
+  is declared.
 
 - **Environment export**: When `export-to-env: true`, each extracted field is
   written to `GITHUB_ENV` using an uppercase variable name (e.g., `name` →

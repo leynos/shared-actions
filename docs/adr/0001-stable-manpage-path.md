@@ -1,7 +1,6 @@
 # ADR 0001: Stable Man-Page Path for Release Staging
 
-**Status:** Accepted  
-**Date:** 2026-05-01
+**Status:** Accepted **Date:** 2026-05-01
 
 ## Context
 
@@ -29,13 +28,13 @@ absent, emitting a `::warning::` annotation on fallback.
 
 ## Consequences
 
-* **Positive:** Staging is decoupled from Cargo's content-addressed build
+- **Positive:** Staging is decoupled from Cargo's content-addressed build
   directories. The path is predictable in CI logs and scripts.
-* **Positive:** `cargo:rerun-if-env-changed=CARGO_TARGET_DIR` ensures the
+- **Positive:** `cargo:rerun-if-env-changed=CARGO_TARGET_DIR` ensures the
   build script reruns when `cross` changes the container-mounted target
   directory, preventing stale-cache failures.
-* **Negative:** Consuming projects must update their `build.rs` to write to the
+- **Negative:** Consuming projects must update their `build.rs` to write to the
   stable location. Build scripts that have not been updated will trigger the
   fallback warning until they adopt the new convention.
-* **Neutral:** The legacy glob fallback is retained indefinitely to avoid
+- **Neutral:** The legacy glob fallback is retained indefinitely to avoid
   breaking existing consumers on day one of adoption.

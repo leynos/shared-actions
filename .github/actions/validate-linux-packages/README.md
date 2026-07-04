@@ -6,25 +6,25 @@ isolated root filesystem using the `polythene` sandbox.
 
 ## Inputs
 
-| Name | Type | Default | Description | Required |
-| ---- | ---- | ------- | ----------- | -------- |
-| project-dir | string | `.` | Directory containing the generated packages. | no |
-| package-name | string | _empty_ | Package identifier recorded in the package metadata. | no |
-| bin-name | string | — | Installed binary name to validate. | yes |
-| target | string | `x86_64-unknown-linux-gnu` | Target triple used when building the artefacts. | no |
-| version | string | — | Semantic version recorded in the package metadata. Leading `v` prefixes are ignored. | yes |
-| release | string | _empty_ | Package release or revision. | no |
-| arch | string | _empty_ | Override the nfpm architecture (auto-detected from `target` when blank). | no |
-| formats | string | `deb` | Comma-, space-, or newline-separated list of package formats to validate (`deb`, `rpm`, …). | no |
-| packages-dir | string | _empty_ | Directory containing the built packages. | no |
-| expected-paths | string | _empty_ | Additional absolute paths that must be present in the package payload (defaults to `/usr/bin/<bin-name>`). | no |
-| executable-paths | string | _empty_ | Subset of `expected-paths` that must be executable. Defaults to `/usr/bin/<bin-name>`. | no |
-| verify-command | string | _empty_ | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`). | no |
-| deb-base-image | string | `docker.io/library/debian:bookworm` | Container image used to verify Debian packages. | no |
-| rpm-base-image | string | `docker.io/library/rockylinux:9` | Container image used to verify RPM packages. | no |
-| polythene-path | string | _empty_ | Override path to the polythene CLI. Falls back to the `polythene` entry point provided by the action runtime. | no |
-| polythene-store | string | _empty_ | Reuse an existing polythene store directory. A temporary directory is used when blank. | no |
-| sandbox-timeout | string | _empty_ | Timeout (seconds) applied to sandbox pull and exec operations. | no |
+| Name             | Type   | Default                             | Description                                                                                                      | Required |
+| ---------------- | ------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
+| project-dir      | string | `.`                                 | Directory containing the generated packages.                                                                     | no       |
+| package-name     | string | _empty_                             | Package identifier recorded in the package metadata.                                                             | no       |
+| bin-name         | string | —                                   | Installed binary name to validate.                                                                               | yes      |
+| target           | string | `x86_64-unknown-linux-gnu`          | Target triple used when building the artefacts.                                                                  | no       |
+| version          | string | —                                   | Semantic version recorded in the package metadata. Leading `v` prefixes are ignored.                             | yes      |
+| release          | string | _empty_                             | Package release or revision.                                                                                     | no       |
+| arch             | string | _empty_                             | Override the nfpm architecture (auto-detected from `target` when blank).                                         | no       |
+| formats          | string | `deb`                               | Comma-, space-, or newline-separated list of package formats to validate (`deb`, `rpm`, …).                      | no       |
+| packages-dir     | string | _empty_                             | Directory containing the built packages.                                                                         | no       |
+| expected-paths   | string | _empty_                             | Additional absolute paths that must be present in the package payload (defaults to `/usr/bin/<bin-name>`).       | no       |
+| executable-paths | string | _empty_                             | Subset of `expected-paths` that must be executable. Defaults to `/usr/bin/<bin-name>`.                           | no       |
+| verify-command   | string | _empty_                             | Optional command executed inside the sandbox after installation (for example `"/usr/bin/<bin-name> --version"`). | no       |
+| deb-base-image   | string | `docker.io/library/debian:bookworm` | Container image used to verify Debian packages.                                                                  | no       |
+| rpm-base-image   | string | `docker.io/library/rockylinux:9`    | Container image used to verify RPM packages.                                                                     | no       |
+| polythene-path   | string | _empty_                             | Override path to the polythene CLI. Falls back to the `polythene` entry point provided by the action runtime.    | no       |
+| polythene-store  | string | _empty_                             | Reuse an existing polythene store directory. A temporary directory is used when blank.                           | no       |
+| sandbox-timeout  | string | _empty_                             | Timeout (seconds) applied to sandbox pull and exec operations.                                                   | no       |
 
 ## Outputs
 
@@ -71,24 +71,22 @@ inside `$GITHUB_WORKSPACE` when available, falling back to `$RUNNER_TEMP` (or
 ensure it resides on an executable filesystem so sandboxed binaries can be
 executed during verification.
 
-Providing an explicit `polythene-store`
-(for example `${{ github.workspace }}/.polythene-store`) allows repeated
-validations within the same job to reuse the same writable and executable
-filesystem mount. Ensure the override lives on an executable filesystem—
-directories under `${{ runner.temp }}` on GitHub-hosted Ubuntu runners are
-mounted with `noexec`, which prevents the sandbox from running the installed
-binaries.
+Providing an explicit `polythene-store` (for example
+`${{ github.workspace }}/.polythene-store`) allows repeated validations within
+the same job to reuse the same writable and executable filesystem mount. Ensure
+the override lives on an executable filesystem— directories under
+`${{ runner.temp }}` on GitHub-hosted Ubuntu runners are mounted with `noexec`,
+which prevents the sandbox from running the installed binaries.
 
 Paths supplied to `expected-paths` and `executable-paths` must already be
-canonical absolute strings.
-Redundant separators or `.`/`..` segments are rejected to prevent ambiguous
-validation rules.
+canonical absolute strings. Redundant separators or `.`/`..` segments are
+rejected to prevent ambiguous validation rules.
 
 The action expects packages to be available in `<project-dir>/dist` unless
 `packages-dir` is provided. When Debian packages are validated the sandbox
 installs them with `dpkg -i`; RPM packages use `rpm -i --nodeps`. Both flows
-verify the package metadata, ensure the expected files exist, and optionally run
-a supplied command inside the sandbox.
+verify the package metadata, ensure the expected files exist, and optionally
+run a supplied command inside the sandbox.
 
 ## Release History
 

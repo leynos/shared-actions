@@ -26,9 +26,9 @@ This pipeline is composed of three core, best-in-class tools:
    `build.rs` script to ensure documentation is always synchronized with the
    application's interface.
 3. **GoReleaser**: A powerful, multi-format release automation tool. It reads a
-   single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux
-   packages (`.deb`, `.rpm`), and other formats, as well as checksums and
-   GitHub Releases.
+   single `.goreleaser.yaml` file to create archives (`.tar.gz`), Linux packages
+   (`.deb`, `.rpm`), and other formats, as well as checksums and GitHub
+   Releases.
 
 Any necessary "glue" logic will be implemented in self-contained Python scripts
 that use `uv` and PEP 723 to manage their dependencies, removing the need for
@@ -147,9 +147,8 @@ The script must generate the man page under
 `SOURCE_DATE_EPOCH` for reproducible builds. Cargo provides the hash-dependent
 `OUT_DIR`, the target triple as `TARGET`, and the build profile as `PROFILE`.
 The script derives the stable `target/` root from `OUT_DIR`: explicit
-`--target` builds use
-`target/<triple>/<profile>/build/<crate>-<hash>/out`, while default builds use
-`target/<profile>/build/<crate>-<hash>/out`.
+`--target` builds use `target/<triple>/<profile>/build/<crate>-<hash>/out`,
+while default builds use `target/<profile>/build/<crate>-<hash>/out`.
 
 ```rust
 // In consuming repository (e.g., netsuke/build.rs)
@@ -228,8 +227,8 @@ fn main() -> std::io::Result<()> {
 
 The staging action first reads the deterministic `target/generated-man` path.
 It still falls back to Cargo's legacy `OUT_DIR`-based
-`target/<triple>/release/build/*/out/` path for build scripts that have not
-yet been updated.
+`target/<triple>/release/build/*/out/` path for build scripts that have not yet
+been updated.
 
 #### Man-Page Discovery
 
@@ -461,8 +460,7 @@ jobs:
 - An `assert_cmd` integration test runs `cargo build` and asserts the build
   script emitted a man page under `target/generated-man/<target>/<profile>/`.
 - The crate provides a `command()` helper returning `clap::Command` for use by
-  the
-  build script.
+  the build script.
 - Testing includes a unit test for greeting logic and an `assert_cmd`
   integration test for the binary.
 - A GitHub workflow (`.github/workflows/rust-toy-app.yml`) runs the crate's

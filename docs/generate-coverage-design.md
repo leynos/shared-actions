@@ -21,33 +21,33 @@ action and the evolution of its supporting scripts.
   `uv run --with` or the system interpreter. `_ensure_coverage_venv()` creates
   or repairs the venv on first use, syncs the project dependencies into it via
   `uv sync --inexact --python`, installs tooling (`slipcover`, `pytest`,
-  `coverage`) via `uv pip install --python`, and `_coverage_python_cmd()` caches
-  the resulting interpreter command for the lifetime of the process.
+  `coverage`) via `uv pip install --python`, and `_coverage_python_cmd()`
+  caches the resulting interpreter command for the lifetime of the process.
 - *2026-04-30* — Python coverage venv discovery now preserves the absolute
   venv interpreter path instead of resolving it through symlinks. On Linux,
   `.venv-coverage/bin/python` can point at `/usr/bin/python3.12`; passing the
   resolved target to `uv pip install --python` makes uv treat `/usr` as the
-  install environment and trips externally-managed-interpreter protections.
-  The action must pass the venv path itself to uv, and it logs the candidate
-  paths, resolved targets, and selected uv command interpreter for diagnosis.
+  install environment and trips externally-managed-interpreter protections. The
+  action must pass the venv path itself to uv, and it logs the candidate paths,
+  resolved targets, and selected uv command interpreter for diagnosis.
 - *2026-06-16* — `install_cargo_nextest.py` now distinguishes GNU and musl
   Linux runtimes when selecting checksum keys. `_platform_key` delegates to
   `_is_musl`, which probes libc through `ctypes.CDLL` and logs the detected
   libc family so failures can be diagnosed from output logs.
 - *2026-06-04* — Python coverage runs adopt `pytest-xdist` by default. A new
   `pytest-workers` input (default `auto`) is forwarded as `-n <workers>` to
-  slipcover's pytest invocation, and `pytest-xdist` is installed alongside
-  the existing coverage tooling. The slipcover tooling spec is pinned to
-  `slipcover>=1.0.18` — the first release whose xdist plugin merges
-  per-worker coverage transparently — so an older slipcover already present
-  in the project's environment is upgraded by uv rather than left in place.
-  The validator rejects `"0"` to keep `""` the single canonical way to
-  disable parallelism: pytest-xdist treats `-n 0` as a no-op but the
-  action's public contract documents only the empty value. Known caveat:
-  slipcover 1.0.18's xdist plugin does not propagate `--omit` to worker
-  processes, so projects whose tests live inside the source package see
-  their reported line-rate drop until they relocate tests or set
-  `pytest-workers: ""`. This is documented in the action's README.
+  slipcover's pytest invocation, and `pytest-xdist` is installed alongside the
+  existing coverage tooling. The slipcover tooling spec is pinned to
+  `slipcover>=1.0.18` — the first release whose xdist plugin merges per-worker
+  coverage transparently — so an older slipcover already present in the
+  project's environment is upgraded by uv rather than left in place. The
+  validator rejects `"0"` to keep `""` the single canonical way to disable
+  parallelism: pytest-xdist treats `-n 0` as a no-op but the action's public
+  contract documents only the empty value. Known caveat: slipcover 1.0.18's
+  xdist plugin does not propagate `--omit` to worker processes, so projects
+  whose tests live inside the source package see their reported line-rate drop
+  until they relocate tests or set `pytest-workers: ""`. This is documented in
+  the action's README.
 
 ## Rust Coverage Environment Overrides
 
@@ -116,8 +116,7 @@ The environment-variable approach is intentional rather than incidental:
 Using `CARGO_PROFILE_DEV_CODEGEN_BACKEND` and
 `CARGO_PROFILE_TEST_CODEGEN_BACKEND` keeps the override tightly scoped to the
 coverage subprocess. The repository's checked-in configuration stays unchanged,
-and non-coverage flows continue to use Cranelift if the repository asked for
-it.
+and non-coverage flows continue to use Cranelift if the repository asked for it.
 
 ### Where the Overrides Apply
 
@@ -144,13 +143,13 @@ The helper still starts from `os.environ` so it preserves PATH, toolchain
 configuration, and the rest of the GitHub Actions runtime context, but it now
 explicitly removes inherited `CARGO_PROFILE_DEV_CODEGEN_BACKEND` and
 `CARGO_PROFILE_TEST_CODEGEN_BACKEND` before applying coverage overrides. That
-prevents a caller or runner host from
-leaking an unrelated Cranelift preference into coverage runs.
+prevents a caller or runner host from leaking an unrelated Cranelift preference
+into coverage runs.
 
 ### Cranelift Detection Strategy
 
-Cranelift detection is intentionally lightweight, but it checks two
-sources before deciding coverage needs LLVM overrides:
+Cranelift detection is intentionally lightweight, but it checks two sources
+before deciding coverage needs LLVM overrides:
 
 - `_uses_cranelift_backend(manifest_path)` walks upward from the selected Cargo
   manifest directory and scans `.cargo/config.toml` plus `.cargo/config`.
@@ -160,9 +159,10 @@ sources before deciding coverage needs LLVM overrides:
   `codegen-backend = "cranelift"` or the single-quoted equivalent.
 
 The action therefore catches repository-level Cargo config overrides and
-per-manifest profile settings using two lightweight text scans: `.cargo/config*`
-detection stays regex-based, while `_manifest_uses_cranelift_backend()` walks
-the selected `Cargo.toml` line by line and checks only `[profile]` sections.
+per-manifest profile settings using two lightweight text scans:
+`.cargo/config*` detection stays regex-based, while
+`_manifest_uses_cranelift_backend()` walks the selected `Cargo.toml` line by
+line and checks only `[profile]` sections.
 
 ### Known Limitations
 
@@ -206,10 +206,10 @@ handling so error messages and exit codes are consistent across all scripts.
 ### Public API
 
 <!-- markdownlint-disable MD013 -->
-| Symbol | Signature | Role |
-| --- | --- | --- |
-| `_required_env` | `(name: str) -> str` | Return the non-empty value of a required env var or exit with code 2. |
-| `_env_bool` | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognized non-empty values. |
+| Symbol          | Signature                               | Role                                                                              |
+| --------------- | --------------------------------------- | --------------------------------------------------------------------------------- |
+| `_required_env` | `(name: str) -> str`                    | Return the non-empty value of a required env var or exit with code 2.             |
+| `_env_bool`     | `(name: str, *, default: bool) -> bool` | Parse a boolean env var; raise `typer.Exit(2)` for unrecognized non-empty values. |
 <!-- markdownlint-enable MD013 -->
 
 `_required_env` trims whitespace before testing emptiness so a variable set to
@@ -228,15 +228,15 @@ helper ensures that a missing required variable always produces a message of
 the form `Missing required environment variable: NAME` and exits with code 2,
 regardless of which script is running.
 
-Boolean environment variables similarly used Typer's built-in `envvar`
-binding, which silently accepted any non-empty string as truthy. `_env_bool`
-replaces that path to provide an explicit rejection of unrecognized values.
+Boolean environment variables similarly used Typer's built-in `envvar` binding,
+which silently accepted any non-empty string as truthy. `_env_bool` replaces
+that path to provide an explicit rejection of unrecognized values.
 
 ## Roadmap
 
 - [x] Centralize environment-variable parsing helpers (`_required_env`,
-  `_env_bool`) into `common.py` so error messages and exit codes are
-  consistent across all generate-coverage scripts.
+  `_env_bool`) into `common.py` so error messages and exit codes are consistent
+  across all generate-coverage scripts.
 - [x] Extend artefact naming to include platform metadata and support custom
   suffixes.
 - [x] Document the Rust coverage environment-override design for
@@ -270,8 +270,8 @@ the same job, and discarded when the runner workspace is cleaned up.
    `pytest`, `pytest-xdist`, and `coverage` into the venv using
    `uv pip install --python <venv-python>`. The `--system` flag is deliberately
    excluded to keep the installation isolated. The `slipcover>=1.0.18` floor
-   forces uv to upgrade any older slipcover already installed by `uv sync`,
-   so the xdist plugin needed for `pytest -n <workers>` coverage merging is
+   forces uv to upgrade any older slipcover already installed by `uv sync`, so
+   the xdist plugin needed for `pytest -n <workers>` coverage merging is
    guaranteed present.
 4. `_coverage_python_cmd()` calls `_ensure_coverage_venv()` on first use, caches
    the resulting `plumbum` command via `functools.lru_cache`, and returns the
@@ -280,9 +280,9 @@ the same job, and discarded when the runner workspace is cleaned up.
 `<venv-python>` is the absolute path to the Python executable inside
 `.venv-coverage`, not the result of resolving that executable through symlinks.
 This distinction matters on Linux because venv Python executables commonly
-symlink to the base interpreter. Resolving the symlink before invoking uv
-would redirect installs back to the system Python and defeat the isolation
-provided by `.venv-coverage`.
+symlink to the base interpreter. Resolving the symlink before invoking uv would
+redirect installs back to the system Python and defeat the isolation provided by
+`.venv-coverage`.
 
 ### Concurrency Model
 
@@ -293,8 +293,8 @@ requires no explicit synchronization.
 ### Coverage Venv API
 
 <!-- markdownlint-disable MD013 MD060 -->
-| Symbol | Role |
-|---|---|
-| `_ensure_coverage_venv() -> str` | Create or recover the venv, install project/tool dependencies, and return Python path. |
-| `_coverage_python_cmd() -> BoundCommand` | Return the cached venv Python command. |
+| Symbol                                   | Role                                                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------- |
+| `_ensure_coverage_venv() -> str`         | Create or recover the venv, install project/tool dependencies, and return Python path. |
+| `_coverage_python_cmd() -> BoundCommand` | Return the cached venv Python command.                                                 |
 <!-- markdownlint-enable MD013 MD060 -->

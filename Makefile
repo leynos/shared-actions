@@ -16,8 +16,7 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
 ACT ?= $(or $(firstword $(wildcard $(HOME)/go/bin/act) $(wildcard $(HOME)/.local/bin/act)),act)
-MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint),$(HOME)/.bun/bin/markdownlint,markdownlint)
-MARKDOWNLINT_BASE ?= origin/main
+MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint-cli2),$(HOME)/.bun/bin/markdownlint-cli2,markdownlint-cli2)
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
 UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
@@ -70,7 +69,7 @@ check-fmt: ## Check Python formatting without modifying files
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
 
 markdownlint: ## Lint Markdown files
-	MARKDOWNLINT_BASE='$(MARKDOWNLINT_BASE)' MDLINT='$(MDLINT)' ./workflow_scripts/markdownlint-check.sh
+	$(MDLINT) "**/*.md"
 
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 -- $(NIXIE)

@@ -106,7 +106,7 @@ class TargetReport:
 
 
 def parse_outcomes(
-    payload: dict[str, typ.Any],
+    payload: dict[str, object],
 ) -> tuple[dict[str, int], list[SurvivingMutant]]:
     """Count mutant outcomes and collect survivors from one report.
 
@@ -122,23 +122,41 @@ def parse_outcomes(
     """
     counts = dict.fromkeys(_COUNTED_SUMMARIES, 0)
     survivors: list[SurvivingMutant] = []
-    for outcome in payload.get("outcomes", []):
-        scenario = outcome.get("scenario")
-        if scenario == "Baseline" or not isinstance(scenario, dict):
+    outcomes = payload.get("outcomes")
+    if not isinstance(outcomes, list):
+        return counts, survivors
+    for outcome in outcomes:
+        if not isinstance(outcome, dict):
             continue
+        scenario = outcome.get("scenario")
+        if not isinstance(scenario, dict):
+            continue  # baseline entries carry the string "Baseline"
         summary = outcome.get("summary")
         if summary in counts:
             counts[summary] += 1
         if summary == "MissedMutant":
-            mutant = scenario.get("Mutant", {})
-            survivors.append(
-                SurvivingMutant(
-                    file=str(mutant.get("file", "?")),
-                    line=int(mutant.get("span", {}).get("start", {}).get("line", 0)),
-                    name=str(mutant.get("name", "?")),
-                )
-            )
+            survivors.append(_survivor_from(scenario))
     return counts, survivors
+
+
+def _survivor_from(scenario: dict[str, object]) -> SurvivingMutant:
+    """Extract a surviving mutant from a ``{"Mutant": {...}}`` scenario."""
+    mutant = scenario.get("Mutant")
+    if not isinstance(mutant, dict):
+        return SurvivingMutant(file="?", line=0, name="?")
+    return SurvivingMutant(
+        file=str(mutant.get("file", "?")),
+        line=_start_line(mutant),
+        name=str(mutant.get("name", "?")),
+    )
+
+
+def _start_line(mutant: dict[str, object]) -> int:
+    """Return the mutation's 1-based start line, or 0 when absent."""
+    span = mutant.get("span")
+    start = span.get("start") if isinstance(span, dict) else None
+    line = start.get("line") if isinstance(start, dict) else None
+    return line if isinstance(line, int) else 0
 
 
 def collect_reports(report_root: Path) -> list[TargetReport]:
@@ -170,7 +188,8 @@ def collect_reports(report_root: Path) -> list[TargetReport]:
         except json.JSONDecodeError as error:
             emit("mutation_summary_invalid_outcomes", f"{artefact_dir.name}: {error}")
             continue
-        counts, survivors = parse_outcomes(payload)
+        else:
+            counts, survivors = parse_outcomes(payload)
         slug = match["slug"]
         totals, all_survivors = merged.setdefault(
             slug, (dict.fromkeys(_COUNTED_SUMMARIES, 0), [])
@@ -198,7 +217,20 @@ def _escape_cell(value: str) -> str:
 
 
 def render_summary(reports: list[TargetReport]) -> str:
-    """Render the merged reports as job-summary Markdown."""
+    """Render the merged reports as job-summary Markdown.
+
+    Parameters
+    ----------
+    reports : list[TargetReport]
+        Merged per-target reports, as produced by ``collect_reports``.
+
+    Returns
+    -------
+    str
+        Markdown with per-target outcome counts and, where mutants
+        survived, a table of file, line, and mutation description. When
+        ``reports`` is empty, an explanatory message is returned instead.
+    """
     if not reports:
         return "## Mutation testing results\n\nNo reports were produced.\n"
     lines: list[str] = []

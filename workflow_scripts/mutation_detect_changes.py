@@ -71,10 +71,13 @@ import dataclasses
 import json
 import os
 import typing as typ
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from cyclopts import App, Parameter
 from plumbum import local
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 if __package__:
     from .output import emit, fail
@@ -184,8 +187,15 @@ def changed_files(
     return tuple(name for name in names if (root / name).is_file())
 
 
+def _is_under(name: str, base: str) -> bool:
+    """Return True when path ``name`` sits strictly under directory ``base``."""
+    path = PurePosixPath(name)
+    base_path = PurePosixPath(base.rstrip("/"))
+    return path != base_path and path.is_relative_to(base_path)
+
+
 def bucket_files(
-    files: typ.Iterable[str], config: DetectionConfig
+    files: cabc.Iterable[str], config: DetectionConfig
 ) -> dict[str, list[str]]:
     """Group changed files by mutation target.
 
@@ -206,12 +216,12 @@ def bucket_files(
     buckets: dict[str, list[str]] = {}
     for name in files:
         extra = next(
-            (d for d in config.extra_crate_dirs if name.startswith(f"{d}/src/")),
+            (d for d in config.extra_crate_dirs if _is_under(name, f"{d}/src")),
             None,
         )
         if extra is not None:
             buckets.setdefault(extra, []).append(name)
-        elif any(name.startswith(prefix) for prefix in config.paths):
+        elif any(_is_under(name, prefix) for prefix in config.paths):
             buckets.setdefault(".", []).append(name)
     return buckets
 
@@ -225,8 +235,8 @@ def _relative_files(target_dir: str, files: list[str]) -> str:
     """Return ``files`` relative to ``target_dir`` as one space-joined string."""
     if target_dir == ".":
         return " ".join(files)
-    prefix = f"{target_dir}/"
-    return " ".join(name.removeprefix(prefix) for name in files)
+    base = PurePosixPath(target_dir)
+    return " ".join(PurePosixPath(name).relative_to(base).as_posix() for name in files)
 
 
 def full_run_matrix(config: DetectionConfig) -> list[MatrixEntry]:

@@ -353,6 +353,50 @@ when a healthy Podman socket is discovered automatically.
 | `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
 <!-- markdownlint-enable MD013 -->
 
+## Mutation-Testing Reusable Workflows
+
+Two reusable workflows provide scheduled, informational mutation testing
+for callers: `.github/workflows/mutation-cargo.yml` (Rust,
+[cargo-mutants](https://mutants.rs/)) and
+`.github/workflows/mutation-mutmut.yml` (Python,
+[mutmut](https://mutmut.readthedocs.io/)). Caller-facing usage lives in
+[mutation-cargo-workflow.md](mutation-cargo-workflow.md) and
+[mutation-mutmut-workflow.md](mutation-mutmut-workflow.md); design
+history, empirical findings, and decisions live in the
+[execplan](execplans/add-mutation-testing-workflows.md).
+
+Internals for maintainers:
+
+- All non-trivial logic lives in `workflow_scripts/` helper scripts
+  (Cyclopts, `INPUT_*` environment configuration, plumbum):
+  `mutation_detect_changes.py` (change-detection guard and shard-matrix
+  construction, shared by both workflows), `mutation_run_cargo.py`
+  (cargo-mutants invocation and the informative exit-code contract:
+  0/2/3 succeed, everything else fails with the tool's code),
+  `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts
+  and renders the job summary), and `mutation_run_mutmut.py`
+  (module-glob scoping, results parsing, and summary in one pass —
+  mutmut has no shard support).
+- Tool version pins default in the workflows because both report
+  formats are unstable; a version bump must be paired with a parser
+  check (`outcomes.json` fields for cargo-mutants; the
+  `mutmut results --all true` line format for mutmut).
+- Unit tests fake the `cargo`/`uv` boundary with POSIX shell shims on
+  `PATH`; those tests are skipped on Windows (the workflows only run on
+  `ubuntu-latest`). Property-based tests in
+  `workflow_scripts/tests/test_mutation_properties.py` cover the
+  bucketing, translation, and parsing invariants.
+- The act integration tests
+  (`tests/workflows/test_mutation_workflows.py`) exercise the
+  change-detection skip path end-to-end; the mutation-run path cannot
+  be act-tested because stub binaries cannot be injected onto a
+  `workflow_call` job's `PATH`.
+- The "Resolve workflow source" step is deliberately inlined in every
+  job rather than extracted to a composite action: it is the mechanism
+  that discovers the caller's pinned workflow SHA, so referencing it as
+  a `uses:` action would itself require a hardcoded ref, breaking the
+  version-lockstep guarantee.
+
 ## Running the Test Suite
 
 ```bash

@@ -151,16 +151,16 @@ class TestMainEntry:
         assert "Surviving mutants" in summary_file.read_text(encoding="utf-8")
 
     @POSIX_SHIMS_ONLY
-    def test_failing_baseline_fails_the_step(
+    def test_failing_baseline_propagates_exit_code(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
     ) -> None:
-        """A non-zero mutmut run (failing baseline) raises SystemExit."""
+        """A non-zero mutmut run fails the step with mutmut's own code."""
         self._prepare(tmp_path, monkeypatch)
-        monkeypatch.setenv("FAKE_MUTMUT_RUN_EXIT", "1")
-        monkeypatch.setitem(local.env, "FAKE_MUTMUT_RUN_EXIT", "1")
+        monkeypatch.setenv("FAKE_MUTMUT_RUN_EXIT", "3")
+        monkeypatch.setitem(local.env, "FAKE_MUTMUT_RUN_EXIT", "3")
         with pytest.raises(SystemExit) as excinfo:
             run_mutmut.app([])
-        assert excinfo.value.code == 1
+        assert excinfo.value.code == 3
 
     def test_scope_without_python_files_short_circuits(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path

@@ -310,6 +310,27 @@ work proceeds.
   deterministic regardless of repository history. The mutation-run and
   summary paths are covered by 47 unit tests over the helper scripts
   and validated for real in Stage G's pilot repositories.
+- 2026-07-04 (post-rebase review round): applied reviewer findings —
+  workflow-level `permissions: {}` on all four new workflows;
+  `WORKFLOW_DIR` passed to run steps via `env:` instead of inline
+  `${{ ... }}` interpolation; `cabc.Iterable` and `PurePosixPath`-based
+  path handling in the detect and mutmut scripts; mutmut run failures
+  now propagate mutmut's own exit code (previously flattened to 1 by
+  `fail()`, contradicting the docstring); `dict[str, object]` with full
+  isinstance narrowing in the cargo summary parser (plus a TRY300
+  `else:` block and a complete `render_summary` docstring); a
+  developers-guide section for the workflows and helper scripts; README
+  guide links; and Hypothesis property tests over CSV splitting,
+  bucketing, module-glob translation, results parsing, outcome
+  counting, and scoped-matrix prefix stripping. Declined one request:
+  extracting "Resolve workflow source" into a composite action — that
+  step is the mechanism that discovers the caller's pinned workflow
+  SHA, so a `uses:` reference to it would itself need a hardcoded ref,
+  breaking version lockstep and forcing a two-commit dance on every
+  change (the dependabot-automerge workflow inlines it for the same
+  reason); each inline copy now carries a comment saying so. A
+  repo-wide users guide was not created: per-feature guide pages are
+  this repository's convention, and the README now links them.
 
 ## Outcomes & Retrospective
 

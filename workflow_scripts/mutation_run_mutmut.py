@@ -57,8 +57,9 @@ import collections
 import dataclasses
 import os
 import shlex
+import sys
 import typing as typ
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from cyclopts import App, Parameter
 from plumbum import RETCODE, local
@@ -97,10 +98,13 @@ def _module_glob_for(name: str, prefix_strip: str) -> str | None:
     ``__init__.py`` maps to its package; non-Python paths and paths that
     reduce to nothing after stripping yield None.
     """
-    if not name.endswith(".py"):
+    path = PurePosixPath(name)
+    if path.suffix != ".py":
         return None
-    trimmed = name.removeprefix(prefix_strip).removesuffix(".py")
-    parts = [part for part in trimmed.split("/") if part]
+    stripped_base = PurePosixPath(prefix_strip.rstrip("/")) if prefix_strip else None
+    if stripped_base is not None and path.is_relative_to(stripped_base):
+        path = path.relative_to(stripped_base)
+    parts = list(path.with_suffix("").parts)
     if parts and parts[-1] == "__init__":
         parts.pop()
     if not parts:
@@ -211,10 +215,11 @@ def _mutmut_command(version: str) -> list[str]:
 def _run_mutation_testing(
     globs: list[str], mutmut_version: str, extra_args: str
 ) -> None:
-    """Run ``mutmut run``, failing the step on a non-zero exit.
+    """Run ``mutmut run``, propagating any non-zero exit code.
 
     mutmut exits 0 even when mutants survive, so a non-zero code means a
-    failing baseline or a usage error.
+    failing baseline or a usage error; the step fails with mutmut's own
+    exit code.
     """
     run_arguments = [
         *_mutmut_command(mutmut_version),
@@ -226,7 +231,12 @@ def _run_mutation_testing(
     code = local["uv"][run_arguments] & RETCODE(FG=True)
     emit("mutation_mutmut_exit_code", code)
     if code != 0:
-        fail(f"mutmut run failed with exit code {code} (failing baseline?)")
+        emit(
+            "mutation_mutmut_error",
+            f"mutmut run failed with exit code {code} (failing baseline?)",
+            stream=sys.stderr,
+        )
+        raise SystemExit(code)
 
 
 def _publish_results(mutmut_version: str, results_file: str, summary_path: str) -> None:

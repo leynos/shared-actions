@@ -5,6 +5,9 @@ on:
     - cron: "0 12 31 2 *" # Never fires (31 February); act-only trigger
   workflow_dispatch:
 
+# Default the token to no scopes; jobs opt in explicitly.
+permissions: {}
+
 jobs:
   mutation:
     permissions:

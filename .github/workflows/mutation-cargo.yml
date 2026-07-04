@@ -59,6 +59,9 @@ on:
         type: string
         default: ""
 
+# Default the token to no scopes; jobs opt in explicitly.
+permissions: {}
+
 jobs:
   detect:
     runs-on: ubuntu-latest
@@ -76,6 +79,12 @@ jobs:
           persist-credentials: false
 
       - name: Resolve workflow source
+        # Deliberately inline rather than a composite action: this step is
+        # the mechanism that discovers the caller's pinned workflow SHA, so
+        # expressing it as a `uses:` reference would itself need a
+        # hardcoded ref, breaking the version-lockstep guarantee (see the
+        # dependabot-automerge workflow, which inlines it for the same
+        # reason).
         id: workflow-source
         shell: bash
         env:
@@ -173,13 +182,14 @@ jobs:
           INPUT_PATHSPEC: "*.rs"
           INPUT_SHARD_COUNT: ${{ inputs.shard-count }}
           INPUT_BASE_REF: ${{ inputs.base-ref }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
             export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
             export UV_CACHE_DIR="/tmp/uv-cache"
           fi
-          uv run --script "${{ steps.workflow-source.outputs.workflow_dir }}/workflow_scripts/mutation_detect_changes.py"
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_detect_changes.py"
 
   mutants:
     needs: detect
@@ -199,6 +209,12 @@ jobs:
           persist-credentials: false
 
       - name: Resolve workflow source
+        # Deliberately inline rather than a composite action: this step is
+        # the mechanism that discovers the caller's pinned workflow SHA, so
+        # expressing it as a `uses:` reference would itself need a
+        # hardcoded ref, breaking the version-lockstep guarantee (see the
+        # dependabot-automerge workflow, which inlines it for the same
+        # reason).
         id: workflow-source
         shell: bash
         env:
@@ -313,13 +329,14 @@ jobs:
           INPUT_TIMEOUT_MULTIPLIER: ${{ inputs.timeout-multiplier }}
           INPUT_EXCLUDE_GLOBS: ${{ inputs.exclude-globs }}
           INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
             export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
             export UV_CACHE_DIR="/tmp/uv-cache"
           fi
-          uv run --script "${{ steps.workflow-source.outputs.workflow_dir }}/workflow_scripts/mutation_run_cargo.py"
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_run_cargo.py"
 
       - name: Upload mutation report
         if: ${{ always() }}
@@ -338,6 +355,12 @@ jobs:
       id-token: write
     steps:
       - name: Resolve workflow source
+        # Deliberately inline rather than a composite action: this step is
+        # the mechanism that discovers the caller's pinned workflow SHA, so
+        # expressing it as a `uses:` reference would itself need a
+        # hardcoded ref, breaking the version-lockstep guarantee (see the
+        # dependabot-automerge workflow, which inlines it for the same
+        # reason).
         id: workflow-source
         shell: bash
         env:
@@ -434,6 +457,7 @@ jobs:
         shell: bash
         env:
           INPUT_REPORT_ROOT: reports
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
@@ -441,4 +465,4 @@ jobs:
             export UV_CACHE_DIR="/tmp/uv-cache"
           fi
           mkdir -p reports
-          uv run --script "${{ steps.workflow-source.outputs.workflow_dir }}/workflow_scripts/mutation_summarize_cargo.py"
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_summarize_cargo.py"

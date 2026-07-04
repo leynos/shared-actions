@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 import typing as typ
 
 import pytest
@@ -12,6 +13,12 @@ from workflow_scripts import mutation_run_cargo as run_cargo
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+# The reusable workflows only run on ubuntu-latest; the fake tool shims
+# are POSIX shell scripts, so Windows falls through to the real tools.
+POSIX_SHIMS_ONLY = pytest.mark.skipif(
+    sys.platform == "win32", reason="fake cargo helper emits POSIX sh"
+)
 
 
 class TestBuildArguments:
@@ -97,6 +104,7 @@ def fake_cargo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class TestMainEntry:
     """End-to-end behaviour of the CLI entry point."""
 
+    @POSIX_SHIMS_ONLY
     def test_informative_exit_is_success(
         self,
         fake_cargo: Path,
@@ -111,6 +119,7 @@ class TestMainEntry:
         assert recorded[0] == "mutants"
         assert recorded[-2:] == ["--file", "src/lib.rs"]
 
+    @POSIX_SHIMS_ONLY
     def test_genuine_fault_propagates_exit_code(
         self,
         fake_cargo: Path,

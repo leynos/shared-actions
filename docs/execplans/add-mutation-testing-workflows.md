@@ -229,6 +229,18 @@ work proceeds.
   `cargo mutants --exclude` so callers can keep example and test-support
   code out of the survivors table.
 
+- Observation (2026-07-04, Windows CI on PR #319): the fake `cargo`/`uv`
+  shims are POSIX shell scripts, so Windows PATH lookup fell through to
+  the real tools — the real `cargo` failed with exit 101 (`no such
+  command: mutants`), and the mutmut failing-baseline test *passed by
+  coincidence* because real mutmut exits 1 on Windows ("please use the
+  WSL"). Impact: the shim-dependent tests are now skipped on win32
+  (matching the `generate-coverage` precedent, "fake uv helper emits
+  POSIX sh"); the reusable workflows only run on `ubuntu-latest`, so
+  Windows coverage of the run wrappers carries no signal. The
+  coincidental pass is a reminder that platform-conditional skips must
+  cover *all* shim-dependent tests, not just the failing ones.
+
 ## Decision Log
 
 - 2026-07-04: Reusable workflows, not composite actions. Rationale: the

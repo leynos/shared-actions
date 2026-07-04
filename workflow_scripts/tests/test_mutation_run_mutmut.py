@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 import typing as typ
 
 import pytest
@@ -12,6 +13,13 @@ from workflow_scripts import mutation_run_mutmut as run_mutmut
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+# The reusable workflows only run on ubuntu-latest; the fake tool shims
+# are POSIX shell scripts, so Windows falls through to the real tools
+# (where a real mutmut failure can coincidentally satisfy assertions).
+POSIX_SHIMS_ONLY = pytest.mark.skipif(
+    sys.platform == "win32", reason="fake uv helper emits POSIX sh"
+)
 
 RESULTS_TEXT = """\
 warning: The config paths_to_mutate is deprecated.
@@ -129,6 +137,7 @@ class TestMainEntry:
         monkeypatch.setenv("INPUT_RESULTS_FILE", str(results_file))
         return summary_file, results_file
 
+    @POSIX_SHIMS_ONLY
     def test_scoped_run_passes_module_globs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
     ) -> None:
@@ -141,6 +150,7 @@ class TestMainEntry:
         assert "survived" in results_file.read_text(encoding="utf-8")
         assert "Surviving mutants" in summary_file.read_text(encoding="utf-8")
 
+    @POSIX_SHIMS_ONLY
     def test_failing_baseline_fails_the_step(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
     ) -> None:

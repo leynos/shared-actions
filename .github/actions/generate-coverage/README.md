@@ -11,9 +11,13 @@ the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
 are required. When Rust coverage is required, `cargo-llvm-cov` and
-`cargo-nextest` are installed automatically. If both configuration files are
-present, coverage is run for each language and the Cobertura reports are merged
-using `uvx merge-cobertura`.
+`cargo-nextest` are installed automatically via a pinned `cargo-binstall`. The
+action provisions a specific `cargo-binstall` version — reusing a cached build
+when its version matches exactly, otherwise installing it from a
+checksum-verified installer script — and verifies the resolved version before
+running the coverage tooling. If both configuration files are present, coverage
+is run for each language and the Cobertura reports are merged using
+`uvx merge-cobertura`.
 
 ## Flow
 

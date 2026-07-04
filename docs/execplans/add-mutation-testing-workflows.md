@@ -118,10 +118,17 @@ uploaded `mutation-report-*` artefacts.
 
 ## Progress
 
-- [ ] Stage A: mutmut research spike (semantics, exit codes, scoping,
-  results format; pin candidate version).
-- [ ] Stage B: `mutation-cargo.yml` reusable workflow + helper scripts +
-  unit tests.
+- [x] Stage A: mutmut research spike (2026-07-04: empirical against
+  mutmut 3.6.0 in a sandbox — see Surprises & Discoveries for exit
+  codes, `source_paths` rename, module-glob scoping, and `.meta`
+  results layout; candidate pin: mutmut 3.6.0).
+- [x] Stage B: `mutation-cargo.yml` reusable workflow + helper scripts +
+  unit tests (2026-07-04: `mutation_detect_changes.py`,
+  `mutation_run_cargo.py`, `mutation_summarize_cargo.py` under
+  `workflow_scripts/` with 36 unit tests; three-job workflow — detect →
+  sharded mutants matrix → summarize — reusing the dependabot-automerge
+  OIDC source-resolution and `ACT` bypass pattern per job; default
+  cargo-mutants pin 27.1.0, current stable at implementation time).
 - [ ] Stage C: `mutation-mutmut.yml` reusable workflow + helper scripts +
   unit tests.
 - [ ] Stage D: `act` integration tests for both workflows (guard path,
@@ -172,6 +179,29 @@ work proceeds.
   cache reuse confirmed working (mutant builds ~16s vs 84s cold), and
   `RUSTFLAGS: -D warnings` from setup-rust did not produce spurious
   unviable mutants.
+- Observation (2026-07-04, Stage A spike, mutmut 3.6.0, empirical in a
+  sandbox project): `[tool.mutmut]` uses `source_paths` (array) —
+  `paths_to_mutate` is deprecated with a warning. `mutmut run` exits 0
+  both when mutants survive and when functions have no covering tests;
+  it exits 1 on a failing baseline ("failed to collect stats. runner
+  returned 1") and on invalid filter arguments. So no exit-code masking
+  is needed (the informational contract holds by default), and baseline
+  failures fail the job naturally — but survivor detection must parse
+  results rather than exit codes. Results live in `mutants/` (a project
+  copy) as per-source `<path>.meta` JSON files whose `exit_code_by_key`
+  maps mutant key → runner exit code (0 = survived, non-zero = killed),
+  plus `mutmut-stats.json` (test-selection stats only).
+  `mutmut results --all true` prints parseable `name: status` lines
+  (statuses observed: killed, survived, no tests, not checked; the
+  progress legend also shows timeout, suspicious, skipped). Impact: the
+  mutmut summary script parses `mutmut results --all true` output.
+- Observation (same spike): file-path scoping (`mutmut run src/x.py`)
+  fails with exit 1 in mutmut 3.6 — positional arguments are MUTANT
+  NAME globs in module-path form (e.g. `mypkg.calc.x_add*`;
+  `mypkg.calc.*` scopes a module). Impact: changed-file scoping
+  requires translating file paths to module globs (strip source root,
+  s|/|.|, drop `.py`), implemented in the run script. There is no
+  `--no-progress` in 3.6; `--max-children` controls parallelism.
 - Observation (same run): survivor output mixes genuine assertion gaps
   (preamble arithmetic, stream-rewind comparisons, session-registry
   equality) with scaffolding noise (`src/codec/examples.rs`,
@@ -202,6 +232,21 @@ work proceeds.
   roughly 2.5–3 hours per leg with headroom under the 300-minute
   default. Scoped daily runs stay single-shard because each shard
   re-pays the baseline build-and-test cost for a handful of mutants.
+- 2026-07-04: Reuse the dependabot-automerge OIDC source-resolution
+  block verbatim in each job of `mutation-cargo.yml` (the plan's Risks
+  section had left room for a simpler mechanism). Rationale: the OIDC
+  pattern is proven in this repo, keeps helper scripts in lockstep with
+  the caller's pinned workflow SHA with no extra inputs, and its `ACT`
+  bypass is exactly what the integration tests need; three copies of a
+  known-good block beat one novel mechanism. The `setup-rust` step uses
+  the repo's own action via the checked-out `workflow-src` path
+  (`uses: ./workflow-src/.github/actions/setup-rust`), skipped under
+  `act` where stub binaries stand in for the toolchain.
+- 2026-07-04: The wireframe finding about feature-gated tests (its
+  issue #571) is addressed by the `extra-args` input (e.g.
+  `--all-features`) rather than a dedicated features input — cargo-
+  mutants accepts arbitrary flags, and one pass-through input covers
+  features, `--jobs`, and future needs without interface churn.
 - 2026-07-04: Integration tests stub the mutation tools rather than
   running real mutation testing under `act`. Rationale: real runs are
   unbounded in time and dominated by the tools themselves, which are not

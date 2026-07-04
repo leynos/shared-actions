@@ -141,7 +141,11 @@ uploaded `mutation-report-*` artefacts.
   and dispatch triggers; `tests/workflows/test_mutation_workflows.py`
   exercises the guard skip path end-to-end under act. See the Decision
   Log for why the mutation-run path is not act-tested).
-- [ ] Stage E: caller documentation pages and README index updates.
+- [x] Stage E: caller documentation pages and README index updates
+  (2026-07-04: `docs/mutation-cargo-workflow.md` and
+  `docs/mutation-mutmut-workflow.md` mirroring the dependabot-automerge
+  doc shape — behaviour, permissions, usage, inputs, notes, local
+  validation — plus README reusable-workflows table entries).
 - [ ] Stage F: gates (`check-fmt`, `typecheck`, `lint`, `test`,
   `ACT_WORKFLOW_TESTS=1 make test`), CodeRabbit review, commit.
 - [ ] Stage G: pilot caller validation (wireframe migration for Rust; one

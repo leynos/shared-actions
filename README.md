@@ -25,9 +25,11 @@ GitHub Actions
 
 ## Reusable workflows
 
-| Name                  | Path                                         |
-| --------------------- | -------------------------------------------- |
-| Dependabot auto-merge | `.github/workflows/dependabot-automerge.yml` |
+| Name                             | Path                                         |
+| -------------------------------- | -------------------------------------------- |
+| Dependabot auto-merge            | `.github/workflows/dependabot-automerge.yml` |
+| Mutation testing (cargo-mutants) | `.github/workflows/mutation-cargo.yml`       |
+| Mutation testing (mutmut)        | `.github/workflows/mutation-mutmut.yml`      |
 
 ## Development
 

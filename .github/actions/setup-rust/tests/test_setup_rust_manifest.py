@@ -11,10 +11,10 @@ import pytest
 import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
-PINNED_BINSTALL_VERSION = "1.16.6"
+PINNED_BINSTALL_VERSION = "1.19.1"
 PINNED_BINSTALL_TAG = f"v{PINNED_BINSTALL_VERSION}"
 PINNED_BINSTALL_SHA256 = (
-    "c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+    "d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
 )
 
 
@@ -67,7 +67,7 @@ def _write_binstall_stubs(stubs_dir: Path) -> None:
     stubs_dir.mkdir(parents=True, exist_ok=True)
     _write_executable(
         stubs_dir / "curl",
-        """#!/usr/bin/env bash
+        f"""#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$@" > "$FAKE_CURL_ARGS"
 output_path=""
@@ -86,13 +86,13 @@ fi
 cat > "$output_path" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "${BINSTALL_VERSION:-}" > "$FAKE_INSTALLER_VERSION"
+printf '%s\\n' "${{BINSTALL_VERSION:-}}" > "$FAKE_INSTALLER_VERSION"
 mkdir -p "$FAKE_BIN_DIR"
 cat > "$FAKE_BIN_DIR/cargo-binstall" <<'BINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
-if [ "${1:-}" = "-V" ]; then
-  printf '%s\\n' "${FAKE_BINSTALL_VERSION:-1.16.6}"
+if [ "${{1:-}}" = "-V" ]; then
+  printf '%s\\n' "${{FAKE_BINSTALL_VERSION:-{PINNED_BINSTALL_VERSION}}}"
 else
   echo "unexpected cargo-binstall invocation: $*" >&2
   exit 2

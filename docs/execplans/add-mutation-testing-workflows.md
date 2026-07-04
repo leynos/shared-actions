@@ -332,6 +332,23 @@ work proceeds.
   repo-wide users guide was not created: per-feature guide pages are
   this repository's convention, and the README now links them.
 
+- 2026-07-05 (maintainer direction, reversing the 2026-07-04 declination):
+  extracted the duplicated "Resolve workflow source" step into the
+  `.github/actions/resolve-workflow-source` composite action, replacing
+  all four inline copies (three in `mutation-cargo.yml`, one in
+  `mutation-mutmut.yml`) with a full-commit-SHA `uses:` reference
+  (e892eb3, the commit introducing the action). The lockstep concern is
+  handled by policy rather than mechanism: the pin must be bumped
+  manually when the action changes, and the action README, workflow
+  comments, and developers guide all say so. A relative `./` reference
+  was not an option — inside a reusable workflow it resolves against
+  the caller's repository. Behaviour is preserved exactly, with one
+  cosmetic change: the step-output writes are grouped into single
+  redirects, clearing actionlint's SC2129 style notes. New act tests
+  cover the act short-circuit and OIDC fail-fast branches; both
+  workflows now pass `actionlint` and `zizmor` with no findings
+  (verified alongside the workflow-level `permissions: {}` hardening).
+
 ## Outcomes & Retrospective
 
 Stages A–F implemented 2026-07-04 in five commits (plan hardening plus

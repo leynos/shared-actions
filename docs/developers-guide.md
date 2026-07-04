@@ -391,11 +391,15 @@ Internals for maintainers:
   change-detection skip path end-to-end; the mutation-run path cannot
   be act-tested because stub binaries cannot be injected onto a
   `workflow_call` job's `PATH`.
-- The "Resolve workflow source" step is deliberately inlined in every
-  job rather than extracted to a composite action: it is the mechanism
-  that discovers the caller's pinned workflow SHA, so referencing it as
-  a `uses:` action would itself require a hardcoded ref, breaking the
-  version-lockstep guarantee.
+- Workflow-source resolution lives in the
+  `.github/actions/resolve-workflow-source` composite action (see its
+  README). Because that action performs the SHA resolution itself, the
+  reusable workflows reference it by a hardcoded full-commit pin that
+  must be bumped manually whenever the action changes — it is the one
+  reference that cannot participate in the caller's version lockstep.
+  Its act short-circuit and OIDC fail-fast branches are exercised by
+  `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy
+  path is validated by every real run of the consuming workflows.
 
 ## Running the Test Suite
 

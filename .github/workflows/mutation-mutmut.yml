@@ -58,72 +58,11 @@ jobs:
           persist-credentials: false
 
       - name: Resolve workflow source
-        # Deliberately inline rather than a composite action: this step is
-        # the mechanism that discovers the caller's pinned workflow SHA, so
-        # expressing it as a `uses:` reference would itself need a
-        # hardcoded ref, breaking the version-lockstep guarantee (see the
-        # dependabot-automerge workflow, which inlines it for the same
-        # reason).
         id: workflow-source
-        shell: bash
-        env:
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          workspace="${GITHUB_WORKSPACE:-$PWD}"
-
-          if [[ "${ACT:-}" == "true" ]]; then
-            echo "checkout=false" >> "${GITHUB_OUTPUT}"
-            echo "workflow_dir=${workspace}" >> "${GITHUB_OUTPUT}"
-            echo "repo=${REPO}" >> "${GITHUB_OUTPUT}"
-            echo "ref=" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "OpenID Connect (OIDC) env vars not available. Ensure job permissions include: id-token: write" >&2
-            exit 1
-          fi
-
-          oidc_json="$(
-            curl -sSf \
-              --connect-timeout 10 \
-              --max-time 60 \
-              --retry 3 \
-              --retry-delay 2 \
-              --retry-all-errors \
-              -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=github"
-          )"
-
-          read -r repo ref <<<"$(
-          OIDC_JSON="${oidc_json}" python3 - <<'PY'
-          import base64, json, os
-
-          d = json.loads(os.environ["OIDC_JSON"])
-          jwt = d["value"]
-
-          payload = jwt.split(".", 2)[1]
-          payload += "=" * (-len(payload) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
-
-          job_ref = claims.get("job_workflow_ref")
-          job_sha = claims.get("job_workflow_sha")
-          if not job_ref or not job_sha:
-              raise SystemExit(
-                  f"Missing job_workflow_ref/job_workflow_sha in OIDC claims "
-                  f"(job_workflow_ref={bool(job_ref)}, job_workflow_sha={bool(job_sha)})"
-              )
-
-          repo = job_ref.split("/.github/workflows/")[0]
-          print(repo, job_sha)
-          PY
-          )"
-
-          echo "checkout=true" >> "${GITHUB_OUTPUT}"
-          echo "workflow_dir=${workspace}/workflow-src" >> "${GITHUB_OUTPUT}"
-          echo "repo=${repo}" >> "${GITHUB_OUTPUT}"
-          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+        # Pinned by SHA: this action performs the workflow-source
+        # resolution, so its own reference cannot be resolved
+        # dynamically. Bump the pin when the action changes.
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@e892eb3c7b21e688425f6b638ce00cf6a089407a
 
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}

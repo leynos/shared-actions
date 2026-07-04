@@ -129,8 +129,13 @@ uploaded `mutation-report-*` artefacts.
   sharded mutants matrix → summarize — reusing the dependabot-automerge
   OIDC source-resolution and `ACT` bypass pattern per job; default
   cargo-mutants pin 27.1.0, current stable at implementation time).
-- [ ] Stage C: `mutation-mutmut.yml` reusable workflow + helper scripts +
-  unit tests.
+- [x] Stage C: `mutation-mutmut.yml` reusable workflow + helper scripts +
+  unit tests (2026-07-04: single-job workflow with an inline detect step
+  reusing `mutation_detect_changes.py` with `*.py` pathspec;
+  `mutation_run_mutmut.py` combines run, results parsing, and summary —
+  no cross-job merge is needed because mutmut has no shard equivalent.
+  Changed files translate to module globs per the Stage A finding.
+  11 unit tests, faking `uv` on PATH).
 - [ ] Stage D: `act` integration tests for both workflows (guard path,
   dispatch path, summary generation with stubbed tools).
 - [ ] Stage E: caller documentation pages and README index updates.
@@ -247,6 +252,15 @@ work proceeds.
   `--all-features`) rather than a dedicated features input — cargo-
   mutants accepts arbitrary flags, and one pass-through input covers
   features, `--jobs`, and future needs without interface churn.
+- 2026-07-04: `mutation-mutmut.yml` requires the caller to be a
+  uv-managed project with `[tool.mutmut]` configured (`source_paths`,
+  test selection, runner); mutmut is injected via
+  `uv run --with mutmut==<pin>` so the caller's own dependency set is
+  used. pip-only projects are out of scope for the first release —
+  documented as a caller prerequisite. mutmut runs are never sharded
+  (no `--shard` equivalent exists) and never masked (mutmut already
+  exits 0 with survivors); a non-zero `mutmut run` means a failing
+  baseline or usage error and fails the job.
 - 2026-07-04: Integration tests stub the mutation tools rather than
   running real mutation testing under `act`. Rationale: real runs are
   unbounded in time and dominated by the tools themselves, which are not

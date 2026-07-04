@@ -161,6 +161,24 @@ work proceeds.
   crate produce predominantly false survivors when mutated against their
   own tests only. Impact: extra-crate handling is opt-in, with the caveat
   documented for callers.
+- Observation (2026-07-04, first full wireframe dispatch run): 1,821
+  mutants found; unmutated baseline 84s build + 120s test;
+  `--timeout-multiplier 3` auto-set the per-mutant timeout to 361s;
+  typical mutant cost ~16s build + ~12s test (≈28s), with timeout
+  mutants costing the full 361s. Total full-run cost ≈14–15 hours on a
+  single `ubuntu-latest` runner — far beyond any single-job
+  `timeout-minutes` ceiling (max 360). Impact: full (unscoped) runs must
+  shard; a single job only suffices for scoped daily runs. `--in-place`
+  cache reuse confirmed working (mutant builds ~16s vs 84s cold), and
+  `RUSTFLAGS: -D warnings` from setup-rust did not produce spurious
+  unviable mutants.
+- Observation (same run): survivor output mixes genuine assertion gaps
+  (preamble arithmetic, stream-rewind comparisons, session-registry
+  equality) with scaffolding noise (`src/codec/examples.rs`,
+  `src/test_helpers.rs`, `src/connection/test_support.rs`). Impact: the
+  cargo workflow should support an exclude-globs input mapped to
+  `cargo mutants --exclude` so callers can keep example and test-support
+  code out of the survivors table.
 
 ## Decision Log
 
@@ -176,6 +194,14 @@ work proceeds.
 - 2026-07-04: Tool version pins live in the reusable workflows with
   override inputs, not in callers. Rationale: report-format parsing and
   tool version must move together; callers should get working defaults.
+- 2026-07-04: Configurable sharding with `shard-count` defaulting to 6,
+  applied to full (dispatch) runs only. Rationale: the first full
+  wireframe run measured ~14–15 hours of single-job work for 1,821
+  mutants, which no `timeout-minutes` value can accommodate (GitHub caps
+  jobs at 360 minutes); 6 shards bring a wireframe-scale full run to
+  roughly 2.5–3 hours per leg with headroom under the 300-minute
+  default. Scoped daily runs stay single-shard because each shard
+  re-pays the baseline build-and-test cost for a handful of mutants.
 - 2026-07-04: Integration tests stub the mutation tools rather than
   running real mutation testing under `act`. Rationale: real runs are
   unbounded in time and dominated by the tools themselves, which are not
@@ -260,11 +286,32 @@ Record findings in this plan; they parameterize Stage C.
 4. `.github/workflows/mutation-cargo.yml`: `workflow_call` inputs —
    `paths` (default `src/**/*.rs,examples/**/*.rs,benches/**/*.rs`),
    `extra-crate-dirs` (default empty; wireframe's `wireframe_testing`
-   case), `window-hours` (25), `timeout-multiplier` (3),
-   `timeout-minutes` (300), `cargo-mutants-version` (pinned default),
-   `runs-on` (default `ubuntu-latest`). Single job, `contents: read`,
-   artefact uploads per target, `ACT` bypass mirroring
-   dependabot-automerge.
+   case), `exclude-globs` (default empty; mapped to
+   `cargo mutants --exclude` for example/test-support scaffolding),
+   `window-hours` (25), `timeout-multiplier` (3), `timeout-minutes`
+   (300), `cargo-mutants-version` (pinned default), `shard-count`
+   (default 6), `runs-on` (default `ubuntu-latest`). All jobs
+   `contents: read`, artefact uploads per target, `ACT` bypass
+   mirroring dependabot-automerge.
+5. Sharding design (from the measured wireframe full run — a single job
+   cannot finish ~1,800 mutants inside GitHub's 360-minute ceiling):
+   - A `detect` job computes `has_changes`, the scoped file lists, and
+     whether the run is full (dispatch) or scoped (scheduled), then
+     emits a shard matrix as a JSON array via `fromJSON`.
+   - **Scoped runs use a single shard** regardless of `shard-count`:
+     daily changed-file runs test tens of mutants, and each extra shard
+     pays the baseline cost (~3.5 minutes) again.
+   - **Full runs fan out** to `shard-count` matrix legs, each invoking
+     `cargo mutants --shard k/N` with otherwise identical arguments.
+     At the wireframe scale, 6 shards bring a full run to roughly
+     2.5–3 hours per leg, comfortably inside the default
+     `timeout-minutes: 300`.
+   - Each leg uploads `mutants.out/` as `mutation-report-<target>-<k>`;
+     a final `summarize` job (`if: always()`) downloads all shard
+     artefacts, merges the `outcomes` arrays, and renders one combined
+     job summary. The merge lives in
+     `workflow_scripts/mutation_summarize_cargo.py` alongside the
+     single-report path, with unit tests over multi-shard fixtures.
 
 ### Stage C: mutation-mutmut reusable workflow
 

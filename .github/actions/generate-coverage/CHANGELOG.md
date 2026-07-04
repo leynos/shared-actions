@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Ensure a pinned `cargo-binstall` (`v1.16.6`) is present before installing
+- Ensure a pinned `cargo-binstall` (`v1.19.1`) is present before installing
   Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
   existing binary against the pinned version and reuses it only on a match;
   otherwise it downloads the checksum-pinned installer script and verifies the

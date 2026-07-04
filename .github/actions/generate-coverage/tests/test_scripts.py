@@ -3102,14 +3102,14 @@ def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
 def _write_fake_binstall_installer(
     tmp_path: Path,
     *,
-    installed_version: str = "1.16.6",
+    installed_version: str = "1.19.1",
 ) -> None:
     """Write fake curl, sha256sum, and bash commands for installer-path tests."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     install_log = tmp_path / "installer.log"
     version_log = tmp_path / "binstall-version.log"
-    checksum = "c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+    checksum = "d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
 
     _write_executable(
         bin_dir / "curl",
@@ -3167,7 +3167,7 @@ def test_generate_coverage_binstall_fast_path_verifies_existing_version(
     tmp_path: Path,
 ) -> None:
     """An existing cargo-binstall is reused only after version verification."""
-    _write_existing_cargo_binstall(tmp_path, "1.16.6")
+    _write_existing_cargo_binstall(tmp_path, "1.19.1")
     _write_executable(
         tmp_path / "bin" / "curl",
         """#!/bin/sh
@@ -3181,7 +3181,7 @@ exit 99
     returncode, stdout, stderr = result
     assert returncode == 0, stderr
     assert (tmp_path / "existing-binstall.log").read_text(encoding="utf-8") == "-V\n"
-    assert "cargo-binstall already installed: cargo-binstall 1.16.6" in stdout
+    assert "cargo-binstall already installed: cargo-binstall 1.19.1" in stdout
 
 
 def test_generate_coverage_binstall_mismatch_installs_pinned_version(
@@ -3195,9 +3195,9 @@ def test_generate_coverage_binstall_mismatch_installs_pinned_version(
 
     returncode, stdout, stderr = result
     assert returncode == 0, stderr
-    assert "version mismatch: expected 1.16.6, found cargo-binstall 1.15.0" in (stderr)
+    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0" in (stderr)
     assert (tmp_path / "installer.log").read_text(encoding="utf-8")
-    assert "cargo-binstall cargo-binstall 1.16.6 verified" in stdout
+    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
 
 
 def test_generate_coverage_binstall_install_verifies_installed_version(
@@ -3210,7 +3210,7 @@ def test_generate_coverage_binstall_install_verifies_installed_version(
 
     returncode, _stdout, stderr = result
     assert returncode == 1
-    assert "cargo-binstall version verification failed: expected 1.16.6" in (stderr)
+    assert "cargo-binstall version verification failed: expected 1.19.1" in (stderr)
 
 
 def test_generate_coverage_binstall_exports_pinned_version_to_installer(
@@ -3226,7 +3226,7 @@ def test_generate_coverage_binstall_exports_pinned_version_to_installer(
     version_seen = (tmp_path / "binstall-version.log").read_text(encoding="utf-8")
     # Without `export`, the installer subshell sees BINSTALL_VERSION unset and
     # would silently fall back to releases/latest.
-    assert version_seen.strip() == "v1.16.6"
+    assert version_seen.strip() == "v1.19.1"
 
 
 def test_generate_coverage_binstall_appends_cargo_bin_to_github_path(

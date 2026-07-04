@@ -51,7 +51,7 @@ action and the evolution of its supporting scripts.
 - *2026-07-04* — `generate-coverage` now provisions its own pinned
   `cargo-binstall` before installing Rust coverage tooling, mirroring the
   `setup-rust` approach. The "Ensure cargo-binstall" step verifies any existing
-  `cargo-binstall` against the pinned version (`v1.16.6`) and reuses it only on
+  `cargo-binstall` against the pinned version (`v1.19.1`) and reuses it only on
   a match; on a mismatch, or when the binary is absent, it downloads the
   SHA-256-pinned installer script and verifies the freshly installed binary's
   version before continuing. This stops `cargo-llvm-cov` and `cargo-nextest`

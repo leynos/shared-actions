@@ -135,7 +135,7 @@ runs:
         # Export so the child installer shell inherits it; the installer reads
         # BINSTALL_VERSION from the environment to pick the pinned release and
         # otherwise silently falls back to releases/latest.
-        export BINSTALL_VERSION="v1.16.6"
+        export BINSTALL_VERSION="v1.19.1"
         binstall_ver="${BINSTALL_VERSION#v}"
         if command -v cargo-binstall >/dev/null 2>&1; then
           existing_version="$(cargo-binstall -V)"
@@ -145,7 +145,7 @@ runs:
           fi
           echo "cargo-binstall version mismatch: expected $binstall_ver, found $existing_version; reinstalling pinned version" >&2
         fi
-        BINSTALL_SHA256="c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
+        BINSTALL_SHA256="d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
         INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
         INSTALLER_PATH="$(mktemp)"
         trap 'rm -f "$INSTALLER_PATH"' EXIT

@@ -1,0 +1,18 @@
+name: Test mutation testing (mutmut)
+
+on:
+  schedule:
+    - cron: "0 12 31 2 *" # Never fires (31 February); act-only trigger
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/mutation-mutmut.yml
+    with:
+      # Prefixes that never match: scheduled runs deterministically take
+      # the skip path regardless of recent repository history.
+      paths: "act-test-no-such-dir/"
+      base-ref: HEAD

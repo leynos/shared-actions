@@ -136,8 +136,11 @@ uploaded `mutation-report-*` artefacts.
   no cross-job merge is needed because mutmut has no shard equivalent.
   Changed files translate to module globs per the Stage A finding.
   11 unit tests, faking `uv` on PATH).
-- [ ] Stage D: `act` integration tests for both workflows (guard path,
-  dispatch path, summary generation with stubbed tools).
+- [x] Stage D: `act` integration tests (2026-07-04: wrapper workflows
+  `test-mutation-cargo.yml` / `test-mutation-mutmut.yml` with schedule
+  and dispatch triggers; `tests/workflows/test_mutation_workflows.py`
+  exercises the guard skip path end-to-end under act. See the Decision
+  Log for why the mutation-run path is not act-tested).
 - [ ] Stage E: caller documentation pages and README index updates.
 - [ ] Stage F: gates (`check-fmt`, `typecheck`, `lint`, `test`,
   `ACT_WORKFLOW_TESTS=1 make test`), CodeRabbit review, commit.
@@ -261,11 +264,18 @@ work proceeds.
   (no `--shard` equivalent exists) and never masked (mutmut already
   exits 0 with survivors); a non-zero `mutmut run` means a failing
   baseline or usage error and fails the job.
-- 2026-07-04: Integration tests stub the mutation tools rather than
-  running real mutation testing under `act`. Rationale: real runs are
-  unbounded in time and dominated by the tools themselves, which are not
-  what these tests protect; the workflow logic (guard, scoping, exit
-  codes, summary, artefacts) is fully exercisable with synthetic reports.
+- 2026-07-04 (revising the earlier stubbed-tools intent): act
+  integration tests cover the guard/skip path only. The original plan
+  assumed mutation tools could be stubbed under act, but the harness
+  offers no way to inject binaries onto a reusable-workflow job's PATH
+  inside the container (callers cannot add steps to a `workflow_call`
+  job, and `run_act` only forwards environment variables). The skip-path
+  tests still execute the real detection script (git scan, output
+  wiring, skip summary) and the whole workflow-call plumbing under act;
+  wrapper workflows pass never-matching path prefixes so the result is
+  deterministic regardless of repository history. The mutation-run and
+  summary paths are covered by 47 unit tests over the helper scripts
+  and validated for real in Stage G's pilot repositories.
 
 ## Outcomes & Retrospective
 

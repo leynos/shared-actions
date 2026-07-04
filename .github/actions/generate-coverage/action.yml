@@ -110,6 +110,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: |
+          ~/.cargo/bin/cargo-binstall
           ~/.cargo/bin/cargo-llvm-cov
           ~/.cargo/bin/cargo-nextest
           ~/.cargo/registry
@@ -137,9 +138,18 @@ runs:
         # otherwise silently falls back to releases/latest.
         export BINSTALL_VERSION="v1.19.1"
         binstall_ver="${BINSTALL_VERSION#v}"
+        # Match the pinned version as a whole, space-delimited token so a
+        # look-alike such as 1.19.10 does not satisfy a 1.19.1 pin. The `-V`
+        # output may be a bare version ("1.19.1") or "<name> <version>".
+        binstall_version_matches() {
+          case " $1 " in
+            *" ${binstall_ver} "*) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
         if command -v cargo-binstall >/dev/null 2>&1; then
           existing_version="$(cargo-binstall -V)"
-          if printf '%s\n' "$existing_version" | grep -qF "$binstall_ver"; then
+          if binstall_version_matches "$existing_version"; then
             echo "cargo-binstall already installed: $existing_version"
             exit 0
           fi
@@ -169,12 +179,13 @@ runs:
           echo "$cargo_home_bin" >> "$GITHUB_PATH"
         fi
         cargo_binstall="$cargo_home_bin/cargo-binstall"
-        if ! "$cargo_binstall" -V | grep -qF "$binstall_ver"; then
+        installed_version="$("$cargo_binstall" -V)"
+        if ! binstall_version_matches "$installed_version"; then
           echo "cargo-binstall version verification failed: expected $binstall_ver" >&2
-          "$cargo_binstall" -V >&2
+          printf '%s\n' "$installed_version" >&2
           exit 1
         fi
-        echo "cargo-binstall $("$cargo_binstall" -V) verified"
+        echo "cargo-binstall $installed_version verified"
       shell: bash
     - name: Install cargo-llvm-cov
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'

@@ -3200,6 +3200,23 @@ def test_generate_coverage_binstall_mismatch_installs_pinned_version(
     assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
 
 
+def test_generate_coverage_binstall_rejects_longer_version_look_alike(
+    tmp_path: Path,
+) -> None:
+    """A 1.19.10 binary must not satisfy the 1.19.1 pin via substring match."""
+    _write_existing_cargo_binstall(tmp_path, "1.19.10")
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, stdout, stderr = result
+    assert returncode == 0, stderr
+    # The look-alike is rejected and the pinned installer runs instead.
+    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10" in stderr
+    assert (tmp_path / "installer.log").exists()
+    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
+
+
 def test_generate_coverage_binstall_install_verifies_installed_version(
     tmp_path: Path,
 ) -> None:

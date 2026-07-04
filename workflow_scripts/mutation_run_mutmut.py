@@ -126,6 +126,22 @@ def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
     return globs
 
 
+def _parse_result_line(line: str) -> MutantResult | None:
+    """Parse one output line into a mutant result, or None for noise.
+
+    A result line has the form ``name: status`` where ``name`` is a
+    space-free mutant name containing the ``__mutmut_`` marker; anything
+    else (warnings, blank lines, progress output) is noise.
+    """
+    name, separator, status = line.partition(": ")
+    if not separator:
+        return None
+    is_mutant_name = " " not in name and "__mutmut_" in name
+    if not is_mutant_name:
+        return None
+    return MutantResult(name=name, status=status.strip())
+
+
 def parse_results(text: str) -> list[MutantResult]:
     """Parse ``mutmut results --all true`` output into mutant results.
 
@@ -141,14 +157,8 @@ def parse_results(text: str) -> list[MutantResult]:
         Parsed results, in output order. Lines that do not look like
         mutant results (warnings, blank lines) are ignored.
     """
-    results: list[MutantResult] = []
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        name, separator, status = line.partition(": ")
-        if not separator or " " in name or "__mutmut_" not in name:
-            continue
-        results.append(MutantResult(name=name, status=status.strip()))
-    return results
+    parsed = (_parse_result_line(raw_line.strip()) for raw_line in text.splitlines())
+    return [result for result in parsed if result is not None]
 
 
 def count_statuses(results: list[MutantResult]) -> dict[str, int]:

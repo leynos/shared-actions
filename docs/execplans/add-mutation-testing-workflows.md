@@ -241,6 +241,12 @@ work proceeds.
   coincidental pass is a reminder that platform-conditional skips must
   cover *all* shim-dependent tests, not just the failing ones.
 
+- Observation (2026-07-04, CodeScene on PR #319): advisory code-health
+  rules flagged `build_arguments` (excess function arguments — seven
+  keywords) and `parse_results` (complex conditional). Fixed by
+  introducing the `MutantsInvocation` parameter object and extracting
+  `_parse_result_line`; all gates re-verified green.
+
 ## Decision Log
 
 - 2026-07-04: Reusable workflows, not composite actions. Rationale: the

@@ -26,7 +26,7 @@ class TestBuildArguments:
 
     def test_defaults_produce_minimal_invocation(self) -> None:
         """Defaults yield an unscoped, unsharded root run."""
-        assert run_cargo.build_arguments() == [
+        assert run_cargo.build_arguments(run_cargo.MutantsInvocation()) == [
             "mutants",
             "--in-place",
             "--timeout-multiplier",
@@ -35,16 +35,20 @@ class TestBuildArguments:
 
     def test_files_become_repeated_file_arguments(self) -> None:
         """Each scoped file adds a ``--file`` argument."""
-        arguments = run_cargo.build_arguments(files="src/a.rs src/b.rs")
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(files="src/a.rs src/b.rs")
+        )
         assert arguments[-4:] == ["--file", "src/a.rs", "--file", "src/b.rs"]
 
     def test_shard_and_dir_and_excludes(self) -> None:
         """Sharding, target dir, and exclude globs are all emitted."""
         arguments = run_cargo.build_arguments(
-            shard=2,
-            shard_count=6,
-            target_dir="testkit",
-            exclude_globs="src/examples.rs, src/test_helpers.rs",
+            run_cargo.MutantsInvocation(
+                shard=2,
+                shard_count=6,
+                target_dir="testkit",
+                exclude_globs="src/examples.rs, src/test_helpers.rs",
+            )
         )
         assert arguments[4:6] == ["--dir", "testkit"]
         assert arguments[6:8] == ["--shard", "2/6"]
@@ -57,7 +61,9 @@ class TestBuildArguments:
 
     def test_extra_args_are_shell_lexed(self) -> None:
         """Extra arguments append verbatim after shell lexing."""
-        arguments = run_cargo.build_arguments(extra_args="--all-features -v")
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(extra_args="--all-features -v")
+        )
         assert arguments[-2:] == ["--all-features", "-v"]
 
 

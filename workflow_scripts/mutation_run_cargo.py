@@ -52,6 +52,7 @@ As a workflow step::
 
 from __future__ import annotations
 
+import dataclasses
 import shlex
 import typing as typ
 
@@ -78,19 +79,11 @@ EXIT_CODE_MEANINGS = {
 }
 
 
-def build_arguments(
-    *,
-    files: str = "",
-    shard: int = 0,
-    shard_count: int = 1,
-    timeout_multiplier: str = "3",
-    exclude_globs: str = "",
-    extra_args: str = "",
-    target_dir: str = ".",
-) -> list[str]:
-    """Build the ``cargo mutants`` argument list for one matrix target.
+@dataclasses.dataclass(frozen=True, slots=True)
+class MutantsInvocation:
+    """Configuration for one ``cargo mutants`` matrix target.
 
-    Parameters
+    Attributes
     ----------
     files : str
         Space-separated file paths relative to ``target_dir``.
@@ -106,6 +99,24 @@ def build_arguments(
         Extra arguments appended verbatim (shell-lexed).
     target_dir : str
         Crate directory; values other than ``.`` emit ``--dir``.
+    """
+
+    files: str = ""
+    shard: int = 0
+    shard_count: int = 1
+    timeout_multiplier: str = "3"
+    exclude_globs: str = ""
+    extra_args: str = ""
+    target_dir: str = "."
+
+
+def build_arguments(invocation: MutantsInvocation) -> list[str]:
+    """Build the ``cargo mutants`` argument list for one matrix target.
+
+    Parameters
+    ----------
+    invocation : MutantsInvocation
+        Target configuration (scoped files, sharding, excludes).
 
     Returns
     -------
@@ -116,18 +127,18 @@ def build_arguments(
         "mutants",
         "--in-place",
         "--timeout-multiplier",
-        timeout_multiplier,
+        invocation.timeout_multiplier,
     ]
-    if target_dir != ".":
-        arguments.extend(["--dir", target_dir])
-    if shard_count > 1:
-        arguments.extend(["--shard", f"{shard}/{shard_count}"])
-    for name in files.split():
+    if invocation.target_dir != ".":
+        arguments.extend(["--dir", invocation.target_dir])
+    if invocation.shard_count > 1:
+        arguments.extend(["--shard", f"{invocation.shard}/{invocation.shard_count}"])
+    for name in invocation.files.split():
         arguments.extend(["--file", name])
-    for glob in (g.strip() for g in exclude_globs.split(",")):
+    for glob in (g.strip() for g in invocation.exclude_globs.split(",")):
         if glob:
             arguments.extend(["--exclude", glob])
-    arguments.extend(shlex.split(extra_args))
+    arguments.extend(shlex.split(invocation.extra_args))
     return arguments
 
 
@@ -192,13 +203,15 @@ def main(
         fail(f"shard must be in [0, {shard_count}), got {shard}")
 
     arguments = build_arguments(
-        files=files,
-        shard=shard,
-        shard_count=shard_count,
-        timeout_multiplier=timeout_multiplier,
-        exclude_globs=exclude_globs,
-        extra_args=extra_args,
-        target_dir=target_dir,
+        MutantsInvocation(
+            files=files,
+            shard=shard,
+            shard_count=shard_count,
+            timeout_multiplier=timeout_multiplier,
+            exclude_globs=exclude_globs,
+            extra_args=extra_args,
+            target_dir=target_dir,
+        )
     )
     emit("mutation_cargo_command", ["cargo", *arguments])
     code = local["cargo"][arguments] & RETCODE(FG=True)

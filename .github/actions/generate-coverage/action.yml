@@ -132,7 +132,10 @@ runs:
         # If a stronger supply-chain posture is required (similar to cargo-nextest),
         # extend this step to also verify the checksum of the downloaded cargo-binstall
         # artefact before invoking it, assuming such checksums are available upstream.
-        BINSTALL_VERSION="v1.16.6"
+        # Export so the child installer shell inherits it; the installer reads
+        # BINSTALL_VERSION from the environment to pick the pinned release and
+        # otherwise silently falls back to releases/latest.
+        export BINSTALL_VERSION="v1.16.6"
         binstall_ver="${BINSTALL_VERSION#v}"
         if command -v cargo-binstall >/dev/null 2>&1; then
           existing_version="$(cargo-binstall -V)"

@@ -1,7 +1,7 @@
 # Build macOS package
 
 Build a distributable macOS installer package (`.pkg`) from a compiled CLI
-binary along with optional man pages and license documentation. The action
+binary along with optional man pages and licence documentation. The action
 mirrors the manual `pkgbuild`/`productbuild` flow while keeping the logic in
 repeatable Python scripts.
 
@@ -17,8 +17,8 @@ executing any packaging commands.
 | `install-prefix`         | Installation prefix within the target filesystem.                                             | no       | `/usr/local` |
 | `binary`                 | Path to the compiled binary to install.                                                       | yes      | –            |
 | `manpage`                | Optional path to a man page (`.1`, `.1.gz`, etc.) to embed.                                   | no       | empty        |
-| `license-file`           | Path to the license text copied into the package and optional UI.                             | no       | `LICENSE`    |
-| `include-license-panel`  | Show the license text inside the installer UI (requires `license-file`).                      | no       | `false`      |
+| `license-file`           | Path to the licence text copied into the package and optional UI.                             | no       | `LICENSE`    |
+| `include-license-panel`  | Show the licence text inside the installer UI (requires `license-file`).                      | no       | `false`      |
 | `version`                | Override the package version. Defaults to the Git tag (`v*`) or falls back to the commit SHA. | no       | derived      |
 | `developer-id-installer` | Developer ID Installer identity used with `productsign` for notarized packages.               | no       | empty        |
 
@@ -71,10 +71,10 @@ jobs:
   machine. The binary is installed under `<install-prefix>/bin/<name>`, an
   optional man page is compressed to
   `<install-prefix>/share/man/man<section>/<name>.<section>.gz`, and the
-  license is copied to `<install-prefix>/share/doc/<name>/LICENSE` when present.
+  licence is copied to `<install-prefix>/share/doc/<name>/LICENSE` when present.
 - When `include-license-panel` is `true`, the action renders a Distribution XML
-  and copies the license text into `Resources/` so the installer shows a
-  license acceptance step.
+  and copies the licence text into `Resources/` so the installer shows a
+  licence acceptance step.
 - Providing `developer-id-installer` triggers `productsign`, producing
   `<name>-<version>-signed.pkg` alongside the unsigned archive.
 - Set the optional `TAG_VERSION_PREFIX` environment variable to adjust the tag

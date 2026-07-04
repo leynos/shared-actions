@@ -11,7 +11,7 @@ via nFPM.
 
 | Name         | Type   | Default                    | Description                                                                                                                            | Required |
 | ------------ | ------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| project-dir  | string | `.`                        | Directory containing the compiled binary, man pages and optional license file.                                                         | no       |
+| project-dir  | string | `.`                        | Directory containing the compiled binary, man pages and optional licence file.                                                         | no       |
 | package-name | string | _empty_                    | Package identifier written to the nFPM manifest. Defaults to `bin-name` when omitted.                                                  | no       |
 | bin-name     | string | —                          | Name of the release binary to package.                                                                                                 | yes      |
 | target       | string | `x86_64-unknown-linux-gnu` | Rust target triple used for the build.                                                                                                 | no       |
@@ -21,7 +21,7 @@ via nFPM.
 | arch         | string | _empty_                    | Override the nFPM/GOARCH architecture. Auto-detected from `target` when not set.                                                       | no       |
 | maintainer   | string | _empty_                    | Maintainer entry for the generated package metadata.                                                                                   | no       |
 | homepage     | string | _empty_                    | Homepage URL recorded in package metadata.                                                                                             | no       |
-| license      | string | _empty_                    | Software license declared in the package metadata.                                                                                     | no       |
+| license      | string | _empty_                    | Software licence declared in the package metadata.                                                                                     | no       |
 | section      | string | _empty_                    | Package section/category used by Debian-based distributions.                                                                           | no       |
 | description  | string | _empty_                    | Long description stored in the package metadata.                                                                                       | no       |
 | man-paths    | string | _empty_                    | Comma-, space-, or newline-separated list of man page paths relative to `project-dir`.                                                 | no       |

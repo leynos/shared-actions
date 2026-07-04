@@ -3108,6 +3108,7 @@ def _write_fake_binstall_installer(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     install_log = tmp_path / "installer.log"
+    version_log = tmp_path / "binstall-version.log"
     checksum = "c2e963fbab3bdd8653b59c28d349bf85740cf4998e5e398d250dcd2884cd667d"
 
     _write_executable(
@@ -3137,6 +3138,7 @@ printf '%s  %s\\n' "{checksum}" "$1"
         bin_dir / "bash",
         f"""#!/bin/sh
 printf '%s\\n' "$*" >> "{install_log}"
+printf '%s\\n' "${{BINSTALL_VERSION:-UNSET}}" >> "{version_log}"
 mkdir -p "$CARGO_HOME/bin"
 cat > "$CARGO_HOME/bin/cargo-binstall" <<'ENDOFINSTALL'
 #!/bin/sh
@@ -3209,6 +3211,60 @@ def test_generate_coverage_binstall_install_verifies_installed_version(
     returncode, _stdout, stderr = result
     assert returncode == 1
     assert "cargo-binstall version verification failed: expected 1.16.6" in (stderr)
+
+
+def test_generate_coverage_binstall_exports_pinned_version_to_installer(
+    tmp_path: Path,
+) -> None:
+    """The pinned version is exported so the child installer inherits it."""
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 0, stderr
+    version_seen = (tmp_path / "binstall-version.log").read_text(encoding="utf-8")
+    # Without `export`, the installer subshell sees BINSTALL_VERSION unset and
+    # would silently fall back to releases/latest.
+    assert version_seen.strip() == "v1.16.6"
+
+
+def test_generate_coverage_binstall_appends_cargo_bin_to_github_path(
+    tmp_path: Path,
+) -> None:
+    """A successful install appends the Cargo bin directory to GITHUB_PATH."""
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 0, stderr
+    github_path = (tmp_path / "github-path").read_text(encoding="utf-8")
+    expected_bin = str(tmp_path / "cargo-home" / "bin")
+    assert expected_bin in github_path.splitlines()
+
+
+def test_generate_coverage_binstall_checksum_mismatch_aborts(
+    tmp_path: Path,
+) -> None:
+    """A bad installer checksum aborts before the installer script runs."""
+    _write_fake_binstall_installer(tmp_path)
+    # Override sha256sum to report a non-matching digest.
+    _write_executable(
+        tmp_path / "bin" / "sha256sum",
+        """#!/bin/sh
+z16=0000000000000000
+printf '%s  %s\\n' "$z16$z16$z16$z16" "$1"
+""",
+    )
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 1
+    assert "install script checksum mismatch" in stderr
+    # The installer script must not run when the checksum does not match.
+    assert not (tmp_path / "installer.log").exists()
 
 
 def _python_step_env_contract() -> dict[str, str]:

@@ -112,21 +112,20 @@ The `Makefile` resolves optional local tool installations before falling back
 to bare names on `PATH`. The following variables are set at the top of
 `Makefile` and may be overridden on the command line:
 
-| Variable            | Default resolution order                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------------------------- |
-| `UV`                | `~/.local/bin/uv`, otherwise `uv`                                                                        |
-| `ACTION_VALIDATOR`  | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` (on `PATH`) |
-| `MDLINT`            | `~/.bun/bin/markdownlint`, then `PATH`                                                                   |
-| `MARKDOWNLINT_BASE` | `origin/main` for the markdownlint diff base                                                             |
+| Variable           | Default resolution order                                                                                 |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `UV`               | `~/.local/bin/uv`, otherwise `uv`                                                                        |
+| `ACTION_VALIDATOR` | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` (on `PATH`) |
+| `MDLINT`           | `~/.bun/bin/markdownlint-cli2`, then `PATH`                                                              |
 
 For `ACTION_VALIDATOR`, the concrete lookup order is
 `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then
 `action-validator`.
 
-Example — use a system `uv` and a custom markdownlint base:
+Example — use a system `uv`:
 
 ```bash
-make lint UV=uv MARKDOWNLINT_BASE=origin/develop
+make lint UV=uv
 ```
 
 ## 5  Security Hardening

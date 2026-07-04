@@ -1,7 +1,7 @@
 # Changelog
 
-All notable changes to the `upload-release-assets` action will be documented
-in this file.
+All notable changes to the `upload-release-assets` action will be documented in
+this file.
 
 ## v1.0.0 (Unreleased)
 

@@ -10,9 +10,9 @@ Status: DRAFT (team review in progress)
 
 Add comprehensive regression test coverage for conditional action dependency
 manifest functionality. This feature enables GitHub Actions (or similar
-workflow systems) to express conditional execution (`when` clauses),
-iteration patterns (`foreach`), and dependency relationships between actions.
-After this change, the system has demonstrable confidence that:
+workflow systems) to express conditional execution (`when` clauses), iteration
+patterns (`foreach`), and dependency relationships between actions. After this
+change, the system has demonstrable confidence that:
 
 - Actions with `when` conditions execute only when their conditions are true.
 - Actions with `foreach` iterate correctly over specified ranges and
@@ -57,31 +57,25 @@ Hard invariants that must hold throughout implementation:
 ## Risks
 
 - Risk: Conditional action semantics may not be fully documented.
-  Severity: high (MITIGATED by firecrawl research 2026-06-15)
-  Likelihood: medium → low
-  Mitigation: Research confirmed GitHub Actions conditionals are deterministic
-  and well-specified. Semantics are well-grounded in prior art.
+  Severity: high (MITIGATED by firecrawl research 2026-06-15) Likelihood:
+  medium → low Mitigation: Research confirmed GitHub Actions conditionals are
+  deterministic and well-specified. Semantics are well-grounded in prior art.
 
 - Risk: IR representation and Ninja emission have subtle correctness
-  requirements.
-  Severity: medium
-  Likelihood: high
-  Mitigation: Use snapshot tests (insta) and bounded model checking (kani).
+  requirements. Severity: medium Likelihood: high Mitigation: Use snapshot
+  tests (insta) and bounded model checking (kani).
 
 - Risk: Test runner branches (nextest vs. legacy) may have subtle differences.
-  Severity: medium
-  Likelihood: medium
-  Mitigation: Use parametrised tests; property-based testing for consistency.
+  Severity: medium Likelihood: medium Mitigation: Use parametrised tests;
+  property-based testing for consistency.
 
 - Risk: Absent-command fallback path may not be reachable in tests.
-  Severity: medium
-  Likelihood: low
-  Mitigation: Inject test doubles; verify via code coverage.
+  Severity: medium Likelihood: low Mitigation: Inject test doubles; verify via
+  code coverage.
 
 - Risk: `ortho_config` system may be unfamiliar to maintainers.
-  Severity: low
-  Likelihood: high
-  Mitigation: Clear comments and docstring examples in test modules.
+  Severity: low Likelihood: high Mitigation: Clear comments and docstring
+  examples in test modules.
 
 ## Progress
 
@@ -100,39 +94,32 @@ To be populated as work proceeds.
 ## Decision log
 
 - **Decision**: Use firecrawl to research GitHub Actions conditional execution
-  before designing tests.
-  **Rationale**: GitHub Actions is mature and documented. Prior art informs
-  test strategy.
-  **Research findings** (2026-06-15): GitHub Actions conditions use
-  JavaScript-like boolean logic with context variable substitution.
-  Available contexts: `github`, `env`, `secrets`, `matrix`, `needs`, `vars`.
-  Evaluation is deterministic: strings truthy unless empty, null/undefined
-  falsy, numeric coercion in comparisons. Snapshot testing is reliable.
-  **Date**: 2026-06-15.
+  before designing tests. **Rationale**: GitHub Actions is mature and
+  documented. Prior art informs test strategy. **Research findings**
+  (2026-06-15): GitHub Actions conditions use JavaScript-like boolean logic
+  with context variable substitution. Available contexts: `github`, `env`,
+  `secrets`, `matrix`, `needs`, `vars`. Evaluation is deterministic: strings
+  truthy unless empty, null/undefined falsy, numeric coercion in comparisons.
+  Snapshot testing is reliable. **Date**: 2026-06-15.
 
 - **Decision**: Use snapshot tests (insta) for Ninja build statement output.
   **Rationale**: Output format is stable but complex; snapshots make diffs
-  explicit and catch unintended changes.
-  **Research findings** (2026-06-15): Ninja uses DAG-based representation
-  (rules, edges). .ninja syntax is deterministic. Mature systems (Ninja,
-  Bazel, CMake) use golden-file snapshots. Strategy: combine snapshot tests
-  (catch unexpected changes) with property tests (catch systematic bugs).
-  **Date**: 2026-06-15.
+  explicit and catch unintended changes. **Research findings** (2026-06-15):
+  Ninja uses DAG-based representation (rules, edges). .ninja syntax is
+  deterministic. Mature systems (Ninja, Bazel, CMake) use golden-file
+  snapshots. Strategy: combine snapshot tests (catch unexpected changes) with
+  property tests (catch systematic bugs). **Date**: 2026-06-15.
 
 - **Decision**: Use parametrised tests (rstest) for nextest and legacy
-  branches.
-  **Rationale**: Reduces duplication; ensures both branches tested
+  branches. **Rationale**: Reduces duplication; ensures both branches tested
   identically. Clear test names (e.g., `test_conditional_step_with_matrix`)
-  improve maintainability.
-  **Date**: 2026-06-15.
+  improve maintainability. **Date**: 2026-06-15.
 
 - **Decision**: Focus validation on parse-time checks before snapshot
-  matching.
-  **Rationale**: Parse-time validation is cheap and catches most errors. All
-  mature build systems validate at parse time.
-  **Validation checklist**: No cycles, all explicit deps declared, no orphaned
-  targets, proper escaping in Ninja output.
-  **Date**: 2026-06-15.
+  matching. **Rationale**: Parse-time validation is cheap and catches most
+  errors. All mature build systems validate at parse time. **Validation
+  checklist**: No cycles, all explicit deps declared, no orphaned targets,
+  proper escaping in Ninja output. **Date**: 2026-06-15.
 
 ## Outcomes & retrospective
 
@@ -140,8 +127,7 @@ To be filled after completion.
 
 ## Context and orientation
 
-This project is a GitHub Actions validation suite built in Rust. Key
-components:
+This project is a GitHub Actions validation suite built in Rust. Key components:
 
 - `rust-toy-app/` — test fixture application
 - `rust-toy-app/tests/` — integration and BDD tests
@@ -480,8 +466,7 @@ pub enum TestRunner {
 ### Configuration
 
 - `ortho_config` — layered configuration for test setup
-- Makefile targets: `make test`, `make lint`, `make typecheck`, `make
-  check-fmt`
+- Makefile targets: `make test`, `make lint`, `make typecheck`, `make check-fmt`
 
 ## Related Documentation
 

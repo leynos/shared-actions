@@ -1,7 +1,6 @@
 # ADR 0002: Explicit ps-module-name for PowerShell sidecars
 
-**Status:** Accepted
-**Date:** 2026-05-19
+**Status:** Accepted **Date:** 2026-05-19
 
 ## Context
 
@@ -31,8 +30,8 @@ Non-Windows callers omit `ps-module-name` with zero cost. Windows callers that
 stage PowerShell sidecars must provide the module name explicitly.
 
 The output is safer and deterministic. The action avoids ambiguous
-auto-detection, parent-directory traversal, nested module paths, and fewer false
-positives on case-insensitive filesystems.
+auto-detection, parent-directory traversal, nested module paths, and fewer
+false positives on case-insensitive filesystems.
 
 ## Implementation Notes
 

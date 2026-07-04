@@ -40,9 +40,9 @@ normalization prevents duplicates when the same location is spelled different
 ways.
 
 To add paths only temporarily, use `temp_syspath()` as a context manager. It
-normalizes and deduplicates the supplied paths, mutates `sys.path`
-according to the requested `mode`, and restores the original `sys.path` list
-(not just its contents) on exit.
+normalizes and deduplicates the supplied paths, mutates `sys.path` according to
+the requested `mode`, and restores the original `sys.path` list (not just its
+contents) on exit.
 
 For module-local imports, `ensure_module_dir(__file__, *, mode=...)` resolves
 the directory containing the provided `__file__` and adds it to `sys.path` in

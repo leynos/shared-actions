@@ -8,17 +8,17 @@ type and optional input overrides.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-| ---- | ----------- | -------- | ------- |
-| `dry-run` | Override dry-run mode (auto-detected from event when empty) | no | `""` |
-| `publish` | Override publish flag (auto-detected from event when empty) | no | `""` |
+| Name      | Description                                                 | Required | Default |
+| --------- | ----------------------------------------------------------- | -------- | ------- |
+| `dry-run` | Override dry-run mode (auto-detected from event when empty) | no       | `""`    |
+| `publish` | Override publish flag (auto-detected from event when empty) | no       | `""`    |
 
 ## Outputs
 
-| Name | Description |
-| ---- | ----------- |
-| `dry-run` | `"true"` or `"false"` indicating dry-run mode |
-| `should-publish` | `"true"` or `"false"` indicating whether to publish to a release |
+| Name                               | Description                                                           |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `dry-run`                          | `"true"` or `"false"` indicating dry-run mode                         |
+| `should-publish`                   | `"true"` or `"false"` indicating whether to publish to a release      |
 | `should-upload-workflow-artifacts` | `"true"` or `"false"` indicating whether to upload workflow artefacts |
 
 ## Usage
@@ -55,11 +55,11 @@ type and optional input overrides.
 
 The action derives modes based on the GitHub event type:
 
-| Event | Default dry-run | Default publish | Artefacts |
-|-------|-----------------|-----------------|-----------|
-| `push` (tag) | `false` | `true` | Uploaded |
-| `workflow_call` | From inputs | From inputs | If not dry-run |
-| `pull_request` | `true` | `false` | None |
+| Event           | Default dry-run | Default publish | Artefacts      |
+| --------------- | --------------- | --------------- | -------------- |
+| `push` (tag)    | `false`         | `true`          | Uploaded       |
+| `workflow_call` | From inputs     | From inputs     | If not dry-run |
+| `pull_request`  | `true`          | `false`         | None           |
 
 ### Rules
 

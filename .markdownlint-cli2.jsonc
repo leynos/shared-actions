@@ -8,7 +8,14 @@
       "tables": false,
       "headings": false
     },
-    "MD029": { "style": "ordered" }
+    "MD029": { "style": "ordered" },
+    "MD046": { "style": "fenced" }
   },
-  "ignores": ["**/.venv/**", ".node_modules/**", "**/node_modules/**", "**/target/**"]
+  "ignores": [
+    "**/.venv/**",
+    ".node_modules/**",
+    "**/node_modules/**",
+    "**/target/**",
+    "tests/fixtures/golden/**/*.md"
+  ]
 }

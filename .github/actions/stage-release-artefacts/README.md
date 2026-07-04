@@ -11,27 +11,27 @@ glob patterns, template variables, and optional artefacts.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-| ---- | ----------- | -------- | ------- |
-| `config-file` | Path to the TOML staging configuration file | yes | - |
-| `target` | Target key from the configuration file | yes | - |
-| `normalize-windows-paths` | Convert backslashes to forward slashes in outputs | no | `"false"` |
-| `ps-module-name` | PowerShell module sidecar directory name, when staged | no | `''` |
+| Name                      | Description                                           | Required | Default   |
+| ------------------------- | ----------------------------------------------------- | -------- | --------- |
+| `config-file`             | Path to the TOML staging configuration file           | yes      | -         |
+| `target`                  | Target key from the configuration file                | yes      | -         |
+| `normalize-windows-paths` | Convert backslashes to forward slashes in outputs     | no       | `"false"` |
+| `ps-module-name`          | PowerShell module sidecar directory name, when staged | no       | `''`      |
 
 ## Outputs
 
-| Name | Description |
-| ---- | ----------- |
-| `artifact-dir` | Absolute path to the directory containing staged artefacts |
-| `dist-dir` | Absolute path to the parent distribution directory |
-| `staged-files` | Newline-separated list of staged file names |
-| `artefact-map` | JavaScript Object Notation (JSON) map of named outputs to their absolute paths |
-| `checksum-map` | JSON map of relative paths to checksum digests |
-| `binary-path` | Absolute path to the staged binary (when configured) |
-| `man-path` | Absolute path to the staged man page (when configured) |
-| `license-path` | Absolute path to the staged licence file (when configured) |
-| `powershell_help_dir` | Absolute path to the staged PowerShell module directory, or an empty string when no module was staged |
-| `binstall-archive-path` | Absolute path to the cargo-binstall archive, when enabled |
+| Name                    | Description                                                                                           |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| `artifact-dir`          | Absolute path to the directory containing staged artefacts                                            |
+| `dist-dir`              | Absolute path to the parent distribution directory                                                    |
+| `staged-files`          | Newline-separated list of staged file names                                                           |
+| `artefact-map`          | JavaScript Object Notation (JSON) map of named outputs to their absolute paths                        |
+| `checksum-map`          | JSON map of relative paths to checksum digests                                                        |
+| `binary-path`           | Absolute path to the staged binary (when configured)                                                  |
+| `man-path`              | Absolute path to the staged man page (when configured)                                                |
+| `license-path`          | Absolute path to the staged licence file (when configured)                                            |
+| `powershell_help_dir`   | Absolute path to the staged PowerShell module directory, or an empty string when no module was staged |
+| `binstall-archive-path` | Absolute path to the cargo-binstall archive, when enabled                                             |
 
 ## Usage
 
@@ -98,28 +98,28 @@ bin_ext = ".exe"
 The following variables are available in `source`, `destination`, and
 `staging_dir_template`:
 
-| Variable | Description |
-| -------- | ----------- |
-| `{workspace}` | GitHub workspace path |
-| `{bin_name}` | Binary name from config |
-| `{dist_dir}` | Distribution directory |
-| `{platform}` | Platform identifier (linux, windows, macOS) |
-| `{arch}` | Architecture identifier (x86_64, aarch64) |
-| `{target}` | Rust target triple |
-| `{bin_ext}` | Binary extension (.exe on Windows) |
-| `{target_key}` | The target key passed to the action |
+| Variable        | Description                                 |
+| --------------- | ------------------------------------------- |
+| `{workspace}`   | GitHub workspace path                       |
+| `{bin_name}`    | Binary name from config                     |
+| `{dist_dir}`    | Distribution directory                      |
+| `{platform}`    | Platform identifier (linux, windows, macOS) |
+| `{arch}`        | Architecture identifier (x86_64, aarch64)   |
+| `{target}`      | Rust target triple                          |
+| `{bin_ext}`     | Binary extension (.exe on Windows)          |
+| `{target_key}`  | The target key passed to the action         |
 | `{source_name}` | Source file name (in destination templates) |
 | `{source_path}` | Full source path (in destination templates) |
 
 ### Artefact Options
 
-| Key | Type | Default | Description |
-| --- | ---- | ------- | ----------- |
-| `source` | string | (required) | Path pattern to source file (supports globs) |
-| `destination` / `dest` | string | `{source_name}` | Target filename in staging directory |
-| `output` | string | - | GitHub output key to export the staged path |
-| `required` | bool | `true` | Whether missing source is an error |
-| `alternatives` | list | `[]` | Fallback patterns if source not found |
+| Key                    | Type   | Default         | Description                                  |
+| ---------------------- | ------ | --------------- | -------------------------------------------- |
+| `source`               | string | (required)      | Path pattern to source file (supports globs) |
+| `destination` / `dest` | string | `{source_name}` | Target filename in staging directory         |
+| `output`               | string | -               | GitHub output key to export the staged path  |
+| `required`             | bool   | `true`          | Whether missing source is an error           |
+| `alternatives`         | list   | `[]`            | Fallback patterns if source not found        |
 
 ### Cargo-Binstall Archives
 
@@ -166,49 +166,48 @@ The action only creates release assets. It does not mutate `Cargo.toml`.
 
 #### Cargo-Binstall Options
 
-| Key | Type | Default | Description |
-| --- | ---- | ------- | ----------- |
-| `enabled` | bool | `false` | Create the cargo-binstall archive |
-| `manifest_path` | string | `Cargo.toml` | Cargo manifest used for package name, version, and binary metadata |
-| `package_name` | string | manifest package name | Override package name used in templates |
-| `version` | string | manifest package version | Override package version used in templates |
-| `bin_name` | string | common `bin_name` | Override binary name used in templates |
-| `archive_name` | string | `{package_name}-{version}-{target}.tar.gz` | Archive filename in the staging directory |
-| `binary_source` | string | `target/{target}/release/{bin_name}{bin_ext}` | Binary path or glob to include in the archive |
-| `binary_name` | string | `{bin_name}{bin_ext}` | Archive member name for the binary |
-| `output` | string | `binstall_archive_path` | Internal GitHub output key mapped to `binstall-archive-path` |
+| Key             | Type   | Default                                       | Description                                                        |
+| --------------- | ------ | --------------------------------------------- | ------------------------------------------------------------------ |
+| `enabled`       | bool   | `false`                                       | Create the cargo-binstall archive                                  |
+| `manifest_path` | string | `Cargo.toml`                                  | Cargo manifest used for package name, version, and binary metadata |
+| `package_name`  | string | manifest package name                         | Override package name used in templates                            |
+| `version`       | string | manifest package version                      | Override package version used in templates                         |
+| `bin_name`      | string | common `bin_name`                             | Override binary name used in templates                             |
+| `archive_name`  | string | `{package_name}-{version}-{target}.tar.gz`    | Archive filename in the staging directory                          |
+| `binary_source` | string | `target/{target}/release/{bin_name}{bin_ext}` | Binary path or glob to include in the archive                      |
+| `binary_name`   | string | `{bin_name}{bin_ext}`                         | Archive member name for the binary                                 |
+| `output`        | string | `binstall_archive_path`                       | Internal GitHub output key mapped to `binstall-archive-path`       |
 
 #### Cargo-Binstall Template Variables
 
 The cargo-binstall templates support all standard staging variables plus:
 
-| Variable | Description |
-| -------- | ----------- |
-| `{package_name}` | Cargo package name, or `package_name` override |
-| `{version}` | Cargo package version, including workspace-inherited versions |
+| Variable         | Description                                                   |
+| ---------------- | ------------------------------------------------------------- |
+| `{package_name}` | Cargo package name, or `package_name` override                |
+| `{version}`      | Cargo package version, including workspace-inherited versions |
 
 Archive member names are validated before writing the tarball. Empty names,
 absolute paths, parent traversal with `..`, and directory entries are rejected.
 
 ## PowerShell MAML sidecar artefacts
 
-Declare generated PowerShell MAML files as individual target-specific
-artefacts under the Windows target. Set `required = false` on each entry so
-Linux and macOS runners can use the same staging configuration without failing
-when the files are absent.
+Declare generated PowerShell MAML files as individual target-specific artefacts
+under the Windows target. Set `required = false` on each entry so Linux and
+macOS runners can use the same staging configuration without failing when the
+files are absent.
 
 When a workflow provides `ps-module-name`, the action sets
 `powershell_help_dir` to the absolute path of `artifact-dir/<module>`, but only
 when at least one file was staged beneath that module directory.
-`ps-module-name` must be a single module directory name.
-This action rejects values of `"."` and `".."`
-and rejects any module name containing path separators. It only accepts a
-single direct child module directory under `artifact-dir`; otherwise,
-`powershell_help_dir` remains empty. Leave `ps-module-name` empty for
-non-Windows targets. Downstream steps must guard on `powershell_help_dir`
-being non-empty before using it. The action logs why the value remains
-empty, including empty input, rejected module names, or no staged files under
-the requested module directory.
+`ps-module-name` must be a single module directory name. This action rejects
+values of `"."` and `".."` and rejects any module name containing path
+separators. It only accepts a single direct child module directory under
+`artifact-dir`; otherwise, `powershell_help_dir` remains empty. Leave
+`ps-module-name` empty for non-Windows targets. Downstream steps must guard on
+`powershell_help_dir` being non-empty before using it. The action logs why the
+value remains empty, including empty input, rejected module names, or no staged
+files under the requested module directory.
 
 MAML is not currently embedded in the Windows MSI. If MSI embedding is
 required, open a separate issue against `windows-package`.
@@ -255,8 +254,8 @@ artefacts = [
 
 `powershell_help_dir` is empty when `ps-module-name` is empty, rejected, or no
 files were staged under the named direct child module directory. Valid module
-names are single path segments only; `"."`, `".."`
-and names containing path separators are rejected.
+names are single path segments only; `"."`, `".."` and names containing path
+separators are rejected.
 
 All exported paths are serialized with forward slashes. Downstream workflow
 steps must guard on `powershell_help_dir` being non-empty before using it.
@@ -277,7 +276,8 @@ steps must guard on `powershell_help_dir` being non-empty before using it.
 
 - Relative paths are resolved from `GITHUB_WORKSPACE`
 - Glob patterns select the newest matching file (by modification time)
-- Windows paths are supported and normalized when using `normalize-windows-paths`
+- Windows paths are supported and normalized when using
+  `normalize-windows-paths`
 
 ### Error Handling
 

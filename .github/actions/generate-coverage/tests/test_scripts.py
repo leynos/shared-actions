@@ -3027,13 +3027,266 @@ def _generate_coverage_action() -> dict[str, object]:
     return loaded
 
 
-def _python_step_env_contract() -> dict[str, str]:
-    """Return the env contract for the Python coverage step."""
-    action = _generate_coverage_action()
-    runs = action.get("runs")
+def _generate_coverage_steps() -> list[dict[str, object]]:
+    """Return the generate-coverage action steps."""
+    runs = _generate_coverage_action().get("runs")
     assert isinstance(runs, dict)
     steps = runs.get("steps")
     assert isinstance(steps, list)
+    assert all(isinstance(step, dict) for step in steps)
+    return typ.cast("list[dict[str, object]]", steps)
+
+
+def _generate_coverage_step(step_name: str) -> dict[str, object]:
+    """Return a named generate-coverage action step."""
+    step = next(
+        (
+            step
+            for step in _generate_coverage_steps()
+            if isinstance(step, dict) and step.get("name") == step_name
+        ),
+        None,
+    )
+    assert step is not None, f"Missing generate-coverage step: {step_name}"
+    return step
+
+
+def test_generate_coverage_ensures_binstall_before_llvm_cov() -> None:
+    """cargo-binstall must exist before cargo-llvm-cov invokes cargo binstall."""
+    steps = _generate_coverage_steps()
+    step_names = [step.get("name") for step in steps]
+
+    assert step_names.index("Ensure cargo-binstall") < step_names.index(
+        "Install cargo-llvm-cov"
+    )
+
+
+def test_generate_coverage_binstall_is_not_nextest_only() -> None:
+    """cargo-llvm-cov also needs cargo-binstall when nextest is disabled."""
+    step = _generate_coverage_step("Ensure cargo-binstall")
+    condition = step.get("if")
+
+    assert isinstance(condition, str)
+    assert "steps.detect.outputs.lang == 'rust'" in condition
+    assert "steps.detect.outputs.lang == 'mixed'" in condition
+    assert "use-cargo-nextest" not in condition
+
+
+def _ensure_binstall_script() -> str:
+    """Return the shell body for the cargo-binstall installation step."""
+    run_script = _generate_coverage_step("Ensure cargo-binstall").get("run")
+
+    assert isinstance(run_script, str)
+    return run_script
+
+
+def _write_executable(path: Path, content: str) -> None:
+    """Write an executable test double."""
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
+    """Execute the Ensure cargo-binstall shell body in an isolated PATH."""
+    env = {
+        **os.environ,
+        "CARGO_HOME": str(tmp_path / "cargo-home"),
+        "GITHUB_PATH": str(tmp_path / "github-path"),
+        "HOME": str(tmp_path / "home"),
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}/usr/bin{os.pathsep}/bin",
+    }
+    command = local["/bin/bash"]["-c", _ensure_binstall_script()]
+    return run_plumbum_command(command, method="run", env=env)
+
+
+def _write_fake_binstall_installer(
+    tmp_path: Path,
+    *,
+    installed_version: str = "1.19.1",
+) -> None:
+    """Write fake curl, sha256sum, and bash commands for installer-path tests."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    install_log = tmp_path / "installer.log"
+    version_log = tmp_path / "binstall-version.log"
+    checksum = "d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
+
+    _write_executable(
+        bin_dir / "curl",
+        """#!/bin/sh
+output=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+        shift
+        output="$1"
+    fi
+    shift
+done
+if [ -z "$output" ]; then
+    exit 2
+fi
+printf '%s\\n' "fake installer" > "$output"
+""",
+    )
+    _write_executable(
+        bin_dir / "sha256sum",
+        f"""#!/bin/sh
+printf '%s  %s\\n' "{checksum}" "$1"
+""",
+    )
+    _write_executable(
+        bin_dir / "bash",
+        f"""#!/bin/sh
+printf '%s\\n' "$*" >> "{install_log}"
+printf '%s\\n' "${{BINSTALL_VERSION:-UNSET}}" >> "{version_log}"
+mkdir -p "$CARGO_HOME/bin"
+cat > "$CARGO_HOME/bin/cargo-binstall" <<'ENDOFINSTALL'
+#!/bin/sh
+printf '%s\\n' "cargo-binstall {installed_version}"
+ENDOFINSTALL
+chmod +x "$CARGO_HOME/bin/cargo-binstall"
+""",
+    )
+
+
+def _write_existing_cargo_binstall(tmp_path: Path, version: str) -> None:
+    """Write an existing cargo-binstall test double into PATH."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    calls_log = tmp_path / "existing-binstall.log"
+    _write_executable(
+        bin_dir / "cargo-binstall",
+        f"""#!/bin/sh
+printf '%s\\n' "$*" >> "{calls_log}"
+printf '%s\\n' "cargo-binstall {version}"
+""",
+    )
+
+
+def test_generate_coverage_binstall_fast_path_verifies_existing_version(
+    tmp_path: Path,
+) -> None:
+    """An existing cargo-binstall is reused only after version verification."""
+    _write_existing_cargo_binstall(tmp_path, "1.19.1")
+    _write_executable(
+        tmp_path / "bin" / "curl",
+        """#!/bin/sh
+echo "curl should not run for a verified cargo-binstall" >&2
+exit 99
+""",
+    )
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, stdout, stderr = result
+    assert returncode == 0, stderr
+    assert (tmp_path / "existing-binstall.log").read_text(encoding="utf-8") == "-V\n"
+    assert "cargo-binstall already installed: cargo-binstall 1.19.1" in stdout
+
+
+def test_generate_coverage_binstall_mismatch_installs_pinned_version(
+    tmp_path: Path,
+) -> None:
+    """A mismatched existing cargo-binstall falls through to pinned install."""
+    _write_existing_cargo_binstall(tmp_path, "1.15.0")
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, stdout, stderr = result
+    assert returncode == 0, stderr
+    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0" in (stderr)
+    assert (tmp_path / "installer.log").read_text(encoding="utf-8")
+    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
+
+
+def test_generate_coverage_binstall_rejects_longer_version_look_alike(
+    tmp_path: Path,
+) -> None:
+    """A 1.19.10 binary must not satisfy the 1.19.1 pin via substring match."""
+    _write_existing_cargo_binstall(tmp_path, "1.19.10")
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, stdout, stderr = result
+    assert returncode == 0, stderr
+    # The look-alike is rejected and the pinned installer runs instead.
+    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10" in stderr
+    assert (tmp_path / "installer.log").exists()
+    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
+
+
+def test_generate_coverage_binstall_install_verifies_installed_version(
+    tmp_path: Path,
+) -> None:
+    """The install path fails when the installed binary has the wrong version."""
+    _write_fake_binstall_installer(tmp_path, installed_version="1.15.0")
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 1
+    assert "cargo-binstall version verification failed: expected 1.19.1" in (stderr)
+
+
+def test_generate_coverage_binstall_exports_pinned_version_to_installer(
+    tmp_path: Path,
+) -> None:
+    """The pinned version is exported so the child installer inherits it."""
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 0, stderr
+    version_seen = (tmp_path / "binstall-version.log").read_text(encoding="utf-8")
+    # Without `export`, the installer subshell sees BINSTALL_VERSION unset and
+    # would silently fall back to releases/latest.
+    assert version_seen.strip() == "v1.19.1"
+
+
+def test_generate_coverage_binstall_appends_cargo_bin_to_github_path(
+    tmp_path: Path,
+) -> None:
+    """A successful install appends the Cargo bin directory to GITHUB_PATH."""
+    _write_fake_binstall_installer(tmp_path)
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 0, stderr
+    github_path = (tmp_path / "github-path").read_text(encoding="utf-8")
+    expected_bin = str(tmp_path / "cargo-home" / "bin")
+    assert expected_bin in github_path.splitlines()
+
+
+def test_generate_coverage_binstall_checksum_mismatch_aborts(
+    tmp_path: Path,
+) -> None:
+    """A bad installer checksum aborts before the installer script runs."""
+    _write_fake_binstall_installer(tmp_path)
+    # Override sha256sum to report a non-matching digest.
+    _write_executable(
+        tmp_path / "bin" / "sha256sum",
+        """#!/bin/sh
+z16=0000000000000000
+printf '%s  %s\\n' "$z16$z16$z16$z16" "$1"
+""",
+    )
+
+    result = _run_ensure_binstall_script(tmp_path)
+
+    returncode, _stdout, stderr = result
+    assert returncode == 1
+    assert "install script checksum mismatch" in stderr
+    # The installer script must not run when the checksum does not match.
+    assert not (tmp_path / "installer.log").exists()
+
+
+def _python_step_env_contract() -> dict[str, str]:
+    """Return the env contract for the Python coverage step."""
+    steps = _generate_coverage_steps()
     python_step = next(
         step for step in steps if isinstance(step, dict) and step.get("id") == "python"
     )

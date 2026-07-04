@@ -9,21 +9,21 @@ release state.
 
 ## Inputs
 
-| Name | Description | Required | Default |
-| ---- | ----------- | -------- | ------- |
-| `release-tag` | Git tag identifying the release to publish to | yes | - |
-| `bin-name` | Binary name used to derive artefact names | yes | - |
-| `dist-dir` | Directory containing staged artefacts | no | `dist` |
-| `dry-run` | When true, only validate artefacts and print the upload plan | no | `"false"` |
-| `clobber` | Overwrite existing assets with the same name | no | `"true"` |
+| Name          | Description                                                  | Required | Default   |
+| ------------- | ------------------------------------------------------------ | -------- | --------- |
+| `release-tag` | Git tag identifying the release to publish to                | yes      | -         |
+| `bin-name`    | Binary name used to derive artefact names                    | yes      | -         |
+| `dist-dir`    | Directory containing staged artefacts                        | no       | `dist`    |
+| `dry-run`     | When true, only validate artefacts and print the upload plan | no       | `"false"` |
+| `clobber`     | Overwrite existing assets with the same name                 | no       | `"true"`  |
 
 ## Outputs
 
-| Name | Description |
-| ---- | ----------- |
-| `uploaded-count` | Number of assets uploaded (or validated in dry-run mode) |
-| `upload-error` | `"true"` or `"false"` indicating whether an error occurred |
-| `error-message` | Summary of the error when `upload-error` is `"true"` |
+| Name             | Description                                                |
+| ---------------- | ---------------------------------------------------------- |
+| `uploaded-count` | Number of assets uploaded (or validated in dry-run mode)   |
+| `upload-error`   | `"true"` or `"false"` indicating whether an error occurred |
+| `error-message`  | Summary of the error when `upload-error` is `"true"`       |
 
 ## Usage
 
@@ -67,16 +67,16 @@ release state.
 
 The action discovers the following artefact types within `dist-dir`:
 
-| Pattern | Description |
-| ------- | ----------- |
-| `{bin-name}` | Linux/macOS binary |
-| `{bin-name}.exe` | Windows executable |
-| `{bin-name}.1` | Man page |
-| `*.deb` | Debian package |
-| `*.rpm` | Red Hat Package Manager (RPM) package |
-| `*.pkg` | macOS installer package |
-| `*.msi` | Windows installer |
-| `*.sha256` | Secure Hash Algorithm (SHA-256) checksum sidecar files |
+| Pattern          | Description                                            |
+| ---------------- | ------------------------------------------------------ |
+| `{bin-name}`     | Linux/macOS binary                                     |
+| `{bin-name}.exe` | Windows executable                                     |
+| `{bin-name}.1`   | Man page                                               |
+| `*.deb`          | Debian package                                         |
+| `*.rpm`          | Red Hat Package Manager (RPM) package                  |
+| `*.pkg`          | macOS installer package                                |
+| `*.msi`          | Windows installer                                      |
+| `*.sha256`       | Secure Hash Algorithm (SHA-256) checksum sidecar files |
 
 ### Nested directories
 
@@ -90,7 +90,8 @@ Files in nested directories are namespaced with their path prefix, replacing
 
 1. **Discovery**: Recursively scan `dist-dir` for matching artefacts
 2. **Validation**: Verify files are non-empty and have unique asset names
-3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in dry-run mode)
+3. **Upload**: Use `gh release upload` to publish artefacts (or print plan in
+   dry-run mode)
 
 ### Error Handling
 

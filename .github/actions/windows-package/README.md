@@ -2,14 +2,15 @@
 
 Build a WiX MSI from a prebuilt Windows application, license text (RTF) and
 supporting documentation. The action codifies the workflow documented in the
-repository guidance so that any job can produce a signed installer artefact with
-one composite call.
+repository guidance so that any job can produce a signed installer artefact
+with one composite call.
 
 ## Features
 
 - Installs the WiX CLI and UI extension on the runner.
 - Resolves the MSI version from an explicit input or a tagged Git reference.
-- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a generated template that
+- Builds a single-file MSI (`EmbedCab="yes"`) from supplied WiX authoring or a
+  generated template that
   installs the provided application and supporting files.
 - Optionally uploads the generated MSI via `actions/upload-artifact`.
 
@@ -32,44 +33,44 @@ inputs):
    └─ README.pdf               # documentation shipped with the installer
 ```
 
-The `installer/Package.wxs` authoring is optional—omit it when using the default template and
-provide the executable (and optional additional files) via the `application-path` and
-`additional-files` inputs.
+The `installer/Package.wxs` authoring is optional—omit it when using the
+default template and provide the executable (and optional additional files) via
+the `application-path` and `additional-files` inputs.
 
 ## Inputs
 
-| Name | Required | Default | Description |
-| ---- | -------- | ------- | ----------- |
-| `wxs-path` | no | `''` | Path to the WiX authoring file used to build the MSI. When omitted a default template is rendered. |
-| `application-path` | no | `''` | Main executable or bundle to install. Append `\|relative\\path` to customise the install location. |
-| `additional-files` | no | `''` | Additional `source\|relative\\path` mappings (one per line) to include in the installer. |
-| `product-name` | no | `''` | Product name used by the generated template when `wxs-path` is omitted. |
-| `manufacturer` | no | `''` | Manufacturer string embedded by the generated template. |
-| `install-dir-name` | no | `''` | Optional install directory name (defaults to a sanitised product name). |
-| `description` | no | `''` | Installer description stored in MSI summary information when templating. |
-| `upgrade-code` | no | `''` | Optional UpgradeCode GUID. A deterministic GUID is derived when omitted. |
-| `architecture` | no | `x64` | Architecture supplied to `wix build` (`x86`, `x64`, or `arm64`). |
-| `version` | no | _auto_ | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`. |
-| `dotnet-version` | no | `8.0.x` | .NET SDK version installed before running WiX. |
-| `wix-tool-version` | no | _latest_ | Specific version of the `wix` .NET global tool to install. |
-| `wix-extension` | no | `WixToolset.UI.wixext` | WiX extension coordinate loaded during the build. |
-| `wix-extension-version` | no | `''` | Version suffix appended to the extension coordinate. When omitted, the action auto-matches the installed WiX CLI major version (for example `WixToolset.UI.wixext/7` with WiX v7). |
-| `output-basename` | no | `MyApp` | Base name used when creating the MSI file. |
-| `output-directory` | no | `out` | Directory where the MSI artefact is created. |
-| `license-plaintext-path` | no | `''` | Optional path to a UTF-8 (with or without BOM) plain text license |
-|                          |    |      | that will be converted to RTF using the default Calibri 11 pt |
-|                          |    |      | template. |
-| `license-rtf-path`       | no | `''` | Output path for the generated license RTF when converting from |
-|                          |    |      | plain text. Defaults to replacing the input suffix with `.rtf`. |
-| `upload-artefact` | no | `true` | When `true`, publishes the MSI using `actions/upload-artifact`. |
-| `artefact-name` | no | `msi` | Name of the uploaded artefact. |
+| Name                     | Required | Default                | Description                                                                                                                                                                        |
+| ------------------------ | -------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wxs-path`               | no       | `''`                   | Path to the WiX authoring file used to build the MSI. When omitted a default template is rendered.                                                                                 |
+| `application-path`       | no       | `''`                   | Main executable or bundle to install. Append `\|relative\\path` to customise the install location.                                                                                 |
+| `additional-files`       | no       | `''`                   | Additional `source\|relative\\path` mappings (one per line) to include in the installer.                                                                                           |
+| `product-name`           | no       | `''`                   | Product name used by the generated template when `wxs-path` is omitted.                                                                                                            |
+| `manufacturer`           | no       | `''`                   | Manufacturer string embedded by the generated template.                                                                                                                            |
+| `install-dir-name`       | no       | `''`                   | Optional install directory name (defaults to a sanitised product name).                                                                                                            |
+| `description`            | no       | `''`                   | Installer description stored in MSI summary information when templating.                                                                                                           |
+| `upgrade-code`           | no       | `''`                   | Optional UpgradeCode GUID. A deterministic GUID is derived when omitted.                                                                                                           |
+| `architecture`           | no       | `x64`                  | Architecture supplied to `wix build` (`x86`, `x64`, or `arm64`).                                                                                                                   |
+| `version`                | no       | _auto_                 | Version embedded in the MSI. Defaults to a numeric tag-derived value or `0.0.0`.                                                                                                   |
+| `dotnet-version`         | no       | `8.0.x`                | .NET SDK version installed before running WiX.                                                                                                                                     |
+| `wix-tool-version`       | no       | _latest_               | Specific version of the `wix` .NET global tool to install.                                                                                                                         |
+| `wix-extension`          | no       | `WixToolset.UI.wixext` | WiX extension coordinate loaded during the build.                                                                                                                                  |
+| `wix-extension-version`  | no       | `''`                   | Version suffix appended to the extension coordinate. When omitted, the action auto-matches the installed WiX CLI major version (for example `WixToolset.UI.wixext/7` with WiX v7). |
+| `output-basename`        | no       | `MyApp`                | Base name used when creating the MSI file.                                                                                                                                         |
+| `output-directory`       | no       | `out`                  | Directory where the MSI artefact is created.                                                                                                                                       |
+| `license-plaintext-path` | no       | `''`                   | Optional path to a UTF-8 (with or without BOM) plain text license                                                                                                                  |
+|                          |          |                        | that will be converted to RTF using the default Calibri 11 pt                                                                                                                      |
+|                          |          |                        | template.                                                                                                                                                                          |
+| `license-rtf-path`       | no       | `''`                   | Output path for the generated license RTF when converting from                                                                                                                     |
+|                          |          |                        | plain text. Defaults to replacing the input suffix with `.rtf`.                                                                                                                    |
+| `upload-artefact`        | no       | `true`                 | When `true`, publishes the MSI using `actions/upload-artifact`.                                                                                                                    |
+| `artefact-name`          | no       | `msi`                  | Name of the uploaded artefact.                                                                                                                                                     |
 
 ## Outputs
 
-| Name | Description |
-| ---- | ----------- |
-| `version` | Version value resolved for the build (after tag stripping). |
-| `msi-path` | Absolute path of the generated MSI file. |
+| Name       | Description                                                 |
+| ---------- | ----------------------------------------------------------- |
+| `version`  | Version value resolved for the build (after tag stripping). |
+| `msi-path` | Absolute path of the generated MSI file.                    |
 
 ## Usage
 
@@ -95,8 +96,7 @@ jobs:
 ```
 
 In WiX authoring, reference the preprocessor variable supplied via
-`-dVersion=...` using the `$(var.Name)` form expected by the WiX
-preprocessor:
+`-dVersion=...` using the `$(var.Name)` form expected by the WiX preprocessor:
 
 ```xml
 <Package Version="$(var.Version)">

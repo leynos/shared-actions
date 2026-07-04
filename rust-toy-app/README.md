@@ -1,20 +1,21 @@
 # rust-toy-app
 
-> **Test Fixture** - This application serves as a test fixture for validating the
+> **Test Fixture** - This application serves as a test fixture for validating
+> the
 > [`generate-coverage`](../.github/actions/generate-coverage/) GitHub Action.
 > It is **not** intended as a functional product.
 
 ## Purpose
 
-This simple Command Line Interface (CLI) application demonstrates various Rust testing patterns for
-coverage collection validation:
+This simple Command Line Interface (CLI) application demonstrates various Rust
+testing patterns for coverage collection validation:
 
-| Test Type | Framework | File(s) | Harness |
-|-----------|-----------|---------|---------|
-| Unit tests | [rstest](https://crates.io/crates/rstest) | `src/lib.rs` | Standard |
-| Integration tests | rstest + assert_cmd | `tests/cli.rs` | Standard |
+| Test Type                                    | Framework                                                      | File(s)                                         | Harness                    |
+| -------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------- | -------------------------- |
+| Unit tests                                   | [rstest](https://crates.io/crates/rstest)                      | `src/lib.rs`                                    | Standard                   |
+| Integration tests                            | rstest + assert_cmd                                            | `tests/cli.rs`                                  | Standard                   |
 | Behaviour-Driven Development (BDD) (Gherkin) | [cucumber-rs](https://cucumber-rs.github.io/cucumber/current/) | `tests/cucumber.rs`, `tests/features/*.feature` | Custom (`harness = false`) |
-| BDD (rstest-style) | rstest | `tests/bdd.rs` | Standard |
+| BDD (rstest-style)                           | rstest                                                         | `tests/bdd.rs`                                  | Standard                   |
 
 The test suite validates that the `generate-coverage` action correctly:
 
@@ -42,8 +43,8 @@ rust-toy-app --name Alice
 cargo test
 ```
 
-This runs unit tests, integration tests, and BDD-style rstest tests.
-Note: cucumber-rs tests use a custom harness and run separately.
+This runs unit tests, integration tests, and BDD-style rstest tests. Note:
+cucumber-rs tests use a custom harness and run separately.
 
 ### Cucumber-rs Tests Only
 
@@ -96,10 +97,10 @@ The test suite is designed to be invoked via the `generate-coverage` action:
 
 ### Action Inputs Used
 
-| Input | Value | Description |
-|-------|-------|-------------|
-| `with-cucumber-rs` | `true` | Enables cucumber-rs coverage collection |
-| `cucumber-rs-features` | `tests/features` | Path to Gherkin feature files |
+| Input                  | Value            | Description                             |
+| ---------------------- | ---------------- | --------------------------------------- |
+| `with-cucumber-rs`     | `true`           | Enables cucumber-rs coverage collection |
+| `cucumber-rs-features` | `tests/features` | Path to Gherkin feature files           |
 
 ## Test Structure
 

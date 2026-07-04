@@ -1,9 +1,9 @@
 # Python Native Command Mocking Design
 
 CmdMox underpins the Python-based command doubling strategy. The library offers
-an ergonomic façade for writing tests while keeping the execution model explicit
-and deterministic. This document captures the architectural decisions and the
-contracts relied upon by the higher-level usage guide.
+an ergonomic façade for writing tests while keeping the execution model
+explicit and deterministic. This document captures the architectural decisions
+and the contracts relied upon by the higher-level usage guide.
 
 ## Objectives
 
@@ -29,9 +29,9 @@ CmdMox consists of three cooperating subsystems:
    recorded doubles. The server enforces strict sequencing to maintain
    deterministic behaviour.
 
-The pytest plugin creates a controller per test function. When used as a context
-manager (`with CmdMox() as mox:`) the same controller lifecycle is available for
-non-pytest clients.
+The pytest plugin creates a controller per test function. When used as a
+context manager (`with CmdMox() as mox:`) the same controller lifecycle is
+available for non-pytest clients.
 
 ## Lifecycle: Record → Replay → Verify
 
@@ -81,8 +81,8 @@ interactions and is frequently asserted against in tests.
 
 Two environment variables tie the controller and shims together:
 
-- `CMOX_IPC_SOCKET` – Path to the Unix domain socket exposed by the server. Shims
-  exit early if this variable is missing.
+- `CMOX_IPC_SOCKET` – Path to the Unix domain socket exposed by the server.
+  Shims exit early if this variable is missing.
 - `CMOX_IPC_TIMEOUT` – Seconds to wait for IPC operations before raising a
   timeout error. The default is `5.0` seconds and can be tuned per test via the
   controller API.
@@ -94,17 +94,17 @@ manager initializes the controller.
 
 The IPC transport relies on Unix domain sockets, so the pytest plugin guards
 against activation on Windows (`sys.platform == "win32"`). Tests should guard
-Windows-specific code paths accordingly. Future work may explore TCP loopback or
-named-pipe transports for full parity.
+Windows-specific code paths accordingly. Future work may explore TCP loopback
+or named-pipe transports for full parity.
 
 ## Error Handling and Validation
 
 - The controller refuses to enter replay without recorded expectations when
   strict verification is required, ensuring unexpected commands fail fast.
-- Each shim invocation is validated against its matching strategy; mismatches are
-  surfaced immediately with descriptive error messages.
-- Journal eviction and verification are both deterministic so repeated runs yield
-  identical behaviour given the same expectations and inputs.
+- Each shim invocation is validated against its matching strategy; mismatches
+  are surfaced immediately with descriptive error messages.
+- Journal eviction and verification are both deterministic so repeated runs
+  yield identical behaviour given the same expectations and inputs.
 
 CmdMox is designed to remain implementation-agnostic at the call site, allowing
 maintainers to evolve the underlying IPC layer or shim mechanism without

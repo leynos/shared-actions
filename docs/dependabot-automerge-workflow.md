@@ -16,8 +16,8 @@ If any rule fails, the workflow logs an `automerge_status=skipped` entry with a
 reason and exits successfully.
 
 Note: The helper reads `DEPENDABOT_LOGINS` (defined in
-`workflow_scripts/dependabot_automerge.py`) to support both author login variants
-across platforms.
+`workflow_scripts/dependabot_automerge.py`) to support both author login
+variants across platforms.
 
 ## Merge-state behaviour
 
@@ -104,7 +104,8 @@ jobs:
 
 - `required-label` (string, default: `dependencies`): label required to enable
   auto-merge. Set to an empty string to disable the label requirement.
-- `merge-method` (string, default: `squash`): one of `squash`, `merge`, `rebase`.
+- `merge-method` (string, default: `squash`): one of `squash`, `merge`,
+  `rebase`.
 - `dry-run` (boolean, default: `false`): if `true`, no API calls are made; the
   workflow logs the decision and exits.
 - `pull-request-number` (number, recommended): the pull request number. When
@@ -124,9 +125,10 @@ jobs:
 ## Local validation
 
 To exercise the workflow locally, run the act harness with the provided
-fixture. The integration test in `tests/workflows/test_dependabot_automerge_workflow.py`
-uses `ACT_WORKFLOW_TESTS=1` and the `pull_request_dependabot.event.json` fixture
-in `tests/workflows/fixtures/`.
+fixture. The integration test in
+`tests/workflows/test_dependabot_automerge_workflow.py` uses
+`ACT_WORKFLOW_TESTS=1` and the `pull_request_dependabot.event.json` fixture in
+`tests/workflows/fixtures/`.
 
 ## Notes
 

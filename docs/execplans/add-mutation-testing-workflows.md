@@ -4,7 +4,8 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IMPLEMENTED (Stages A–F complete; Stage G pilot validation
+outstanding — it requires merging this branch so callers can pin a SHA)
 
 PLANS.md: none found in this repo.
 
@@ -146,10 +147,16 @@ uploaded `mutation-report-*` artefacts.
   `docs/mutation-mutmut-workflow.md` mirroring the dependabot-automerge
   doc shape — behaviour, permissions, usage, inputs, notes, local
   validation — plus README reusable-workflows table entries).
-- [ ] Stage F: gates (`check-fmt`, `typecheck`, `lint`, `test`,
-  `ACT_WORKFLOW_TESTS=1 make test`), CodeRabbit review, commit.
+- [x] Stage F: gates and review (2026-07-04: `check-fmt`, `typecheck`,
+  `lint`, `test` (989 passed, 14 skipped), `markdownlint`, `nixie` all
+  green via scrutineer; CodeRabbit agent review completed with zero
+  findings. The act integration tests could not run locally — `act` is
+  not installed on this machine — so they remain unverified until run
+  in CI or on a machine with act; recorded as an environmental
+  limitation, not a code defect).
 - [ ] Stage G: pilot caller validation (wireframe migration for Rust; one
-  Python repo), then record pinned tool versions confirmed by real runs.
+  Python repo — cmd-mox suggested, as it is uv-managed), then record
+  pinned tool versions confirmed by real runs.
 
 ## Surprises & Discoveries
 
@@ -283,7 +290,34 @@ work proceeds.
 
 ## Outcomes & Retrospective
 
-(To be completed.)
+Stages A–F implemented 2026-07-04 in five commits (plan hardening plus
+one commit per stage). Delivered: two reusable workflows
+(`mutation-cargo.yml` with detect → sharded-matrix → summarize jobs;
+`mutation-mutmut.yml` single-job), four helper scripts under
+`workflow_scripts/` with 47 unit tests, act wrapper workflows and
+guard-path integration tests, caller docs, and README index entries.
+All deterministic gates green; CodeRabbit review zero findings.
+
+What went well:
+
+- The empirical Stage A spike paid off immediately: mutmut 3.6's
+  `source_paths` rename, file-path rejection, and exit-0-with-survivors
+  behaviour all contradicted the pre-existing skill/document guidance
+  and would have shipped broken scoping without the sandbox test.
+- Reusing the dependabot-automerge OIDC/`ACT` pattern meant zero novel
+  plumbing; all novelty lives in tested Python.
+
+What changed along the way (see Decision Log): act tests narrowed to
+the guard path (no way to stub binaries inside `workflow_call` jobs);
+`runs-on` input dropped in favour of the house fixed-runner pattern;
+mutmut sharding ruled out (no upstream support).
+
+Remaining work (Stage G, post-merge): migrate wireframe to a
+`mutation-cargo.yml` caller, add a caller to a uv-managed Python pilot
+(cmd-mox), verify real reports parse, and re-pin tool versions if the
+pilots surface drift. The act integration tests should also be
+confirmed on a machine with `act` installed (they are opt-in via
+`ACT_WORKFLOW_TESTS`).
 
 ## Context and Orientation
 

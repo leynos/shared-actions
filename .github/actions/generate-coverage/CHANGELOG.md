@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Ensure a pinned `cargo-binstall` (`v1.16.6`) is present before installing
+  Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
+  existing binary against the pinned version and reuses it only on a match;
+  otherwise it downloads the checksum-pinned installer script and verifies the
+  freshly installed version. This keeps the `cargo-llvm-cov` and
+  `cargo-nextest` installs — which shell out to `cargo binstall` — from
+  relying on an unpinned or stale binary already on the runner.
 - Run the Python coverage suite under `pytest-xdist` by default. The new
   `pytest-workers` input (default `auto`) is forwarded to slipcover's
   `pytest -n` flag; set it to `""` to restore serial execution. `pytest-xdist`

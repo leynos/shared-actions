@@ -157,6 +157,29 @@ After the installer runs, the action verifies the installed binary with
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
 
+## `generate-coverage` cargo-binstall Pinning
+
+`generate-coverage` provisions its own `cargo-binstall` in the "Ensure
+cargo-binstall" step before installing `cargo-llvm-cov` or `cargo-nextest`,
+both of which shell out to `cargo binstall`. It follows the same pinning
+discipline as `setup-rust`: `BINSTALL_VERSION` and the installer-script
+`BINSTALL_SHA256` are a pair and must be updated together.
+
+The step is idempotent and verifies the version on both paths:
+
+- **Fast path** — if `cargo-binstall` is already on `PATH`, its `-V` output is
+  matched against the pinned version. On a match the step reuses the binary and
+  exits without any network access; on a mismatch it logs the discrepancy and
+  falls through to a pinned reinstall.
+- **Install path** — the checksum-pinned installer script is downloaded and its
+  SHA-256 verified before execution, and the freshly installed binary's version
+  is re-checked so a wrong installed version fails the step.
+
+Both paths are exercised by behavioural tests in
+`.github/actions/generate-coverage/tests/test_scripts.py`, which execute the
+extracted step body against fake `cargo-binstall` binaries and installers rather
+than asserting on the step's source text.
+
 ## `generate-coverage` `cargo-nextest` Installation
 
 `install_cargo_nextest.py` resolves expected checksums using `_platform_key()`.

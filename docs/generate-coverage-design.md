@@ -48,6 +48,17 @@ action and the evolution of its supporting scripts.
   whose tests live inside the source package see their reported line-rate drop
   until they relocate tests or set `pytest-workers: ""`. This is documented in
   the action's README.
+- *2026-07-04* — `generate-coverage` now provisions its own pinned
+  `cargo-binstall` before installing Rust coverage tooling, mirroring the
+  `setup-rust` approach. The "Ensure cargo-binstall" step verifies any existing
+  `cargo-binstall` against the pinned version (`v1.16.6`) and reuses it only on
+  a match; on a mismatch, or when the binary is absent, it downloads the
+  SHA-256-pinned installer script and verifies the freshly installed binary's
+  version before continuing. This stops `cargo-llvm-cov` and `cargo-nextest`
+  installation — both of which shell out to `cargo binstall` — from silently
+  relying on an unpinned or stale binary already present on the runner. Both
+  the fast (reuse) and install paths are covered by behavioural tests that
+  execute the extracted step body against fake binaries and installers.
 
 ## Rust Coverage Environment Overrides
 

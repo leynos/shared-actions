@@ -91,6 +91,23 @@ class MutantResult:
     status: str
 
 
+def _module_glob_for(name: str, prefix_strip: str) -> str | None:
+    """Translate one changed file into a mutant-name glob, or None.
+
+    ``__init__.py`` maps to its package; non-Python paths and paths that
+    reduce to nothing after stripping yield None.
+    """
+    if not name.endswith(".py"):
+        return None
+    trimmed = name.removeprefix(prefix_strip).removesuffix(".py")
+    parts = [part for part in trimmed.split("/") if part]
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    if not parts:
+        return None
+    return ".".join(parts) + ".*"
+
+
 def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
     """Translate changed Python files into mutmut mutant-name globs.
 
@@ -110,20 +127,8 @@ def files_to_module_globs(files: str, prefix_strip: str) -> list[str]:
         De-duplicated module globs such as ``pkg.mod.*``; ``__init__.py``
         maps to its package. Non-Python paths are ignored.
     """
-    globs: list[str] = []
-    for name in files.split():
-        if not name.endswith(".py"):
-            continue
-        trimmed = name.removeprefix(prefix_strip).removesuffix(".py")
-        parts = [part for part in trimmed.split("/") if part]
-        if parts and parts[-1] == "__init__":
-            parts.pop()
-        if not parts:
-            continue
-        glob = ".".join(parts) + ".*"
-        if glob not in globs:
-            globs.append(glob)
-    return globs
+    globs = (_module_glob_for(name, prefix_strip) for name in files.split())
+    return list(dict.fromkeys(glob for glob in globs if glob is not None))
 
 
 def _parse_result_line(line: str) -> MutantResult | None:
@@ -169,35 +174,71 @@ def count_statuses(results: list[MutantResult]) -> dict[str, int]:
     return dict(counts)
 
 
+def _render_survivor_table(survivors: list[MutantResult]) -> list[str]:
+    """Render the surviving-mutants table lines (empty when none)."""
+    if not survivors:
+        return []
+    header = [
+        "### Surviving mutants",
+        "",
+        "Inspect a survivor with `uv run mutmut show <name>`.",
+        "",
+        "| Mutant | Status |",
+        "| ------ | ------ |",
+    ]
+    rows = [f"| `{r.name}` | {r.status} |" for r in survivors]
+    return [*header, *rows, ""]
+
+
 def render_summary(results: list[MutantResult]) -> str:
     """Render mutmut results as job-summary Markdown."""
-    counts = count_statuses(results)
     lines = ["## Mutation testing results (mutmut)", ""]
     if not results:
-        lines.extend(("No mutants were tested.", ""))
-        return "\n".join(lines)
+        return "\n".join((*lines, "No mutants were tested.", ""))
+    counts = count_statuses(results)
     lines.extend(f"- **{status}:** {count}" for status, count in sorted(counts.items()))
     lines.append("")
     survivors = [r for r in results if r.status in SURVIVOR_STATUSES]
-    if survivors:
-        lines.extend(
-            (
-                "### Surviving mutants",
-                "",
-                "Inspect a survivor with `uv run mutmut show <name>`.",
-                "",
-                "| Mutant | Status |",
-                "| ------ | ------ |",
-            )
-        )
-        lines.extend(f"| `{r.name}` | {r.status} |" for r in survivors)
-        lines.append("")
+    lines.extend(_render_survivor_table(survivors))
     return "\n".join(lines)
 
 
 def _mutmut_command(version: str) -> list[str]:
     """Return the uv argument list prefix for a pinned mutmut."""
     return ["run", "--with", f"mutmut=={version}", "mutmut"]
+
+
+def _run_mutation_testing(
+    globs: list[str], mutmut_version: str, extra_args: str
+) -> None:
+    """Run ``mutmut run``, failing the step on a non-zero exit.
+
+    mutmut exits 0 even when mutants survive, so a non-zero code means a
+    failing baseline or a usage error.
+    """
+    run_arguments = [
+        *_mutmut_command(mutmut_version),
+        "run",
+        *shlex.split(extra_args),
+        *globs,
+    ]
+    emit("mutation_mutmut_command", ["uv", *run_arguments])
+    code = local["uv"][run_arguments] & RETCODE(FG=True)
+    emit("mutation_mutmut_exit_code", code)
+    if code != 0:
+        fail(f"mutmut run failed with exit code {code} (failing baseline?)")
+
+
+def _publish_results(mutmut_version: str, results_file: str, summary_path: str) -> None:
+    """Capture ``mutmut results``, then write the artefact and summary."""
+    results_text = local["uv"][
+        *_mutmut_command(mutmut_version), "results", "--all", "true"
+    ]()
+    Path(results_file).write_text(results_text, encoding="utf-8")
+    results = parse_results(results_text)
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write(render_summary(results))
+    emit("mutation_mutmut_counts", count_statuses(results))
 
 
 @app.default
@@ -247,23 +288,8 @@ def main(
         Path(results_file).write_text("", encoding="utf-8")
         return
 
-    run_arguments = [*_mutmut_command(mutmut_version), "run"]
-    run_arguments.extend(shlex.split(extra_args))
-    run_arguments.extend(globs)
-    emit("mutation_mutmut_command", ["uv", *run_arguments])
-    code = local["uv"][run_arguments] & RETCODE(FG=True)
-    emit("mutation_mutmut_exit_code", code)
-    if code != 0:
-        fail(f"mutmut run failed with exit code {code} (failing baseline?)")
-
-    results_text = local["uv"][
-        *_mutmut_command(mutmut_version), "results", "--all", "true"
-    ]()
-    Path(results_file).write_text(results_text, encoding="utf-8")
-    results = parse_results(results_text)
-    with Path(summary_env).open("a", encoding="utf-8") as handle:
-        handle.write(render_summary(results))
-    emit("mutation_mutmut_counts", count_statuses(results))
+    _run_mutation_testing(globs, mutmut_version, extra_args)
+    _publish_results(mutmut_version, results_file, summary_env)
 
 
 if __name__ == "__main__":

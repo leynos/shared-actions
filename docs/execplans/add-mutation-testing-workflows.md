@@ -245,7 +245,12 @@ work proceeds.
   rules flagged `build_arguments` (excess function arguments — seven
   keywords) and `parse_results` (complex conditional). Fixed by
   introducing the `MutantsInvocation` parameter object and extracting
-  `_parse_result_line`; all gates re-verified green.
+  `_parse_result_line`; all gates re-verified green. A second CodeScene
+  round then flagged file-level Overall Code Complexity in
+  `mutation_run_mutmut.py` (impact 9.10); resolved by extracting
+  `_module_glob_for`, `_render_survivor_table`, `_run_mutation_testing`,
+  and `_publish_results`, flattening the branchy functions without
+  behaviour change.
 
 ## Decision Log
 

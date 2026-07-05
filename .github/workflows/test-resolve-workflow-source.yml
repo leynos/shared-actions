@@ -1,0 +1,52 @@
+name: Test resolve workflow source
+
+on:
+  workflow_dispatch:
+
+# Default the token to no scopes; jobs opt in explicitly.
+permissions: {}
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve (act short-circuit)
+        id: act-branch
+        uses: ./.github/actions/resolve-workflow-source
+
+      - name: Assert act branch outputs
+        shell: bash
+        env:
+          CHECKOUT: ${{ steps.act-branch.outputs.checkout }}
+          WORKFLOW_DIR: ${{ steps.act-branch.outputs.workflow_dir }}
+          REPO_OUT: ${{ steps.act-branch.outputs.repo }}
+          REF_OUT: ${{ steps.act-branch.outputs.ref }}
+        run: |
+          set -euo pipefail
+          [[ "${CHECKOUT}" == "false" ]]
+          [[ "${WORKFLOW_DIR}" == "${GITHUB_WORKSPACE}" ]]
+          [[ -n "${REPO_OUT}" ]]
+          [[ -z "${REF_OUT}" ]]
+          echo "resolve_act_branch=ok"
+
+      - name: Resolve (OIDC fail-fast without token endpoint)
+        id: oidc-branch
+        continue-on-error: true
+        env:
+          ACT: "false"
+        uses: ./.github/actions/resolve-workflow-source
+
+      - name: Assert OIDC branch failed fast
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.oidc-branch.outcome }}
+        run: |
+          set -euo pipefail
+          [[ "${OUTCOME}" == "failure" ]]
+          echo "resolve_oidc_failfast=ok"

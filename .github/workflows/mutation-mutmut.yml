@@ -1,0 +1,139 @@
+name: Mutation testing (mutmut)
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: >-
+          Comma-separated path prefixes containing mutable Python
+          source.
+        type: string
+        default: "src/"
+      window-hours:
+        description: >-
+          Change-detection window in hours; keep one hour wider than the
+          schedule cadence to absorb cron start-time drift.
+        type: number
+        default: 25
+      base-ref:
+        description: Reference whose history is inspected for changes.
+        type: string
+        default: origin/main
+      timeout-minutes:
+        description: Job timeout ceiling in minutes.
+        type: number
+        default: 90
+      mutmut-version:
+        description: >-
+          mutmut version injected via `uv run --with`. The default is
+          the version the results parser was validated against.
+        type: string
+        default: "3.6.0"
+      module-prefix-strip:
+        description: >-
+          Path prefix stripped from changed files before module-glob
+          translation (src-layout projects keep the default).
+        type: string
+        default: "src/"
+      extra-args:
+        description: Extra `mutmut run` arguments (shell-lexed).
+        type: string
+        default: ""
+
+# Default the token to no scopes; jobs opt in explicitly.
+permissions: {}
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve workflow source
+        id: workflow-source
+        # Pinned by SHA: this action performs the workflow-source
+        # resolution, so its own reference cannot be resolved
+        # dynamically. Bump the pin when the action changes.
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
+
+      - name: Checkout workflow repository
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ steps.workflow-source.outputs.repo }}
+          ref: ${{ steps.workflow-source.outputs.ref }}
+          path: workflow-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install uv (act)
+        if: ${{ env.ACT == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade --break-system-packages uv
+
+      - name: Setup uv
+        if: ${{ env.ACT != 'true' }}
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/workflow_scripts/*.py
+
+      - name: Detect changed files
+        id: detect
+        shell: bash
+        env:
+          INPUT_EVENT_NAME: ${{ github.event_name }}
+          INPUT_WINDOW_HOURS: ${{ inputs.window-hours }}
+          INPUT_PATHS: ${{ inputs.paths }}
+          INPUT_EXTRA_CRATE_DIRS: ""
+          INPUT_PATHSPEC: "*.py"
+          INPUT_SHARD_COUNT: "1"
+          INPUT_BASE_REF: ${{ inputs.base-ref }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_detect_changes.py"
+
+      - name: Run mutation testing
+        if: ${{ steps.detect.outputs.has_changes == 'true' }}
+        shell: bash
+        env:
+          INPUT_FILES: ${{ steps.detect.outputs.root_files }}
+          INPUT_MUTMUT_VERSION: ${{ inputs.mutmut-version }}
+          INPUT_MODULE_PREFIX_STRIP: ${{ inputs.module-prefix-strip }}
+          INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+          INPUT_RESULTS_FILE: mutation-mutmut-results.txt
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_run_mutmut.py"
+
+      - name: Upload mutation report
+        if: ${{ always() && steps.detect.outputs.has_changes == 'true' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: mutation-report-mutmut
+          path: |
+            mutation-mutmut-results.txt
+            mutants/mutmut-stats.json
+          if-no-files-found: warn

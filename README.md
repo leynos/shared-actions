@@ -16,6 +16,7 @@ GitHub Actions
 | Ratchet coverage          | `.github/actions/ratchet-coverage`                                                 | v1           |
 | Release to PyPI (uv)      | `.github/actions/release-to-pypi-uv`                                               | v1           |
 | Rust build release        | `.github/actions/rust-build-release`                                               | v1           |
+| Resolve workflow source   | `.github/actions/resolve-workflow-source`                                          | unreleased   |
 | Setup Rust                | `.github/actions/setup-rust`                                                       | v1           |
 | Stage release artefacts   | `.github/actions/stage-release-artefacts`                                          | v1           |
 | Upload CodeScene Coverage | `.github/actions/upload-codescene-coverage`                                        | v1           |
@@ -25,9 +26,11 @@ GitHub Actions
 
 ## Reusable workflows
 
-| Name                  | Path                                         |
-| --------------------- | -------------------------------------------- |
-| Dependabot auto-merge | `.github/workflows/dependabot-automerge.yml` |
+| Name                             | Path                                         | Guide                                                                          |
+| -------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
+| Dependabot auto-merge            | `.github/workflows/dependabot-automerge.yml` | [docs/dependabot-automerge-workflow.md](docs/dependabot-automerge-workflow.md) |
+| Mutation testing (cargo-mutants) | `.github/workflows/mutation-cargo.yml`       | [docs/mutation-cargo-workflow.md](docs/mutation-cargo-workflow.md)             |
+| Mutation testing (mutmut)        | `.github/workflows/mutation-mutmut.yml`      | [docs/mutation-mutmut-workflow.md](docs/mutation-mutmut-workflow.md)           |
 
 ## Development
 

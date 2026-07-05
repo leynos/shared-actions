@@ -1,0 +1,108 @@
+name: Resolve workflow source
+description: >-
+  Resolve the repository and commit of the reusable workflow that is
+  currently executing, using GitHub OIDC claims, so later steps can check
+  out the workflow's own helper scripts at exactly the SHA the caller
+  pinned. Under act, short-circuits to the local workspace with no
+  checkout required.
+
+  Consumers inside reusable workflows must reference this action with a
+  fully pinned `leynos/shared-actions/.github/actions/
+  resolve-workflow-source@<sha>` and bump the pin manually when the
+  action changes: the action performs the SHA resolution itself, so its
+  own reference cannot be resolved dynamically.
+
+outputs:
+  checkout:
+    description: >-
+      "true" when the workflow repository must be checked out (real
+      runs); "false" under act, where the workspace already holds the
+      workflow source.
+    value: ${{ steps.resolve.outputs.checkout }}
+  workflow_dir:
+    description: Directory containing (or destined for) the workflow source.
+    value: ${{ steps.resolve.outputs.workflow_dir }}
+  repo:
+    description: The workflow repository in owner/name form.
+    value: ${{ steps.resolve.outputs.repo }}
+  ref:
+    description: The workflow commit SHA (empty under act).
+    value: ${{ steps.resolve.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve workflow source
+      id: resolve
+      shell: bash
+      env:
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        workspace="${GITHUB_WORKSPACE:-$PWD}"
+
+        if [[ "${ACT:-}" == "true" ]]; then
+          {
+            echo "checkout=false"
+            echo "workflow_dir=${workspace}"
+            echo "repo=${REPO}"
+            echo "ref="
+          } >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+          echo "OpenID Connect (OIDC) env vars not available. Ensure job permissions include: id-token: write" >&2
+          exit 1
+        fi
+
+        oidc_json="$(
+          curl -sSf \
+            --connect-timeout 10 \
+            --max-time 60 \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=github"
+        )"
+
+        # Assigning the substitution to a variable first (rather than
+        # feeding it straight to `read`) lets `set -e` abort when the
+        # Python parser fails, instead of proceeding with blank fields.
+        parsed="$(
+        OIDC_JSON="${oidc_json}" python3 - <<'PY'
+        import base64, json, os
+
+        d = json.loads(os.environ["OIDC_JSON"])
+        jwt = d["value"]
+
+        payload = jwt.split(".", 2)[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+
+        job_ref = claims.get("job_workflow_ref")
+        job_sha = claims.get("job_workflow_sha")
+        if not job_ref or not job_sha:
+            raise SystemExit(
+                f"Missing job_workflow_ref/job_workflow_sha in OIDC claims "
+                f"(job_workflow_ref={bool(job_ref)}, job_workflow_sha={bool(job_sha)})"
+            )
+
+        repo = job_ref.split("/.github/workflows/")[0]
+        print(repo, job_sha)
+        PY
+        )"
+
+        read -r repo ref <<<"${parsed}"
+        if [[ -z "${repo:-}" || -z "${ref:-}" ]]; then
+          echo "Failed to derive workflow repo/ref from OIDC claims (parsed: ${parsed@Q})." >&2
+          exit 1
+        fi
+
+        {
+          echo "checkout=true"
+          echo "workflow_dir=${workspace}/workflow-src"
+          echo "repo=${repo}"
+          echo "ref=${ref}"
+        } >> "${GITHUB_OUTPUT}"

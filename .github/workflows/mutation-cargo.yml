@@ -1,0 +1,285 @@
+name: Mutation testing (cargo-mutants)
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: >-
+          Comma-separated path prefixes belonging to the root target.
+        type: string
+        default: "src/,examples/,benches/"
+      extra-crate-dirs:
+        description: >-
+          Comma-separated directories of crates outside the root
+          workspace, mutated as separate targets. Note that a crate whose
+          coverage lives in a sibling crate's tests will report mostly
+          false survivors.
+        type: string
+        default: ""
+      exclude-globs:
+        description: >-
+          Comma-separated globs excluded from mutation (test helpers,
+          example scaffolding).
+        type: string
+        default: ""
+      window-hours:
+        description: >-
+          Change-detection window in hours; keep one hour wider than the
+          schedule cadence to absorb cron start-time drift.
+        type: number
+        default: 25
+      base-ref:
+        description: Reference whose history is inspected for changes.
+        type: string
+        default: origin/main
+      timeout-multiplier:
+        description: Per-mutant timeout as a multiple of the baseline.
+        type: string
+        default: "3"
+      timeout-minutes:
+        description: Per-job timeout ceiling in minutes.
+        type: number
+        default: 300
+      shard-count:
+        description: >-
+          Shard fan-out for full (workflow_dispatch) runs; scoped
+          scheduled runs always use a single shard.
+        type: number
+        default: 6
+      cargo-mutants-version:
+        description: >-
+          cargo-mutants version to install. The default is the version
+          the summary parser was validated against; override with care.
+        type: string
+        default: "27.1.0"
+      extra-args:
+        description: >-
+          Extra cargo-mutants arguments (shell-lexed), e.g.
+          "--all-features" so feature-gated tests run against mutants.
+        type: string
+        default: ""
+
+# Default the token to no scopes; jobs opt in explicitly.
+permissions: {}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve workflow source
+        id: workflow-source
+        # Pinned by SHA: this action performs the workflow-source
+        # resolution, so its own reference cannot be resolved
+        # dynamically. Bump the pin when the action changes.
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
+
+      - name: Checkout workflow repository
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ steps.workflow-source.outputs.repo }}
+          ref: ${{ steps.workflow-source.outputs.ref }}
+          path: workflow-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install uv (act)
+        if: ${{ env.ACT == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade --break-system-packages uv
+
+      - name: Setup uv
+        if: ${{ env.ACT != 'true' }}
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/workflow_scripts/*.py
+
+      - name: Detect changed files
+        id: detect
+        shell: bash
+        env:
+          INPUT_EVENT_NAME: ${{ github.event_name }}
+          INPUT_WINDOW_HOURS: ${{ inputs.window-hours }}
+          INPUT_PATHS: ${{ inputs.paths }}
+          INPUT_EXTRA_CRATE_DIRS: ${{ inputs.extra-crate-dirs }}
+          INPUT_PATHSPEC: "*.rs"
+          INPUT_SHARD_COUNT: ${{ inputs.shard-count }}
+          INPUT_BASE_REF: ${{ inputs.base-ref }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_detect_changes.py"
+
+  mutants:
+    needs: detect
+    if: ${{ needs.detect.outputs.has_changes == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve workflow source
+        id: workflow-source
+        # Pinned by SHA: this action performs the workflow-source
+        # resolution, so its own reference cannot be resolved
+        # dynamically. Bump the pin when the action changes.
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
+
+      - name: Checkout workflow repository
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ steps.workflow-source.outputs.repo }}
+          ref: ${{ steps.workflow-source.outputs.ref }}
+          path: workflow-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Rust
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        uses: ./workflow-src/.github/actions/setup-rust
+
+      - name: Install cargo-mutants
+        if: ${{ env.ACT != 'true' }}
+        shell: bash
+        env:
+          CARGO_MUTANTS_VERSION: ${{ inputs.cargo-mutants-version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${CARGO_MUTANTS_VERSION}" ]]; then
+            cargo binstall --no-confirm "cargo-mutants@${CARGO_MUTANTS_VERSION}"
+          else
+            cargo binstall --no-confirm cargo-mutants
+          fi
+
+      - name: Install uv (act)
+        if: ${{ env.ACT == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade --break-system-packages uv
+
+      - name: Setup uv
+        if: ${{ env.ACT != 'true' }}
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/workflow_scripts/*.py
+
+      - name: Run mutation testing
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: always
+          INPUT_DIR: ${{ matrix.dir }}
+          INPUT_FILES: ${{ matrix.files }}
+          INPUT_SHARD: ${{ matrix.shard }}
+          INPUT_SHARD_COUNT: ${{ matrix.shard_count }}
+          INPUT_TIMEOUT_MULTIPLIER: ${{ inputs.timeout-multiplier }}
+          INPUT_EXCLUDE_GLOBS: ${{ inputs.exclude-globs }}
+          INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_run_cargo.py"
+
+      - name: Upload mutation report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: mutation-report-${{ matrix.slug }}-${{ matrix.shard }}
+          path: ${{ matrix.dir == '.' && 'mutants.out' || format('{0}/mutants.out', matrix.dir) }}
+          if-no-files-found: warn
+
+  summarize:
+    needs: [detect, mutants]
+    if: ${{ always() && needs.detect.outputs.has_changes == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Resolve workflow source
+        id: workflow-source
+        # Pinned by SHA: this action performs the workflow-source
+        # resolution, so its own reference cannot be resolved
+        # dynamically. Bump the pin when the action changes.
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
+
+      - name: Checkout workflow repository
+        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: ${{ steps.workflow-source.outputs.repo }}
+          ref: ${{ steps.workflow-source.outputs.ref }}
+          path: workflow-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download mutation reports
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: mutation-report-*
+          path: reports
+
+      - name: Install uv (act)
+        if: ${{ env.ACT == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade --break-system-packages uv
+
+      - name: Setup uv
+        if: ${{ env.ACT != 'true' }}
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/workflow_scripts/*.py
+
+      - name: Post summary
+        shell: bash
+        env:
+          INPUT_REPORT_ROOT: reports
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${ACT:-}" == "true" ]]; then
+            export UV_PROJECT_ENVIRONMENT="/tmp/uv-project"
+            export UV_CACHE_DIR="/tmp/uv-cache"
+          fi
+          mkdir -p reports
+          uv run --script "${WORKFLOW_DIR}/workflow_scripts/mutation_summarize_cargo.py"

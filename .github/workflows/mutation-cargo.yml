@@ -83,7 +83,7 @@ jobs:
         # Pinned by SHA: this action performs the workflow-source
         # resolution, so its own reference cannot be resolved
         # dynamically. Bump the pin when the action changes.
-        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@e892eb3c7b21e688425f6b638ce00cf6a089407a
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
 
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
@@ -152,7 +152,7 @@ jobs:
         # Pinned by SHA: this action performs the workflow-source
         # resolution, so its own reference cannot be resolved
         # dynamically. Bump the pin when the action changes.
-        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@e892eb3c7b21e688425f6b638ce00cf6a089407a
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
 
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
@@ -237,7 +237,7 @@ jobs:
         # Pinned by SHA: this action performs the workflow-source
         # resolution, so its own reference cannot be resolved
         # dynamically. Bump the pin when the action changes.
-        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@e892eb3c7b21e688425f6b638ce00cf6a089407a
+        uses: leynos/shared-actions/.github/actions/resolve-workflow-source@62733fd653cc577f9858645d9a3e4daf90998c55
 
       - name: Checkout workflow repository
         if: ${{ steps.workflow-source.outputs.checkout == 'true' }}

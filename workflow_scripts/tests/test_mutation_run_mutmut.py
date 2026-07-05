@@ -38,18 +38,24 @@ class TestFilesToModuleGlobs:
         globs = run_mutmut.files_to_module_globs(
             "src/mypkg/calc.py src/mypkg/io.py", "src/"
         )
-        assert globs == ["mypkg.calc.*", "mypkg.io.*"]
+        assert globs == ["mypkg.calc.*", "mypkg.io.*"], (
+            "src-layout files should translate to module globs"
+        )
 
     def test_init_maps_to_package_and_duplicates_collapse(self) -> None:
         """``__init__.py`` maps to its package; duplicates are dropped."""
         globs = run_mutmut.files_to_module_globs(
             "src/mypkg/__init__.py src/mypkg/__init__.py", "src/"
         )
-        assert globs == ["mypkg.*"]
+        assert globs == ["mypkg.*"], (
+            "__init__.py should map to its package glob with duplicates collapsed"
+        )
 
     def test_non_python_and_bare_prefix_are_ignored(self) -> None:
         """Non-Python paths and empty translations produce nothing."""
-        assert run_mutmut.files_to_module_globs("README.md src/", "src/") == []
+        assert run_mutmut.files_to_module_globs("README.md src/", "src/") == [], (
+            "non-Python paths and bare prefixes should produce no globs"
+        )
 
 
 class TestParseResults:
@@ -63,8 +69,10 @@ class TestParseResults:
             "survived",
             "no tests",
             "timeout",
-        ]
-        assert results[1].name == "mypkg.calc.x_clamp__mutmut_1"
+        ], "each result line should parse to its status with noise skipped"
+        assert results[1].name == "mypkg.calc.x_clamp__mutmut_1", (
+            "parsed results should retain the mutant name"
+        )
 
     def test_counts_group_by_status(self) -> None:
         """Status counts aggregate across mutants."""
@@ -74,7 +82,7 @@ class TestParseResults:
             "survived": 1,
             "no tests": 1,
             "timeout": 1,
-        }
+        }, "status counts should aggregate across mutants"
 
 
 class TestRenderSummary:
@@ -83,15 +91,25 @@ class TestRenderSummary:
     def test_survivor_table_lists_survived_and_untested(self) -> None:
         """Survived and no-tests mutants appear in the table."""
         rendered = run_mutmut.render_summary(run_mutmut.parse_results(RESULTS_TEXT))
-        assert "## Mutation testing results (mutmut)" in rendered
-        assert "- **killed:** 1" in rendered
-        assert "| `mypkg.calc.x_clamp__mutmut_1` | survived |" in rendered
-        assert "| `mypkg.calc.x_clamp__mutmut_2` | no tests |" in rendered
-        assert "x_read__mutmut_3" not in rendered.split("Surviving mutants")[1]
+        assert "## Mutation testing results (mutmut)" in rendered, (
+            "the summary should carry the mutmut results heading"
+        )
+        assert "- **killed:** 1" in rendered, "the summary should list the killed count"
+        assert "| `mypkg.calc.x_clamp__mutmut_1` | survived |" in rendered, (
+            "survived mutants should appear in the survivor table"
+        )
+        assert "| `mypkg.calc.x_clamp__mutmut_2` | no tests |" in rendered, (
+            "no-tests mutants should appear in the survivor table"
+        )
+        assert "x_read__mutmut_3" not in rendered.split("Surviving mutants")[1], (
+            "timed-out mutants should not appear in the survivor table"
+        )
 
     def test_empty_results_render_message(self) -> None:
         """No mutants yields an explanatory message."""
-        assert "No mutants were tested." in run_mutmut.render_summary([])
+        assert "No mutants were tested." in run_mutmut.render_summary([]), (
+            "empty results should render an explanatory message"
+        )
 
 
 @pytest.fixture
@@ -146,9 +164,15 @@ class TestMainEntry:
         monkeypatch.setenv("INPUT_FILES", "src/mypkg/calc.py")
         run_mutmut.app([])
         recorded = fake_uv.read_text(encoding="utf-8")
-        assert "mutmut run mypkg.calc.*" in recorded.replace("  ", " ")
-        assert "survived" in results_file.read_text(encoding="utf-8")
-        assert "Surviving mutants" in summary_file.read_text(encoding="utf-8")
+        assert "mutmut run mypkg.calc.*" in recorded.replace("  ", " "), (
+            "changed files should reach mutmut run as module globs"
+        )
+        assert "survived" in results_file.read_text(encoding="utf-8"), (
+            "the results file should capture the mutmut results output"
+        )
+        assert "Surviving mutants" in summary_file.read_text(encoding="utf-8"), (
+            "the job summary should include the survivors section"
+        )
 
     @POSIX_SHIMS_ONLY
     def test_failing_baseline_propagates_exit_code(
@@ -160,7 +184,9 @@ class TestMainEntry:
         monkeypatch.setitem(local.env, "FAKE_MUTMUT_RUN_EXIT", "3")
         with pytest.raises(SystemExit) as excinfo:
             run_mutmut.app([])
-        assert excinfo.value.code == 3
+        assert excinfo.value.code == 3, (
+            "a failing mutmut run should propagate its exit code"
+        )
 
     def test_scope_without_python_files_short_circuits(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
@@ -169,12 +195,18 @@ class TestMainEntry:
         _, results_file = self._prepare(tmp_path, monkeypatch)
         monkeypatch.setenv("INPUT_FILES", "README.md")
         run_mutmut.app([])
-        assert not fake_uv.exists()
-        assert results_file.read_text(encoding="utf-8") == ""
+        assert not fake_uv.exists(), (
+            "uv should never be invoked when the scope has no Python files"
+        )
+        assert results_file.read_text(encoding="utf-8") == "", (
+            "the results file should stay empty on the short-circuit path"
+        )
 
     def test_missing_summary_env_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A missing GITHUB_STEP_SUMMARY is a hard error."""
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
         with pytest.raises(SystemExit) as excinfo:
             run_mutmut.app([])
-        assert excinfo.value.code == 1
+        assert excinfo.value.code == 1, (
+            "a missing GITHUB_STEP_SUMMARY should exit with code 1"
+        )

@@ -58,8 +58,16 @@ uploaded `mutation-report-*` artefacts.
   `cargo-mutants` and `mutmut` versions in the reusable workflows (not in
   callers): both tools' report formats are unstable, so the parsing logic
   and the tool version must travel together.
-- Least-privilege permissions: the jobs need `contents: read` only.
-  Document required caller permissions explicitly.
+- Least-privilege permissions. The reusable workflows' job contract is
+  `contents: read` plus `id-token: write` — the latter is required by
+  the OIDC workflow-source resolution
+  (`.github/actions/resolve-workflow-source`) and must not be dropped
+  when jobs change; each job's `permissions:` block declares both.
+  Separately, callers must grant the same two scopes on the calling
+  job (a reusable workflow cannot exceed the caller's grant); the
+  caller-facing docs (`docs/mutation-cargo-workflow.md` §Required
+  permissions and `docs/mutation-mutmut-workflow.md` §Required
+  permissions) document this caller-side requirement explicitly.
 - Workflow inputs must reach scripts as `INPUT_*` environment variables via
   `env:` blocks; never interpolate `${{ ... }}` expressions into script
   text (shell-injection vector — confirmed relevant in the wireframe
@@ -348,6 +356,20 @@ work proceeds.
   cover the act short-circuit and OIDC fail-fast branches; both
   workflows now pass `actionlint` and `zizmor` with no findings
   (verified alongside the workflow-level `permissions: {}` hardening).
+
+- 2026-07-05 (second review round): hardened
+  `resolve-workflow-source` so a failing OIDC claim parse aborts
+  instead of writing blank `repo`/`ref` outputs with `checkout=true`
+  (the command substitution now assigns to a variable — letting
+  `set -e` catch parser failures — and the parsed fields are validated
+  non-empty). This action change required the first exercise of the
+  pin-bump policy: the workflow `uses:` pins advance to the commit
+  carrying the fix. Also corrected the plan's least-privilege
+  constraint (the job contract is `contents: read` plus
+  `id-token: write` for OIDC resolution, mirrored by callers), expanded
+  the remaining one-line public docstrings to NumPy style, and gave
+  every assert in the mutmut and cargo-summary test modules a
+  descriptive failure message.
 
 ## Outcomes & Retrospective
 

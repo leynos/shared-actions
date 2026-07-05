@@ -171,7 +171,19 @@ def parse_results(text: str) -> list[MutantResult]:
 
 
 def count_statuses(results: list[MutantResult]) -> dict[str, int]:
-    """Count results per status, preserving first-seen order."""
+    """Count results per status, preserving first-seen order.
+
+    Parameters
+    ----------
+    results : list[MutantResult]
+        Parsed mutant results, as produced by ``parse_results``.
+
+    Returns
+    -------
+    dict[str, int]
+        Mapping of status name (``killed``, ``survived``, ...) to the
+        number of mutants with that status, keyed in first-seen order.
+    """
     counts: collections.Counter[str] = collections.Counter()
     for result in results:
         counts[result.status] += 1
@@ -195,7 +207,21 @@ def _render_survivor_table(survivors: list[MutantResult]) -> list[str]:
 
 
 def render_summary(results: list[MutantResult]) -> str:
-    """Render mutmut results as job-summary Markdown."""
+    """Render mutmut results as job-summary Markdown.
+
+    Parameters
+    ----------
+    results : list[MutantResult]
+        Parsed mutant results, as produced by ``parse_results``.
+
+    Returns
+    -------
+    str
+        Markdown with per-status counts and, where mutants survived or
+        lacked covering tests, a table naming each such mutant. When
+        ``results`` is empty, an explanatory message is returned
+        instead.
+    """
     lines = ["## Mutation testing results (mutmut)", ""]
     if not results:
         return "\n".join((*lines, "No mutants were tested.", ""))

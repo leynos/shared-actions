@@ -147,7 +147,19 @@ class MatrixEntry:
 
 
 def split_csv(raw: str) -> tuple[str, ...]:
-    """Split a comma-separated input into trimmed, non-empty parts."""
+    """Split a comma-separated input into trimmed, non-empty parts.
+
+    Parameters
+    ----------
+    raw : str
+        Comma-separated input, possibly with surrounding whitespace or
+        empty segments (``"a/, ,b/,"``).
+
+    Returns
+    -------
+    tuple[str, ...]
+        The trimmed, non-empty parts in input order.
+    """
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 

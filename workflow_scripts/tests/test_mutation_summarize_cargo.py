@@ -57,16 +57,16 @@ class TestParseOutcomes:
             "MissedMutant": 1,
             "Timeout": 1,
             "Unviable": 1,
-        }
+        }, "counts should group non-baseline outcomes by summary"
         assert survivors == [
             summarize.SurvivingMutant(file="src/a.rs", line=42, name="m1")
-        ]
+        ], "survivors should carry the missed mutant's file, line, and name"
 
     def test_empty_payload_is_harmless(self) -> None:
         """An empty report yields zero counts and no survivors."""
         counts, survivors = summarize.parse_outcomes({})
-        assert sum(counts.values()) == 0
-        assert survivors == []
+        assert sum(counts.values()) == 0, "an empty payload should yield zero counts"
+        assert survivors == [], "an empty payload should yield no survivors"
 
 
 class TestCollectReports:
@@ -93,11 +93,15 @@ class TestCollectReports:
             [_mutant_outcome("CaughtMutant")],
         )
         reports = summarize.collect_reports(tmp_path)
-        assert [report.slug for report in reports] == ["root", "testkit"]
+        assert [report.slug for report in reports] == ["root", "testkit"], (
+            "reports should merge per target slug in sorted order"
+        )
         root = reports[0]
-        assert root.caught == 1
-        assert root.missed == 2
-        assert {survivor.name for survivor in root.survivors} == {"a", "b"}
+        assert root.caught == 1, "caught counts should sum across a target's shards"
+        assert root.missed == 2, "missed counts should sum across a target's shards"
+        assert {survivor.name for survivor in root.survivors} == {"a", "b"}, (
+            "survivors should pool across a target's shards"
+        )
 
     def test_malformed_and_foreign_dirs_are_skipped(self, tmp_path: Path) -> None:
         """Unrelated directories and invalid JSON do not break the merge."""
@@ -109,8 +113,12 @@ class TestCollectReports:
         empty.mkdir()
         _write_report(tmp_path, "mutation-report-root-2", [])
         reports = summarize.collect_reports(tmp_path)
-        assert len(reports) == 1
-        assert reports[0].missed == 0
+        assert len(reports) == 1, (
+            "unrelated directories and invalid JSON should be skipped"
+        )
+        assert reports[0].missed == 0, (
+            "the surviving report should count no missed mutants"
+        )
 
 
 class TestRenderSummary:
@@ -124,13 +132,21 @@ class TestRenderSummary:
             [_mutant_outcome("MissedMutant", file="src/a|b.rs", name="swap | ops")],
         )
         rendered = summarize.render_summary(summarize.collect_reports(tmp_path))
-        assert "## Mutation testing results (root)" in rendered
-        assert "- **Missed (survived):** 1" in rendered
-        assert "| src/a\\|b.rs | 7 | swap \\| ops |" in rendered
+        assert "## Mutation testing results (root)" in rendered, (
+            "the summary should carry a heading per target"
+        )
+        assert "- **Missed (survived):** 1" in rendered, (
+            "the summary should list the missed count"
+        )
+        assert "| src/a\\|b.rs | 7 | swap \\| ops |" in rendered, (
+            "the survivor table should escape pipe characters"
+        )
 
     def test_no_reports_message(self) -> None:
         """An empty report set renders an explanatory message."""
-        assert "No reports were produced" in summarize.render_summary([])
+        assert "No reports were produced" in summarize.render_summary([]), (
+            "an empty report set should render an explanatory message"
+        )
 
 
 class TestMainEntry:
@@ -151,7 +167,9 @@ class TestMainEntry:
         monkeypatch.setenv("INPUT_REPORT_ROOT", str(reports))
         summarize.app([])
         text = summary_file.read_text(encoding="utf-8")
-        assert "Surviving mutants" in text
+        assert "Surviving mutants" in text, (
+            "the job summary should receive the rendered Markdown"
+        )
 
     def test_missing_report_root_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -163,4 +181,4 @@ class TestMainEntry:
         monkeypatch.setenv("INPUT_REPORT_ROOT", str(tmp_path / "absent"))
         with pytest.raises(SystemExit) as excinfo:
             summarize.app([])
-        assert excinfo.value.code == 1
+        assert excinfo.value.code == 1, "a missing report root should exit with code 1"

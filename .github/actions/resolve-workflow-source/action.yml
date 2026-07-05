@@ -67,7 +67,10 @@ runs:
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=github"
         )"
 
-        read -r repo ref <<<"$(
+        # Assigning the substitution to a variable first (rather than
+        # feeding it straight to `read`) lets `set -e` abort when the
+        # Python parser fails, instead of proceeding with blank fields.
+        parsed="$(
         OIDC_JSON="${oidc_json}" python3 - <<'PY'
         import base64, json, os
 
@@ -90,6 +93,12 @@ runs:
         print(repo, job_sha)
         PY
         )"
+
+        read -r repo ref <<<"${parsed}"
+        if [[ -z "${repo:-}" || -z "${ref:-}" ]]; then
+          echo "Failed to derive workflow repo/ref from OIDC claims (parsed: ${parsed@Q})." >&2
+          exit 1
+        fi
 
         {
           echo "checkout=true"

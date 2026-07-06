@@ -134,7 +134,11 @@ jobs:
     needs: detect
     if: ${{ needs.detect.outputs.has_changes == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
+    # The job ceiling sits at the platform maximum while the run step
+    # carries the caller's `timeout-minutes` budget: a step timeout fails
+    # the step (so the always() artefact upload still runs), whereas a
+    # job timeout cancels everything, losing the partial mutants.out.
+    timeout-minutes: 360
     permissions:
       contents: read
       id-token: write
@@ -198,6 +202,7 @@ jobs:
 
       - name: Run mutation testing
         shell: bash
+        timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
         env:
           CARGO_TERM_COLOR: always
           INPUT_DIR: ${{ matrix.dir }}

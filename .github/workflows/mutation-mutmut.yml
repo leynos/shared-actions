@@ -39,6 +39,13 @@ on:
         description: Extra `mutmut run` arguments (shell-lexed).
         type: string
         default: ""
+      python-version:
+        description: >-
+          Python version for uv. Must satisfy the caller project's
+          `requires-python`: the run step executes `uv run` inside the
+          caller's project, and setup-uv exports this as UV_PYTHON.
+        type: string
+        default: "3.13"
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -85,7 +92,7 @@ jobs:
         if: ${{ env.ACT != 'true' }}
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
-          python-version: '3.13'
+          python-version: ${{ inputs.python-version }}
           cache-dependency-glob: |
             **/pyproject.toml
             **/uv.lock

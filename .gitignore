@@ -166,4 +166,7 @@ target/
 
 # Episodic nested repository (separate git history)
 /episodic-work/
+
+# Memtrace local database
+/.memdb/
 docs/architecture/

@@ -83,6 +83,7 @@ jobs:
 | `shard-count` | `6` | Fan-out for full dispatch runs (scoped runs stay single-shard). |
 | `cargo-mutants-version` | pinned | Tool version; the summary parser is validated against it. |
 | `extra-args` | (empty) | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`. |
+| `setup-commands` | (empty) | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
 
 ## Notes
 

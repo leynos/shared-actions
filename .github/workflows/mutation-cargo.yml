@@ -58,6 +58,14 @@ on:
           "--all-features" so feature-gated tests run against mutants.
         type: string
         default: ""
+      setup-commands:
+        description: >-
+          Shell commands run in each mutants job before cargo-mutants
+          (e.g. installing a linker such as mold, or system packages
+          the build needs). Executed with bash under `set -euo
+          pipefail`; empty means no extra setup.
+        type: string
+        default: ""
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -184,6 +192,17 @@ jobs:
           else
             cargo binstall --no-confirm cargo-mutants
           fi
+
+      - name: Run setup commands
+        if: ${{ inputs.setup-commands != '' }}
+        shell: bash
+        env:
+          SETUP_COMMANDS: ${{ inputs.setup-commands }}
+        run: |
+          set -euo pipefail
+          script="${RUNNER_TEMP}/mutation-setup-commands.sh"
+          printf '%s\n' "${SETUP_COMMANDS}" > "${script}"
+          bash -euo pipefail "${script}"
 
       - name: Install uv (act)
         if: ${{ env.ACT == 'true' }}

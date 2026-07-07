@@ -96,6 +96,15 @@ jobs:
   configuration surface change between releases (3.6 renamed
   `paths_to_mutate` to `source_paths` and dropped file-path run
   arguments). Override only alongside a parser check.
+- mutmut runs the suite inside a `mutants/` working copy that contains
+  only `tests/`, `test/`, `pyproject.toml`, `setup.cfg`, root
+  `test*.py`, and whatever `[tool.mutmut] also_copy` lists. Tests that
+  read other repo-root paths fail the baseline there — notably a
+  workflow contract test reading `.github/workflows/`. Guard such
+  tests with a module-level
+  `pytest.mark.skipif(not <path>.exists(), ...)`, exclude them from
+  mutmut's test selection, or add the paths to `also_copy`. (Observed
+  live on the estate's first scheduled polythene run.)
 - "No tests" survivors mean mutmut found no covering test for the
   function; they are coverage gaps rather than assertion gaps.
 - Some survivors are equivalent mutants; triage before turning the

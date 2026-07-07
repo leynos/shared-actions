@@ -41,9 +41,13 @@ on:
         default: ""
       python-version:
         description: >-
-          Python version for uv. Must satisfy the caller project's
-          `requires-python`: the run step executes `uv run` inside the
-          caller's project, and setup-uv exports this as UV_PYTHON.
+          Python version for uv. Must be 3.13 or newer (the workflow's
+          helper scripts require >= 3.13, and setup-uv exports this as
+          UV_PYTHON for the whole job) AND must satisfy the caller
+          project's `requires-python`, because the run step executes
+          `uv run` inside the caller's project. Projects baselined
+          below 3.13 whose `requires-python` upper bound excludes 3.13
+          cannot use this workflow.
         type: string
         default: "3.13"
 
@@ -62,6 +66,19 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Validate python-version
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ inputs.python-version }}
+        run: |
+          set -euo pipefail
+          lowest=$(printf '%s\n' "3.13" "${PYTHON_VERSION}" | sort -V | head -n 1)
+          if [[ "${lowest}" != "3.13" ]]; then
+            echo "python-version must be 3.13 or newer (got ${PYTHON_VERSION}):" \
+              "the workflow's helper scripts require >= 3.13." >&2
+            exit 1
+          fi
+
       - name: Checkout caller repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

@@ -88,7 +88,7 @@ jobs:
 | `mutmut-version` | pinned | Tool version; the results parser is validated against it. |
 | `module-prefix-strip` | `src/` | Prefix removed before module-glob translation. |
 | `extra-args` | (empty) | Extra `mutmut run` arguments (shell-lexed). |
-| `python-version` | `3.13` | Python for uv; must satisfy the project's `requires-python` (e.g. set `"3.14"` for `>=3.14` projects). |
+| `python-version` | `3.13` | Python for uv; must be **3.13 or newer** (the workflow's helper scripts require it — the job fails fast otherwise) and must satisfy the project's `requires-python` (e.g. set `"3.14"` for `>=3.14` projects). |
 
 ## Notes
 

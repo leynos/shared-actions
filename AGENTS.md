@@ -117,6 +117,7 @@ to bare names on `PATH`. The following variables are set at the top of
 | `UV`               | `~/.local/bin/uv`, otherwise `uv`                                                                        |
 | `ACTION_VALIDATOR` | `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then `action-validator` (on `PATH`) |
 | `MDLINT`           | `~/.bun/bin/markdownlint-cli2`, then `PATH`                                                              |
+| `WHITAKER`         | `~/.local/bin/whitaker`, otherwise `whitaker`                                                            |
 
 For `ACTION_VALIDATOR`, the concrete lookup order is
 `~/.bun/bin/action-validator`, then `~/.cargo/bin/action-validator`, then

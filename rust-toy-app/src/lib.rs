@@ -16,6 +16,8 @@ pub mod cli;
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the greeting CLI, demonstrating rstest fixtures and
+    //! parametrized cases for coverage-collection validation.
     use super::cli::Cli;
     use rstest::{fixture, rstest};
 

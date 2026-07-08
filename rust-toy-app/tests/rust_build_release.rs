@@ -3,7 +3,7 @@
 mod common;
 
 use assert_cmd::prelude::*;
-use common::{assert_manpage_exists, assert_manpage_exists_in};
+use common::assert_manpage_exists_in;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -47,7 +47,8 @@ fn builds_release_binary_and_manpage() {
         assert!(project_dir
             .join(format!("target/{target}/release/rust-toy-app"))
             .exists());
-        let target_root = project_dir.join(format!("target/{target}"));
-        assert_manpage_exists_in(&target_root);
+        // The build script writes the man page beneath the top-level target
+        // root (target/generated-man/<target>/release), so search from there.
+        assert_manpage_exists_in(project_dir.join("target"));
     }
 }

@@ -145,6 +145,8 @@ fn replace_uv_binary_override(bin: Option<OsString>) -> Option<OsString> {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the runtime-availability probe, using temporary
+    //! fixture modules and override guards to avoid touching real runtimes.
     use super::*;
     use std::fs;
     use std::mem;

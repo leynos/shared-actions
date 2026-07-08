@@ -25,6 +25,7 @@
 
 use std::process::{Command, Output};
 
+use anyhow::Context;
 use cucumber::{given, then, when, World};
 use rust_toy_app::cli::Cli;
 
@@ -62,9 +63,13 @@ fn name_is_provided(world: &mut GreetingWorld, name: String) {
 }
 
 #[when("the greeting is generated")]
-fn greeting_is_generated(world: &mut GreetingWorld) {
-    let cli = world.cli.as_ref().expect("CLI not configured; missing 'Given' step");
+fn greeting_is_generated(world: &mut GreetingWorld) -> anyhow::Result<()> {
+    let cli = world
+        .cli
+        .as_ref()
+        .context("CLI not configured; missing 'Given' step")?;
     world.greeting = Some(cli.run());
+    Ok(())
 }
 
 #[then(expr = "the output should be {string}")]
@@ -103,31 +108,35 @@ fn binary_exists(world: &mut GreetingWorld) {
 }
 
 #[when(expr = "I run it with {string}")]
-fn run_with_args(world: &mut GreetingWorld, args: String) {
+fn run_with_args(world: &mut GreetingWorld, args: String) -> anyhow::Result<()> {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rust-toy-app"));
     for arg in args.split_whitespace() {
         cmd.arg(arg);
     }
-    world.output = Some(cmd.output().expect("failed to execute binary"));
+    world.output = Some(cmd.output().context("failed to execute binary")?);
+    Ok(())
 }
 
 #[when("I run it without arguments")]
-fn run_without_args(world: &mut GreetingWorld) {
+fn run_without_args(world: &mut GreetingWorld) -> anyhow::Result<()> {
     let output = Command::new(env!("CARGO_BIN_EXE_rust-toy-app"))
         .output()
-        .expect("failed to execute binary");
+        .context("failed to execute binary")?;
     world.output = Some(output);
+    Ok(())
 }
 
 #[then(expr = "the exit code should be {int}")]
-fn exit_code_should_be(world: &mut GreetingWorld, expected: i32) {
-    let output = world.output.as_ref().expect("no output captured");
-    let actual = output.status.code().expect("no exit code");
-    assert_eq!(
-        actual, expected,
+fn exit_code_should_be(world: &mut GreetingWorld, expected: i32) -> anyhow::Result<()> {
+    let output = world.output.as_ref().context("no output captured")?;
+    let actual = output.status.code().context("no exit code")?;
+    anyhow::ensure!(
+        actual == expected,
         "Expected exit code {} but got {}",
-        expected, actual
+        expected,
+        actual
     );
+    Ok(())
 }
 
 /// Enum to select which output stream to check.
@@ -137,29 +146,34 @@ enum OutputStream {
 }
 
 /// Helper function to check if an output stream contains the expected string.
-fn check_output_stream_contains(world: &mut GreetingWorld, stream: OutputStream, expected: String) {
-    let output = world.output.as_ref().expect("no output captured");
+fn check_output_stream_contains(
+    world: &mut GreetingWorld,
+    stream: OutputStream,
+    expected: String,
+) -> anyhow::Result<()> {
+    let output = world.output.as_ref().context("no output captured")?;
     let (content, stream_name) = match stream {
         OutputStream::Stdout => (String::from_utf8_lossy(&output.stdout), "stdout"),
         OutputStream::Stderr => (String::from_utf8_lossy(&output.stderr), "stderr"),
     };
-    assert!(
+    anyhow::ensure!(
         content.contains(&expected),
         "Expected {} to contain '{}' but got: {}",
         stream_name,
         expected,
         content
     );
+    Ok(())
 }
 
 #[then(expr = "the output should contain {string}")]
-fn output_contains(world: &mut GreetingWorld, expected: String) {
-    check_output_stream_contains(world, OutputStream::Stdout, expected);
+fn output_contains(world: &mut GreetingWorld, expected: String) -> anyhow::Result<()> {
+    check_output_stream_contains(world, OutputStream::Stdout, expected)
 }
 
 #[then(expr = "the stderr should contain {string}")]
-fn stderr_contains(world: &mut GreetingWorld, expected: String) {
-    check_output_stream_contains(world, OutputStream::Stderr, expected);
+fn stderr_contains(world: &mut GreetingWorld, expected: String) -> anyhow::Result<()> {
+    check_output_stream_contains(world, OutputStream::Stderr, expected)
 }
 
 fn main() {

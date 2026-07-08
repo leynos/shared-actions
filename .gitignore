@@ -169,3 +169,6 @@ target/
 
 # Memtrace local database
 .memdb/
+
+# mutmut mutation-testing working copy
+/mutants/

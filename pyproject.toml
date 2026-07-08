@@ -115,6 +115,23 @@ typing = "typ"
 # Enforce NumPy docstring style
 convention = "numpy"
 
+[tool.mutmut]
+# Mutate only the reusable-workflow helper scripts. The .github/actions
+# scripts are excluded: mutmut's sandbox does not copy .github/, their
+# tests are co-located with the action sources, and several rely on
+# GITHUB_ACTION_PATH discovery and subprocess execution that mutmut's
+# in-process attribution cannot see.
+source_paths = ["workflow_scripts/"]
+# Select only the in-process unit tests; the act-gated workflow tests
+# under tests/workflows (ACT_WORKFLOW_TESTS) must stay out of mutmut's
+# selection.
+pytest_add_cli_args_test_selection = ["workflow_scripts/tests/"]
+do_not_mutate = ["workflow_scripts/tests/*"]
+# The root conftest.py makes workflow_scripts importable from the
+# sandbox and registers the cmd-mox plugin; pytest.ini keeps the pytest
+# configuration identical inside mutants/.
+also_copy = ["conftest.py", "pytest.ini"]
+
 [tool.pytest.ini_options]
 # Ensure asyncio fixtures create a new event loop for each test
 asyncio_default_fixture_loop_scope = "function"

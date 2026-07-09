@@ -16,6 +16,13 @@ inputs:
   installer-checksum:
     description: SHA-256 checksum of the installer script
     required: false
+  cli-version:
+    description: >-
+      cs-coverage CLI version to install (e.g. "2.1.0"). Defaults to
+      "latest", which skips the CLI cache so a fresh copy is always
+      fetched; pin a version to enable caching.
+    required: false
+    default: latest
 runs:
   using: composite
   steps:
@@ -49,19 +56,24 @@ runs:
         echo "path=$file" >> "$GITHUB_OUTPUT"
       shell: bash
 
+    # The installer no longer embeds a version literal; it takes the
+    # version as its first positional argument (defaulting to "latest"),
+    # so the version comes from the cli-version input rather than being
+    # extracted from the script.
     - name: Download installer
       id: installer
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
       run: |
         script=$(mktemp)
         curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
         if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
           echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
         fi
-        version=$(grep -oE 'version="([0-9]+\.[0-9]+\.[0-9]+)"' "$script" | cut -d'"' -f2)
-        major_minor=${version%.*}
+        major_minor=${CLI_VERSION%.*}
         echo "script=$script" >> "$GITHUB_OUTPUT"
-        echo "version=$version" >> "$GITHUB_OUTPUT"
-        echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
+        echo "version=${CLI_VERSION}" >> "$GITHUB_OUTPUT"
+        echo "major_minor=${major_minor}" >> "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Upload coverage GitHub artefact
@@ -70,8 +82,11 @@ runs:
         name: coverage
         path: ${{ steps.cov-file.outputs.path }}
 
+    # Caching a "latest" binary would pin whatever version was first
+    # cached, so the cache only participates when a version is pinned.
     - name: Cache CodeScene Coverage CLI
       id: cs-cache
+      if: inputs.cli-version != 'latest'
       uses: actions/cache@v4
       with:
         path: ~/.local/bin/cs-coverage
@@ -81,9 +96,11 @@ runs:
 
     - name: Install CodeScene Coverage CLI
       if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
       run: |
         script="${{ steps.installer.outputs.script }}"
-        bash "$script" -y
+        bash "$script" -y "${CLI_VERSION}"
         rm "$script"
       shell: bash
 

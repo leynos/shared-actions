@@ -146,11 +146,21 @@ def get_cargo_coverage_cmd(
     with_default: bool,
     use_nextest: bool,
 ) -> list[str]:
-    """Return the cargo llvm-cov command arguments."""
+    """Return the cargo llvm-cov command arguments.
+
+    File formats (lcov, cobertura) omit ``--summary-only``: with it,
+    cargo-llvm-cov exports only summary information, so the report lacks
+    per-line execution records (LCOV ``DA`` lines, Cobertura ``<line>``
+    elements) and consumers such as CodeScene cannot evaluate changed-line
+    coverage. Other formats keep the flag so the streamed summary output
+    remains parseable.
+    """
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
-    args += ["--manifest-path", str(manifest_path), "--workspace", "--summary-only"]
+    args += ["--manifest-path", str(manifest_path), "--workspace"]
+    if fmt not in ("lcov", "cobertura"):
+        args.append("--summary-only")
     if not with_default:
         args.append("--no-default-features")
     if features:

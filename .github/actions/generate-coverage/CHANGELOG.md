@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Omit `--summary-only` from `cargo llvm-cov` for the file formats
+  (`lcov`, `cobertura`). With the flag, cargo-llvm-cov exports only
+  summary information, so reports lacked per-line execution records
+  (LCOV `DA` lines, Cobertura `<line>` elements) and changed-line
+  coverage gates (e.g. CodeScene) had nothing to evaluate. Streamed
+  formats keep the flag so stdout remains parseable.
 - Ensure a pinned `cargo-binstall` (`v1.19.1`) is present before installing
   Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
   existing binary against the pinned version and reuses it only on a match;

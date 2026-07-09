@@ -369,7 +369,6 @@ def test_run_rust_success(
         "--manifest-path",
         "Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--no-default-features",
         "--features",
         "fast",
@@ -404,7 +403,6 @@ def test_run_rust_nextest_command(
         "--manifest-path",
         "Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--lcov",
         "--output-path",
         str(out),
@@ -461,7 +459,6 @@ def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
                 "--manifest-path",
                 "Cargo.toml",
                 "--workspace",
-                "--summary-only",
                 "--no-default-features",
                 "--features",
                 "fast",
@@ -479,7 +476,6 @@ def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
                 "--manifest-path",
                 "rust-toy-app/Cargo.toml",
                 "--workspace",
-                "--summary-only",
                 "--lcov",
                 "--output-path",
             ],
@@ -502,6 +498,32 @@ def test_get_cargo_coverage_cmd_variants(
         use_nextest=use_nextest,
     )
     assert args == [*expected, str(out)]
+
+
+@pytest.mark.parametrize(
+    ("output_format", "out_name", "expect_summary_only"),
+    [
+        ("text", "cov.txt", True),
+        ("cobertura", "cov.xml", False),
+    ],
+)
+def test_get_cargo_coverage_cmd_summary_only_by_format(
+    run_rust_module: ModuleType,
+    output_format: str,
+    out_name: str,
+    *,
+    expect_summary_only: bool,
+) -> None:
+    """File formats omit ``--summary-only``; streamed formats keep it."""
+    args = run_rust_module.get_cargo_coverage_cmd(
+        output_format,
+        Path(out_name),
+        "",
+        manifest_path=Path("Cargo.toml"),
+        with_default=True,
+        use_nextest=False,
+    )
+    assert ("--summary-only" in args) is expect_summary_only
 
 
 def _run_rust_main_variant(
@@ -1279,7 +1301,6 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--lcov",
         "--output-path",
         str(cuc_file),

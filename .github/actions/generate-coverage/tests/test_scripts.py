@@ -500,34 +500,29 @@ def test_get_cargo_coverage_cmd_variants(
     assert args == [*expected, str(out)]
 
 
-def test_get_cargo_coverage_cmd_keeps_summary_only_for_stream_formats(
+@pytest.mark.parametrize(
+    ("output_format", "out_name", "expect_summary_only"),
+    [
+        ("text", "cov.txt", True),
+        ("cobertura", "cov.xml", False),
+    ],
+)
+def test_get_cargo_coverage_cmd_summary_only_by_format(
     run_rust_module: ModuleType,
+    output_format: str,
+    out_name: str,
+    expect_summary_only: bool,
 ) -> None:
-    """Non-file formats keep ``--summary-only`` for parseable stdout."""
+    """File formats omit ``--summary-only``; streamed formats keep it."""
     args = run_rust_module.get_cargo_coverage_cmd(
-        "text",
-        Path("cov.txt"),
+        output_format,
+        Path(out_name),
         "",
         manifest_path=Path("Cargo.toml"),
         with_default=True,
         use_nextest=False,
     )
-    assert "--summary-only" in args
-
-
-def test_get_cargo_coverage_cmd_omits_summary_only_for_cobertura(
-    run_rust_module: ModuleType,
-) -> None:
-    """Cobertura output needs per-line records, so the flag is omitted."""
-    args = run_rust_module.get_cargo_coverage_cmd(
-        "cobertura",
-        Path("cov.xml"),
-        "",
-        manifest_path=Path("Cargo.toml"),
-        with_default=True,
-        use_nextest=False,
-    )
-    assert "--summary-only" not in args
+    assert ("--summary-only" in args) is expect_summary_only
 
 
 def _run_rust_main_variant(

@@ -70,3 +70,13 @@
   `pipefail` and broke every upload. A new `cli-version` input (default
   `latest`) selects the CLI version; the CLI cache participates only
   when a version is pinned, so `latest` always fetches a fresh copy.
+
+## Unreleased (check mode)
+
+- Add a `mode` input (`upload` | `check`). CodeScene accepts `upload`
+  only for branches the project analyses (typically `main`); the
+  pull-request coverage gate is driven by `cs-coverage check`, which
+  diffs the PR against its merge base. `check` requires the new
+  `project-url` input (exported as `CS_PROJECT_URL`) and a
+  `fetch-depth: 0` checkout, and requires LCOV files to end in `.info`
+  because the CLI infers the format from the extension.

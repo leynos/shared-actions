@@ -11,6 +11,8 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 | access-token       | CodeScene project access token                               | yes      |             |
 | installer-checksum | SHA-256 checksum of the installer script                     | no       |             |
 | cli-version        | cs-coverage CLI version to install (`latest` or `x.y.z`)     | no       | `latest`    |
+| mode               | `upload` (analysed branches) or `check` (PR coverage gate)   | no       | `upload`    |
+| project-url        | CodeScene project API URL; required when `mode` is `check`   | no       |             |
 
 If `path` is empty or `__auto__`, the action looks for `lcov.info` when
 `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`. The
@@ -23,6 +25,18 @@ results in an error.
 
 The action exports the `access-token` and `installer-checksum` inputs as
 `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.
+
+## Modes
+
+`upload` sends the report to CodeScene for an analysed branch; CodeScene
+rejects uploads for branches the project does not analyse (typically
+anything but `main`), so it belongs in push/main workflows. `check` runs
+the pull-request changed-line coverage gate (`cs-coverage check`), which
+diffs the PR against its merge base — the job must check out with
+`fetch-depth: 0`, pass `project-url`
+(`https://api.codescene.io/v2/projects/<id>`), and, for LCOV, name the
+report file `*.info` because the CLI infers the format from the file
+extension.
 
 ## Environment variables
 

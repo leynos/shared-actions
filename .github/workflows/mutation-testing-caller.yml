@@ -1,0 +1,31 @@
+# Thin caller of this repository's own mutation-mutmut reusable
+# workflow, pinned by SHA like any external consumer; caller guide:
+# docs/mutation-mutmut-workflow.md. Named mutation-testing-caller.yml
+# (precedent: dependabot-automerge-caller.yml) because this repository
+# hosts the reusable mutation workflows themselves.
+name: Mutation testing
+
+on:
+  schedule:
+    - cron: "50 11 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: mutation-testing-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    permissions:
+      contents: read
+      id-token: write # OIDC workflow-source resolution
+    uses: leynos/shared-actions/.github/workflows/mutation-mutmut.yml@859416a90eb3987b46a57682c5d6b8964ad3f0a6
+    with:
+      # Mutable Python source lives in workflow_scripts/, not src/.
+      paths: "workflow_scripts/"
+      # Flat package layout: changed-file paths already start at the
+      # package directory, so nothing is stripped before module-glob
+      # translation.
+      module-prefix-strip: ""

@@ -51,6 +51,11 @@ def git_repo(tmp_path: Path) -> Path:
     """Initialize a git repository with one old commit on ``main``."""
     repo = tmp_path / "repo"
     repo.mkdir()
+    # mutmut's mutation trampoline resolves the configured source_paths
+    # strictly against the current working directory on every hit; tests
+    # that chdir into this repository need the directory to exist or the
+    # mutation run's baseline fails with FileNotFoundError.
+    (repo / "workflow_scripts").mkdir()
     _git(repo, "init", "-q", "-b", "main")
     _commit_file(repo, "README.md", commit_date=OLD_COMMIT_DATE, content="hi\n")
     return repo

@@ -511,6 +511,7 @@ def test_get_cargo_coverage_cmd_summary_only_by_format(
     run_rust_module: ModuleType,
     output_format: str,
     out_name: str,
+    *,
     expect_summary_only: bool,
 ) -> None:
     """File formats omit ``--summary-only``; streamed formats keep it."""

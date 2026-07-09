@@ -887,6 +887,7 @@ dependencies = [
 name = "rust-toy-app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "assert_cmd",
  "clap",
  "clap_mangen",

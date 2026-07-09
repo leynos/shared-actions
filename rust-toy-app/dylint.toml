@@ -1,0 +1,11 @@
+# Whitaker Dylint suite configuration for rust-toy-app.
+#
+# The build script writes the generated man page to the ambient Cargo target
+# directory (a location dictated by Cargo and the release-staging action), so
+# capability-based filesystem handles are not applicable there.
+# The runtime probe's unit tests (compiled into both the `runtime` and
+# `rust_build_release` integration test crates) write fixture Python modules
+# and fake executables into `tempfile::TempDir`s; they are test support
+# utilities rather than product code.
+[no_std_fs_operations]
+excluded_crates = ["build_script_build", "runtime", "rust_build_release"]

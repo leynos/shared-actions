@@ -3,7 +3,6 @@
 mod common;
 
 use assert_cmd::prelude::*;
-use common::{assert_manpage_exists, assert_manpage_exists_in};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -47,7 +46,18 @@ fn builds_release_binary_and_manpage() {
         assert!(project_dir
             .join(format!("target/{target}/release/rust-toy-app"))
             .exists());
-        let target_root = project_dir.join(format!("target/{target}"));
-        assert_manpage_exists_in(&target_root);
+        // build.rs writes the man page to the deterministic path
+        // target/generated-man/<target>/release, so assert the exact file for
+        // the current target rather than globbing the whole target root;
+        // otherwise an artefact left by an earlier target or a debug build
+        // would satisfy the assertion.
+        let manpage = project_dir.join(format!(
+            "target/generated-man/{target}/release/rust-toy-app.1"
+        ));
+        assert!(
+            manpage.exists(),
+            "man page for {target} not found at {}",
+            manpage.display()
+        );
     }
 }

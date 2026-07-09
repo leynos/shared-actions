@@ -2,9 +2,12 @@
 
 use std::env;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
+// The build script only needs `cli::command()`; the rest of the module is
+// exercised by the library crate, so unused items here are expected.
+#[allow(dead_code)]
 #[path = "src/cli.rs"]
 mod cli;
 
@@ -27,42 +30,10 @@ fn main() -> std::io::Result<()> {
 
     // Prefer the explicit target directory set by cross / CARGO_TARGET_DIR.
     // Fall back to deriving the root from OUT_DIR's ancestor structure.
-    let target_root: std::path::PathBuf =
-        if let Some(cargo_target_dir) = env::var_os("CARGO_TARGET_DIR") {
-            std::path::PathBuf::from(cargo_target_dir)
-        } else {
-            let profile_dir = out_dir.ancestors().nth(3).ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-                )
-            })?;
-            if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile.as_str()) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("unexpected OUT_DIR profile: {}", out_dir.display()),
-                ));
-            }
-            let profile_parent = profile_dir.parent().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-                )
-            })?;
-            if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target.as_str()) {
-                profile_parent
-                    .parent()
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
-                        )
-                    })?
-                    .to_path_buf()
-            } else {
-                profile_parent.to_path_buf()
-            }
-        };
+    let target_root: PathBuf = match env::var_os("CARGO_TARGET_DIR") {
+        Some(cargo_target_dir) => PathBuf::from(cargo_target_dir),
+        None => derive_target_root(&out_dir, &target, &profile)?,
+    };
 
     let man_dir = target_root
         .join("generated-man")
@@ -82,6 +53,36 @@ fn main() -> std::io::Result<()> {
     man.render(&mut buffer)?;
     std::fs::write(man_dir.join("rust-toy-app.1"), &buffer)?;
     Ok(())
+}
+
+/// Derives the Cargo target root from `OUT_DIR`'s ancestor structure.
+///
+/// `OUT_DIR` is `<target-root>[/<target>]/<profile>/build/<pkg>/out`; this
+/// walks up to the profile directory, validates its name, and strips the
+/// optional target triple component.
+fn derive_target_root(out_dir: &Path, target: &str, profile: &str) -> std::io::Result<PathBuf> {
+    let structure_error = || {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR structure: {}", out_dir.display()),
+        )
+    };
+    let profile_dir = out_dir.ancestors().nth(3).ok_or_else(structure_error)?;
+    if profile_dir.file_name().and_then(|name| name.to_str()) != Some(profile) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("unexpected OUT_DIR profile: {}", out_dir.display()),
+        ));
+    }
+    let profile_parent = profile_dir.parent().ok_or_else(structure_error)?;
+    if profile_parent.file_name().and_then(|name| name.to_str()) == Some(target) {
+        Ok(profile_parent
+            .parent()
+            .ok_or_else(structure_error)?
+            .to_path_buf())
+    } else {
+        Ok(profile_parent.to_path_buf())
+    }
 }
 
 /// Returns the man-page date string.

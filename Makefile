@@ -1,4 +1,4 @@
-.PHONY: all clean help test lint markdownlint nixie fmt check-fmt typecheck
+.PHONY: all clean help test lint lint-whitaker markdownlint nixie fmt check-fmt typecheck
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -20,6 +20,7 @@ MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint-cli2),$(HOME)/.bun/bin/m
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
 UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
+WHITAKER ?= $(if $(wildcard $(HOME)/.local/bin/whitaker),$(HOME)/.local/bin/whitaker,whitaker)
 
 test: .venv ## Run tests
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
@@ -32,10 +33,14 @@ endif
 	$(UV) venv
 	$(UV) sync --group dev
 
-lint: ## Check test scripts and actions
+lint: ## Check test scripts and actions, then run the Whitaker Dylint suite
 	$(UV) tool run ruff check
 	find .github/actions -type f \( -name 'action.yml' -o -name 'action.yaml' \) \
 		-exec $(ACTION_VALIDATOR) {} \;
+	$(MAKE) lint-whitaker
+
+lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings denied
+	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 typecheck: .venv ## Run static type checking with Ty
 	./.venv/bin/ty check \

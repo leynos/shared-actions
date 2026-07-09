@@ -15,6 +15,8 @@ jobs:
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
+    env:
+      WHITAKER_INSTALLER_VERSION: '0.2.5'
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +50,32 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make check-fmt
         shell: bash
+      - name: Setup Rust
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/setup-rust
+      - name: Cache Whitaker installer
+        if: matrix.os == 'ubuntu-latest'
+        # v4.3.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/bin/whitaker-installer
+            ~/.cache/cargo-binstall
+          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ env.WHITAKER_INSTALLER_VERSION }}
+      - name: Install Whitaker
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v whitaker-installer >/dev/null 2>&1; then
+            if cargo binstall --version >/dev/null 2>&1; then
+              cargo binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
+            else
+              echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
+              cargo install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
+            fi
+          fi
+          whitaker-installer
       - name: Run lint checks
         if: matrix.os == 'ubuntu-latest'
         run: make lint

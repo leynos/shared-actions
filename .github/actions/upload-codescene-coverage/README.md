@@ -10,12 +10,16 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 | format             | Coverage format (`cobertura` or `lcov`)                      | no       | `cobertura` |
 | access-token       | CodeScene project access token                               | yes      |             |
 | installer-checksum | SHA-256 checksum of the installer script                     | no       |             |
+| cli-version        | cs-coverage CLI version to install (`latest` or `x.y.z`)     | no       | `latest`    |
 
 If `path` is empty or `__auto__`, the action looks for `lcov.info` when
 `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`. The
-CodeScene CLI is cached using its release version extracted from the installer
-script. If the optional `installer-checksum` input is set, the installer is
-validated before execution. Any other value for `format` results in an error.
+installer accepts the CLI version as an argument; `cli-version` selects it.
+The CLI is cached only when `cli-version` pins a concrete version — with
+`latest`, a fresh copy is fetched on every run so the cache can never pin a
+stale binary. If the optional `installer-checksum` input is set, the
+installer is validated before execution. Any other value for `format`
+results in an error.
 
 The action exports the `access-token` and `installer-checksum` inputs as
 `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.

@@ -61,3 +61,12 @@
 
 - Treat empty `path` input the same as `__auto__` to avoid artefact upload
   failures.
+
+## Unreleased
+
+- Adapt to the rewritten CodeScene installer script, which no longer
+  embeds a version literal and instead accepts the version as its first
+  positional argument. The removed `grep` extraction failed under
+  `pipefail` and broke every upload. A new `cli-version` input (default
+  `latest`) selects the CLI version; the CLI cache participates only
+  when a version is pinned, so `latest` always fetches a fresh copy.

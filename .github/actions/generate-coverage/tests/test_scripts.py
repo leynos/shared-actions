@@ -369,7 +369,6 @@ def test_run_rust_success(
         "--manifest-path",
         "Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--no-default-features",
         "--features",
         "fast",
@@ -404,7 +403,6 @@ def test_run_rust_nextest_command(
         "--manifest-path",
         "Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--lcov",
         "--output-path",
         str(out),
@@ -461,7 +459,6 @@ def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
                 "--manifest-path",
                 "Cargo.toml",
                 "--workspace",
-                "--summary-only",
                 "--no-default-features",
                 "--features",
                 "fast",
@@ -479,7 +476,6 @@ def test_run_rust_omitted_manifest_arg_ignores_blank_detected_manifest(
                 "--manifest-path",
                 "rust-toy-app/Cargo.toml",
                 "--workspace",
-                "--summary-only",
                 "--lcov",
                 "--output-path",
             ],
@@ -502,6 +498,36 @@ def test_get_cargo_coverage_cmd_variants(
         use_nextest=use_nextest,
     )
     assert args == [*expected, str(out)]
+
+
+def test_get_cargo_coverage_cmd_keeps_summary_only_for_stream_formats(
+    run_rust_module: ModuleType,
+) -> None:
+    """Non-file formats keep ``--summary-only`` for parseable stdout."""
+    args = run_rust_module.get_cargo_coverage_cmd(
+        "text",
+        Path("cov.txt"),
+        "",
+        manifest_path=Path("Cargo.toml"),
+        with_default=True,
+        use_nextest=False,
+    )
+    assert "--summary-only" in args
+
+
+def test_get_cargo_coverage_cmd_omits_summary_only_for_cobertura(
+    run_rust_module: ModuleType,
+) -> None:
+    """Cobertura output needs per-line records, so the flag is omitted."""
+    args = run_rust_module.get_cargo_coverage_cmd(
+        "cobertura",
+        Path("cov.xml"),
+        "",
+        manifest_path=Path("Cargo.toml"),
+        with_default=True,
+        use_nextest=False,
+    )
+    assert "--summary-only" not in args
 
 
 def _run_rust_main_variant(
@@ -1279,7 +1305,6 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
         "--workspace",
-        "--summary-only",
         "--lcov",
         "--output-path",
         str(cuc_file),

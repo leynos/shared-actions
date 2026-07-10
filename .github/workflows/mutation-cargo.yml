@@ -115,8 +115,34 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
           python-version: '3.13'
+          # Workspace-relative on purpose: this glob is hashed before the
+          # relocation step below moves workflow-src out of the workspace.
           cache-dependency-glob: |
             **/workflow_scripts/*.py
+
+      - name: Relocate workflow source
+        # Move the workflow checkout out of the caller's workspace so
+        # tree-scanning tests in the caller's suite (manifest sweeps,
+        # file inventories, lint-everything globs) never see foreign
+        # files during the mutation baseline or mutant runs. Runs after
+        # "Setup uv" so cache-dependency-glob still hashes the workflow
+        # scripts while they sit inside the workspace. Under act the
+        # workspace itself is the workflow source, so nothing moves.
+        id: relocate-workflow-source
+        shell: bash
+        env:
+          CHECKOUT: ${{ steps.workflow-source.outputs.checkout }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${CHECKOUT}" == "true" ]]; then
+            dest="${RUNNER_TEMP}/workflow-src"
+            rm -rf "${dest}"
+            mv "${WORKFLOW_DIR}" "${dest}"
+            echo "workflow_dir=${dest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "workflow_dir=${WORKFLOW_DIR}" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Detect changed files
         id: detect
@@ -129,7 +155,7 @@ jobs:
           INPUT_PATHSPEC: "*.rs"
           INPUT_SHARD_COUNT: ${{ inputs.shard-count }}
           INPUT_BASE_REF: ${{ inputs.base-ref }}
-          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
@@ -216,8 +242,35 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
           python-version: '3.13'
+          # Workspace-relative on purpose: this glob is hashed before the
+          # relocation step below moves workflow-src out of the workspace.
           cache-dependency-glob: |
             **/workflow_scripts/*.py
+
+      - name: Relocate workflow source
+        # Move the workflow checkout out of the caller's workspace so
+        # tree-scanning tests in the caller's suite (manifest sweeps,
+        # file inventories, lint-everything globs) never see foreign
+        # files during the mutation baseline or mutant runs. Runs after
+        # "Setup Rust" (which needs the workspace-local action path) and
+        # "Setup uv" (whose cache-dependency-glob hashes the workflow
+        # scripts while they sit inside the workspace). Under act the
+        # workspace itself is the workflow source, so nothing moves.
+        id: relocate-workflow-source
+        shell: bash
+        env:
+          CHECKOUT: ${{ steps.workflow-source.outputs.checkout }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${CHECKOUT}" == "true" ]]; then
+            dest="${RUNNER_TEMP}/workflow-src"
+            rm -rf "${dest}"
+            mv "${WORKFLOW_DIR}" "${dest}"
+            echo "workflow_dir=${dest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "workflow_dir=${WORKFLOW_DIR}" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Run mutation testing
         shell: bash
@@ -231,7 +284,7 @@ jobs:
           INPUT_TIMEOUT_MULTIPLIER: ${{ inputs.timeout-multiplier }}
           INPUT_EXCLUDE_GLOBS: ${{ inputs.exclude-globs }}
           INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
-          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
@@ -291,14 +344,39 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
           python-version: '3.13'
+          # Workspace-relative on purpose: this glob is hashed before the
+          # relocation step below moves workflow-src out of the workspace.
           cache-dependency-glob: |
             **/workflow_scripts/*.py
+
+      - name: Relocate workflow source
+        # This job checks out no caller code, but the relocation keeps
+        # the invariant uniform across jobs: after this step no
+        # workflow-src files remain inside the workspace. Runs after
+        # "Setup uv" so cache-dependency-glob still hashes the workflow
+        # scripts while they sit inside the workspace. Under act the
+        # workspace itself is the workflow source, so nothing moves.
+        id: relocate-workflow-source
+        shell: bash
+        env:
+          CHECKOUT: ${{ steps.workflow-source.outputs.checkout }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${CHECKOUT}" == "true" ]]; then
+            dest="${RUNNER_TEMP}/workflow-src"
+            rm -rf "${dest}"
+            mv "${WORKFLOW_DIR}" "${dest}"
+            echo "workflow_dir=${dest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "workflow_dir=${WORKFLOW_DIR}" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Post summary
         shell: bash
         env:
           INPUT_REPORT_ROOT: reports
-          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then

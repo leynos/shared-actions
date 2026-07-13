@@ -1,0 +1,79 @@
+name: Coverage (main)
+
+# CodeScene accepts `cs-coverage upload` only for analysed branches, so
+# main-branch coverage is uploaded here on push; pull requests generate
+# coverage (and, in a future fast-follow, run the changed-line
+# `cs-coverage check` gate) in ci.yml instead. This workflow also advances
+# the coverage ratchet baseline: caches saved on main are readable by every
+# pull-request run, so the baseline written here is the one PR ratchet
+# checks compare against. workflow_dispatch allows re-running the upload on
+# demand (a run's secret context is fixed at dispatch).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-main-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage-upload:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN || '' }}
+      CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 || '' }}
+    steps:
+      - name: Checkout repository
+        # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # Match ci.yml's coverage checkout: full history keeps the ratchet
+          # and any future gate consistent with pull-request runs.
+          fetch-depth: 0
+          # This job runs third-party tooling (uv, nfpm, the Rust toolchain)
+          # and never pushes back to the repository, so drop the checkout
+          # credential rather than persisting GITHUB_TOKEN in .git/config.
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/scripts/*.py
+      # Mirror ci.yml's coverage job exactly so the ratchet baseline written
+      # here is comparable to what pull requests compute.
+      - name: Install nfpm
+        uses: ./.github/actions/install-nfpm
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+      # Warm the project build so tests that shell out to `uv run --script`
+      # do not emit uv build/install noise on stderr (see the note in ci.yml).
+      - name: Sync project dependencies
+        run: uv sync --group dev
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: bash
+      - name: Generate coverage
+        uses: ./.github/actions/generate-coverage
+        with:
+          output-path: coverage.xml
+          format: cobertura
+          use-cargo-nextest: 'false'
+          pytest-workers: ''
+          with-ratchet: 'true'
+      - name: Upload coverage to CodeScene
+        if: env.CS_ACCESS_TOKEN != ''
+        uses: ./.github/actions/upload-codescene-coverage
+        with:
+          format: cobertura
+          path: coverage.xml
+          mode: upload
+          access-token: ${{ env.CS_ACCESS_TOKEN }}
+          installer-checksum: ${{ env.CODESCENE_CLI_SHA256 }}

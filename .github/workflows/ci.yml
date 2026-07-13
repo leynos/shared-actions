@@ -88,6 +88,84 @@ jobs:
           PYTHONIOENCODING: utf-8
         shell: bash
 
+  coverage:
+    name: coverage
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          # Full history so a future `cs-coverage check` gate can reach the
+          # pull request's merge base (see the deferred-gate note below).
+          fetch-depth: 0
+          # This job runs third-party tooling (uv, nfpm, the Rust toolchain)
+          # and never pushes back to the repository, so drop the checkout
+          # credential rather than persisting GITHUB_TOKEN in .git/config.
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
+        with:
+          python-version: '3.13'
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+            **/scripts/*.py
+      # Mirror the python-tests ubuntu leg so the same tests execute (rather
+      # than skip) under coverage, giving a representative baseline. nfpm
+      # unblocks the linux-packages tests; setup-rust unblocks the
+      # rust-build-release tests (their autouse fixture skips the whole
+      # directory when rustup is absent). Whitaker, Bun, and action-validator
+      # are lint/validation tooling that no collected test needs, so they are
+      # omitted here.
+      - name: Install nfpm
+        uses: ./.github/actions/install-nfpm
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+      # Build and cache the project like the python-tests job does. Several
+      # tests shell out to `uv run --script`, which builds shared-actions into
+      # the script environment; without a warm build cache that emits `Using
+      # CPython` / `Installed N packages` on stderr, which those tests assert
+      # to be empty (setup-rust test_validate_workspaces).
+      - name: Sync project dependencies
+        run: uv sync --group dev
+        env:
+          PYTHONIOENCODING: utf-8
+        shell: bash
+      # Coverage runs on pull requests via the shared generate-coverage
+      # action. Pushes to main upload their own coverage and advance the
+      # ratchet baseline via coverage-main.yml; ci.yml never runs on main, so
+      # there is no duplicate generation for a given commit.
+      - name: Generate coverage
+        uses: ./.github/actions/generate-coverage
+        with:
+          output-path: coverage.xml
+          # Python project: detect.py classifies this repo as Python because
+          # there is no root Cargo.toml (rust-toy-app is a test fixture, not a
+          # coverage target). cobertura is mandatory — the shared action
+          # rejects lcov for non-Rust projects.
+          format: cobertura
+          # No-op for a Python-detected project (the Rust coverage leg never
+          # runs); kept explicit per the first-run checklist.
+          use-cargo-nextest: 'false'
+          # ci.yml runs the suite serially (`uv run pytest`); keep the
+          # coverage run serial too for deterministic coverage and a stable
+          # ratchet baseline. Follow-up 4 can adopt pytest-xdist (`make test`
+          # already runs `-n auto`) once determinism under slipcover is
+          # confirmed.
+          pytest-workers: ''
+          with-ratchet: 'true'
+      # The `mode: check` CodeScene gate is deliberately not wired in yet:
+      # project 72004 has no coverage-gates configuration, so `cs-coverage
+      # check` fails every run with "HTTP call succeeded, but the received
+      # project-config isn't valid. Lacks the gates configuration." — a
+      # CodeScene-side per-project setting, not a CI defect (ddlint and
+      # chutoro hit the byte-identical error). Add the check step in a
+      # fast-follow PR once the project's coverage gate is enabled.
+
   python-tests-windows:
     timeout-minutes: 20
     permissions:

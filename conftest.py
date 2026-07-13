@@ -18,7 +18,28 @@ def _default_action_path() -> str:
     return str(Path(__file__).resolve().parent / ".github" / "actions")
 
 
-os.environ.setdefault("GITHUB_ACTION_PATH", _default_action_path())
+def _pin_action_path() -> None:
+    """Point ``GITHUB_ACTION_PATH`` at this repository's actions directory.
+
+    The suite discovers action scripts relative to ``GITHUB_ACTION_PATH``.
+    When the tests run inside a composite action — as they do when CI
+    generates coverage through the shared ``generate-coverage`` action — the
+    runner sets ``GITHUB_ACTION_PATH`` to *that* action's directory. Discovery
+    then misfires for tests belonging to other actions (e.g.
+    ``release-to-pypi-uv`` looks for its scripts under
+    ``generate-coverage/scripts``). Re-point the variable at the repository
+    actions root in that case; otherwise preserve the historical default,
+    which sets the variable only when it is unset.
+    """
+    repo_actions = _default_action_path()
+    ambient = os.environ.get("GITHUB_ACTION_PATH")
+    if ambient and Path(ambient).resolve().is_relative_to(Path(repo_actions).resolve()):
+        os.environ["GITHUB_ACTION_PATH"] = repo_actions
+    else:
+        os.environ.setdefault("GITHUB_ACTION_PATH", repo_actions)
+
+
+_pin_action_path()
 
 CMD_MOX_UNSUPPORTED = pytest.mark.skipif(
     sys.platform == "win32", reason="cmd-mox does not support Windows"

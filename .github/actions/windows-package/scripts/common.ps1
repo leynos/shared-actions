@@ -9,13 +9,13 @@ function Get-SafeName {
         return $Fallback
     }
 
-    $sanitised = $Value -replace '[^A-Za-z0-9._-]', '-'
-    $sanitised = $sanitised.Trim('-_.')
-    if ([string]::IsNullOrWhiteSpace($sanitised)) {
+    $sanitized = $Value -replace '[^A-Za-z0-9._-]', '-'
+    $sanitized = $sanitized.Trim('-_.')
+    if ([string]::IsNullOrWhiteSpace($sanitized)) {
         return $Fallback
     }
 
-    return $sanitised
+    return $sanitized
 }
 
 function Get-VersionMajor {

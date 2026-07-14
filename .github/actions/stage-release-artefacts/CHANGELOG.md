@@ -12,7 +12,7 @@ in this file.
 - Glob pattern support for source resolution
 - Secure Hash Algorithm (SHA-256) checksum sidecar generation
 - Optional artefacts with fallback alternatives
-- Windows path normalisation option
+- Windows path normalization option
 - Export staged paths and checksums as workflow outputs
 - Optional cargo-binstall tar.gz archive staging with checksum and
   `binstall-archive-path` output

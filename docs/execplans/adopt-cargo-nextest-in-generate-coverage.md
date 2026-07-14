@@ -210,7 +210,7 @@ applicable, specific tests for the action.
      ```
 
    - Inspect the log files for failures and include relevant excerpts in the
-     plan’s Artifacts section if issues arise.
+     plan’s Artefacts section if issues arise.
    - Commit after all gates pass.
 
 ## Validation and Acceptance
@@ -241,7 +241,7 @@ same Makefile targets. If a temporary `nextest.toml` is created during tests,
 ensure cleanup logic removes it; remove any leftover temp files before
 re-running tests. Avoid deleting user-owned files in `.config/`.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Expected snippets (example only):
 

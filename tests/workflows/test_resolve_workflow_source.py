@@ -27,17 +27,17 @@ if typ.TYPE_CHECKING:
 
 
 @pytest.fixture
-def artifact_dir(tmp_path: Path) -> Path:
+def artefact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
-    return tmp_path / "act-artifacts"
+    return tmp_path / "act-artefacts"
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
-def test_resolve_workflow_source_branches(artifact_dir: Path) -> None:
+def test_resolve_workflow_source_branches(artefact_dir: Path) -> None:
     """Both the act short-circuit and OIDC fail-fast branches behave."""
     event_path = FIXTURES_DIR / "workflow_dispatch.event.json"
-    config = ActConfig(artifact_dir=artifact_dir, event_path=event_path)
+    config = ActConfig(artefact_dir=artefact_dir, event_path=event_path)
     code, logs = run_act(
         "test-resolve-workflow-source.yml", "workflow_dispatch", "resolve", config
     )

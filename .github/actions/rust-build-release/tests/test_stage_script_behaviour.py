@@ -28,7 +28,7 @@ def _requires_bash() -> str:
 
 
 def _extract_stage_script(target: str = _TARGET, bin_name: str = _BIN) -> str:
-    """Extract and parametrise the 'Stage artefacts' run block from action.yml."""
+    """Extract and parametrize the 'Stage artefacts' run block from action.yml."""
     data = yaml.safe_load(ACTION_YML.read_text(encoding="utf-8"))
     steps = data["runs"]["steps"]
     stage = next(s for s in steps if s.get("id") == "stage-artefacts")

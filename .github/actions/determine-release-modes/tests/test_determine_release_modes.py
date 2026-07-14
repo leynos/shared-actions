@@ -41,12 +41,12 @@ class TestDetermineReleaseModes:
     """Tests for the determine_release_modes function."""
 
     def test_push_event_publishes_by_default(self) -> None:
-        """Tag pushes default to publishing and uploading artifacts."""
+        """Tag pushes default to publishing and uploading artefacts."""
         result = drm.determine_release_modes("push", {})
 
         assert result.dry_run is False
         assert result.should_publish is True
-        assert result.should_upload_workflow_artifacts is True
+        assert result.should_upload_workflow_artefacts is True
 
     def test_pull_request_defaults_to_dry_run(self) -> None:
         """Pull requests default to dry-run mode."""
@@ -54,7 +54,7 @@ class TestDetermineReleaseModes:
 
         assert result.dry_run is True
         assert result.should_publish is False
-        assert result.should_upload_workflow_artifacts is False
+        assert result.should_upload_workflow_artefacts is False
 
     def test_workflow_call_respects_inputs(self) -> None:
         """Workflow calls respect the provided inputs."""
@@ -63,7 +63,7 @@ class TestDetermineReleaseModes:
 
         assert result.dry_run is False
         assert result.should_publish is True
-        assert result.should_upload_workflow_artifacts is True
+        assert result.should_upload_workflow_artefacts is True
 
     def test_workflow_call_defaults_to_non_dry_run(self) -> None:
         """Workflow calls default to non-dry-run when not specified."""
@@ -71,7 +71,7 @@ class TestDetermineReleaseModes:
 
         assert result.dry_run is False
         assert result.should_publish is False
-        assert result.should_upload_workflow_artifacts is True
+        assert result.should_upload_workflow_artefacts is True
 
     def test_workflow_call_dry_run_disables_publish(self) -> None:
         """Dry-run mode disables publishing even if requested."""
@@ -80,7 +80,7 @@ class TestDetermineReleaseModes:
 
         assert result.dry_run is True
         assert result.should_publish is False
-        assert result.should_upload_workflow_artifacts is False
+        assert result.should_upload_workflow_artefacts is False
 
     def test_unsupported_event_raises_error(self) -> None:
         """Unsupported event types raise ValueError."""
@@ -126,7 +126,7 @@ class TestReleaseModes:
         modes = drm.ReleaseModes(
             dry_run=True,
             should_publish=False,
-            should_upload_workflow_artifacts=False,
+            should_upload_workflow_artefacts=False,
         )
         mapping = modes.to_output_mapping()
 
@@ -141,7 +141,7 @@ class TestReleaseModes:
         modes = drm.ReleaseModes(
             dry_run=False,
             should_publish=True,
-            should_upload_workflow_artifacts=True,
+            should_upload_workflow_artefacts=True,
         )
         mapping = modes.to_output_mapping()
 
@@ -337,7 +337,7 @@ class TestWriteOutputs:
         modes = drm.ReleaseModes(
             dry_run=True,
             should_publish=False,
-            should_upload_workflow_artifacts=False,
+            should_upload_workflow_artefacts=False,
         )
 
         drm._write_outputs(output_file, modes)
@@ -353,7 +353,7 @@ class TestWriteOutputs:
         modes = drm.ReleaseModes(
             dry_run=False,
             should_publish=True,
-            should_upload_workflow_artifacts=True,
+            should_upload_workflow_artefacts=True,
         )
 
         drm._write_outputs(output_file, modes)
@@ -367,7 +367,7 @@ class TestWriteOutputs:
         modes = drm.ReleaseModes(
             dry_run=True,
             should_publish=False,
-            should_upload_workflow_artifacts=False,
+            should_upload_workflow_artefacts=False,
         )
 
         drm._write_outputs(output_file, modes)

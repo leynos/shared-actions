@@ -456,7 +456,7 @@ def _copy_resolved_artefact(
 
 
 def _render_template(template: str, context: dict[str, typ.Any]) -> str:
-    """Render ``template`` with ``context`` and normalise formatting errors."""
+    """Render ``template`` with ``context`` and normalize formatting errors."""
     try:
         return template.format(**context)
     except KeyError as exc:

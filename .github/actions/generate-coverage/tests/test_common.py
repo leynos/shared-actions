@@ -147,7 +147,7 @@ def test_env_bool_whitespace_only_returns_default(
     ["1", "true", "True", "TRUE", "yes", "YES", "Yes", "on", "ON", "On"],
 )
 def test_env_bool_truthy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    """All recognised truthy string representations return True."""
+    """All recognized truthy string representations return True."""
     monkeypatch.setenv("TEST_BOOL", value)
     assert _env_bool("TEST_BOOL", default=False) is True
 
@@ -207,7 +207,7 @@ def test_env_bool_truthy_values_are_case_insensitive(
     ],
 )
 def test_env_bool_falsy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    """All recognised falsy string representations return False."""
+    """All recognized falsy string representations return False."""
     monkeypatch.setenv("TEST_BOOL", value)
     assert _env_bool("TEST_BOOL", default=True) is False
 
@@ -237,7 +237,7 @@ def test_env_bool_falsy_values_are_case_insensitive(
 def test_env_bool_invalid_value_raises(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Any non-empty unrecognised value causes typer.Exit(2)."""
+    """Any non-empty unrecognized value causes typer.Exit(2)."""
     monkeypatch.setenv("TEST_BOOL", value)
     with pytest.raises(typer.Exit) as exc_info:
         _env_bool("TEST_BOOL", default=False)

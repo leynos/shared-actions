@@ -28,7 +28,7 @@ def main(expected: str = EXPECTED_OPTION, confirm: str = CONFIRM_OPTION) -> None
     typer.Exit
         Raised when the supplied confirmation does not match ``expected``.
     """
-    # Normalise whitespace in both inputs before comparison.
+    # Normalize whitespace in both inputs before comparison.
     expected = expected.strip()
     confirm = confirm.strip()
     if confirm != expected:

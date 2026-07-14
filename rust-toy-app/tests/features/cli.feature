@@ -4,7 +4,7 @@
 # `generate-coverage` GitHub Action's cucumber-rs integration.
 # It is NOT a functional product specification.
 #
-# The scenarios exercise CLI behavior to demonstrate integration testing
+# The scenarios exercise CLI behaviour to demonstrate integration testing
 # under coverage collection.
 
 Feature: Command-line interface

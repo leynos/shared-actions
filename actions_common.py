@@ -48,16 +48,16 @@ def _apply_normalization_updates(updates: dict[str, str], removals: list[str]) -
 
 
 def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) -> None:
-    """Normalise INPUT_ environment variables to avoid duplicate keys.
+    """Normalize INPUT_ environment variables to avoid duplicate keys.
 
     Scans for environment variables with dashed keys (e.g., INPUT-FOO-BAR or
-    INPUT_FOO-BAR) and normalises them to underscore keys (INPUT_FOO_BAR),
+    INPUT_FOO-BAR) and normalizes them to underscore keys (INPUT_FOO_BAR),
     removing the original dashed keys from the environment.
 
     Parameters
     ----------
     prefix : str, default="INPUT_"
-        The environment variable prefix to normalise.
+        The environment variable prefix to normalize.
     prefer_dashed : bool, default=False
         If True, dashed variants override existing underscore keys.
         If False, existing underscore keys are preserved.
@@ -65,7 +65,7 @@ def normalize_input_env(prefix: str = "INPUT_", *, prefer_dashed: bool = False) 
     Notes
     -----
     This function modifies ``os.environ`` in place. All dashed variants are
-    removed after normalisation, regardless of the prefer_dashed setting.
+    removed after normalization, regardless of the prefer_dashed setting.
     """
     alt_prefix = prefix.replace("_", "-")
     updates, removals = _collect_normalization_updates(

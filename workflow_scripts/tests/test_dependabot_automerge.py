@@ -50,7 +50,7 @@ def _write_event(tmp_path: Path, payload: dict[str, object]) -> Path:
     tmp_path : Path
         pytest temporary directory fixture.
     payload : dict
-        The event payload to serialise.
+        The event payload to serialize.
 
     Returns
     -------
@@ -123,7 +123,7 @@ class TestNormalizeMergeMethod:
         ],
     )
     def test_valid_values(self, input_value: str, expected: str) -> None:
-        """Valid merge methods are normalised correctly."""
+        """Valid merge methods are normalized correctly."""
         result = dependabot_automerge._normalize_merge_method(input_value)
         assert result == expected, f"Expected {expected} for input '{input_value}'"
 
@@ -277,7 +277,7 @@ class TestRequestGraphql:
 
 
 # ---------------------------------------------------------------------------
-# Dry-run skip tests (parametrised)
+# Dry-run skip tests (parametrized)
 # ---------------------------------------------------------------------------
 
 

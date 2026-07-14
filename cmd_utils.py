@@ -144,7 +144,7 @@ def _ensure_text(value: str | bytes | None) -> str:
 def coerce_run_result(
     result: RunResult | cabc.Sequence[object],
 ) -> RunResult:
-    """Normalise *result* into a :class:`RunResult`."""
+    """Normalize *result* into a :class:`RunResult`."""
     if isinstance(result, RunResult):
         return result
     try:

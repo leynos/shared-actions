@@ -83,7 +83,7 @@ def _inspect_package(
     list_parser: typ.Callable[[str], set[str]],
     builder: typ.Callable[[dict[str, str], set[str]], DebMetadata | RpmMetadata],
 ) -> DebMetadata | RpmMetadata:
-    """Return package metadata using parameterised commands and parsers."""
+    """Return package metadata using parameterized commands and parsers."""
     info_output = run_text(info_cmd)
     info = _parse_kv_output(info_output)
     listing_output = run_text(list_cmd)

@@ -43,7 +43,7 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "resolve_version
 
 
 def _invoke_get_msi_version(candidate: str) -> str | None:
-    """Execute Get-MsiVersion with *candidate* and normalise the result."""
+    """Execute Get-MsiVersion with *candidate* and normalize the result."""
     literal = candidate.replace("'", "''")
     command = textwrap.dedent(
         f"""
@@ -115,7 +115,7 @@ def script_runner(
     ],
 )
 def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> None:
-    """Return normalised version strings for accepted inputs."""
+    """Return normalized version strings for accepted inputs."""
     assert _invoke_get_msi_version(candidate) == expected
 
 

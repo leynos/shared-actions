@@ -46,12 +46,12 @@ def coerce_bool(value: object, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        normalised = value.strip().lower()
-        if not normalised:
+        normalized = value.strip().lower()
+        if not normalized:
             return default
-        if normalised in _TRUTHY:
+        if normalized in _TRUTHY:
             return True
-        if normalised in _FALSY:
+        if normalized in _FALSY:
             return False
     msg = f"Cannot interpret {value!r} as boolean"
     raise ValueError(msg)
@@ -91,10 +91,10 @@ def coerce_bool_strict(value: bool | str, *, parameter: str) -> bool:  # noqa: F
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        normalised = value.strip().lower()
-        if normalised in _TRUTHY:
+        normalized = value.strip().lower()
+        if normalized in _TRUTHY:
             return True
-        if normalised in {*_FALSY, ""}:
+        if normalized in {*_FALSY, ""}:
             return False
     msg = f"Invalid value for {parameter}: {value!r}. Expected a boolean-like string."
     raise ValueError(msg)

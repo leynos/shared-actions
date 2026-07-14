@@ -53,7 +53,7 @@ else:
 
 app = App()
 
-ARTIFACT_NAME_PATTERN = re.compile(r"^mutation-report-(?P<slug>.+)-(?P<shard>\d+)$")
+ARTEFACT_NAME_PATTERN = re.compile(r"^mutation-report-(?P<slug>.+)-(?P<shard>\d+)$")
 
 _COUNTED_SUMMARIES = ("CaughtMutant", "MissedMutant", "Timeout", "Unviable")
 
@@ -175,7 +175,7 @@ def collect_reports(report_root: Path) -> list[TargetReport]:
     """
     merged: dict[str, tuple[dict[str, int], list[SurvivingMutant]]] = {}
     for artefact_dir in sorted(p for p in report_root.iterdir() if p.is_dir()):
-        match = ARTIFACT_NAME_PATTERN.match(artefact_dir.name)
+        match = ARTEFACT_NAME_PATTERN.match(artefact_dir.name)
         if match is None:
             emit("mutation_summary_skipped_dir", artefact_dir.name)
             continue

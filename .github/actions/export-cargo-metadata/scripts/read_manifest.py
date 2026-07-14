@@ -170,7 +170,7 @@ def _process_fields(
         if value is None:
             continue
 
-        # Normalise to kebab-case for GitHub Actions output names.
+        # Normalize to kebab-case for GitHub Actions output names.
         # Current fields use hyphens already; this handles future underscore fields.
         output_name = field.replace("_", "-")
         _write_output(output_name, value)

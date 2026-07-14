@@ -1,6 +1,6 @@
 //! Test utilities for thread-safe environment variable mutations.
 //!
-//! This module provides `EnvGuard`, an RAII helper that serialises environment
+//! This module provides `EnvGuard`, an RAII helper that serializes environment
 //! variable changes during tests using a global mutex and restores previous
 //! values when the guard is dropped.
 

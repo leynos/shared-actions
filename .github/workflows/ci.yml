@@ -16,6 +16,7 @@ jobs:
       contents: read
     runs-on: ${{ matrix.os }}
     env:
+      MERMAN_CLI_VERSION: '0.7.0'
       WHITAKER_INSTALLER_VERSION: '0.2.5'
     strategy:
       fail-fast: false
@@ -49,6 +50,43 @@ jobs:
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
         run: make check-fmt
+        shell: bash
+      - name: Enforce en-GB-oxendict spelling
+        if: matrix.os == 'ubuntu-latest'
+        run: make spelling
+        shell: bash
+      - name: Markdown lint
+        if: matrix.os == 'ubuntu-latest'
+        uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25
+        with:
+          globs: |
+            **/*.md
+            !**/target/**
+            !**/dist/**
+            !**/.uv-cache/**
+            !**/.uv-tools/**
+      - name: Set up isolated Rust for Merman
+        if: matrix.os == 'ubuntu-latest'
+        run: rustup toolchain install 1.95.0 --profile minimal
+        shell: bash
+      - name: Cache Merman CLI
+        if: matrix.os == 'ubuntu-latest'
+        id: cache-merman-cli
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.cargo/bin/merman-cli
+          key: merman-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.MERMAN_CLI_VERSION }}
+      - name: Install Merman CLI
+        if: matrix.os == 'ubuntu-latest' && steps.cache-merman-cli.outputs.cache-hit != 'true'
+        run: cargo +1.95.0 install merman-cli --version "=${MERMAN_CLI_VERSION}" --locked
+        shell: bash
+      - name: Install Nixie
+        if: matrix.os == 'ubuntu-latest'
+        run: uv tool install nixie-cli==1.1.0
+        shell: bash
+      - name: Validate Mermaid diagrams
+        if: matrix.os == 'ubuntu-latest'
+        run: make nixie
         shell: bash
       - name: Setup Rust
         if: matrix.os == 'ubuntu-latest'

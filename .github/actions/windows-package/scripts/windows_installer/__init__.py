@@ -152,7 +152,7 @@ class TemplateOptions(typ.NamedTuple):
     license_path: str | None
 
 
-def _normalise_identifier(prefix: str, value: str, used: set[str]) -> str:
+def _normalize_identifier(prefix: str, value: str, used: set[str]) -> str:
     candidate = _IDENTIFIER_RE.sub("_", value).strip("_")
     if not candidate:
         candidate = prefix
@@ -168,7 +168,7 @@ def _normalise_identifier(prefix: str, value: str, used: set[str]) -> str:
     return candidate
 
 
-def _normalise_directory_name(value: str) -> str:
+def _normalize_directory_name(value: str) -> str:
     cleaned = value.strip()
     if not cleaned:
         return "Application"
@@ -185,10 +185,10 @@ def _split_destination(value: str | None, fallback_name: str) -> tuple[str, ...]
 
 
 def _program_files_directory(architecture: str) -> str:
-    normalised = architecture.lower()
-    if normalised in {"x86", "ia32"}:
+    normalized = architecture.lower()
+    if normalized in {"x86", "ia32"}:
         return "ProgramFilesFolder"
-    if normalised in {"x64", "amd64", "arm64"}:
+    if normalized in {"x64", "amd64", "arm64"}:
         return "ProgramFiles64Folder"
     message = f"Unsupported architecture '{architecture}'"
     raise TemplateError(message)
@@ -260,11 +260,11 @@ def _build_directory_tree(
             raise TemplateError(message)
         current = root
         for depth, part in enumerate(spec.destination[1:-1], start=1):
-            identifier = _normalise_identifier(
+            identifier = _normalize_identifier(
                 "DIR", "/".join(spec.destination[: depth + 1]), used_ids
             )
             current = current.child(identifier, part)
-        component_id = _normalise_identifier(
+        component_id = _normalize_identifier(
             "CMP", "/".join(spec.destination), used_components
         )
         guid_seed = f"component:{upgrade_code}:{'/'.join(spec.destination)}"
@@ -298,7 +298,7 @@ def _resolve_product_description(description: str | None, product_name: str) -> 
 
 def _resolve_install_directory(install_dir_name: str | None, product_name: str) -> str:
     """Determine the installation directory name for the product."""
-    return _normalise_directory_name(install_dir_name or product_name)
+    return _normalize_directory_name(install_dir_name or product_name)
 
 
 def _resolve_product_metadata(

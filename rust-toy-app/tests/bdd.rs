@@ -18,7 +18,7 @@
 //! ## Pattern
 //!
 //! Tests are structured using Given/When/Then comments to maintain BDD semantics
-//! while leveraging rstest's powerful fixture and parameterisation features.
+//! while leveraging rstest's powerful fixture and parameterization features.
 //!
 //! [`generate-coverage`]: https://github.com/leynos/shared-actions/tree/main/.github/actions/generate-coverage
 

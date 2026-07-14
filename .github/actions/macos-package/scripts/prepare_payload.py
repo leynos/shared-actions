@@ -43,7 +43,7 @@ def _reset_staging_dirs(*paths: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
-def _normalise_prefix(root: Path, install_prefix: str) -> Path:
+def _normalize_prefix(root: Path, install_prefix: str) -> Path:
     """Ensure the install prefix remains within the package root."""
     prefix = install_prefix.strip()
     relative_prefix = Path(prefix.lstrip("/")) if prefix else Path()
@@ -121,7 +121,7 @@ def main(
     dist_xml = work_dir / "dist.xml"
     remove_file(dist_xml, context=f"Distribution XML '{dist_xml}'")
 
-    destination_prefix = _normalise_prefix(root, install_prefix)
+    destination_prefix = _normalize_prefix(root, install_prefix)
 
     _stage_binary(binary_path, destination_prefix, name)
 

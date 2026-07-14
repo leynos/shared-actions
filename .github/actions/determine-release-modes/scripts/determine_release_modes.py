@@ -11,7 +11,7 @@
 """Derive release workflow modes for GitHub Actions.
 
 The release workflow combines reusable invocations (``workflow_call``) with tag
-pushes. This helper normalises the event payload into the booleans the rest of
+pushes. This helper normalizes the event payload into the booleans the rest of
 our workflow needs and emits them via ``GITHUB_OUTPUT``.
 
 Examples
@@ -57,15 +57,15 @@ class ReleaseModes:
 
     dry_run: bool
     should_publish: bool
-    should_upload_workflow_artifacts: bool
+    should_upload_workflow_artefacts: bool
 
     def to_output_mapping(self) -> dict[str, str]:
-        """Serialise the release modes into ``GITHUB_OUTPUT`` assignments."""
+        """Serialize the release modes into ``GITHUB_OUTPUT`` assignments."""
         return {
             "dry_run": _format_bool(value=self.dry_run),
             "should_publish": _format_bool(value=self.should_publish),
             "should_upload_workflow_artifacts": _format_bool(
-                value=self.should_upload_workflow_artifacts
+                value=self.should_upload_workflow_artefacts
             ),
         }
 
@@ -126,7 +126,7 @@ def determine_release_modes(
 
         >>> determine_release_modes("push", {})
         ReleaseModes(dry_run=False, should_publish=True,
-        ... should_upload_workflow_artifacts=True)
+        ... should_upload_workflow_artefacts=True)
 
     A dry-run workflow call disables publishing and artefact uploads::
 
@@ -134,14 +134,14 @@ def determine_release_modes(
         ...     "workflow_call", {"inputs": {"dry-run": "true", "publish": "true"}}
         ... )
         ReleaseModes(dry_run=True, should_publish=False,
-        ... should_upload_workflow_artifacts=False)
+        ... should_upload_workflow_artefacts=False)
 
     Pull request invocations default to dry-run mode, ensuring artefacts remain
     unpublished::
 
         >>> determine_release_modes("pull_request", {})
         ReleaseModes(dry_run=True, should_publish=False,
-        ... should_upload_workflow_artifacts=False)
+        ... should_upload_workflow_artefacts=False)
     """
     if event_name not in {"push", *_INPUT_DRIVEN_EVENTS}:
         msg = f"Unsupported event '{event_name}' for release workflow"
@@ -154,7 +154,7 @@ def determine_release_modes(
     return ReleaseModes(
         dry_run=dry_run,
         should_publish=should_publish,
-        should_upload_workflow_artifacts=not dry_run,
+        should_upload_workflow_artefacts=not dry_run,
     )
 
 

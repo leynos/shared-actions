@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-- Harden MSI version parsing and output path sanitisation.
+- Harden MSI version parsing and output path sanitization.
 - Improve WiX tool installation idempotency and error reporting.
 - Auto-match WiX extension versions to the installed WiX CLI major version and
   reject explicit major-version mismatches.
 - Restrict tag-derived versions to refs that match `v#.#.#` semantics and fall
   back to `0.0.0` for non-tag builds.
-- Accept MSI build numbers up to `65535` and normalise architecture inputs to
+- Accept MSI build numbers up to `65535` and normalize architecture inputs to
   `x86`, `x64` or `arm64` before invoking WiX.
 - Clarify documentation to use the `$(var.Version)` preprocessor form.
 - Convert UTF-8 plain text license files to RTF automatically when requested

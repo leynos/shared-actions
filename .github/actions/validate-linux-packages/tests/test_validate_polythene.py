@@ -239,7 +239,7 @@ def test_polythene_rootfs_rejects_empty_identifier(
         pass
 
 
-def test_decode_stream_normalises_values(
+def test_decode_stream_normalizes_values(
     validate_polythene_module: object,
 ) -> None:
     """_decode_stream converts bytes, None and other values to text."""
@@ -305,7 +305,7 @@ def test_format_isolation_error_ignores_non_matching_messages(
 def test_format_isolation_error_handles_uid_map_permission_denied(
     validate_polythene_module: object,
 ) -> None:
-    """_format_isolation_error recognises bubblewrap permission failures."""
+    """_format_isolation_error recognizes bubblewrap permission failures."""
     stderr = "bwrap: setting up uid map: Permission denied"
     process_error = ProcessExecutionError(
         ("uv", "run", "polythene", "exec"),

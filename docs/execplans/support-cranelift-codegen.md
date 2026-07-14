@@ -548,7 +548,7 @@ and re-run the same Makefile targets. No temporary files are created outside of
 `/tmp/` and the test's `tmp_path` fixture (which pytest cleans up
 automatically).
 
-## Artifacts and notes
+## Artefacts and notes
 
 Expected cargo argument list after the change (example with nextest):
 

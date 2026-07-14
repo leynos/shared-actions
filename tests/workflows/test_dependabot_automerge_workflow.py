@@ -20,17 +20,17 @@ if typ.TYPE_CHECKING:
 
 
 @pytest.fixture
-def artifact_dir(tmp_path: Path) -> Path:
+def artefact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
-    return tmp_path / "act-artifacts"
+    return tmp_path / "act-artefacts"
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
-def test_dependabot_automerge_dry_run(artifact_dir: Path) -> None:
+def test_dependabot_automerge_dry_run(artefact_dir: Path) -> None:
     """Dependabot workflow logs dry-run readiness under act."""
     event_path = FIXTURES_DIR / "pull_request_dependabot.event.json"
-    config = ActConfig(artifact_dir=artifact_dir, event_path=event_path)
+    config = ActConfig(artefact_dir=artefact_dir, event_path=event_path)
     code, logs = run_act(
         "test-dependabot-automerge.yml", "pull_request", "automerge", config
     )

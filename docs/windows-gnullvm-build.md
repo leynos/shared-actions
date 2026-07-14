@@ -93,7 +93,7 @@ default archive when a checksum is unavailable.
 
 ### 3. Build Script (`main.py`)
 
-The main build script, `src/main.py`, is modified to recognise when the `cross`
+The main build script, `src/main.py`, is modified to recognize when the `cross`
 local backend should be used, even when no container runtime (Docker/Podman) is
 detected.
 

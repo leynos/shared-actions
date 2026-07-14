@@ -43,9 +43,9 @@ _ANSI_ESCAPE = re.compile(r"\x1B\[[0-9;:]*[A-Za-z]")
 
 
 def _normalize(text: str) -> str:
-    """Lowercase text and normalise whitespace for comparisons."""
+    """Lowercase text and normalize whitespace for comparisons."""
     cleaned = text.replace("\r", "")
-    # Keep this normalisation format-agnostic; adjust if exact formatting is asserted.
+    # Keep this normalization format-agnostic; adjust if exact formatting is asserted.
     return " ".join(cleaned.split()).lower()
 
 
@@ -80,9 +80,9 @@ def run_script(
 
 def assert_error_hint(result: RunResult) -> None:
     """Assert the validation message is present in the PowerShell error output."""
-    normalised = _normalize(combined_stream(result))
+    normalized = _normalize(combined_stream(result))
     assert (
-        ERROR_HINT_NORMALIZED in normalised or ERROR_HINT_PIPE_NORMALIZED in normalised
+        ERROR_HINT_NORMALIZED in normalized or ERROR_HINT_PIPE_NORMALIZED in normalized
     )
 
 

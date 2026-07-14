@@ -1,4 +1,4 @@
-"""Shared helpers for normalising plumbum command results in tests."""
+"""Shared helpers for normalizing plumbum command results in tests."""
 
 from __future__ import annotations
 

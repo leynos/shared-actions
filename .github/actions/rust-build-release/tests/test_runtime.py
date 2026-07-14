@@ -384,7 +384,7 @@ def test_normalize_arch_unit_mappings(
     assert runtime_module._normalize_arch(machine) == expected
 
 
-def test_normalize_arch_behavioral_fallbacks(runtime_module: ModuleType) -> None:
+def test_normalize_arch_behavioural_fallbacks(runtime_module: ModuleType) -> None:
     """Behavioural test: unknown and missing machine names are handled."""
     assert runtime_module._normalize_arch("") == "x86_64"
     # Unknown identifiers are normalized to lowercase for stability.
@@ -419,7 +419,7 @@ def test_default_host_target_for_current_platform_unit(
     assert runtime_module._default_host_target_for_current_platform() == expected
 
 
-def test_default_host_target_for_current_platform_behavioral_fallback(
+def test_default_host_target_for_current_platform_behavioural_fallback(
     runtime_module: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Behavioural test: fallbacks cover missing identifiers."""

@@ -496,11 +496,11 @@ version = "1.0.0"
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "Yes", "1", "on"])
 def test_parse_bool_truthy_values(module: ModuleType, value: str) -> None:
-    """Treat recognised truthy values as ``True`` for configuration flags."""
+    """Treat recognized truthy values as ``True`` for configuration flags."""
     assert module._parse_bool(value) is True
 
 
 @pytest.mark.parametrize("value", [None, "", "false", "no", "0", "off", "n"])
 def test_parse_bool_falsey_values(module: ModuleType, value: str | None) -> None:
-    """Treat recognised falsey values as ``False`` for configuration flags."""
+    """Treat recognized falsey values as ``False`` for configuration flags."""
     assert module._parse_bool(value) is False

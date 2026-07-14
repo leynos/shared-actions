@@ -106,7 +106,7 @@ def _make_fake_run_cmd(
 
 
 def test_app_config_handles_missing_attribute(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Script initialisation tolerates ``App`` implementations without ``config``."""
+    """Script initialization tolerates ``App`` implementations without ``config``."""
 
     class ConfiglessApp:
         def __init__(self) -> None:
@@ -172,12 +172,12 @@ def test_env_config_appended_once(packaging_module: types.ModuleType) -> None:
     assert len(env_configs_reloaded) == 1
 
 
-def test_normalise_list_preserves_case_variants(
+def test_normalize_list_preserves_case_variants(
     packaging_module: types.ModuleType,
 ) -> None:
     """Tokens that differ only by case remain distinct while preserving order."""
     values = ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
-    result = packaging_module._normalise_list(values, default=[])
+    result = packaging_module._normalize_list(values, default=[])
     assert result == ["Foo", "foo", "BAR", "bar", "Mixed", "MIXED"]
 
 
@@ -321,7 +321,7 @@ def test_main_reinstates_binary_execute_permissions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The CLI normalises binary modes before invoking nfpm."""
+    """The CLI normalizes binary modes before invoking nfpm."""
     target = "x86_64-unknown-linux-gnu"
     release_dir = tmp_path / "target" / target / "release"
     release_dir.mkdir(parents=True)
@@ -563,7 +563,7 @@ def test_package_cli_stages_binary_with_executable_permissions(
     build_artefacts: pkg_utils.BuildArtefacts,
     packaging_config: pkg_utils.PackagingConfig,
 ) -> None:
-    """The CLI normalises the staged binary to be executable before packaging."""
+    """The CLI normalizes the staged binary to be executable before packaging."""
     bin_path = (
         packaging_project_paths.project_dir
         / "target"

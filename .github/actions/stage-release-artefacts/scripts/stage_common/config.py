@@ -154,7 +154,7 @@ def load_config(
     Returns
     -------
     StagingConfig
-        Fully realised configuration containing resolved paths and artefacts.
+        Fully realized configuration containing resolved paths and artefacts.
 
     Raises
     ------

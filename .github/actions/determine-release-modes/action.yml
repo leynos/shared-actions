@@ -19,7 +19,7 @@ outputs:
     description: '"true" or "false" indicating whether to publish to a release'
     value: ${{ steps.determine.outputs.should_publish }}
   should-upload-workflow-artifacts:
-    description: '"true" or "false" indicating whether to upload workflow artifacts'
+    description: '"true" or "false" indicating whether to upload workflow artefacts'
     value: ${{ steps.determine.outputs.should_upload_workflow_artifacts }}
 
 runs:

@@ -1,4 +1,4 @@
-"""Property and parametrised tests for path-traversal rejection."""
+"""Property and parametrized tests for path-traversal rejection."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ if typ.TYPE_CHECKING:
 
 
 class TestStageArtefactsPathSafety:
-    """Property and parametrised tests for path-traversal rejection."""
+    """Property and parametrized tests for path-traversal rejection."""
 
     @pytest.mark.parametrize(
         "destination",

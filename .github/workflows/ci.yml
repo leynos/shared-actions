@@ -82,7 +82,7 @@ jobs:
         shell: bash
       - name: Install Nixie
         if: matrix.os == 'ubuntu-latest'
-        run: uv tool install nixie-cli==1.1.0
+        run: uv tool install --python 3.14 nixie-cli==1.1.0
         shell: bash
       - name: Validate Mermaid diagrams
         if: matrix.os == 'ubuntu-latest'

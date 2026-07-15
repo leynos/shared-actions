@@ -1,1 +1,1 @@
-"""Behavioral workflow tests using act."""
+"""Behavioural workflow tests using act."""

@@ -304,7 +304,7 @@ command-order assertions fail due to argument position changes, adjust tests to
 assert stable semantic invariants (presence and value pairing of
 `--manifest-path`) rather than brittle absolute positions where appropriate.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Expected command snippet after implementation:
 

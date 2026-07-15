@@ -105,7 +105,7 @@ def _poll_pump_loop_iteration(
     return False
 
 
-def _finalise_pump_threads(
+def _finalize_pump_threads(
     threads: list[threading.Thread],
     proc: subprocess.Popen[str],
     thread_exceptions: list[Exception],
@@ -165,7 +165,7 @@ def _pump_cargo_output_windows(
         while not _poll_pump_loop_iteration(threads, ctx, thread_exceptions):
             pass
     finally:
-        _finalise_pump_threads(threads, ctx.proc, thread_exceptions)
+        _finalize_pump_threads(threads, ctx.proc, thread_exceptions)
     return stdout_lines
 
 

@@ -5,6 +5,22 @@ the shared actions in this repository. It covers action-specific implementation
 notes, public and internal APIs that affect contributors, concurrency
 assumptions, and Makefile tool-resolution strategy.
 
+## Spelling policy
+
+Run `make spelling` to enforce en-GB-oxendict spelling. The dictionary-based
+Typos scan checks tracked Markdown, while the phrase-correction check covers the
+whole tracked repository, including Python, PowerShell, Rust and workflow
+files. The generated and tracked `typos.toml` starts from the shared Oxford
+dictionary. Its builder refreshes the untracked
+`.typos-oxendict-base.toml` cache and metadata only when the shared dictionary
+is newer, so the last fetched base remains usable in a network-restricted
+checkout.
+
+Keep repository-specific identifiers and deliberate quotations in
+`typos.local.toml`. Run `make spelling-config-write` to regenerate the tracked
+configuration and `make spelling-config` to verify it. Never edit generated
+entries by hand.
+
 ## Architecture Decision Records
 
 - [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
@@ -458,7 +474,7 @@ when the fallback activates.
 
 Shell-script behaviour of the staging step is exercised by
 `.github/actions/rust-build-release/tests/test_stage_script_behaviour.py`,
-which extracts the `stage-artefacts` run block from `action.yml`, parametrises
+which extracts the `stage-artefacts` run block from `action.yml`, parametrizes
 it, and runs it under bash. Five scenarios are covered: stable path present,
 legacy fallback, missing man page (error), multiple legacy matches (error), and
 skip mode (no man-page staging, binary only). Tests are automatically skipped

@@ -69,7 +69,7 @@ def test_convert_file_creates_rtf_sibling(tmp_path: Path) -> None:
     assert "Line one" in rendered
     assert "\\par\\nLine two" in rendered
     assert rendered.endswith("}")
-    assert "\r" not in rendered  # carriage returns normalised to newlines
+    assert "\r" not in rendered  # carriage returns normalized to newlines
 
 
 def test_text_to_rtf_with_empty_string() -> None:
@@ -83,7 +83,7 @@ def test_text_to_rtf_with_empty_string() -> None:
 
 
 def test_text_to_rtf_only_control_characters() -> None:
-    """Control characters are escaped or normalised in the body."""
+    """Control characters are escaped or normalized in the body."""
     rtf = SCRIPT.text_to_rtf("\t\r\n\n")
 
     header, body = rtf.split("\n", 1)

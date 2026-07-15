@@ -270,9 +270,9 @@ def _ensure_coverage_venv() -> str:
     return str(python)
 
 
-# _coverage_python_cmd() is memoised with lru_cache rather than using a
+# _coverage_python_cmd() is memoized with lru_cache rather than using a
 # mutable global.  GitHub Actions executes action steps sequentially in a
-# single thread, so no synchronisation is required; the cache is safe to
+# single thread, so no synchronization is required; the cache is safe to
 # use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
@@ -288,7 +288,7 @@ def _parse_pytest_workers(raw: str | None) -> str:
     """Parse and validate the pytest-workers value; raise ValueError on bad input.
 
     This function is pure: it performs no I/O and has no side-effects.
-    Callers that need CLI error handling should use _normalise_pytest_workers.
+    Callers that need CLI error handling should use _normalize_pytest_workers.
     """
     if raw is None:
         return ""
@@ -312,8 +312,8 @@ def _parse_pytest_workers(raw: str | None) -> str:
     raise ValueError(message)
 
 
-def _normalise_pytest_workers(raw: str | None) -> str:
-    """Validate and normalise the pytest-workers value, exiting on invalid input.
+def _normalize_pytest_workers(raw: str | None) -> str:
+    """Validate and normalize the pytest-workers value, exiting on invalid input.
 
     Delegates pure validation to _parse_pytest_workers.  Any ValueError
     raised there is converted into a CLI error message on stderr and

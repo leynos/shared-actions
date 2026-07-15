@@ -115,7 +115,7 @@ class OctalInt(int):
     """Integer subclass that renders as a zero-padded octal literal."""
 
     def __new__(cls, value: int, *, width: int = 4) -> OctalInt:
-        """Initialise the integer and remember the desired octal width."""
+        """Initialize the integer and remember the desired octal width."""
         obj = super().__new__(cls, value)
         obj._octal_width = width
         return obj
@@ -188,9 +188,9 @@ def ensure_gz(src: Path, dst_dir: Path) -> Path:
     return gz_path
 
 
-def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, typ.Any]]:
+def normalize_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, typ.Any]]:
     """Convert string ``mode`` values to octal-preserving integers."""
-    normalised: list[dict[str, typ.Any]] = []
+    normalized: list[dict[str, typ.Any]] = []
     for entry in entries:
         new_entry = dict(entry)
         file_info = entry.get("file_info")
@@ -206,8 +206,8 @@ def normalise_file_modes(entries: list[dict[str, typ.Any]]) -> list[dict[str, ty
                     raise PackagingError.invalid_mode(mode, target_desc) from exc
                 new_info["mode"] = OctalInt(value, width=len(cleaned))
             new_entry["file_info"] = new_info
-        normalised.append(new_entry)
-    return normalised
+        normalized.append(new_entry)
+    return normalized
 
 
 def build_man_entries(
@@ -238,7 +238,7 @@ def build_man_entries(
     return entries
 
 
-def _normalise_list(values: list[str] | None, *, default: list[str]) -> list[str]:
+def _normalize_list(values: list[str] | None, *, default: list[str]) -> list[str]:
     entries: list[str] = []
     source = values if values is not None else default
     for item in source:
@@ -377,9 +377,9 @@ def main(
     man_entries = build_man_entries(man_sources, man_section_value, man_stage_path)
     contents.extend(man_entries)
 
-    deb_requires = _normalise_list(deb_depends, default=[])
+    deb_requires = _normalize_list(deb_depends, default=[])
     rpm_requires = (
-        _normalise_list(rpm_depends, default=[])
+        _normalize_list(rpm_depends, default=[])
         if rpm_depends is not None
         else list(deb_requires)
     )
@@ -396,7 +396,7 @@ def main(
         "homepage": (homepage or "").strip(),
         "license": (license_ or "").strip(),
         "description": (description or "").strip(),
-        "contents": normalise_file_modes(contents),
+        "contents": normalize_file_modes(contents),
         "overrides": {
             "deb": {"depends": deb_requires},
             "rpm": {"depends": rpm_requires},
@@ -411,7 +411,7 @@ def main(
 
     nfpm = get_command("nfpm")
 
-    resolved_formats = _normalise_list(formats, default=["deb"])
+    resolved_formats = _normalize_list(formats, default=["deb"])
     if not resolved_formats:
         raise PackagingError.missing_formats()
 

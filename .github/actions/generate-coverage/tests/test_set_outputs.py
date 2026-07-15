@@ -56,10 +56,10 @@ def set_outputs_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     return module
 
 
-def test_build_artefact_name_normalises_components(
+def test_build_artefact_name_normalizes_components(
     set_outputs_module: ModuleType,
 ) -> None:
-    """The artefact name should incorporate normalised workflow metadata."""
+    """The artefact name should incorporate normalized workflow metadata."""
     module = set_outputs_module
 
     components = module.ArtefactNameComponents(

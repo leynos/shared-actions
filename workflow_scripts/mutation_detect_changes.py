@@ -49,7 +49,7 @@ Outputs
 ``matrix``
     JSON object ``{"include": [...]}`` for a matrix strategy. Each entry
     carries ``dir`` (crate directory, ``.`` for the root), ``slug``
-    (artifact-safe target name), ``files`` (space-separated paths relative
+    (artefact-safe target name), ``files`` (space-separated paths relative
     to ``dir``; empty for a full run), ``shard`` and ``shard_count``.
 ``root_files``
     Space-separated changed files for the root target (repo-relative) —
@@ -129,7 +129,7 @@ class MatrixEntry:
     dir : str
         Crate directory the run executes in (``.`` for the root target).
     slug : str
-        Artifact-safe target name.
+        Artefact-safe target name.
     files : str
         Space-separated file paths relative to ``dir``; empty for a full
         (unscoped) run.
@@ -239,7 +239,7 @@ def bucket_files(
 
 
 def _slug_for(target_dir: str) -> str:
-    """Return an artifact-safe slug for a target directory."""
+    """Return an artefact-safe slug for a target directory."""
     return "root" if target_dir == "." else target_dir.replace("/", "-")
 
 

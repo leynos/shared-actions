@@ -54,14 +54,14 @@ class SimpleValidationTestCase:
 
 
 @pytest.fixture
-def artifact_dir(tmp_path: Path) -> Path:
+def artefact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
-    return tmp_path / "act-artifacts"
+    return tmp_path / "act-artefacts"
 
 
 def _run_act_and_get_logs(
     run: WorkflowRun,
-    artifact_dir: Path,
+    artefact_dir: Path,
     *,
     container_env: dict[str, str] | None = None,
 ) -> str:
@@ -71,7 +71,7 @@ def _run_act_and_get_logs(
     ----------
     run
         Workflow, event, and job specification.
-    artifact_dir
+    artefact_dir
         Directory to store artefacts.
     container_env
         Optional environment variables to pass into the act container.
@@ -81,7 +81,7 @@ def _run_act_and_get_logs(
     str
         Combined stdout/stderr logs from the act run.
     """
-    config = ActConfig(artifact_dir=artifact_dir, container_env=container_env)
+    config = ActConfig(artefact_dir=artefact_dir, container_env=container_env)
     code, logs = run_act(run.workflow, run.event, run.job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
@@ -183,7 +183,7 @@ def _resolve_container_env(
     ],
 )
 def test_env_overrides_normalize_inputs(
-    artifact_dir: Path,
+    artefact_dir: Path,
     temp_base_dir: Path,
     test_case: EnvOverrideTestCase,
 ) -> None:
@@ -195,7 +195,7 @@ def test_env_overrides_normalize_inputs(
         run=WorkflowRun(
             workflow=test_case.workflow, event="pull_request", job=test_case.job
         ),
-        artifact_dir=artifact_dir,
+        artefact_dir=artefact_dir,
         container_env=container_env,
     )
 
@@ -287,7 +287,7 @@ def test_env_overrides_normalize_inputs(
     ],
 )
 def test_simple_workflow_validation(
-    artifact_dir: Path,
+    artefact_dir: Path,
     test_case: SimpleValidationTestCase,
 ) -> None:
     """Validate workflow outputs match expected patterns."""
@@ -297,7 +297,7 @@ def test_simple_workflow_validation(
             event="pull_request",
             job=test_case.job,
         ),
-        artifact_dir=artifact_dir,
+        artefact_dir=artefact_dir,
     )
 
     _assert_log_patterns(logs, test_case.expected_patterns, flags=re.IGNORECASE)
@@ -329,7 +329,7 @@ class TestDetermineReleaseModes:
         ],
     )
     def test_release_mode_detection(
-        self, artifact_dir: Path, event: str, pattern: str, description: str
+        self, artefact_dir: Path, event: str, pattern: str, description: str
     ) -> None:
         """Verify release mode outputs for different event types."""
         logs = _run_act_and_get_logs(
@@ -338,7 +338,7 @@ class TestDetermineReleaseModes:
                 event=event,
                 job="test-determine-modes",
             ),
-            artifact_dir=artifact_dir,
+            artefact_dir=artefact_dir,
         )
 
         _assert_log_patterns(
@@ -353,7 +353,7 @@ class TestDetermineReleaseModes:
 class TestExportCargoMetadata:
     """Behavioural tests for the export-cargo-metadata action."""
 
-    def test_exports_cargo_metadata(self, artifact_dir: Path) -> None:
+    def test_exports_cargo_metadata(self, artefact_dir: Path) -> None:
         """Action exports name and version from Cargo.toml."""
         logs = _run_act_and_get_logs(
             run=WorkflowRun(
@@ -361,7 +361,7 @@ class TestExportCargoMetadata:
                 event="pull_request",
                 job="test-export-metadata",
             ),
-            artifact_dir=artifact_dir,
+            artefact_dir=artefact_dir,
         )
 
         # Verify metadata was exported with non-empty values

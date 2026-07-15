@@ -180,7 +180,7 @@ def test_workflow_produces_expected_artefact_and_logs(tmp_path: Path) -> None:
 `tests/workflows/test_release_workflow.py` applies the pattern above to
 `.github/workflows/release.yml`. The test:
 
-- synthesises a `workflow_dispatch` event fixture,
+- synthesizes a `workflow_dispatch` event fixture,
 - invokes `act workflow_dispatch` against the real release workflow,
 - captures the JSON logs (`act --json`), and
 - asserts that a ZIP artefact is built and logged exactly once.

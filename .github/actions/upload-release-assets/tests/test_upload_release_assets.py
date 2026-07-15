@@ -311,7 +311,7 @@ class TestMain:
         assert result == 1
         _verify_output(output_file, {"uploaded_count": "0", "upload_error": "true"})
 
-    def test_no_artifacts_returns_one(
+    def test_no_artefacts_returns_one(
         self,
         tmp_path: PathType,
         monkeypatch: pytest.MonkeyPatch,

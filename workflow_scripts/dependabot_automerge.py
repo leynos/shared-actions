@@ -198,7 +198,7 @@ class PullRequestContext:
     number : int
         The pull request number.
     owner : str
-        The repository owner (organisation or user).
+        The repository owner (organization or user).
     repo : str
         The repository name.
     author : str
@@ -290,7 +290,7 @@ class AutomergeConfig:
     Attributes
     ----------
     merge_method : str
-        The normalised merge method (``SQUASH``, ``MERGE``, or ``REBASE``).
+        The normalized merge method (``SQUASH``, ``MERGE``, or ``REBASE``).
     required_label : str or None
         Label that must be present on the PR, or None to skip label checks.
     dry_run : bool
@@ -344,7 +344,7 @@ def _normalize_label(required_label: str | None) -> str | None:
 
 
 def _normalize_merge_method(merge_method: str) -> str:
-    """Validate and normalise a merge method to its GraphQL enum value."""
+    """Validate and normalize a merge method to its GraphQL enum value."""
     normalized = merge_method.strip().lower()
     if normalized not in MERGE_METHODS:
         allowed = ", ".join(sorted(MERGE_METHODS))
@@ -565,7 +565,7 @@ def _extract_enum[EnumT](
 def _extract_merge_state_status(
     pull_request: dict[str, JsonValue],
 ) -> MergeStateStatus:
-    """Extract mergeStateStatus from PR data, normalised."""
+    """Extract mergeStateStatus from PR data, normalized."""
     return _extract_enum(
         pull_request,
         "mergeStateStatus",
@@ -575,7 +575,7 @@ def _extract_merge_state_status(
 
 
 def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
-    """Extract mergeable state from PR data, normalised."""
+    """Extract mergeable state from PR data, normalized."""
     return _extract_enum(
         pull_request,
         "mergeable",

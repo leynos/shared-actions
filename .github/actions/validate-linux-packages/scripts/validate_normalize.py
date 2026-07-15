@@ -1,4 +1,4 @@
-"""Input normalisation helpers for the validate-linux-packages CLI."""
+"""Input normalization helpers for the validate-linux-packages CLI."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from validate_exceptions import ValidationError
 
 __all__ = [
     "dedupe",
-    "normalise_command",
-    "normalise_formats",
-    "normalise_paths",
+    "normalize_command",
+    "normalize_formats",
+    "normalize_paths",
 ]
 
 
@@ -28,7 +28,7 @@ def dedupe(values: typ.Iterable[str]) -> list[str]:
     return result
 
 
-def normalise_formats(values: list[str] | None) -> list[str]:
+def normalize_formats(values: list[str] | None) -> list[str]:
     """Return ordered, deduplicated, lower-cased formats."""
     if not values:
         return ["deb"]
@@ -45,7 +45,7 @@ def normalise_formats(values: list[str] | None) -> list[str]:
     return ordered
 
 
-def normalise_paths(values: list[str] | None) -> list[str]:
+def normalize_paths(values: list[str] | None) -> list[str]:
     """Return canonical absolute paths derived from ``values``.
 
     Paths must already be canonical absolute strings. Redundant separators and
@@ -83,7 +83,7 @@ def normalise_paths(values: list[str] | None) -> list[str]:
     return dedupe(paths)
 
 
-def normalise_command(value: list[str] | None) -> list[str]:
+def normalize_command(value: list[str] | None) -> list[str]:
     """Return a cleaned command vector."""
     if not value:
         return []

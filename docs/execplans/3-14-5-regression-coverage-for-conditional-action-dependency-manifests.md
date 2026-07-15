@@ -66,7 +66,7 @@ Hard invariants that must hold throughout implementation:
   tests (insta) and bounded model checking (kani).
 
 - Risk: Test runner branches (nextest vs. legacy) may have subtle differences.
-  Severity: medium Likelihood: medium Mitigation: Use parametrised tests;
+  Severity: medium Likelihood: medium Mitigation: Use parametrized tests;
   property-based testing for consistency.
 
 - Risk: Absent-command fallback path may not be reachable in tests.
@@ -110,7 +110,7 @@ To be populated as work proceeds.
   snapshots. Strategy: combine snapshot tests (catch unexpected changes) with
   property tests (catch systematic bugs). **Date**: 2026-06-15.
 
-- **Decision**: Use parametrised tests (rstest) for nextest and legacy
+- **Decision**: Use parametrized tests (rstest) for nextest and legacy
   branches. **Rationale**: Reduces duplication; ensures both branches tested
   identically. Clear test names (e.g., `test_conditional_step_with_matrix`)
   improve maintainability. **Date**: 2026-06-15.
@@ -178,7 +178,7 @@ Understand feature deeply and document semantics.
 
 3. Document feature semantics:
    - When conditions: evaluation, available data
-   - Foreach behavior: iteration sources
+   - Foreach behaviour: iteration sources
    - IR structure and Ninja relationship
    - Absent-command fallback trigger
 
@@ -370,7 +370,7 @@ If full rebuild needed:
 cargo clean && make test
 ```
 
-## Artifacts and notes
+## Artefacts and notes
 
 ### Key Modules (To be identified during Stage A)
 
@@ -455,7 +455,7 @@ pub enum TestRunner {
 
 ### Testing Libraries
 
-- `rstest` — parametrised tests and fixtures
+- `rstest` — parametrized tests and fixtures
 - `rstest-bdd` (or `cucumber-rs`) — behaviour-driven tests
 - `insta` — snapshot testing
 - `proptest` — property-based testing

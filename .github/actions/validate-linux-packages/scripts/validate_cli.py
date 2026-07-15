@@ -21,7 +21,7 @@ from validate_architecture import (
 )
 from validate_exceptions import ValidationError
 from validate_helpers import ensure_directory, ensure_exists, get_command
-from validate_normalise import normalise_command, normalise_formats, normalise_paths
+from validate_normalize import normalize_command, normalize_formats, normalize_paths
 from validate_packages import (
     ExpectedMetadata,
     locate_deb,
@@ -51,7 +51,7 @@ app.config = (*tuple(existing_config), _env_config)
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ValidationInputs:
-    """Raw CLI parameters collected before normalisation."""
+    """Raw CLI parameters collected before normalization."""
 
     project_dir: Path | None = None
     package_name: str | None = None
@@ -278,7 +278,7 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
 
     deb_arch_value = deb_arch_for_target(target_value)
 
-    formats_value = tuple(normalise_formats(inputs.formats))
+    formats_value = tuple(normalize_formats(inputs.formats))
     if not formats_value:
         message = "no package formats provided"
         raise ValidationError(message)
@@ -286,7 +286,7 @@ def _build_config(inputs: ValidationInputs) -> ValidationConfig:
     expected_paths_value, executable_paths_value = _prepare_paths(
         bin_value, inputs.expected_paths, inputs.executable_paths
     )
-    verify_tuple = tuple(normalise_command(inputs.verify_command))
+    verify_tuple = tuple(normalize_command(inputs.verify_command))
 
     polythene_path = inputs.polythene_path
     if polythene_path is None:
@@ -336,7 +336,7 @@ def _prepare_paths(
     expected_paths: list[str] | None,
     executable_paths: list[str] | None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return normalised expected and executable paths.
+    """Return normalized expected and executable paths.
 
     The default ``/usr/bin/{bin_value}`` entry is always injected into
     ``expected_paths`` when missing. Entries provided via ``executable_paths``
@@ -344,13 +344,13 @@ def _prepare_paths(
     sandbox checks.
     """
     default_binary_path = f"/usr/bin/{bin_value}"
-    expected_paths_list = normalise_paths(expected_paths)
+    expected_paths_list = normalize_paths(expected_paths)
     if not expected_paths_list:
         expected_paths_list = [default_binary_path]
     elif default_binary_path not in expected_paths_list:
         expected_paths_list.insert(0, default_binary_path)
 
-    executable_paths_list = normalise_paths(executable_paths)
+    executable_paths_list = normalize_paths(executable_paths)
     if not executable_paths_list:
         executable_paths_list = [default_binary_path]
     else:

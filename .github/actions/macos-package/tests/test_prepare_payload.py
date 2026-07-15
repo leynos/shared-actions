@@ -121,7 +121,7 @@ def test_man_section_handles_multi_digit_sections(
     assert module._man_section(Path("mytool")) == "1"
 
 
-def test_normalise_prefix_rejects_escape(
+def test_normalize_prefix_rejects_escape(
     tmp_path: Path, load_module: cabc.Callable[[str], object]
 ) -> None:
     """Prevent the install prefix from escaping the pkgroot."""
@@ -130,4 +130,4 @@ def test_normalise_prefix_rejects_escape(
     root.mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(module.ActionError):
-        module._normalise_prefix(root, "../../etc")
+        module._normalize_prefix(root, "../../etc")

@@ -1,0 +1,54 @@
+# Repository-specific quotations and machine interfaces.
+
+schema = 1
+
+[oxford]
+stems = []
+
+[words]
+accepted = []
+
+[words.corrections]
+
+[patterns]
+ignore = [
+  # Composite-action outputs and their workflow-level contract checks.
+  '(?m)^  should-upload-workflow-artifacts:$',
+  '(?m)^    value: \$\{\{ steps\.determine\.outputs\.should_upload_workflow_artifacts \}\}$',
+  '(?m)^    should_upload_workflow_artifacts=false$',
+  '(?m)^            "should_upload_workflow_artifacts": _format_bool\($',
+  '(?m)^            "should_upload_workflow_artifacts": "false",$',
+  '(?m)^            "should_upload_workflow_artifacts": "true",$',
+  '(?m)^        assert "should_upload_workflow_artifacts=(?:true|false)" in contents$',
+  '(?m)^          echo "should-upload-workflow-artifacts=\$\{\{ steps\.modes\.outputs\.should-upload-workflow-artifacts \}\}"$',
+  '(?m)^          \[\[ "\$\{\{ steps\.modes\.outputs\.should-upload-workflow-artifacts \}\}" =~ \^\(true\|false\)\$ \]\]$',
+  '(?m)^      artifact_dir/<ps-module-name> if matching artefacts were staged\. Leave$',
+  '(?m)^  artifact-dir:$',
+  '(?m)^    value: \$\{\{ steps\.run-stage\.outputs\.artifact_dir \}\}$',
+  '(?m)^      artifact_dir, if any PowerShell artefacts were staged\. Empty string when$',
+  '(?m)^        "artifact_dir",$',
+  '(?m)^        "artifact_dir": data\.staging_dir\.as_posix\(\),$',
+  '(?m)^        assert "artifact_dir" in result$',
+  '(?m)^  artifact_dir=<DIR_0>/my(?:app|tool)_(?:linux|windows)_x86_64$',
+  '(?m)^          echo "artifact-dir=\$\{\{ steps\.stage\.outputs\.artifact-dir \}\}"$',
+  '(?m)^          \[\[ -d "\$\{\{ steps\.stage\.outputs\.artifact-dir \}\}" \]\]$',
+  '(?m)^  # Decision: currently shipped as sidecar release artefacts via artifact_dir\.$',
+  # Exact external CLI and diagnostic contracts.
+  '(?m)^`act --json` output and the artifact server path\.$',
+  '(?m)^        "--artifact-server-path",$',
+  '(?m)^                        r\x27artifact\[-_\]dir\["\\s\]\*\[:=\]\["\\s\]\*\\S\+\x27,$',
+  '(?m)^                        "artifact-dir not found or empty in logs",$',
+  # Upstream APIs, formal names, values, and deliberate invalid inputs.
+  '(?m)^    # Unicode digits, "Nd"\)\. Plain `str\.isdigit\(\)` also returns True for$',
+  '(?m)^@pytest\.mark\.parametrize\("value", \["tru", "ye", "nope", "2", "enable", "enabled"\]\)$',
+  '(?m)^            fg=typer\.colors\.RED,$',
+  '(?m)^        typer\.secho\(f"error: \{message\}: \{path\}", fg=typer\.colors\.RED, err=True\)$',
+  '(?m)^  color: (?:gray-dark|blue)$',
+  '(?m)^    types: \[opened, reopened, synchronize, labeled, ready_for_review\]$',
+  '(?m)^          \(e\.g\. installing a linker such as mold, or system packages$',
+  '(?m)^          CARGO_TERM_COLOR: always$',
+  '(?m)^    assert decode_stream\(b"caf\\xc3\\xa9"\) == "café"$',
+]
+
+[files]
+exclude = []

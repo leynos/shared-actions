@@ -200,7 +200,7 @@ def package_project(
     formats: typ.Iterable[str] = ("deb",),
 ) -> dict[str, Path]:
     """Package the project with nfpm for the requested formats."""
-    # Normalise and deduplicate formats while preserving order.
+    # Normalize and deduplicate formats while preserving order.
     ordered_formats: list[str] = []
     for entry in formats:
         trimmed = entry.strip().lower()

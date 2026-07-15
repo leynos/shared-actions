@@ -85,7 +85,7 @@ Hard invariants that must hold throughout implementation:
 
 - Observation: The duplicate `_trim_output()` functions serve different
   purposes. The first (line 148) preserves multi-line structure with line
-  limits, while the second (line 385) normalises to a single line for logging.
+  limits, while the second (line 385) normalizes to a single line for logging.
   Both are needed. Evidence: Call sites at lines 174, 184, 191, 283, 286 use
   multi-line variant for diagnostics; lines 419, 426 use single-line variant
   for logging. Impact: Resolution was to rename the second function to
@@ -453,7 +453,7 @@ All steps are idempotent:
 Recovery: if a stage fails, revert the changes to that stage only and retry
 with corrections. Use git to track intermediate states.
 
-## Artifacts and notes
+## Artefacts and notes
 
 (To be filled during implementation with key transcripts and observations)
 

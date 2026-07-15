@@ -13,9 +13,9 @@ Resolve a Windows Installer ProductVersion with consistent validation and loggin
 The script accepts an explicit version input, falls back to tags when
 available, and ultimately emits a deterministic three-part ProductVersion.
 
-Get-MsiVersion is the focal point: it normalises raw candidates, rejects
+Get-MsiVersion is the focal point: it normalizes raw candidates, rejects
 invalid combinations, and pads missing components so that downstream callers do
-not replicate defensive logic. Helper functions keep each normalisation stage
+not replicate defensive logic. Helper functions keep each normalization stage
 focused on a single responsibility so future edits remain readable without
 heavy inline commentary.
 #>

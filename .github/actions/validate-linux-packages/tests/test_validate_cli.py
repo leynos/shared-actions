@@ -125,7 +125,7 @@ def test_build_config_splits_verify_command(
     validate_cli_module: object,
     tmp_path: Path,
 ) -> None:
-    """Normalise verify command strings into tokenised argv entries."""
+    """Normalize verify command strings into tokenized argv entries."""
     module = validate_cli_module
     project_dir = tmp_path / "proj"
     packages_dir = project_dir / "dist"
@@ -1072,7 +1072,7 @@ def test_main_raises_for_unsupported_target(
     validate_cli_module: object,
     tmp_path: Path,
 ) -> None:
-    """Fail when the target triple is not recognised."""
+    """Fail when the target triple is not recognized."""
     module = validate_cli_module
     project_dir = tmp_path / "proj"
     packages_dir = project_dir / "dist"
@@ -1255,7 +1255,7 @@ def test_main_raises_for_empty_formats(
     validate_cli_module: object,
     tmp_path: Path,
 ) -> None:
-    """Fail when no package formats remain after normalisation."""
+    """Fail when no package formats remain after normalization."""
     module = validate_cli_module
     project_dir = tmp_path / "proj"
     packages_dir = project_dir / "dist"

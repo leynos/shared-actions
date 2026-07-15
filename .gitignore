@@ -154,6 +154,10 @@ target/
 # uv cache and lockfile
 /uv.lock
 /.uv/
+/.uv-cache/
+/.uv-tools/
+/.typos-oxendict-base.json
+/.typos-oxendict-base.toml
 
 # Crush AI agent
 .crush/

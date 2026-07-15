@@ -131,7 +131,7 @@ def _make_fake_cargo(
         """Minimal subprocess test double for cargo invocations."""
 
         def __init__(self) -> None:
-            """Initialise the stub with the configured streams."""
+            """Initialize the stub with the configured streams."""
             self.stdout = (
                 stdout
                 if hasattr(stdout, "readline")
@@ -171,7 +171,7 @@ def _make_fake_cargo(
         """Minimal cargo command stub with plumbum-like behaviour."""
 
         def __init__(self) -> None:
-            """Initialise call-tracking state for the fake cargo command."""
+            """Initialize call-tracking state for the fake cargo command."""
             self.last_proc: FakeProc | None = None
             self.last_popen_kwargs: dict[str, object] | None = None
             self.bound_env: dict[str, str] | None = None
@@ -214,7 +214,7 @@ class _WindowsPumpTimeoutFakeThread:
         args: tuple[object, ...],
         kwargs: dict[str, object],
     ) -> None:
-        """Initialise the thread stub with ignored thread metadata."""
+        """Initialize the thread stub with ignored thread metadata."""
         _ = (name, target, args, kwargs)
         self.join_calls = 0
 
@@ -235,7 +235,7 @@ class _WindowsPumpTimeoutFakeRunner:
     """Runner stub that returns the fake Windows process."""
 
     def __init__(self, proc: _WindowsPumpFakeProc) -> None:
-        """Initialise the runner with the fake process to return."""
+        """Initialize the runner with the fake process to return."""
         self._proc = proc
 
     def popen(self, **_kw: object) -> _WindowsPumpFakeProc:
@@ -247,7 +247,7 @@ class _WindowsPumpTimeoutFakeCargoCommand:
     """Cargo command stub that yields the fake Windows runner."""
 
     def __init__(self, proc: _WindowsPumpFakeProc) -> None:
-        """Initialise the cargo command with the fake process."""
+        """Initialize the cargo command with the fake process."""
         self._proc = proc
 
     def __getitem__(self, _args: list[str]) -> _WindowsPumpTimeoutFakeRunner:
@@ -830,7 +830,7 @@ def test_run_cargo_windows_closes_streams(
         """String stream that counts close calls."""
 
         def __init__(self, value: str) -> None:
-            """Initialise the stream with the provided text."""
+            """Initialize the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
@@ -898,7 +898,7 @@ def test_run_cargo_unix_pump_timeout(
         """Selector stub that never yields readable events."""
 
         def __init__(self) -> None:
-            """Initialise the selector with a non-empty registration map."""
+            """Initialize the selector with a non-empty registration map."""
             self._map = {"stdout": object()}
 
         def register(self, fileobj: object, event: object, data: str) -> None:
@@ -921,7 +921,7 @@ def test_run_cargo_unix_pump_timeout(
         """Minimal subprocess test double for timeout handling."""
 
         def __init__(self) -> None:
-            """Initialise the stub with empty captured streams."""
+            """Initialize the stub with empty captured streams."""
             self.stdout = io.StringIO("")
             self.stderr = io.StringIO("")
             self.killed = False
@@ -1113,7 +1113,7 @@ class _WindowsPumpFakeProc:
     """Minimal subprocess test double for Windows timeout handling."""
 
     def __init__(self) -> None:
-        """Initialise the stub with captured output streams."""
+        """Initialize the stub with captured output streams."""
         self.stdout = io.StringIO("out-line\n")
         self.stderr = io.StringIO("err-line\n")
         self.killed = False
@@ -1236,7 +1236,7 @@ def test_run_cargo_stream_close_error_suppressed(
         """String stream that raises after being closed."""
 
         def __init__(self, value: str) -> None:
-            """Initialise the stream with the provided text."""
+            """Initialize the stream with the provided text."""
             super().__init__(value)
             self.close_calls = 0
 
@@ -1508,7 +1508,7 @@ def test_platform_key_variants(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Platform key mapping normalises common OS/arch combinations."""
+    """Platform key mapping normalizes common OS/arch combinations."""
     system, machine, expected = case
     monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
     monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
@@ -2469,23 +2469,23 @@ def test_coverage_cmd_for_fmt_threads_workers_through(
         ("1", "1"),
     ],
 )
-def test_normalise_pytest_workers_accepts_valid_values(
+def test_normalize_pytest_workers_accepts_valid_values(
     run_python_module: ModuleType,
     raw: str | None,
     expected: str,
 ) -> None:
-    """Valid worker values normalise to the lowercase/stripped form."""
-    assert run_python_module._normalise_pytest_workers(raw) == expected
+    """Valid worker values normalize to the lowercase/stripped form."""
+    assert run_python_module._normalize_pytest_workers(raw) == expected
 
 
 @pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
-def test_normalise_pytest_workers_rejects_invalid_values(
+def test_normalize_pytest_workers_rejects_invalid_values(
     run_python_module: ModuleType,
     raw: str,
 ) -> None:
     """Junk worker values exit with the configuration-error code."""
     with pytest.raises(run_python_module.typer.Exit) as excinfo:
-        run_python_module._normalise_pytest_workers(raw)
+        run_python_module._normalize_pytest_workers(raw)
     assert _exit_code(excinfo.value) == 2
 
 
@@ -2502,12 +2502,12 @@ def test_normalise_pytest_workers_rejects_invalid_values(
         ("1", "1"),
     ],
 )
-def test_parse_pytest_workers_returns_normalised_value(
+def test_parse_pytest_workers_returns_normalized_value(
     run_python_module: ModuleType,
     raw: str | None,
     expected: str,
 ) -> None:
-    """The pure parser returns the same normalised value as the Typer wrapper."""
+    """The pure parser returns the same normalized value as the Typer wrapper."""
     assert run_python_module._parse_pytest_workers(raw) == expected
 
 
@@ -2541,13 +2541,13 @@ _WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
     upper_mask=st.integers(min_value=0, max_value=(1 << 7) - 1),
     pad_pair=st.tuples(_WHITESPACE_ST, _WHITESPACE_ST),
 )
-def test_parse_pytest_workers_normalises_named_values(
+def test_parse_pytest_workers_normalizes_named_values(
     run_python_module: ModuleType,
     name: str,
     upper_mask: int,
     pad_pair: tuple[str, str],
 ) -> None:
-    """Named values normalise to lowercase regardless of casing or padding."""
+    """Named values normalize to lowercase regardless of casing or padding."""
     leading, trailing = pad_pair
     mixed = "".join(
         ch.upper() if (upper_mask >> i) & 1 else ch for i, ch in enumerate(name)

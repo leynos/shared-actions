@@ -269,7 +269,7 @@ Quality criteria:
 - If the workflow fails due to permissions, rerun after updating permissions;
   no state changes are left behind by the script unless auto-merge was enabled.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Expected log snippets (examples to align tests):
 

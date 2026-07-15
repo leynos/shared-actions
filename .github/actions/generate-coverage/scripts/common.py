@@ -26,8 +26,8 @@ def _required_env(name: str) -> str:
 def _env_bool(name: str, *, default: bool) -> bool:
     """Parse the environment variable *name* as a boolean.
 
-    Unset or empty values return *default*.  Recognised truthy values are
-    ``1``, ``true``, ``yes``, ``on`` (case-insensitive); recognised falsy
+    Unset or empty values return *default*.  Recognized truthy values are
+    ``1``, ``true``, ``yes``, ``on`` (case-insensitive); recognized falsy
     values are ``0``, ``false``, ``no``, ``off``.  Any other non-empty value
     is treated as a configuration error and raises ``typer.Exit(2)``.
     """

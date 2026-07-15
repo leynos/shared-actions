@@ -29,17 +29,17 @@ if typ.TYPE_CHECKING:
 
 
 @pytest.fixture
-def artifact_dir(tmp_path: Path) -> Path:
+def artefact_dir(tmp_path: Path) -> Path:
     """Return a temporary directory for act artefacts."""
-    return tmp_path / "act-artifacts"
+    return tmp_path / "act-artefacts"
 
 
 @skip_unless_act
 @skip_unless_workflow_tests
-def test_mutation_cargo_schedule_takes_skip_path(artifact_dir: Path) -> None:
+def test_mutation_cargo_schedule_takes_skip_path(artefact_dir: Path) -> None:
     """A scheduled cargo run without matching changes skips cleanly."""
     event_path = FIXTURES_DIR / "schedule.event.json"
-    config = ActConfig(artifact_dir=artifact_dir, event_path=event_path)
+    config = ActConfig(artefact_dir=artefact_dir, event_path=event_path)
     code, logs = run_act("test-mutation-cargo.yml", "schedule", "mutation", config)
     assert code == 0, f"act failed:\n{logs}"
     assert re.search(r"mutation_detect_has_changes=\s*False", logs), (
@@ -52,10 +52,10 @@ def test_mutation_cargo_schedule_takes_skip_path(artifact_dir: Path) -> None:
 
 @skip_unless_act
 @skip_unless_workflow_tests
-def test_mutation_mutmut_schedule_takes_skip_path(artifact_dir: Path) -> None:
+def test_mutation_mutmut_schedule_takes_skip_path(artefact_dir: Path) -> None:
     """A scheduled mutmut run without matching changes skips cleanly."""
     event_path = FIXTURES_DIR / "schedule.event.json"
-    config = ActConfig(artifact_dir=artifact_dir, event_path=event_path)
+    config = ActConfig(artefact_dir=artefact_dir, event_path=event_path)
     code, logs = run_act("test-mutation-mutmut.yml", "schedule", "mutation", config)
     assert code == 0, f"act failed:\n{logs}"
     assert re.search(r"mutation_detect_has_changes=\s*False", logs), (

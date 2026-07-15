@@ -364,7 +364,7 @@ binstall in the staging TOML, runs the composite action, and verifies:
 - The archive checksum sidecar exists.
 - `tar -tzf` shows the binary name at the archive root.
 
-Update `tests/workflows/test_action_behaviors.py` so the act-based behavioural
+Update `tests/workflows/test_action_behaviours.py` so the act-based behavioural
 test recognizes the new workflow job and checks for the output in logs. This is
 an end-to-end test because the change affects the externally observable
 composite-action contract.
@@ -526,10 +526,10 @@ with 0 findings after the requested wait. The focused post-snapshot test command
 passed with 45 tests and 1 snapshot. Milestone 4 added the
 `test-stage-artefacts-binstall` workflow job and an act behavioural assertion
 for `binstall-archive-path`. The focused changed-surface command
-`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
+`UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviours.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
 passed with 45 tests, 1 snapshot, 3 skipped act tests, and 8 deselected. The
 opt-in act selection
-`ACT_WORKFLOW_TESTS=1 UV_PYTHON=3.13 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows/test_action_behaviors.py -k 'stage-release-artefacts-binstall' -v`
+`ACT_WORKFLOW_TESTS=1 UV_PYTHON=3.13 uv run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows/test_action_behaviours.py -k 'stage-release-artefacts-binstall' -v`
 collected the new end-to-end case and skipped it because `act` or a container
 runtime is unavailable locally. `coderabbit review --agent` for milestone 4
 also initially hit a recoverable rate limit, then passed with 0 findings after
@@ -539,7 +539,7 @@ action README and CHANGELOG. Final validation results:
 - `make check-fmt` passed.
 - `UV_PYTHON=3.13 make typecheck` passed.
 - `make lint` passed.
-- `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviors.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
+- `UV_PYTHON=3.13 uv run --with pytest-bdd --with syrupy --with hypothesis --with pytest-xdist pytest .github/actions/stage-release-artefacts/tests/test_stage.py tests/workflows/test_action_behaviours.py -k 'stage_release_artefacts or stage-release-artefacts or stage_artefacts or binstall' -v`
   passed with 45 passed, 3 skipped, and 8 deselected.
 - `UV_PYTHON=3.13 make test` still fails only in unrelated
   `.github/actions/rust-build-release` tests, with 773 passed, 14 skipped, and

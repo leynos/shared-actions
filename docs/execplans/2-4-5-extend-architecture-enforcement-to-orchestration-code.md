@@ -111,7 +111,7 @@ Known uncertainties that might affect the plan.
 
 ## Progress
 
-Use a list with checkboxes to summarise granular steps.
+Use a list with checkboxes to summarize granular steps.
 
 - [ ] **Understand existing enforcement and identify gaps** (scope: research and
   documentation; no code changes).
@@ -199,7 +199,7 @@ Record every significant decision made while working on the plan.
   review), test-based (Hypothesis property tests), and runtime (lightweight
   introspection guard). Rationale: Hecate is already established and handles
   module-level enforcement well; property tests are the standard approach for
-  boundary-purity validation in async systems; a runtime guard provides defense
+  boundary-purity validation in async systems; a runtime guard provides defence
   in depth without adding external dependencies. Date: 2026-06-15
 
 ## Outcomes & retrospective
@@ -284,7 +284,7 @@ guards. Each stage includes explicit validation steps.
    escalate if any findings conflict with the stated constraints or gaps are
    larger than expected.
 
-**Validation**: Hand-written code review of key files, no tests required.
+**Validation**: Handwritten code review of key files, no tests required.
 
 ### Stage 2: Design the three-layer enforcement approach
 
@@ -666,7 +666,7 @@ The implementation is complete when all of the following are true:
    - `make test` (exit code 0; includes new tests)
    - No regressions in existing tests
 
-### Observable behavior after implementation
+### Observable behaviour after implementation
 
 After this change:
 
@@ -707,9 +707,9 @@ If a stage fails:
 If a tolerance threshold is breached (e.g., test complexity exceeds 300 lines),
 pause and escalate to the team before continuing.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Key artifacts produced during this plan (to be populated as work proceeds):
+Key artefacts produced during this plan (to be populated as work proceeds):
 
 - New test file: `tests/test_orchestration_checkpoint_payload_properties.py`
   (estimated 150–200 lines, including Hypothesis strategies and assertions).

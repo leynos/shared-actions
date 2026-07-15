@@ -8,7 +8,7 @@ inputs:
   application-path:
     description: >-
       Source executable or bundle that should be installed. When combined with `|relative\\path` the
-      portion after the pipe customises the install location beneath the install directory.
+      portion after the pipe customizes the install location beneath the install directory.
     required: false
     default: ''
   additional-files:

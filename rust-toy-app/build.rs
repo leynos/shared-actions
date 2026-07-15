@@ -89,7 +89,7 @@ fn derive_target_root(out_dir: &Path, target: &str, profile: &str) -> std::io::R
 ///
 /// Reads `SOURCE_DATE_EPOCH` (a Unix timestamp) and formats it as
 /// `YYYY-MM-DD`. Falls back to `"1970-01-01"` when the variable is absent or
-/// unparseable, ensuring reproducible builds.
+/// unparsable, ensuring reproducible builds.
 fn build_date() -> String {
     env::var("SOURCE_DATE_EPOCH")
         .ok()

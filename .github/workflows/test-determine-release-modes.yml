@@ -38,7 +38,7 @@ jobs:
           [[ "${{ steps.modes.outputs.should-publish }}" =~ ^(true|false)$ ]]
           [[ "${{ steps.modes.outputs.should-upload-workflow-artifacts }}" =~ ^(true|false)$ ]]
 
-      # Event-specific value assertions to catch regressions in event-normalisation logic
+      # Event-specific value assertions to catch regressions in event-normalization logic
       - name: Verify pull_request event outputs
         if: github.event_name == 'pull_request'
         run: |

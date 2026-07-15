@@ -18,7 +18,7 @@ from syspath_hack import find_project_root, prepend_to_syspath
 _BOOTSTRAP_CACHE: tuple[Path, Path] | None = None
 
 
-def _initialise_cmd_utils() -> None:
+def _initialize_cmd_utils() -> None:
     """Load ``cmd_utils`` helpers for downstream imports."""
     try:
         from cmd_utils_importer import ensure_cmd_utils_imported
@@ -32,7 +32,7 @@ def _initialise_cmd_utils() -> None:
         raise ImportError(message) from exc
     except Exception as exc:  # pragma: no cover - defensive guard
         message = (
-            "Failed to initialise cmd_utils. Check that the environment is "
+            "Failed to initialize cmd_utils. Check that the environment is "
             "configured correctly for this script to run."
         )
         raise RuntimeError(message) from exc
@@ -51,7 +51,7 @@ def bootstrap_environment() -> tuple[Path, Path]:
     repo_root = find_project_root(start=script_dir)
     prepend_to_syspath(repo_root)
 
-    _initialise_cmd_utils()
+    _initialize_cmd_utils()
 
     _BOOTSTRAP_CACHE = (action_path, repo_root)
     return _BOOTSTRAP_CACHE

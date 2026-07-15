@@ -246,7 +246,7 @@ def temp_base_dir() -> Path:
 class ActConfig:
     """Configuration for running act against a workflow."""
 
-    artifact_dir: Path
+    artefact_dir: Path
     event_path: Path | None = None
     env: dict[str, str] | None = None
     container_env: dict[str, str] | None = None
@@ -261,7 +261,7 @@ class ActInvocation:
     event: str
     job: str
     event_path: Path
-    artifact_dir: Path
+    artefact_dir: Path
     container_env: dict[str, str]
 
 
@@ -297,7 +297,7 @@ def _build_act_args(invocation: ActInvocation) -> list[str]:
         "-P",
         "ubuntu-latest=catthehacker/ubuntu:act-latest",
         "--artifact-server-path",
-        str(invocation.artifact_dir),
+        str(invocation.artefact_dir),
         "--json",
         "-b",
     ]
@@ -323,7 +323,7 @@ def run_act(
     job
         Job name to run.
     config
-        Execution configuration including artifact directory, event path,
+        Execution configuration including artefact directory, event path,
         environment variables, and timeout.
 
     Returns
@@ -331,7 +331,7 @@ def run_act(
     tuple[int, str]
         Exit code and combined stdout/stderr logs.
     """
-    config.artifact_dir.mkdir(parents=True, exist_ok=True)
+    config.artefact_dir.mkdir(parents=True, exist_ok=True)
 
     event_path = _resolve_event_path(config, event)
 
@@ -346,7 +346,7 @@ def run_act(
         event=event,
         job=job,
         event_path=event_path,
-        artifact_dir=config.artifact_dir,
+        artefact_dir=config.artefact_dir,
         container_env=container_env,
     )
     args = _build_act_args(invocation)

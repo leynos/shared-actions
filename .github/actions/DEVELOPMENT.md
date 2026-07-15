@@ -87,15 +87,15 @@ archives, or directory trees. Keep those fixtures close to the tests, usually
 under `tests/fixtures/`, and prefer small, purpose-built examples over copying
 large real projects.
 
-Update the action-local `CHANGELOG.md` for user-visible behavior changes. The
+Update the action-local `CHANGELOG.md` for user-visible behaviour changes. The
 repository uses per-action changelogs rather than one shared release log.
 
 Keep the action `README.md` complete. At minimum it should explain what the
 action does, list inputs and outputs, show an example usage block, and document
-behavioral details that users need in order to debug configuration-sensitive
+behavioural details that users need in order to debug configuration-sensitive
 paths such as toolchain resolution or coverage overrides.
 
 When you add or change action logic, make the docs and fixtures move together.
-The README should describe externally visible behavior, the changelog should
+The README should describe externally visible behaviour, the changelog should
 record the release-facing change, and the fixtures should cover the branch that
 made the change necessary.

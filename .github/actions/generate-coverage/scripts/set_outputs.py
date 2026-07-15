@@ -25,8 +25,8 @@ if not isinstance(existing_config, tuple):
 app.config = (*existing_config, _env_config)
 
 
-def _normalise_component(value: str | None, fallback: str) -> str:
-    """Return *value* sanitised for use in artefact names."""
+def _normalize_component(value: str | None, fallback: str) -> str:
+    """Return *value* sanitized for use in artefact names."""
     raw = (value or fallback).strip()
     if not raw:
         raw = fallback
@@ -46,7 +46,7 @@ def _detect_runner_labels(
     default_os: str | None,
     default_arch: str | None,
 ) -> tuple[str, str]:
-    """Return normalised platform identifiers for the current runner."""
+    """Return normalized platform identifiers for the current runner."""
     fallback_system = _get_fallback_value(default_os, "unknown-os")
     fallback_arch = _get_fallback_value(default_arch, "unknown-arch")
 
@@ -61,8 +61,8 @@ def _detect_runner_labels(
     arch = _get_fallback_value(detected_arch, fallback_arch)
 
     return (
-        _normalise_component(system, "unknown-os"),
-        _normalise_component(arch, "unknown-arch"),
+        _normalize_component(system, "unknown-os"),
+        _normalize_component(arch, "unknown-arch"),
     )
 
 
@@ -99,15 +99,15 @@ def build_artefact_name(components: ArtefactNameComponents) -> str:
         index = "0"
 
     parts: list[str] = [
-        _normalise_component(components.fmt, "coverage"),
-        _normalise_component(components.job, "job"),
-        _normalise_component(index, "0"),
-        _normalise_component(components.runner_os, "unknown-os"),
-        _normalise_component(components.runner_arch, "unknown-arch"),
+        _normalize_component(components.fmt, "coverage"),
+        _normalize_component(components.job, "job"),
+        _normalize_component(index, "0"),
+        _normalize_component(components.runner_os, "unknown-os"),
+        _normalize_component(components.runner_arch, "unknown-arch"),
     ]
 
     if components.extra_suffix:
-        parts.append(_normalise_component(components.extra_suffix, "extra"))
+        parts.append(_normalize_component(components.extra_suffix, "extra"))
 
     return "-".join(parts)
 

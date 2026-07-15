@@ -99,7 +99,7 @@ def _is_musl(
 
 
 def _normalize_machine(machine: str) -> str:
-    """Normalise runner architecture labels for checksum lookup keys."""
+    """Normalize runner architecture labels for checksum lookup keys."""
     name = machine.lower()
     if name in {"x86_64", "amd64"}:
         return "x86_64"

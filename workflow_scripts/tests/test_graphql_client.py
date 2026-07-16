@@ -83,9 +83,7 @@ class TestRequestGraphqlRetries:
         """A persistent connection error retries three times, then fails."""
         seen: list[tuple[object, object, object]] = []
 
-        def fake_execute(
-            token: str, query: str, variables: dict[str, object]
-        ) -> None:
+        def fake_execute(token: str, query: str, variables: dict[str, object]) -> None:
             seen.append((token, query, variables))
 
         monkeypatch.setattr(graphql_client, "_execute_graphql_attempt", fake_execute)

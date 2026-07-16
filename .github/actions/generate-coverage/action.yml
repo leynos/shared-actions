@@ -262,13 +262,23 @@ runs:
         fi
       shell: bash
     - name: Save baselines
-      if: success() && inputs.with-ratchet == 'true' && steps.restore-baselines.outputs.cache-hit != 'true'
+      # Save under the same run-id-suffixed key the restore step uses as its
+      # primary key. GitHub Actions cache entries are immutable, so a constant
+      # key (`ratchet-baseline-${{ runner.os }}`) can only ever be written once
+      # and then freezes the baseline until the 7-day eviction. A per-run key
+      # is unique, so every main run persists a fresh baseline that later runs
+      # pick up via the `ratchet-baseline-${{ runner.os }}-` restore-key prefix
+      # (newest matching entry wins). The `cache-hit` guard is intentionally
+      # dropped: the restore primary key never matches within the same run, so
+      # `cache-hit` is always false here and the guard only ever suppressed the
+      # save on the constant key.
+      if: success() && inputs.with-ratchet == 'true'
       uses: actions/cache@v4
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
 
     - id: out
       run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"

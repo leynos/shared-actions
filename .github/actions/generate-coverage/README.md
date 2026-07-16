@@ -139,7 +139,7 @@ Known limitations:
 | use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
 | output-path | Output file path | yes | |
 | format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
-| with-ratchet | Fail if coverage drops below baseline | no | `false` |
+| with-ratchet | Fail if coverage drops more than 1pp below baseline | no | `false` |
 | artefact-name-suffix | Additional suffix appended to the uploaded coverage artefact | no | |
 | baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
 | baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
@@ -212,6 +212,15 @@ Enable ratcheting:
     output-path: coverage.xml
     with-ratchet: true
 ```
+
+The ratchet compares the current coverage against a stored baseline within a
+provisional symmetric ±1 percentage-point dead-band. Coverage within one
+absolute percentage point of the baseline is treated as noise: the run passes
+and the baseline is held. A drop of more than one point below the baseline
+fails the run; a rise of more than one point above the baseline advances the
+baseline. On pushes to the default branch the advanced baseline is persisted to
+the Actions cache and restored on subsequent runs, so the baseline tracks the
+latest default-branch coverage.
 
 Enable cucumber-rs:
 

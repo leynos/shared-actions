@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Fix the coverage ratchet baseline freeze. The "Save baselines" step wrote a
+  constant, run-id-less cache key (`ratchet-baseline-<os>`) guarded by
+  `cache-hit != 'true'`, while "Restore baselines" recovered a run-id-suffixed
+  key (`ratchet-baseline-<os>-<run_id>`) via a prefix restore-key. Because
+  GitHub Actions cache entries are immutable, the constant key could only be
+  written once and then froze the baseline until the 7-day eviction, so the
+  ratchet never advanced when coverage improved and false-tripped "Coverage
+  decreased" on pull requests for repositories with any coverage
+  nondeterminism. The save step now uses the same run-id-suffixed key as the
+  restore step's primary key and drops the `cache-hit` guard, so every main run
+  persists a fresh baseline that later runs recover via the restore-key prefix
+  (newest matching entry wins). No inputs change.
+- Add a provisional symmetric +/-1 percentage-point dead-band to the coverage
+  ratchet comparison (`ratchet_coverage.py`). Coverage within one absolute
+  percentage point of the stored baseline is treated as noise: the run passes
+  and the baseline is held. A drop of more than one point below the baseline
+  still fails ("Coverage decreased"); a rise of more than one point above the
+  baseline advances it. Holding the baseline within the band prevents a
+  nondeterministic low run from false-tripping the gate and a lucky-high run
+  from inflating the baseline so the next normal run fails. The tolerance is a
+  single named constant (`RATCHET_TOLERANCE_PP = 1.0`).
 - Omit `--summary-only` from `cargo llvm-cov` for the file formats
   (`lcov`, `cobertura`). With the flag, cargo-llvm-cov exports only
   summary information, so reports lacked per-line execution records

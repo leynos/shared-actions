@@ -3,13 +3,27 @@
 # requires-python = ">=3.12"
 # dependencies = ["plumbum", "typer"]
 # ///
-"""Compare current coverage with a baseline and update if higher."""
+"""Compare current coverage with a baseline within a symmetric dead-band.
+
+Coverage within +/-``RATCHET_TOLERANCE_PP`` percentage points of the stored
+baseline is treated as noise: the run passes and the baseline is held. A drop
+beyond the band fails the gate; a rise beyond the band advances the baseline.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import typer
+
+# Provisional symmetric dead-band, in absolute percentage points, around the
+# stored baseline. Coverage within +/- this many points of the baseline is
+# treated as noise: the run passes and the baseline is left untouched. This
+# guards against coverage nondeterminism (flaky per-run line counts) both from
+# tripping a false "Coverage decreased" failure on a low run and from inflating
+# the baseline on a lucky-high run (which would then make the next normal run
+# fail). The baseline only advances on a genuine improvement beyond the band.
+RATCHET_TOLERANCE_PP = 1.0
 
 BASELINE_FILE_OPT = typer.Option(
     Path(".coverage-baseline"), envvar="INPUT_BASELINE_FILE"
@@ -32,19 +46,33 @@ def main(
     *,
     current: float = CURRENT_OPT,
 ) -> None:
-    """Compare ``current`` coverage with the stored baseline and update it."""
+    """Gate ``current`` coverage against the baseline within the dead-band.
+
+    Fails when ``current`` is more than ``RATCHET_TOLERANCE_PP`` below the
+    baseline, advances the baseline when ``current`` is more than
+    ``RATCHET_TOLERANCE_PP`` above it, and otherwise passes while leaving the
+    baseline unchanged.
+    """
     baseline = round(read_baseline(baseline_file), 2)
     current = round(current, 2)
 
     typer.echo(f"Current coverage: {current}%")
     typer.echo(f"Baseline coverage: {baseline}%")
+    typer.echo(f"Tolerance: +/-{RATCHET_TOLERANCE_PP:.2f} percentage points")
 
-    if current < baseline:
+    # Fail only when coverage falls more than the tolerance band below the
+    # baseline.
+    if current < baseline - RATCHET_TOLERANCE_PP:
         typer.echo("Coverage decreased", err=True)
         raise typer.Exit(code=1)
 
-    baseline_file.parent.mkdir(parents=True, exist_ok=True)
-    baseline_file.write_text(f"{current:.2f}")
+    # Advance the baseline only on a genuine improvement beyond the band. Within
+    # +/- the band (either side of the baseline) the run passes and the baseline
+    # is held: a low run is not failed and a lucky-high run does not inflate the
+    # baseline (which would then make the next normal run fail).
+    if current > baseline + RATCHET_TOLERANCE_PP:
+        baseline_file.parent.mkdir(parents=True, exist_ok=True)
+        baseline_file.write_text(f"{current:.2f}")
 
 
 if __name__ == "__main__":

@@ -142,7 +142,8 @@ def _parse_result_line(line: str) -> MutantResult | None:
     space-free mutant name containing the ``__mutmut_`` marker; anything
     else (warnings, blank lines, progress output) is noise.
     """
-    name, separator, status = line.partition(": ")
+    # pragma: result lines carry a single ": ", so rpartition matches partition.
+    name, separator, status = line.partition(": ")  # pragma: no mutate
     if not separator:
         return None
     is_mutant_name = " " not in name and "__mutmut_" in name
@@ -254,7 +255,9 @@ def _run_mutation_testing(
         *globs,
     ]
     emit("mutation_mutmut_command", ["uv", *run_arguments])
-    code = local["uv"][run_arguments] & RETCODE(FG=True)
+    # pragma: RETCODE(FG=...) only toggles console streaming; the captured
+    # exit code is identical, so no in-process test can observe the change.
+    code = local["uv"][run_arguments] & RETCODE(FG=True)  # pragma: no mutate
     emit("mutation_mutmut_exit_code", code)
     if code != 0:
         emit(
@@ -270,9 +273,11 @@ def _publish_results(mutmut_version: str, results_file: str, summary_path: str) 
     results_text = local["uv"][
         *_mutmut_command(mutmut_version), "results", "--all", "true"
     ]()
-    Path(results_file).write_text(results_text, encoding="utf-8")
+    # pragma below: encoding is a locale-independent UTF-8 codec alias.
+    Path(results_file).write_text(results_text, encoding="utf-8")  # pragma: no mutate
     results = parse_results(results_text)
-    with Path(summary_path).open("a", encoding="utf-8") as handle:
+    # pragma below: encoding is a locale-independent UTF-8 codec alias.
+    with Path(summary_path).open("a", encoding="utf-8") as handle:  # pragma: no mutate
         handle.write(render_summary(results))
     emit("mutation_mutmut_counts", count_statuses(results))
 

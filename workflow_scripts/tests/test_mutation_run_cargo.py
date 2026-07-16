@@ -40,6 +40,23 @@ class TestBuildArguments:
         )
         assert arguments[-4:] == ["--file", "src/a.rs", "--file", "src/b.rs"]
 
+    def test_shard_boundary_at_two_emits_shard(self) -> None:
+        """A shard-count of exactly two still emits ``--shard`` (boundary)."""
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(shard=0, shard_count=2)
+        )
+        assert "--shard" in arguments, "shard-count 2 should still emit --shard"
+        assert arguments[arguments.index("--shard") + 1] == "0/2", (
+            "the shard argument should read index/count"
+        )
+
+    def test_single_shard_omits_shard(self) -> None:
+        """A shard-count of one leaves ``--shard`` out (boundary)."""
+        arguments = run_cargo.build_arguments(
+            run_cargo.MutantsInvocation(shard=0, shard_count=1)
+        )
+        assert "--shard" not in arguments, "shard-count 1 should not emit --shard"
+
     def test_shard_and_dir_and_excludes(self) -> None:
         """Sharding, target dir, and exclude globs are all emitted."""
         arguments = run_cargo.build_arguments(
@@ -70,19 +87,34 @@ class TestBuildArguments:
 class TestInterpretExitCode:
     """Classification of cargo-mutants exit codes."""
 
-    @pytest.mark.parametrize("code", [0, 2, 3])
-    def test_informative_codes_succeed(self, code: int) -> None:
-        """Missed mutants and timeouts are informative outcomes."""
-        success, meaning = run_cargo.interpret_exit_code(code)
+    @pytest.mark.parametrize(
+        ("code", "meaning"),
+        [(0, "all mutants caught"), (2, "missed mutants"), (3, "test timeouts")],
+    )
+    def test_informative_codes_succeed(self, code: int, meaning: str) -> None:
+        """Informative codes succeed and report their exact contract meaning."""
+        success, actual = run_cargo.interpret_exit_code(code)
         assert success
-        assert meaning
+        assert actual == meaning, (
+            f"code {code} should map to the exact meaning {meaning!r}"
+        )
 
-    @pytest.mark.parametrize("code", [1, 4, 70, 99])
-    def test_fault_codes_fail(self, code: int) -> None:
-        """Usage errors, failing baselines, and unknowns are faults."""
-        success, meaning = run_cargo.interpret_exit_code(code)
+    @pytest.mark.parametrize(
+        ("code", "meaning"),
+        [
+            (1, "usage error"),
+            (4, "baseline tests failing"),
+            (70, "internal error"),
+            (99, "unexpected exit code"),
+        ],
+    )
+    def test_fault_codes_fail(self, code: int, meaning: str) -> None:
+        """Faults report their exact meaning; unknown codes fall back verbatim."""
+        success, actual = run_cargo.interpret_exit_code(code)
         assert not success
-        assert meaning
+        assert actual == meaning, (
+            f"code {code} should map to the exact meaning {meaning!r}"
+        )
 
 
 @pytest.fixture

@@ -68,6 +68,38 @@ class TestParseOutcomes:
         assert sum(counts.values()) == 0, "an empty payload should yield zero counts"
         assert survivors == [], "an empty payload should yield no survivors"
 
+    def test_non_dict_outcome_is_skipped_not_fatal(self) -> None:
+        """A non-dict outcome is skipped; later valid outcomes still count."""
+        payload = {"outcomes": ["garbage", _mutant_outcome("CaughtMutant")]}
+        counts, _ = summarize.parse_outcomes(payload)
+        assert counts["CaughtMutant"] == 1, (
+            "parsing should continue past a non-dict outcome, not stop"
+        )
+
+
+class TestSurvivorFrom:
+    """Extraction of a surviving mutant from one scenario object."""
+
+    _PLACEHOLDER = summarize.SurvivingMutant(file="?", line=0, name="?")
+
+    def test_non_dict_mutant_yields_placeholder(self) -> None:
+        """A scenario whose ``Mutant`` is not a dict yields the placeholder."""
+        assert summarize._survivor_from({"Mutant": "nope"}) == self._PLACEHOLDER, (
+            "a non-dict Mutant should fall back to the ?/0/? placeholder"
+        )
+
+    def test_absent_mutant_key_yields_placeholder(self) -> None:
+        """A scenario without a ``Mutant`` key yields the placeholder."""
+        assert summarize._survivor_from({}) == self._PLACEHOLDER, (
+            "a missing Mutant key should fall back to the ?/0/? placeholder"
+        )
+
+    def test_empty_mutant_defaults_each_field(self) -> None:
+        """An empty ``Mutant`` dict defaults file, line, and name."""
+        assert summarize._survivor_from({"Mutant": {}}) == self._PLACEHOLDER, (
+            "an empty Mutant should default file='?', line=0, and name='?'"
+        )
+
 
 class TestCollectReports:
     """Merging of shard artefact directories."""
@@ -102,6 +134,63 @@ class TestCollectReports:
         assert {survivor.name for survivor in root.survivors} == {"a", "b"}, (
             "survivors should pool across a target's shards"
         )
+
+    def test_timeout_and_unviable_counts_are_carried(self, tmp_path: Path) -> None:
+        """Timeout and unviable outcomes reach the merged report counts."""
+        _write_report(
+            tmp_path,
+            "mutation-report-root-0",
+            [
+                _mutant_outcome("Timeout"),
+                _mutant_outcome("Unviable"),
+                _mutant_outcome("Unviable"),
+            ],
+        )
+        report = summarize.collect_reports(tmp_path)[0]
+        assert report.timeout == 1, "the timeout count should reach the report"
+        assert report.unviable == 2, "the unviable count should reach the report"
+
+    def test_root_target_sorts_first(self, tmp_path: Path) -> None:
+        """The root target leads even when another slug sorts before it."""
+        _write_report(
+            tmp_path, "mutation-report-aaa-0", [_mutant_outcome("CaughtMutant")]
+        )
+        _write_report(
+            tmp_path, "mutation-report-root-0", [_mutant_outcome("CaughtMutant")]
+        )
+        reports = summarize.collect_reports(tmp_path)
+        assert [report.slug for report in reports] == ["root", "aaa"], (
+            "root should sort first, ahead of the alphabetically-earlier slug"
+        )
+
+    def test_diagnostics_and_foreign_dir_does_not_halt(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Skipped, missing, and invalid dirs emit diagnostics without halting."""
+        (tmp_path / "0-foreign").mkdir()
+        (tmp_path / "mutation-report-a-0").mkdir()  # missing outcomes.json
+        invalid = tmp_path / "mutation-report-b-0"
+        invalid.mkdir()
+        (invalid / "outcomes.json").write_text("not json", encoding="utf-8")
+        _write_report(
+            tmp_path, "mutation-report-root-0", [_mutant_outcome("CaughtMutant")]
+        )
+        reports = summarize.collect_reports(tmp_path)
+        out = capsys.readouterr().out
+        assert "mutation_summary_skipped_dir=0-foreign" in out, (
+            "an unmatched directory should emit the skipped-dir diagnostic"
+        )
+        assert "mutation_summary_missing_outcomes=mutation-report-a-0" in out, (
+            "a directory without outcomes.json should emit the missing diagnostic"
+        )
+        assert "mutation_summary_invalid_outcomes=mutation-report-b-0:" in out, (
+            "invalid JSON should emit the invalid-outcomes diagnostic with the name"
+        )
+        # The foreign dir sorts first; scanning must continue to the root report.
+        assert [report.slug for report in reports] == ["root"], (
+            "a leading foreign directory must not halt the scan"
+        )
+        assert reports[0].caught == 1, "the trailing valid report should be collected"
 
     def test_malformed_and_foreign_dirs_are_skipped(self, tmp_path: Path) -> None:
         """Unrelated directories and invalid JSON do not break the merge."""
@@ -142,11 +231,44 @@ class TestRenderSummary:
             "the survivor table should escape pipe characters"
         )
 
-    def test_no_reports_message(self) -> None:
-        """An empty report set renders an explanatory message."""
-        assert "No reports were produced" in summarize.render_summary([]), (
-            "an empty report set should render an explanatory message"
+    def test_exact_markdown_layout(self) -> None:
+        """The rendered Markdown matches the contracted layout byte-for-byte."""
+        report = summarize.TargetReport(
+            slug="root",
+            caught=2,
+            missed=1,
+            timeout=3,
+            unviable=0,
+            survivors=(
+                summarize.SurvivingMutant(
+                    file="src/a.rs", line=7, name="replace + with -"
+                ),
+            ),
         )
+        expected = (
+            "## Mutation testing results (root)\n"
+            "\n"
+            "- **Caught:** 2\n"
+            "- **Missed (survived):** 1\n"
+            "- **Timeout:** 3\n"
+            "- **Unviable:** 0\n"
+            "\n"
+            "### Surviving mutants\n"
+            "\n"
+            "| File | Line | Mutation |\n"
+            "| ---- | ---- | -------- |\n"
+            "| src/a.rs | 7 | replace + with - |\n"
+        )
+        assert summarize.render_summary([report]) == expected, (
+            "the summary Markdown should match the contracted layout exactly"
+        )
+
+    def test_no_reports_message(self) -> None:
+        """An empty report set renders the exact explanatory message."""
+        assert (
+            summarize.render_summary([])
+            == "## Mutation testing results\n\nNo reports were produced.\n"
+        ), "an empty report set should render the exact explanatory message"
 
 
 class TestMainEntry:

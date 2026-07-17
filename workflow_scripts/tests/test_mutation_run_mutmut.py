@@ -1,4 +1,9 @@
-"""Unit tests for the mutmut run-and-summarize helper script."""
+"""Unit tests for the mutmut run-and-summarize helper script.
+
+The module-glob prefix, noise-rejection, status-accumulation, exact
+survivor/summary Markdown, and ``uv run --with`` argv tests below kill
+the ``mutation_run_mutmut`` survivors tracked in #341.
+"""
 
 from __future__ import annotations
 
@@ -170,7 +175,10 @@ class TestRenderSummary:
 
 
 class TestMutmutCommand:
-    """Construction of the ``uv run --with`` argument prefix."""
+    """Construction of the ``uv run --with`` argument prefix.
+
+    Kills the ``uv run --with`` argv-contract survivors tracked in #341.
+    """
 
     def test_pins_version_and_subcommands(self) -> None:
         """The prefix injects the pinned mutmut and the run subcommand."""

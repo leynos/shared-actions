@@ -1,4 +1,9 @@
-"""Unit tests for the cargo-mutants summary merge script."""
+"""Unit tests for the cargo-mutants summary merge script.
+
+The non-dict-outcome, survivor-placeholder, timeout/unviable-count,
+root-first-ordering, diagnostics, and exact-Markdown tests below kill the
+``mutation_summarize_cargo`` survivors tracked in #342.
+"""
 
 from __future__ import annotations
 
@@ -78,7 +83,11 @@ class TestParseOutcomes:
 
 
 class TestSurvivorFrom:
-    """Extraction of a surviving mutant from one scenario object."""
+    """Extraction of a surviving mutant from one scenario object.
+
+    Kills the ``_survivor_from`` placeholder-defaulting survivors tracked
+    in #342.
+    """
 
     _PLACEHOLDER = summarize.SurvivingMutant(file="?", line=0, name="?")
 

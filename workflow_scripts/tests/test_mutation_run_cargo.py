@@ -1,4 +1,8 @@
-"""Unit tests for the cargo-mutants run wrapper script."""
+"""Unit tests for the cargo-mutants run wrapper script.
+
+The shard-boundary and exit-code-meaning tests below kill the
+``mutation_run_cargo`` survivors tracked in #342.
+"""
 
 from __future__ import annotations
 
@@ -41,7 +45,10 @@ class TestBuildArguments:
         assert arguments[-4:] == ["--file", "src/a.rs", "--file", "src/b.rs"]
 
     def test_shard_boundary_at_two_emits_shard(self) -> None:
-        """A shard-count of exactly two still emits ``--shard`` (boundary)."""
+        """A shard-count of exactly two still emits ``--shard`` (boundary).
+
+        Kills the shard-count boundary survivors tracked in #342.
+        """
         arguments = run_cargo.build_arguments(
             run_cargo.MutantsInvocation(shard=0, shard_count=2)
         )
@@ -51,7 +58,10 @@ class TestBuildArguments:
         )
 
     def test_single_shard_omits_shard(self) -> None:
-        """A shard-count of one leaves ``--shard`` out (boundary)."""
+        """A shard-count of one leaves ``--shard`` out (boundary).
+
+        Kills the shard-count boundary survivors tracked in #342.
+        """
         arguments = run_cargo.build_arguments(
             run_cargo.MutantsInvocation(shard=0, shard_count=1)
         )

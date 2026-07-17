@@ -1,4 +1,9 @@
-"""Unit tests for the mutation change-detection helper script."""
+"""Unit tests for the mutation change-detection helper script.
+
+The extra-crate shape, target-directory, sorted-matrix-key, and
+skip-summary base-ref/window assertions below kill the
+``mutation_detect_changes`` matrix-contract survivors tracked in #340.
+"""
 
 from __future__ import annotations
 

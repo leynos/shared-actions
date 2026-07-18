@@ -114,10 +114,36 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39
         with:
           python-version: ${{ inputs.python-version }}
+          # Workspace-relative on purpose: this glob is hashed before the
+          # relocation step below moves workflow-src out of the workspace.
           cache-dependency-glob: |
             **/pyproject.toml
             **/uv.lock
             **/workflow_scripts/*.py
+
+      - name: Relocate workflow source
+        # Move the workflow checkout out of the caller's workspace so
+        # tree-scanning tests in the caller's suite (manifest sweeps,
+        # file inventories, lint-everything globs) never see foreign
+        # files during the mutation baseline or mutant runs. Runs after
+        # "Setup uv" so cache-dependency-glob still hashes the workflow
+        # scripts while they sit inside the workspace. Under act the
+        # workspace itself is the workflow source, so nothing moves.
+        id: relocate-workflow-source
+        shell: bash
+        env:
+          CHECKOUT: ${{ steps.workflow-source.outputs.checkout }}
+          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ "${CHECKOUT}" == "true" ]]; then
+            dest="${RUNNER_TEMP}/workflow-src"
+            rm -rf "${dest}"
+            mv "${WORKFLOW_DIR}" "${dest}"
+            echo "workflow_dir=${dest}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "workflow_dir=${WORKFLOW_DIR}" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Detect changed files
         id: detect
@@ -130,7 +156,7 @@ jobs:
           INPUT_PATHSPEC: "*.py"
           INPUT_SHARD_COUNT: "1"
           INPUT_BASE_REF: ${{ inputs.base-ref }}
-          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then
@@ -149,7 +175,7 @@ jobs:
           INPUT_MODULE_PREFIX_STRIP: ${{ inputs.module-prefix-strip }}
           INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
           INPUT_RESULTS_FILE: mutation-mutmut-results.txt
-          WORKFLOW_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
           if [[ "${ACT:-}" == "true" ]]; then

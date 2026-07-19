@@ -417,6 +417,65 @@ Internals for maintainers:
   `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy
   path is validated by every real run of the consuming workflows.
 
+### Workflow contract tests
+
+Two layers of test guard the mutation-testing workflows against drift,
+distinct from each other because this repository is both the *definer*
+of the reusable workflows and, through `workflow_scripts/`, a *consumer*
+of one of them.
+
+`workflow_scripts/tests/test_mutation_testing_caller.py` is the caller
+contract test, exactly analogous to the one every downstream repository
+carries. It parses `.github/workflows/mutation-testing-caller.yml` with
+PyYAML and asserts the shape the caller must uphold:
+
+- the `uses:` reference targets `mutation-mutmut.yml` pinned to a full
+  40-character commit SHA — a `USES_RE` regex, so the SHA value itself is
+  Dependabot's to bump and is not asserted;
+- job permissions are exactly `contents: read` and `id-token: write`,
+  and the workflow-level default token scope is empty;
+- `concurrency` serializes runs per ref without cancelling one in
+  progress;
+- the triggers keep the daily schedule and a plain `workflow_dispatch`
+  with no inputs; and
+- the `with:` block sets exactly `paths: "workflow_scripts/"` and
+  `module-prefix-strip: ""`, because the repository's own Python source
+  is mutated as a flat-layout package.
+
+The module self-skips when the workflow file is absent, since mutmut's
+`mutants/` sandbox does not copy `.github/`.
+
+`workflow_scripts/tests/test_mutation_workflow_shape.py` has no analogue
+in consumer repositories: it parses both reusable workflow definitions
+(`mutation-cargo.yml` and `mutation-mutmut.yml`) and pins a structural
+invariant in the definitions themselves — every job that checks out the
+workflow repository's own source must relocate it to `$RUNNER_TEMP`
+before any step consumes it, and every later step reading `WORKFLOW_DIR`
+must take the relocated path rather than the original checkout location.
+This guards the tree-pollution regression tracked as issue #343, where a
+caller's tree-scanning hygiene tests failed because the workflows'
+self-checkout was left inside the caller's workspace.
+
+Run both locally with:
+
+```bash
+uv run --with pyyaml --with pytest \
+  pytest workflow_scripts/tests/test_mutation_testing_caller.py \
+         workflow_scripts/tests/test_mutation_workflow_shape.py -v
+```
+
+Both `pytest` and `pyyaml` are declared in the `dev` dependency group,
+so `make test` (or `uv sync --group dev` followed by a bare `uv run
+pytest …`) picks them up as well.
+
+The reusable workflows' own execution path — change detection, sharding,
+and the mutation run itself — is exercised separately: unit and
+property-based tests for the `workflow_scripts/` helper scripts, and the
+`act`-driven integration tests in
+`tests/workflows/test_mutation_workflows.py` (gated behind
+`ACT_WORKFLOW_TESTS=1`), described above and in [Workflow Test
+Harness](#workflow-test-harness-testsworkflowsconftestpy).
+
 ## Running the Test Suite
 
 ```bash

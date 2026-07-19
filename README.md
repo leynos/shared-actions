@@ -1,5 +1,8 @@
 # shared-actions
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](
+https://deepwiki.com/leynos/shared-actions)
+
 GitHub Actions
 
 ## Available actions

@@ -9,8 +9,8 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 
 ## Inputs
 
-| Name                | Description                               | Required | Default |
-| ------------------- | ----------------------------------------- | -------- | ------- |
+| Name                | Description                                | Required | Default |
+| ------------------- | ------------------------------------------ | -------- | ------- |
 | `installer-version` | Version of `whitaker-installer` to install | no       | `0.2.6` |
 
 ## Outputs

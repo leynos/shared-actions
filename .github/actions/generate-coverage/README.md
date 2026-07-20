@@ -135,6 +135,7 @@ Known limitations:
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
+| language | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below. | no | `auto` |
 | cargo-manifest | Optional path to Cargo.toml if root Cargo.toml is missing | no | |
 | use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
 | output-path | Output file path | yes | |
@@ -151,6 +152,37 @@ Known limitations:
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.
+
+### Selecting the coverage language
+
+By default (`language: auto`) the action infers the scope from the manifests
+present: a root `Cargo.toml` means Rust, a root `pyproject.toml` means Python,
+and both together mean mixed. This inference treats *any* `pyproject.toml` as a
+Python project, including a configuration-only one that exists solely to hold
+tooling settings (for example Ruff, Pylint, or ty) with no `[project]` table.
+
+Set `language` explicitly to force the scope and skip that inference:
+
+- `rust` requires a resolved Cargo manifest (root `Cargo.toml` or
+  `cargo-manifest`) and **ignores** a configuration-only `pyproject.toml`.
+- `python` requires a syncable `pyproject.toml` with a `[project]` table (the
+  prerequisite for the action's `uv sync`).
+- `mixed` requires both of the above.
+
+Explicit values fail fast with a clear error when their prerequisites are
+absent.
+
+Use `language: rust` for a Rust repository that keeps a tooling-only
+`pyproject.toml` (so `auto` would otherwise misclassify it as mixed and reject
+`lcov`):
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    language: rust
+    output-path: lcov.info
+    format: lcov
+```
 
 ## Outputs
 

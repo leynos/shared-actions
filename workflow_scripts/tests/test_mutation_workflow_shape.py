@@ -25,6 +25,7 @@ WORKFLOW_NAMES = ("mutation-cargo.yml", "mutation-mutmut.yml")
 CHECKOUT_STEP = "Checkout workflow repository"
 RELOCATE_STEP = "Relocate workflow source"
 RELOCATED_DIR_EXPR = "${{ steps.relocate-workflow-source.outputs.workflow_dir }}"
+LOCAL_WORKFLOW_SRC_PREFIX = "./workflow-src/"
 
 pytestmark = pytest.mark.skipif(
     not all((WORKFLOWS_DIR / name).exists() for name in WORKFLOW_NAMES),
@@ -53,6 +54,36 @@ def _steps(job: dict[str, object]) -> list[dict[str, object]]:
 def _step_names(steps: list[dict[str, object]]) -> list[object]:
     """Return the step names in order."""
     return [step.get("name") for step in steps]
+
+
+@pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+def test_no_step_references_a_relocated_workflow_src_action(
+    workflow_name: str,
+) -> None:
+    """No step invokes a composite action via the ``./workflow-src/`` path.
+
+    A workspace-relative ``uses: ./workflow-src/...`` reference breaks at
+    job teardown: the Actions runtime re-resolves the local action's
+    ``action.yml`` from that path when running its post hook, but the
+    "Relocate workflow source" step has by then moved ``workflow-src`` to
+    ``$RUNNER_TEMP``. The post step fails to find the definition and reddens
+    an otherwise green run (issue #365). Composite actions with post hooks
+    must instead be referenced remotely (pinned by SHA); the runner
+    materialises those under its managed ``_actions`` directory, outside the
+    caller's workspace and surviving teardown.
+    """
+    for job_name, job in _jobs(workflow_name).items():
+        for step in _steps(job):
+            uses = step.get("uses")
+            if not isinstance(uses, str):
+                continue
+            assert not uses.startswith(LOCAL_WORKFLOW_SRC_PREFIX), (
+                f"{workflow_name}:{job_name} step {step.get('name')!r} "
+                f"references {uses!r}; a workspace-relative workflow-src "
+                f"action path breaks its post hook once workflow-src is "
+                f"relocated to $RUNNER_TEMP (issue #365). Reference the "
+                f"action remotely, pinned by SHA, instead."
+            )
 
 
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)

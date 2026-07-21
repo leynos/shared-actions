@@ -8,6 +8,17 @@ inputs:
     description: Enable default features
     required: false
     default: "true"
+  language:
+    description: |
+      Coverage language scope. `auto` (the default) keeps the historical
+      manifest-based detection: a root `Cargo.toml` selects Rust, a root
+      `pyproject.toml` selects Python, and both together select mixed. Explicit
+      values force the requested scope and fail fast when its prerequisites are
+      absent: `rust` requires a resolved Cargo manifest and ignores a
+      configuration-only `pyproject.toml`; `python` requires a syncable
+      `pyproject.toml` with a `[project]` table; `mixed` requires both.
+    required: false
+    default: auto
   cargo-manifest:
     description: Optional path to Cargo.toml when the repository root has none
     required: false
@@ -82,6 +93,7 @@ runs:
       env:
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_CARGO_MANIFEST: ${{ inputs.cargo-manifest }}
+        INPUT_LANGUAGE: ${{ inputs.language }}
       shell: bash
     - name: Restore baselines
       id: restore-baselines

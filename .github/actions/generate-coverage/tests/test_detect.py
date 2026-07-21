@@ -209,3 +209,146 @@ def test_detect_errors_when_only_missing_manifest_configured(
 
     assert _exit_code(exc.value) == 1
     assert "Neither Cargo.toml nor pyproject.toml found" in capsys.readouterr().err
+
+
+# A configuration-only pyproject.toml: tooling settings, no [project] table,
+# and explicitly opted out of uv management. `auto` still treats it as Python.
+_TOOLING_PYPROJECT = "[tool.ruff]\nline-length = 88\n\n[tool.uv]\nmanaged = false\n"
+_REAL_PYPROJECT = '[project]\nname = "demo"\nversion = "0.1.0"\n'
+
+
+def test_auto_preserves_mixed_detection(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+) -> None:
+    """`language=auto` still classifies Cargo + any pyproject.toml as mixed."""
+    _project_dir, out = setup_project(
+        {"Cargo.toml": "", "pyproject.toml": _TOOLING_PYPROJECT}
+    )
+
+    detect.main("cobertura", out, "", "auto")
+
+    assert out.read_text() == "lang=mixed\nfmt=cobertura\ncargo_manifest=Cargo.toml\n"
+
+
+def test_forced_rust_ignores_tooling_pyproject(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+) -> None:
+    """`language=rust` emits `lang=rust` with lcov despite a config-only pyproject."""
+    _project_dir, out = setup_project(
+        {"Cargo.toml": "", "pyproject.toml": _TOOLING_PYPROJECT}
+    )
+
+    detect.main("lcov", out, "", "rust")
+
+    assert out.read_text() == "lang=rust\nfmt=lcov\ncargo_manifest=Cargo.toml\n"
+
+
+def test_forced_rust_reads_language_from_env(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INPUT_LANGUAGE forces the scope when no positional language is provided."""
+    _project_dir, out = setup_project(
+        {"Cargo.toml": "", "pyproject.toml": _TOOLING_PYPROJECT}
+    )
+    monkeypatch.setenv("INPUT_LANGUAGE", "rust")
+
+    detect.main("lcov", out)
+
+    assert out.read_text() == "lang=rust\nfmt=lcov\ncargo_manifest=Cargo.toml\n"
+
+
+def test_forced_python_accepts_real_project(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+) -> None:
+    """`language=python` succeeds for a syncable pyproject with a [project] table."""
+    _project_dir, out = setup_project({"pyproject.toml": _REAL_PYPROJECT})
+
+    detect.main("coveragepy", out, "", "python")
+
+    assert out.read_text() == "lang=python\nfmt=coveragepy\n"
+
+
+def test_forced_mixed_accepts_both(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+) -> None:
+    """`language=mixed` succeeds when both prerequisites are satisfied."""
+    _project_dir, out = setup_project(
+        {"crate/Cargo.toml": "", "pyproject.toml": _REAL_PYPROJECT}
+    )
+
+    detect.main("cobertura", out, "crate/Cargo.toml", "mixed")
+
+    assert (
+        out.read_text()
+        == "lang=mixed\nfmt=cobertura\ncargo_manifest=crate/Cargo.toml\n"
+    )
+
+
+class _ErrorCase(typ.NamedTuple):
+    """A forced-language failure scenario and its expected stderr fragment."""
+
+    files: dict[str, str]
+    fmt: str
+    language: str
+    expected_error: str
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            _ErrorCase(
+                {"pyproject.toml": _REAL_PYPROJECT},
+                "lcov",
+                "rust",
+                "language=rust requires a Cargo manifest",
+            ),
+            id="rust-without-manifest",
+        ),
+        pytest.param(
+            _ErrorCase(
+                {"pyproject.toml": _TOOLING_PYPROJECT},
+                "coveragepy",
+                "python",
+                "language=python requires",
+            ),
+            id="python-with-tooling-only-pyproject",
+        ),
+        pytest.param(
+            _ErrorCase(
+                {"pyproject.toml": _REAL_PYPROJECT},
+                "cobertura",
+                "mixed",
+                "language=mixed requires a Cargo manifest",
+            ),
+            id="mixed-without-manifest",
+        ),
+        pytest.param(
+            _ErrorCase(
+                {"Cargo.toml": "", "pyproject.toml": _TOOLING_PYPROJECT},
+                "cobertura",
+                "mixed",
+                "syncable pyproject.toml",
+            ),
+            id="mixed-with-tooling-only-pyproject",
+        ),
+        pytest.param(
+            _ErrorCase({"Cargo.toml": ""}, "lcov", "elvish", "Unsupported language"),
+            id="invalid-language-value",
+        ),
+    ],
+)
+def test_forced_language_errors(
+    setup_project: typ.Callable[[dict[str, str] | None, str | None], tuple[Path, Path]],
+    capsys: pytest.CaptureFixture[str],
+    case: _ErrorCase,
+) -> None:
+    """Forced-language modes fail fast when prerequisites are unmet or invalid."""
+    _project_dir, out = setup_project(case.files)
+
+    with pytest.raises(detect.typer.Exit) as exc:
+        detect.main(case.fmt, out, "", case.language)
+
+    assert _exit_code(exc.value) == 1
+    assert case.expected_error in capsys.readouterr().err

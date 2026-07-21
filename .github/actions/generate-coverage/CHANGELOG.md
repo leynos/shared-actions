@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add a `language` input (`auto`, `rust`, `python`, `mixed`; default `auto`) to
+  force the coverage scope. `auto` preserves the existing manifest-based
+  detection. Explicit values fail fast when their prerequisites are absent:
+  `rust` requires a resolved Cargo manifest and ignores a configuration-only
+  `pyproject.toml` (no `[project]` table); `python` requires a syncable
+  `pyproject.toml` with a `[project]` table, matching the action's `uv sync`
+  contract; `mixed` requires both. This lets a Rust-only repository that keeps a
+  tooling-only `pyproject.toml` (for Ruff, Pylint, ty, etc.) set `language: rust`
+  and keep generating `lcov`, which `auto` would otherwise reject by classifying
+  the repository as mixed. Callers that omit `language` are unaffected.
+
 - Fix the coverage ratchet baseline freeze. The "Save baselines" step wrote a
   constant, run-id-less cache key (`ratchet-baseline-<os>`) guarded by
   `cache-hit != 'true'`, while "Restore baselines" recovered a run-id-suffixed

@@ -66,6 +66,17 @@ on:
           pipefail`; empty means no extra setup.
         type: string
         default: ""
+      submodules:
+        description: >-
+          How to check out the caller repository's git submodules,
+          forwarded verbatim to actions/checkout's `submodules` input:
+          `false` (default, no submodules), `true` (top-level only) or
+          `recursive`. Set this for callers that vendor a build-graph
+          dependency as a git submodule (e.g. a path dependency under
+          `third_party/`), whose directory must exist for the unmutated
+          baseline to build.
+        type: string
+        default: "false"
 
 # Default the token to no scopes; jobs opt in explicitly.
 permissions: {}
@@ -84,6 +95,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          submodules: ${{ inputs.submodules }}
           persist-credentials: false
 
       - name: Resolve workflow source
@@ -183,6 +195,7 @@ jobs:
       - name: Checkout caller repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          submodules: ${{ inputs.submodules }}
           persist-credentials: false
 
       - name: Resolve workflow source

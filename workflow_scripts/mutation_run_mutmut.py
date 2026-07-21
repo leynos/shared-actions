@@ -62,6 +62,7 @@ from __future__ import annotations
 import collections
 import dataclasses
 import os
+import re
 import shlex
 import sys
 import typing as typ
@@ -108,19 +109,25 @@ class MutantResult:
     status: str
 
 
+#: Stems marking a pytest test module: ``conftest``, ``test_*``, ``*_test``.
+TEST_STEM_RE = re.compile(r"^(?:conftest|test_.*|.*_test)$")
+
+#: Directory names that hold test modules.
+TEST_DIR_NAMES: frozenset[str] = frozenset({"test", "tests"})
+
+
 def _is_test_file(path: PurePosixPath) -> bool:
     """Return True when ``path`` is a pytest test module, not source.
 
     mutmut only generates mutants for source files, so a change window of
     test modules alone maps to no mutants and would abort ``mutmut run``
-    with an empty filter. Files whose stem is ``conftest``, starts with
-    ``test_``, or ends with ``_test``, and files under a ``test``/``tests``
-    directory, are treated as non-mutable and skipped.
+    with an empty filter. Files whose stem matches ``TEST_STEM_RE`` or
+    that sit under a ``test``/``tests`` directory are treated as
+    non-mutable and skipped.
     """
-    stem = path.stem
-    if stem == "conftest" or stem.startswith("test_") or stem.endswith("_test"):
+    if TEST_STEM_RE.match(path.stem):
         return True
-    return any(part in {"test", "tests"} for part in path.parts[:-1])
+    return any(part in TEST_DIR_NAMES for part in path.parts[:-1])
 
 
 def _module_glob_for(name: str, prefix_strip: str) -> str | None:

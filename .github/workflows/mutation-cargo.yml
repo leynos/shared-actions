@@ -250,8 +250,11 @@ jobs:
           persist-credentials: false
 
       - name: Setup Rust
-        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
-        uses: ./workflow-src/.github/actions/setup-rust
+        if: ${{ env.ACT != 'true' }}
+        # Reference the composite action from its own repository, pinned by
+        # SHA, so its cache-save post hook survives workflow-src relocation.
+        # Bump this pin in step with the resolve-workflow-source pin above.
+        uses: leynos/shared-actions/.github/actions/setup-rust@62733fd653cc577f9858645d9a3e4daf90998c55
         with:
           install-mold: ${{ inputs.install-mold }}
           install-clang-lld: ${{ inputs.install-clang-lld }}

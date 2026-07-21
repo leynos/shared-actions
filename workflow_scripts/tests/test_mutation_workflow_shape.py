@@ -55,6 +55,38 @@ def _step_names(steps: list[dict[str, object]]) -> list[object]:
     return [step.get("name") for step in steps]
 
 
+def test_mutants_job_exposes_libpython_before_running() -> None:
+    """The mutants job puts libpython on LD_LIBRARY_PATH before cargo-mutants.
+
+    PyO3 embedding crates link their test binaries against the uv-managed
+    interpreter that "Setup uv" places on PATH, whose libpython is not on the
+    loader's default search path. Without exporting its LIBDIR onto
+    LD_LIBRARY_PATH the baseline `cargo test` binary aborts at run time and no
+    mutant is scored (issue #372). The export must land before the
+    "Run mutation testing" step that builds and runs those binaries.
+    """
+    jobs = _jobs("mutation-cargo.yml")
+    assert "mutants" in jobs, "mutation-cargo.yml must declare a mutants job"
+    steps = _steps(jobs["mutants"])
+    names = _step_names(steps)
+    exposers = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step.get("run"), str)
+        and "LD_LIBRARY_PATH=" in typ.cast("str", step.get("run"))
+        and 'get_config_var("LIBDIR")' in typ.cast("str", step.get("run"))
+    ]
+    assert exposers, (
+        "mutation-cargo.yml mutants job must export the interpreter LIBDIR "
+        "onto LD_LIBRARY_PATH for PyO3 test binaries (issue #372)"
+    )
+    assert "Run mutation testing" in names, "mutants job must run cargo-mutants"
+    run_index = names.index("Run mutation testing")
+    assert min(exposers) < run_index, (
+        "the LD_LIBRARY_PATH export must precede the Run mutation testing step"
+    )
+
+
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
 def test_every_workflow_checkout_is_followed_by_relocation(
     workflow_name: str,

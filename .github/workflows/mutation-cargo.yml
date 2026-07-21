@@ -203,8 +203,16 @@ jobs:
           persist-credentials: false
 
       - name: Setup Rust
-        if: ${{ steps.workflow-source.outputs.checkout == 'true' }}
-        uses: ./workflow-src/.github/actions/setup-rust
+        if: ${{ env.ACT != 'true' }}
+        # Reference the composite action from its own repository, pinned by
+        # SHA, rather than the workspace-relative `./workflow-src/...` path.
+        # A remote `uses:` is materialised under the runner's managed
+        # `_actions` directory, which lives outside the caller's workspace
+        # and survives job teardown, so setup-rust's cache-save post hook can
+        # still resolve `action.yml` after "Relocate workflow source" has
+        # moved workflow-src to $RUNNER_TEMP (issue #365). Bump this pin in
+        # step with the resolve-workflow-source pin above.
+        uses: leynos/shared-actions/.github/actions/setup-rust@62733fd653cc577f9858645d9a3e4daf90998c55
 
       - name: Install cargo-mutants
         if: ${{ env.ACT != 'true' }}

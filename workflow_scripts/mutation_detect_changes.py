@@ -14,8 +14,11 @@ Actions step outputs describing what to run.
 
 Manual ``workflow_dispatch`` runs bypass the guard entirely and produce a
 full (unscoped) run, fanned out across ``shard-count`` shards for the root
-target. Scoped runs stay single-shard: each shard re-pays the baseline
-build-and-test cost, which is not worth it for a handful of mutants.
+target. Scoped (scheduled) runs stay single-shard for small windows, where
+each shard would needlessly re-pay the baseline build-and-test cost, but
+fan the root target out across up to ``shard-count`` shards once the
+changed-file count is large, so a wide detection window cannot outgrow the
+per-job timeout and truncate coverage (issues #370, #371).
 
 Environment Variables
 ---------------------
@@ -33,8 +36,9 @@ INPUT_EXTRA_CRATE_DIRS : str, optional
 INPUT_PATHSPEC : str, optional
     Git pathspec filtering candidate files. Default: ``*.rs``.
 INPUT_SHARD_COUNT : int, optional
-    Number of shards for full (dispatch) runs of the root target.
-    Default: ``6``.
+    Maximum shards for the root target. Full (dispatch) runs always fan out
+    to this many shards; scoped (scheduled) runs fan out up to this many
+    once the changed-file count is large. Default: ``6``.
 INPUT_BASE_REF : str, optional
     Reference whose history is inspected. Default: ``origin/main``.
 GITHUB_OUTPUT : str
@@ -107,7 +111,8 @@ class DetectionConfig:
     pathspec : str
         Git pathspec filtering candidate files.
     shard_count : int
-        Shard count for full runs of the root target.
+        Maximum shards for the root target (full runs always use all of
+        them; large scoped runs fan out up to this many).
     base_ref : str
         Reference whose history is inspected.
     """
@@ -274,22 +279,73 @@ def full_run_matrix(config: DetectionConfig) -> list[MatrixEntry]:
     return entries
 
 
+#: Fan a scoped (scheduled) root target out across shards once its
+#: changed-file count exceeds this threshold. Small scheduled windows stay
+#: single-shard: each shard re-pays the baseline build-and-test cost, not
+#: worth it for a handful of mutants. A large window would otherwise run as
+#: one job that outgrows ``timeout-minutes`` and silently truncates coverage
+#: (issues #370, #371). Sized conservatively so a shard's changed files stay
+#: well under the ~200-250-mutant budget observed at the 300-minute ceiling.
+SCOPED_FILES_PER_SHARD = 15
+
+
+def scoped_shard_count(file_count: int, shard_count: int) -> int:
+    """Return the shard count for a scoped root target.
+
+    Parameters
+    ----------
+    file_count : int
+        Number of changed files scoped to the root target.
+    shard_count : int
+        Upper bound on shards (the ``shard-count`` input); the fan-out never
+        exceeds it, so callers keep one knob for both full and scoped runs.
+
+    Returns
+    -------
+    int
+        ``1`` for small windows (at or below
+        :data:`SCOPED_FILES_PER_SHARD`), otherwise ``ceil(file_count /
+        SCOPED_FILES_PER_SHARD)`` capped at ``shard_count``.
+    """
+    if file_count <= SCOPED_FILES_PER_SHARD:
+        return 1
+    needed = -(-file_count // SCOPED_FILES_PER_SHARD)
+    return max(1, min(shard_count, needed))
+
+
 def scoped_run_matrix(
     buckets: dict[str, list[str]], config: DetectionConfig
 ) -> list[MatrixEntry]:
-    """Build the single-shard matrix for a scoped (scheduled) run."""
+    """Build the matrix for a scoped (scheduled) run.
+
+    Small windows stay single-shard. When the root target's changed-file
+    count is large the root fans out across up to ``shard_count`` shards
+    (``cargo mutants --shard k/N`` partitions the mutant set among the
+    shards, which all carry the same scoped file list) so no single job
+    outgrows the timeout budget (issues #370, #371). Extra crates are
+    assumed small and run as a single shard each, matching
+    :func:`full_run_matrix`.
+    """
     ordered = sorted(buckets.items(), key=lambda item: (item[0] != ".", item[0]))
-    del config  # scoped runs never shard; kept for signature symmetry
-    return [
-        MatrixEntry(
-            dir=target_dir,
-            slug=_slug_for(target_dir),
-            files=_relative_files(target_dir, files),
-            shard=0,
-            shard_count=1,
+    entries: list[MatrixEntry] = []
+    for target_dir, files in ordered:
+        relative = _relative_files(target_dir, files)
+        shard_total = (
+            scoped_shard_count(len(files), config.shard_count)
+            if target_dir == "."
+            else 1
         )
-        for target_dir, files in ordered
-    ]
+        entries.extend(
+            MatrixEntry(
+                dir=target_dir,
+                slug=_slug_for(target_dir),
+                files=relative,
+                shard=shard,
+                shard_count=shard_total,
+            )
+            for shard in range(shard_total)
+        )
+    return entries
 
 
 def matrix_json(entries: list[MatrixEntry]) -> str:
@@ -351,7 +407,7 @@ def main(
     pathspec : str
         Git pathspec for candidate files.
     shard_count : int
-        Shard count for full runs.
+        Maximum shards for the root target (full and large scoped runs).
     base_ref : str
         Reference whose history is inspected.
 

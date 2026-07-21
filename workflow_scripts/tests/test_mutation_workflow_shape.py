@@ -55,6 +55,35 @@ def _step_names(steps: list[dict[str, object]]) -> list[object]:
     return [step.get("name") for step in steps]
 
 
+def test_cargo_mutants_install_is_locked() -> None:
+    """The cargo-mutants install pins its dependency resolution with --locked.
+
+    ``cargo binstall`` falls back to a source build when no prebuilt binary
+    matches the runner. Without ``--locked`` that fallback resolves the
+    dependency tree to the newest permitted versions and can pull in a
+    transitive crate whose MSRV exceeds the pinned nightly toolchain, failing
+    the install before any mutant runs (issue #364).
+    """
+    steps = [
+        step
+        for job in _jobs("mutation-cargo.yml").values()
+        for step in _steps(job)
+        if step.get("name") == "Install cargo-mutants"
+    ]
+    assert steps, "mutation-cargo.yml must install cargo-mutants"
+    for step in steps:
+        run = step.get("run")
+        assert isinstance(run, str), "install step must have a run block"
+        binstall_lines = [line for line in run.splitlines() if "cargo binstall" in line]
+        assert binstall_lines, "install step must invoke cargo binstall"
+        for line in binstall_lines:
+            assert "--locked" in line, (
+                f"cargo binstall must pass --locked so the source-build "
+                f"fallback honours the committed Cargo.lock (issue #364): "
+                f"{line.strip()!r}"
+            )
+
+
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
 def test_every_workflow_checkout_is_followed_by_relocation(
     workflow_name: str,

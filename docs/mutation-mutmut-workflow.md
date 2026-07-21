@@ -29,8 +29,12 @@ are not supported by this workflow's first release.
   `window-hours` and translate changed `*.py` files into mutant-name
   globs (mutmut 3.x rejects file paths as run arguments): with the
   default `module-prefix-strip` of `src/`, `src/pkg/mod.py` scopes the
-  run to `pkg.mod.*`. When nothing relevant changed, the run writes a
-  skip message and finishes in seconds.
+  run to `pkg.mod.*`. Test modules (`conftest.py`, `test_*`, `*_test`,
+  and files under a `test/` or `tests/` directory) are not mutable
+  source, so they are excluded from glob translation; a change window
+  containing only test files short-circuits as a no-op with a
+  "no mutable source" summary note. When nothing relevant changed, the
+  run writes a skip message and finishes in seconds.
 - **`workflow_dispatch` runs** bypass the guard and mutate everything
   in `source_paths`. There is no shard fan-out — mutmut has no shard
   equivalent — so size `timeout-minutes` to the suite.

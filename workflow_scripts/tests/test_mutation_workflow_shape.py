@@ -55,6 +55,39 @@ def _step_names(steps: list[dict[str, object]]) -> list[object]:
     return [step.get("name") for step in steps]
 
 
+CALLER_CHECKOUT_STEP = "Checkout caller repository"
+SUBMODULES_EXPR = "${{ inputs.submodules }}"
+
+
+def test_caller_checkout_forwards_submodules_input() -> None:
+    """Every caller checkout in mutation-cargo forwards the submodules input.
+
+    A caller that vendors a build-graph dependency as a git submodule (a
+    Cargo path dependency under ``third_party/``, say) needs the submodule
+    directory populated for the unmutated baseline to build. The checkout
+    defaults to no submodules, so each ``Checkout caller repository`` step
+    must forward the ``submodules`` input to ``actions/checkout`` (issue
+    #363).
+    """
+    checkouts = [
+        (job_name, step)
+        for job_name, job in _jobs("mutation-cargo.yml").items()
+        for step in _steps(job)
+        if step.get("name") == CALLER_CHECKOUT_STEP
+    ]
+    assert checkouts, "mutation-cargo.yml must check out the caller repository"
+    for job_name, step in checkouts:
+        params = step.get("with")
+        assert isinstance(params, dict), (
+            f"mutation-cargo.yml:{job_name} caller checkout must set `with`"
+        )
+        assert params.get("submodules") == SUBMODULES_EXPR, (
+            f"mutation-cargo.yml:{job_name} caller checkout must forward "
+            f"the submodules input (issue #363), got "
+            f"{params.get('submodules')!r}"
+        )
+
+
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
 def test_every_workflow_checkout_is_followed_by_relocation(
     workflow_name: str,

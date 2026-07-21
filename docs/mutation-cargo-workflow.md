@@ -84,8 +84,16 @@ jobs:
 | `cargo-mutants-version` | pinned | Tool version; the summary parser is validated against it. |
 | `extra-args` | (empty) | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`. |
 | `setup-commands` | (empty) | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
+| `submodules` | `false` | How to check out the caller's git submodules, forwarded to `actions/checkout` (`false`, `true` or `recursive`). Set for callers that vendor a build-graph dependency as a submodule. |
 
 ## Notes
+
+- Set `submodules: recursive` (or `true`) when the caller vendors a
+  build-graph dependency as a git submodule — for example a Cargo path
+  dependency under `third_party/`. The default checkout leaves the
+  submodule directory empty, so the unmutated baseline fails to build
+  (`failed to read .../Cargo.toml`) before any mutant runs. The input is
+  a no-op for callers without a `.gitmodules`.
 
 - The `cargo-mutants-version` default is pinned because the
   `outcomes.json` format is documented as unstable and the summary

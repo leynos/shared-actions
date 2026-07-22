@@ -324,6 +324,13 @@ is provided, the suffix is appended after the `<os>-<arch>` segment. This
 prevents collisions across matrix jobs and distinguishes runs on different
 platforms.
 
+The archive step always runs, including after a ratchet gate trips, so a
+coverage report is captured even for a failing run. The name is computed by a
+step that also always runs; if that step cannot compute one, the archive falls
+back to a run-scoped ``coverage-<job>-<index>-<run-id>`` name. This ensures a
+failing run surfaces its real error (for example, "Coverage decreased") rather
+than a confusing empty-artefact-name error from the upload.
+
 Developer-facing design notes, including the rationale for Cranelift coverage
 environment overrides, are available in
 [`docs/generate-coverage-design.md`](../../../docs/generate-coverage-design.md).

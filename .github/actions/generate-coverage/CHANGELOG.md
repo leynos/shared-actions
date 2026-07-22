@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Stop masking coverage failures with an empty-artefact-name error. The
+  "Archive coverage" step runs with `if: always()`, but the step that computes
+  its artefact name previously did not, so any earlier failure (for example a
+  tripped ratchet gate) skipped the name computation and the upload failed with
+  a confusing empty-artefact-name error that hid the real cause. The
+  name-computing step now also runs with `if: always()`, and the upload falls
+  back to a run-scoped name if it still cannot be computed, so a failing run
+  surfaces its real error and still archives its coverage report.
+
 - Add a `language` input (`auto`, `rust`, `python`, `mixed`; default `auto`) to
   force the coverage scope. `auto` preserves the existing manifest-based
   detection. Explicit values fail fast when their prerequisites are absent:

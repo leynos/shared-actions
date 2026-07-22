@@ -293,6 +293,12 @@ runs:
         key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
 
     - id: out
+      # Run even after an earlier failure (for example a ratchet gate that
+      # trips) so the coverage outputs are still computed. Without this the
+      # step is skipped on failure, `artefact_name` is empty, and the
+      # always-run archive below fails with a confusing "artifact name input
+      # is empty" error that masks the real cause.
+      if: always()
       run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
@@ -307,7 +313,11 @@ runs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ steps.out.outputs.artefact_name }}
+        # Fall back to a run-scoped name when `out` could not compute one (for
+        # example when coverage detection was skipped by an even earlier
+        # failure), so a broken run still surfaces its real error rather than an
+        # empty-artifact-name error.
+        name: ${{ steps.out.outputs.artefact_name || format('coverage-{0}-{1}-{2}', github.job, strategy.job-index, github.run_id) }}
         # Fallback to the configured output path when the step that sets
         # outputs didn't run successfully and the file output is empty.
         path: ${{ steps.out.outputs.file || inputs.output-path }}

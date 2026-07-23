@@ -1,0 +1,36 @@
+name: Install Whitaker
+description: Install the Whitaker Dylint suite with a cached installer
+
+inputs:
+  installer-version:
+    description: Version of whitaker-installer to install
+    required: false
+    default: "0.2.6"
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Whitaker installer
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/bin/whitaker-installer
+          ~/.cache/cargo-binstall
+        key: >-
+          whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}
+
+    - name: Install Whitaker Dylint suite
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_VERSION: ${{ inputs.installer-version }}
+      run: |
+        set -euo pipefail
+        if ! command -v whitaker-installer >/dev/null 2>&1; then
+          if cargo binstall --version >/dev/null 2>&1; then
+            cargo binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
+          else
+            echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
+            cargo install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
+          fi
+        fi
+        whitaker-installer

@@ -14,6 +14,7 @@ GitHub Actions
 | Export Cargo metadata     | `.github/actions/export-cargo-metadata`                                            | v1           |
 | Export Postgres URL       | `.github/actions/export-postgres-url`                                              | v1           |
 | Generate coverage         | `.github/actions/generate-coverage`                                                | v1           |
+| Install Whitaker          | `.github/actions/install-whitaker`                                                 | unreleased   |
 | Linux packages            | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package             | `.github/actions/macos-package`                                                    | v1           |
 | Ratchet coverage          | `.github/actions/ratchet-coverage`                                                 | v1           |

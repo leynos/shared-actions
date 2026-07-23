@@ -1,0 +1,44 @@
+name: Install Nixie
+description: Install pinned Nixie and Merman CLI releases for Mermaid validation
+inputs:
+  nixie-version:
+    description: Nixie CLI version to install
+    required: false
+    default: "1.1.0"
+  merman-version:
+    description: Merman CLI version to install
+    required: false
+    default: "0.7.0"
+  python-version:
+    description: Python version used by uv to install Nixie
+    required: false
+    default: "3.14"
+runs:
+  using: composite
+  steps:
+    - name: Install Nixie and Merman CLI
+      shell: bash
+      env:
+        NIXIE_VERSION: ${{ inputs.nixie-version }}
+        MERMAN_VERSION: ${{ inputs.merman-version }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+
+        if ! command -v cargo >/dev/null 2>&1; then
+          echo "::error::cargo is required to install merman-cli" >&2
+          exit 1
+        fi
+        if ! command -v uv >/dev/null 2>&1; then
+          echo "::error::uv is required to install nixie-cli" >&2
+          exit 1
+        fi
+
+        if cargo binstall --version >/dev/null 2>&1; then
+          cargo binstall --no-confirm --locked "merman-cli@${MERMAN_VERSION}"
+        else
+          echo "cargo-binstall unavailable; building merman-cli from crates.io"
+          cargo install --locked merman-cli --version "=${MERMAN_VERSION}"
+        fi
+
+        uv tool install --python "${PYTHON_VERSION}" "nixie-cli==${NIXIE_VERSION}"

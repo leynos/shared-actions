@@ -12,7 +12,7 @@ import pytest
 from workflow_scripts import graphql_client
 
 # Test-only constant (not a real credential)
-TEST_TOKEN = "test-token"  # noqa: S105
+TEST_TOKEN: str = "test-token"  # noqa: S105
 
 
 class TestShouldRetry:
@@ -81,7 +81,7 @@ class TestRequestGraphqlRetries:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A persistent connection error retries three times, then fails."""
-        seen: list[tuple[object, object, object]] = []
+        seen: list[tuple[str, str, dict[str, object]]] = []
 
         def fake_execute(token: str, query: str, variables: dict[str, object]) -> None:
             seen.append((token, query, variables))
@@ -94,6 +94,6 @@ class TestRequestGraphqlRetries:
         assert len(seen) == 4, (
             "one initial attempt plus three retries should run before failing"
         )
-        assert seen[0] == (TEST_TOKEN, "query {}", variables), (
+        assert seen == [(TEST_TOKEN, "query {}", variables)] * 4, (
             "the token, query, and variables should reach each attempt unchanged"
         )

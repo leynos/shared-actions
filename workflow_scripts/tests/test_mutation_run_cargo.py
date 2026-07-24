@@ -104,7 +104,7 @@ class TestInterpretExitCode:
     def test_informative_codes_succeed(self, code: int, meaning: str) -> None:
         """Informative codes succeed and report their exact contract meaning."""
         success, actual = run_cargo.interpret_exit_code(code)
-        assert success
+        assert success, f"code {code} should be classified as informative success"
         assert actual == meaning, (
             f"code {code} should map to the exact meaning {meaning!r}"
         )
@@ -121,7 +121,7 @@ class TestInterpretExitCode:
     def test_fault_codes_fail(self, code: int, meaning: str) -> None:
         """Faults report their exact meaning; unknown codes fall back verbatim."""
         success, actual = run_cargo.interpret_exit_code(code)
-        assert not success
+        assert not success, f"code {code} should be classified as a fault"
         assert actual == meaning, (
             f"code {code} should map to the exact meaning {meaning!r}"
         )

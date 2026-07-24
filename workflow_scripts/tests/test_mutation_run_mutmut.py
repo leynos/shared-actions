@@ -289,11 +289,11 @@ class TestMainEntry:
         )
 
     @POSIX_SHIMS_ONLY
+    @pytest.mark.usefixtures("fake_uv")
     def test_failing_baseline_propagates_exit_code(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        fake_uv: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """A non-zero mutmut run fails the step and logs to stderr."""

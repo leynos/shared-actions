@@ -278,10 +278,11 @@ def _root_first_key(item: tuple[str, list[str]]) -> tuple[bool, str]:
     """Sort key placing the root (``.``) target first, then alphabetical.
 
     ``.`` sorts before every directory name, so the root-first order also
-    falls out of a plain alphabetical sort; the sort-key variants are
-    equivalent and cannot be distinguished by dir-prefixed file paths.
+    falls out of a plain alphabetical sort.
     """
-    return (item[0] != ".", item[0])  # pragma: no mutate
+    root_rank = item[0] != "."
+    alphabetical_key = item[0]  # pragma: no mutate - plain sorting is equivalent
+    return (root_rank, alphabetical_key)
 
 
 def scoped_run_matrix(
@@ -321,8 +322,8 @@ def _write_skip_summary(config: DetectionConfig) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
-    # pragma below: encoding is a locale-independent UTF-8 codec alias.
-    with Path(summary_path).open("a", encoding="utf-8") as handle:  # pragma: no mutate
+    encoding = "utf-8"  # pragma: no mutate - locale-independent UTF-8 alias
+    with Path(summary_path).open("a", encoding=encoding) as handle:
         handle.write(
             SKIP_SUMMARY_TEMPLATE.format(
                 base_ref=config.base_ref, window_hours=config.window_hours

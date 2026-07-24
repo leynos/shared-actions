@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import sys
 import typing as typ
 from pathlib import Path
@@ -11,21 +10,8 @@ from pathlib import Path
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
 
-if _ACTION_PATH := os.environ.get("GITHUB_ACTION_PATH"):
-    _action_root = Path(_ACTION_PATH).resolve()
-    scripts_candidate = _action_root / "scripts"
-    if scripts_candidate.is_dir():
-        SCRIPTS_DIR = scripts_candidate
-        try:
-            REPO_ROOT = _action_root.parents[2]
-        except IndexError:
-            REPO_ROOT = scripts_candidate.parents[3]
-    else:
-        SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-        REPO_ROOT = SCRIPTS_DIR.parents[3]
-else:
-    SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-    REPO_ROOT = SCRIPTS_DIR.parents[3]
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+REPO_ROOT = SCRIPTS_DIR.parents[3]
 
 
 def load_script_module(name: str) -> ModuleType:

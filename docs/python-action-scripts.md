@@ -35,8 +35,7 @@ app.config = (*tuple(getattr(app, "config", ())), _env_config)
 
 
 @app.default
-def main(*, bin_name: str, version: str, formats: list[str] | None = None) -> None:
-    ...
+def main(*, bin_name: str, version: str, formats: list[str] | None = None) -> None: ...
 
 
 if __name__ == "__main__":

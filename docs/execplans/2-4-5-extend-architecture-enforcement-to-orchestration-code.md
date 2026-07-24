@@ -730,6 +730,7 @@ The implementation introduces one new error type and a guard function:
 ```python
 class ArchitectureBoundaryError(Exception):
     """Raised when orchestration code violates hexagonal architecture boundaries."""
+
     pass
 ```
 
@@ -757,6 +758,7 @@ from episodic.orchestration._checkpoint_payload import (
     _planner_result_from_payload,
 )
 
+
 @given(
     # Strategy TBD based on actual DTO types
     st.just(...)
@@ -764,6 +766,7 @@ from episodic.orchestration._checkpoint_payload import (
 def test_checkpoint_payload_round_trip(payload: dict) -> None:
     """Assert checkpoint payloads round-trip without data loss."""
     # Implementation TBD
+
 
 def test_checkpoint_payload_boundary_purity(payload: dict) -> None:
     """Assert checkpoint payloads contain no adapter types."""

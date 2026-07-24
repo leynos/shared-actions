@@ -142,8 +142,9 @@ def _parse_result_line(line: str) -> MutantResult | None:
     space-free mutant name containing the ``__mutmut_`` marker; anything
     else (warnings, blank lines, progress output) is noise.
     """
-    # pragma: result lines carry a single ": ", so rpartition matches partition.
-    name, separator, status = line.partition(": ")  # pragma: no mutate
+    # Result lines carry one delimiter, so partition and rpartition are equivalent.
+    split_result = line.partition  # pragma: no mutate
+    name, separator, status = split_result(": ")
     if not separator:
         return None
     is_mutant_name = " " not in name and "__mutmut_" in name

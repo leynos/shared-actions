@@ -1,4 +1,9 @@
-"""Unit tests for the mutmut run-and-summarize helper script."""
+"""Unit tests for the mutmut run-and-summarize helper script.
+
+The module-glob prefix, noise-rejection, status-accumulation, exact
+survivor/summary Markdown, and ``uv run --with`` argv tests below kill
+the ``mutation_run_mutmut`` survivors tracked in #341.
+"""
 
 from __future__ import annotations
 
@@ -57,6 +62,18 @@ class TestFilesToModuleGlobs:
             "non-Python paths and bare prefixes should produce no globs"
         )
 
+    def test_file_outside_prefix_keeps_full_module_path(self) -> None:
+        """A file outside the strip prefix is translated without stripping."""
+        assert run_mutmut.files_to_module_globs("other/mod.py", "src/") == [
+            "other.mod.*"
+        ], "files outside the prefix should keep their full module path"
+
+    def test_prefix_strip_removes_only_trailing_separator(self) -> None:
+        """Only the trailing separator is stripped; leading ones are kept."""
+        assert run_mutmut.files_to_module_globs("src/mod.py", "/src/") == [
+            "src.mod.*"
+        ], "a leading slash in the prefix must not strip the file's own prefix"
+
 
 class TestParseResults:
     """Parsing of ``mutmut results --all true`` output."""
@@ -74,6 +91,12 @@ class TestParseResults:
             "parsed results should retain the mutant name"
         )
 
+    def test_names_with_spaces_are_treated_as_noise(self) -> None:
+        """A ``name: status`` line whose name has a space is not a result."""
+        assert run_mutmut.parse_results("foo bar__mutmut_2: survived") == [], (
+            "a spaced name should be rejected as noise, not parsed as a mutant"
+        )
+
     def test_counts_group_by_status(self) -> None:
         """Status counts aggregate across mutants."""
         results = run_mutmut.parse_results(RESULTS_TEXT)
@@ -83,6 +106,16 @@ class TestParseResults:
             "no tests": 1,
             "timeout": 1,
         }, "status counts should aggregate across mutants"
+
+    def test_counts_accumulate_repeated_status(self) -> None:
+        """A status seen twice is counted twice, not reset to one."""
+        results = [
+            run_mutmut.MutantResult(name="a__mutmut_1", status="killed"),
+            run_mutmut.MutantResult(name="b__mutmut_1", status="killed"),
+        ]
+        assert run_mutmut.count_statuses(results) == {"killed": 2}, (
+            "repeated statuses should accumulate rather than reset"
+        )
 
 
 class TestRenderSummary:
@@ -105,11 +138,56 @@ class TestRenderSummary:
             "timed-out mutants should not appear in the survivor table"
         )
 
-    def test_empty_results_render_message(self) -> None:
-        """No mutants yields an explanatory message."""
-        assert "No mutants were tested." in run_mutmut.render_summary([]), (
-            "empty results should render an explanatory message"
+    def test_exact_markdown_layout(self) -> None:
+        """The rendered Markdown matches the contracted layout byte-for-byte."""
+        results = [
+            run_mutmut.MutantResult(name="pkg.mod.x_f__mutmut_1", status="killed"),
+            run_mutmut.MutantResult(name="pkg.mod.x_f__mutmut_2", status="killed"),
+            run_mutmut.MutantResult(name="pkg.mod.x_g__mutmut_1", status="survived"),
+            run_mutmut.MutantResult(name="pkg.mod.x_h__mutmut_1", status="no tests"),
+        ]
+        expected = (
+            "## Mutation testing results (mutmut)\n"
+            "\n"
+            "- **killed:** 2\n"
+            "- **no tests:** 1\n"
+            "- **survived:** 1\n"
+            "\n"
+            "### Surviving mutants\n"
+            "\n"
+            "Inspect a survivor with `uv run mutmut show <name>`.\n"
+            "\n"
+            "| Mutant | Status |\n"
+            "| ------ | ------ |\n"
+            "| `pkg.mod.x_g__mutmut_1` | survived |\n"
+            "| `pkg.mod.x_h__mutmut_1` | no tests |\n"
         )
+        assert run_mutmut.render_summary(results) == expected, (
+            "the summary Markdown should match the contracted layout exactly"
+        )
+
+    def test_empty_results_render_message(self) -> None:
+        """No mutants yields the exact explanatory message."""
+        assert (
+            run_mutmut.render_summary([])
+            == "## Mutation testing results (mutmut)\n\nNo mutants were tested.\n"
+        ), "empty results should render the exact explanatory message"
+
+
+class TestMutmutCommand:
+    """Construction of the ``uv run --with`` argument prefix.
+
+    Kills the ``uv run --with`` argv-contract survivors tracked in #341.
+    """
+
+    def test_pins_version_and_subcommands(self) -> None:
+        """The prefix injects the pinned mutmut and the run subcommand."""
+        assert run_mutmut._mutmut_command("3.6.0") == [
+            "run",
+            "--with",
+            "mutmut==3.6.0",
+            "mutmut",
+        ], "the uv prefix should pin the requested mutmut version verbatim"
 
 
 @pytest.fixture
@@ -157,7 +235,11 @@ class TestMainEntry:
 
     @POSIX_SHIMS_ONLY
     def test_scoped_run_passes_module_globs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_uv: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Changed files reach mutmut as module globs; summary is written."""
         summary_file, results_file = self._prepare(tmp_path, monkeypatch)
@@ -167,18 +249,54 @@ class TestMainEntry:
         assert "mutmut run mypkg.calc.*" in recorded.replace("  ", " "), (
             "changed files should reach mutmut run as module globs"
         )
+        # Both the run and results sub-invocations must pin the version, so a
+        # dropped version anywhere leaves a bare ``mutmut==None`` behind.
+        assert "mutmut==None" not in recorded, (
+            "every mutmut sub-invocation should pin the requested version"
+        )
+        assert recorded.count("mutmut==3.6.0") >= 2, (
+            "both the run and results invocations should pin the version"
+        )
+        for token in ("results", "--all", "true"):
+            assert token in recorded.split(), (
+                f"the results invocation should pass the {token!r} argument"
+            )
         assert "survived" in results_file.read_text(encoding="utf-8"), (
             "the results file should capture the mutmut results output"
         )
         assert "Surviving mutants" in summary_file.read_text(encoding="utf-8"), (
             "the job summary should include the survivors section"
         )
+        # Structured diagnostics carry the contracted keys and values.
+        out = capsys.readouterr().out
+        command_line = next(
+            line for line in out.splitlines() if "mutation_mutmut_command=" in line
+        )
+        assert command_line.startswith('mutation_mutmut_command=["uv"'), (
+            "the command diagnostic should name uv under its exact key"
+        )
+        assert "mutmut==3.6.0" in command_line, (
+            "the command diagnostic should record the pinned version"
+        )
+        assert "mutation_mutmut_exit_code=0" in out, (
+            "a clean run should report exit code 0 under its exact key"
+        )
+        counts_line = next(
+            line for line in out.splitlines() if "mutation_mutmut_counts=" in line
+        )
+        assert "survived" in counts_line, (
+            "the counts diagnostic should carry the parsed status tallies"
+        )
 
     @POSIX_SHIMS_ONLY
     def test_failing_baseline_propagates_exit_code(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fake_uv: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """A non-zero mutmut run fails the step with mutmut's own code."""
+        """A non-zero mutmut run fails the step and logs to stderr."""
         self._prepare(tmp_path, monkeypatch)
         monkeypatch.setenv("FAKE_MUTMUT_RUN_EXIT", "3")
         monkeypatch.setitem(local.env, "FAKE_MUTMUT_RUN_EXIT", "3")
@@ -186,6 +304,13 @@ class TestMainEntry:
             run_mutmut.app([])
         assert excinfo.value.code == 3, (
             "a failing mutmut run should propagate its exit code"
+        )
+        captured = capsys.readouterr()
+        assert "mutation_mutmut_error=mutmut run failed with exit code 3" in (
+            captured.err
+        ), "the failure diagnostic and message should be written to stderr"
+        assert "mutation_mutmut_error=" not in captured.out, (
+            "the failure diagnostic must not leak onto stdout"
         )
 
     def test_scope_without_python_files_short_circuits(

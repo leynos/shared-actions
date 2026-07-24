@@ -1,4 +1,9 @@
-"""Unit tests for the mutation change-detection helper script."""
+"""Unit tests for the mutation change-detection helper script.
+
+The extra-crate shape, target-directory, sorted-matrix-key, and
+skip-summary base-ref/window assertions below kill the
+``mutation_detect_changes`` matrix-contract survivors tracked in #340.
+"""
 
 from __future__ import annotations
 
@@ -133,6 +138,8 @@ class TestMatrices:
         assert len(extra) == 1
         assert extra[0].shard_count == 1
         assert extra[0].slug == "testkit"
+        assert extra[0].files == "", "extra crates run unscoped (empty files)"
+        assert extra[0].shard == 0, "single-shard extras use shard index 0"
 
     def test_scoped_run_strips_extra_dir_prefix(self) -> None:
         """Scoped entries carry files relative to their target directory."""
@@ -143,6 +150,9 @@ class TestMatrices:
         }
         entries = detect.scoped_run_matrix(buckets, config)
         assert [e.slug for e in entries] == ["root", "testkit"]
+        assert [e.dir for e in entries] == [".", "testkit"], (
+            "each entry should carry its own target directory"
+        )
         assert entries[0].files == "src/a.rs src/b.rs"
         assert entries[1].files == "src/lib.rs"
         assert all(e.shard == 0 and e.shard_count == 1 for e in entries)
@@ -154,6 +164,10 @@ class TestMatrices:
         assert list(payload) == ["include"]
         assert payload["include"][0]["dir"] == "."
         assert payload["include"][0]["slug"] == "root"
+        first = payload["include"][0]
+        assert list(first) == sorted(first), (
+            "matrix entry keys should be serialized in sorted order"
+        )
 
 
 class TestMainEntry:
@@ -208,6 +222,8 @@ class TestMainEntry:
         assert json.loads(outputs["matrix"]) == {"include": []}
         summary = (tmp_path / "github_summary").read_text(encoding="utf-8")
         assert "Mutation testing skipped" in summary
+        assert "`HEAD`" in summary, "the skip message should name the base ref"
+        assert "25 hours" in summary, "the skip message should name the window"
 
     def test_schedule_with_changes_scopes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_repo: Path

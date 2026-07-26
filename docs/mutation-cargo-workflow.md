@@ -99,6 +99,11 @@ jobs:
 - GitHub disables cron triggers after 60 days of repository
   inactivity; a quiet repository silently stops running, which is an
   acceptable failure mode for an informational workflow.
+- Callers with PyO3 embedding crates (the `auto-initialize` pattern)
+  are handled automatically: the workflow adds the uv-provisioned
+  interpreter's `LIBDIR` to `LD_LIBRARY_PATH` before running
+  cargo-mutants, so test binaries linked against `libpython` load it at
+  run time. No `setup-commands` workaround is needed.
 
 ## Local validation
 

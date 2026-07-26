@@ -247,6 +247,30 @@ jobs:
           cache-dependency-glob: |
             **/workflow_scripts/*.py
 
+      - name: Expose libpython for PyO3 test binaries
+        if: ${{ env.ACT != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # PyO3 embedding crates (the auto-initialize pattern) link their
+          # test binaries against the interpreter PyO3's build script resolves
+          # from PATH. "Setup uv" places a uv-managed CPython ahead of the
+          # system python3, and its libpython lives under uv's private install
+          # directory, which is not on the dynamic loader's default search
+          # path. The baseline `cargo test` binary then aborts at run time with
+          # "libpython3.NN.so.1.0: cannot open shared object file" and no mutant
+          # is ever scored (issue #372). Add the resolved interpreter's LIBDIR
+          # to LD_LIBRARY_PATH for every later step. This is harmless for
+          # non-PyO3 callers: no test binary links libpython, so nothing loads
+          # from the added directory.
+          libdir="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
+          if [[ -z "${libdir}" || ! -d "${libdir}" ]]; then
+            echo "No Python LIBDIR resolved (${libdir:-empty}); leaving LD_LIBRARY_PATH unchanged" >&2
+            exit 0
+          fi
+          echo "Adding ${libdir} to LD_LIBRARY_PATH for PyO3 test binaries"
+          echo "LD_LIBRARY_PATH=${libdir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "${GITHUB_ENV}"
+
       - name: Relocate workflow source
         # Move the workflow checkout out of the caller's workspace so
         # tree-scanning tests in the caller's suite (manifest sweeps,

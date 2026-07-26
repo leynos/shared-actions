@@ -147,6 +147,67 @@ class TestMatrices:
         assert entries[1].files == "src/lib.rs"
         assert all(e.shard == 0 and e.shard_count == 1 for e in entries)
 
+    @pytest.mark.parametrize(
+        ("file_count", "shard_count", "expected"),
+        [
+            (0, 6, 1),
+            (1, 6, 1),
+            (detect.SCOPED_FILES_PER_SHARD, 6, 1),
+            (detect.SCOPED_FILES_PER_SHARD + 1, 6, 2),
+            (detect.SCOPED_FILES_PER_SHARD * 3, 6, 3),
+            (detect.SCOPED_FILES_PER_SHARD * 100, 6, 6),
+            (detect.SCOPED_FILES_PER_SHARD * 100, 1, 1),
+        ],
+    )
+    def test_scoped_shard_count_thresholds(
+        self, file_count: int, shard_count: int, expected: int
+    ) -> None:
+        """Scoped fan-out grows with the batch, capped at ``shard_count``."""
+        assert detect.scoped_shard_count(file_count, shard_count) == expected
+
+    def test_small_scoped_root_stays_single_shard(self) -> None:
+        """A handful of changed files runs the root target as one shard."""
+        config = _config(shard_count=6)
+        files = [f"src/f{i}.rs" for i in range(detect.SCOPED_FILES_PER_SHARD)]
+        entries = detect.scoped_run_matrix({".": files}, config)
+        assert len(entries) == 1
+        assert entries[0].shard == 0
+        assert entries[0].shard_count == 1
+
+    def test_large_scoped_root_fans_out(self) -> None:
+        """A large root batch fans out across shards sharing the file list."""
+        config = _config(shard_count=6)
+        files = [f"src/f{i}.rs" for i in range(detect.SCOPED_FILES_PER_SHARD * 3)]
+        entries = detect.scoped_run_matrix({".": files}, config)
+        assert len(entries) == 3
+        assert [e.shard for e in entries] == [0, 1, 2]
+        assert all(e.shard_count == 3 for e in entries)
+        # Every shard carries the same scoped file list; cargo-mutants'
+        # --shard k/N partitions the mutant set among them.
+        assert all(e.files == " ".join(files) for e in entries)
+        assert all(e.slug == "root" for e in entries)
+
+    def test_large_scoped_root_caps_at_shard_count(self) -> None:
+        """Fan-out never exceeds the configured shard-count ceiling."""
+        config = _config(shard_count=4)
+        files = [f"src/f{i}.rs" for i in range(detect.SCOPED_FILES_PER_SHARD * 20)]
+        entries = detect.scoped_run_matrix({".": files}, config)
+        assert len(entries) == 4
+        assert all(e.shard_count == 4 for e in entries)
+
+    def test_scoped_extra_crate_stays_single_shard_when_root_fans_out(self) -> None:
+        """Only the root target fans out; extra crates stay single-shard."""
+        config = _config(shard_count=6, extra_crate_dirs=("testkit",))
+        root_files = [f"src/f{i}.rs" for i in range(detect.SCOPED_FILES_PER_SHARD * 2)]
+        buckets = {".": root_files, "testkit": ["testkit/src/lib.rs"]}
+        entries = detect.scoped_run_matrix(buckets, config)
+        root = [e for e in entries if e.dir == "."]
+        extra = [e for e in entries if e.dir == "testkit"]
+        assert len(root) == 2
+        assert len(extra) == 1
+        assert extra[0].shard == 0
+        assert extra[0].shard_count == 1
+
     def test_matrix_json_shape(self) -> None:
         """The matrix output parses back into an ``include`` list."""
         entries = detect.full_run_matrix(_config(shard_count=2))

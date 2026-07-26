@@ -13,7 +13,12 @@ artefacts. The workflow never gates pull requests.
   `window-hours` (commit timestamps, so fresh CI clones work), bucket
   changed `*.rs` files into targets, and mutate only those files. When
   nothing relevant changed, the run writes a skip message to the job
-  summary and finishes in seconds.
+  summary and finishes in seconds. Small windows run the root target as
+  a single shard; once the changed-file count is large the root fans out
+  across up to `shard-count` matrix legs (each leg carries the same
+  scoped file list and `cargo mutants --shard k/N` partitions the
+  mutants among them), so a wide window cannot outgrow `timeout-minutes`
+  and silently truncate coverage.
 - **`workflow_dispatch` runs** bypass the guard and run a full,
   unscoped mutation of every target, fanning the root target out across
   `shard-count` matrix legs (`cargo mutants --shard k/N`). Size the
@@ -80,7 +85,7 @@ jobs:
 | `base-ref` | `origin/main` | Reference scanned for changes. |
 | `timeout-multiplier` | `3` | Per-mutant timeout as a multiple of the baseline. |
 | `timeout-minutes` | `300` | Per-job ceiling. |
-| `shard-count` | `6` | Fan-out for full dispatch runs (scoped runs stay single-shard). |
+| `shard-count` | `6` | Maximum root-target fan-out. Full dispatch runs always use it; scoped runs fan out up to it once the change window is large. |
 | `cargo-mutants-version` | pinned | Tool version; the summary parser is validated against it. |
 | `extra-args` | (empty) | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`. |
 | `setup-commands` | (empty) | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |

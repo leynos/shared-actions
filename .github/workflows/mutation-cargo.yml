@@ -42,8 +42,11 @@ on:
         default: 300
       shard-count:
         description: >-
-          Shard fan-out for full (workflow_dispatch) runs; scoped
-          scheduled runs always use a single shard.
+          Maximum shard fan-out for the root target. Full
+          (workflow_dispatch) runs always fan out to this many shards.
+          Scoped (scheduled) runs stay single-shard for small change
+          windows and fan out up to this many once the changed-file
+          count is large, so a wide window cannot outgrow the timeout.
         type: number
         default: 6
       cargo-mutants-version:

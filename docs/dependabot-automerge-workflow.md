@@ -24,13 +24,12 @@ variants across platforms.
 After author/draft/label checks pass, the helper evaluates GitHub merge state:
 
 - `BLOCKED` arms auto-merge. This is the primary path: required status checks
-  are still pending (or other required rules are unsatisfied), so GitHub
-  merges the PR automatically once they pass.
+  are still pending (or other required rules are unsatisfied), so GitHub merges
+  the PR automatically once they pass.
 - `CLEAN`, `HAS_HOOKS`, and `UNSTABLE` merge the PR directly. GitHub rejects
   `enablePullRequestAutoMerge` on an already-mergeable PR ("Pull request is in
   clean/unstable status"), so the helper performs the merge itself — matching
-  what auto-merge would do, because all *required* rules are already
-  satisfied.
+  what auto-merge would do, because all *required* rules are already satisfied.
 - `DIRTY`, `BEHIND`, `MERGED`, and `CONFLICTING` are skipped.
 - `UNKNOWN` mergeability is retried with backoff before a final decision.
 
@@ -43,8 +42,8 @@ still running (`UNSTABLE`), and merging it would bypass CI entirely. With
 required checks configured, the PR stays `BLOCKED` until CI passes, auto-merge
 can be armed, and GitHub only merges when the required checks succeed.
 
-Auto-merge must also be enabled in the repository settings
-(**Settings → General → Allow auto-merge**).
+Auto-merge must also be enabled in the repository settings (**Settings →
+General → Allow auto-merge**).
 
 ## Required permissions
 

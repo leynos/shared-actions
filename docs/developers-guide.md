@@ -8,13 +8,12 @@ assumptions, and Makefile tool-resolution strategy.
 ## Spelling policy
 
 Run `make spelling` to enforce en-GB-oxendict spelling. The dictionary-based
-Typos scan checks tracked Markdown, while the phrase-correction check covers the
-whole tracked repository, including Python, PowerShell, Rust and workflow
+Typos scan checks tracked Markdown, while the phrase-correction check covers
+the whole tracked repository, including Python, PowerShell, Rust and workflow
 files. The generated and tracked `typos.toml` starts from the shared Oxford
-dictionary. Its builder refreshes the untracked
-`.typos-oxendict-base.toml` cache and metadata only when the shared dictionary
-is newer, so the last fetched base remains usable in a network-restricted
-checkout.
+dictionary. Its builder refreshes the untracked `.typos-oxendict-base.toml`
+cache and metadata only when the shared dictionary is newer, so the last
+fetched base remains usable in a network-restricted checkout.
 
 Keep repository-specific identifiers and deliberate quotations in
 `typos.local.toml`. Run `make spelling-config-write` to regenerate the tracked
@@ -193,8 +192,8 @@ The step is idempotent and verifies the version on both paths:
 
 Both paths are exercised by behavioural tests in
 `.github/actions/generate-coverage/tests/test_scripts.py`, which execute the
-extracted step body against fake `cargo-binstall` binaries and installers rather
-than asserting on the step's source text.
+extracted step body against fake `cargo-binstall` binaries and installers
+rather than asserting on the step's source text.
 
 ## `generate-coverage` `cargo-nextest` Installation
 
@@ -371,14 +370,14 @@ when a healthy Podman socket is discovered automatically.
 
 ## Mutation-Testing Reusable Workflows
 
-Two reusable workflows provide scheduled, informational mutation testing
-for callers: `.github/workflows/mutation-cargo.yml` (Rust,
+Two reusable workflows provide scheduled, informational mutation testing for
+callers: `.github/workflows/mutation-cargo.yml` (Rust,
 [cargo-mutants](https://mutants.rs/)) and
 `.github/workflows/mutation-mutmut.yml` (Python,
 [mutmut](https://mutmut.readthedocs.io/)). Caller-facing usage lives in
 [mutation-cargo-workflow.md](mutation-cargo-workflow.md) and
-[mutation-mutmut-workflow.md](mutation-mutmut-workflow.md); design
-history, empirical findings, and decisions live in the
+[mutation-mutmut-workflow.md](mutation-mutmut-workflow.md); design history,
+empirical findings, and decisions live in the
 [execplan](execplans/add-mutation-testing-workflows.md).
 
 Internals for maintainers:
@@ -387,35 +386,33 @@ Internals for maintainers:
   (Cyclopts, `INPUT_*` environment configuration, plumbum):
   `mutation_detect_changes.py` (change-detection guard and shard-matrix
   construction, shared by both workflows), `mutation_run_cargo.py`
-  (cargo-mutants invocation and the informative exit-code contract:
-  0/2/3 succeed, everything else fails with the tool's code),
-  `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts
-  and renders the job summary), and `mutation_run_mutmut.py`
-  (module-glob scoping, results parsing, and summary in one pass —
-  mutmut has no shard support).
+  (cargo-mutants invocation and the informative exit-code contract: 0/2/3
+  succeed, everything else fails with the tool's code),
+  `mutation_summarize_cargo.py` (merges shard `outcomes.json` artefacts and
+  renders the job summary), and `mutation_run_mutmut.py` (module-glob scoping,
+  results parsing, and summary in one pass — mutmut has no shard support).
 - Tool version pins default in the workflows because both report
-  formats are unstable; a version bump must be paired with a parser
-  check (`outcomes.json` fields for cargo-mutants; the
-  `mutmut results --all true` line format for mutmut).
+  formats are unstable; a version bump must be paired with a parser check
+  (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`
+  line format for mutmut).
 - Unit tests fake the `cargo`/`uv` boundary with POSIX shell shims on
   `PATH`; those tests are skipped on Windows (the workflows only run on
   `ubuntu-latest`). Property-based tests in
-  `workflow_scripts/tests/test_mutation_properties.py` cover the
-  bucketing, translation, and parsing invariants.
+  `workflow_scripts/tests/test_mutation_properties.py` cover the bucketing,
+  translation, and parsing invariants.
 - The act integration tests
-  (`tests/workflows/test_mutation_workflows.py`) exercise the
-  change-detection skip path end-to-end; the mutation-run path cannot
-  be act-tested because stub binaries cannot be injected onto a
-  `workflow_call` job's `PATH`.
+  (`tests/workflows/test_mutation_workflows.py`) exercise the change-detection
+  skip path end-to-end; the mutation-run path cannot be act-tested because stub
+  binaries cannot be injected onto a `workflow_call` job's `PATH`.
 - Workflow-source resolution lives in the
-  `.github/actions/resolve-workflow-source` composite action (see its
-  README). Because that action performs the SHA resolution itself, the
-  reusable workflows reference it by a hardcoded full-commit pin that
-  must be bumped manually whenever the action changes — it is the one
-  reference that cannot participate in the caller's version lockstep.
-  Its act short-circuit and OIDC fail-fast branches are exercised by
-  `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy
-  path is validated by every real run of the consuming workflows.
+  `.github/actions/resolve-workflow-source` composite action (see its README).
+  Because that action performs the SHA resolution itself, the reusable
+  workflows reference it by a hardcoded full-commit pin that must be bumped
+  manually whenever the action changes — it is the one reference that cannot
+  participate in the caller's version lockstep. Its act short-circuit and OIDC
+  fail-fast branches are exercised by
+  `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy path is
+  validated by every real run of the consuming workflows.
 
 ## Running the Test Suite
 

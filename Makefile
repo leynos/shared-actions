@@ -85,6 +85,7 @@ typecheck: .venv ## Run static type checking with Ty
 fmt: ## Format Python files and auto-fix selected lint rules
 	$(UV) tool run ruff format
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES) --fix
+	mdformat-all
 
 check-fmt: ## Check Python formatting without modifying files
 	$(UV) tool run ruff format --check

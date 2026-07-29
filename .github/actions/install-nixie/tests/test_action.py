@@ -40,6 +40,9 @@ def _run_install_script(
     binstall_available: bool,
     include_cargo: bool = True,
     include_uv: bool = True,
+    merman_version: str = "0.7.0",
+    nixie_version: str = "1.1.0",
+    python_version: str = "3.14",
 ) -> subprocess.CompletedProcess[str]:
     """Execute the install fragment against deterministic command stubs."""
     bash = shutil.which("bash")
@@ -49,6 +52,8 @@ def _run_install_script(
     stubs_dir = tmp_path / "stubs"
     stubs_dir.mkdir()
     calls_path = tmp_path / "calls"
+    github_path = tmp_path / "github-path"
+    uv_bin_dir = tmp_path / "uv-bin"
     if include_cargo:
         binstall_status = 0 if binstall_available else 1
         _write_executable(
@@ -68,6 +73,10 @@ printf '\n' >> "$CALLS_PATH"
             stubs_dir / "uv",
             """#!/bin/bash
 set -euo pipefail
+if [ "${1:-}" = "tool" ] && [ "${2:-}" = "dir" ] && [ "${3:-}" = "--bin" ]; then
+  printf '%s\n' "$UV_BIN_DIR"
+  exit 0
+fi
 printf 'uv' >> "$CALLS_PATH"
 printf ' <%s>' "$@" >> "$CALLS_PATH"
 printf '\n' >> "$CALLS_PATH"
@@ -77,13 +86,16 @@ printf '\n' >> "$CALLS_PATH"
     env = {
         **os.environ,
         "CALLS_PATH": calls_path.as_posix(),
-        "MERMAN_VERSION": "0.7.0",
-        "NIXIE_VERSION": "1.1.0",
+        "GITHUB_PATH": github_path.as_posix(),
+        "MERMAN_VERSION": merman_version,
+        "NIXIE_VERSION": nixie_version,
         "PATH": stubs_dir.as_posix(),
-        "PYTHON_VERSION": "3.14",
+        "PYTHON_VERSION": python_version,
+        "UV_BIN_DIR": uv_bin_dir.as_posix(),
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
         [bash, "-c", _install_script()],
+        check=False,
         cwd=tmp_path,
         env=env,
         capture_output=True,
@@ -100,6 +112,12 @@ def test_manifest_exposes_pinned_version_inputs() -> None:
     assert manifest["inputs"]["nixie-version"]["default"] == "1.1.0"
     assert manifest["inputs"]["merman-version"]["default"] == "0.7.0"
     assert manifest["inputs"]["python-version"]["default"] == "3.14"
+    assert manifest["runs"]["steps"][0]["env"] == {
+        "NIXIE_VERSION": "${{ inputs.nixie-version }}",
+        "MERMAN_VERSION": "${{ inputs.merman-version }}",
+        "PYTHON_VERSION": "${{ inputs.python-version }}",
+    }
+    assert "outputs" not in manifest
 
 
 def test_install_script_prefers_cargo_binstall(tmp_path: Path) -> None:
@@ -111,6 +129,9 @@ def test_install_script_prefers_cargo_binstall(tmp_path: Path) -> None:
         "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
         "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
     ]
+    assert (tmp_path / "github-path").read_text(encoding="utf-8") == (
+        f"{tmp_path / 'uv-bin'}\n"
+    )
 
 
 def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
@@ -122,6 +143,58 @@ def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
         "cargo <install> <--locked> <merman-cli> <--version> <=0.7.0>",
         "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
+    ]
+
+
+@pytest.mark.parametrize(
+    (
+        "binstall_available",
+        "merman_version",
+        "nixie_version",
+        "python_version",
+        "expected_cargo_call",
+    ),
+    [
+        (
+            True,
+            "0.8.0",
+            "1.2.0",
+            "3.13",
+            "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.8.0>",
+        ),
+        (
+            False,
+            "0.9.0",
+            "1.3.0",
+            "3.12",
+            "cargo <install> <--locked> <merman-cli> <--version> <=0.9.0>",
+        ),
+    ],
+    ids=["binstall", "cargo-install"],
+)
+def test_install_script_propagates_version_overrides(
+    tmp_path: Path,
+    *,
+    binstall_available: bool,
+    merman_version: str,
+    nixie_version: str,
+    python_version: str,
+    expected_cargo_call: str,
+) -> None:
+    """Non-default action inputs should reach both installer commands."""
+    result = _run_install_script(
+        tmp_path,
+        binstall_available=binstall_available,
+        merman_version=merman_version,
+        nixie_version=nixie_version,
+        python_version=python_version,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
+        expected_cargo_call,
+        f"uv <tool> <install> <--python> <{python_version}> "
+        f"<nixie-cli=={nixie_version}>",
     ]
 
 

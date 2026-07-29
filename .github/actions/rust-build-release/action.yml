@@ -80,13 +80,29 @@ runs:
         set -euo pipefail
         if [[ -v RUSTFLAGS ]]; then
           echo "RUSTFLAGS already set; leaving the inherited value in place" >&2
-        else
-          {
-            echo "RUSTFLAGS<<__RBR_RUSTFLAGS_EOF__"
-            printf '%s\n' "$RBR_RUSTFLAGS"
-            echo "__RBR_RUSTFLAGS_EOF__"
-          } >> "$GITHUB_ENV"
+          exit 0
         fi
+        # A value containing the heredoc delimiter on a line of its own would
+        # close the block early and leave the remaining caller-supplied lines
+        # to be parsed as further environment-file commands, so derive a random
+        # delimiter and confirm the value does not contain it.
+        delimiter=""
+        for _ in 1 2 3; do
+          candidate="__RBR_RUSTFLAGS_EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')__"
+          if ! printf '%s\n' "$RBR_RUSTFLAGS" | grep -qxF -- "$candidate"; then
+            delimiter="$candidate"
+            break
+          fi
+        done
+        if [[ -z "$delimiter" ]]; then
+          echo "::error::could not derive a RUSTFLAGS delimiter absent from the value" >&2
+          exit 1
+        fi
+        {
+          echo "RUSTFLAGS<<$delimiter"
+          printf '%s\n' "$RBR_RUSTFLAGS"
+          echo "$delimiter"
+        } >> "$GITHUB_ENV"
     - name: Setup Rust toolchain
       # setup-rust-v1
       # Update this SHA when setup-rust publishes a new release: run

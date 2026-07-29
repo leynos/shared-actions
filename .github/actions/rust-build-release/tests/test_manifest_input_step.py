@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
+# A value crafted to close a fixed heredoc delimiter early and have the
+# remainder read back as further environment-file commands.
+INJECTION_MARKER = "__RBR_RUSTFLAGS_EOF__"
+INJECTED_RUSTFLAGS = f"-Zpolonius=next\n{INJECTION_MARKER}\nRBR_INJECTED=1"
 
 
 def _load_action_manifest() -> dict[str, object]:
@@ -19,6 +27,70 @@ def _find_step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
             return step
     message = f"step '{name}' missing from action"
     raise AssertionError(message)
+
+
+def _export_rustflags_run_script() -> str:
+    """Return the shell fragment that exports the caller's RUSTFLAGS."""
+    steps: list[dict[str, object]] = _load_action_manifest()["runs"]["steps"]
+    run_script = _find_step(steps, "Export caller RUSTFLAGS").get("run")
+    assert isinstance(run_script, str), "export step has no run script"
+    return run_script
+
+
+def _run_export_script(
+    tmp_path: Path, rustflags: str, *, inherited: str | None = None
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Run the export fragment and return its result with the env-file text."""
+    bash = shutil.which("bash")
+    if bash is None:  # pragma: no cover - bash is present on supported runners
+        pytest.skip("bash not found on PATH")
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    github_env = tmp_path / "github-env"
+    github_env.touch()
+    env = {key: value for key, value in os.environ.items() if key != "RUSTFLAGS"}
+    env["GITHUB_ENV"] = github_env.as_posix()
+    env["RBR_RUSTFLAGS"] = rustflags
+    if inherited is not None:
+        env["RUSTFLAGS"] = inherited
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
+        [bash, "-c", _export_rustflags_run_script()],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return result, github_env.read_text(encoding="utf-8")
+
+
+def _parse_env_file(text: str) -> dict[str, str]:
+    """Parse ``GITHUB_ENV`` content, honouring heredoc-delimited values."""
+    values: dict[str, str] = {}
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        index += 1
+        if not line:
+            continue
+        name, separator, remainder = line.partition("=")
+        if separator:
+            values[name] = remainder
+            continue
+        name, separator, delimiter = line.partition("<<")
+        if not separator:
+            message = f"unparsable environment-file line: {line!r}"
+            raise AssertionError(message)
+        collected: list[str] = []
+        while index < len(lines) and lines[index] != delimiter:
+            collected.append(lines[index])
+            index += 1
+        if index >= len(lines):
+            message = f"unterminated heredoc for {name}"
+            raise AssertionError(message)
+        index += 1
+        values[name] = "\n".join(collected)
+    return values
 
 
 def test_manifest_path_input_declared() -> None:
@@ -119,6 +191,52 @@ def test_export_rustflags_step_wiring() -> None:
     assert "-v RUSTFLAGS" in run_script
     assert '"$RBR_RUSTFLAGS"' in run_script
     assert "${{" not in run_script
+
+
+def test_export_rustflags_step_uses_a_generated_delimiter() -> None:
+    """The heredoc delimiter must not be a fixed literal in the manifest."""
+    run_script = _export_rustflags_run_script()
+    assert f"RUSTFLAGS<<{INJECTION_MARKER}" not in run_script
+    assert 'echo "RUSTFLAGS<<$delimiter"' in run_script
+
+
+def test_export_rustflags_writes_single_line_value(tmp_path: Path) -> None:
+    """An ordinary value round-trips through the environment file."""
+    result, env_text = _run_export_script(tmp_path, "-Zpolonius=next")
+
+    assert result.returncode == 0, result.stderr
+    assert _parse_env_file(env_text) == {"RUSTFLAGS": "-Zpolonius=next"}
+
+
+def test_export_rustflags_contains_delimiter_lookalike(tmp_path: Path) -> None:
+    """A value carrying the old fixed marker must not escape its heredoc."""
+    result, env_text = _run_export_script(tmp_path, INJECTED_RUSTFLAGS)
+
+    assert result.returncode == 0, result.stderr
+    parsed = _parse_env_file(env_text)
+    # The marker stays inside RUSTFLAGS rather than closing it, so nothing
+    # after it is read back as a separate environment-file assignment.
+    assert parsed == {"RUSTFLAGS": INJECTED_RUSTFLAGS}
+    assert "RBR_INJECTED" not in parsed
+
+
+def test_export_rustflags_delimiter_differs_between_runs(tmp_path: Path) -> None:
+    """Delimiters are generated per run so callers cannot predict them."""
+    _, first = _run_export_script(tmp_path / "first", "-Zpolonius=next")
+    _, second = _run_export_script(tmp_path / "second", "-Zpolonius=next")
+
+    assert first.splitlines()[0] != second.splitlines()[0]
+
+
+def test_export_rustflags_defers_to_inherited_value(tmp_path: Path) -> None:
+    """An inherited RUSTFLAGS wins and nothing is written to the env file."""
+    result, env_text = _run_export_script(
+        tmp_path, "-Zpolonius=next", inherited="-D warnings"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert env_text == ""
+    assert "leaving the inherited value in place" in result.stderr
 
 
 def test_export_rustflags_step_precedes_toolchain_setup() -> None:

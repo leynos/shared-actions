@@ -33,6 +33,13 @@ Cargo. It uses `cargo binstall` when available and falls back to a locked
   run: nixie --renderer merman
 ```
 
+To use the action from this repository:
+
+```yaml
+- name: Install Nixie
+  uses: ./.github/actions/install-nixie@v1
+```
+
 To override the pinned versions:
 
 ```yaml

@@ -63,6 +63,20 @@ def _run_export_script(
     return result, github_env.read_text(encoding="utf-8")
 
 
+def _parse_heredoc_value(
+    lines: list[str], index: int, name: str, delimiter: str
+) -> tuple[str, int]:
+    """Collect a heredoc body, returning it with the index past its delimiter."""
+    collected: list[str] = []
+    while index < len(lines) and lines[index] != delimiter:
+        collected.append(lines[index])
+        index += 1
+    if index >= len(lines):
+        message = f"unterminated heredoc for {name}"
+        raise AssertionError(message)
+    return "\n".join(collected), index + 1
+
+
 def _parse_env_file(text: str) -> dict[str, str]:
     """Parse ``GITHUB_ENV`` content, honouring heredoc-delimited values."""
     values: dict[str, str] = {}
@@ -81,15 +95,7 @@ def _parse_env_file(text: str) -> dict[str, str]:
         if not separator:
             message = f"unparsable environment-file line: {line!r}"
             raise AssertionError(message)
-        collected: list[str] = []
-        while index < len(lines) and lines[index] != delimiter:
-            collected.append(lines[index])
-            index += 1
-        if index >= len(lines):
-            message = f"unterminated heredoc for {name}"
-            raise AssertionError(message)
-        index += 1
-        values[name] = "\n".join(collected)
+        values[name], index = _parse_heredoc_value(lines, index, name, delimiter)
     return values
 
 

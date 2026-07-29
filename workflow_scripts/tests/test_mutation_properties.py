@@ -9,7 +9,7 @@ with function-scoped fixtures such as ``tmp_path``.
 
 from __future__ import annotations
 
-import unittest.mock as mock
+from unittest import mock
 
 from hypothesis import given
 from hypothesis import strategies as st

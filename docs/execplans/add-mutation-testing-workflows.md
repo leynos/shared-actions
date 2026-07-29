@@ -494,7 +494,7 @@ A justifies.
 `workflow_dispatch`. Stub `cargo-mutants`/`mutmut` binaries on `PATH` that emit
 synthetic reports; assert the skip path (no changes), the dispatch path (full
 run), summary content, and artefact presence via `act --json` output and the
-artifact server path.
+artefact server path.
 
 ### Stage E: documentation
 

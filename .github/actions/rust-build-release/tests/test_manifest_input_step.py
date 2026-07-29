@@ -91,3 +91,39 @@ def test_stage_artefacts_step_uses_stable_manpage_path() -> None:
     assert 'if [[ ! -f "${man_path}" ]]; then' in run_script
     assert "release/build" in run_script
     assert "man_matches" in run_script
+
+
+def test_rustflags_input_declared() -> None:
+    """The rustflags input must exist with an empty default."""
+    manifest = _load_action_manifest()
+    inputs = manifest["inputs"]
+    assert "rustflags" in inputs
+    rustflags_input = inputs["rustflags"]
+    assert rustflags_input.get("required", False) is False
+    assert rustflags_input.get("default") == ""
+
+
+def test_export_rustflags_step_wiring() -> None:
+    """The export step must gate on the input and defer to an inherited value."""
+    manifest = _load_action_manifest()
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    export_step = _find_step(steps, "Export caller RUSTFLAGS")
+    assert export_step.get("if") == "inputs.rustflags != ''"
+    env = export_step.get("env")
+    assert isinstance(env, dict)
+    assert env.get("RBR_RUSTFLAGS") == "${{ inputs.rustflags }}"
+    run_script = export_step.get("run")
+    assert isinstance(run_script, str)
+    # The value must flow through the environment, not template expansion,
+    # and an inherited RUSTFLAGS must win over the input.
+    assert "-v RUSTFLAGS" in run_script
+    assert '"$RBR_RUSTFLAGS"' in run_script
+    assert "${{" not in run_script
+
+
+def test_export_rustflags_step_precedes_toolchain_setup() -> None:
+    """The export must run before the nested setup-rust toolchain step."""
+    manifest = _load_action_manifest()
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    names = [step.get("name") for step in steps]
+    assert names.index("Export caller RUSTFLAGS") < names.index("Setup Rust toolchain")

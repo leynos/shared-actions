@@ -375,3 +375,27 @@ def test_install_binstall_script_does_not_duplicate_path_entry(
     assert entries.count(cargo_home_bin) == 1, (
         f"Expected {cargo_home_bin!r} to appear exactly once; got: {resulting_path!r}"
     )
+
+
+def test_rustflags_input_defaults_to_deny_warnings() -> None:
+    """The rustflags input must exist and keep the historical default."""
+    manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
+    rustflags_input = manifest["inputs"]["rustflags"]
+    assert rustflags_input.get("required", False) is False
+    assert rustflags_input.get("default") == "-D warnings"
+
+
+@pytest.mark.parametrize(
+    "step_name",
+    [
+        "Install rust (explicit toolchain)",
+        "Install rust (rust-toolchain file)",
+        "Install rust (stable default)",
+    ],
+)
+def test_install_steps_forward_rustflags(step_name: str) -> None:
+    """Every toolchain install step must forward the rustflags input."""
+    step = _get_step(step_name)
+    with_block = step.get("with")
+    assert isinstance(with_block, dict), f"Step has no with block: {step_name}"
+    assert with_block.get("rustflags") == "${{ inputs.rustflags }}"

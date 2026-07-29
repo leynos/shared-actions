@@ -32,6 +32,18 @@ inputs:
       the existing clap_mangen/build.rs discovery behaviour.
     required: false
     default: "false"
+  rustflags:
+    description: >
+      RUSTFLAGS to export before the toolchain setup step. Leave empty
+      (default) to keep the environment untouched, in which case the nested
+      setup-rust step exports its own "-D warnings" default whenever
+      RUSTFLAGS is unset — note that this shadows the project's
+      build.rustflags in .cargo/config.toml. Provide a value here (for
+      example a required -Z flag) to make the build honour it instead. A
+      pre-existing RUSTFLAGS environment variable takes precedence over
+      this input.
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -56,6 +68,25 @@ runs:
           --runner-os "${{ runner.os }}" \
           --runner-arch "${{ runner.arch }}")"
         echo "RBR_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+    - name: Export caller RUSTFLAGS
+      # Runs before the toolchain setup so its nested setup-rust-toolchain
+      # step, which only exports its "-D warnings" default when RUSTFLAGS is
+      # unset, defers to the caller's value.
+      if: inputs.rustflags != ''
+      shell: bash
+      env:
+        RBR_RUSTFLAGS: ${{ inputs.rustflags }}
+      run: |
+        set -euo pipefail
+        if [[ -v RUSTFLAGS ]]; then
+          echo "RUSTFLAGS already set; leaving the inherited value in place" >&2
+        else
+          {
+            echo "RUSTFLAGS<<__RBR_RUSTFLAGS_EOF__"
+            printf '%s\n' "$RBR_RUSTFLAGS"
+            echo "__RBR_RUSTFLAGS_EOF__"
+          } >> "$GITHUB_ENV"
+        fi
     - name: Setup Rust toolchain
       # setup-rust-v1
       # Update this SHA when setup-rust publishes a new release: run

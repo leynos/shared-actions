@@ -40,6 +40,7 @@ manifest `rust-version`, then the action's bundled fallback version.
 | bin-name                | string  | `rust-toy-app`             | Binary name produced by the build | no       |
 | features                | string  | (empty)                    | Comma-separated Cargo features    | no       |
 | skip-man-page-discovery | boolean | `false`                    | Post-build man opt-out            | no       |
+| rustflags               | string  | (empty)                    | RUSTFLAGS exported pre-setup      | no       |
 
 When `toolchain` is empty, the action resolves the toolchain from the target
 repository before falling back to the action default. `manifest-path` may be

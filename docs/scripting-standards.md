@@ -100,16 +100,16 @@ def main(
     # Required parameters
     bin_name: Annotated[str, Parameter(required=True)],
     version: Annotated[str, Parameter(required=True)],
-
     # Optional scalars
     package_name: Optional[str] = None,
     target: Optional[str] = None,
     outdir: Optional[Path] = None,
     dry_run: bool = False,
-
     # Lists (whitespace/newline separated by default)
     formats: list[str] | None = None,
-    man_paths: Annotated[list[Path] | None, Parameter(env_var="INPUT_MAN_PATHS")] = None,
+    man_paths: Annotated[
+        list[Path] | None, Parameter(env_var="INPUT_MAN_PATHS")
+    ] = None,
     deb_depends: list[str] | None = None,
     rpm_depends: list[str] | None = None,
 ):
@@ -119,16 +119,18 @@ def main(
     build_dir = (outdir or (project_root / "dist")) / name
 
     if dry_run:
-        print({
-            "name": name,
-            "version": version,
-            "target": target,
-            "formats": formats,
-            "man_paths": [str(p) for p in (man_paths or [])],
-            "deb_depends": deb_depends,
-            "rpm_depends": rpm_depends,
-            "build_dir": str(build_dir),
-        })
+        print(
+            {
+                "name": name,
+                "version": version,
+                "target": target,
+                "formats": formats,
+                "man_paths": [str(p) for p in (man_paths or [])],
+                "deb_depends": deb_depends,
+                "rpm_depends": rpm_depends,
+                "build_dir": str(build_dir),
+            }
+        )
         return
 
     build_dir.mkdir(parents=True, exist_ok=True)
@@ -257,7 +259,9 @@ f.write_text("1.2.3\n", encoding="utf-8")
 version = f.read_text(encoding="utf-8").strip()
 
 # Atomic write pattern (tmp → replace)
-with tempfile.NamedTemporaryFile("w", delete=False, dir=f.parent, encoding="utf-8") as tmp:
+with tempfile.NamedTemporaryFile(
+    "w", delete=False, dir=f.parent, encoding="utf-8"
+) as tmp:
     tmp.write("new-contents\n")
     tmp_path = Path(tmp.name)
 
@@ -302,6 +306,7 @@ from plumbum.cmd import git
 
 app = App(config=cyclopts.config.Env("INPUT_", command=False))
 
+
 @app.default
 def main(
     *,
@@ -319,12 +324,15 @@ def main(
         with local.cwd(project_root):
             (git["tag", f"v{version}"] & FG)
 
-    print({
-        "bin_name": bin_name,
-        "version": version,
-        "formats": formats or [],
-        "dist": str(dist),
-    })
+    print(
+        {
+            "bin_name": bin_name,
+            "version": version,
+            "formats": formats or [],
+            "dist": str(dist),
+        }
+    )
+
 
 if __name__ == "__main__":
     app()

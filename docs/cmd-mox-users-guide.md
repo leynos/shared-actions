@@ -80,9 +80,9 @@ behaviour.
 Combine methods to describe how a command should be invoked:
 
 ```python
-cmd_mox.mock("git") \
-    .with_args("clone", "https://example.com/repo.git") \
-    .returns(exit_code=0)
+cmd_mox.mock("git").with_args("clone", "https://example.com/repo.git").returns(
+    exit_code=0
+)
 ```
 
 Arguments can be matched more flexibly using comparators:
@@ -90,8 +90,9 @@ Arguments can be matched more flexibly using comparators:
 ```python
 from cmd_mox import Regex, Contains
 
-cmd_mox.mock("curl") \
-    .with_matching_args(Regex(r"--header=User-Agent:.*"), Contains("example"))
+cmd_mox.mock("curl").with_matching_args(
+    Regex(r"--header=User-Agent:.*"), Contains("example")
+)
 ```
 
 The design document lists the available comparators:

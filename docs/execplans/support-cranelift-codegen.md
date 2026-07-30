@@ -484,7 +484,7 @@ Inspect each log file. All must pass. If any fail, fix the issue and re-run.
        cargo_config_dir = tmp_path / ".cargo"
        cargo_config_dir.mkdir()
        (cargo_config_dir / "config.toml").write_text(
-           '[unstable]\ncodegen-backend = true\n\n'
+           "[unstable]\ncodegen-backend = true\n\n"
            '[profile.dev]\ncodegen-backend = "cranelift"\n\n'
            '[profile.test]\ncodegen-backend = "cranelift"\n',
        )

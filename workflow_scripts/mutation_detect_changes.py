@@ -274,11 +274,22 @@ def full_run_matrix(config: DetectionConfig) -> list[MatrixEntry]:
     return entries
 
 
+def _root_first_key(item: tuple[str, list[str]]) -> tuple[bool, str]:
+    """Sort key placing the root (``.``) target first, then alphabetical.
+
+    ``.`` sorts before every directory name, so the root-first order also
+    falls out of a plain alphabetical sort.
+    """
+    root_rank = item[0] != "."
+    alphabetical_key = item[0]  # pragma: no mutate - plain sorting is equivalent
+    return (root_rank, alphabetical_key)
+
+
 def scoped_run_matrix(
     buckets: dict[str, list[str]], config: DetectionConfig
 ) -> list[MatrixEntry]:
     """Build the single-shard matrix for a scoped (scheduled) run."""
-    ordered = sorted(buckets.items(), key=lambda item: (item[0] != ".", item[0]))
+    ordered = sorted(buckets.items(), key=_root_first_key)  # pragma: no mutate
     del config  # scoped runs never shard; kept for signature symmetry
     return [
         MatrixEntry(
@@ -311,7 +322,8 @@ def _write_skip_summary(config: DetectionConfig) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
-    with Path(summary_path).open("a", encoding="utf-8") as handle:
+    encoding = "utf-8"  # pragma: no mutate - locale-independent UTF-8 alias
+    with Path(summary_path).open("a", encoding=encoding) as handle:
         handle.write(
             SKIP_SUMMARY_TEMPLATE.format(
                 base_ref=config.base_ref, window_hours=config.window_hours

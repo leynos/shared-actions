@@ -9,9 +9,12 @@ with function-scoped fixtures such as ``tmp_path``.
 
 from __future__ import annotations
 
+from unittest import mock
+
 from hypothesis import given
 from hypothesis import strategies as st
 
+from workflow_scripts import graphql_client
 from workflow_scripts import mutation_detect_changes as detect
 from workflow_scripts import mutation_run_mutmut as run_mutmut
 from workflow_scripts import mutation_summarize_cargo as summarize
@@ -19,6 +22,50 @@ from workflow_scripts import mutation_summarize_cargo as summarize
 SEGMENT = st.from_regex(r"[a-z][a-z0-9_]{0,7}", fullmatch=True)
 STATUS = st.sampled_from(["killed", "survived", "no tests", "timeout", "suspicious"])
 COUNTED = st.sampled_from(["CaughtMutant", "MissedMutant", "Timeout", "Unviable"])
+
+
+@given(
+    attempt=st.integers(min_value=0, max_value=20),
+    max_retries=st.integers(min_value=0, max_value=20),
+)
+def test_retry_budget_is_strict(
+    attempt: int,
+    max_retries: int,
+) -> None:
+    """Exactly the attempts below the retry limit have budget remaining."""
+    assert graphql_client._should_retry(attempt, max_retries) is (attempt < max_retries)
+
+
+@given(
+    attempt=st.integers(min_value=0, max_value=20),
+    base_seconds=st.integers(min_value=1, max_value=10),
+)
+def test_backoff_is_base_times_power_of_two(
+    attempt: int,
+    base_seconds: int,
+) -> None:
+    """Backoff grows exponentially from the supplied base duration."""
+    recorded: list[float] = []
+    with mock.patch.object(graphql_client.time, "sleep", recorded.append):
+        graphql_client._backoff_sleep(attempt, base_seconds)
+    assert recorded == [base_seconds * (2**attempt)]
+
+
+@given(
+    extras=st.lists(SEGMENT, unique=True, max_size=8),
+    include_root=st.booleans(),
+)
+def test_scoped_matrix_orders_root_first_then_alphabetically(
+    extras: list[str],
+    *,
+    include_root: bool,
+) -> None:
+    """Root leads every scoped matrix and remaining targets are alphabetical."""
+    targets = [*extras, *(["."] if include_root else [])]
+    buckets = {target: [f"{target}/src/lib.rs"] for target in reversed(targets)}
+    entries = detect.scoped_run_matrix(buckets, detect.DetectionConfig())
+    expected = sorted(targets, key=lambda target: (target != ".", target))
+    assert [entry.dir for entry in entries] == expected
 
 
 @given(tokens=st.lists(SEGMENT, max_size=8))

@@ -46,6 +46,15 @@ When `toolchain` is empty, the action resolves the toolchain from the target
 repository before falling back to the action default. `manifest-path` may be
 relative to `project-dir` or absolute.
 
+`rustflags` defaults to empty, which leaves the environment untouched. Left
+empty, the nested `setup-rust` step exports its own `-D warnings` default
+whenever `RUSTFLAGS` is unset, and an ambient `RUSTFLAGS` shadows the
+project's `build.rustflags` in `.cargo/config.toml` — this input exists to
+solve that problem. Setting a value exports it before toolchain setup so the
+build honours it (for example, a required `-Z` flag such as
+`-Zpolonius=next`). A pre-existing `RUSTFLAGS` in the environment always
+wins, including when it is deliberately set to the empty string.
+
 By default, Linux and illumos staging discovers man pages generated during
 `cargo build` at `target/generated-man/<target>/release/<bin>.1`, then falls
 back to Cargo `OUT_DIR` output from `build.rs`. Set

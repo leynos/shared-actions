@@ -9,12 +9,47 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 # A value crafted to close a fixed heredoc delimiter early and have the
 # remainder read back as further environment-file commands.
 INJECTION_MARKER = "__RBR_RUSTFLAGS_EOF__"
 INJECTED_RUSTFLAGS = f"-Zpolonius=next\n{INJECTION_MARKER}\nRBR_INJECTED=1"
+
+# Fragments chosen to provoke the environment-file parser: the old fixed
+# marker, assignment and heredoc syntax, quoting, and newlines that could
+# split a value across lines. Carriage returns and the other exotic
+# separators Python's str.splitlines honours are excluded, because the
+# runner splits environment files on newlines alone.
+_PAYLOAD_FRAGMENTS = st.sampled_from(
+    [
+        "-D warnings",
+        "-Zpolonius=next",
+        INJECTION_MARKER,
+        "RBR_INJECTED=1",
+        "RUSTFLAGS<<EOF",
+        "\n",
+        " ",
+        "\t",
+        "=",
+        "'",
+        '"',
+        "\\",
+        "$RBR_RUSTFLAGS",
+        "${{ inputs.rustflags }}",
+        "détente-✓",
+    ]
+)
+RUSTFLAGS_PAYLOADS = st.lists(_PAYLOAD_FRAGMENTS, min_size=1, max_size=10).map("".join)
+# Each example spawns bash, so the default per-example deadline would flake
+# on a loaded machine; the example count is bounded to keep the suite quick.
+EXPORT_PROPERTY_SETTINGS = settings(
+    max_examples=25,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 
 
 def _load_action_manifest() -> dict[str, object]:
@@ -46,7 +81,9 @@ def _run_export_script(
         pytest.skip("bash not found on PATH")
     tmp_path.mkdir(parents=True, exist_ok=True)
     github_env = tmp_path / "github-env"
-    github_env.touch()
+    # Truncate rather than touch: a property test reuses one tmp_path across
+    # examples, and the step appends, so a stale file would leak between them.
+    github_env.write_text("", encoding="utf-8")
     env = {key: value for key, value in os.environ.items() if key != "RUSTFLAGS"}
     env["GITHUB_ENV"] = github_env.as_posix()
     env["RBR_RUSTFLAGS"] = rustflags
@@ -291,6 +328,38 @@ def test_export_rustflags_defers_to_inherited_empty_value(tmp_path: Path) -> Non
     )
     assert "leaving the inherited value in place" in result.stderr, (
         f"expected the deferral notice on stderr; got {result.stderr!r}"
+    )
+
+
+@EXPORT_PROPERTY_SETTINGS
+@given(payload=RUSTFLAGS_PAYLOADS)
+def test_exported_rustflags_round_trip_for_any_payload(
+    tmp_path: Path, payload: str
+) -> None:
+    """Any payload survives the environment file as exactly one variable."""
+    result, env_text = _run_export_script(tmp_path / "roundtrip", payload)
+
+    assert result.returncode == 0, result.stderr
+    # Exact equality is the delimiter-safety invariant: a value that closed
+    # its heredoc early would either lose text or contribute extra names.
+    assert _parse_env_file(env_text) == {"RUSTFLAGS": payload}, (
+        f"payload {payload!r} did not round-trip; env file held {env_text!r}"
+    )
+
+
+@EXPORT_PROPERTY_SETTINGS
+@given(payload=RUSTFLAGS_PAYLOADS, inherited=RUSTFLAGS_PAYLOADS | st.just(""))
+def test_inherited_rustflags_always_wins(
+    tmp_path: Path, payload: str, inherited: str
+) -> None:
+    """No payload can displace an inherited RUSTFLAGS, empty or otherwise."""
+    result, env_text = _run_export_script(
+        tmp_path / "precedence", payload, inherited=inherited
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert env_text == "", (
+        f"payload {payload!r} overwrote inherited {inherited!r}; wrote {env_text!r}"
     )
 
 

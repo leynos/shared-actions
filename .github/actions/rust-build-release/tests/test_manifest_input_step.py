@@ -205,9 +205,9 @@ def test_export_rustflags_step_wiring() -> None:
     assert isinstance(run_script, str), "export step has no run script"
     # The value must flow through the environment, not template expansion,
     # and an inherited RUSTFLAGS must win over the input.
-    assert '"${RUSTFLAGS+x}"' in run_script, (
+    assert "if [[ ${RUSTFLAGS+x} ]]; then" in run_script, (
         "the inherited-value guard must use the bash 3.2 compatible "
-        "${RUSTFLAGS+x} form rather than [[ -v ]]"
+        "${RUSTFLAGS+x} form rather than [[ -v ]], which macOS bash cannot parse"
     )
     assert '"$RBR_RUSTFLAGS"' in run_script, (
         "the script must read the value from the environment variable"

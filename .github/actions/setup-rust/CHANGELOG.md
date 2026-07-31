@@ -5,7 +5,7 @@
 - Add `rustflags` input forwarded to `actions-rust-lang/setup-rust-toolchain`.
   The default keeps the existing `-D warnings` behaviour; pass extra flags
   (for example `-D warnings -Zpolonius=next`) or the empty string to leave
-  `RUSTFLAGS` unset so the project's `build.rustflags` configuration
+  `RUSTFLAGS` unset, so the project's `build.rustflags` configuration
   applies.
 
 ## v1.0.14 - 2026-01-16

@@ -41,7 +41,7 @@ inputs:
   rustflags:
     description: >
       Value exported as the RUSTFLAGS environment variable by the toolchain
-      setup step. Set to the empty string to leave RUSTFLAGS unset so an
+      setup step. Set to the empty string to leave RUSTFLAGS unset, so an
       inherited value or the project's Cargo configuration
       (build.rustflags in .cargo/config.toml) applies. A pre-existing
       RUSTFLAGS environment variable always takes precedence over this

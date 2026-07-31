@@ -59,6 +59,7 @@ def _run_export_script(
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     return result, github_env.read_text(encoding="utf-8")
 
@@ -175,10 +176,15 @@ def test_rustflags_input_declared() -> None:
     """The rustflags input must exist with an empty default."""
     manifest = _load_action_manifest()
     inputs = manifest["inputs"]
-    assert "rustflags" in inputs
+    assert "rustflags" in inputs, f"rustflags input missing; declared: {sorted(inputs)}"
     rustflags_input = inputs["rustflags"]
-    assert rustflags_input.get("required", False) is False
-    assert rustflags_input.get("default") == ""
+    assert rustflags_input.get("required", False) is False, (
+        "rustflags must stay optional so existing callers need no change"
+    )
+    assert rustflags_input.get("default") == "", (
+        "the default must be empty so the environment is left untouched; "
+        f"got {rustflags_input.get('default')!r}"
+    )
 
 
 def test_export_rustflags_step_wiring() -> None:
@@ -186,24 +192,41 @@ def test_export_rustflags_step_wiring() -> None:
     manifest = _load_action_manifest()
     steps: list[dict[str, object]] = manifest["runs"]["steps"]
     export_step = _find_step(steps, "Export caller RUSTFLAGS")
-    assert export_step.get("if") == "inputs.rustflags != ''"
+    assert export_step.get("if") == "inputs.rustflags != ''", (
+        "the step must be skipped entirely when no rustflags input is given; "
+        f"got {export_step.get('if')!r}"
+    )
     env = export_step.get("env")
-    assert isinstance(env, dict)
-    assert env.get("RBR_RUSTFLAGS") == "${{ inputs.rustflags }}"
+    assert isinstance(env, dict), "export step declares no env block"
+    assert env.get("RBR_RUSTFLAGS") == "${{ inputs.rustflags }}", (
+        f"rustflags must reach the script via RBR_RUSTFLAGS; got {env!r}"
+    )
     run_script = export_step.get("run")
-    assert isinstance(run_script, str)
+    assert isinstance(run_script, str), "export step has no run script"
     # The value must flow through the environment, not template expansion,
     # and an inherited RUSTFLAGS must win over the input.
-    assert "-v RUSTFLAGS" in run_script
-    assert '"$RBR_RUSTFLAGS"' in run_script
-    assert "${{" not in run_script
+    assert '"${RUSTFLAGS+x}"' in run_script, (
+        "the inherited-value guard must use the bash 3.2 compatible "
+        "${RUSTFLAGS+x} form rather than [[ -v ]]"
+    )
+    assert '"$RBR_RUSTFLAGS"' in run_script, (
+        "the script must read the value from the environment variable"
+    )
+    assert "${{" not in run_script, (
+        "the caller's value must not be interpolated into the script by the "
+        "expression template engine"
+    )
 
 
 def test_export_rustflags_step_uses_a_generated_delimiter() -> None:
     """The heredoc delimiter must not be a fixed literal in the manifest."""
     run_script = _export_rustflags_run_script()
-    assert f"RUSTFLAGS<<{INJECTION_MARKER}" not in run_script
-    assert 'echo "RUSTFLAGS<<$delimiter"' in run_script
+    assert f"RUSTFLAGS<<{INJECTION_MARKER}" not in run_script, (
+        "the manifest must not pin a fixed delimiter a caller could reproduce"
+    )
+    assert 'echo "RUSTFLAGS<<$delimiter"' in run_script, (
+        "the heredoc must open with the generated delimiter variable"
+    )
 
 
 def test_export_rustflags_writes_single_line_value(tmp_path: Path) -> None:
@@ -211,7 +234,9 @@ def test_export_rustflags_writes_single_line_value(tmp_path: Path) -> None:
     result, env_text = _run_export_script(tmp_path, "-Zpolonius=next")
 
     assert result.returncode == 0, result.stderr
-    assert _parse_env_file(env_text) == {"RUSTFLAGS": "-Zpolonius=next"}
+    assert _parse_env_file(env_text) == {"RUSTFLAGS": "-Zpolonius=next"}, (
+        f"the value must round-trip unchanged; env file held {env_text!r}"
+    )
 
 
 def test_export_rustflags_contains_delimiter_lookalike(tmp_path: Path) -> None:
@@ -222,8 +247,12 @@ def test_export_rustflags_contains_delimiter_lookalike(tmp_path: Path) -> None:
     parsed = _parse_env_file(env_text)
     # The marker stays inside RUSTFLAGS rather than closing it, so nothing
     # after it is read back as a separate environment-file assignment.
-    assert parsed == {"RUSTFLAGS": INJECTED_RUSTFLAGS}
-    assert "RBR_INJECTED" not in parsed
+    assert parsed == {"RUSTFLAGS": INJECTED_RUSTFLAGS}, (
+        f"the marker must stay inside the value; env file held {env_text!r}"
+    )
+    assert "RBR_INJECTED" not in parsed, (
+        "text after the marker must not become its own environment variable"
+    )
 
 
 def test_export_rustflags_delimiter_differs_between_runs(tmp_path: Path) -> None:
@@ -231,7 +260,10 @@ def test_export_rustflags_delimiter_differs_between_runs(tmp_path: Path) -> None
     _, first = _run_export_script(tmp_path / "first", "-Zpolonius=next")
     _, second = _run_export_script(tmp_path / "second", "-Zpolonius=next")
 
-    assert first.splitlines()[0] != second.splitlines()[0]
+    first_header, second_header = first.splitlines()[0], second.splitlines()[0]
+    assert first_header != second_header, (
+        f"two runs reused the delimiter {first_header!r}"
+    )
 
 
 def test_export_rustflags_defers_to_inherited_value(tmp_path: Path) -> None:
@@ -241,8 +273,25 @@ def test_export_rustflags_defers_to_inherited_value(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert env_text == ""
-    assert "leaving the inherited value in place" in result.stderr
+    assert env_text == "", (
+        f"an inherited RUSTFLAGS must not be overwritten; wrote {env_text!r}"
+    )
+    assert "leaving the inherited value in place" in result.stderr, (
+        f"expected the deferral notice on stderr; got {result.stderr!r}"
+    )
+
+
+def test_export_rustflags_defers_to_inherited_empty_value(tmp_path: Path) -> None:
+    """An inherited but empty RUSTFLAGS counts as set and is left alone."""
+    result, env_text = _run_export_script(tmp_path, "-Zpolonius=next", inherited="")
+
+    assert result.returncode == 0, result.stderr
+    assert env_text == "", (
+        f"an inherited empty RUSTFLAGS must not be overwritten; wrote {env_text!r}"
+    )
+    assert "leaving the inherited value in place" in result.stderr, (
+        f"expected the deferral notice on stderr; got {result.stderr!r}"
+    )
 
 
 def test_export_rustflags_step_precedes_toolchain_setup() -> None:
@@ -250,4 +299,9 @@ def test_export_rustflags_step_precedes_toolchain_setup() -> None:
     manifest = _load_action_manifest()
     steps: list[dict[str, object]] = manifest["runs"]["steps"]
     names = [step.get("name") for step in steps]
-    assert names.index("Export caller RUSTFLAGS") < names.index("Setup Rust toolchain")
+    assert names.index("Export caller RUSTFLAGS") < names.index(
+        "Setup Rust toolchain"
+    ), (
+        "the export must precede toolchain setup, whose nested step only "
+        f"defers to an already-set RUSTFLAGS; step order was {names}"
+    )

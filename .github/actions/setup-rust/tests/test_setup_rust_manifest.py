@@ -381,8 +381,13 @@ def test_rustflags_input_defaults_to_deny_warnings() -> None:
     """The rustflags input must exist and keep the historical default."""
     manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
     rustflags_input = manifest["inputs"]["rustflags"]
-    assert rustflags_input.get("required", False) is False
-    assert rustflags_input.get("default") == "-D warnings"
+    assert rustflags_input.get("required", False) is False, (
+        "rustflags must stay optional so existing callers need no change"
+    )
+    assert rustflags_input.get("default") == "-D warnings", (
+        "the default must preserve the historical -D warnings behaviour; "
+        f"got {rustflags_input.get('default')!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -398,4 +403,8 @@ def test_install_steps_forward_rustflags(step_name: str) -> None:
     step = _get_step(step_name)
     with_block = step.get("with")
     assert isinstance(with_block, dict), f"Step has no with block: {step_name}"
-    assert with_block.get("rustflags") == "${{ inputs.rustflags }}"
+    assert with_block.get("rustflags") == "${{ inputs.rustflags }}", (
+        f"{step_name} must forward the rustflags input to setup-rust-toolchain, "
+        f"otherwise it re-exports the -D warnings default; got "
+        f"{with_block.get('rustflags')!r}"
+    )

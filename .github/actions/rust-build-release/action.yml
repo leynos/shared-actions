@@ -78,7 +78,10 @@ runs:
         RBR_RUSTFLAGS: ${{ inputs.rustflags }}
       run: |
         set -euo pipefail
-        if [[ -v RUSTFLAGS ]]; then
+        # ${RUSTFLAGS+x} rather than [[ -v RUSTFLAGS ]]: the latter needs bash
+        # 4.2, and macOS runners ship bash 3.2. Both treat an inherited empty
+        # value as set.
+        if [[ -n "${RUSTFLAGS+x}" ]]; then
           echo "RUSTFLAGS already set; leaving the inherited value in place" >&2
           exit 0
         fi

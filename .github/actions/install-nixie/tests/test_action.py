@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import typing as typ
+from dataclasses import dataclass  # noqa: ICN003 - requested direct import.
 from pathlib import Path
 
 import pytest
@@ -34,15 +35,19 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+@dataclass(frozen=True)
+class _InstallScriptOptions:
+    binstall_available: bool
+    include_cargo: bool = True
+    include_uv: bool = True
+    merman_version: str = "0.7.0"
+    nixie_version: str = "1.1.0"
+    python_version: str = "3.14"
+
+
 def _run_install_script(
     tmp_path: Path,
-    *,
-    binstall_available: bool,
-    include_cargo: bool = True,
-    include_uv: bool = True,
-    merman_version: str = "0.7.0",
-    nixie_version: str = "1.1.0",
-    python_version: str = "3.14",
+    options: _InstallScriptOptions,
 ) -> subprocess.CompletedProcess[str]:
     """Execute the install fragment against deterministic command stubs."""
     bash = shutil.which("bash")
@@ -54,8 +59,8 @@ def _run_install_script(
     calls_path = tmp_path / "calls"
     github_path = tmp_path / "github-path"
     uv_bin_dir = tmp_path / "uv-bin"
-    if include_cargo:
-        binstall_status = 0 if binstall_available else 1
+    if options.include_cargo:
+        binstall_status = 0 if options.binstall_available else 1
         _write_executable(
             stubs_dir / "cargo",
             f"""#!/bin/bash
@@ -68,7 +73,7 @@ printf ' <%s>' "$@" >> "$CALLS_PATH"
 printf '\n' >> "$CALLS_PATH"
 """,
         )
-    if include_uv:
+    if options.include_uv:
         _write_executable(
             stubs_dir / "uv",
             """#!/bin/bash
@@ -87,10 +92,10 @@ printf '\n' >> "$CALLS_PATH"
         **os.environ,
         "CALLS_PATH": calls_path.as_posix(),
         "GITHUB_PATH": github_path.as_posix(),
-        "MERMAN_VERSION": merman_version,
-        "NIXIE_VERSION": nixie_version,
+        "MERMAN_VERSION": options.merman_version,
+        "NIXIE_VERSION": options.nixie_version,
         "PATH": stubs_dir.as_posix(),
-        "PYTHON_VERSION": python_version,
+        "PYTHON_VERSION": options.python_version,
         "UV_BIN_DIR": uv_bin_dir.as_posix(),
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
@@ -122,7 +127,10 @@ def test_manifest_exposes_pinned_version_inputs() -> None:
 
 def test_install_script_prefers_cargo_binstall(tmp_path: Path) -> None:
     """Merman should use a locked binary install when cargo-binstall exists."""
-    result = _run_install_script(tmp_path, binstall_available=True)
+    result = _run_install_script(
+        tmp_path,
+        _InstallScriptOptions(binstall_available=True),
+    )
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
@@ -136,7 +144,10 @@ def test_install_script_prefers_cargo_binstall(tmp_path: Path) -> None:
 
 def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
     """Merman should use a locked source build without cargo-binstall."""
-    result = _run_install_script(tmp_path, binstall_available=False)
+    result = _run_install_script(
+        tmp_path,
+        _InstallScriptOptions(binstall_available=False),
+    )
 
     assert result.returncode == 0, result.stderr
     assert "cargo-binstall unavailable" in result.stdout
@@ -148,25 +159,26 @@ def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     (
-        "binstall_available",
-        "merman_version",
-        "nixie_version",
-        "python_version",
+        "options",
         "expected_cargo_call",
     ),
     [
         (
-            True,
-            "0.8.0",
-            "1.2.0",
-            "3.13",
+            _InstallScriptOptions(
+                binstall_available=True,
+                merman_version="0.8.0",
+                nixie_version="1.2.0",
+                python_version="3.13",
+            ),
             "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.8.0>",
         ),
         (
-            False,
-            "0.9.0",
-            "1.3.0",
-            "3.12",
+            _InstallScriptOptions(
+                binstall_available=False,
+                merman_version="0.9.0",
+                nixie_version="1.3.0",
+                python_version="3.12",
+            ),
             "cargo <install> <--locked> <merman-cli> <--version> <=0.9.0>",
         ),
     ],
@@ -175,26 +187,20 @@ def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
 def test_install_script_propagates_version_overrides(
     tmp_path: Path,
     *,
-    binstall_available: bool,
-    merman_version: str,
-    nixie_version: str,
-    python_version: str,
+    options: _InstallScriptOptions,
     expected_cargo_call: str,
 ) -> None:
     """Non-default action inputs should reach both installer commands."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=binstall_available,
-        merman_version=merman_version,
-        nixie_version=nixie_version,
-        python_version=python_version,
+        options,
     )
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
         expected_cargo_call,
-        f"uv <tool> <install> <--python> <{python_version}> "
-        f"<nixie-cli=={nixie_version}>",
+        f"uv <tool> <install> <--python> <{options.python_version}> "
+        f"<nixie-cli=={options.nixie_version}>",
     ]
 
 
@@ -216,9 +222,11 @@ def test_install_script_reports_missing_prerequisite(
     """Missing runner prerequisites should produce actionable errors."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=False,
-        include_cargo=include_cargo,
-        include_uv=include_uv,
+        _InstallScriptOptions(
+            binstall_available=False,
+            include_cargo=include_cargo,
+            include_uv=include_uv,
+        ),
     )
 
     assert result.returncode == 1

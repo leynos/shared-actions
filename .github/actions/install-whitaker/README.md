@@ -15,7 +15,9 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 
 ## Outputs
 
-This action has no outputs.
+| Name | Description                     |
+| ---- | ------------------------------- |
+| None | This action exposes no outputs. |
 
 ## Usage
 
@@ -24,7 +26,7 @@ This action has no outputs.
   uses: leynos/shared-actions/.github/actions/setup-rust@v1
 
 - name: Install Whitaker
-  uses: leynos/shared-actions/.github/actions/install-whitaker@v1
+  uses: ./.github/actions/install-whitaker@v1
 
 - name: Lint
   run: make lint

@@ -15,7 +15,6 @@ GitHub Actions
 | Export Postgres URL       | `.github/actions/export-postgres-url`                                              | v1           |
 | Generate coverage         | `.github/actions/generate-coverage`                                                | v1           |
 | Install Nixie             | `.github/actions/install-nixie`                                                    | unreleased   |
-| Install Whitaker          | `.github/actions/install-whitaker`                                                 | unreleased   |
 | Linux packages            | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package             | `.github/actions/macos-package`                                                    | v1           |
 | Ratchet coverage          | `.github/actions/ratchet-coverage`                                                 | v1           |

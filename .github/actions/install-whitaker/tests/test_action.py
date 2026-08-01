@@ -55,9 +55,21 @@ if [ "${1:-}" = "binstall" ] && [ "${2:-}" = "--version" ]; then
   [ "$BINSTALL_AVAILABLE" = "true" ]
   exit
 fi
+if [ "${1:-}" = "binstall" ] && [ "$FAIL_BINSTALL" = "true" ]; then
+  echo "cargo binstall failed while installing whitaker-installer" >&2
+  exit 31
+fi
+if [ "${1:-}" = "install" ] && [ "$FAIL_INSTALL" = "true" ]; then
+  echo "cargo install failed while installing whitaker-installer" >&2
+  exit 32
+fi
 cat > "$FAKE_BIN_DIR/whitaker-installer" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "$FAIL_INSTALLER" = "true" ]; then
+  echo "whitaker-installer failed while installing the Dylint suite" >&2
+  exit 33
+fi
 printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 INSTALLER
 chmod +x "$FAKE_BIN_DIR/whitaker-installer"
@@ -70,14 +82,18 @@ def _run_install_script(
     *,
     binstall_available: bool,
     installer_present: bool = False,
+    fail_binstall: bool = False,
+    fail_install: bool = False,
+    fail_installer: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run the installation fragment with deterministic command stubs."""
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("bash not found on PATH")
 
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    cargo_home = tmp_path / "cargo-home"
+    bin_dir = cargo_home / "bin"
+    bin_dir.mkdir(parents=True)
     cargo_log = tmp_path / "cargo.log"
     installer_log = tmp_path / "installer.log"
     _write_cargo_stub(bin_dir)
@@ -86,15 +102,23 @@ def _run_install_script(
             bin_dir / "whitaker-installer",
             """#!/usr/bin/env bash
 set -euo pipefail
+if [ "$FAIL_INSTALLER" = "true" ]; then
+  echo "whitaker-installer failed while installing the Dylint suite" >&2
+  exit 33
+fi
 printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 """,
         )
 
     env = {
         **os.environ,
-        "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin",
+        "PATH": f"/usr/bin{os.pathsep}/bin",
+        "CARGO_HOME": cargo_home.as_posix(),
         "BINSTALL_AVAILABLE": str(binstall_available).lower(),
         "CARGO_LOG": cargo_log.as_posix(),
+        "FAIL_BINSTALL": str(fail_binstall).lower(),
+        "FAIL_INSTALL": str(fail_install).lower(),
+        "FAIL_INSTALLER": str(fail_installer).lower(),
         "FAKE_BIN_DIR": bin_dir.as_posix(),
         "INSTALLER_LOG": installer_log.as_posix(),
         "WHITAKER_INSTALLER_VERSION": "0.2.6",
@@ -104,6 +128,7 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         cwd=tmp_path,
         env=env,
         capture_output=True,
+        check=False,
         text=True,
         timeout=30,
     )
@@ -171,4 +196,42 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     assert not (tmp_path / "cargo.log").exists()
     assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
         "suite installed\n"
+    )
+
+
+def test_reports_cargo_binstall_failure(tmp_path: Path) -> None:
+    """A cargo-binstall failure should be actionable and non-zero."""
+    result = _run_install_script(
+        tmp_path,
+        binstall_available=True,
+        fail_binstall=True,
+    )
+
+    assert result.returncode != 0
+    assert "cargo binstall failed while installing whitaker-installer" in result.stderr
+
+
+def test_reports_cargo_install_failure(tmp_path: Path) -> None:
+    """A cargo install fallback failure should be actionable and non-zero."""
+    result = _run_install_script(
+        tmp_path,
+        binstall_available=False,
+        fail_install=True,
+    )
+
+    assert result.returncode != 0
+    assert "cargo install failed while installing whitaker-installer" in (result.stderr)
+
+
+def test_reports_whitaker_installer_failure(tmp_path: Path) -> None:
+    """A suite installer failure should be actionable and non-zero."""
+    result = _run_install_script(
+        tmp_path,
+        binstall_available=True,
+        fail_installer=True,
+    )
+
+    assert result.returncode != 0
+    assert "whitaker-installer failed while installing the Dylint suite" in (
+        result.stderr
     )

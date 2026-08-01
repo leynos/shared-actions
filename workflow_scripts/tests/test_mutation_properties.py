@@ -66,7 +66,10 @@ def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None
             for path in paths
         )
     )
-    assert globs == expected
+    assert globs == expected, (
+        f"module globs must be the deduplicated module patterns {expected}; "
+        f"got {globs} for {paths}"
+    )
     assert len(globs) == len(set(globs))
     for glob in globs:
         assert glob.endswith(".*")

@@ -17,6 +17,10 @@ ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 # remainder read back as further environment-file commands.
 INJECTION_MARKER = "__RBR_RUSTFLAGS_EOF__"
 INJECTED_RUSTFLAGS = f"-Zpolonius=next\n{INJECTION_MARKER}\nRBR_INJECTED=1"
+# Scripted `od` output, shaped like the real 16-byte hex dump, used to make a
+# delimiter collision reachable.
+COLLIDING_OD_HEX = "0" * 32
+SAFE_OD_HEX = "1" * 32
 
 # Fragments chosen to provoke the environment-file parser: the old fixed
 # marker, assignment and heredoc syntax, quoting, and newlines that could
@@ -72,8 +76,44 @@ def _export_rustflags_run_script() -> str:
     return run_script
 
 
+def _delimiter_for(od_hex: str) -> str:
+    """Return the delimiter the step derives from a given ``od`` output."""
+    return f"__RBR_RUSTFLAGS_EOF_{od_hex}__"
+
+
+def _write_od_stub(stubs_dir: Path) -> Path:
+    """Install an ``od`` stub yielding one scripted value per invocation.
+
+    The step derives its delimiter from ``od``, so replacing ``od`` on PATH is
+    the only way to make a collision reachable; real output carries 128 bits of
+    entropy. Values come from ``FAKE_OD_VALUES`` (one per line) and the last is
+    repeated once exhausted, so a single value collides on every attempt.
+    """
+    stubs_dir.mkdir(parents=True, exist_ok=True)
+    stub = stubs_dir / "od"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        "count=0\n"
+        'if [ -f "$FAKE_OD_CALLS" ]; then count="$(cat "$FAKE_OD_CALLS")"; fi\n'
+        'printf \'%s\' "$((count + 1))" > "$FAKE_OD_CALLS"\n'
+        'value="$(printf \'%s\\n\' "$FAKE_OD_VALUES" | sed -n "$((count + 1))p")"\n'
+        'if [ -z "$value" ]; then\n'
+        '  value="$(printf \'%s\\n\' "$FAKE_OD_VALUES" | tail -n 1)"\n'
+        "fi\n"
+        "printf '%s\\n' \"$value\"\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    return stub
+
+
 def _run_export_script(
-    tmp_path: Path, rustflags: str, *, inherited: str | None = None
+    tmp_path: Path,
+    rustflags: str,
+    *,
+    inherited: str | None = None,
+    od_hex_values: tuple[str, ...] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     """Run the export fragment and return its result with the env-file text."""
     bash = shutil.which("bash")
@@ -89,6 +129,12 @@ def _run_export_script(
     env["RBR_RUSTFLAGS"] = rustflags
     if inherited is not None:
         env["RUSTFLAGS"] = inherited
+    if od_hex_values is not None:
+        stubs_dir = tmp_path / "stubs"
+        _write_od_stub(stubs_dir)
+        env["PATH"] = f"{stubs_dir}{os.pathsep}{env['PATH']}"
+        env["FAKE_OD_VALUES"] = "\n".join(od_hex_values)
+        env["FAKE_OD_CALLS"] = (tmp_path / "od-calls").as_posix()
     result = subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
         [bash, "-c", _export_rustflags_run_script()],
         cwd=tmp_path,
@@ -360,6 +406,50 @@ def test_inherited_rustflags_always_wins(
     assert result.returncode == 0, result.stderr
     assert env_text == "", (
         f"payload {payload!r} overwrote inherited {inherited!r}; wrote {env_text!r}"
+    )
+
+
+def test_export_rustflags_retries_after_a_delimiter_collision(tmp_path: Path) -> None:
+    """A candidate present in the value is discarded and another drawn."""
+    payload = f"-Zpolonius=next\n{_delimiter_for(COLLIDING_OD_HEX)}"
+    result, env_text = _run_export_script(
+        tmp_path,
+        payload,
+        od_hex_values=(COLLIDING_OD_HEX, SAFE_OD_HEX),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert env_text.startswith(f"RUSTFLAGS<<{_delimiter_for(SAFE_OD_HEX)}"), (
+        f"the second candidate should have been used; env file held {env_text!r}"
+    )
+    assert _parse_env_file(env_text) == {"RUSTFLAGS": payload}, (
+        f"the payload must still round-trip after a retry; got {env_text!r}"
+    )
+    assert (tmp_path / "od-calls").read_text(encoding="utf-8") == "2", (
+        "exactly two candidates should have been drawn"
+    )
+
+
+def test_export_rustflags_fails_after_three_colliding_candidates(
+    tmp_path: Path,
+) -> None:
+    """Three unusable candidates abort the step rather than corrupt the file."""
+    payload = f"-Zpolonius=next\n{_delimiter_for(COLLIDING_OD_HEX)}"
+    result, env_text = _run_export_script(
+        tmp_path, payload, od_hex_values=(COLLIDING_OD_HEX,)
+    )
+
+    assert result.returncode == 1, (
+        f"the step must fail rather than write an unsafe delimiter; {result.stderr!r}"
+    )
+    assert "could not derive a RUSTFLAGS delimiter" in result.stderr, (
+        f"expected the give-up diagnostic on stderr; got {result.stderr!r}"
+    )
+    assert env_text == "", (
+        f"nothing may reach the environment file on failure; wrote {env_text!r}"
+    )
+    assert (tmp_path / "od-calls").read_text(encoding="utf-8") == "3", (
+        "the loop should try exactly three candidates before giving up"
     )
 
 

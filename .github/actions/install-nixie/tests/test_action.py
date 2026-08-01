@@ -15,6 +15,17 @@ import yaml
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 
 
+@dataclass(frozen=True)
+class VersionOverrideCase:
+    """Describe one version-override installation scenario."""
+
+    binstall_available: bool
+    merman_version: str
+    nixie_version: str
+    python_version: str
+    expected_cargo_call: str
+
+
 def _load_action() -> dict[str, typ.Any]:
     """Load the install-nixie action manifest."""
     return yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
@@ -158,49 +169,54 @@ def test_install_script_falls_back_to_cargo_install(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    (
-        "options",
-        "expected_cargo_call",
-    ),
+    "case",
     [
-        (
-            _InstallScriptOptions(
+        pytest.param(
+            VersionOverrideCase(
                 binstall_available=True,
                 merman_version="0.8.0",
                 nixie_version="1.2.0",
                 python_version="3.13",
+                expected_cargo_call=(
+                    "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.8.0>"
+                ),
             ),
-            "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.8.0>",
+            id="binstall",
         ),
-        (
-            _InstallScriptOptions(
+        pytest.param(
+            VersionOverrideCase(
                 binstall_available=False,
                 merman_version="0.9.0",
                 nixie_version="1.3.0",
                 python_version="3.12",
+                expected_cargo_call=(
+                    "cargo <install> <--locked> <merman-cli> <--version> <=0.9.0>"
+                ),
             ),
-            "cargo <install> <--locked> <merman-cli> <--version> <=0.9.0>",
+            id="cargo-install",
         ),
     ],
-    ids=["binstall", "cargo-install"],
 )
 def test_install_script_propagates_version_overrides(
     tmp_path: Path,
-    *,
-    options: _InstallScriptOptions,
-    expected_cargo_call: str,
+    case: VersionOverrideCase,
 ) -> None:
     """Non-default action inputs should reach both installer commands."""
     result = _run_install_script(
         tmp_path,
-        options,
+        _InstallScriptOptions(
+            binstall_available=case.binstall_available,
+            merman_version=case.merman_version,
+            nixie_version=case.nixie_version,
+            python_version=case.python_version,
+        ),
     )
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
-        expected_cargo_call,
-        f"uv <tool> <install> <--python> <{options.python_version}> "
-        f"<nixie-cli=={options.nixie_version}>",
+        case.expected_cargo_call,
+        f"uv <tool> <install> <--python> <{case.python_version}> "
+        f"<nixie-cli=={case.nixie_version}>",
     ]
 
 

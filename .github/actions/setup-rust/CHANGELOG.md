@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.16 - 2026-08-02
+
+- Update actions/cache, sccache-action, and setup-msys2 to releases that use
+  the GitHub Actions Node.js 24 runtime.
+
 ## v1.0.15 - 2026-07-29
 
 - Add `rustflags` input forwarded to `actions-rust-lang/setup-rust-toolchain`.

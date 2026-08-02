@@ -89,16 +89,23 @@ runs:
         # close the block early and leave the remaining caller-supplied lines
         # to be parsed as further environment-file commands, so derive a random
         # delimiter and confirm the value does not contain it.
+        # Diagnostics never name the candidate or the value: a candidate only
+        # collides because the value contains it, so echoing it would leak a
+        # line of the caller's RUSTFLAGS into the log.
         delimiter=""
-        for _ in 1 2 3; do
+        attempts=3
+        attempt=0
+        while [[ $attempt -lt $attempts ]]; do
+          attempt=$((attempt + 1))
           candidate="__RBR_RUSTFLAGS_EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')__"
           if ! printf '%s\n' "$RBR_RUSTFLAGS" | grep -qxF -- "$candidate"; then
             delimiter="$candidate"
             break
           fi
+          echo "RUSTFLAGS delimiter attempt $attempt of $attempts collided with the value; retrying" >&2
         done
         if [[ -z "$delimiter" ]]; then
-          echo "::error::could not derive a RUSTFLAGS delimiter absent from the value" >&2
+          echo "::error::could not derive a RUSTFLAGS delimiter absent from the value after $attempts attempts" >&2
           exit 1
         fi
         {
@@ -106,6 +113,7 @@ runs:
           printf '%s\n' "$RBR_RUSTFLAGS"
           echo "$delimiter"
         } >> "$GITHUB_ENV"
+        echo "RUSTFLAGS exported from the rustflags input on attempt $attempt of $attempts" >&2
     - name: Setup Rust toolchain
       # setup-rust-v1
       # Update this SHA when setup-rust publishes a new release: run

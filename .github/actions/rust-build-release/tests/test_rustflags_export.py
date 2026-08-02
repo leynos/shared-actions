@@ -189,6 +189,12 @@ def test_export_rustflags_writes_single_line_value(tmp_path: Path) -> None:
     assert _parse_env_file(env_text) == {"RUSTFLAGS": "-Zpolonius=next"}, (
         f"the value must round-trip unchanged; env file held {env_text!r}"
     )
+    assert "RUSTFLAGS exported from the rustflags input" in result.stderr, (
+        f"the successful export should be announced; got {result.stderr!r}"
+    )
+    assert "-Zpolonius=next" not in result.stderr, (
+        f"the exported value must stay out of the log; got {result.stderr!r}"
+    )
 
 
 def test_export_rustflags_contains_delimiter_lookalike(tmp_path: Path) -> None:
@@ -297,6 +303,13 @@ def test_export_rustflags_retries_after_a_delimiter_collision(tmp_path: Path) ->
     assert (tmp_path / "od-calls").read_text(encoding="utf-8") == "2", (
         "exactly two candidates should have been drawn"
     )
+    assert "attempt 1 of 3 collided" in result.stderr, (
+        f"the discarded candidate should be reported; got {result.stderr!r}"
+    )
+    assert _delimiter_for(COLLIDING_OD_HEX) not in result.stderr, (
+        "a colliding candidate is a line of the caller's value, so it must "
+        f"never be logged; got {result.stderr!r}"
+    )
 
 
 def test_export_rustflags_fails_after_three_colliding_candidates(
@@ -319,4 +332,10 @@ def test_export_rustflags_fails_after_three_colliding_candidates(
     )
     assert (tmp_path / "od-calls").read_text(encoding="utf-8") == "3", (
         "the loop should try exactly three candidates before giving up"
+    )
+    assert result.stderr.count("collided with the value") == 3, (
+        f"every attempt should be reported before giving up; got {result.stderr!r}"
+    )
+    assert _delimiter_for(COLLIDING_OD_HEX) not in result.stderr, (
+        f"the colliding candidate must never be logged; got {result.stderr!r}"
     )

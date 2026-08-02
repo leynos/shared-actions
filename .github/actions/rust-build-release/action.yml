@@ -32,6 +32,18 @@ inputs:
       the existing clap_mangen/build.rs discovery behaviour.
     required: false
     default: "false"
+  rustflags:
+    description: >
+      RUSTFLAGS to export before the toolchain setup step. Leave empty
+      (default) to keep the environment untouched, in which case the nested
+      setup-rust step exports its own "-D warnings" default whenever
+      RUSTFLAGS is unset — note that this shadows the project's
+      build.rustflags in .cargo/config.toml. Provide a value here (for
+      example a required -Z flag) to make the build honour it instead. A
+      pre-existing RUSTFLAGS environment variable takes precedence over
+      this input.
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -56,6 +68,52 @@ runs:
           --runner-os "${{ runner.os }}" \
           --runner-arch "${{ runner.arch }}")"
         echo "RBR_TOOLCHAIN=$TOOLCHAIN" >> "$GITHUB_ENV"
+    - name: Export caller RUSTFLAGS
+      # Runs before the toolchain setup so its nested setup-rust-toolchain
+      # step, which only exports its "-D warnings" default when RUSTFLAGS is
+      # unset, defers to the caller's value.
+      if: inputs.rustflags != ''
+      shell: bash
+      env:
+        RBR_RUSTFLAGS: ${{ inputs.rustflags }}
+      run: |
+        set -euo pipefail
+        # ${RUSTFLAGS+x} rather than [[ -v RUSTFLAGS ]]: the latter needs bash
+        # 4.2, and macOS runners ship bash 3.2. Both treat an inherited empty
+        # value as set.
+        if [[ ${RUSTFLAGS+x} ]]; then
+          echo "RUSTFLAGS already set; leaving the inherited value in place" >&2
+          exit 0
+        fi
+        # A value containing the heredoc delimiter on a line of its own would
+        # close the block early and leave the remaining caller-supplied lines
+        # to be parsed as further environment-file commands, so derive a random
+        # delimiter and confirm the value does not contain it.
+        # Diagnostics never name the candidate or the value: a candidate only
+        # collides because the value contains it, so echoing it would leak a
+        # line of the caller's RUSTFLAGS into the log.
+        delimiter=""
+        attempts=3
+        attempt=0
+        while [[ $attempt -lt $attempts ]]; do
+          attempt=$((attempt + 1))
+          candidate="__RBR_RUSTFLAGS_EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')__"
+          if ! printf '%s\n' "$RBR_RUSTFLAGS" | grep -qxF -- "$candidate"; then
+            delimiter="$candidate"
+            break
+          fi
+          echo "RUSTFLAGS delimiter attempt $attempt of $attempts collided with the value; retrying" >&2
+        done
+        if [[ -z "$delimiter" ]]; then
+          echo "::error::could not derive a RUSTFLAGS delimiter absent from the value after $attempts attempts" >&2
+          exit 1
+        fi
+        {
+          echo "RUSTFLAGS<<$delimiter"
+          printf '%s\n' "$RBR_RUSTFLAGS"
+          echo "$delimiter"
+        } >> "$GITHUB_ENV"
+        echo "RUSTFLAGS exported from the rustflags input on attempt $attempt of $attempts" >&2
     - name: Setup Rust toolchain
       # setup-rust-v1
       # Update this SHA when setup-rust publishes a new release: run

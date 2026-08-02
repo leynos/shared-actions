@@ -1,0 +1,96 @@
+name: Test rustflags export
+# Exercises the rustflags inputs through the composite-action boundary so the
+# GITHUB_ENV heredoc the export step writes is parsed by a real runner and the
+# resulting RUSTFLAGS is observed by a later step.
+#
+# Driven on the release event because the nested setup-rust skips sccache for
+# releases, and the sccache post-step is unreliable under act.
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The caller's value reaches a step that runs after the action.
+  rust-build-release-exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Build with caller rustflags
+        uses: ./.github/actions/rust-build-release
+        with:
+          target: x86_64-unknown-linux-gnu
+          project-dir: rust-toy-app
+          bin-name: rust-toy-app
+          rustflags: -D warnings -C debuginfo=0
+      - name: Observe exported RUSTFLAGS
+        shell: bash
+        run: echo "rbr_rustflags=[${RUSTFLAGS-unset}]"
+
+  # An inherited value wins over the input, and nothing is overwritten.
+  rust-build-release-defers-to-inherited:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Build with a conflicting rustflags input
+        uses: ./.github/actions/rust-build-release
+        with:
+          target: x86_64-unknown-linux-gnu
+          project-dir: rust-toy-app
+          bin-name: rust-toy-app
+          rustflags: -D warnings -C debuginfo=2
+      - name: Observe inherited RUSTFLAGS
+        shell: bash
+        run: echo "inherited_rustflags=[${RUSTFLAGS-unset}]"
+
+  # rust-build-release pins a remote setup-rust, so the jobs above never run
+  # the local action. These two do, via an explicit toolchain so exactly one
+  # of setup-rust's three install paths is taken.
+  setup-rust-exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Setup Rust with caller rustflags
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: "false"
+          use-sccache: "false"
+          rustflags: -D warnings -C debuginfo=0
+      - name: Observe forwarded RUSTFLAGS
+        shell: bash
+        run: echo "setup_rust_rustflags=[${RUSTFLAGS-unset}]"
+
+  setup-rust-with-inherited:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Setup Rust with a conflicting rustflags input
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: "false"
+          use-sccache: "false"
+          rustflags: -D warnings -C debuginfo=2
+      - name: Observe RUSTFLAGS alongside an inherited value
+        shell: bash
+        run: echo "setup_rust_inherited_rustflags=[${RUSTFLAGS-unset}]"

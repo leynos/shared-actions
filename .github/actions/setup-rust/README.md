@@ -20,6 +20,7 @@ require them, and set up macOS or OpenBSD cross-compilers.
 | darwin-sdk-version    | macOS SDK version for osxcross                                                                                                                                               | no       | `12.3`                                |
 | with-openbsd          | Build OpenBSD std library for cross-compilation                                                                                                                              | no       | `false`                               |
 | openbsd-nightly       | Pinned nightly Rust for OpenBSD                                                                                                                                              | no       | `nightly-2025-07-20`                  |
+| rustflags             | `RUSTFLAGS` exported by the toolchain setup step. Set to the empty string to leave `RUSTFLAGS` unset, so an inherited value or the project's `build.rustflags` applies.      | no       | `-D warnings`                         |
 
 <!-- markdownlint-enable MD013 -->
 

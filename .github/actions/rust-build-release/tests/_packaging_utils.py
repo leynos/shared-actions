@@ -1,3 +1,11 @@
+"""Re-export the linux-packages packaging test helpers.
+
+The packaging fixtures live with the linux-packages tests, but the
+rust-build-release suite needs the same sample project and artefact builders.
+The tests directories are not packages, so the module is loaded by path and its
+public names are rebound here rather than imported.
+"""
+
 from __future__ import annotations
 
 import importlib.util as _ilus

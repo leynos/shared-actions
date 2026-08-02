@@ -20,7 +20,7 @@ GRAPHQL_ENDPOINT = "https://api.github.com/graphql"
 
 # Type alias for JSON-compatible values (parsed from json.loads)
 type JsonValue = (
-    str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+    str | int | float | bool | list[JsonValue] | dict[str, JsonValue] | None
 )
 
 

@@ -10,6 +10,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add a `rustflags` input exported before the toolchain setup step so
+  builds that require specific flags (for example `-Zpolonius=next`) are
+  not stripped by the nested setup step's `-D warnings` default, which
+  shadows the project's `build.rustflags` configuration. A pre-existing
+  `RUSTFLAGS` environment variable still takes precedence.
+
 - Cross-compile and stage `x86_64-unknown-illumos` artefacts from Linux runners.
 - Provide shared packaging fixtures and helpers that build the sample project
   once and produce `.deb` and `.rpm` artefacts for the integration tests.

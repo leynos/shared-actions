@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.15 - 2026-07-29
+
+- Add `rustflags` input forwarded to `actions-rust-lang/setup-rust-toolchain`.
+  The default keeps the existing `-D warnings` behaviour; pass extra flags
+  (for example `-D warnings -Zpolonius=next`) or the empty string to leave
+  `RUSTFLAGS` unset, so the project's `build.rustflags` configuration
+  applies.
+
 ## v1.0.14 - 2026-01-16
 
 - Pin sccache to v0.12.0 on macOS x86_64 runners (x86_64-apple-darwin binaries

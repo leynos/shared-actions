@@ -114,6 +114,8 @@ def _fail(message: str, *, code: int = 2) -> typ.NoReturn:
 class OctalInt(int):
     """Integer subclass that renders as a zero-padded octal literal."""
 
+    _octal_width: int
+
     def __new__(cls, value: int, *, width: int = 4) -> OctalInt:
         """Initialize the integer and remember the desired octal width."""
         obj = super().__new__(cls, value)

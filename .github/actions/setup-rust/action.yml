@@ -45,12 +45,29 @@ inputs:
       inherited value or the project's Cargo configuration
       (build.rustflags in .cargo/config.toml) applies. A pre-existing
       RUSTFLAGS environment variable always takes precedence over this
-      input.
+      input. The value must be a single line.
     required: false
     default: '-D warnings'
 runs:
   using: composite
   steps:
+    - name: Validate rustflags
+      # The nested toolchain action writes this value to GITHUB_ENV as a plain
+      # "RUSTFLAGS=<value>" line, so a line break in it would start a further
+      # environment-file entry and set variables the caller never asked for.
+      # Reject line breaks here rather than forwarding them. The value itself
+      # is never echoed.
+      shell: bash
+      env:
+        SR_RUSTFLAGS: ${{ inputs.rustflags }}
+      run: |
+        set -euo pipefail
+        case "$SR_RUSTFLAGS" in
+          *$'\n'*|*$'\r'*)
+            echo "::error::rustflags must not contain line breaks" >&2
+            exit 1
+            ;;
+        esac
     - name: Install rust (explicit toolchain)
       if: ${{ inputs.toolchain != '' }}
       uses: actions-rust-lang/setup-rust-toolchain@9d7e65c320fdb52dcd45ffaa68deb6c02c8754d9

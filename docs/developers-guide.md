@@ -517,7 +517,7 @@ this variable set".
 #### `GITHUB_ENV` heredoc safety
 
 The step writes `RUSTFLAGS` to `GITHUB_ENV` as a heredoc rather than a plain
-assignment, because the value may contain newlines. The delimiter is derived
+assignment because the value may contain newlines. The delimiter is derived
 from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against
 the value with `grep -qxF` before use. If a value contained the delimiter on
 a line of its own, that line would close the heredoc block early, and

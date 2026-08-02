@@ -10,12 +10,21 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The caller's value reaches a step that runs after the action.
   rust-build-release-exports:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Build with caller rustflags
         uses: ./.github/actions/rust-build-release
         with:
@@ -33,7 +42,9 @@ jobs:
     env:
       RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Build with a conflicting rustflags input
         uses: ./.github/actions/rust-build-release
         with:
@@ -51,7 +62,9 @@ jobs:
   setup-rust-exports:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Rust with caller rustflags
         uses: ./.github/actions/setup-rust
         with:
@@ -68,7 +81,9 @@ jobs:
     env:
       RUSTFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
       - name: Setup Rust with a conflicting rustflags input
         uses: ./.github/actions/setup-rust
         with:
@@ -79,4 +94,3 @@ jobs:
       - name: Observe RUSTFLAGS alongside an inherited value
         shell: bash
         run: echo "setup_rust_inherited_rustflags=[${RUSTFLAGS-unset}]"
-

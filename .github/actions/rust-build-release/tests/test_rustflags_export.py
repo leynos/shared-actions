@@ -224,28 +224,27 @@ def test_export_rustflags_delimiter_differs_between_runs(tmp_path: Path) -> None
     )
 
 
-def test_export_rustflags_defers_to_inherited_value(tmp_path: Path) -> None:
-    """An inherited RUSTFLAGS wins and nothing is written to the env file."""
+@pytest.mark.parametrize(
+    ("case", "inherited"),
+    [("non-empty", "-D warnings"), ("empty", "")],
+    ids=["non-empty", "empty"],
+)
+def test_export_rustflags_defers_to_inherited_value(
+    tmp_path: Path, case: str, inherited: str
+) -> None:
+    """An inherited RUSTFLAGS wins and nothing is written to the env file.
+
+    The empty case is not a degenerate one: an empty value is still set, so it
+    must take precedence over the input just as a non-empty value does.
+    """
     result, env_text = _run_export_script(
-        tmp_path, "-Zpolonius=next", inherited="-D warnings"
+        tmp_path / case, "-Zpolonius=next", inherited=inherited
     )
 
     assert result.returncode == 0, result.stderr
     assert env_text == "", (
-        f"an inherited RUSTFLAGS must not be overwritten; wrote {env_text!r}"
-    )
-    assert "leaving the inherited value in place" in result.stderr, (
-        f"expected the deferral notice on stderr; got {result.stderr!r}"
-    )
-
-
-def test_export_rustflags_defers_to_inherited_empty_value(tmp_path: Path) -> None:
-    """An inherited but empty RUSTFLAGS counts as set and is left alone."""
-    result, env_text = _run_export_script(tmp_path, "-Zpolonius=next", inherited="")
-
-    assert result.returncode == 0, result.stderr
-    assert env_text == "", (
-        f"an inherited empty RUSTFLAGS must not be overwritten; wrote {env_text!r}"
+        f"an inherited RUSTFLAGS of {inherited!r} must not be overwritten; "
+        f"wrote {env_text!r}"
     )
     assert "leaving the inherited value in place" in result.stderr, (
         f"expected the deferral notice on stderr; got {result.stderr!r}"

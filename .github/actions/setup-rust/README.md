@@ -132,7 +132,7 @@ compiled objects are stored in `~/.cache/sccache` and cached with a **separate
 cache key** from the directories above. This directory holds the sccache cache
 space and does not share data with the Rust dependency cache; the sccache step
 itself uses
-`mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad`,
+`mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`,
 pinned to a specific commit for reproducibility.
 
 ### Extent and limitations

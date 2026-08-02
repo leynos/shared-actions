@@ -16,6 +16,19 @@ PINNED_BINSTALL_TAG = f"v{PINNED_BINSTALL_VERSION}"
 PINNED_BINSTALL_SHA256 = (
     "d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
 )
+NODE24_ACTION_REVISIONS = {
+    "Cache cargo registry": "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "Run sccache (x86_64 macOS)": (
+        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
+    ),
+    "Run sccache": (
+        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
+    ),
+    "Install MSYS2 toolchain and SQLite": (
+        "msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884"
+    ),
+    "Cache OpenBSD stdlib": ("actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"),
+}
 
 
 def _load_steps() -> list[dict[str, object]]:
@@ -196,6 +209,18 @@ def test_manifest_exposes_toolchain_input() -> None:
     manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
     inputs = manifest.get("inputs", {})
     assert "toolchain" in inputs
+
+
+@pytest.mark.parametrize(
+    ("step_name", "expected_revision"),
+    NODE24_ACTION_REVISIONS.items(),
+)
+def test_node_actions_use_pinned_node24_revisions(
+    step_name: str,
+    expected_revision: str,
+) -> None:
+    """Node-based dependencies should use the verified Node.js 24 revisions."""
+    assert _get_step(step_name).get("uses") == expected_revision
 
 
 def test_install_postgres_deps_is_linux_only() -> None:

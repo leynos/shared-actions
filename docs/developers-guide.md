@@ -476,3 +476,83 @@ it, and runs it under bash. Five scenarios are covered: stable path present,
 legacy fallback, missing man page (error), multiple legacy matches (error), and
 skip mode (no man-page staging, binary only). Tests are automatically skipped
 on Windows.
+
+### RUSTFLAGS Export
+
+Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but
+they wire it differently. `setup-rust` forwards the input straight through to
+each of its three `actions-rust-lang/setup-rust-toolchain` invocations, so
+what happens to an inherited `RUSTFLAGS` is that nested action's decision.
+`rust-build-release` instead exports the value itself, in an "Export caller
+RUSTFLAGS" step that runs *before* its own pinned nested `setup-rust` step
+(see `.github/actions/rust-build-release/action.yml`), so that step's
+`setup-rust-toolchain` — which only applies its `-D warnings` default when
+`RUSTFLAGS` is unset — defers to the caller's value. The design rationale for
+this split lives in section 3.1.3, "Caller-Controlled `RUSTFLAGS`", of the
+[Rust Build and Release Pipeline design](rust-build-release-pipeline.md); the
+caller-facing usage is in the [users' guide](users-guide.md). This section
+covers the implementation detail a maintainer needs to change the export step
+safely.
+
+#### Precedence guard
+
+The export step is skipped entirely by `if: inputs.rustflags != ''`, but even
+when it runs it must not clobber a `RUSTFLAGS` the caller already exported.
+It guards with `[[ ${RUSTFLAGS+x} ]]`, which is true whenever `RUSTFLAGS` is
+set, including to the empty string, so an inherited value — empty or not —
+always wins over the input. `setup-rust` has no equivalent guard; forwarding
+the empty string to it leaves `RUSTFLAGS` alone only because
+`setup-rust-toolchain` treats an empty forwarded value as "unset".
+
+#### Bash 3.2 compatibility
+
+`[[ ${RUSTFLAGS+x} ]]` is used rather than the more idiomatic
+`[[ -v RUSTFLAGS ]]` because `-v` needs Bash 4.2 and macOS runners ship Bash
+3.2, which cannot parse that conditional primary. Both forms treat an
+inherited empty value as set. Keep this constraint in mind for any future
+edit to this or similar shell fragments in the two actions: parameter
+expansion of the `${NAME+x}` form, not `-v`, is the portable way to test "is
+this variable set".
+
+#### `GITHUB_ENV` heredoc safety
+
+The step writes `RUSTFLAGS` to `GITHUB_ENV` as a heredoc rather than a plain
+assignment, because the value may contain newlines. The delimiter is derived
+from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against
+the value with `grep -qxF` before use. If a value contained the delimiter on
+a line of its own, that line would close the heredoc block early, and
+whatever followed would be read back by the runner as further
+environment-file commands — an injection route, not just a formatting bug.
+The step retries with a fresh candidate up to three times and fails the step,
+rather than writing an unsafe delimiter, if all three collide.
+
+#### RUSTFLAGS export observability
+
+The step logs three kinds of event, all to `stderr`:
+
+- deferral to an inherited value ("RUSTFLAGS already set; leaving the
+  inherited value in place");
+- each delimiter-collision attempt, numbered out of the fixed retry budget
+  ("RUSTFLAGS delimiter attempt `N` of 3 collided with the value; retrying");
+- the successful export, also numbered ("RUSTFLAGS exported from the
+  rustflags input on attempt `N` of 3").
+
+It deliberately never logs the `RUSTFLAGS` value itself or a colliding
+delimiter candidate: a candidate only collides because the value contains it
+as a substring, so echoing the candidate would leak a line of the caller's
+`RUSTFLAGS` into the CI log.
+
+#### RUSTFLAGS export testing
+
+`.github/actions/rust-build-release/tests/test_rustflags_export.py` extracts
+and runs the export step's shell fragment under bash. It covers the
+precedence guard (including an inherited empty value), the heredoc
+round-trip for adversarial payloads via Hypothesis properties, the
+delimiter-collision retry and give-up paths (using a stubbed `od` to make a
+collision reachable), and that neither the value nor a colliding candidate
+reaches the log.
+`.github/actions/rust-build-release/tests/test_manifest_input_step.py` checks
+the manifest's declared shape instead: the `rustflags` input's empty default,
+the export step's `if` condition and `RBR_RUSTFLAGS` wiring, the
+`${RUSTFLAGS+x}` guard's presence in the run script, and that the export step
+precedes toolchain setup.

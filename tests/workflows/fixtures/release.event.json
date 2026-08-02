@@ -1,0 +1,8 @@
+{
+  "action": "published",
+  "release": {
+    "tag_name": "v0.0.0-test",
+    "draft": false,
+    "prerelease": false
+  }
+}

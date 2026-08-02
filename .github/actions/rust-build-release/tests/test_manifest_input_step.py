@@ -1,8 +1,14 @@
-"""Tests for input wiring declared in the composite action manifest.
+"""Tests for the inputs and steps declared in the composite action manifest.
 
-These assert the manifest's declared shape only. The RUSTFLAGS export step's
-runtime behaviour lives in ``test_rustflags_export.py``, which executes its
-shell fragment.
+Covers the manifest-path, toolchain, skip-man-page-discovery and rustflags
+inputs; the environment wiring of the build, toolchain-lookup and artefact
+staging steps; the RUSTFLAGS export step's gating condition, environment
+indirection and inherited-value guard; and that the export step precedes
+toolchain setup.
+
+Every assertion here reads the manifest. The export step's runtime behaviour —
+safe heredoc handling, inherited-value precedence and delimiter retries — is
+covered by ``test_rustflags_export.py``, which executes its shell fragment.
 """
 
 from __future__ import annotations

@@ -16,6 +16,11 @@ PINNED_BINSTALL_TAG = f"v{PINNED_BINSTALL_VERSION}"
 PINNED_BINSTALL_SHA256 = (
     "d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
 )
+NODE24_ACTION_PINS = {
+    "actions/cache": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "mozilla-actions/sccache-action": "fc920bf0ec8de6ee65d409111f7ec508035751ba",
+    "msys2/setup-msys2": "66cd2cce69caa17b53920067426061ca1de3a884",
+}
 
 
 def _load_steps() -> list[dict[str, object]]:
@@ -196,6 +201,25 @@ def test_manifest_exposes_toolchain_input() -> None:
     manifest = yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8"))
     inputs = manifest.get("inputs", {})
     assert "toolchain" in inputs
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_sha"),
+    NODE24_ACTION_PINS.items(),
+)
+def test_node24_action_dependencies_are_pinned(
+    action: str,
+    expected_sha: str,
+) -> None:
+    """Node.js-backed dependencies should use their verified Node.js 24 pins."""
+    matching_uses = [
+        uses
+        for step in _load_steps()
+        if isinstance((uses := step.get("uses")), str) and uses.startswith(f"{action}@")
+    ]
+
+    assert matching_uses
+    assert set(matching_uses) == {f"{action}@{expected_sha}"}
 
 
 def test_install_postgres_deps_is_linux_only() -> None:

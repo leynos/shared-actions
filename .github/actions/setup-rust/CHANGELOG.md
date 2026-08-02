@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.16 - 2026-08-02
+
+- Upgrade `actions/cache`, `mozilla-actions/sccache-action`, and
+  `msys2/setup-msys2` to releases that run on Node.js 24.
+
 ## v1.0.15 - 2026-07-29
 
 - Add `rustflags` input forwarded to `actions-rust-lang/setup-rust-toolchain`.

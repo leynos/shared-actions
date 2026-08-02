@@ -93,7 +93,7 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Cache Whitaker installer
         if: matrix.os == 'ubuntu-latest'
-        # v4.3.0
+        # v6.1.0
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |

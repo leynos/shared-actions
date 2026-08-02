@@ -45,3 +45,38 @@ jobs:
         shell: bash
         run: echo "inherited_rustflags=[${RUSTFLAGS-unset}]"
 
+  # rust-build-release pins a remote setup-rust, so the jobs above never run
+  # the local action. These two do, via an explicit toolchain so exactly one
+  # of setup-rust's three install paths is taken.
+  setup-rust-exports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust with caller rustflags
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: "false"
+          use-sccache: "false"
+          rustflags: -D warnings -C debuginfo=0
+      - name: Observe forwarded RUSTFLAGS
+        shell: bash
+        run: echo "setup_rust_rustflags=[${RUSTFLAGS-unset}]"
+
+  setup-rust-with-inherited:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust with a conflicting rustflags input
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: "false"
+          use-sccache: "false"
+          rustflags: -D warnings -C debuginfo=2
+      - name: Observe RUSTFLAGS alongside an inherited value
+        shell: bash
+        run: echo "setup_rust_inherited_rustflags=[${RUSTFLAGS-unset}]"
+

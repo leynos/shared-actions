@@ -82,3 +82,38 @@ def test_rust_build_release_defers_to_inherited_rustflags(
     assert "leaving the inherited value in place" in logs, (
         f"the export step did not report deferring to the inherited value:\n{logs}"
     )
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
+def test_setup_rust_forwards_rustflags_to_later_steps(artefact_dir: Path) -> None:
+    """setup-rust's own input reaches a step running after the action.
+
+    The jobs above pin a remote setup-rust revision, so this is the only
+    coverage that runs the local action.
+    """
+    logs = _run("setup-rust-exports", artefact_dir)
+
+    assert re.search(r"setup_rust_rustflags=\[-D warnings -C debuginfo=0\]", logs), (
+        f"setup-rust did not forward its rustflags input:\n{logs}"
+    )
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
+def test_setup_rust_leaves_an_inherited_rustflags_alone(artefact_dir: Path) -> None:
+    """An inherited RUSTFLAGS survives a conflicting setup-rust input.
+
+    setup-rust forwards the input unconditionally, so the deferral is the
+    nested setup-rust-toolchain's doing rather than a guard of our own. This
+    pins that behaviour, which a toolchain-action bump could otherwise change
+    silently.
+    """
+    logs = _run("setup-rust-with-inherited", artefact_dir)
+
+    assert re.search(r"setup_rust_inherited_rustflags=\[-D warnings\]", logs), (
+        f"the inherited RUSTFLAGS was not preserved:\n{logs}"
+    )
+    assert "debuginfo=2" not in logs.split("setup_rust_inherited_rustflags=")[-1], (
+        f"the input displaced the inherited value:\n{logs}"
+    )

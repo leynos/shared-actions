@@ -70,11 +70,12 @@ on:
         description: >-
           How to check out the caller repository's git submodules,
           forwarded verbatim to actions/checkout's `submodules` input:
-          `false` (default, no submodules), `true` (top-level only) or
+          `'false'` (default, no submodules), `'true'` (top-level only) or
           `recursive`. Set this for callers that vendor a build-graph
           dependency as a git submodule (e.g. a path dependency under
           `third_party/`), whose directory must exist for the unmutated
-          baseline to build.
+          baseline to build. Submodules must be public or accessible with
+          the caller repository's github.token.
         type: string
         default: "false"
 

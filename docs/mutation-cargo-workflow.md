@@ -71,29 +71,31 @@ jobs:
 
 ## Inputs
 
-| Input                   | Default                   | Purpose                                                                                                                                                     |
-| ----------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `paths`                 | `src/,examples/,benches/` | Path prefixes belonging to the root target.                                                                                                                 |
-| `extra-crate-dirs`      | (empty)                   | Non-workspace crate directories mutated as separate targets.                                                                                                |
-| `exclude-globs`         | (empty)                   | Comma-separated `--exclude` globs.                                                                                                                          |
-| `window-hours`          | `25`                      | Detection window; keep one hour wider than the cadence.                                                                                                     |
-| `base-ref`              | `origin/main`             | Reference scanned for changes.                                                                                                                              |
-| `timeout-multiplier`    | `3`                       | Per-mutant timeout as a multiple of the baseline.                                                                                                           |
-| `timeout-minutes`       | `300`                     | Per-job ceiling.                                                                                                                                            |
-| `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                             |
-| `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                   |
-| `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                         |
-| `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
-| `submodules`            | `false`                   | How to check out the caller's git submodules, forwarded to `actions/checkout` (`false`, `true` or `recursive`). Set for callers that vendor a build-graph dependency as a submodule. |
+| Input                   | Default                   | Purpose                                                                                                                                                                                  |
+| ----------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paths`                 | `src/,examples/,benches/` | Path prefixes belonging to the root target.                                                                                                                                              |
+| `extra-crate-dirs`      | (empty)                   | Non-workspace crate directories mutated as separate targets.                                                                                                                             |
+| `exclude-globs`         | (empty)                   | Comma-separated `--exclude` globs.                                                                                                                                                       |
+| `window-hours`          | `25`                      | Detection window; keep one hour wider than the cadence.                                                                                                                                  |
+| `base-ref`              | `origin/main`             | Reference scanned for changes.                                                                                                                                                           |
+| `timeout-multiplier`    | `3`                       | Per-mutant timeout as a multiple of the baseline.                                                                                                                                        |
+| `timeout-minutes`       | `300`                     | Per-job ceiling.                                                                                                                                                                         |
+| `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                                                          |
+| `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                                                |
+| `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                                                      |
+| `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker).                              |
+| `submodules`            | `'false'`                 | How to check out the caller's git submodules, forwarded to `actions/checkout` (`'false'`, `'true'` or `recursive`). Set for callers that vendor a build-graph dependency as a submodule. |
 
 ## Notes
 
-- Set `submodules: recursive` (or `true`) when the caller vendors a
+- Set `submodules: recursive` (or `'true'`) when the caller vendors a
   build-graph dependency as a git submodule — for example a Cargo path
-  dependency under `third_party/`. The default checkout leaves the
-  submodule directory empty, so the unmutated baseline fails to build
-  (`failed to read .../Cargo.toml`) before any mutant runs. The input is
-  a no-op for callers without a `.gitmodules`.
+  dependency under `third_party/`. The default checkout leaves the submodule
+  directory empty, so the unmutated baseline fails to build
+  (`failed to read .../Cargo.toml`) before any mutant runs. The input is a
+  no-op for callers without a `.gitmodules`. Submodules must be public or
+  accessible with the caller repository's `github.token`; private secondary
+  repositories need their own checkout and least-privilege credentials.
 
 - The `cargo-mutants-version` default is pinned because the
   `outcomes.json` format is documented as unstable and the summary parser must

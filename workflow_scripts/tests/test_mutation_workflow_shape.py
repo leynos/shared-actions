@@ -76,7 +76,20 @@ def test_caller_checkout_forwards_submodules_input() -> None:
         if step.get("name") == CALLER_CHECKOUT_STEP
     ]
     assert checkouts, "mutation-cargo.yml must check out the caller repository"
+    expected_jobs = {"detect", "mutants"}
+    actual_jobs = {job_name for job_name, _ in checkouts}
+    assert actual_jobs == expected_jobs, (
+        "mutation-cargo.yml caller checkouts must appear in exactly the detect "
+        f"and mutants jobs, got {sorted(actual_jobs)!r}"
+    )
     for job_name, step in checkouts:
+        uses = step.get("uses")
+        assert isinstance(uses, str), (
+            f"mutation-cargo.yml:{job_name} caller checkout must set `uses`"
+        )
+        assert uses.startswith("actions/checkout@"), (
+            f"mutation-cargo.yml:{job_name} caller checkout must use actions/checkout"
+        )
         params = step.get("with")
         assert isinstance(params, dict), (
             f"mutation-cargo.yml:{job_name} caller checkout must set `with`"

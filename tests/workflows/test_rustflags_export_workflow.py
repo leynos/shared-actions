@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import re
 import typing as typ
+from pathlib import Path
 
 import pytest
+import yaml
 
 from .conftest import (
     FIXTURES_DIR,
@@ -22,10 +24,8 @@ from .conftest import (
     skip_unless_workflow_tests,
 )
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
 WORKFLOW = "test-rustflags-export.yml"
+WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / WORKFLOW
 # The workflow runs on the release event because the nested setup-rust skips
 # sccache for releases, whose post-step is unreliable under act.
 EVENT = "release"
@@ -47,6 +47,33 @@ def _run(job: str, artefact_dir: Path) -> str:
     code, logs = run_act(WORKFLOW, EVENT, job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
+
+
+def test_setup_rust_toolchain_workflow_shape() -> None:
+    """The runner job exercises the intended local setup-rust path."""
+    workflow = typ.cast(
+        "dict[str, typ.Any]",
+        yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")),
+    )
+    steps = workflow["jobs"]["setup-rust-toolchain-available"]["steps"]
+    setup_step = next(step for step in steps if step.get("name") == "Setup stable Rust")
+    assert setup_step["uses"] == "./.github/actions/setup-rust"
+    assert setup_step["with"] == {
+        "toolchain": "stable",
+        "install-binstall": "false",
+        "use-sccache": "false",
+    }
+
+    verify_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify Rust tools remain available"
+    )
+    script = verify_step["run"]
+    assert "rustc --version" in script
+    assert "cargo --version" in script
+    assert 'test -n "${rustc_version}"' in script
+    assert 'test -n "${cargo_version}"' in script
 
 
 @skip_unless_act
@@ -116,4 +143,18 @@ def test_setup_rust_leaves_an_inherited_rustflags_alone(artefact_dir: Path) -> N
     )
     assert "debuginfo=2" not in logs.split("setup_rust_inherited_rustflags=")[-1], (
         f"the input displaced the inherited value:\n{logs}"
+    )
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
+def test_setup_rust_exposes_rust_tools_to_later_steps(artefact_dir: Path) -> None:
+    """A supported Linux setup leaves rustc and cargo available downstream."""
+    logs = _run("setup-rust-toolchain-available", artefact_dir)
+
+    assert re.search(r"setup_rust_rustc=\[rustc \d+\.\d+\.\d+", logs), (
+        f"rustc was not available after setup-rust:\n{logs}"
+    )
+    assert re.search(r"setup_rust_cargo=\[cargo \d+\.\d+\.\d+", logs), (
+        f"cargo was not available after setup-rust:\n{logs}"
     )

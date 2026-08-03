@@ -94,3 +94,29 @@ jobs:
       - name: Observe RUSTFLAGS alongside an inherited value
         shell: bash
         run: echo "setup_rust_inherited_rustflags=[${RUSTFLAGS-unset}]"
+
+  # act cannot reliably execute sccache's post-step. Disable sccache here so
+  # this supported Linux path can prove that setup-rust makes the Rust tools
+  # available to downstream steps through the composite-action boundary.
+  setup-rust-toolchain-available:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Setup stable Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: "false"
+          use-sccache: "false"
+      - name: Verify Rust tools remain available
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc_version="$(rustc --version)"
+          cargo_version="$(cargo --version)"
+          test -n "${rustc_version}"
+          test -n "${cargo_version}"
+          echo "setup_rust_rustc=[${rustc_version}]"
+          echo "setup_rust_cargo=[${cargo_version}]"

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import typing as typ
+from dataclasses import dataclass  # noqa: ICN003 - required scenario decorator.
 from pathlib import Path
 
 import pytest
@@ -77,14 +78,18 @@ chmod +x "$FAKE_BIN_DIR/whitaker-installer"
     )
 
 
+@dataclass(frozen=True)
+class _InstallScenario:
+    binstall_available: bool
+    installer_present: bool = False
+    fail_binstall: bool = False
+    fail_install: bool = False
+    fail_installer: bool = False
+
+
 def _run_install_script(
     tmp_path: Path,
-    *,
-    binstall_available: bool,
-    installer_present: bool = False,
-    fail_binstall: bool = False,
-    fail_install: bool = False,
-    fail_installer: bool = False,
+    scenario: _InstallScenario,
 ) -> subprocess.CompletedProcess[str]:
     """Run the installation fragment with deterministic command stubs."""
     bash = shutil.which("bash")
@@ -97,7 +102,7 @@ def _run_install_script(
     cargo_log = tmp_path / "cargo.log"
     installer_log = tmp_path / "installer.log"
     _write_cargo_stub(bin_dir)
-    if installer_present:
+    if scenario.installer_present:
         _write_executable(
             bin_dir / "whitaker-installer",
             """#!/usr/bin/env bash
@@ -114,11 +119,11 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         **os.environ,
         "PATH": f"/usr/bin{os.pathsep}/bin",
         "CARGO_HOME": cargo_home.as_posix(),
-        "BINSTALL_AVAILABLE": str(binstall_available).lower(),
+        "BINSTALL_AVAILABLE": str(scenario.binstall_available).lower(),
         "CARGO_LOG": cargo_log.as_posix(),
-        "FAIL_BINSTALL": str(fail_binstall).lower(),
-        "FAIL_INSTALL": str(fail_install).lower(),
-        "FAIL_INSTALLER": str(fail_installer).lower(),
+        "FAIL_BINSTALL": str(scenario.fail_binstall).lower(),
+        "FAIL_INSTALL": str(scenario.fail_install).lower(),
+        "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "FAKE_BIN_DIR": bin_dir.as_posix(),
         "INSTALLER_LOG": installer_log.as_posix(),
         "WHITAKER_INSTALLER_VERSION": "0.2.6",
@@ -160,7 +165,7 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
 
 def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
     """cargo-binstall should be preferred when its subcommand is available."""
-    result = _run_install_script(tmp_path, binstall_available=True)
+    result = _run_install_script(tmp_path, _InstallScenario(binstall_available=True))
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
@@ -174,7 +179,7 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
 
 def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
     """Cargo should build whitaker-installer when cargo-binstall is unavailable."""
-    result = _run_install_script(tmp_path, binstall_available=False)
+    result = _run_install_script(tmp_path, _InstallScenario(binstall_available=False))
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
@@ -188,8 +193,10 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     """A restored installer should avoid both Cargo installation paths."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=False,
-        installer_present=True,
+        _InstallScenario(
+            binstall_available=False,
+            installer_present=True,
+        ),
     )
 
     assert result.returncode == 0, result.stderr
@@ -203,8 +210,10 @@ def test_reports_cargo_binstall_failure(tmp_path: Path) -> None:
     """A cargo-binstall failure should be actionable and non-zero."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=True,
-        fail_binstall=True,
+        _InstallScenario(
+            binstall_available=True,
+            fail_binstall=True,
+        ),
     )
 
     assert result.returncode != 0
@@ -215,8 +224,10 @@ def test_reports_cargo_install_failure(tmp_path: Path) -> None:
     """A cargo install fallback failure should be actionable and non-zero."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=False,
-        fail_install=True,
+        _InstallScenario(
+            binstall_available=False,
+            fail_install=True,
+        ),
     )
 
     assert result.returncode != 0
@@ -227,8 +238,10 @@ def test_reports_whitaker_installer_failure(tmp_path: Path) -> None:
     """A suite installer failure should be actionable and non-zero."""
     result = _run_install_script(
         tmp_path,
-        binstall_available=True,
-        fail_installer=True,
+        _InstallScenario(
+            binstall_available=True,
+            fail_installer=True,
+        ),
     )
 
     assert result.returncode != 0

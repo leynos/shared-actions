@@ -36,8 +36,11 @@ Cargo. It uses `cargo binstall` when available and falls back to a locked
 To use the action from this repository:
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - name: Install Nixie
-  uses: ./.github/actions/install-nixie@v1
+  uses: ./.github/actions/install-nixie
 ```
 
 To override the pinned versions:

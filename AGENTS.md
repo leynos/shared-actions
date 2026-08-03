@@ -153,7 +153,8 @@ make lint UV=uv
 
   - **Table of Outputs**
 
-  - **Usage example** with `uses: ./.github/actions/<name>@<major>`
+  - **Usage example** with an `actions/checkout` step before the local action,
+    referenced as `uses: ./.github/actions/<name>` without a ref suffix
 
   - **Release history** link to CHANGELOG
 

@@ -107,7 +107,7 @@ printf '\n' >> "$CALLS_PATH"
         "NIXIE_VERSION": options.nixie_version,
         "PATH": stubs_dir.as_posix(),
         "PYTHON_VERSION": options.python_version,
-        "UV_BIN_DIR": uv_bin_dir.as_posix(),
+        "UV_BIN_DIR": str(uv_bin_dir),
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the bash fragment.
         [bash, "-c", _install_script()],

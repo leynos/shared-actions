@@ -58,6 +58,9 @@ inputs:
   cucumber-rs-args:
     description: Extra arguments for cucumber
     required: false
+  extra-cargo-args:
+    description: Extra arguments appended to cargo llvm-cov, e.g. --exclude <crate>
+    required: false
   pytest-workers:
     description: |
       Value passed to pytest-xdist's `-n` flag for the Python coverage run.
@@ -226,6 +229,7 @@ runs:
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
         INPUT_CUCUMBER_RS_ARGS: ${{ inputs.cucumber-rs-args }}
+        INPUT_EXTRA_CARGO_ARGS: ${{ inputs.extra-cargo-args }}
         BASELINE_RUST_FILE: ${{ inputs.baseline-rust-file }}
       shell: bash
 

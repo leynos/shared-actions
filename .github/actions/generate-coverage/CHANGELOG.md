@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add an optional `extra-cargo-args` input whose shell-parsed tokens are
+  appended to every `cargo llvm-cov` invocation. This allows callers to pass
+  workspace selection flags such as `--exclude <crate>`, including for the
+  optional cucumber-rs coverage run. Omitting the input preserves the existing
+  command unchanged.
+
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes
   its artefact name previously did not, so any earlier failure (for example a

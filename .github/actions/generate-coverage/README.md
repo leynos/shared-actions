@@ -147,6 +147,7 @@ Known limitations:
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
+| extra-cargo-args | Extra arguments appended to `cargo llvm-cov`, parsed with shell quoting rules. | no | |
 | pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
 <!-- markdownlint-enable MD013 -->
 
@@ -272,6 +273,17 @@ Disable cargo-nextest:
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
+```
+
+Exclude crates from Rust workspace coverage:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
 ```
 
 Run pytest serially (disable pytest-xdist):

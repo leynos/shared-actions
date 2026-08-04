@@ -145,6 +145,7 @@ def get_cargo_coverage_cmd(
     manifest_path: Path,
     with_default: bool,
     use_nextest: bool,
+    extra_cargo_args: typ.Sequence[str] = (),
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -165,8 +166,18 @@ def get_cargo_coverage_cmd(
         args.append("--no-default-features")
     if features:
         args += ["--features", features]
+    args += extra_cargo_args
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def _parse_extra_cargo_args(raw: str) -> list[str]:
+    """Split caller-supplied Cargo arguments using shell quoting rules."""
+    try:
+        return shlex.split(raw)
+    except ValueError as exc:
+        msg = f"Invalid extra-cargo-args value: {exc}"
+        raise ValueError(msg) from exc
 
 
 def extract_percent(output: str) -> str:
@@ -259,6 +270,7 @@ def run_cucumber_rs_coverage(
     use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
+    extra_cargo_args: typ.Sequence[str] = (),
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -269,6 +281,7 @@ def run_cucumber_rs_coverage(
         manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
+        extra_cargo_args=extra_cargo_args,
     )
     c_args += [
         "--",
@@ -412,6 +425,7 @@ def main(
     github_output: typ.Annotated[Path | None, typer.Option()] = None,
     cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
     cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
+    extra_cargo_args: typ.Annotated[str, typer.Option()] = "",
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
@@ -428,6 +442,12 @@ def main(
         "INPUT_CUCUMBER_RS_FEATURES", ""
     )
     cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
+    extra_cargo_args = extra_cargo_args or os.getenv("INPUT_EXTRA_CARGO_ARGS", "")
+    try:
+        parsed_extra_cargo_args = _parse_extra_cargo_args(extra_cargo_args)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
     with_default = _resolve_bool_input(
         with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
     )
@@ -447,6 +467,7 @@ def main(
         manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
+        extra_cargo_args=parsed_extra_cargo_args,
     )
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
@@ -470,6 +491,7 @@ def main(
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
+                extra_cargo_args=parsed_extra_cargo_args,
             )
     percent = _compute_coverage_percent(fmt, out, stdout)
     previous = read_previous_coverage(baseline_file)

@@ -28,6 +28,9 @@ GitHub Actions
 | Validate Linux packages   | `.github/actions/validate-linux-packages`                                          | v1           |
 | Windows package           | [`./.github/actions/windows-package`](./.github/actions/windows-package/README.md) | v0           |
 
+See the [Install Nixie guide](docs/users-guide.md#install-nixie) for usage,
+version inputs, and failure behaviour.
+
 ## Reusable workflows
 
 | Name                             | Path                                         | Guide                                                                          |

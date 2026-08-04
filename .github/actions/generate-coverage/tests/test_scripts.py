@@ -228,6 +228,7 @@ class RustCoverageConfig:
     features: str = ""
     with_default_features: bool = True
     manifest_path: str = "Cargo.toml"
+    extra_cargo_args: str = ""
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -276,6 +277,7 @@ def _run_rust_coverage_test(
         ),
         "INPUT_USE_CARGO_NEXTEST": "true" if config.use_nextest else "false",
         "DETECTED_CARGO_MANIFEST": config.manifest_path,
+        "INPUT_EXTRA_CARGO_ARGS": config.extra_cargo_args,
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -525,6 +527,83 @@ def test_get_cargo_coverage_cmd_summary_only_by_format(
         use_nextest=False,
     )
     assert ("--summary-only" in args) is expect_summary_only
+
+
+def test_get_cargo_coverage_cmd_inserts_extra_args_before_report_tail(
+    run_rust_module: ModuleType,
+) -> None:
+    """Extra Cargo arguments are inserted after workspace selection."""
+    baseline = run_rust_module.get_cargo_coverage_cmd(
+        "lcov",
+        Path("cov.lcov"),
+        "",
+        manifest_path=Path("Cargo.toml"),
+        with_default=True,
+        use_nextest=False,
+    )
+    with_extra = run_rust_module.get_cargo_coverage_cmd(
+        "lcov",
+        Path("cov.lcov"),
+        "",
+        manifest_path=Path("Cargo.toml"),
+        with_default=True,
+        use_nextest=False,
+        extra_cargo_args=["--exclude", "rustc-proxy"],
+    )
+    assert baseline == [
+        "llvm-cov",
+        "--manifest-path",
+        "Cargo.toml",
+        "--workspace",
+        "--lcov",
+        "--output-path",
+        "cov.lcov",
+    ]
+    assert with_extra == [
+        *baseline[:-3],
+        "--exclude",
+        "rustc-proxy",
+        *baseline[-3:],
+    ]
+
+
+def test_parse_extra_cargo_args_rejects_malformed_quoting(
+    run_rust_module: ModuleType,
+) -> None:
+    """Malformed shell quoting is reported as an input validation error."""
+    with pytest.raises(ValueError, match="Invalid extra-cargo-args value"):
+        run_rust_module._parse_extra_cargo_args('--exclude "unterminated')
+
+
+def test_main_translates_invalid_extra_cargo_args_into_typer_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_rust_module: ModuleType,
+) -> None:
+    """``main`` converts malformed Cargo arguments into a clean exit code 2."""
+    output = tmp_path / "cov.lcov"
+    github_output = tmp_path / "gh.txt"
+
+    def fail_if_cargo_runs(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("cargo must not run when argument validation fails")
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fail_if_cargo_runs)
+    with pytest.raises(run_rust_module.typer.Exit) as excinfo:
+        run_rust_module.main(
+            output,
+            "",
+            with_default=True,
+            use_nextest=False,
+            lang="rust",
+            fmt="lcov",
+            manifest_path=Path("Cargo.toml"),
+            github_output=github_output,
+            extra_cargo_args='--exclude "unterminated',
+            with_cucumber_rs=False,
+        )
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid extra-cargo-args value" in capsys.readouterr().err
 
 
 def _run_rust_main_variant(
@@ -1019,6 +1098,7 @@ def _make_cucumber_spy(
         all_features: bool = False,
         all_targets: bool = False,
         allow_no_tests: bool = False,
+        extra_cargo_args: typ.Sequence[str] = (),
     ) -> None:
         calls.append(
             {
@@ -1033,6 +1113,7 @@ def _make_cucumber_spy(
                 "cucumber_rs_args": cucumber_rs_args,
                 "all_features": all_features,
                 "all_targets": all_targets,
+                "extra_cargo_args": list(extra_cargo_args),
             }
         )
 
@@ -1088,6 +1169,7 @@ def test_main_reuses_cargo_env_for_cucumber(
         github_output=github_output,
         cucumber_rs_features="tests/features",
         cucumber_rs_args="--tag fast",
+        extra_cargo_args="--exclude rustc-proxy",
         with_cucumber_rs=True,
         baseline_file=None,
     )
@@ -1096,6 +1178,7 @@ def test_main_reuses_cargo_env_for_cucumber(
     assert run_cargo_env_calls == [cargo_env]
     assert len(cucumber_calls) == 1
     assert cucumber_calls[0]["cargo_env"] == cargo_env
+    assert cucumber_calls[0]["extra_cargo_args"] == ["--exclude", "rustc-proxy"]
 
 
 def test_run_cargo_windows_nonzero_exit(
@@ -1295,6 +1378,7 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
         "INPUT_WITH_CUCUMBER_RS": "true",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
         "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
+        "INPUT_EXTRA_CARGO_ARGS": "--exclude rustc-proxy",
         "GITHUB_OUTPUT": str(gh),
     }
 
@@ -1304,12 +1388,25 @@ def test_run_rust_with_cucumber(tmp_path: Path, shell_stubs: StubManager) -> Non
 
     calls = shell_stubs.calls_of("cargo")
     assert len(calls) == 2
+    assert calls[0].argv == [
+        "llvm-cov",
+        "--manifest-path",
+        "rust-toy-app/Cargo.toml",
+        "--workspace",
+        "--exclude",
+        "rustc-proxy",
+        "--lcov",
+        "--output-path",
+        str(out),
+    ]
     cuc_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
     expected_second = [
         "llvm-cov",
         "--manifest-path",
         "rust-toy-app/Cargo.toml",
         "--workspace",
+        "--exclude",
+        "rustc-proxy",
         "--lcov",
         "--output-path",
         str(cuc_file),

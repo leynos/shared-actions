@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add an optional `extra-cargo-args` input whose shell-parsed tokens are
+  appended to every `cargo llvm-cov` invocation. Callers can use it for
+  workspace selection flags such as `--exclude <crate>`, including in the
+  optional cucumber-rs coverage run. Leaving it empty preserves the existing
+  command.
+
 - Never archive or reuse an interpreter-bound uv script environment. `uv run`
   builds each PEP 723 script environment under `environments-v2`, bound to the
   interpreter that built it. A cache restored on a runner whose Python patch
@@ -243,7 +249,6 @@
   Whitaker action, with a bounded set of `cargo-nextest.` metrics for the
   download outcome (duration and byte count), the archive digest outcome, the
   executable digest outcome, and the install outcome, including the reuse path.
-
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes
   its artefact name previously did not, so any earlier failure (for example a

@@ -222,6 +222,7 @@ def get_cargo_coverage_cmd(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
+    extra_cargo_args: typ.Sequence[str] = (),
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -253,8 +254,18 @@ def get_cargo_coverage_cmd(
     args += feature_selection_args(
         features, with_default=with_default, all_features=all_features
     )
+    args += extra_cargo_args
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def _parse_extra_cargo_args(raw: str) -> list[str]:
+    """Split caller-supplied Cargo arguments using shell quoting rules."""
+    try:
+        return shlex.split(raw)
+    except ValueError as exc:
+        msg = f"Invalid extra-cargo-args value: {exc}"
+        raise ValueError(msg) from exc
 
 
 def run_doctests(
@@ -376,6 +387,7 @@ def run_cucumber_rs_coverage(
     all_features: bool = False,
     all_targets: bool = False,
     allow_no_tests: bool = False,
+    extra_cargo_args: typ.Sequence[str] = (),
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -389,6 +401,7 @@ def run_cucumber_rs_coverage(
         all_features=all_features,
         all_targets=all_targets,
         allow_no_tests=allow_no_tests,
+        extra_cargo_args=extra_cargo_args,
     )
     c_args += [
         "--",
@@ -540,6 +553,7 @@ class _RawInputs:
     github_output: Path | None
     cucumber_rs_features: str
     cucumber_rs_args: str
+    extra_cargo_args: str
     with_cucumber_rs: bool | None
     all_features: bool | None
     all_targets: bool | None
@@ -571,6 +585,7 @@ class FeatureSelection:
     all_targets: bool
     doctests: bool
     allow_no_tests: bool
+    extra_cargo_args: list[str]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -611,6 +626,13 @@ def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTa
 
 def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSelection:
     """Resolve the feature and target selection from inputs and *env*."""
+    extra_cargo_args = raw.extra_cargo_args or env.get("INPUT_EXTRA_CARGO_ARGS", "")
+    try:
+        parsed_extra_cargo_args = _parse_extra_cargo_args(extra_cargo_args)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
     return FeatureSelection(
         features=raw.features or env.get("INPUT_FEATURES", ""),
         with_default=_resolve_bool_input(
@@ -631,6 +653,7 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         allow_no_tests=_resolve_bool_input(
             raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
         ),
+        extra_cargo_args=parsed_extra_cargo_args,
     )
 
 
@@ -667,6 +690,7 @@ def _run_coverage(
         all_features=selection.all_features,
         all_targets=selection.all_targets,
         allow_no_tests=selection.allow_no_tests,
+        extra_cargo_args=selection.extra_cargo_args,
     )
     config_context = (
         ensure_nextest_config() if selection.use_nextest else contextlib.nullcontext()
@@ -692,6 +716,7 @@ def _run_coverage(
                 all_features=selection.all_features,
                 all_targets=selection.all_targets,
                 allow_no_tests=selection.allow_no_tests,
+                extra_cargo_args=selection.extra_cargo_args,
             )
     if selection.doctests:
         run_doctests(
@@ -716,6 +741,7 @@ def main(
     github_output: typ.Annotated[Path | None, typer.Option()] = None,
     cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
     cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
+    extra_cargo_args: typ.Annotated[str, typer.Option()] = "",
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
     all_features: typ.Annotated[bool | None, typer.Option()] = None,
     all_targets: typ.Annotated[bool | None, typer.Option()] = None,
@@ -735,6 +761,7 @@ def main(
         github_output=github_output,
         cucumber_rs_features=cucumber_rs_features,
         cucumber_rs_args=cucumber_rs_args,
+        extra_cargo_args=extra_cargo_args,
         with_cucumber_rs=with_cucumber_rs,
         all_features=all_features,
         all_targets=all_targets,

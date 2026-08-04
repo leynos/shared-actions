@@ -156,6 +156,7 @@ Known limitations:
 | with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                                                                            | no       | `false`                     |
 | cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                                                                      | no       |                             |
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                                                                        | no       |                             |
+| extra-cargo-args      | Shell-parsed arguments passed to `cargo llvm-cov` (for example, `--exclude <crate>`).                                                                                                                                                               | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                                                                    | no       | `auto`                      |
 | python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                                                                              | no       |                             |
 | python-version        | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                                                                           | no       |                             |
@@ -585,6 +586,17 @@ Disable cargo-nextest:
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
+```
+
+Exclude crates from Rust workspace coverage:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
 ```
 
 Run pytest serially (disable pytest-xdist):

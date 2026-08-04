@@ -220,7 +220,9 @@ def test_node_actions_use_pinned_node24_revisions(
     expected_revision: str,
 ) -> None:
     """Node-based dependencies should use the verified Node.js 24 revisions."""
-    assert _get_step(step_name).get("uses") == expected_revision
+    assert _get_step(step_name).get("uses") == expected_revision, (
+        f"{step_name} must use the verified revision {expected_revision}"
+    )
 
 
 def test_install_postgres_deps_is_linux_only() -> None:

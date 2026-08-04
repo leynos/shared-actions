@@ -15,6 +15,8 @@ documents how to use the `install-nixie` action.
   and output tables.
 - [`rust-build-release` README](../.github/actions/rust-build-release/README.md)
   – full input and output tables.
+- [`generate-coverage` README](../.github/actions/generate-coverage/README.md)
+  – full input and output tables.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
 - [`install-mdtablefix` README](../.github/actions/install-mdtablefix/README.md)
@@ -1133,6 +1135,37 @@ degradation from an ordinary miss. A failure is also annotated with `::error`.
 
 The `generate-coverage` composite action runs `cargo llvm-cov` for Rust
 projects and, by default, drives it through `cargo nextest`.
+
+### Rust workspace arguments
+
+Rust coverage includes the full workspace by default. The optional
+`extra-cargo-args` input defaults to empty, so existing callers keep the same
+`--workspace` command. Its value is split with Python's `shlex.split` rules;
+quotes group text into one Cargo argument rather than invoking a shell. For
+example, `--features "feature-a feature-b"` passes the feature list as one
+argument. Unmatched quotes are rejected before Cargo starts.
+
+The parsed arguments follow the manifest and feature-selection flags and come
+before the report-format and output-path arguments. Supplying a package selector
+(`-p`, `--package`, or `--package=<crate>`) replaces the default `--workspace`,
+so Cargo can limit coverage to the selected package. An exclusion such as
+`--exclude <crate>` refines the workspace selection and therefore keeps
+`--workspace` in the command.
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude lint-fixture
+```
+
+When cucumber-rs coverage is requested with `with-cucumber-rs: true` and a
+`cucumber-rs-features` path, the same parsed Cargo arguments reach both the
+primary and cucumber-rs coverage commands. Use `cucumber-rs-args` for arguments
+to the cucumber test command itself; those are parsed separately after Cargo's
+`--` boundary.
 
 `cargo-llvm-cov` itself is installed from the repository's tool manifest
 (`.github/tool-manifest.toml`), at 0.9.0. The installer selects the archive for

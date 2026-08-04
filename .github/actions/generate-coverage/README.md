@@ -106,7 +106,7 @@ For a Cranelift-configured repository, the standard coverage invocation is
 still enough:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     format: cobertura
@@ -509,7 +509,7 @@ cargo is spawned, naming the source that supplied it.
 ## Example
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     format: cobertura
@@ -525,7 +525,7 @@ cargo is spawned, naming the source that supplied it.
 For a single feature:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     features: logging
@@ -534,7 +534,7 @@ For a single feature:
 For multiple features:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     features: logging tracing
@@ -544,7 +544,7 @@ For multiple features:
 Comma-separated feature list:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     features: logging,tracing
@@ -553,7 +553,7 @@ Comma-separated feature list:
 Enable ratcheting:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     with-ratchet: true
@@ -571,7 +571,7 @@ run restores it, so the baseline tracks the latest trunk coverage.
 Enable cucumber-rs:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     with-cucumber-rs: true
@@ -582,13 +582,22 @@ Enable cucumber-rs:
 Disable cargo-nextest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     use-cargo-nextest: false
 ```
 
 Exclude crates from Rust workspace coverage:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
+```
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1
@@ -602,7 +611,7 @@ Exclude crates from Rust workspace coverage:
 Run pytest serially (disable pytest-xdist):
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     pytest-workers: ""
@@ -701,7 +710,7 @@ to `""` to keep the historical serial behaviour.
 Use a nested Cargo manifest:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage
+- uses: ./.github/actions/generate-coverage@v1
   with:
     output-path: coverage.xml
     cargo-manifest: rust-toy-app/Cargo.toml

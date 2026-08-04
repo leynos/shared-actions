@@ -244,7 +244,9 @@ def get_cargo_coverage_cmd(
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
-    args += ["--manifest-path", str(manifest_path), "--workspace"]
+    args += ["--manifest-path", str(manifest_path)]
+    if not _selects_packages(extra_cargo_args):
+        args.append("--workspace")
     if use_nextest and allow_no_tests:
         args.append("--no-tests=pass")
     if all_targets:
@@ -266,6 +268,16 @@ def _parse_extra_cargo_args(raw: str) -> list[str]:
     except ValueError as exc:
         msg = f"Invalid extra-cargo-args value: {exc}"
         raise ValueError(msg) from exc
+
+
+def _selects_packages(args: typ.Sequence[str]) -> bool:
+    """Return whether Cargo arguments select packages explicitly."""
+    return any(
+        (arg.startswith("-p") and not arg.startswith("--"))
+        or arg == "--package"
+        or arg.startswith("--package=")
+        for arg in args
+    )
 
 
 def run_doctests(
@@ -534,6 +546,22 @@ def _resolve_bool_input(
     return _env_bool(envvar, default=default, env=env)
 
 
+def _resolve_string_input(
+    value: str, envvar: str, env: cabc.Mapping[str, str]
+) -> str:
+    """Resolve a CLI string with an environment-variable fallback."""
+    return value or env.get(envvar, "")
+
+
+def _parse_extra_cargo_args_or_exit(raw: str) -> list[str]:
+    """Parse extra Cargo arguments or exit with a configuration error."""
+    try:
+        return _parse_extra_cargo_args(raw)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class _RawInputs:
     """Inputs exactly as the CLI received them, before environment fallbacks.
@@ -626,15 +654,12 @@ def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTa
 
 def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSelection:
     """Resolve the feature and target selection from inputs and *env*."""
-    extra_cargo_args = raw.extra_cargo_args or env.get("INPUT_EXTRA_CARGO_ARGS", "")
-    try:
-        parsed_extra_cargo_args = _parse_extra_cargo_args(extra_cargo_args)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2) from exc
+    extra_cargo_args = _resolve_string_input(
+        raw.extra_cargo_args, "INPUT_EXTRA_CARGO_ARGS", env
+    )
 
     return FeatureSelection(
-        features=raw.features or env.get("INPUT_FEATURES", ""),
+        features=_resolve_string_input(raw.features, "INPUT_FEATURES", env),
         with_default=_resolve_bool_input(
             raw.with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True, env=env
         ),
@@ -653,7 +678,7 @@ def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSe
         allow_no_tests=_resolve_bool_input(
             raw.allow_no_tests, "INPUT_ALLOW_NO_TESTS", default=False, env=env
         ),
-        extra_cargo_args=parsed_extra_cargo_args,
+        extra_cargo_args=_parse_extra_cargo_args_or_exit(extra_cargo_args),
     )
 
 
@@ -665,12 +690,39 @@ def _resolve_cucumber(
         enabled=_resolve_bool_input(
             raw.with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False, env=env
         ),
-        features=raw.cucumber_rs_features or env.get("INPUT_CUCUMBER_RS_FEATURES", ""),
-        args=raw.cucumber_rs_args or env.get("INPUT_CUCUMBER_RS_ARGS", ""),
+        features=_resolve_string_input(
+            raw.cucumber_rs_features, "INPUT_CUCUMBER_RS_FEATURES", env
+        ),
+        args=_resolve_string_input(raw.cucumber_rs_args, "INPUT_CUCUMBER_RS_ARGS", env),
     )
 
 
-def _run_coverage(
+def _run_optional_cucumber_coverage(
+    targets: CoverageTargets,
+    selection: FeatureSelection,
+    cucumber: CucumberSelection,
+    cargo_env: cabc.Mapping[str, str],
+) -> None:
+    """Run cucumber.rs coverage only when enabled and configured."""
+    if cucumber.enabled and cucumber.features:
+        run_cucumber_rs_coverage(
+            targets.out,
+            targets.fmt,
+            selection.features,
+            manifest_path=targets.manifest_path,
+            cargo_env=cargo_env,
+            with_default=selection.with_default,
+            use_nextest=selection.use_nextest,
+            cucumber_rs_features=cucumber.features,
+            cucumber_rs_args=cucumber.args,
+            all_features=selection.all_features,
+            all_targets=selection.all_targets,
+            allow_no_tests=selection.allow_no_tests,
+            extra_cargo_args=selection.extra_cargo_args,
+        )
+
+
+def _run_primary_coverage(
     targets: CoverageTargets,
     selection: FeatureSelection,
     cucumber: CucumberSelection,
@@ -702,22 +754,7 @@ def _run_coverage(
             env_overrides=cargo_env,
             env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
         )
-        if cucumber.requested:
-            run_cucumber_rs_coverage(
-                targets.out,
-                targets.fmt,
-                selection.features,
-                manifest_path=targets.manifest_path,
-                cargo_env=cargo_env,
-                with_default=selection.with_default,
-                use_nextest=selection.use_nextest,
-                cucumber_rs_features=cucumber.features,
-                cucumber_rs_args=cucumber.args,
-                all_features=selection.all_features,
-                all_targets=selection.all_targets,
-                allow_no_tests=selection.allow_no_tests,
-                extra_cargo_args=selection.extra_cargo_args,
-            )
+        _run_optional_cucumber_coverage(targets, selection, cucumber, cargo_env)
     if selection.doctests:
         run_doctests(
             selection.features,
@@ -782,7 +819,7 @@ def main(
     )
     targets.out.parent.mkdir(parents=True, exist_ok=True)
 
-    stdout = _run_coverage(targets, selection, cucumber)
+    stdout = _run_primary_coverage(targets, selection, cucumber)
     percent = _compute_coverage_percent(targets.fmt, targets.out, stdout)
     previous = read_previous_coverage(targets.baseline_file)
     _report_coverage(percent, previous, targets.github_output, targets.out)

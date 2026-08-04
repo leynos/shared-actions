@@ -2103,6 +2103,31 @@ running warnings-denied coverage depend on this; the guarantee is asserted in
 [`test_generate_coverage_feature_selection.py`](../.github/actions/generate-coverage/tests/test_generate_coverage_feature_selection.py),
 which also holds the manifest contract and the rendered cargo commands.
 
+### Rust coverage argument parsing and propagation
+
+The `extra-cargo-args` action input reaches `run_rust.py` as
+`INPUT_EXTRA_CARGO_ARGS`. `main` uses the explicit CLI value when present,
+otherwise the environment value, and parses the resulting string once with
+Python's `shlex.split`. This preserves shell-style token grouping for values
+such as `--features "feature-a feature-b"`; malformed quoting is reported as
+`Invalid extra-cargo-args value` and exits with status 2 before Cargo starts.
+
+`get_cargo_coverage_cmd` builds the Rust command with
+`--manifest-path <manifest>` and adds `--workspace` by default, followed by
+default-feature and feature flags. It then appends the parsed
+`extra_cargo_args` sequence before the coverage format and output-path
+arguments. The command omits `--workspace` when the sequence contains a Cargo
+package selector (`-p`, `--package`, or `--package=<crate>`), allowing explicit
+package selection to replace the default. `--exclude <crate>` retains
+`--workspace` because the exclusion refines that selection.
+
+When cucumber.rs coverage is requested with `with-cucumber-rs` and a
+`cucumber-rs-features` path, `main` passes the same parsed sequence to
+`run_cucumber_rs_coverage`, which uses the same command builder before
+appending the cucumber test arguments. Extra Cargo arguments consequently
+apply to both the regular and cucumber.rs coverage runs; `cucumber-rs-args` is
+parsed separately for the command after Cargo's `--` boundary.
+
 ### `run_rust.py` boundaries
 
 The script is arranged so that ambient state is read once and every other
@@ -2115,7 +2140,8 @@ function is a function of its arguments.
 | `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
 | `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
+| `_run_primary_coverage`                                      | Runs primary coverage, delegates optional cucumber coverage, then runs requested doc tests. |
+| `_run_optional_cucumber_coverage`                            | Runs cucumber coverage only when enabled with a feature path.                         |
 | `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
 | `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
 <!-- markdownlint-enable MD013 -->

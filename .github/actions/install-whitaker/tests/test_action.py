@@ -206,45 +206,42 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     )
 
 
-def test_reports_cargo_binstall_failure(tmp_path: Path) -> None:
-    """A cargo-binstall failure should be actionable and non-zero."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallScenario(
-            binstall_available=True,
-            fail_binstall=True,
+@pytest.mark.parametrize(
+    ("scenario", "expected_error"),
+    [
+        pytest.param(
+            _InstallScenario(
+                binstall_available=True,
+                fail_binstall=True,
+            ),
+            "cargo binstall failed while installing whitaker-installer",
+            id="cargo-binstall",
         ),
-    )
+        pytest.param(
+            _InstallScenario(
+                binstall_available=False,
+                fail_install=True,
+            ),
+            "cargo install failed while installing whitaker-installer",
+            id="cargo-install",
+        ),
+        pytest.param(
+            _InstallScenario(
+                binstall_available=True,
+                fail_installer=True,
+            ),
+            "whitaker-installer failed while installing the Dylint suite",
+            id="whitaker-installer",
+        ),
+    ],
+)
+def test_reports_install_failure(
+    tmp_path: Path,
+    scenario: _InstallScenario,
+    expected_error: str,
+) -> None:
+    """Installer failures should be actionable and non-zero."""
+    result = _run_install_script(tmp_path, scenario)
 
     assert result.returncode != 0
-    assert "cargo binstall failed while installing whitaker-installer" in result.stderr
-
-
-def test_reports_cargo_install_failure(tmp_path: Path) -> None:
-    """A cargo install fallback failure should be actionable and non-zero."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallScenario(
-            binstall_available=False,
-            fail_install=True,
-        ),
-    )
-
-    assert result.returncode != 0
-    assert "cargo install failed while installing whitaker-installer" in (result.stderr)
-
-
-def test_reports_whitaker_installer_failure(tmp_path: Path) -> None:
-    """A suite installer failure should be actionable and non-zero."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallScenario(
-            binstall_available=True,
-            fail_installer=True,
-        ),
-    )
-
-    assert result.returncode != 0
-    assert "whitaker-installer failed while installing the Dylint suite" in (
-        result.stderr
-    )
+    assert expected_error in result.stderr

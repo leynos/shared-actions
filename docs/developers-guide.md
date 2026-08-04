@@ -153,6 +153,33 @@ act cannot execute the real `setup-uv` path on the local runner, document the
 reason and keep the unit or manifest tests that assert the pinned reference in
 sync with the new SHA.
 
+## `upload-codescene-coverage` check-mode contract
+
+The `gate-applicability` step runs only when `inputs.mode` is `check`. It
+compares the non-empty `github.base_ref` with
+`github.event.repository.default_branch`. When they differ, it writes
+`skip=true` to `GITHUB_OUTPUT` and emits a warning explaining that the base is
+not an analysed branch. An empty base does not trigger this skip, which keeps
+the applicability check usable outside a pull-request event.
+
+The applicability output is the boundary for the rest of the action. Every
+following step — coverage-path resolution, installer download, GitHub
+artefact upload, cache and CLI installation, PATH setup, and the upload/check
+commands — must require
+`steps.gate-applicability.outputs.skip != 'true'`. Do not add a check-mode
+step outside that guard unless it is deliberately meant to run for skipped
+pull requests.
+
+The check command is an observable diagnostic contract. After validating the
+CLI, coverage file, and LCOV suffix, run
+`cs-coverage check --verbose --coverage-files "$file"` directly so its native
+standard-output and standard-error streams remain intact. Put the invocation
+in an `if` condition; in the failure branch, capture `$?` as the first
+command, add the uploaded-base explanation when the status is `2`, then
+`exit "$status"`. This preserves every CLI failure status rather than
+masking it with diagnostic handling. The behavioural contract is covered by
+the [check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
+
 ## `setup-rust` cargo-binstall Pinning
 
 The `setup-rust` action pins `cargo-binstall` by downloading

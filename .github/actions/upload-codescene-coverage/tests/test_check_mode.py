@@ -50,8 +50,12 @@ def _run_applicability_check(
     )
 
 
-def _run_gate_check(tmp_path: Path) -> subprocess.CompletedProcess[str]:
-    """Execute the gate shell fragment with a failing CLI stub."""
+def _run_gate_check(
+    tmp_path: Path,
+    *,
+    exit_status: int = 2,
+) -> subprocess.CompletedProcess[str]:
+    """Execute the gate shell fragment with a configurable CLI stub."""
     if sys.platform == "win32":
         pytest.skip("bash integration tests are not supported on Windows")
     bash = shutil.which("bash")
@@ -73,7 +77,7 @@ def _run_gate_check(tmp_path: Path) -> subprocess.CompletedProcess[str]:
         "#!/usr/bin/env bash\n"
         "printf 'arguments: %s\\n' \"$*\"\n"
         "printf 'detailed gate diagnostic\\n'\n"
-        "exit 2\n",
+        f"exit {exit_status}\n",
         encoding="utf-8",
     )
     cli.chmod(0o755)
@@ -106,11 +110,15 @@ def test_stacked_pull_request_skips_gate_with_warning(tmp_path: Path) -> None:
     assert "main" in result.stdout
 
 
-def test_default_branch_pull_request_remains_applicable(tmp_path: Path) -> None:
-    """A default-branch pull request continues to the CodeScene gate."""
+@pytest.mark.parametrize("base_ref", ["", "main"])
+def test_non_stacked_context_remains_applicable(
+    tmp_path: Path,
+    base_ref: str,
+) -> None:
+    """A non-PR or default-branch context continues to the CodeScene gate."""
     result = _run_applicability_check(
         tmp_path,
-        base_ref="main",
+        base_ref=base_ref,
         default_branch="main",
     )
 
@@ -135,13 +143,31 @@ def test_skipped_gate_suppresses_all_following_steps() -> None:
         ]
 
 
-def test_gate_failure_surfaces_verbose_diagnostic_and_preserves_status(
+def test_gate_success_streams_verbose_diagnostic(
     tmp_path: Path,
 ) -> None:
-    """A failed CLI check exposes details and retains the CLI return code."""
-    result = _run_gate_check(tmp_path)
+    """A successful CLI check streams its verbose diagnostic to stdout."""
+    result = _run_gate_check(tmp_path, exit_status=0)
 
-    assert result.returncode == 2
-    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stderr
-    assert "detailed gate diagnostic" in result.stderr
-    assert "pull request base 'main' must have coverage uploaded" in result.stderr
+    assert result.returncode == 0
+    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
+    assert "detailed gate diagnostic" in result.stdout
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("exit_status", [1, 2, 7])
+def test_gate_failure_streams_diagnostic_and_preserves_status(
+    tmp_path: Path,
+    exit_status: int,
+) -> None:
+    """A failed CLI check streams details and retains its return code."""
+    result = _run_gate_check(tmp_path, exit_status=exit_status)
+
+    assert result.returncode == exit_status
+    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
+    assert "detailed gate diagnostic" in result.stdout
+    hint = "pull request base 'main' must have coverage uploaded"
+    if exit_status == 2:
+        assert hint in result.stderr
+    else:
+        assert result.stderr == ""

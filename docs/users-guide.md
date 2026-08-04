@@ -1,8 +1,9 @@
-# Users' Guide: Controlling `RUSTFLAGS` in the Rust Actions
+# Users' Guide: Rust Flags and CodeScene Coverage
 
-This guide explains the `rustflags` input exposed by the `setup-rust` and
-`rust-build-release` composite actions, why it exists, and how to configure it
-for common scenarios.
+This guide explains the `rustflags` inputs exposed by the `setup-rust` and
+`rust-build-release` composite actions, and the CodeScene coverage modes
+provided by `upload-codescene-coverage`. It covers why these inputs and modes
+exist and how to configure them for common scenarios.
 
 ## Related documents
 
@@ -122,3 +123,26 @@ Pass an extra flag required by the source tree:
 - Use `rust-build-release`'s `rustflags` input when using the build action,
   which pins its own nested `setup-rust` step and exports the value before
   that step runs.
+
+## CodeScene coverage checks
+
+The [`upload-codescene-coverage` action][codescene-coverage-action] supports
+`upload` mode for analysed branches and `check` mode for the
+pull-request changed-line coverage gate. In `check` mode, check out the full
+history (`fetch-depth: 0`) and provide the CodeScene `project-url`; the CLI
+uses the merge base to evaluate the gate. For LCOV, the report path must end
+in `.info`.
+
+The pull request's base must already have coverage uploaded to CodeScene. If
+that baseline is unavailable, `cs-coverage` cannot evaluate the gate; the
+action prints the CLI's verbose diagnostic, adds the uploaded-base explanation
+for status 2, and preserves the CLI's original exit status.
+
+Checks for stacked pull requests are intentionally skipped. When the pull
+request base is not the repository's default branch, the action emits a
+warning and skips the remaining check-mode steps, including CLI installation,
+artefact upload, and the coverage gate. This lets a stacked pull request pass
+without claiming that its changed-line coverage was evaluated; rebase or merge
+it onto the default branch before relying on the gate result.
+
+[codescene-coverage-action]: ../.github/actions/upload-codescene-coverage/README.md

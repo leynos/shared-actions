@@ -207,5 +207,15 @@ runs:
               ;;
           esac
         fi
-        cs-coverage check --coverage-files "$file"
+        if diagnostics=$(cs-coverage check --verbose --coverage-files "$file" 2>&1); then
+          printf '%s\n' "$diagnostics"
+        else
+          status=$?
+          printf '%s\n' "$diagnostics" >&2
+          if [ "$status" -eq 2 ]; then
+            printf '%s\n' \
+              "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2
+          fi
+          exit "$status"
+        fi
       shell: bash

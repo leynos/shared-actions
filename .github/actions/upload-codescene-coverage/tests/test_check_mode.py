@@ -50,6 +50,47 @@ def _run_applicability_check(
     )
 
 
+def _run_gate_check(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """Execute the gate shell fragment with a failing CLI stub."""
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+
+    step = next(
+        step
+        for step in _steps()
+        if step.get("name") == "Check coverage against CodeScene gates"
+    )
+    script = str(step["run"])
+    script = script.replace("${{ steps.cov-file.outputs.path }}", "coverage.xml")
+    script = script.replace("${{ inputs.format }}", "cobertura")
+
+    (tmp_path / "coverage.xml").write_text("<coverage/>\n", encoding="utf-8")
+    cli = tmp_path / "cs-coverage"
+    cli.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'arguments: %s\\n' \"$*\"\n"
+        "printf 'detailed gate diagnostic\\n'\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    cli.chmod(0o755)
+    env = os.environ | {
+        "GITHUB_BASE_REF": "main",
+        "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+    }
+    return subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-c", script],
+        check=False,
+        capture_output=True,
+        cwd=tmp_path,
+        env=env,
+        text=True,
+    )
+
+
 def test_stacked_pull_request_skips_gate_with_warning(tmp_path: Path) -> None:
     """A non-default pull request base is explicitly skipped."""
     result = _run_applicability_check(
@@ -92,3 +133,15 @@ def test_skipped_gate_suppresses_all_following_steps() -> None:
         assert "steps.gate-applicability.outputs.skip != 'true'" in condition, step[
             "name"
         ]
+
+
+def test_gate_failure_surfaces_verbose_diagnostic_and_preserves_status(
+    tmp_path: Path,
+) -> None:
+    """A failed CLI check exposes details and retains the CLI return code."""
+    result = _run_gate_check(tmp_path)
+
+    assert result.returncode == 2
+    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stderr
+    assert "detailed gate diagnostic" in result.stderr
+    assert "pull request base 'main' must have coverage uploaded" in result.stderr

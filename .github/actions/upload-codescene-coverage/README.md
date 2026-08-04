@@ -38,7 +38,9 @@ diffs the PR against its merge base — the job must check out with
 report file `*.info` because the CLI infers the format from the file
 extension. When a pull request targets a branch other than the repository's
 default branch, the action skips this gate with a warning because CodeScene has
-no uploaded baseline for that merge base.
+no uploaded baseline for that merge base. If the CLI fails, the action prints
+its verbose diagnostic and preserves its exit status instead of referring to
+logs that are not exposed by the workflow.
 
 ## Environment variables
 

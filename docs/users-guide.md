@@ -14,6 +14,14 @@ for common scenarios.
 - [`rust-build-release` README](../.github/actions/rust-build-release/README.md)
   – full input and output tables.
 
+## Node.js 24 action dependencies
+
+`setup-rust` pins its Node.js-backed cache, sccache and MSYS2 dependencies to
+revisions that support the GitHub Actions Node.js 24 runtime. This removes the
+Node.js 20 deprecation warnings without changing the action's inputs or cache
+configuration. See the [`setup-rust` README](../.github/actions/setup-rust/README.md)
+for the pinned revisions and cache behaviour.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

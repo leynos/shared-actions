@@ -73,6 +73,10 @@
 
 ## Unreleased (check mode)
 
+- Skip the changed-line coverage gate with a warning when a pull request
+  targets a branch other than the repository default. CodeScene has no
+  uploaded baseline for such stacked-pull-request merge bases, so the gate
+  cannot produce an actionable result.
 - Add a `mode` input (`upload` | `check`). CodeScene accepts `upload`
   only for branches the project analyses (typically `main`); the
   pull-request coverage gate is driven by `cs-coverage check`, which

@@ -14,6 +14,7 @@ GitHub Actions
 | Export Cargo metadata     | `.github/actions/export-cargo-metadata`                                            | v1           |
 | Export Postgres URL       | `.github/actions/export-postgres-url`                                              | v1           |
 | Generate coverage         | `.github/actions/generate-coverage`                                                | v1           |
+| Install Nixie             | `.github/actions/install-nixie`                                                    | unreleased   |
 | Linux packages            | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package             | `.github/actions/macos-package`                                                    | v1           |
 | Ratchet coverage          | `.github/actions/ratchet-coverage`                                                 | v1           |
@@ -26,6 +27,9 @@ GitHub Actions
 | Upload release assets     | `.github/actions/upload-release-assets`                                            | v1           |
 | Validate Linux packages   | `.github/actions/validate-linux-packages`                                          | v1           |
 | Windows package           | [`./.github/actions/windows-package`](./.github/actions/windows-package/README.md) | v0           |
+
+See the [Install Nixie guide](docs/users-guide.md#install-nixie) for usage,
+version inputs, and failure behaviour.
 
 ## Reusable workflows
 

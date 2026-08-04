@@ -1,4 +1,4 @@
-# Users' Guide: Controlling `RUSTFLAGS` in the Rust Actions
+# Users' Guide
 
 This guide explains the `rustflags` input exposed by the `setup-rust` and
 `rust-build-release` composite actions, why it exists, and how to configure it
@@ -122,3 +122,56 @@ Pass an extra flag required by the source tree:
 - Use `rust-build-release`'s `rustflags` input when using the build action,
   which pins its own nested `setup-rust` step and exports the value before
   that step runs.
+
+## Install Nixie
+
+The `install-nixie` action installs pinned Nixie and Merman CLI releases for
+Mermaid validation. The runner must already provide `cargo` and `uv` on
+`PATH`.
+
+To use the action from this repository, check out the repository before calling
+the local action:
+
+```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+- name: Install Nixie
+  uses: ./.github/actions/install-nixie
+```
+
+To use the published action:
+
+```yaml
+- name: Install Nixie
+  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+```
+
+The action accepts three optional version inputs:
+
+| Input            | Default | Purpose                            |
+| ---------------- | ------- | ---------------------------------- |
+| `nixie-version`  | `1.1.0` | Nixie CLI release                  |
+| `merman-version` | `0.7.0` | Merman CLI release                 |
+| `python-version` | `3.14`  | Python used by uv to install Nixie |
+
+Override the pins when validating another supported toolchain combination:
+
+```yaml
+- name: Install Nixie
+  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+  with:
+    nixie-version: "1.2.0"
+    merman-version: "0.8.0"
+    python-version: "3.13"
+```
+
+When `cargo binstall` is available, the action installs Merman with a locked
+binary package. If the availability probe fails, it falls back to a locked
+`cargo install` build. Missing `cargo` or `uv`, and failures from either
+installer, stop the action immediately. A failed installation does not export a
+PATH entry.
+
+After both installations succeed, the action appends the directory returned by
+`uv tool dir --bin` to `GITHUB_PATH`. Later workflow steps can therefore invoke
+`nixie` directly.

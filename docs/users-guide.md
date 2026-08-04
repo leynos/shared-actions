@@ -13,6 +13,8 @@ for common scenarios.
   and output tables.
 - [`rust-build-release` README](../.github/actions/rust-build-release/README.md)
   – full input and output tables.
+- [`generate-coverage` README](../.github/actions/generate-coverage/README.md)
+  – full input and output tables.
 
 ## The problem
 
@@ -115,6 +117,39 @@ Pass an extra flag required by the source tree:
     bin-name: rust-toy-app
     rustflags: "-Zpolonius=next"
 ```
+
+## `generate-coverage` Rust workspace arguments
+
+Rust coverage keeps its existing full-workspace behaviour by default. The
+action passes `--manifest-path <manifest> --workspace` to `cargo llvm-cov` (or
+`cargo llvm-cov nextest` when nextest is enabled), so omitting
+`extra-cargo-args` does not change which workspace members are covered.
+
+`extra-cargo-args` accepts one string and tokenizes it with Python's
+`shlex.split` shell-quoting rules. Quote an argument that contains spaces, and
+the action will pass it to Cargo as one token. Malformed quoting fails before
+Cargo starts. The resulting arguments are appended after the manifest,
+workspace and feature flags, but before the coverage format and output path.
+Explicit `-p` or `--package` selection replaces the default `--workspace`;
+`--exclude` retains `--workspace` because it refines the workspace selection.
+For example, exclude two crates (including a crate whose name contains a space)
+with:
+
+```yaml
+- uses: ./.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude "coverage helper"
+```
+
+When `with-cucumber-rs: true` is enabled, the same parsed
+`extra-cargo-args` tokens are propagated to the optional cucumber.rs coverage
+run. Exclusions and other Cargo arguments therefore apply consistently to
+both the regular and cucumber.rs runs. Use `cucumber-rs-args` for arguments
+intended for the cucumber test command itself; those are parsed separately
+after Cargo's `--` boundary.
 
 ## Which should I use?
 

@@ -159,7 +159,9 @@ def get_cargo_coverage_cmd(
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
-    args += ["--manifest-path", str(manifest_path), "--workspace"]
+    args += ["--manifest-path", str(manifest_path)]
+    if not _selects_packages(extra_cargo_args):
+        args.append("--workspace")
     if fmt not in ("lcov", "cobertura"):
         args.append("--summary-only")
     if not with_default:
@@ -178,6 +180,16 @@ def _parse_extra_cargo_args(raw: str) -> list[str]:
     except ValueError as exc:
         msg = f"Invalid extra-cargo-args value: {exc}"
         raise ValueError(msg) from exc
+
+
+def _selects_packages(args: typ.Sequence[str]) -> bool:
+    """Return whether Cargo arguments select packages explicitly."""
+    return any(
+        (arg.startswith("-p") and not arg.startswith("--"))
+        or arg == "--package"
+        or arg.startswith("--package=")
+        for arg in args
+    )
 
 
 def extract_percent(output: str) -> str:
@@ -413,6 +425,107 @@ def _resolve_bool_input(
     return _env_bool(envvar, default=default)
 
 
+def _resolve_manifest_path(manifest_path: Path | None) -> Path:
+    """Resolve an explicit or detected Cargo manifest path."""
+    if manifest_path is not None:
+        return manifest_path
+    detected_manifest = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
+    return Path(detected_manifest or "Cargo.toml")
+
+
+def _resolve_string_input(value: str, envvar: str) -> str:
+    """Resolve a CLI string with an environment-variable fallback."""
+    return value or os.getenv(envvar, "")
+
+
+def _parse_extra_cargo_args_or_exit(raw: str) -> list[str]:
+    """Parse extra Cargo arguments or exit with a configuration error."""
+    try:
+        return _parse_extra_cargo_args(raw)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+
+
+def _run_optional_cucumber_coverage(
+    out: Path,
+    fmt: str,
+    features: str,
+    *,
+    manifest_path: Path,
+    cargo_env: typ.Mapping[str, str],
+    with_default: bool,
+    use_nextest: bool,
+    with_cucumber_rs: bool,
+    cucumber_rs_features: str,
+    cucumber_rs_args: str,
+    extra_cargo_args: typ.Sequence[str],
+) -> None:
+    """Run optional cucumber-rs coverage when it is fully configured."""
+    if with_cucumber_rs and cucumber_rs_features:
+        run_cucumber_rs_coverage(
+            out,
+            fmt,
+            features,
+            manifest_path=manifest_path,
+            cargo_env=cargo_env,
+            with_default=with_default,
+            use_nextest=use_nextest,
+            cucumber_rs_features=cucumber_rs_features,
+            cucumber_rs_args=cucumber_rs_args,
+            extra_cargo_args=extra_cargo_args,
+        )
+
+
+def _run_primary_coverage(
+    out: Path,
+    fmt: str,
+    features: str,
+    *,
+    manifest_path: Path,
+    with_default: bool,
+    use_nextest: bool,
+    with_cucumber_rs: bool,
+    cucumber_rs_features: str,
+    cucumber_rs_args: str,
+    extra_cargo_args: typ.Sequence[str],
+) -> str:
+    """Run primary coverage and any configured cucumber-rs follow-up."""
+    args = get_cargo_coverage_cmd(
+        fmt,
+        out,
+        features,
+        manifest_path=manifest_path,
+        with_default=with_default,
+        use_nextest=use_nextest,
+        extra_cargo_args=extra_cargo_args,
+    )
+    cargo_env = get_cargo_coverage_env(manifest_path)
+    config_context = (
+        ensure_nextest_config() if use_nextest else contextlib.nullcontext()
+    )
+    with config_context:
+        stdout = _run_cargo(
+            args,
+            env_overrides=cargo_env,
+            env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
+        )
+        _run_optional_cucumber_coverage(
+            out,
+            fmt,
+            features,
+            manifest_path=manifest_path,
+            cargo_env=cargo_env,
+            with_default=with_default,
+            use_nextest=use_nextest,
+            with_cucumber_rs=with_cucumber_rs,
+            cucumber_rs_features=cucumber_rs_features,
+            cucumber_rs_args=cucumber_rs_args,
+            extra_cargo_args=extra_cargo_args,
+        )
+    return stdout
+
+
 def main(
     output_path: typ.Annotated[Path | None, typer.Option()] = None,
     features: typ.Annotated[str, typer.Option()] = "",
@@ -434,20 +547,14 @@ def main(
     lang = lang or _required_env("DETECTED_LANG")
     fmt = fmt or _required_env("DETECTED_FMT")
     github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
-    features = features or os.getenv("INPUT_FEATURES", "")
-    if manifest_path is None:
-        detected_manifest = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
-        manifest_path = Path(detected_manifest or "Cargo.toml")
-    cucumber_rs_features = cucumber_rs_features or os.getenv(
-        "INPUT_CUCUMBER_RS_FEATURES", ""
+    features = _resolve_string_input(features, "INPUT_FEATURES")
+    manifest_path = _resolve_manifest_path(manifest_path)
+    cucumber_rs_features = _resolve_string_input(
+        cucumber_rs_features, "INPUT_CUCUMBER_RS_FEATURES"
     )
-    cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
-    extra_cargo_args = extra_cargo_args or os.getenv("INPUT_EXTRA_CARGO_ARGS", "")
-    try:
-        parsed_extra_cargo_args = _parse_extra_cargo_args(extra_cargo_args)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2) from exc
+    cucumber_rs_args = _resolve_string_input(cucumber_rs_args, "INPUT_CUCUMBER_RS_ARGS")
+    extra_cargo_args = _resolve_string_input(extra_cargo_args, "INPUT_EXTRA_CARGO_ARGS")
+    parsed_extra_cargo_args = _parse_extra_cargo_args_or_exit(extra_cargo_args)
     with_default = _resolve_bool_input(
         with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
     )
@@ -460,39 +567,18 @@ def main(
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    args = get_cargo_coverage_cmd(
-        fmt,
+    stdout = _run_primary_coverage(
         out,
+        fmt,
         features,
         manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
+        with_cucumber_rs=with_cucumber_rs,
+        cucumber_rs_features=cucumber_rs_features,
+        cucumber_rs_args=cucumber_rs_args,
         extra_cargo_args=parsed_extra_cargo_args,
     )
-    config_context = (
-        ensure_nextest_config() if use_nextest else contextlib.nullcontext()
-    )
-    cargo_env = get_cargo_coverage_env(manifest_path)
-    with config_context:
-        stdout = _run_cargo(
-            args,
-            env_overrides=cargo_env,
-            env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
-        )
-
-        if with_cucumber_rs and cucumber_rs_features:
-            run_cucumber_rs_coverage(
-                out,
-                fmt,
-                features,
-                manifest_path=manifest_path,
-                cargo_env=cargo_env,
-                with_default=with_default,
-                use_nextest=use_nextest,
-                cucumber_rs_features=cucumber_rs_features,
-                cucumber_rs_args=cucumber_rs_args,
-                extra_cargo_args=parsed_extra_cargo_args,
-            )
     percent = _compute_coverage_percent(fmt, out, stdout)
     previous = read_previous_coverage(baseline_file)
     _report_coverage(percent, previous, github_output, out)

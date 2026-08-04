@@ -104,6 +104,15 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Remove the preinstalled stable toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain uninstall stable || true
+          if rustup run stable rustc --version >/dev/null 2>&1; then
+            echo "stable remained installed before setup-rust" >&2
+            exit 1
+          fi
       - name: Setup stable Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -116,7 +125,16 @@ jobs:
           set -euo pipefail
           rustc_version="$(rustc --version)"
           cargo_version="$(cargo --version)"
+          active_toolchain="$(rustup show active-toolchain)"
+          case "${active_toolchain}" in
+            stable-*) ;;
+            *)
+              echo "expected stable toolchain, got: ${active_toolchain}" >&2
+              exit 1
+              ;;
+          esac
           test -n "${rustc_version}"
           test -n "${cargo_version}"
+          echo "setup_rust_toolchain=[${active_toolchain}]"
           echo "setup_rust_rustc=[${rustc_version}]"
           echo "setup_rust_cargo=[${cargo_version}]"

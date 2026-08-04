@@ -18,6 +18,15 @@ It also documents how to use the `install-nixie` action.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
 
+
+## Node.js 24 action dependencies
+
+`setup-rust` pins its Node.js-backed cache, sccache and MSYS2 dependencies to
+revisions that support the GitHub Actions Node.js 24 runtime. This removes the
+Node.js 20 deprecation warnings without changing the action's inputs or cache
+configuration. See the [`setup-rust` README](../.github/actions/setup-rust/README.md)
+for the pinned revisions and cache behaviour.
+
 ## `install-whitaker` action
 
 The `install-whitaker` composite action installs the `whitaker-installer`

@@ -10,7 +10,6 @@ visible to a later step.
 from __future__ import annotations
 
 import re
-import typing as typ
 from pathlib import Path
 
 import pytest
@@ -51,29 +50,52 @@ def _run(job: str, artefact_dir: Path) -> str:
 
 def test_setup_rust_toolchain_workflow_shape() -> None:
     """The runner job exercises the intended local setup-rust path."""
-    workflow = typ.cast(
-        "dict[str, typ.Any]",
-        yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")),
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), f"{WORKFLOW_PATH} must contain a YAML mapping"
+    jobs = workflow.get("jobs")
+    assert isinstance(jobs, dict), f"{WORKFLOW_PATH} must define a jobs mapping"
+    job = jobs.get("setup-rust-toolchain-available")
+    assert isinstance(job, dict), (
+        "workflow must define the setup-rust-toolchain-available job"
     )
-    steps = workflow["jobs"]["setup-rust-toolchain-available"]["steps"]
-    setup_step = next(step for step in steps if step.get("name") == "Setup stable Rust")
-    assert setup_step["uses"] == "./.github/actions/setup-rust"
+    steps = job.get("steps")
+    assert isinstance(steps, list), (
+        "setup-rust-toolchain-available must define a steps collection"
+    )
+    assert all(isinstance(step, dict) for step in steps), (
+        "every setup-rust-toolchain-available step must be a mapping"
+    )
+
+    setup_steps = [step for step in steps if step.get("name") == "Setup stable Rust"]
+    assert len(setup_steps) == 1, "expected exactly one Setup stable Rust step"
+    setup_step = setup_steps[0]
+    assert setup_step["uses"] == "./.github/actions/setup-rust", (
+        "Setup stable Rust must call the local setup-rust action"
+    )
     assert setup_step["with"] == {
         "toolchain": "stable",
         "install-binstall": "false",
         "use-sccache": "false",
-    }
+    }, "Setup stable Rust must select the isolated stable toolchain path"
 
-    verify_step = next(
+    verify_steps = [
         step
         for step in steps
         if step.get("name") == "Verify Rust tools remain available"
+    ]
+    assert len(verify_steps) == 1, (
+        "expected exactly one Verify Rust tools remain available step"
     )
+    verify_step = verify_steps[0]
     script = verify_step["run"]
-    assert "rustc --version" in script
-    assert "cargo --version" in script
-    assert 'test -n "${rustc_version}"' in script
-    assert 'test -n "${cargo_version}"' in script
+    assert "rustc --version" in script, "verification must execute rustc"
+    assert "cargo --version" in script, "verification must execute cargo"
+    assert 'test -n "${rustc_version}"' in script, (
+        "verification must assert that rustc returned a version"
+    )
+    assert 'test -n "${cargo_version}"' in script, (
+        "verification must assert that cargo returned a version"
+    )
 
 
 @skip_unless_act
@@ -152,6 +174,9 @@ def test_setup_rust_exposes_rust_tools_to_later_steps(artefact_dir: Path) -> Non
     """A supported Linux setup leaves rustc and cargo available downstream."""
     logs = _run("setup-rust-toolchain-available", artefact_dir)
 
+    assert re.search(r"setup_rust_toolchain=\[stable-[^]]+", logs), (
+        f"setup-rust did not select the required stable toolchain:\n{logs}"
+    )
     assert re.search(r"setup_rust_rustc=\[rustc \d+\.\d+\.\d+", logs), (
         f"rustc was not available after setup-rust:\n{logs}"
     )

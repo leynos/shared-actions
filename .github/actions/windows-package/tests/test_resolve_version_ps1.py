@@ -43,11 +43,17 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "resolve_version
 
 
 def _invoke_get_msi_version(candidate: str) -> str | None:
-    """Execute Get-MsiVersion with *candidate* and normalize the result."""
+    """Execute Get-MsiVersion with *candidate* and normalize the result.
+
+    Warnings are silenced so the semver-metadata discard notice cannot leak
+    into the captured stdout this helper parses; the warning itself is
+    asserted separately via the full-script tests.
+    """
     literal = candidate.replace("'", "''")
     command = textwrap.dedent(
         f"""
         . '{SCRIPT_PATH}';
+        $WarningPreference = 'SilentlyContinue';
         $result = Get-MsiVersion('{literal}');
         if ($null -eq $result) {{
             Write-Output '__NULL__'

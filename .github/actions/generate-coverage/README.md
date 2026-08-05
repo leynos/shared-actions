@@ -156,7 +156,7 @@ Known limitations:
 | with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                                                                            | no       | `false`                     |
 | cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                                                                      | no       |                             |
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                                                                        | no       |                             |
-| extra-cargo-args      | Shell-parsed arguments passed to `cargo llvm-cov` (for example, `--exclude <crate>`).                                                                                                                                                               | no       |                             |
+| extra-cargo-args      | Shell-parsed arguments passed to `cargo llvm-cov`; package selectors suppress the default `--workspace`.                                                                                                                                            | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                                                                    | no       | `auto`                      |
 | python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                                                                              | no       |                             |
 | python-version        | Interpreter for the Python coverage venv. Empty uses `UV_PYTHON`, then `.python-version`, then the `python3` on `PATH`. Its major.minor keys the Python ratchet baseline.                                                                           | no       |                             |
@@ -607,6 +607,21 @@ Exclude crates from Rust workspace coverage:
       --exclude rustc-proxy
       --exclude dylint-ui-fixture
 ```
+
+Measure a single crate instead of the whole workspace:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: --package coverage-helper
+```
+
+The action passes `--workspace` by default so that `--exclude` has a package
+set to refine. When `extra-cargo-args` contains a package selector (`-p`,
+`-p<crate>`, `--package`, or `--package=<crate>`), the default `--workspace` is
+omitted so the selection narrows the run. Without that suppression, Cargo would
+build and report the whole workspace regardless of `--package`.
 
 Run pytest serially (disable pytest-xdist):
 

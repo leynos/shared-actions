@@ -3,10 +3,11 @@
 ## Unreleased
 
 - Add an optional `extra-cargo-args` input whose shell-parsed tokens are
-  appended to every `cargo llvm-cov` invocation. Callers can use it for
-  workspace selection flags such as `--exclude <crate>`, including in the
-  optional cucumber-rs coverage run. Leaving it empty preserves the existing
-  command.
+  appended to every `cargo llvm-cov` invocation, including the optional
+  cucumber-rs run. `--workspace` remains the default; package selectors (`-p`,
+  `--package`, or `--package=<crate>`) suppress it to narrow coverage, while
+  `--exclude <crate>` retains it to refine the workspace selection. Leaving the
+  input empty preserves the existing command.
 
 - Never archive or reuse an interpreter-bound uv script environment. `uv run`
   builds each PEP 723 script environment under `environments-v2`, bound to the

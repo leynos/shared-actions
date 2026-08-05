@@ -112,6 +112,10 @@ def script_runner(
         ("1.2.3", "1.2.3"),
         ("  v01.02  ", "1.2.0"),
         ("3", "3.0.0"),
+        ("0.1.0-beta1", "0.1.0"),
+        ("v2.0.0-rc.1", "2.0.0"),
+        ("1.2.3+build5", "1.2.3"),
+        ("1.2.3-beta+exp", "1.2.3"),
     ],
 )
 def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> None:
@@ -130,6 +134,8 @@ def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> 
         "0.256.0",
         "v1.2.70000",
         "version",
+        "-beta",
+        "256.0.0-beta",
     ],
 )
 def test_get_msi_version_rejects_invalid_inputs(candidate: str) -> None:
@@ -146,6 +152,20 @@ def test_script_honours_explicit_input_version(
     assert "Resolved version (input): 2.3.4" in result.stdout
     outputs = _read_outputs(output_file)
     assert outputs["version"] == "2.3.4"
+    assert outputs["versionSource"] == "input"
+
+
+def test_script_strips_prerelease_from_explicit_version(
+    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+) -> None:
+    """Resolve pre-release inputs to the release triple with a warning."""
+    result, output_file = script_runner({"INPUT_VERSION": "0.1.0-beta1"})
+    assert result.returncode == 0
+    combined = _combined_stream(result)
+    assert "Discarding semver metadata '-beta1'" in combined
+    assert "Resolved version (input): 0.1.0" in combined
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == "0.1.0"
     assert outputs["versionSource"] == "input"
 
 
@@ -171,6 +191,14 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
         (
+            "v0.1.0-beta1",
+            ExpectedOutput(
+                version="0.1.0",
+                source="tag",
+                log_fragment="Resolved version (tag 'v0.1.0-beta1'): 0.1.0",
+            ),
+        ),
+        (
             "release",
             ExpectedOutput(
                 version="0.0.0",
@@ -179,7 +207,7 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
     ],
-    ids=["valid_tag", "invalid_tag"],
+    ids=["valid_tag", "prerelease_tag", "invalid_tag"],
 )
 def test_script_tag_resolution(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Strip semver pre-release identifiers and build metadata (for example
+  `0.1.0-beta1` → `0.1.0`) when resolving the MSI ProductVersion, logging a
+  warning instead of failing the build (#405).
 - Harden MSI version parsing and output path sanitization.
 - Improve WiX tool installation idempotency and error reporting.
 - Auto-match WiX extension versions to the installed WiX CLI major version and

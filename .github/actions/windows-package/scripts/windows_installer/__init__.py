@@ -54,8 +54,17 @@ _DEFAULT_TEMPLATE = """<?xml version=\"1.0\" encoding=\"utf-8\"?>
       UpgradeCode=\"{{ upgrade_code }}\"
       Language=\"1033\">
     <MediaTemplate EmbedCab=\"yes\" CompressionLevel=\"high\" />
+    {#-
+      AllowSameVersionUpgrades keeps repeat installs of an equal
+      ProductVersion from landing side by side. Pre-release semver
+      (0.1.0-beta1, 0.1.0-beta2) collapses to the same numeric triple, so
+      successive pre-release MSIs must replace each other rather than
+      accumulate. WiX flags this as ICE61 at build time; that warning is
+      expected and benign.
+    -#}
     <MajorUpgrade
         AllowDowngrades=\"no\"
+        AllowSameVersionUpgrades=\"yes\"
         DowngradeErrorMessage=\"A newer version of {{ product_name }} is installed.\"
     />
     {% if description -%}

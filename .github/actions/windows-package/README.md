@@ -109,8 +109,14 @@ value that appears in the generated filename.
 When `version` is omitted the action inspects `GITHUB_REF_TYPE` and
 `GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>` (the
 minor and build segments are optional) are used to derive the MSI version. All
-other refs—including branches and tags with non-numeric suffixes—fall back to
-`0.0.0`.
+other refs—including branches and tags that do not parse as versions—fall back
+to `0.0.0`.
+
+Semver pre-release identifiers and build metadata (for example the
+`-beta1` in `v0.1.0-beta1` or the `+abc123` in `1.2.3+abc123`) cannot be
+represented in an MSI ProductVersion, so the action strips them and logs a
+warning; the MSI carries the release triple (`0.1.0`) while the full semver
+remains available in the tag and artefact metadata.
 
 MSI ProductVersion components must be integers where the major and minor
 segments are `0–255` and the build segment is `0–65535`. Values outside those

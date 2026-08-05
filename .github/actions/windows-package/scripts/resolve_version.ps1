@@ -34,6 +34,22 @@ function Write-Log {
     }
 }
 
+function Remove-SemverMetadata {
+    param([string] $numeric)
+
+    # MSI ProductVersion is strictly numeric major.minor.build, so semver
+    # pre-release ('-beta1') and build metadata ('+abc123') cannot be carried
+    # through. Keep the release triple and warn that the rest is discarded.
+    $index = $numeric.IndexOfAny([char[]]@('-', '+'))
+    if ($index -lt 0) {
+        return $numeric
+    }
+
+    $metadata = $numeric.Substring($index)
+    Write-Log -Level 'Warning' -Message "Discarding semver metadata '$metadata' from '$numeric'; MSI ProductVersion only carries numeric major.minor.build."
+    return $numeric.Substring(0, $index)
+}
+
 function Normalize-VersionParts {
     param([string] $candidate)
 
@@ -42,7 +58,7 @@ function Normalize-VersionParts {
     }
 
     $trimmed = $candidate.Trim()
-    $numeric = $trimmed.TrimStart('v', 'V')
+    $numeric = Remove-SemverMetadata ($trimmed.TrimStart('v', 'V'))
     if ([string]::IsNullOrWhiteSpace($numeric)) {
         return $null
     }

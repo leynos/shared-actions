@@ -59,6 +59,21 @@ action and the evolution of its supporting scripts.
   relying on an unpinned or stale binary already present on the runner. Both
   the fast (reuse) and install paths are covered by behavioural tests that
   execute the extracted step body against fake binaries and installers.
+- *2026-08-05* — `generate-coverage` gained an optional `extra-cargo-args`
+  input, declared in `action.yml` and forwarded to the Rust step as
+  `INPUT_EXTRA_CARGO_ARGS`. `run_rust.py` tokenizes the value once with
+  `shlex.split` (`_parse_extra_cargo_args`), preserving shell quoting; a
+  malformed value is reported as "Invalid extra-cargo-args value" and exits
+  with code 2 before Cargo starts (`_parse_extra_cargo_args_or_exit`). The key
+  design decision is that `get_cargo_coverage_cmd` passes `--workspace` by
+  default so `--exclude` has a package set to refine, but omits `--workspace`
+  when the parsed arguments select packages explicitly (`-p`, `-p<crate>`,
+  `--package`, or `--package=<crate>`, detected by `_selects_packages`).
+  Cargo treats `--workspace` as "all members", so leaving it in place would
+  cause `--package` to silently over-report the whole workspace instead of
+  narrowing coverage. The same parsed tokens are passed to the optional
+  cucumber-rs coverage run so arguments apply consistently to both
+  invocations, and omitting the input preserves the previous command exactly.
 
 ## Rust Coverage Environment Overrides
 

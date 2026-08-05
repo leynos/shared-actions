@@ -20,6 +20,11 @@ def _steps() -> list[dict[str, object]]:
     return manifest["runs"]["steps"]
 
 
+def _gate_applicability_step() -> dict[str, object]:
+    """Return the check-mode gate-applicability step."""
+    return next(step for step in _steps() if step.get("id") == "gate-applicability")
+
+
 def _run_applicability_check(
     tmp_path: Path,
     *,
@@ -33,7 +38,7 @@ def _run_applicability_check(
     if bash is None:
         pytest.skip("bash not found on PATH")
 
-    step = next(step for step in _steps() if step.get("id") == "gate-applicability")
+    step = _gate_applicability_step()
     output = tmp_path / "github-output"
     output.write_text("", encoding="utf-8")
     env = os.environ | {
@@ -77,6 +82,7 @@ def _run_gate_check(
         "#!/usr/bin/env bash\n"
         "printf 'arguments: %s\\n' \"$*\"\n"
         "printf 'detailed gate diagnostic\\n'\n"
+        "printf 'detailed gate stderr diagnostic\\n' >&2\n"
         f"exit {exit_status}\n",
         encoding="utf-8",
     )
@@ -95,36 +101,53 @@ def _run_gate_check(
     )
 
 
-def test_stacked_pull_request_skips_gate_with_warning(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("base_ref", "default_branch"),
+    [("feature-base", "main"), ("topic", "trunk")],
+)
+def test_stacked_pull_request_skips_gate_with_warning(
+    tmp_path: Path,
+    base_ref: str,
+    default_branch: str,
+) -> None:
     """A non-default pull request base is explicitly skipped."""
     result = _run_applicability_check(
         tmp_path,
-        base_ref="feature-base",
-        default_branch="main",
+        base_ref=base_ref,
+        default_branch=default_branch,
     )
 
     assert result.returncode == 0
     assert (tmp_path / "github-output").read_text(encoding="utf-8") == "skip=true\n"
     assert "::warning title=CodeScene coverage gate skipped::" in result.stdout
-    assert "feature-base" in result.stdout
-    assert "main" in result.stdout
+    assert base_ref in result.stdout
+    assert default_branch in result.stdout
 
 
-@pytest.mark.parametrize("base_ref", ["", "main"])
+@pytest.mark.parametrize(
+    ("base_ref", "default_branch"),
+    [("", "main"), ("main", "main"), ("trunk", "trunk")],
+)
 def test_non_stacked_context_remains_applicable(
     tmp_path: Path,
     base_ref: str,
+    default_branch: str,
 ) -> None:
     """A non-PR or default-branch context continues to the CodeScene gate."""
     result = _run_applicability_check(
         tmp_path,
         base_ref=base_ref,
-        default_branch="main",
+        default_branch=default_branch,
     )
 
     assert result.returncode == 0
     assert (tmp_path / "github-output").read_text(encoding="utf-8") == ""
     assert "::warning" not in result.stdout
+
+
+def test_gate_applicability_runs_only_in_check_mode() -> None:
+    """Upload mode cannot enter the check-mode applicability boundary."""
+    assert _gate_applicability_step()["if"] == "inputs.mode == 'check'"
 
 
 def test_skipped_gate_suppresses_all_following_steps() -> None:
@@ -152,7 +175,7 @@ def test_gate_success_streams_verbose_diagnostic(
     assert result.returncode == 0
     assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
-    assert result.stderr == ""
+    assert "detailed gate stderr diagnostic" in result.stderr
 
 
 @pytest.mark.parametrize("exit_status", [1, 2, 7])
@@ -166,8 +189,9 @@ def test_gate_failure_streams_diagnostic_and_preserves_status(
     assert result.returncode == exit_status
     assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
+    assert "detailed gate stderr diagnostic" in result.stderr
     hint = "pull request base 'main' must have coverage uploaded"
     if exit_status == 2:
         assert hint in result.stderr
     else:
-        assert result.stderr == ""
+        assert hint not in result.stderr

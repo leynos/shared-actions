@@ -74,8 +74,23 @@ runs:
         esac
       shell: bash
 
+    - name: Check coverage gate applicability
+      id: gate-applicability
+      if: inputs.mode == 'check'
+      env:
+        BASE_REF: ${{ github.base_ref }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+          echo "skip=true" >>"$GITHUB_OUTPUT"
+          printf '%s\n' \
+            "::warning title=CodeScene coverage gate skipped::The changed-line coverage gate needs the pull request base to be an analysed branch. This pull request targets '$BASE_REF', not the repository default branch '$DEFAULT_BRANCH'."
+        fi
+      shell: bash
+
     - name: Determine coverage file
       id: cov-file
+      if: steps.gate-applicability.outputs.skip != 'true'
       run: |
         file="${{ inputs.path }}"
         if [ -z "$file" ] || [ "$file" = "__auto__" ]; then
@@ -94,6 +109,7 @@ runs:
     # extracted from the script.
     - name: Download installer
       id: installer
+      if: steps.gate-applicability.outputs.skip != 'true'
       env:
         CLI_VERSION: ${{ inputs.cli-version }}
       run: |
@@ -109,6 +125,7 @@ runs:
       shell: bash
 
     - name: Upload coverage GitHub artefact
+      if: steps.gate-applicability.outputs.skip != 'true'
       uses: actions/upload-artifact@v4
       with:
         name: coverage
@@ -118,7 +135,9 @@ runs:
     # cached, so the cache only participates when a version is pinned.
     - name: Cache CodeScene Coverage CLI
       id: cs-cache
-      if: inputs.cli-version != 'latest'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        inputs.cli-version != 'latest'
       uses: actions/cache@v4
       with:
         path: ~/.local/bin/cs-coverage
@@ -127,7 +146,10 @@ runs:
           cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.major_minor }}
 
     - name: Install CodeScene Coverage CLI
-      if: env.CS_ACCESS_TOKEN != '' && steps.cs-cache.outputs.cache-hit != 'true'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        env.CS_ACCESS_TOKEN != '' &&
+        steps.cs-cache.outputs.cache-hit != 'true'
       env:
         CLI_VERSION: ${{ inputs.cli-version }}
       run: |
@@ -137,11 +159,14 @@ runs:
       shell: bash
 
     - name: Add cs-coverage to PATH
+      if: steps.gate-applicability.outputs.skip != 'true'
       run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       shell: bash
 
     - name: Upload coverage to CodeScene
-      if: env.CS_ACCESS_TOKEN != '' && inputs.mode == 'upload'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'upload'
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="${{ steps.cov-file.outputs.path }}"
@@ -161,7 +186,9 @@ runs:
     # `cs-coverage check` infers the report format from the file
     # extension and requires LCOV files to end in ".info".
     - name: Check coverage against CodeScene gates
-      if: env.CS_ACCESS_TOKEN != '' && inputs.mode == 'check'
+      if: >-
+        steps.gate-applicability.outputs.skip != 'true' &&
+        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'check'
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="${{ steps.cov-file.outputs.path }}"
@@ -180,6 +207,14 @@ runs:
               ;;
           esac
         fi
-        cs-coverage check --coverage-files "$file"
+        if cs-coverage check --verbose --coverage-files "$file"; then
+          :
+        else
+          status=$?
+          if [ "$status" -eq 2 ]; then
+            printf '%s\n' \
+              "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2
+          fi
+          exit "$status"
+        fi
       shell: bash
-

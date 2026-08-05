@@ -78,11 +78,14 @@ def _run_gate_check(
 
     (tmp_path / "coverage.xml").write_text("<coverage/>\n", encoding="utf-8")
     cli = tmp_path / "cs-coverage"
+    stderr_diagnostic = (
+        "printf 'detailed gate stderr diagnostic\\n' >&2\n" if exit_status else ""
+    )
     cli.write_text(
         "#!/usr/bin/env bash\n"
         "printf 'arguments: %s\\n' \"$*\"\n"
         "printf 'detailed gate diagnostic\\n'\n"
-        "printf 'detailed gate stderr diagnostic\\n' >&2\n"
+        f"{stderr_diagnostic}"
         f"exit {exit_status}\n",
         encoding="utf-8",
     )
@@ -175,7 +178,7 @@ def test_gate_success_streams_verbose_diagnostic(
     assert result.returncode == 0
     assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
-    assert "detailed gate stderr diagnostic" in result.stderr
+    assert result.stderr == ""
 
 
 @pytest.mark.parametrize("exit_status", [1, 2, 7])

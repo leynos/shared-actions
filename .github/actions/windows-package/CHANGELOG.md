@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Strip semver pre-release identifiers and build metadata (for example
+  `0.1.0-beta1` → `0.1.0`) when resolving the MSI ProductVersion, logging a
+  warning instead of failing the build (#405); malformed SemVer suffixes
+  (for example `1.2.3-` or `1.2.3-beta..exp`) are rejected rather than
+  stripped.
+- Set `AllowSameVersionUpgrades="yes"` on `MajorUpgrade` in the generated
+  WiX authoring, so installing an MSI whose ProductVersion equals the
+  installed one replaces the previous installation; the resulting ICE61
+  validation warning is expected.
 - Harden MSI version parsing and output path sanitization.
 - Improve WiX tool installation idempotency and error reporting.
 - Auto-match WiX extension versions to the installed WiX CLI major version and

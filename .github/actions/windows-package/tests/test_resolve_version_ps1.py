@@ -28,6 +28,7 @@ class ExpectedOutput:
     version: str
     source: str
     log_fragment: str
+    warning_fragment: str | None = None
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -43,7 +44,12 @@ SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "resolve_version
 
 
 def _invoke_get_msi_version(candidate: str) -> str | None:
-    """Execute Get-MsiVersion with *candidate* and normalize the result."""
+    """Execute Get-MsiVersion with *candidate* and normalize the result.
+
+    Get-MsiVersion is a pure query: the semver-metadata discard warning is
+    emitted only at the script's command boundary, and the full-script tests
+    assert it there.
+    """
     literal = candidate.replace("'", "''")
     command = textwrap.dedent(
         f"""
@@ -112,6 +118,10 @@ def script_runner(
         ("1.2.3", "1.2.3"),
         ("  v01.02  ", "1.2.0"),
         ("3", "3.0.0"),
+        ("0.1.0-beta1", "0.1.0"),
+        ("v2.0.0-rc.1", "2.0.0"),
+        ("1.2.3+build5", "1.2.3"),
+        ("1.2.3-beta+exp", "1.2.3"),
     ],
 )
 def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> None:
@@ -130,6 +140,17 @@ def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> 
         "0.256.0",
         "v1.2.70000",
         "version",
+        "-beta",
+        "256.0.0-beta",
+        "1.2.3-",
+        "1.2.3+",
+        "1.2.3-beta..exp",
+        "1.2.3-01",
+        "1.2.3-alpha.01",
+        "1.2.3-1\u0661",
+        "1.2.3-\u0661a",
+        "1.2.3 -beta1",
+        "1.2.3 +build5",
     ],
 )
 def test_get_msi_version_rejects_invalid_inputs(candidate: str) -> None:
@@ -146,6 +167,30 @@ def test_script_honours_explicit_input_version(
     assert "Resolved version (input): 2.3.4" in result.stdout
     outputs = _read_outputs(output_file)
     assert outputs["version"] == "2.3.4"
+    assert outputs["versionSource"] == "input"
+
+
+@pytest.mark.parametrize(
+    ("candidate", "discarded_metadata", "expected_version"),
+    [
+        ("0.1.0-beta1", "-beta1", "0.1.0"),
+        ("1.2.3+build5", "+build5", "1.2.3"),
+    ],
+)
+def test_script_strips_semver_metadata_from_explicit_version(
+    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+    candidate: str,
+    discarded_metadata: str,
+    expected_version: str,
+) -> None:
+    """Resolve metadata-bearing inputs to the release triple with a warning."""
+    result, output_file = script_runner({"INPUT_VERSION": candidate})
+    assert result.returncode == 0
+    combined = _combined_stream(result)
+    assert f"Discarding semver metadata '{discarded_metadata}'" in combined
+    assert f"Resolved version (input): {expected_version}" in combined
+    outputs = _read_outputs(output_file)
+    assert outputs["version"] == expected_version
     assert outputs["versionSource"] == "input"
 
 
@@ -171,6 +216,24 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
         (
+            "v0.1.0-beta1",
+            ExpectedOutput(
+                version="0.1.0",
+                source="tag",
+                log_fragment="Resolved version (tag 'v0.1.0-beta1'): 0.1.0",
+                warning_fragment="Discarding semver metadata '-beta1'",
+            ),
+        ),
+        (
+            "v1.2.3+build5",
+            ExpectedOutput(
+                version="1.2.3",
+                source="tag",
+                log_fragment="Resolved version (tag 'v1.2.3+build5'): 1.2.3",
+                warning_fragment="Discarding semver metadata '+build5'",
+            ),
+        ),
+        (
             "release",
             ExpectedOutput(
                 version="0.0.0",
@@ -179,7 +242,7 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
     ],
-    ids=["valid_tag", "invalid_tag"],
+    ids=["valid_tag", "prerelease_tag", "build_metadata_tag", "invalid_tag"],
 )
 def test_script_tag_resolution(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
@@ -191,7 +254,10 @@ def test_script_tag_resolution(
         {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag_name}
     )
     assert result.returncode == 0
-    assert expected.log_fragment in _combined_stream(result)
+    combined = _combined_stream(result)
+    assert expected.log_fragment in combined
+    if expected.warning_fragment is not None:
+        assert expected.warning_fragment in combined
     outputs = _read_outputs(output_file)
     assert outputs["version"] == expected.version
     assert outputs["versionSource"] == expected.source

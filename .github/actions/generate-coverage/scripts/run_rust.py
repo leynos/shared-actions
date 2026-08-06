@@ -573,10 +573,23 @@ def _resolve_bool_input(
 
 
 def _resolve_string_input(
-    value: str, envvar: str, env: cabc.Mapping[str, str]
+    value: str | None, envvar: str, env: cabc.Mapping[str, str]
 ) -> str:
     """Resolve a CLI string with an environment-variable fallback."""
-    return value or env.get(envvar, "")
+    if value is not None:
+        return value
+    return env.get(envvar, "")
+
+
+def _resolve_manifest_path(
+    manifest_path: Path | None, env: cabc.Mapping[str, str] | None = None
+) -> Path:
+    """Resolve the manifest path from the explicit value or environment."""
+    if manifest_path is not None:
+        return manifest_path
+    source = os.environ if env is None else env
+    detected = source.get("DETECTED_CARGO_MANIFEST", "").strip()
+    return Path(detected or "Cargo.toml")
 
 
 def _parse_extra_cargo_args_or_exit(raw: str) -> list[str]:
@@ -598,16 +611,16 @@ class _RawInputs:
     """
 
     output_path: Path | None
-    features: str
+    features: str | None
     with_default: bool | None
     use_nextest: bool | None
     lang: str | None
     fmt: str | None
     manifest_path: Path | None
     github_output: Path | None
-    cucumber_rs_features: str
-    cucumber_rs_args: str
-    extra_cargo_args: str
+    cucumber_rs_features: str | None
+    cucumber_rs_args: str | None
+    extra_cargo_args: str | None
     with_cucumber_rs: bool | None
     all_features: bool | None
     all_targets: bool | None
@@ -664,10 +677,7 @@ def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTa
     """
     lang = raw.lang or _required_env("DETECTED_LANG", env)
     output_path = raw.output_path or Path(_required_env("INPUT_OUTPUT_PATH", env))
-    manifest_path = raw.manifest_path
-    if manifest_path is None:
-        detected = env.get("DETECTED_CARGO_MANIFEST", "").strip()
-        manifest_path = Path(detected or "Cargo.toml")
+    manifest_path = _resolve_manifest_path(raw.manifest_path, env)
     return CoverageTargets(
         out=_resolve_output_path(output_path, lang),
         lang=lang,
@@ -794,7 +804,7 @@ def _run_primary_coverage(
 
 def main(
     output_path: typ.Annotated[Path | None, typer.Option()] = None,
-    features: typ.Annotated[str, typer.Option()] = "",
+    features: typ.Annotated[str | None, typer.Option()] = None,
     *,
     with_default: typ.Annotated[bool | None, typer.Option()] = None,
     use_nextest: typ.Annotated[bool | None, typer.Option()] = None,
@@ -802,9 +812,9 @@ def main(
     fmt: typ.Annotated[str | None, typer.Option()] = None,
     manifest_path: typ.Annotated[Path | None, typer.Option()] = None,
     github_output: typ.Annotated[Path | None, typer.Option()] = None,
-    cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
-    cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
-    extra_cargo_args: typ.Annotated[str, typer.Option()] = "",
+    cucumber_rs_features: typ.Annotated[str | None, typer.Option()] = None,
+    cucumber_rs_args: typ.Annotated[str | None, typer.Option()] = None,
+    extra_cargo_args: typ.Annotated[str | None, typer.Option()] = None,
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
     all_features: typ.Annotated[bool | None, typer.Option()] = None,
     all_targets: typ.Annotated[bool | None, typer.Option()] = None,
@@ -812,7 +822,92 @@ def main(
     allow_no_tests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
-    """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
+    r"""Run ``cargo llvm-cov`` and record the coverage result for the action.
+
+    Each input may be given as a command-line option or through the environment
+    variable the composite action sets for it. An explicit option always wins,
+    so an empty string deliberately selects "no value" rather than falling back
+    to the environment. ``output_path``, ``lang``, ``fmt``, and ``github_output``
+    have no default and fail fast when neither source supplies them.
+
+    The report is written to ``output_path``, except for ``lang="mixed"``, where
+    the Rust report becomes ``<stem>.rust<suffix>`` so the Python report can keep
+    the original name. A configured cucumber-rs run is merged into that report.
+    The coverage percentage is echoed with any baseline, and ``file=`` and
+    ``percent=`` lines are appended to ``github_output`` for downstream steps.
+
+    Parameters
+    ----------
+    output_path : Path | None, optional
+        Coverage file to write; falls back to ``INPUT_OUTPUT_PATH``.
+    features : str | None, optional
+        Cargo features to enable; falls back to ``INPUT_FEATURES``.
+    with_default : bool | None, optional
+        Keep default Cargo features; ``INPUT_WITH_DEFAULT_FEATURES``, default
+        ``True``.
+    use_nextest : bool | None, optional
+        Run coverage through ``cargo nextest``; ``INPUT_USE_CARGO_NEXTEST``,
+        default ``True``.
+    lang : str | None, optional
+        Language scope; falls back to ``DETECTED_LANG``.
+    fmt : str | None, optional
+        Coverage format; falls back to ``DETECTED_FMT``.
+    manifest_path : Path | None, optional
+        Cargo manifest to measure; falls back to ``DETECTED_CARGO_MANIFEST``
+        and then ``Cargo.toml``.
+    github_output : Path | None, optional
+        File receiving step outputs; falls back to ``GITHUB_OUTPUT``.
+    cucumber_rs_features : str | None, optional
+        Cucumber features path; ``INPUT_CUCUMBER_RS_FEATURES``. Cucumber
+        coverage is skipped when empty, even if ``with_cucumber_rs`` is set.
+    cucumber_rs_args : str | None, optional
+        Extra cucumber arguments, shell-quoted; ``INPUT_CUCUMBER_RS_ARGS``.
+    extra_cargo_args : str | None, optional
+        Extra arguments for every ``cargo llvm-cov`` invocation, parsed once
+        with shell quoting; ``INPUT_EXTRA_CARGO_ARGS``.
+    with_cucumber_rs : bool | None, optional
+        Attempt cucumber-rs coverage; ``INPUT_WITH_CUCUMBER_RS``, default
+        ``False``.
+    all_features : bool | None, optional
+        Enable all Cargo features; ``INPUT_ALL_FEATURES``, default ``False``.
+    all_targets : bool | None, optional
+        Include all Cargo targets; ``INPUT_ALL_TARGETS``, default ``False``.
+    doctests : bool | None, optional
+        Run doctests after coverage; ``INPUT_DOCTESTS``, default ``False``.
+    allow_no_tests : bool | None, optional
+        Allow selected packages to contain no tests; ``INPUT_ALLOW_NO_TESTS``,
+        default ``False``.
+    baseline_file : Path | None, optional
+        Previous-coverage baseline reported alongside the current figure.
+
+    Returns
+    -------
+    None
+        Results are delivered as console output and ``github_output`` entries.
+
+    Raises
+    ------
+    typer.Exit
+        Code 2 when ``extra_cargo_args`` is not valid shell quoting; code 1
+        when a required environment value is missing, the report cannot be
+        parsed, or a merge step fails.
+
+    Examples
+    --------
+    Run as the composite action does, with values in the environment::
+
+        $ INPUT_OUTPUT_PATH=coverage.xml DETECTED_LANG=rust \
+              DETECTED_FMT=cobertura GITHUB_OUTPUT=outputs.txt \
+              uv run --script run_rust.py
+
+    Override inputs locally, here excluding a crate from the workspace run::
+
+        $ uv run --script run_rust.py --output-path coverage.xml \
+              --lang rust --fmt cobertura --github-output outputs.txt \
+              --extra-cargo-args '--exclude rustc-proxy'
+
+    Both append ``file=coverage.xml`` and ``percent=<value>`` to ``outputs.txt``.
+    """
     raw = _RawInputs(
         output_path=output_path,
         features=features,

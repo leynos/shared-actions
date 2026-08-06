@@ -28,6 +28,7 @@ class ExpectedOutput:
     version: str
     source: str
     log_fragment: str
+    warning_fragment: str | None = None
 
 
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -144,6 +145,8 @@ def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> 
         "1.2.3-",
         "1.2.3+",
         "1.2.3-beta..exp",
+        "1.2.3-01",
+        "1.2.3-alpha.01",
     ],
 )
 def test_get_msi_version_rejects_invalid_inputs(candidate: str) -> None:
@@ -163,31 +166,27 @@ def test_script_honours_explicit_input_version(
     assert outputs["versionSource"] == "input"
 
 
-def test_script_strips_prerelease_from_explicit_version(
+@pytest.mark.parametrize(
+    ("candidate", "discarded_metadata", "expected_version"),
+    [
+        ("0.1.0-beta1", "-beta1", "0.1.0"),
+        ("1.2.3+build5", "+build5", "1.2.3"),
+    ],
+)
+def test_script_strips_semver_metadata_from_explicit_version(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
+    candidate: str,
+    discarded_metadata: str,
+    expected_version: str,
 ) -> None:
-    """Resolve pre-release inputs to the release triple with a warning."""
-    result, output_file = script_runner({"INPUT_VERSION": "0.1.0-beta1"})
+    """Resolve metadata-bearing inputs to the release triple with a warning."""
+    result, output_file = script_runner({"INPUT_VERSION": candidate})
     assert result.returncode == 0
     combined = _combined_stream(result)
-    assert "Discarding semver metadata '-beta1'" in combined
-    assert "Resolved version (input): 0.1.0" in combined
+    assert f"Discarding semver metadata '{discarded_metadata}'" in combined
+    assert f"Resolved version (input): {expected_version}" in combined
     outputs = _read_outputs(output_file)
-    assert outputs["version"] == "0.1.0"
-    assert outputs["versionSource"] == "input"
-
-
-def test_script_strips_build_metadata_from_explicit_version(
-    script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],
-) -> None:
-    """Resolve build-metadata inputs to the release triple with a warning."""
-    result, output_file = script_runner({"INPUT_VERSION": "1.2.3+build5"})
-    assert result.returncode == 0
-    combined = _combined_stream(result)
-    assert "Discarding semver metadata '+build5'" in combined
-    assert "Resolved version (input): 1.2.3" in combined
-    outputs = _read_outputs(output_file)
-    assert outputs["version"] == "1.2.3"
+    assert outputs["version"] == expected_version
     assert outputs["versionSource"] == "input"
 
 
@@ -218,6 +217,7 @@ def test_script_errors_on_invalid_explicit_version(
                 version="0.1.0",
                 source="tag",
                 log_fragment="Resolved version (tag 'v0.1.0-beta1'): 0.1.0",
+                warning_fragment="Discarding semver metadata '-beta1'",
             ),
         ),
         (
@@ -241,7 +241,10 @@ def test_script_tag_resolution(
         {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": tag_name}
     )
     assert result.returncode == 0
-    assert expected.log_fragment in _combined_stream(result)
+    combined = _combined_stream(result)
+    assert expected.log_fragment in combined
+    if expected.warning_fragment is not None:
+        assert expected.warning_fragment in combined
     outputs = _read_outputs(output_file)
     assert outputs["version"] == expected.version
     assert outputs["versionSource"] == expected.source

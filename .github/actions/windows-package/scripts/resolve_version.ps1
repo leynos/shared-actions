@@ -55,7 +55,12 @@ function Remove-SemverMetadata {
     }
 
     $metadata = $numeric.Substring($index)
-    $prereleasePattern = '^-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+    # A pre-release identifier is either numeric without leading zeroes
+    # ('0' or '[1-9]\d*') or alphanumeric containing at least one non-digit;
+    # '1.2.3-01' and '1.2.3-alpha.01' are therefore rejected. Build metadata
+    # identifiers permit leading zeroes, per the SemVer grammar.
+    $prereleaseId = '(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)'
+    $prereleasePattern = "^-$prereleaseId(\.$prereleaseId)*(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
     $buildPattern = '^\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$'
     if ($metadata -notmatch $prereleasePattern -and $metadata -notmatch $buildPattern) {
         return $null

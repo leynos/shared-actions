@@ -147,6 +147,10 @@ def test_get_msi_version_accepts_valid_inputs(candidate: str, expected: str) -> 
         "1.2.3-beta..exp",
         "1.2.3-01",
         "1.2.3-alpha.01",
+        "1.2.3-1\u0661",
+        "1.2.3-\u0661a",
+        "1.2.3 -beta1",
+        "1.2.3 +build5",
     ],
 )
 def test_get_msi_version_rejects_invalid_inputs(candidate: str) -> None:
@@ -221,6 +225,15 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
         (
+            "v1.2.3+build5",
+            ExpectedOutput(
+                version="1.2.3",
+                source="tag",
+                log_fragment="Resolved version (tag 'v1.2.3+build5'): 1.2.3",
+                warning_fragment="Discarding semver metadata '+build5'",
+            ),
+        ),
+        (
             "release",
             ExpectedOutput(
                 version="0.0.0",
@@ -229,7 +242,7 @@ def test_script_errors_on_invalid_explicit_version(
             ),
         ),
     ],
-    ids=["valid_tag", "prerelease_tag", "invalid_tag"],
+    ids=["valid_tag", "prerelease_tag", "build_metadata_tag", "invalid_tag"],
 )
 def test_script_tag_resolution(
     script_runner: cabc.Callable[[dict[str, str]], tuple[RunResult, Path]],

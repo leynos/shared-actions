@@ -56,10 +56,12 @@ function Remove-SemverMetadata {
 
     $metadata = $numeric.Substring($index)
     # A pre-release identifier is either numeric without leading zeroes
-    # ('0' or '[1-9]\d*') or alphanumeric containing at least one non-digit;
-    # '1.2.3-01' and '1.2.3-alpha.01' are therefore rejected. Build metadata
-    # identifiers permit leading zeroes, per the SemVer grammar.
-    $prereleaseId = '(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)'
+    # ('0' or '[1-9][0-9]*') or alphanumeric containing at least one
+    # non-digit; '1.2.3-01' and '1.2.3-alpha.01' are therefore rejected.
+    # Build metadata identifiers permit leading zeroes, per the SemVer
+    # grammar. ASCII classes only: .NET's '\d' also matches Unicode digits
+    # such as U+0661, which SemVer does not permit.
+    $prereleaseId = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
     $prereleasePattern = "^-$prereleaseId(\.$prereleaseId)*(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
     $buildPattern = '^\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*$'
     if ($metadata -notmatch $prereleasePattern -and $metadata -notmatch $buildPattern) {
@@ -141,6 +143,13 @@ function Get-MsiVersionInfo {
 
     $numeric = $candidate.Trim().TrimStart('v', 'V')
     if ([string]::IsNullOrWhiteSpace($numeric)) {
+        return $null
+    }
+
+    # Surrounding whitespace was trimmed above, so any remaining whitespace
+    # is internal (as in '1.2.3 -beta1') and marks the candidate malformed
+    # rather than normalizable.
+    if ($numeric -match '\s') {
         return $null
     }
 

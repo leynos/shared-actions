@@ -26,7 +26,54 @@ def load_script_module(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
 ) -> ModuleType:
-    """Import ``name`` from the ``scripts`` directory with real dependencies."""
+    """Import ``name`` from the ``scripts`` directory with real dependencies.
+
+    The scripts are ``uv`` entry points rather than installed modules, so they
+    are loaded from source by path. ``SCRIPT_DIR`` and ``ROOT_DIR`` are pushed
+    onto ``sys.path`` through ``monkeypatch`` so the script's own sibling
+    imports resolve, and both ``name`` and ``coverage_parsers`` are evicted
+    from ``sys.modules`` before the import so the caller receives freshly
+    executed module state rather than a cached instance from an earlier test.
+    ``importlib.invalidate_caches`` is called for the same reason.
+
+    Because ``monkeypatch`` owns the ``sys.path`` and ``sys.modules`` edits,
+    they are reverted when the requesting test ends. The returned module itself
+    is not registered in ``sys.modules``, so each call yields an independent
+    object whose module-level state — including import-time side effects — can
+    be mutated without affecting other tests.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        Fixture used to scope the ``sys.path`` and ``sys.modules`` changes to
+        the calling test.
+    name : str
+        Module name to import, matching a ``<name>.py`` file in ``SCRIPT_DIR``
+        (for example ``"run_rust"`` or ``"run_python"``).
+
+    Returns
+    -------
+    ModuleType
+        The freshly executed module.
+
+    Raises
+    ------
+    RuntimeError
+        If no import spec or loader can be built for ``name``, which usually
+        means the script file is missing from ``SCRIPT_DIR``.
+
+    Examples
+    --------
+    Expose a script as a fixture so every test gets untouched module state::
+
+        @pytest.fixture
+        def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+            return load_script_module(monkeypatch, "run_rust")
+
+        def test_workspace_is_default(run_rust_module: ModuleType) -> None:
+            args = run_rust_module.get_cargo_coverage_cmd(...)
+            assert "--workspace" in args
+    """
     monkeypatch.syspath_prepend(SCRIPT_DIR)
     monkeypatch.syspath_prepend(ROOT_DIR)
     for module_name in (name, "coverage_parsers"):

@@ -712,6 +712,76 @@ def test_main_translates_invalid_extra_cargo_args_into_typer_exit(
     assert "Invalid extra-cargo-args value" in capsys.readouterr().err
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class ExtraCargoArgsPrecedenceCase:
+    """CLI value and the Cargo arguments it should produce."""
+
+    cli_value: str | None
+    expected: tuple[str, ...]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            ExtraCargoArgsPrecedenceCase(cli_value="", expected=()),
+            id="explicit-empty-suppresses-env",
+        ),
+        pytest.param(
+            ExtraCargoArgsPrecedenceCase(
+                cli_value="--package cli-crate", expected=("--package", "cli-crate")
+            ),
+            id="explicit-value-wins",
+        ),
+        pytest.param(
+            ExtraCargoArgsPrecedenceCase(
+                cli_value=None, expected=("--exclude", "env-crate")
+            ),
+            id="omitted-uses-env",
+        ),
+    ],
+)
+def test_main_extra_cargo_args_cli_precedence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_rust_module: ModuleType,
+    case: ExtraCargoArgsPrecedenceCase,
+) -> None:
+    """An explicit CLI value, including an empty one, overrides the environment."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n")
+    github_output = tmp_path / "gh.txt"
+    monkeypatch.setenv("INPUT_EXTRA_CARGO_ARGS", "--exclude env-crate")
+    recorded: dict[str, object] = {}
+
+    def fake_run_cargo(args: list[str], **_kwargs: object) -> str:
+        recorded["args"] = args
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust_module, "_run_cargo", fake_run_cargo)
+    run_rust_module.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=False,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=Path("Cargo.toml"),
+        github_output=github_output,
+        extra_cargo_args=case.cli_value,
+        with_cucumber_rs=False,
+        baseline_file=None,
+    )
+
+    args = typ.cast("list[str]", recorded["args"])
+    expected = list(case.expected)
+    format_index = args.index("--lcov")
+    assert args[format_index - len(expected) : format_index] == expected
+    # Package selection must still suppress the default workspace selector.
+    assert ("--workspace" in args) is ("--package" not in expected)
+
+
 def test_parse_extra_cargo_args_or_exit_translates_value_error(
     capsys: pytest.CaptureFixture[str],
     run_rust_module: ModuleType,
@@ -3386,6 +3456,7 @@ def test_generate_coverage_extra_cargo_args_action_contract() -> None:
     inputs = action.get("inputs")
     assert isinstance(inputs, dict)
     assert "extra-cargo-args" in inputs
+    assert inputs["extra-cargo-args"]["required"] is False
 
     rust_step = next(
         (step for step in _generate_coverage_steps() if step.get("id") == "rust"),

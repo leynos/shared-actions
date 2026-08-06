@@ -136,7 +136,7 @@ For example, exclude two crates (including a crate whose name contains a space)
 with:
 
 ```yaml
-- uses: ./.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     output-path: coverage.xml
     extra-cargo-args: >-

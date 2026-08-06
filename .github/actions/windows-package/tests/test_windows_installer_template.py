@@ -77,6 +77,8 @@ def test_render_default_wxs_builds_directory_structure(tmp_path: Path) -> None:
     assert 'Manufacturer="Shared Actions"' in authoring
     assert 'Version="1.2.3"' in authoring
     assert 'UpgradeCode="12345678-1234-1234-1234-1234567890AB"' in authoring
+    assert 'AllowDowngrades="no"' in authoring
+    assert 'AllowSameVersionUpgrades="yes"' in authoring
     assert '<StandardDirectory Id="ProgramFiles64Folder"' in authoring
     assert '<Directory Id="INSTALLFOLDER" Name="SampleApp">' in authoring
     assert "Absent=" not in authoring

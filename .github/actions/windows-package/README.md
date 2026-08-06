@@ -107,16 +107,26 @@ action passes via `-dVersion=...`, ensuring the MSI `Package` uses the same
 value that appears in the generated filename.
 
 When `version` is omitted the action inspects `GITHUB_REF_TYPE` and
-`GITHUB_REF_NAME`. Only tag refs that resemble `v<major>.<minor>.<build>` (the
-minor and build segments are optional) are used to derive the MSI version. All
-other refs—including branches and tags that do not parse as versions—fall back
-to `0.0.0`.
+`GITHUB_REF_NAME`. Tag refs are accepted with or without a leading `v` or
+`V`, and may be a bare `major.minor.build` triple (the minor and build
+segments are optional) or carry a valid SemVer pre-release suffix or build
+metadata—for example `1.2.3`, `v1.2.3`, or `v0.1.0-beta1`. Malformed
+suffixes, such as an empty pre-release (`1.2.3-`) or an empty identifier
+(`1.2.3-beta..exp`), do not parse. All other refs—branches and tags that do
+not parse this way—fall back to `0.0.0`.
 
 Semver pre-release identifiers and build metadata (for example the
 `-beta1` in `v0.1.0-beta1` or the `+abc123` in `1.2.3+abc123`) cannot be
 represented in an MSI ProductVersion, so the action strips them and logs a
 warning; the MSI carries the release triple (`0.1.0`) while the full semver
 remains available in the tag and artefact metadata.
+
+Because pre-release and build-metadata-bearing versions collapse to the
+same numeric ProductVersion, the generated WiX authoring sets
+`AllowSameVersionUpgrades="yes"` on `MajorUpgrade`, so installing an MSI
+whose ProductVersion equals the installed one replaces the existing
+installation rather than installing side by side. WiX reports ICE61 for
+this configuration at build time; that warning is expected and benign.
 
 MSI ProductVersion components must be integers where the major and minor
 segments are `0–255` and the build segment is `0–65535`. Values outside those

@@ -2106,11 +2106,15 @@ which also holds the manifest contract and the rendered cargo commands.
 ### Rust coverage argument parsing and propagation
 
 The `extra-cargo-args` action input reaches `run_rust.py` as
-`INPUT_EXTRA_CARGO_ARGS`. `main` uses the explicit CLI value when present,
-otherwise the environment value, and parses the resulting string once with
-Python's `shlex.split`. This preserves shell-style token grouping for values
-such as `--features "feature-a feature-b"`; malformed quoting is reported as
-`Invalid extra-cargo-args value` and exits with status 2 before Cargo starts.
+`INPUT_EXTRA_CARGO_ARGS`. `main` prefers a supplied CLI value to the
+environment value and parses the result once with Python's `shlex.split`.
+`_resolve_string_input` distinguishes `None` (no CLI value) from an explicitly
+empty string, so `--extra-cargo-args ""` selects no extra arguments instead of
+falling back to the environment. The same precedence applies to `--features`,
+`--cucumber-rs-features`, and `--cucumber-rs-args`. `shlex.split` preserves
+shell-style token grouping, for example `--features "feature-a feature-b"`;
+malformed quoting is reported as `Invalid extra-cargo-args value` and exits
+with status 2 before Cargo starts.
 
 `get_cargo_coverage_cmd` builds the Rust command with
 `--manifest-path <manifest>` and adds `--workspace` by default, followed by

@@ -198,10 +198,14 @@ rather than asserting on the step's source text.
 ### Rust coverage argument parsing and propagation
 
 The `extra-cargo-args` action input reaches `run_rust.py` as
-`INPUT_EXTRA_CARGO_ARGS`. `main` uses the explicit CLI value when present,
-otherwise the environment value, and parses the resulting string once with
-Python's `shlex.split`. This preserves shell-style quoting for arguments such
-as `--exclude "coverage helper"`; malformed quoting is reported as
+`INPUT_EXTRA_CARGO_ARGS`. `main` uses the explicit CLI value when one is
+supplied, otherwise the environment value, and parses the resulting string once
+with Python's `shlex.split`. `_resolve_string_input` distinguishes an omitted
+option from an empty one, so `--extra-cargo-args ""` selects no arguments
+rather than falling back to the environment; the same rule governs
+`--features`, `--cucumber-rs-features`, and `--cucumber-rs-args`. Parsing
+preserves shell-style quoting for arguments such as
+`--exclude "coverage helper"`; malformed quoting is reported as
 `Invalid extra-cargo-args value` and exits before Cargo starts.
 
 `get_cargo_coverage_cmd` builds the Rust command with

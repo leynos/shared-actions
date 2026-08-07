@@ -775,11 +775,23 @@ def test_main_extra_cargo_args_cli_precedence(
     )
 
     args = typ.cast("list[str]", recorded["args"])
-    expected = list(case.expected)
-    format_index = args.index("--lcov")
-    assert args[format_index - len(expected) : format_index] == expected
+    extra = list(case.expected)
+    selects_package = "--package" in extra
+    # Compare the whole command: a slice around the extra arguments would be
+    # vacuous for the empty case and would not detect a leaked environment
+    # value elsewhere in the argument list.
+    assert args == [
+        "llvm-cov",
+        "--manifest-path",
+        "Cargo.toml",
+        *([] if selects_package else ["--workspace"]),
+        *extra,
+        "--lcov",
+        "--output-path",
+        str(output),
+    ]
     # Package selection must still suppress the default workspace selector.
-    assert ("--workspace" in args) is ("--package" not in expected)
+    assert ("--workspace" in args) is not selects_package
 
 
 def test_parse_extra_cargo_args_or_exit_translates_value_error(

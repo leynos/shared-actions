@@ -147,6 +147,7 @@ Known limitations:
 | with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
+| extra-cargo-args | Extra arguments appended to `cargo llvm-cov`, parsed with shell quoting rules. Package selection flags suppress the default `--workspace`. | no | |
 | pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
 <!-- markdownlint-enable MD013 -->
 
@@ -273,6 +274,42 @@ Disable cargo-nextest:
     output-path: coverage.xml
     use-cargo-nextest: false
 ```
+
+Exclude crates from Rust workspace coverage:
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
+```
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: >-
+      --exclude rustc-proxy
+      --exclude dylint-ui-fixture
+```
+
+Measure a single crate instead of the whole workspace:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    extra-cargo-args: --package coverage-helper
+```
+
+The action passes `--workspace` by default so that `--exclude` has a package
+set to refine. When `extra-cargo-args` contains a package selection flag
+(`-p`, `--package`, or either spelling with an inline value), the default
+`--workspace` is omitted so the selection actually narrows the run — Cargo
+treats `--workspace` as "all members" and would otherwise build and report the
+whole workspace regardless of `--package`.
 
 Run pytest serially (disable pytest-xdist):
 

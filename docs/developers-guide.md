@@ -222,6 +222,33 @@ Both paths are exercised by behavioural tests in
 extracted step body against fake `cargo-binstall` binaries and installers
 rather than asserting on the step's source text.
 
+### Rust coverage argument parsing and propagation
+
+The `extra-cargo-args` action input reaches `run_rust.py` as
+`INPUT_EXTRA_CARGO_ARGS`. `main` uses the explicit CLI value when one is
+supplied, otherwise the environment value, and parses the resulting string once
+with Python's `shlex.split`. `_resolve_string_input` distinguishes an omitted
+option from an empty one, so `--extra-cargo-args ""` selects no arguments
+rather than falling back to the environment; the same rule governs
+`--features`, `--cucumber-rs-features`, and `--cucumber-rs-args`. Parsing
+preserves shell-style quoting for arguments such as
+`--exclude "coverage helper"`; malformed quoting is reported as
+`Invalid extra-cargo-args value` and exits before Cargo starts.
+
+`get_cargo_coverage_cmd` builds the Rust command with
+`--manifest-path <manifest> --workspace`, followed by default-feature and
+feature flags. It then appends the parsed `extra_cargo_args` sequence before
+the coverage format and output-path arguments. The command omits `--workspace`
+when the sequence contains `-p`, `--package`, or `--package=<crate>`, allowing
+explicit package selection to replace the default. `--exclude <crate>` retains
+`--workspace` because the exclusion refines that selection.
+
+When cucumber.rs coverage is enabled, `main` passes the same parsed sequence
+to `run_cucumber_rs_coverage`, which uses the same command builder before
+appending the cucumber test arguments. Extra Cargo arguments consequently
+apply to both the regular and cucumber.rs coverage runs; `cucumber-rs-args`
+is parsed separately for the command after Cargo's `--` boundary.
+
 ## `generate-coverage` `cargo-nextest` Installation
 
 `install_cargo_nextest.py` resolves expected checksums using `_platform_key()`.

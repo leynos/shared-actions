@@ -25,9 +25,9 @@ jobs:
     steps:
       - name: Checkout repository
         # v4
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
           python-version: '3.13'
           cache-dependency-glob: |
@@ -40,11 +40,11 @@ jobs:
       - name: Setup Bun
         if: matrix.os == 'ubuntu-latest'
         # v2.0.2
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Setup Bun (macOS)
         if: matrix.os == 'macos-15'
         # v2.0.2
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Install action-validator
         run: bun install -g @action-validator/core @action-validator/cli
       - name: Check formatting
@@ -57,7 +57,7 @@ jobs:
         shell: bash
       - name: Markdown lint
         if: matrix.os == 'ubuntu-latest'
-        uses: DavidAnson/markdownlint-cli2-action@8de2aa07cae85fd17c0b35642db70cf5495f1d25
+        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe
         with:
           globs: |
             **/*.md
@@ -135,7 +135,7 @@ jobs:
     steps:
       - name: Checkout repository
         # v4
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Full history so `cs-coverage check` can reach the pull request's
           # merge base.
@@ -145,7 +145,7 @@ jobs:
           # credential rather than persisting GITHUB_TOKEN in .git/config.
           persist-credentials: false
       - name: Setup uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
           python-version: '3.13'
           cache-dependency-glob: |
@@ -216,9 +216,9 @@ jobs:
     steps:
       - name: Checkout repository
         # v4
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
         with:
           python-version: '3.13'
           cache-dependency-glob: |

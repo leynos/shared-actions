@@ -213,10 +213,19 @@ jobs:
           CARGO_MUTANTS_VERSION: ${{ inputs.cargo-mutants-version }}
         run: |
           set -euo pipefail
+          # `--locked` is forwarded to the source-build fallback that
+          # cargo-binstall runs when no prebuilt binary matches the runner.
+          # Without it the fallback resolves cargo-mutants' dependency tree
+          # to the newest permitted versions, which can pull in a transitive
+          # crate whose MSRV exceeds the pinned nightly toolchain (e.g.
+          # cargo-platform 0.3.3 requiring rustc 1.91) and fail the install.
+          # Building against the crate's committed Cargo.lock keeps the
+          # install reproducible against the pinned toolchain (issue #364).
+          # Mirrors the cargo-nextest install in the generate-coverage action.
           if [[ -n "${CARGO_MUTANTS_VERSION}" ]]; then
-            cargo binstall --no-confirm "cargo-mutants@${CARGO_MUTANTS_VERSION}"
+            cargo binstall --no-confirm --locked "cargo-mutants@${CARGO_MUTANTS_VERSION}"
           else
-            cargo binstall --no-confirm cargo-mutants
+            cargo binstall --no-confirm --locked cargo-mutants
           fi
 
       - name: Run setup commands

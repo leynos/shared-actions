@@ -47,22 +47,24 @@ def test_bucket_files_partitions_without_loss_or_overlap(
 
 
 @given(
-    paths=st.lists(
-        st.lists(SEGMENT, min_size=1, max_size=3).map(
-            lambda parts: "src/" + "/".join(parts) + ".py"
-        ),
+    path_specs=st.lists(
+        st.lists(SEGMENT, min_size=1, max_size=3),
         max_size=6,
     )
 )
-def test_module_globs_are_deduplicated_module_patterns(paths: list[str]) -> None:
-    """Globs are unique module patterns with no path or suffix residue."""
+def test_module_globs_are_deduplicated_module_patterns(
+    path_specs: list[list[str]],
+) -> None:
+    """Globs are deduplicated dotted module patterns plus ``.*``.
+
+    Reconstructed from the module path parts, so a legitimate module
+    segment named ``py`` (e.g. ``src/a/py.py`` → ``a.py.*``) is not
+    mistaken for a stripped-extension residue.
+    """
+    paths = ["src/" + "/".join(parts) + ".py" for parts in path_specs]
+    expected = [".".join(parts) + ".*" for parts in path_specs]
     globs = run_mutmut.files_to_module_globs(" ".join(paths), "src/")
-    assert len(globs) == len(set(globs))
-    for glob in globs:
-        assert glob.endswith(".*")
-        assert "/" not in glob
-        assert ".py" not in glob
-    assert len(globs) <= len(paths)
+    assert globs == list(dict.fromkeys(expected))
 
 
 @given(

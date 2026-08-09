@@ -11,21 +11,20 @@ from pathlib import Path
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from types import ModuleType
 
-if _ACTION_PATH := os.environ.get("GITHUB_ACTION_PATH"):
-    _action_root = Path(_ACTION_PATH).resolve()
-    scripts_candidate = _action_root / "scripts"
+# The action scripts ship alongside the tests in this repository, so the
+# local path is authoritative. ``GITHUB_ACTION_PATH`` is only a fallback
+# for relocated layouts: the Makefile exports it at the repository root,
+# whose own ``scripts/`` directory belongs to a different action and must
+# not be used to locate these scripts.
+_scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+action_path = os.environ.get("GITHUB_ACTION_PATH")
+if not _scripts_dir.is_dir() and action_path:
+    scripts_candidate = Path(action_path).resolve() / "scripts"
     if scripts_candidate.is_dir():
-        SCRIPTS_DIR = scripts_candidate
-        try:
-            REPO_ROOT = _action_root.parents[2]
-        except IndexError:
-            REPO_ROOT = scripts_candidate.parents[3]
-    else:
-        SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-        REPO_ROOT = SCRIPTS_DIR.parents[3]
-else:
-    SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-    REPO_ROOT = SCRIPTS_DIR.parents[3]
+        _scripts_dir = scripts_candidate
+
+SCRIPTS_DIR = _scripts_dir
+REPO_ROOT = SCRIPTS_DIR.parents[3]
 
 
 def load_script_module(name: str) -> ModuleType:

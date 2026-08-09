@@ -417,6 +417,24 @@ Internals for maintainers:
   `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy
   path is validated by every real run of the consuming workflows.
 
+### `cargo-mutants` Install Contract
+
+The `Install cargo-mutants` step in `mutation-cargo.yml` installs
+cargo-mutants with `cargo binstall --no-confirm --locked`. `cargo binstall`
+falls back to a source build when no prebuilt binary matches the runner,
+and it forwards `--locked` to that fallback so the build resolves against
+cargo-mutants' committed `Cargo.lock` instead of the newest permitted
+versions. Without `--locked` the fallback can pull in a transitive crate
+whose MSRV exceeds the pinned nightly toolchain (`cargo-platform 0.3.3`
+requiring rustc 1.91 broke a scheduled run against `nightly-2025-06-26`),
+failing the install before any mutant runs (issue #364).
+
+Keep `--locked` on both binstall invocations — the version-pinned branch
+and the unversioned (latest) branch — and keep the shape-test invariant
+(`test_cargo_mutants_install_is_locked`) in sync. This mirrors the
+`cargo-nextest` install in the `generate-coverage` action, which already
+passes `--locked`.
+
 ## Running the Test Suite
 
 ```bash

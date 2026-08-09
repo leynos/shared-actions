@@ -371,6 +371,23 @@ work proceeds.
   every assert in the mutmut and cargo-summary test modules a
   descriptive failure message.
 
+- 2026-08-09 (issue #364, review round): the `Install cargo-mutants`
+  step passes `--locked` to both `cargo binstall` invocations.
+  Rationale: `cargo binstall` falls back to a source build when no
+  prebuilt binary matches the runner and forwards `--locked` to that
+  fallback; without it the build resolves cargo-mutants' dependency
+  tree to the newest permitted versions, and `cargo-platform 0.3.3`
+  (MSRV rustc 1.91) broke a scheduled run against the pinned
+  `nightly-2025-06-26` toolchain. Option (a) add `--locked` was chosen
+  over option (b) `--disable-strategies compile` to fail fast when no
+  prebuilt binary exists: (a) keeps the resilient source-build fallback
+  working while removing the MSRV-drift failure mode and matches the
+  established `generate-coverage` nextest pattern; (b) would trade a
+  latent fragility for a hard outage whenever a prebuilt binary is
+  briefly unavailable. Recorded in the developers guide
+  (`docs/developers-guide.md` §`cargo-mutants` Install Contract) and
+  pinned by the shape test `test_cargo_mutants_install_is_locked`.
+
 ## Outcomes & Retrospective
 
 Stages A–F implemented 2026-07-04 in five commits (plan hardening plus

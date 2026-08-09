@@ -19,6 +19,7 @@ real work already done. That is pinned here too.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 from pathlib import Path
 
@@ -36,6 +37,7 @@ RESTORE_STEP = "Restore workflow source"
 CHECKOUT_PATH = "./workflow-src"
 RELOCATED_DIR_EXPR = "${{ steps.relocate-workflow-source.outputs.workflow_dir }}"
 LOCAL_WORKFLOW_SRC_PREFIX = "./workflow-src/"
+REMOTE_SETUP_RUST_PREFIX = "leynos/shared-actions/.github/actions/setup-rust@"
 
 pytestmark = pytest.mark.skipif(
     not all((WORKFLOWS_DIR / name).exists() for name in WORKFLOW_NAMES),
@@ -94,6 +96,29 @@ def test_no_step_references_a_relocated_workflow_src_action(
                 f"relocated to $RUNNER_TEMP (issue #365). Reference the "
                 f"action remotely, pinned by SHA, instead."
             )
+    return
+
+
+def test_mutants_setup_rust_survives_workflow_source_relocation() -> None:
+    """Setup Rust is remote, SHA-pinned, guarded, and precedes relocation."""
+    steps = _steps(_jobs("mutation-cargo.yml")["mutants"])
+    names = _step_names(steps)
+    assert "Setup Rust" in names, "mutants job must contain a Setup Rust step"
+    assert RELOCATE_STEP in names, "mutants job must relocate workflow-src"
+    setup_rust = steps[names.index("Setup Rust")]
+    uses = setup_rust.get("uses")
+
+    assert isinstance(uses, str)
+    assert re.fullmatch(
+        rf"{re.escape(REMOTE_SETUP_RUST_PREFIX)}[0-9a-f]{{40}}", uses
+    ), "mutants:Setup Rust must use the remote action pinned by a full SHA"
+    assert setup_rust.get("if") == "${{ env.ACT != 'true' }}"
+    assert names.index("Setup Rust") < names.index(RELOCATE_STEP)
+
+    relocate = steps[names.index(RELOCATE_STEP)]
+    run = relocate.get("run")
+    assert isinstance(run, str)
+    assert '"${RUNNER_TEMP}/workflow-src"' in run
 
 
 @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)

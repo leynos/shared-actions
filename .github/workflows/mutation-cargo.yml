@@ -260,10 +260,9 @@ jobs:
         # tree-scanning tests in the caller's suite (manifest sweeps,
         # file inventories, lint-everything globs) never see foreign
         # files during the mutation baseline or mutant runs. Runs after
-        # "Setup Rust" (which needs the workspace-local action path) and
-        # "Setup uv" (whose cache-dependency-glob hashes the workflow
-        # scripts while they sit inside the workspace). Under act the
-        # workspace itself is the workflow source, so nothing moves.
+        # "Setup uv", whose cache-dependency-glob hashes the workflow scripts
+        # while they sit inside the workspace. Under act the workspace itself
+        # is the workflow source, so nothing moves.
         id: relocate-workflow-source
         shell: bash
         env:

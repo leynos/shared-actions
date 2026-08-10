@@ -129,7 +129,11 @@ def test_upload_missing_coverage_file_fails_with_clear_message(
     tmp_path: Path,
 ) -> None:
     """A missing coverage file aborts the upload with a clear diagnostic."""
-    result = _run_fragment(tmp_path, _upload_script())
+    _write_stub_cli(tmp_path)
+
+    result = _run_fragment(
+        tmp_path, _upload_script(), env={"PATH": _stub_path(tmp_path)}
+    )
 
     assert result.returncode == 1
     assert "Coverage file not found!" in result.stderr

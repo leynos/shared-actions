@@ -179,3 +179,7 @@ target/
 
 # mutmut mutation-testing working copy
 /mutants/
+.vtcode/
+.grepai/
+*.swp
+*.swo

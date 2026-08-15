@@ -4,6 +4,7 @@ This guide explains the `rustflags` inputs exposed by the `setup-rust` and
 `rust-build-release` composite actions, and the CodeScene coverage modes
 provided by `upload-codescene-coverage`. It covers why these inputs and modes
 exist and how to configure them for common scenarios.
+It also documents how to use the `install-nixie` action.
 
 ## Related documents
 
@@ -70,6 +71,9 @@ empty string to have it leave `RUSTFLAGS` alone.
 Keep the default `-D warnings` behaviour (no input needed):
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - uses: ./.github/actions/setup-rust
   with:
     toolchain: stable
@@ -78,6 +82,9 @@ Keep the default `-D warnings` behaviour (no input needed):
 Pass an extra flag, replacing the default:
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - uses: ./.github/actions/setup-rust
   with:
     toolchain: nightly
@@ -87,6 +94,9 @@ Pass an extra flag, replacing the default:
 Defer to the project's `.cargo/config.toml`:
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - uses: ./.github/actions/setup-rust
   with:
     toolchain: stable
@@ -99,6 +109,9 @@ Keep the default (environment untouched, `-D warnings` still applies via the
 nested `setup-rust` step):
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - uses: ./.github/actions/rust-build-release
   with:
     target: x86_64-unknown-linux-gnu
@@ -109,6 +122,9 @@ nested `setup-rust` step):
 Pass an extra flag required by the source tree:
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
 - uses: ./.github/actions/rust-build-release
   with:
     target: x86_64-unknown-linux-gnu
@@ -117,7 +133,7 @@ Pass an extra flag required by the source tree:
     rustflags: "-Zpolonius=next"
 ```
 
-## Which should I use?
+## Action selection
 
 - Use `setup-rust`'s `rustflags` input when calling that action directly.
 - Use `rust-build-release`'s `rustflags` input when using the build action,

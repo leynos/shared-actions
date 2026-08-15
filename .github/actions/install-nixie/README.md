@@ -8,11 +8,11 @@ Cargo. It uses `cargo binstall` when available and falls back to a locked
 
 ## Inputs
 
-| Name             | Description                              | Required | Default |
-| ---------------- | ---------------------------------------- | -------- | ------- |
-| `nixie-version`  | Nixie CLI version to install             | no       | `1.1.0` |
-| `merman-version` | Merman CLI version to install            | no       | `0.7.0` |
-| `python-version` | Python version used to install Nixie     | no       | `3.14`  |
+| Name             | Type     | Description                          | Required | Default |
+| ---------------- | -------- | ------------------------------------ | -------- | ------- |
+| `nixie-version`  | `string` | Nixie CLI version to install         | no       | `1.1.0` |
+| `merman-version` | `string` | Merman CLI version to install        | no       | `0.7.0` |
+| `python-version` | `string` | Python version used to install Nixie | no       | `3.14`  |
 
 ## Outputs
 
@@ -40,7 +40,7 @@ To use the action from this repository:
   uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
 - name: Install Nixie
-  uses: ./.github/actions/install-nixie@<SHA>
+  uses: ./.github/actions/install-nixie
 ```
 
 For SHA-pinned references, use the action commit SHA:

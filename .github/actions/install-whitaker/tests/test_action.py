@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import typing as typ
 from dataclasses import dataclass  # noqa: ICN003 - required scenario decorator.
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,18 @@ chmod +x "$FAKE_BIN_DIR/whitaker-installer"
     )
 
 
+def _bash_path(bash: str, path: Path) -> str:
+    """Return an existing path in the syntax understood by Bash."""
+    result = subprocess.run(  # noqa: S603,TID251 - Bash is resolved with shutil.which.
+        [bash, "-c", 'cd -- "$1" && pwd -P', "bash", path.as_posix()],
+        capture_output=True,
+        check=True,
+        text=True,
+        timeout=30,
+    )
+    return result.stdout.strip()
+
+
 @dataclass(frozen=True)
 class _InstallScenario:
     binstall_available: bool
@@ -101,6 +114,12 @@ def _run_install_script(
     bin_dir.mkdir(parents=True)
     cargo_log = tmp_path / "cargo.log"
     installer_log = tmp_path / "installer.log"
+    bash_cargo_home = _bash_path(bash, cargo_home)
+    bash_bin_dir = _bash_path(bash, bin_dir)
+    bash_cargo_log = f"{_bash_path(bash, cargo_log.parent)}/{cargo_log.name}"
+    bash_installer_log = (
+        f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
+    )
     _write_cargo_stub(bin_dir)
     if scenario.installer_present:
         _write_executable(
@@ -117,15 +136,16 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 
     env = {
         **os.environ,
-        "PATH": f"/usr/bin{os.pathsep}/bin",
-        "CARGO_HOME": cargo_home.as_posix(),
+        "PATH": "/usr/bin:/bin",
+        "CARGO_HOME": bash_cargo_home,
         "BINSTALL_AVAILABLE": str(scenario.binstall_available).lower(),
-        "CARGO_LOG": cargo_log.as_posix(),
+        "CARGO_LOG": bash_cargo_log,
         "FAIL_BINSTALL": str(scenario.fail_binstall).lower(),
         "FAIL_INSTALL": str(scenario.fail_install).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
-        "FAKE_BIN_DIR": bin_dir.as_posix(),
-        "INSTALLER_LOG": installer_log.as_posix(),
+        "FAKE_BIN_DIR": bash_bin_dir,
+        "INSTALLER_LOG": bash_installer_log,
+        "WHITAKER_INSTALLER_CACHE_HIT": "false",
         "WHITAKER_INSTALLER_VERSION": "0.2.6",
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
@@ -154,6 +174,7 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     assert isinstance(runs, dict)
     steps = typ.cast("list[dict[str, object]]", runs["steps"])
     cache_step = steps[0]
+    assert cache_step["id"] == "cache-whitaker-installer"
     assert cache_step["uses"] == (
         "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
     )
@@ -161,6 +182,17 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     assert "~/.cargo/bin/whitaker-installer" in cache_config["path"]
     assert "~/.cache/cargo-binstall" in cache_config["path"]
     assert "${{ inputs.installer-version }}" in cache_config["key"]
+    install_step = steps[1]
+    install_env = typ.cast("dict[str, str]", install_step["env"])
+    assert install_env["WHITAKER_INSTALLER_VERSION"] == (
+        "${{ inputs.installer-version }}"
+    )
+    assert install_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
+        "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
+    )
+    install_script = typ.cast("str", install_step["run"])
+    assert "title=Whitaker installer cache" in install_script
+    assert "title=Whitaker installer::status=complete" in install_script
 
 
 def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
@@ -204,6 +236,41 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
         "suite installed\n"
     )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    tuple(
+        _InstallScenario(
+            binstall_available=binstall_available,
+            installer_present=installer_present,
+            fail_binstall=fail_binstall,
+            fail_install=fail_install,
+            fail_installer=fail_installer,
+        )
+        for (
+            binstall_available,
+            installer_present,
+            fail_binstall,
+            fail_install,
+            fail_installer,
+        ) in product((False, True), repeat=5)
+    ),
+)
+def test_install_scenario_matrix(
+    tmp_path: Path,
+    scenario: _InstallScenario,
+) -> None:
+    """Every bounded installer state should finish with the expected status."""
+    result = _run_install_script(tmp_path, scenario)
+    if scenario.installer_present:
+        expected_failure = scenario.fail_installer
+    elif scenario.binstall_available:
+        expected_failure = scenario.fail_binstall or scenario.fail_installer
+    else:
+        expected_failure = scenario.fail_install or scenario.fail_installer
+
+    assert (result.returncode != 0) is expected_failure, result.stderr
 
 
 @pytest.mark.parametrize(

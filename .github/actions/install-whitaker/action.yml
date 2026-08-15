@@ -11,6 +11,7 @@ runs:
   using: composite
   steps:
     - name: Cache Whitaker installer
+      id: cache-whitaker-installer
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
@@ -22,16 +23,24 @@ runs:
     - name: Install Whitaker Dylint suite
       shell: bash
       env:
+        WHITAKER_INSTALLER_CACHE_HIT: ${{ steps.cache-whitaker-installer.outputs.cache-hit }}
         WHITAKER_INSTALLER_VERSION: ${{ inputs.installer-version }}
       run: |
         set -euo pipefail
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; exit "${status}"' ERR
         export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+        echo "::notice title=Whitaker installer cache::hit=${WHITAKER_INSTALLER_CACHE_HIT} version=${WHITAKER_INSTALLER_VERSION}"
         if ! command -v whitaker-installer >/dev/null 2>&1; then
           if cargo binstall --version >/dev/null 2>&1; then
+            echo "::notice title=Whitaker installer::path=cargo-binstall version=${WHITAKER_INSTALLER_VERSION}"
             cargo binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
           else
             echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
+            echo "::notice title=Whitaker installer::path=cargo-install version=${WHITAKER_INSTALLER_VERSION}"
             cargo install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
           fi
+        else
+          echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
         fi
         whitaker-installer
+        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION}"

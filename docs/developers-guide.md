@@ -161,9 +161,13 @@ The composite action's cache step restores these paths:
 - `~/.cargo/bin/whitaker-installer`
 - `~/.cache/cargo-binstall`
 
-Its key is
-`whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}`;
-the `installer-version` input defaults to `0.2.6`. The installation step
+Its key is the following expression:
+
+```text
+whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}
+```
+
+The `installer-version` input defaults to `0.2.6`. The installation step
 prepends `${CARGO_HOME:-$HOME/.cargo}/bin` to the current step's `PATH`, so it
 respects a caller-provided `CARGO_HOME` when locating Cargo-installed tools.
 

@@ -40,7 +40,13 @@ To use the action from this repository:
   uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
 - name: Install Nixie
-  uses: ./.github/actions/install-nixie
+  uses: ./.github/actions/install-nixie@<SHA>
+```
+
+For SHA-pinned references, use the action commit SHA:
+
+```yaml
+uses: leynos/shared-actions/.github/actions/install-nixie@<SHA>
 ```
 
 To override the pinned versions:

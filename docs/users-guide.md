@@ -140,7 +140,6 @@ Pass an extra flag required by the source tree:
   which pins its own nested `setup-rust` step and exports the value before
   that step runs.
 
-
 ## Install Nixie
 
 The `install-nixie` action installs pinned Nixie and Merman CLI releases for
@@ -193,6 +192,7 @@ PATH entry.
 After both installations succeed, the action appends the directory returned by
 `uv tool dir --bin` to `GITHUB_PATH`. Later workflow steps can therefore invoke
 `nixie` directly.
+
 ## CodeScene coverage checks
 
 The [`upload-codescene-coverage` action][codescene-coverage-action] supports

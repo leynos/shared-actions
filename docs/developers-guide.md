@@ -450,7 +450,6 @@ make typecheck     # mypy
 make lint          # Ruff lint + action-validator + markdownlint
 ```
 
-
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is

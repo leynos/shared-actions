@@ -15,6 +15,31 @@ It also documents how to use the `install-nixie` action.
   and output tables.
 - [`rust-build-release` README](../.github/actions/rust-build-release/README.md)
   – full input and output tables.
+- [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
+  installer input and cache details.
+
+
+## `install-whitaker` action
+
+The `install-whitaker` composite action installs the `whitaker-installer`
+crate and runs it to install the Whitaker Dylint suite. The runner must have
+Cargo available. Use the action from a workflow in this repository with its
+local path:
+
+```yaml
+- name: Install Whitaker
+  uses: ./.github/actions/install-whitaker
+```
+
+The optional `installer-version` input selects the `whitaker-installer`
+version and defaults to `0.2.6`.
+
+Before installation, the action restores the cached
+`~/.cargo/bin/whitaker-installer` binary and `~/.cache/cargo-binstall` using a
+key containing the runner operating system, architecture, and installer
+version. A cache hit reuses the installer binary. On a miss, the action first
+tries `cargo binstall`; if `cargo binstall --version` is unavailable, it falls
+back to building the requested version with `cargo install --locked`.
 
 ## The problem
 

@@ -23,7 +23,7 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 
 ```yaml
 - name: Set up Rust
-  uses: leynos/shared-actions/.github/actions/setup-rust@v1
+  uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332 # setup-rust-v1
 
 - name: Install Whitaker
   uses: ./.github/actions/install-whitaker@v1

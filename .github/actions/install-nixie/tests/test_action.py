@@ -378,3 +378,5 @@ def test_install_script_reports_missing_prerequisite(
 
     assert result.returncode == 1
     assert expected_error in result.stderr
+    assert not (tmp_path / "calls").exists()
+    _assert_github_path_empty(tmp_path)

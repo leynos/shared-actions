@@ -98,6 +98,8 @@ class _InstallScenario:
     fail_binstall: bool = False
     fail_install: bool = False
     fail_installer: bool = False
+    installer_version: str = "0.2.6"
+    cargo_home_name: str = "cargo-home"
 
 
 def _run_install_script(
@@ -109,7 +111,7 @@ def _run_install_script(
     if bash is None:
         pytest.skip("bash not found on PATH")
 
-    cargo_home = tmp_path / "cargo-home"
+    cargo_home = tmp_path / scenario.cargo_home_name
     bin_dir = cargo_home / "bin"
     bin_dir.mkdir(parents=True)
     cargo_log = tmp_path / "cargo.log"
@@ -146,7 +148,7 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         "FAKE_BIN_DIR": bash_bin_dir,
         "INSTALLER_LOG": bash_installer_log,
         "WHITAKER_INSTALLER_CACHE_HIT": "false",
-        "WHITAKER_INSTALLER_VERSION": "0.2.6",
+        "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
         [bash, "-c", _install_script()],
@@ -164,11 +166,18 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     manifest = _load_manifest()
 
     assert manifest["inputs"] == {
+        "cargo-home": {
+            "description": (
+                "Cargo home that stores the cached whitaker-installer binary"
+            ),
+            "required": False,
+            "default": "~/.cargo",
+        },
         "installer-version": {
             "description": "Version of whitaker-installer to install",
             "required": False,
             "default": "0.2.6",
-        }
+        },
     }
     runs = manifest["runs"]
     assert isinstance(runs, dict)
@@ -179,11 +188,15 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
         "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
     )
     cache_config = typ.cast("dict[str, str]", cache_step["with"])
-    assert "~/.cargo/bin/whitaker-installer" in cache_config["path"]
+    assert "${{ inputs.cargo-home }}/bin/whitaker-installer" in cache_config["path"]
     assert "~/.cache/cargo-binstall" in cache_config["path"]
-    assert "${{ inputs.installer-version }}" in cache_config["key"]
+    assert cache_config["key"] == (
+        "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
+        "${{ inputs.installer-version }}"
+    )
     install_step = steps[1]
     install_env = typ.cast("dict[str, str]", install_step["env"])
+    assert install_env["CARGO_HOME"] == "${{ inputs.cargo-home }}"
     assert install_env["WHITAKER_INSTALLER_VERSION"] == (
         "${{ inputs.installer-version }}"
     )
@@ -193,6 +206,7 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     install_script = typ.cast("str", install_step["run"])
     assert "title=Whitaker installer cache" in install_script
     assert "title=Whitaker installer::status=complete" in install_script
+    assert 'CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"' in install_script
 
 
 def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
@@ -207,6 +221,12 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
     assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
         "suite installed\n"
     )
+    assert "::notice title=Whitaker installer::path=cargo-binstall version=0.2.6" in (
+        result.stdout
+    )
+    assert "::notice title=Whitaker installer::status=complete version=0.2.6" in (
+        result.stdout
+    )
 
 
 def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
@@ -219,6 +239,9 @@ def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
         "install --locked whitaker-installer --version 0.2.6",
     ]
     assert "cargo-binstall unavailable" in result.stdout
+    assert "::notice title=Whitaker installer::path=cargo-install version=0.2.6" in (
+        result.stdout
+    )
 
 
 def test_reuses_cached_installer(tmp_path: Path) -> None:
@@ -235,6 +258,31 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     assert not (tmp_path / "cargo.log").exists()
     assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
         "suite installed\n"
+    )
+    assert "::notice title=Whitaker installer::path=cache version=0.2.6" in (
+        result.stdout
+    )
+
+
+def test_installs_nondefault_version_into_nondefault_cargo_home(
+    tmp_path: Path,
+) -> None:
+    """A custom Cargo home should contain the requested installer version."""
+    scenario = _InstallScenario(
+        binstall_available=True,
+        installer_version="9.9.9",
+        cargo_home_name="custom-cargo-home",
+    )
+    result = _run_install_script(tmp_path, scenario)
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "custom-cargo-home" / "bin" / "whitaker-installer").is_file()
+    assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
+        "binstall --version",
+        "binstall --no-confirm --locked whitaker-installer@9.9.9",
+    ]
+    assert "::notice title=Whitaker installer cache::hit=false version=9.9.9" in (
+        result.stdout
     )
 
 
@@ -312,3 +360,7 @@ def test_reports_install_failure(
 
     assert result.returncode != 0
     assert expected_error in result.stderr
+    assert (
+        f"::error title=Whitaker installer failed::exit-code={result.returncode} "
+        "version=0.2.6"
+    ) in result.stderr

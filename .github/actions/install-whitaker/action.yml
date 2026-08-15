@@ -2,6 +2,10 @@ name: Install Whitaker
 description: Install the Whitaker Dylint suite with a cached installer
 
 inputs:
+  cargo-home:
+    description: Cargo home that stores the cached whitaker-installer binary
+    required: false
+    default: ~/.cargo
   installer-version:
     description: Version of whitaker-installer to install
     required: false
@@ -15,7 +19,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          ~/.cargo/bin/whitaker-installer
+          ${{ inputs.cargo-home }}/bin/whitaker-installer
           ~/.cache/cargo-binstall
         key: >-
           whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}
@@ -23,12 +27,18 @@ runs:
     - name: Install Whitaker Dylint suite
       shell: bash
       env:
+        CARGO_HOME: ${{ inputs.cargo-home }}
         WHITAKER_INSTALLER_CACHE_HIT: ${{ steps.cache-whitaker-installer.outputs.cache-hit }}
         WHITAKER_INSTALLER_VERSION: ${{ inputs.installer-version }}
       run: |
         set -euo pipefail
         trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; exit "${status}"' ERR
-        export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+        CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+        if [[ "$CARGO_HOME" == "~" || "$CARGO_HOME" == "~/"* ]]; then
+          CARGO_HOME="${HOME}${CARGO_HOME:1}"
+        fi
+        export CARGO_HOME
+        export PATH="${CARGO_HOME}/bin:$PATH"
         echo "::notice title=Whitaker installer cache::hit=${WHITAKER_INSTALLER_CACHE_HIT} version=${WHITAKER_INSTALLER_VERSION}"
         if ! command -v whitaker-installer >/dev/null 2>&1; then
           if cargo binstall --version >/dev/null 2>&1; then

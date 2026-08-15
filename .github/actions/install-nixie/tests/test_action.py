@@ -228,8 +228,10 @@ def test_install_script_propagates_version_overrides(
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
         case.expected_cargo_call,
-        f"uv <tool> <install> <--python> <{case.python_version}> "
-        f"<nixie-cli=={case.nixie_version}>",
+        (
+            f"uv <tool> <install> <--python> <{case.python_version}> "
+            f"<nixie-cli=={case.nixie_version}>"
+        ),
         "uv <tool> <dir> <--bin>",
     ]
 
@@ -337,8 +339,10 @@ def test_install_script_accepts_shell_safe_versions(
         assert result.returncode == 0, result.stderr
         assert calls == [
             expected_cargo_call,
-            f"uv <tool> <install> <--python> <{python_version}> "
-            f"<nixie-cli=={nixie_version}>",
+            (
+                f"uv <tool> <install> <--python> <{python_version}> "
+                f"<nixie-cli=={nixie_version}>"
+            ),
             "uv <tool> <dir> <--bin>",
         ]
         assert "<--locked>" in calls[0]

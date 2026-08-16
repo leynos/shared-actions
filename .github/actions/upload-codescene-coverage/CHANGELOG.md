@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Degrade CodeScene changed-line gate checks to a warning when the pull
+  request merge base has no uploaded coverage baseline.
+
 ## v1.0.0
 
 - Initial version.

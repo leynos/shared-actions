@@ -38,9 +38,12 @@ diffs the PR against its merge base — the job must check out with
 report file `*.info` because the CLI infers the format from the file
 extension. When a pull request targets a branch other than the repository's
 default branch, the action skips this gate with a warning because CodeScene has
-no uploaded baseline for that merge base. If the CLI fails, the action prints
-its verbose diagnostic and preserves its exit status instead of referring to
-logs that are not exposed by the workflow.
+no uploaded baseline for that merge base. Separately, when a pull request
+targets the default branch but CodeScene has no uploaded coverage baseline for
+its merge base, `cs-coverage check` exits with status 2; the action degrades
+that changed-line gate to a skipped warning. Other CLI failures print their
+verbose diagnostics and preserve their exit status instead of referring to logs
+that are not exposed by the workflow.
 
 ## Environment variables
 

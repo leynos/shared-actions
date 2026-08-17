@@ -4,6 +4,26 @@
 
 - Degrade CodeScene changed-line gate checks to a warning when the pull
   request merge base has no uploaded coverage baseline.
+- Adapt to the rewritten CodeScene installer script, which no longer
+  embeds a version literal and instead accepts the version as its first
+  positional argument. The removed `grep` extraction failed under
+  `pipefail` and broke every upload. A new `cli-version` input (default
+  `latest`) selects the CLI version; the CLI cache participates only
+  when a version is pinned, so `latest` always fetches a fresh copy.
+- Skip the changed-line coverage gate with a warning when a pull request
+  targets a branch other than the repository default. CodeScene has no
+  uploaded baseline for such stacked-pull-request merge bases, so the gate
+  cannot produce an actionable result.
+- Run the changed-line gate with verbose diagnostics and surface that output
+  when the CLI fails, while preserving its original exit status. Configuration
+  failures also explain that the pull request base needs uploaded coverage.
+- Add a `mode` input (`upload` | `check`). CodeScene accepts `upload`
+  only for branches the project analyses (typically `main`); the
+  pull-request coverage gate is driven by `cs-coverage check`, which
+  diffs the PR against its merge base. `check` requires the new
+  `project-url` input (exported as `CS_PROJECT_URL`) and a
+  `fetch-depth: 0` checkout, and requires LCOV files to end in `.info`
+  because the CLI infers the format from the extension.
 
 ## v1.0.0
 
@@ -66,29 +86,3 @@
 
 - Treat empty `path` input the same as `__auto__` to avoid artefact upload
   failures.
-
-## Unreleased
-
-- Adapt to the rewritten CodeScene installer script, which no longer
-  embeds a version literal and instead accepts the version as its first
-  positional argument. The removed `grep` extraction failed under
-  `pipefail` and broke every upload. A new `cli-version` input (default
-  `latest`) selects the CLI version; the CLI cache participates only
-  when a version is pinned, so `latest` always fetches a fresh copy.
-
-## Unreleased (check mode)
-
-- Skip the changed-line coverage gate with a warning when a pull request
-  targets a branch other than the repository default. CodeScene has no
-  uploaded baseline for such stacked-pull-request merge bases, so the gate
-  cannot produce an actionable result.
-- Run the changed-line gate with verbose diagnostics and surface that output
-  when the CLI fails, while preserving its original exit status. Configuration
-  failures also explain that the pull request base needs uploaded coverage.
-- Add a `mode` input (`upload` | `check`). CodeScene accepts `upload`
-  only for branches the project analyses (typically `main`); the
-  pull-request coverage gate is driven by `cs-coverage check`, which
-  diffs the PR against its merge base. `check` requires the new
-  `project-url` input (exported as `CS_PROJECT_URL`) and a
-  `fetch-depth: 0` checkout, and requires LCOV files to end in `.info`
-  because the CLI infers the format from the extension.

@@ -223,10 +223,12 @@ def test_download_installer_verifies_checksum_when_provided(
 
 
 def test_download_installer_rejects_mismatched_checksum(tmp_path: Path) -> None:
-    """A mismatched installer checksum aborts the download."""
+    """A mismatched installer checksum aborts with the sha256sum diagnostic."""
     result = _run_download_installer(tmp_path, checksum="0" * 64)
 
     assert result.returncode != 0
+    combined = f"{result.stdout}{result.stderr}"
+    assert "did NOT match" in combined
 
 
 def test_download_installer_skips_checksum_when_unset(tmp_path: Path) -> None:
@@ -239,12 +241,26 @@ def test_download_installer_skips_checksum_when_unset(tmp_path: Path) -> None:
     assert outputs["major_minor"] == "latest"
 
 
-def test_export_env_writes_token_and_checksum(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("project_url", "expected"),
+    [
+        ("", None),
+        (
+            "https://api.codescene.io/v2/projects/72004",
+            "CS_PROJECT_URL=https://api.codescene.io/v2/projects/72004",
+        ),
+    ],
+)
+def test_export_env_writes_token_and_checksum(
+    tmp_path: Path,
+    project_url: str,
+    expected: str | None,
+) -> None:
     """The export step surfaces the token and checksum to GITHUB_ENV."""
     script = str(_step_by_name("Export env for later steps")["run"])
     script = script.replace("${{ inputs.access-token }}", "secret-token")
     script = script.replace("${{ inputs.installer-checksum }}", "deadbeef")
-    script = script.replace("${{ inputs.project-url }}", "")
+    script = script.replace("${{ inputs.project-url }}", project_url)
     env_file = tmp_path / "github-env"
 
     result = _run_fragment(tmp_path, script, env={"GITHUB_ENV": str(env_file)})
@@ -253,4 +269,7 @@ def test_export_env_writes_token_and_checksum(tmp_path: Path) -> None:
     content = env_file.read_text(encoding="utf-8")
     assert "CS_ACCESS_TOKEN=secret-token" in content
     assert "CODESCENE_CLI_SHA256=deadbeef" in content
-    assert "CS_PROJECT_URL" not in content
+    if expected is None:
+        assert "CS_PROJECT_URL" not in content
+    else:
+        assert expected in content

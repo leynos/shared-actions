@@ -135,6 +135,28 @@ make lint UV=uv
 make test ACT=/usr/local/bin/act
 ```
 
+## Dead-code detection
+
+`make lint` includes a blocking Skylos `4.33.2` dead-code scan after Ruff,
+action-metadata validation, and Whitaker. The CI lint step runs the same target,
+so every pull request and scheduled run rejects unexplained production dead code.
+The scan covers action implementations, workflow helpers, root modules, and the
+maintained tooling script, while excluding test directories so test-only imports
+cannot make production symbols appear live.
+
+Treat each finding as dead code until a runtime caller is verified. Remove
+genuine dead code. For a confirmed false positive, add a narrow, documented
+allow-list entry with:
+
+```shell
+make skylos-allow NAME=registered_handler \
+  REASON="Loaded by the action's runtime registry; verified by its contract test"
+```
+
+The target requires both fields and records the reason in
+`[tool.skylos.whitelist.documented]`. Do not add baselines or bulk exceptions;
+remove an allow-list entry when its dynamic boundary disappears.
+
 ## `setup-uv` Pinning
 
 Actions and workflows in this repository consume `astral-sh/setup-uv` by full

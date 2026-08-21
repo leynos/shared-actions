@@ -2469,39 +2469,6 @@ def test_coverage_cmd_for_fmt_threads_workers_through(
         ("1", "1"),
     ],
 )
-def test_normalize_pytest_workers_accepts_valid_values(
-    run_python_module: ModuleType,
-    raw: str | None,
-    expected: str,
-) -> None:
-    """Valid worker values normalize to the lowercase/stripped form."""
-    assert run_python_module._normalize_pytest_workers(raw) == expected
-
-
-@pytest.mark.parametrize("raw", ["banana", "-1", "4.0", "auto2", "two", "0"])
-def test_normalize_pytest_workers_rejects_invalid_values(
-    run_python_module: ModuleType,
-    raw: str,
-) -> None:
-    """Junk worker values exit with the configuration-error code."""
-    with pytest.raises(run_python_module.typer.Exit) as excinfo:
-        run_python_module._normalize_pytest_workers(raw)
-    assert _exit_code(excinfo.value) == 2
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        (None, ""),
-        ("", ""),
-        ("   ", ""),
-        ("auto", "auto"),
-        ("AUTO", "auto"),
-        (" logical ", "logical"),
-        ("4", "4"),
-        ("1", "1"),
-    ],
-)
 def test_parse_pytest_workers_returns_normalized_value(
     run_python_module: ModuleType,
     raw: str | None,

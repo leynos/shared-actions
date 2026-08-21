@@ -53,10 +53,11 @@ def _load_action() -> dict[str, typ.Any]:
 def _install_script() -> str:
     """Return the action's installation shell fragment."""
     steps = _load_action()["runs"]["steps"]
-    install_step = next(
+    install_steps = [
         step for step in steps if step.get("name") == "Install Nixie and Merman CLI"
-    )
-    run_script = install_step.get("run")
+    ]
+    assert len(install_steps) == 1, "install-nixie should define one CLI install step"
+    run_script = install_steps[0].get("run")
     assert isinstance(run_script, str), "install step must define a shell script"
     return run_script
 
@@ -331,6 +332,29 @@ def test_action_prunes_the_callers_restored_cache_before_uv_install() -> None:
     assert "prune_uv_cache.sh" in steps[prune_index]["run"], (
         "prune step must run the shared prune_uv_cache.sh script"
     )
+
+
+def test_manifest_installs_cargo_binstall_only_when_missing() -> None:
+    """The upstream installer should run only when cargo-binstall is absent."""
+    steps = _load_action()["runs"]["steps"]
+
+    assert steps[:2] == [
+        {
+            "name": "Check cargo-binstall availability",
+            "id": "check-cargo-binstall",
+            "shell": "bash",
+            "run": "if command -v cargo-binstall >/dev/null 2>&1; then\n"
+            '  echo "installed=true" >> "${GITHUB_OUTPUT}"\n'
+            "else\n"
+            '  echo "installed=false" >> "${GITHUB_OUTPUT}"\n'
+            "fi\n",
+        },
+        {
+            "name": "Install cargo-binstall",
+            "if": "steps.check-cargo-binstall.outputs.installed != 'true'",
+            "uses": "cargo-bins/cargo-binstall@8f137732cada3c067cb574fe3537fedfe2a6451d",
+        },
+    ]
 
 
 def test_install_script_uses_cached_merman_and_normal_nixie_reconciliation(

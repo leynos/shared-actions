@@ -162,7 +162,21 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 
 
 def test_manifest_exposes_version_and_cache_contract() -> None:
-    """The manifest should expose the pin and cache the installer artefacts."""
+    """Verify the manifest's versioned installer-cache contract.
+
+    Examples
+    --------
+    Run this contract check directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k manifest_exposes_version_and_cache_contract
+
+    Returns
+    -------
+    None
+        Passes when the inputs, cache key and paths, environment mapping, and
+        observable installer lifecycle annotations remain aligned.
+    """
     manifest = _load_manifest()
 
     assert manifest["inputs"] == {
@@ -210,7 +224,26 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
 
 
 def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
-    """cargo-binstall should be preferred when its subcommand is available."""
+    """Verify that an available cargo-binstall installs the pinned installer.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+
+    Examples
+    --------
+    Run this installation-path check directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k installs_with_cargo_binstall_when_available
+
+    Returns
+    -------
+    None
+        Passes when cargo-binstall receives the pinned version and the action
+        reports successful completion.
+    """
     result = _run_install_script(tmp_path, _InstallScenario(binstall_available=True))
 
     assert result.returncode == 0, result.stderr
@@ -230,7 +263,26 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
 
 
 def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
-    """Cargo should build whitaker-installer when cargo-binstall is unavailable."""
+    """Verify the Cargo-install fallback when cargo-binstall is unavailable.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+
+    Examples
+    --------
+    Run this fallback-path check directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k falls_back_to_cargo_install
+
+    Returns
+    -------
+    None
+        Passes when the action invokes ``cargo install`` with the pinned
+        version and reports the fallback path.
+    """
     result = _run_install_script(tmp_path, _InstallScenario(binstall_available=False))
 
     assert result.returncode == 0, result.stderr
@@ -245,7 +297,26 @@ def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
 
 
 def test_reuses_cached_installer(tmp_path: Path) -> None:
-    """A restored installer should avoid both Cargo installation paths."""
+    """Verify that a restored installer bypasses both Cargo installation paths.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+
+    Examples
+    --------
+    Run this cache-path check directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k reuses_cached_installer
+
+    Returns
+    -------
+    None
+        Passes when no Cargo command runs, the restored installer completes,
+        and the action reports the cache path.
+    """
     result = _run_install_script(
         tmp_path,
         _InstallScenario(
@@ -309,7 +380,29 @@ def test_install_scenario_matrix(
     tmp_path: Path,
     scenario: _InstallScenario,
 ) -> None:
-    """Every bounded installer state should finish with the expected status."""
+    """Exhaustively verify the finite installer-state failure contract.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+    scenario : _InstallScenario
+        One of the 32 combinations of cache availability, installer choice,
+        and failure states supplied by the parametrization.
+
+    Examples
+    --------
+    Run every bounded-state case directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k install_scenario_matrix
+
+    Returns
+    -------
+    None
+        Passes when each state returns success or failure according to the
+        cache, selected Cargo path, and installer failure invariants.
+    """
     result = _run_install_script(tmp_path, scenario)
     if scenario.installer_present:
         expected_failure = scenario.fail_installer
@@ -355,7 +448,32 @@ def test_reports_install_failure(
     scenario: _InstallScenario,
     expected_error: str,
 ) -> None:
-    """Installer failures should be actionable and non-zero."""
+    """Verify actionable errors for each selected installer failure path.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+    scenario : _InstallScenario
+        Parametrized state that fails cargo-binstall, Cargo install, or the
+        Whitaker installer after installation.
+    expected_error : str
+        Diagnostic fragment that the selected failure path must write to
+        standard error.
+
+    Examples
+    --------
+    Run every explicit failure-path check directly with:
+
+    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
+    ...     -k reports_install_failure
+
+    Returns
+    -------
+    None
+        Passes when the action exits non-zero and emits both the path-specific
+        diagnostic and the structured failure annotation.
+    """
     result = _run_install_script(tmp_path, scenario)
 
     assert result.returncode != 0

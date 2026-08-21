@@ -154,6 +154,57 @@ py-modules = [
 [tool.uv]
 package = true
 
+[tool.skylos.gate]
+strict = true
+
+[tool.skylos.whitelist]
+names = [
+    "JsonValue",
+    "_CargoProcCtx",
+    "_assert_cargo_streams",
+    "_build_cargo_env",
+    "_finalize_pump_threads",
+    "_handle_cargo_output_event",
+    "_kill_cargo_process",
+    "_poll_pump_loop_iteration",
+    "_pump_cargo_output",
+    "_pump_cargo_output_posix",
+    "_pump_cargo_output_windows",
+    "_raise_cargo_timeout",
+    "_run_cargo",
+    "_spawn_cargo",
+    "_wait_for_cargo",
+    "emit",
+    "fail",
+    "get_line_coverage_percent_from_cobertura",
+    "lines_from_detail",
+    "request_graphql",
+    "with_env",
+]
+
+[tool.skylos.whitelist.documented]
+"JsonValue" = "Workflow scripts need the direct-script import path when package-relative imports are unavailable."
+"_CargoProcCtx" = "run_rust imports the cargo runner's process context through its action-local module path."
+"_assert_cargo_streams" = "The action-local _run_cargo entry point calls this cargo stream guard."
+"_build_cargo_env" = "The action-local _run_cargo entry point builds its subprocess environment with this helper."
+"_finalize_pump_threads" = "The Windows cargo-output pump calls this helper after joining its threads."
+"_handle_cargo_output_event" = "The POSIX cargo-output pump dispatches selector events through this helper."
+"_kill_cargo_process" = "The POSIX cargo-output pump uses this helper to clean up failing processes."
+"_poll_pump_loop_iteration" = "The Windows cargo-output pump uses this helper while its reader threads run."
+"_pump_cargo_output" = "The action-local _run_cargo entry point dispatches output handling through this helper."
+"_pump_cargo_output_posix" = "The platform dispatcher invokes this helper on POSIX runners."
+"_pump_cargo_output_windows" = "The platform dispatcher invokes this helper on Windows runners."
+"_raise_cargo_timeout" = "Cargo process and output-pump timeout paths invoke this helper."
+"_run_cargo" = "run_rust imports the action-local cargo runner entry point."
+"_spawn_cargo" = "The action-local _run_cargo entry point creates cargo processes with this helper."
+"_wait_for_cargo" = "The action-local _run_cargo entry point waits for cargo through this helper."
+"emit" = "Workflow scripts select package-relative or direct-script output imports at runtime."
+"fail" = "Workflow scripts select package-relative or direct-script failure imports at runtime."
+"get_line_coverage_percent_from_cobertura" = "run_python imports this parser from its action-local sibling module."
+"lines_from_detail" = "The Cobertura parser calls this nested line-counter helper."
+"request_graphql" = "The Dependabot script selects package-relative or direct-script GraphQL imports at runtime."
+"with_env" = "The cross-build command wrapper delegates environment binding through this method."
+
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"

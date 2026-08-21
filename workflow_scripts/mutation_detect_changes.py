@@ -274,12 +274,9 @@ def full_run_matrix(config: DetectionConfig) -> list[MatrixEntry]:
     return entries
 
 
-def scoped_run_matrix(
-    buckets: dict[str, list[str]], config: DetectionConfig
-) -> list[MatrixEntry]:
+def scoped_run_matrix(buckets: dict[str, list[str]]) -> list[MatrixEntry]:
     """Build the single-shard matrix for a scoped (scheduled) run."""
     ordered = sorted(buckets.items(), key=lambda item: (item[0] != ".", item[0]))
-    del config  # scoped runs never shard; kept for signature symmetry
     return [
         MatrixEntry(
             dir=target_dir,
@@ -384,7 +381,7 @@ def main(
         buckets: dict[str, list[str]] = {}
     else:
         buckets = bucket_files(changed_files(config), config)
-        entries = scoped_run_matrix(buckets, config)
+        entries = scoped_run_matrix(buckets)
 
     has_changes = bool(entries)
     _write_output("has_changes", "true" if has_changes else "false", output_path)

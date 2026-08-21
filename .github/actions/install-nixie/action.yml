@@ -16,6 +16,18 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Check cargo-binstall availability
+      id: check-cargo-binstall
+      shell: bash
+      run: |
+        if command -v cargo-binstall >/dev/null 2>&1; then
+          echo "installed=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "installed=false" >> "${GITHUB_OUTPUT}"
+        fi
+    - name: Install cargo-binstall
+      if: steps.check-cargo-binstall.outputs.installed != 'true'
+      uses: cargo-bins/cargo-binstall@8f137732cada3c067cb574fe3537fedfe2a6451d
     - name: Install Nixie and Merman CLI
       shell: bash
       env:

@@ -450,6 +450,32 @@ make typecheck     # mypy
 make lint          # Ruff lint + action-validator + markdownlint
 ```
 
+## `install-nixie` Action Maintenance
+
+The composite action boundary is
+`.github/actions/install-nixie/action.yml`. It requires `cargo` and `uv` on
+`PATH` and exposes three pins: `nixie-version` defaults to `1.1.0`,
+`merman-version` defaults to `0.7.0`, and `python-version` defaults to `3.14`.
+Keep those public inputs and their defaults synchronized with the action README
+and users' guide.
+
+The Merman policy is cargo-binstall first: use locked `cargo binstall` when its
+availability probe succeeds, then fall back to locked `cargo install` only when
+cargo-binstall is unavailable. The install step uses `set -euo pipefail` as its
+failure boundary. Missing prerequisites or a failed Merman or Nixie installer
+must stop the step before PATH export.
+
+After both installers succeed, `uv tool dir --bin` supplies the directory
+appended to `GITHUB_PATH`. This makes `nixie` available to later workflow steps;
+do not run the lookup or write `GITHUB_PATH` after an installation failure.
+
+`.github/actions/install-nixie/tests/test_action.py` is the behavioural test
+boundary. Changes to this action must retain coverage for both successful
+Merman selection paths, missing `cargo` and `uv`, failures from cargo-binstall,
+the cargo-install fallback, and `uv tool install`, plus bounded property-based
+coverage of shell-safe versions across both installer-selection states. Failure
+tests must prove later installers and PATH export were not reached.
+
 ## `rust-build-release` Action Architecture
 
 ### Man-Page Path Strategy

@@ -18,7 +18,6 @@ It also documents how to use the `install-nixie` action.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
 
-
 ## `install-whitaker` action
 
 The `install-whitaker` composite action installs the `whitaker-installer`

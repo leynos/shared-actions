@@ -153,7 +153,6 @@ act cannot execute the real `setup-uv` path on the local runner, document the
 reason and keep the unit or manifest tests that assert the pinned reference in
 sync with the new SHA.
 
-
 ## `install-whitaker` action contract
 
 The composite action's cache step restores these paths:

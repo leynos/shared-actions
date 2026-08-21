@@ -32,14 +32,18 @@ local path:
 ```
 
 The optional `installer-version` input selects the `whitaker-installer`
-version and defaults to `0.2.6`.
+version and defaults to `0.2.6`. The optional `cargo-home` input defaults to
+`~/.cargo`; it controls both the cached `whitaker-installer` location
+(`${{ inputs.cargo-home }}/bin/whitaker-installer`) and the installation step's
+`CARGO_HOME`, whose `bin` directory is prepended to that step's `PATH`.
 
 Before installation, the action restores the cached
-`~/.cargo/bin/whitaker-installer` binary and `~/.cache/cargo-binstall` using a
-key containing the runner operating system, architecture, and installer
-version. A cache hit reuses the installer binary. On a miss, the action first
-tries `cargo binstall`; if `cargo binstall --version` is unavailable, it falls
-back to building the requested version with `cargo install --locked`.
+`${{ inputs.cargo-home }}/bin/whitaker-installer` binary and
+`~/.cache/cargo-binstall` using a key containing the runner operating system,
+architecture, and installer version. A cache hit reuses the installer binary.
+On a miss, the action first tries `cargo binstall`; if the cargo-binstall probe
+is unavailable, it falls back to building the requested version with `cargo
+install --locked`.
 
 ## The problem
 

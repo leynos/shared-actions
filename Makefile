@@ -36,8 +36,9 @@ TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
 	typos-config-builder
 SKYLOS_VERSION ?= 4.33.2
-SKYLOS = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos \
-	--config-file pyproject.toml
+SKYLOS_COMMAND = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos
+SKYLOS = $(SKYLOS_COMMAND) --config-file pyproject.toml
+SKYLOS_WHITELIST = $(SKYLOS_COMMAND) whitelist
 SKYLOS_PRODUCTION_TARGETS ?= .github/actions workflow_scripts scripts \
 	actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils_importer.py
 
@@ -64,11 +65,9 @@ lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings de
 	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 skylos-allow: export SKYLOS_NAME = $(value NAME)
-skylos-allow: export SKYLOS_REASON = $(value REASON)
 skylos-allow: ## Document one named Skylos false positive
 	@test -n "$${SKYLOS_NAME}" || { printf "Error: NAME is required for a named Skylos false positive\\n" >&2; exit 2; }
-	@test -n "$${SKYLOS_REASON}" || { printf "Error: REASON is required for a named Skylos false positive\\n" >&2; exit 2; }
-	$(SKYLOS) whitelist "$${SKYLOS_NAME}" --reason "$${SKYLOS_REASON}"
+	$(SKYLOS_WHITELIST) "$${SKYLOS_NAME}"
 
 typecheck: .venv ## Run static type checking with Ty
 	$(UV) run ty check \

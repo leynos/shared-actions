@@ -168,7 +168,7 @@ skylos-allow: ## Document one named Skylos exception, not an entry point
 		$(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
 
 typecheck: .venv ## Run static type checking with Ty
-	$(UV) run ty check \
+	$(UV) run ty check --python .venv \
 		--extra-search-path . \
 		--extra-search-path .github/actions/generate-coverage/scripts \
 		--extra-search-path .github/actions/ratchet-coverage/scripts \
@@ -196,7 +196,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/install-makeutil/tests \
 		uv_gate \
 		.github/actions/windows-package/scripts
-	$(UV) run ty check \
+	$(UV) run ty check --python .venv \
 		--extra-search-path . \
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts

@@ -60,7 +60,7 @@ lint-whitaker: ## Run the Whitaker Dylint suite on rust-toy-app with warnings de
 	cd rust-toy-app && RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 typecheck: .venv ## Run static type checking with Ty
-	./.venv/bin/ty check \
+	./.venv/bin/ty check --python .venv \
 		--extra-search-path . \
 		--extra-search-path .github/actions/generate-coverage/scripts \
 		--extra-search-path .github/actions/ratchet-coverage/scripts \
@@ -78,7 +78,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/rust-build-release/src \
 		.github/actions/setup-rust/scripts \
 		.github/actions/windows-package/scripts
-	./.venv/bin/ty check \
+	./.venv/bin/ty check --python .venv \
 		--extra-search-path . \
 		--extra-search-path .github/actions/macos-package/scripts \
 		.github/actions/macos-package/scripts

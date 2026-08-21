@@ -105,8 +105,9 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
   blocking Skylos production dead-code scan, which also runs in CI.
 
   Investigate every Skylos finding. Remove genuine dead code. Record a
-  verified false positive with `make skylos-allow NAME=<symbol>
-  REASON="<verified runtime caller>"`; do not add unexplained exceptions.
+  verified false positive with `make skylos-allow NAME=<symbol>`. The Skylos
+  subcommand records the name only, so record the verified runtime caller in
+  the reviewing change; do not add unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

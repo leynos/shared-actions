@@ -66,7 +66,7 @@ To override the pinned versions:
   `cargo-binstall`.
 - **Merman installation**: When `cargo binstall` is available, the action
   installs the selected Merman release from a binary package with locked
-  metadata. Otherwise it builds the exact selected release from crates.io with
+  metadata. Otherwise, it builds the exact selected release from crates.io with
   `cargo install --locked`.
 - **Nixie installation**: The action uses `uv tool install` with the selected
   Python and exact Nixie release.

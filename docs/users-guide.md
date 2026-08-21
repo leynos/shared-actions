@@ -1,4 +1,4 @@
-# Users' Guide: Rust Flags and CodeScene Coverage
+# Users' Guide: Rust Flags, CodeScene Coverage, and Install Nixie
 
 This guide explains the `rustflags` inputs exposed by the `setup-rust` and
 `rust-build-release` composite actions, and the CodeScene coverage modes

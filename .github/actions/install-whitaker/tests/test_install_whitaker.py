@@ -122,6 +122,23 @@ class _InstallScenario:
     conflicting_installer: bool = False
 
 
+def _execute_install_script(
+    bash: str,
+    cwd: Path,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    """Execute the installation fragment with the prepared environment."""
+    return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
+        [bash, "-c", _install_script()],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
+
+
 def _run_install_script(
     tmp_path: Path,
     scenario: _InstallScenario,
@@ -189,15 +206,7 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         "WHITAKER_INSTALLER_CACHE_HIT": "false",
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
-    return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
-        [bash, "-c", _install_script()],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=30,
-    )
+    return _execute_install_script(bash, tmp_path, env)
 
 
 def test_manifest_exposes_version_and_cache_contract() -> None:

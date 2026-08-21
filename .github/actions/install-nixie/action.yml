@@ -42,4 +42,5 @@ runs:
         fi
 
         uv tool install --python "${PYTHON_VERSION}" "nixie-cli==${NIXIE_VERSION}"
-        printf '%s\n' "$(uv tool dir --bin)" >> "${GITHUB_PATH}"
+        uv_bin_dir="$(uv tool dir --bin)" || exit $?
+        printf '%s\n' "${uv_bin_dir}" >> "${GITHUB_PATH}"

@@ -56,6 +56,7 @@ class _InstallScriptOptions:
     include_uv: bool = True
     cargo_install_status: int = 0
     uv_install_status: int = 0
+    uv_bin_dir_status: int = 0
     merman_version: str = "0.7.0"
     nixie_version: str = "1.1.0"
     python_version: str = "3.14"
@@ -101,8 +102,10 @@ printf 'uv' >> "$CALLS_PATH"
 printf ' <%s>' "$@" >> "$CALLS_PATH"
 printf '\n' >> "$CALLS_PATH"
 if [ "${{1:-}}" = "tool" ] && [ "${{2:-}}" = "dir" ] && [ "${{3:-}}" = "--bin" ]; then
-  printf '%s\n' "$UV_BIN_DIR"
-  exit 0
+  if [ {options.uv_bin_dir_status} -eq 0 ]; then
+    printf '%s\n' "$UV_BIN_DIR"
+  fi
+  exit {options.uv_bin_dir_status}
 fi
 if [ "${{1:-}}" = "tool" ] && [ "${{2:-}}" = "install" ]; then
   exit {options.uv_install_status}
@@ -226,12 +229,10 @@ def test_install_script_propagates_version_overrides(
     )
 
     assert result.returncode == 0, result.stderr
+    py_version, nx_version = case.python_version, case.nixie_version
     assert (tmp_path / "calls").read_text(encoding="utf-8").splitlines() == [
         case.expected_cargo_call,
-        (
-            f"uv <tool> <install> <--python> <{case.python_version}> "
-            f"<nixie-cli=={case.nixie_version}>"
-        ),
+        f"uv <tool> <install> <--python> <{py_version}> <nixie-cli=={nx_version}>",
         "uv <tool> <dir> <--bin>",
     ]
 
@@ -299,6 +300,26 @@ def test_install_script_stops_after_nixie_install_failure(tmp_path: Path) -> Non
     _assert_github_path_empty(tmp_path)
 
 
+def test_install_script_stops_after_uv_bin_directory_failure(tmp_path: Path) -> None:
+    """A failed Nixie binary directory lookup should prevent PATH export."""
+    result = _run_install_script(
+        tmp_path,
+        _InstallScriptOptions(
+            binstall_available=True,
+            uv_bin_dir_status=23,
+        ),
+    )
+
+    assert result.returncode == 23
+    calls = (tmp_path / "calls").read_text(encoding="utf-8").splitlines()
+    assert calls == [
+        "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
+        "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
+        "uv <tool> <dir> <--bin>",
+    ]
+    _assert_github_path_empty(tmp_path)
+
+
 _VERSION = st.from_regex(
     r"(?:0|[1-9][0-9]?)\.(?:0|[1-9][0-9]?)\.(?:0|[1-9][0-9]?)",
     fullmatch=True,
@@ -329,6 +350,7 @@ def test_install_script_accepts_shell_safe_versions(
             ),
         )
 
+        py_version, nx_version = python_version, nixie_version
         expected_cargo_call = (
             f"cargo <binstall> <--no-confirm> <--locked> <merman-cli@{merman_version}>"
             if binstall_available
@@ -339,10 +361,7 @@ def test_install_script_accepts_shell_safe_versions(
         assert result.returncode == 0, result.stderr
         assert calls == [
             expected_cargo_call,
-            (
-                f"uv <tool> <install> <--python> <{python_version}> "
-                f"<nixie-cli=={nixie_version}>"
-            ),
+            f"uv <tool> <install> <--python> <{py_version}> <nixie-cli=={nx_version}>",
             "uv <tool> <dir> <--bin>",
         ]
         assert "<--locked>" in calls[0]

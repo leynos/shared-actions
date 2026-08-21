@@ -149,13 +149,12 @@ genuine dead code. For a confirmed false positive, add a narrow, documented
 allow-list entry with:
 
 ```shell
-make skylos-allow NAME=registered_handler \
-  REASON="Loaded by the action's runtime registry; verified by its contract test"
+make skylos-allow NAME=registered_handler
 ```
 
-The target requires both fields and records the reason in
-`[tool.skylos.whitelist.documented]`. Do not add baselines or bulk exceptions;
-remove an allow-list entry when its dynamic boundary disappears.
+Skylos's `whitelist` subcommand accepts the name only. Record the verified
+runtime caller in the reviewing change; do not add baselines or bulk exceptions.
+Remove an allow-list entry when its dynamic boundary disappears.
 
 ## `setup-uv` Pinning
 

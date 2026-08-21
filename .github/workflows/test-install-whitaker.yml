@@ -1,0 +1,88 @@
+name: Test install-whitaker
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-whitaker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare Cargo stub
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
+          mkdir -p "${cargo_home}/bin"
+          cat > "${cargo_home}/bin/cargo" <<'CARGO'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "$*" >> "${CARGO_HOME}/cargo.log"
+          if [[ "${1:-}" == "binstall" && "${2:-}" == "--version" ]]; then
+            exit 0
+          fi
+          cat > "${CARGO_HOME}/bin/whitaker-installer" <<'INSTALLER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          printf '%s\n' "suite installed" >> "${CARGO_HOME}/installer.log"
+          INSTALLER
+          chmod +x "${CARGO_HOME}/bin/whitaker-installer"
+          CARGO
+          chmod +x "${cargo_home}/bin/cargo"
+
+      - name: Install Whitaker
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: 9.9.9
+
+      - name: Verify installation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
+          test -x "${cargo_home}/bin/whitaker-installer"
+          grep -Fx "binstall --version" "${cargo_home}/cargo.log"
+          grep -Fx "binstall --no-confirm --locked whitaker-installer@9.9.9" \
+            "${cargo_home}/cargo.log"
+          grep -Fx "suite installed" "${cargo_home}/installer.log"
+          echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer"
+          echo "whitaker_test_installation=complete"
+
+  install-whitaker-failure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Prepare failing installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="${RUNNER_TEMP}/whitaker-test-failure-cargo"
+          mkdir -p "${cargo_home}/bin"
+          cat > "${cargo_home}/bin/whitaker-installer" <<'INSTALLER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          echo "whitaker-installer failed while installing the Dylint suite" >&2
+          exit 33
+          INSTALLER
+          chmod +x "${cargo_home}/bin/whitaker-installer"
+
+      - name: Install Whitaker
+        id: install-whitaker
+        continue-on-error: true
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-failure-cargo
+
+      - name: Verify failure propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.install-whitaker.outcome }}" = failure
+          echo "whitaker_test_failure_propagated=true"

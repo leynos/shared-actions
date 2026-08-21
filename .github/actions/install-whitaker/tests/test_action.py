@@ -100,6 +100,8 @@ class _InstallScenario:
     fail_installer: bool = False
     installer_version: str = "0.2.6"
     cargo_home_name: str = "cargo-home"
+    cargo_home_value: str | None = None
+    conflicting_installer: bool = False
 
 
 def _run_install_script(
@@ -116,13 +118,29 @@ def _run_install_script(
     bin_dir.mkdir(parents=True)
     cargo_log = tmp_path / "cargo.log"
     installer_log = tmp_path / "installer.log"
+    conflict_log = tmp_path / "conflict.log"
+    home_dir = tmp_path / "home"
+    home_dir.mkdir(exist_ok=True)
     bash_cargo_home = _bash_path(bash, cargo_home)
     bash_bin_dir = _bash_path(bash, bin_dir)
+    bash_home_dir = _bash_path(bash, home_dir)
     bash_cargo_log = f"{_bash_path(bash, cargo_log.parent)}/{cargo_log.name}"
     bash_installer_log = (
         f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
     )
     _write_cargo_stub(bin_dir)
+    original_path = "/usr/bin:/bin"
+    if scenario.conflicting_installer:
+        original_bin_dir = tmp_path / "original-bin"
+        original_bin_dir.mkdir()
+        _write_executable(
+            original_bin_dir / "whitaker-installer",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
+""",
+        )
+        original_path = f"{_bash_path(bash, original_bin_dir)}:{original_path}"
     if scenario.installer_present:
         _write_executable(
             bin_dir / "whitaker-installer",
@@ -138,10 +156,13 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 
     env = {
         **os.environ,
-        "PATH": "/usr/bin:/bin",
-        "CARGO_HOME": bash_cargo_home,
+        "PATH": original_path,
+        "BASH_ENV": "",
+        "CARGO_HOME": scenario.cargo_home_value or bash_cargo_home,
+        "HOME": bash_home_dir,
         "BINSTALL_AVAILABLE": str(scenario.binstall_available).lower(),
         "CARGO_LOG": bash_cargo_log,
+        "CONFLICT_LOG": f"{_bash_path(bash, conflict_log.parent)}/{conflict_log.name}",
         "FAIL_BINSTALL": str(scenario.fail_binstall).lower(),
         "FAIL_INSTALL": str(scenario.fail_install).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
@@ -168,8 +189,8 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     --------
     Run this contract check directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k manifest_exposes_version_and_cache_contract
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k manifest_exposes_version_and_cache_contract
 
     Returns
     -------
@@ -235,8 +256,8 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
     --------
     Run this installation-path check directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k installs_with_cargo_binstall_when_available
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k installs_with_cargo_binstall_when_available
 
     Returns
     -------
@@ -274,8 +295,8 @@ def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
     --------
     Run this fallback-path check directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k falls_back_to_cargo_install
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k falls_back_to_cargo_install
 
     Returns
     -------
@@ -308,8 +329,8 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     --------
     Run this cache-path check directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k reuses_cached_installer
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k reuses_cached_installer
 
     Returns
     -------
@@ -357,6 +378,28 @@ def test_installs_nondefault_version_into_nondefault_cargo_home(
     )
 
 
+def test_expands_tilde_cargo_home_before_prepending_path(tmp_path: Path) -> None:
+    """The Cargo-home installer should override an ambient PATH installer."""
+    result = _run_install_script(
+        tmp_path,
+        _InstallScenario(
+            binstall_available=True,
+            installer_present=True,
+            cargo_home_name="home/.cargo",
+            cargo_home_value="~/.cargo",
+            conflicting_installer=True,
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "home" / ".cargo" / "bin" / "whitaker-installer").is_file()
+    assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
+        "suite installed\n"
+    )
+    assert not (tmp_path / "cargo.log").exists()
+    assert not (tmp_path / "conflict.log").exists()
+
+
 @pytest.mark.parametrize(
     "scenario",
     tuple(
@@ -394,8 +437,8 @@ def test_install_scenario_matrix(
     --------
     Run every bounded-state case directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k install_scenario_matrix
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k install_scenario_matrix
 
     Returns
     -------
@@ -465,8 +508,8 @@ def test_reports_install_failure(
     --------
     Run every explicit failure-path check directly with:
 
-    >>> pytest .github/actions/install-whitaker/tests/test_action.py \
-    ...     -k reports_install_failure
+    pytest .github/actions/install-whitaker/tests/test_action.py \
+        -k reports_install_failure
 
     Returns
     -------

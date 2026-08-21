@@ -189,7 +189,7 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     --------
     Run this contract check directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k manifest_exposes_version_and_cache_contract
 
     Returns
@@ -256,7 +256,7 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
     --------
     Run this installation-path check directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k installs_with_cargo_binstall_when_available
 
     Returns
@@ -295,7 +295,7 @@ def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
     --------
     Run this fallback-path check directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k falls_back_to_cargo_install
 
     Returns
@@ -329,7 +329,7 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     --------
     Run this cache-path check directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k reuses_cached_installer
 
     Returns
@@ -437,7 +437,7 @@ def test_install_scenario_matrix(
     --------
     Run every bounded-state case directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k install_scenario_matrix
 
     Returns
@@ -508,7 +508,7 @@ def test_reports_install_failure(
     --------
     Run every explicit failure-path check directly with:
 
-    pytest .github/actions/install-whitaker/tests/test_action.py \
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
         -k reports_install_failure
 
     Returns

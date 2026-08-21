@@ -180,8 +180,9 @@ to `cargo install --locked` when it does not. The fallback is limited to an
 unavailable cargo-binstall probe; an installation failure from either Cargo
 path, or a failure from `whitaker-installer` itself, stops the step and
 propagates the non-zero status. The contract is covered by
-`.github/actions/install-whitaker/tests/test_action.py`, including the cache
-manifest, both installation paths, cache reuse, and failure boundaries.
+`.github/actions/install-whitaker/tests/test_install_whitaker.py`, including
+the cache manifest, both installation paths, cache reuse, and failure
+boundaries.
 
 ## `upload-codescene-coverage` check-mode contract
 

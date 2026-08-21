@@ -125,8 +125,7 @@ def test_parse_outcomes_counts_match_entries(summaries: list[str]) -> None:
 )
 def test_scoped_matrix_strips_target_dir_prefix(files: list[str]) -> None:
     """Scoped entries carry paths relative to their target directory."""
-    config = detect.DetectionConfig(extra_crate_dirs=("extra",))
-    entries = detect.scoped_run_matrix({"extra": files}, config)
+    entries = detect.scoped_run_matrix({"extra": files})
     assert len(entries) == 1
     for relative in entries[0].files.split():
         assert not relative.startswith("extra/")

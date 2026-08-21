@@ -101,7 +101,12 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
 - **Static analysis**: ESLint + prettier + `@typescript-eslint` presets.
 - **Change gateways**: After modifying any Python code or GitHub Action logic,
   ensure `make check-fmt`, `make typecheck`, `make lint`, and `make test`
-  complete successfully before requesting review.
+  complete successfully before requesting review. `make lint` includes a
+  blocking Skylos production dead-code scan, which also runs in CI.
+
+  Investigate every Skylos finding. Remove genuine dead code. Record a
+  verified false positive with `make skylos-allow NAME=<symbol>
+  REASON="<verified runtime caller>"`; do not add unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

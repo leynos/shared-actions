@@ -120,7 +120,7 @@ def _forced_rust(selected_manifest: Path | None) -> tuple[Lang, Path | None]:
     return Lang.RUST, selected_manifest
 
 
-def _forced_python(selected_manifest: Path | None) -> tuple[Lang, Path | None]:
+def _forced_python() -> tuple[Lang, Path | None]:
     """Resolve ``language=python``; requires a syncable ``[project]`` table."""
     if not _has_python_project():
         _fail(
@@ -148,17 +148,6 @@ def _forced_mixed(selected_manifest: Path | None) -> tuple[Lang, Path | None]:
     return Lang.MIXED, selected_manifest
 
 
-# Explicit (non-``auto``) language modes dispatch to a single-responsibility
-# resolver that validates the mode's prerequisites.
-_FORCED_RESOLVERS: dict[
-    LangMode, typ.Callable[[Path | None], tuple[Lang, Path | None]]
-] = {
-    LangMode.RUST: _forced_rust,
-    LangMode.PYTHON: _forced_python,
-    LangMode.MIXED: _forced_mixed,
-}
-
-
 def get_lang(
     cargo_manifest: str = "", mode: LangMode = LangMode.AUTO
 ) -> tuple[Lang, Path | None]:
@@ -166,7 +155,11 @@ def get_lang(
     selected_manifest = _resolve_cargo_manifest(cargo_manifest)
     if mode is LangMode.AUTO:
         return _auto_lang(selected_manifest)
-    return _FORCED_RESOLVERS[mode](selected_manifest)
+    if mode is LangMode.RUST:
+        return _forced_rust(selected_manifest)
+    if mode is LangMode.PYTHON:
+        return _forced_python()
+    return _forced_mixed(selected_manifest)
 
 
 def _parse_lang_mode(raw: str) -> LangMode:

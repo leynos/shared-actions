@@ -136,12 +136,11 @@ class TestMatrices:
 
     def test_scoped_run_strips_extra_dir_prefix(self) -> None:
         """Scoped entries carry files relative to their target directory."""
-        config = _config(extra_crate_dirs=("testkit",))
         buckets = {
             "testkit": ["testkit/src/lib.rs"],
             ".": ["src/a.rs", "src/b.rs"],
         }
-        entries = detect.scoped_run_matrix(buckets, config)
+        entries = detect.scoped_run_matrix(buckets)
         assert [e.slug for e in entries] == ["root", "testkit"]
         assert entries[0].files == "src/a.rs src/b.rs"
         assert entries[1].files == "src/lib.rs"

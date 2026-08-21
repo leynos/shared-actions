@@ -62,6 +62,13 @@ class _InstallScriptOptions:
     python_version: str = "3.14"
 
 
+@dataclass(frozen=True)
+class _InstallerFailureCase:
+    options: _InstallScriptOptions
+    expected_returncode: int
+    expected_calls: list[str]
+
+
 def _run_install_script(
     tmp_path: Path,
     options: _InstallScriptOptions,
@@ -280,43 +287,50 @@ def test_install_script_stops_after_merman_install_failure(
     _assert_github_path_empty(tmp_path)
 
 
-def test_install_script_stops_after_nixie_install_failure(tmp_path: Path) -> None:
-    """A failed Nixie installation should prevent PATH export."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallScriptOptions(
-            binstall_available=True,
-            uv_install_status=19,
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            _InstallerFailureCase(
+                options=_InstallScriptOptions(
+                    binstall_available=True,
+                    uv_install_status=19,
+                ),
+                expected_returncode=19,
+                expected_calls=[
+                    "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
+                    "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
+                ],
+            ),
+            id="nixie-install-failure",
         ),
-    )
-
-    assert result.returncode == 19
-    calls = (tmp_path / "calls").read_text(encoding="utf-8").splitlines()
-    assert calls == [
-        "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
-        "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
-    ]
-    assert "uv <tool> <dir> <--bin>" not in calls
-    _assert_github_path_empty(tmp_path)
-
-
-def test_install_script_stops_after_uv_bin_directory_failure(tmp_path: Path) -> None:
-    """A failed Nixie binary directory lookup should prevent PATH export."""
-    result = _run_install_script(
-        tmp_path,
-        _InstallScriptOptions(
-            binstall_available=True,
-            uv_bin_dir_status=23,
+        pytest.param(
+            _InstallerFailureCase(
+                options=_InstallScriptOptions(
+                    binstall_available=True,
+                    uv_bin_dir_status=23,
+                ),
+                expected_returncode=23,
+                expected_calls=[
+                    "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
+                    "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
+                    "uv <tool> <dir> <--bin>",
+                ],
+            ),
+            id="uv-bin-directory-failure",
         ),
-    )
+    ],
+)
+def test_install_script_stops_after_installer_failure(
+    tmp_path: Path,
+    case: _InstallerFailureCase,
+) -> None:
+    """An installer failure should prevent PATH export."""
+    result = _run_install_script(tmp_path, case.options)
 
-    assert result.returncode == 23
+    assert result.returncode == case.expected_returncode
     calls = (tmp_path / "calls").read_text(encoding="utf-8").splitlines()
-    assert calls == [
-        "cargo <binstall> <--no-confirm> <--locked> <merman-cli@0.7.0>",
-        "uv <tool> <install> <--python> <3.14> <nixie-cli==1.1.0>",
-        "uv <tool> <dir> <--bin>",
-    ]
+    assert calls == case.expected_calls
     _assert_github_path_empty(tmp_path)
 
 

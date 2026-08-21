@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import string
 import subprocess
 import typing as typ
 from dataclasses import dataclass  # noqa: ICN003 - required scenario decorator.
@@ -12,8 +13,25 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
+_PROPERTY_TEST_SETTINGS = settings(
+    derandomize=True,
+    max_examples=16,
+    suppress_health_check=(HealthCheck.function_scoped_fixture,),
+)
+_VALID_INSTALLER_VERSIONS = st.lists(
+    st.text(alphabet=string.digits, min_size=1, max_size=3),
+    min_size=1,
+    max_size=4,
+).map(".".join)
+_SAFE_CARGO_HOME_SEGMENTS = st.text(
+    alphabet=string.ascii_letters + string.digits + "_-",
+    min_size=1,
+    max_size=16,
+)
 
 
 def _load_manifest() -> dict[str, object]:
@@ -398,6 +416,116 @@ def test_expands_tilde_cargo_home_before_prepending_path(tmp_path: Path) -> None
     )
     assert not (tmp_path / "cargo.log").exists()
     assert not (tmp_path / "conflict.log").exists()
+
+
+@_PROPERTY_TEST_SETTINGS
+@given(installer_version=_VALID_INSTALLER_VERSIONS)
+def test_installs_generated_valid_installer_versions(
+    tmp_path: Path,
+    installer_version: str,
+) -> None:
+    """Verify cargo-binstall accepts every generated supported version.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-example directory used for deterministic Cargo and installer stubs.
+    installer_version : str
+        Generated non-empty dot-separated numeric installer version.
+
+    Examples
+    --------
+    Run the property check directly with:
+
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
+        -k generated_valid_installer_versions
+
+    Returns
+    -------
+    None
+        Passes when the generated version reaches cargo-binstall and the
+        completion notice unchanged.
+    """
+    example_path = tmp_path / f"version-{installer_version}"
+    example_path.mkdir()
+    result = _run_install_script(
+        example_path,
+        _InstallScenario(
+            binstall_available=True,
+            installer_version=installer_version,
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (example_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
+        "binstall --version",
+        f"binstall --no-confirm --locked whitaker-installer@{installer_version}",
+    ]
+    assert (
+        "::notice title=Whitaker installer::status=complete "
+        f"version={installer_version}"
+    ) in result.stdout
+
+
+@pytest.mark.parametrize("cargo_home_form", ["absolute", "tilde"])
+@_PROPERTY_TEST_SETTINGS
+@given(segment=_SAFE_CARGO_HOME_SEGMENTS)
+def test_reuses_cached_installer_for_supported_cargo_home_forms(
+    tmp_path: Path,
+    cargo_home_form: str,
+    segment: str,
+) -> None:
+    """Verify supported Cargo-home forms select the cached installer first.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-example directory used for deterministic Cargo and installer stubs.
+    cargo_home_form : str
+        Absolute or tilde-relative Cargo-home representation under test.
+    segment : str
+        Generated safe path segment appended to the Cargo home.
+
+    Examples
+    --------
+    Run the property check directly with:
+
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
+        -k supported_cargo_home_forms
+
+    Returns
+    -------
+    None
+        Passes when the cached Cargo-home installer takes precedence over an
+        ambient PATH installer without invoking Cargo.
+    """
+    example_path = tmp_path / f"{cargo_home_form}-{segment}"
+    example_path.mkdir()
+    if cargo_home_form == "absolute":
+        cargo_home_name = f"absolute-cargo/{segment}"
+        cargo_home_value = (example_path / cargo_home_name).as_posix()
+    else:
+        cargo_home_name = f"home/.cargo/{segment}"
+        cargo_home_value = f"~/.cargo/{segment}"
+
+    result = _run_install_script(
+        example_path,
+        _InstallScenario(
+            binstall_available=False,
+            installer_present=True,
+            cargo_home_name=cargo_home_name,
+            cargo_home_value=cargo_home_value,
+            conflicting_installer=True,
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (example_path / cargo_home_name / "bin" / "whitaker-installer").is_file()
+    assert (example_path / "installer.log").read_text(encoding="utf-8") == (
+        "suite installed\n"
+    )
+    assert not (example_path / "conflict.log").exists()
+    assert not (example_path / "cargo.log").exists()
 
 
 @pytest.mark.parametrize(

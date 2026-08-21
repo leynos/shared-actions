@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  WHITAKER_TEST_INSTALLER_VERSION: 9.9.${{ github.run_id }}-${{ github.run_attempt }}
+
 jobs:
   install-whitaker:
     runs-on: ubuntu-latest
@@ -39,7 +42,7 @@ jobs:
         uses: ./.github/actions/install-whitaker
         with:
           cargo-home: ${{ runner.temp }}/whitaker-test-cargo
-          installer-version: 9.9.9
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
 
       - name: Verify installation contract
         shell: bash
@@ -48,7 +51,7 @@ jobs:
           cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
           test -x "${cargo_home}/bin/whitaker-installer"
           grep -Fx "binstall --version" "${cargo_home}/cargo.log"
-          grep -Fx "binstall --no-confirm --locked whitaker-installer@9.9.9" \
+          grep -Fx "binstall --no-confirm --locked whitaker-installer@${WHITAKER_TEST_INSTALLER_VERSION}" \
             "${cargo_home}/cargo.log"
           grep -Fx "suite installed" "${cargo_home}/installer.log"
           echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer"
@@ -79,6 +82,7 @@ jobs:
         uses: ./.github/actions/install-whitaker
         with:
           cargo-home: ${{ runner.temp }}/whitaker-test-failure-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
 
       - name: Verify failure propagation
         shell: bash

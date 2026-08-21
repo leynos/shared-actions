@@ -19,7 +19,7 @@ from hypothesis import strategies as st
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 _PROPERTY_TEST_SETTINGS = settings(
     derandomize=True,
-    max_examples=16,
+    max_examples=25,
     suppress_health_check=(HealthCheck.function_scoped_fixture,),
 )
 _VALID_INSTALLER_VERSIONS = st.lists(

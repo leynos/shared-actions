@@ -440,6 +440,15 @@ Internals for maintainers:
   fail-fast branches are exercised by
   `tests/workflows/test_resolve_workflow_source.py`; the OIDC happy path is
   validated by every real run of the consuming workflows.
+- In `mutation-cargo.yml`, keep `Setup Rust` as a remote
+  `leynos/shared-actions/.github/actions/setup-rust` reference pinned to a full
+  SHA. The workflow relocates `workflow-src` before teardown, while GitHub
+  re-resolves a local `action.yml` for post hooks such as setup-rust's cache
+  save; the remote reference is materialized outside the caller's workspace
+  and survives that relocation. The current Setup Rust step is guarded with
+  `if: ${{ env.ACT != 'true' }}` and ordered before relocation; static
+  workflow-shape tests enforce those invariants and prohibit `./workflow-src/`
+  action uses.
 
 ## Running the Test Suite
 

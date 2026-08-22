@@ -186,15 +186,29 @@ def test_gate_failure_streams_diagnostic_and_preserves_status(
     tmp_path: Path,
     exit_status: int,
 ) -> None:
-    """A failed CLI check streams details and retains its return code."""
+    """A failed CLI check streams details and handles missing baselines."""
     result = _run_gate_check(tmp_path, exit_status=exit_status)
 
-    assert result.returncode == exit_status
     assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
     assert "detailed gate stderr diagnostic" in result.stderr
     hint = "pull request base 'main' must have coverage uploaded"
     if exit_status == 2:
-        assert hint in result.stderr
+        assert result.returncode == 0
+        warning = "::warning title=CodeScene coverage gate skipped::"
+        warning_output = result.stdout if warning in result.stdout else result.stderr
+        assert warning in warning_output
+        assert "main" in warning_output
+        assert "coverage baseline" in warning_output
     else:
+        assert result.returncode == exit_status
         assert hint not in result.stderr
+
+
+def test_successful_gate_emits_no_skip_warning(tmp_path: Path) -> None:
+    """A successful CLI check does not emit a skipped-gate warning."""
+    result = _run_gate_check(tmp_path, exit_status=0)
+
+    assert result.returncode == 0
+    assert "::warning title=CodeScene coverage gate skipped::" not in result.stdout
+    assert "::warning title=CodeScene coverage gate skipped::" not in result.stderr

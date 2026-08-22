@@ -13,24 +13,35 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import HealthCheck, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 _PROPERTY_TEST_SETTINGS = settings(
     derandomize=True,
     max_examples=25,
-    suppress_health_check=(HealthCheck.function_scoped_fixture,),
 )
 _VALID_INSTALLER_VERSIONS = st.lists(
     st.text(alphabet=string.digits, min_size=1, max_size=3),
     min_size=1,
     max_size=4,
 ).map(".".join)
+_WINDOWS_RESERVED_CARGO_HOME_SEGMENTS = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    },
+)
 _SAFE_CARGO_HOME_SEGMENTS = st.text(
     alphabet=string.ascii_letters + string.digits + "_-",
     min_size=1,
     max_size=16,
+).filter(
+    lambda segment: segment.upper() not in _WINDOWS_RESERVED_CARGO_HOME_SEGMENTS,
 )
 
 
@@ -430,15 +441,15 @@ def test_expands_tilde_cargo_home_before_prepending_path(tmp_path: Path) -> None
 @_PROPERTY_TEST_SETTINGS
 @given(installer_version=_VALID_INSTALLER_VERSIONS)
 def test_installs_generated_valid_installer_versions(
-    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
     installer_version: str,
 ) -> None:
     """Verify cargo-binstall accepts every generated supported version.
 
     Parameters
     ----------
-    tmp_path : Path
-        Per-example directory used for deterministic Cargo and installer stubs.
+    tmp_path_factory : pytest.TempPathFactory
+        Factory that creates a fresh directory for each generated example.
     installer_version : str
         Generated non-empty dot-separated numeric installer version.
 
@@ -455,8 +466,7 @@ def test_installs_generated_valid_installer_versions(
         Passes when the generated version reaches cargo-binstall and the
         completion notice unchanged.
     """
-    example_path = tmp_path / f"version-{installer_version}"
-    example_path.mkdir()
+    example_path = tmp_path_factory.mktemp("installer-version-")
     result = _run_install_script(
         example_path,
         _InstallScenario(
@@ -480,7 +490,7 @@ def test_installs_generated_valid_installer_versions(
 @_PROPERTY_TEST_SETTINGS
 @given(segment=_SAFE_CARGO_HOME_SEGMENTS)
 def test_reuses_cached_installer_for_supported_cargo_home_forms(
-    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
     cargo_home_form: str,
     segment: str,
 ) -> None:
@@ -488,8 +498,8 @@ def test_reuses_cached_installer_for_supported_cargo_home_forms(
 
     Parameters
     ----------
-    tmp_path : Path
-        Per-example directory used for deterministic Cargo and installer stubs.
+    tmp_path_factory : pytest.TempPathFactory
+        Factory that creates a fresh directory for each generated example.
     cargo_home_form : str
         Absolute or tilde-relative Cargo-home representation under test.
     segment : str
@@ -508,11 +518,10 @@ def test_reuses_cached_installer_for_supported_cargo_home_forms(
         Passes when the cached Cargo-home installer takes precedence over an
         ambient PATH installer without invoking Cargo.
     """
-    example_path = tmp_path / f"{cargo_home_form}-{segment}"
-    example_path.mkdir()
+    example_path = tmp_path_factory.mktemp(f"{cargo_home_form}-cargo-home-")
     if cargo_home_form == "absolute":
         cargo_home_name = f"absolute-cargo/{segment}"
-        cargo_home_value = (example_path / cargo_home_name).as_posix()
+        cargo_home_value = None
     else:
         cargo_home_name = f"home/.cargo/{segment}"
         cargo_home_value = f"~/.cargo/{segment}"

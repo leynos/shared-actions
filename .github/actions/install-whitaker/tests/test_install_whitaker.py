@@ -59,19 +59,23 @@ def _load_manifest() -> dict[str, object]:
 
 
 def _install_script() -> str:
-    """Return the suite installation shell fragment."""
+    """Return the installation lifecycle's shell fragments."""
     manifest = _load_manifest()
     runs = manifest["runs"]
     assert isinstance(runs, dict)
     steps = typ.cast("list[dict[str, object]]", runs["steps"])
-    step = next(
-        (item for item in steps if item.get("name") == "Install Whitaker Dylint suite"),
-        None,
-    )
-    assert step is not None
-    script = step.get("run")
-    assert isinstance(script, str)
-    return script
+    lifecycle_steps = {
+        "Report Whitaker installer cache",
+        "Install Whitaker installer",
+        "Run Whitaker installer",
+    }
+    scripts = [
+        step["run"]
+        for step in steps
+        if step.get("name") in lifecycle_steps and isinstance(step.get("run"), str)
+    ]
+    assert len(scripts) == len(lifecycle_steps)
+    return "\n".join(typ.cast("list[str]", scripts))
 
 
 def _input_validation_script() -> str:
@@ -231,7 +235,7 @@ def _run_install_script(
     )
     bash_summary_log = f"{_bash_path(bash, summary_log.parent)}/{summary_log.name}"
     _write_cargo_stub(bin_dir)
-    original_path = "/usr/bin:/bin"
+    original_path = f"{bash_bin_dir}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         original_bin_dir = tmp_path / "original-bin"
         original_bin_dir.mkdir()
@@ -272,6 +276,7 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         "INSTALLER_LOG": bash_installer_log,
         "GITHUB_STEP_SUMMARY": bash_summary_log,
         "WHITAKER_INSTALLER_CACHE_HIT": str(scenario.cache_hit).lower(),
+        "WHITAKER_INSTALLER_PATH": f"{bash_bin_dir}/whitaker-installer",
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
     return _execute_install_script(bash, tmp_path, env)
@@ -301,7 +306,7 @@ class TestManifest:
         runs = manifest["runs"]
         assert isinstance(runs, dict)
         steps = typ.cast("list[dict[str, object]]", runs["steps"])
-        validate_step, cache_step, install_step = steps
+        validate_step, cache_step, cache_report_step, install_step, run_step = steps
         assert validate_step["id"] == "validate-inputs"
         validate_env = typ.cast("dict[str, str]", validate_step["env"])
         assert validate_env == {
@@ -311,6 +316,7 @@ class TestManifest:
         validate_script = typ.cast("str", validate_step["run"])
         assert "must not contain a carriage return or newline" in validate_script
         assert "must be an absolute path or start with ~/" in validate_script
+        assert "must not contain the runner PATH separator" in validate_script
         assert "without leading zeros" in validate_script
 
         assert cache_step["id"] == "cache-whitaker-installer"
@@ -319,8 +325,9 @@ class TestManifest:
         )
         cache_config = typ.cast("dict[str, str]", cache_step["with"])
         assert (
-            "${{ steps.validate-inputs.outputs.cargo-home }}/bin/whitaker-installer"
-        ) in cache_config["path"]
+            "${{ steps.validate-inputs.outputs.installer-path }}"
+            in cache_config["path"]
+        )
         assert "~/.cache/cargo-binstall" in cache_config["path"]
         assert cache_config["key"] == (
             "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
@@ -328,21 +335,35 @@ class TestManifest:
             "${{ steps.validate-inputs.outputs.cargo-home }}"
         )
 
+        cache_report_env = typ.cast("dict[str, str]", cache_report_step["env"])
+        assert cache_report_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
+            "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
+        )
+        cache_report_script = typ.cast("str", cache_report_step["run"])
+        assert "title=Whitaker installer cache" in cache_report_script
+
         install_env = typ.cast("dict[str, str]", install_step["env"])
         assert install_env["CARGO_HOME"] == (
             "${{ steps.validate-inputs.outputs.cargo-home }}"
         )
+        assert install_env["WHITAKER_INSTALLER_PATH"] == (
+            "${{ steps.validate-inputs.outputs.installer-path }}"
+        )
         assert install_env["WHITAKER_INSTALLER_VERSION"] == (
             "${{ steps.validate-inputs.outputs.installer-version }}"
         )
-        assert install_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
-            "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
-        )
         install_script = typ.cast("str", install_step["run"])
-        assert "title=Whitaker installer cache" in install_script
-        assert "title=Whitaker installer::status=complete" in install_script
-        assert "GITHUB_STEP_SUMMARY" in install_script
-        assert 'CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"' in install_script
+        assert "command -v cargo" in install_script
+        assert '"$cargo_path" binstall' in install_script
+        assert "export PATH" not in install_script
+
+        run_env = typ.cast("dict[str, str]", run_step["env"])
+        assert run_env["WHITAKER_INSTALLER_PATH"] == (
+            "${{ steps.validate-inputs.outputs.installer-path }}"
+        )
+        run_script = typ.cast("str", run_step["run"])
+        assert '"$WHITAKER_INSTALLER_PATH"' in run_script
+        assert "title=Whitaker installer::status=complete" in run_script
 
     def test_normalizes_valid_action_inputs(self, tmp_path: Path) -> None:
         """Verify validation expands the supported tilde Cargo-home form."""
@@ -350,8 +371,12 @@ class TestManifest:
 
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "output").read_text(encoding="utf-8").splitlines() == [
-            "cargo-home="
-            f"{_bash_path(shutil.which('bash') or 'bash', tmp_path / 'home')}/.cargo",
+            f"cargo-home={
+                _bash_path(shutil.which('bash') or 'bash', tmp_path / 'home')
+            }/.cargo",
+            f"installer-path={
+                _bash_path(shutil.which('bash') or 'bash', tmp_path / 'home')
+            }/.cargo/bin/whitaker-installer",
             "installer-version=1.2.3",
         ]
 
@@ -375,6 +400,12 @@ class TestManifest:
                 "1.2.3",
                 "cargo-home must be an absolute path or start with ~/",
                 id="relative-cargo-home",
+            ),
+            pytest.param(
+                "/cargo-home:path",
+                "1.2.3",
+                "cargo-home must not contain the runner PATH separator",
+                id="cargo-home-path-separator",
             ),
             pytest.param(
                 "~/.cargo",
@@ -719,6 +750,6 @@ class TestFailures:
             f"::error title=Whitaker installer failed::exit-code={result.returncode} "
             "version=0.2.6"
         ) in result.stderr
-        assert "whitaker-installer.failure=command" in (
-            tmp_path / "summary.md"
-        ).read_text(encoding="utf-8")
+        assert "whitaker-installer.failure=" in (tmp_path / "summary.md").read_text(
+            encoding="utf-8"
+        )

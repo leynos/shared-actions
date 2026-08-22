@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  WHITAKER_TEST_INSTALLER_VERSION: 9.9.${{ github.run_id }}-${{ github.run_attempt }}
+  WHITAKER_TEST_INSTALLER_VERSION: 9.${{ github.run_id }}.${{ github.run_attempt }}
 
 jobs:
   install-whitaker:

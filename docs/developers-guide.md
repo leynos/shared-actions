@@ -157,21 +157,24 @@ sync with the new SHA.
 
 The composite action's cache step restores these paths:
 
-- `${{ inputs.cargo-home }}/bin/whitaker-installer`
+- `${{ steps.validate-inputs.outputs.installer-path }}`
 - `~/.cache/cargo-binstall`
 
 Its key is the following expression:
 
 ```text
 whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{
-  inputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
+  steps.validate-inputs.outputs.installer-version }}-${{
+  steps.validate-inputs.outputs.cargo-home }}
 ```
 
 The `cargo-home` input defaults to `~/.cargo` and controls both the cached
 installer location and the installation step's `CARGO_HOME`. The step expands a
-leading `~` against `HOME`, exports `CARGO_HOME`, and prepends
-`${CARGO_HOME}/bin` to its `PATH`. The `installer-version` input defaults to
-`0.2.6`.
+leading `~` against `HOME`, validates and exports `CARGO_HOME`, and records the
+expanded installer path for the cache and later execution. The installation
+step resolves Cargo from the existing `PATH` and invokes that validated
+installer path directly; it does not prepend the Cargo bin directory to `PATH`.
+The `installer-version` input defaults to `0.2.6`.
 
 Cargo must be available on `PATH` when the action needs to install or rebuild
 `whitaker-installer`. `cargo-binstall` is optional; the action uses it when

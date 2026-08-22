@@ -26,23 +26,29 @@ Cargo available. Use the action from a workflow in this repository with its
 local path:
 
 ```yaml
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
 - name: Install Whitaker
   uses: ./.github/actions/install-whitaker
 ```
 
+The repository must be checked out before invoking this local action.
+
 The optional `installer-version` input selects the `whitaker-installer`
 version and defaults to `0.2.6`. The optional `cargo-home` input defaults to
 `~/.cargo`; it controls both the cached `whitaker-installer` location
-(`${{ inputs.cargo-home }}/bin/whitaker-installer`) and the installation step's
-`CARGO_HOME`, whose `bin` directory is prepended to that step's `PATH`.
+(`${{ steps.validate-inputs.outputs.installer-path }}`) and the installation
+step's `CARGO_HOME`. The action resolves Cargo from the existing `PATH` and
+invokes the validated installer path directly.
 
 Before installation, the action restores the cached
-`${{ inputs.cargo-home }}/bin/whitaker-installer` binary and
+`${{ steps.validate-inputs.outputs.installer-path }}` and
 `~/.cache/cargo-binstall` using a key containing the runner operating system,
-architecture, and installer version. A cache hit reuses the installer binary.
-On a miss, the action first tries `cargo binstall`; if the cargo-binstall probe
-is unavailable, it falls back to building the requested version with `cargo
-install --locked`.
+architecture, installer version, and effective expanded Cargo home. A cache
+hit reuses the installer binary. On a miss, the action first tries `cargo
+binstall`; if the cargo-binstall probe is unavailable, it falls back to
+building the requested version with `cargo install --locked`.
 
 ## The problem
 

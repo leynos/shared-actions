@@ -57,6 +57,30 @@ class TestFilesToModuleGlobs:
             "non-Python paths and bare prefixes should produce no globs"
         )
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "hooks/test_post_turn_quality_stop_hook.py",
+            "src/mypkg/calc_test.py",
+            "src/mypkg/conftest.py",
+            "src/mypkg/tests/helpers.py",
+        ],
+    )
+    def test_test_files_are_excluded(self, path: str) -> None:
+        """Pytest test modules map to no glob: mutmut never mutates them."""
+        assert run_mutmut.files_to_module_globs(path, "src/") == [], (
+            "test modules are not mutable source and must not become globs"
+        )
+
+    def test_test_only_scope_drops_out_leaving_source(self) -> None:
+        """A source file survives while its sibling test file is dropped."""
+        globs = run_mutmut.files_to_module_globs(
+            "src/mypkg/calc.py src/mypkg/test_calc.py", "src/"
+        )
+        assert globs == ["mypkg.calc.*"], (
+            "only the mutable source file should reach mutmut as a glob"
+        )
+
 
 class TestParseResults:
     """Parsing of ``mutmut results --all true`` output."""
@@ -116,13 +140,14 @@ class TestRenderSummary:
 def fake_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Install a fake ``uv`` on PATH that scripts run/results calls.
 
-    ``mutmut run`` invocations exit with ``FAKE_MUTMUT_RUN_EXIT``;
-    ``mutmut results`` invocations print canned results. All arguments
-    are appended to ``uv-args.txt``.
+    ``mutmut run`` invocations exit with ``FAKE_MUTMUT_RUN_EXIT`` and dump
+    their environment to ``uv-env.txt``; ``mutmut results`` invocations
+    print canned results. All arguments are appended to ``uv-args.txt``.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     args_file = tmp_path / "uv-args.txt"
+    env_file = tmp_path / "uv-env.txt"
     results_text = RESULTS_TEXT.replace("\n", "\\n")
     script = bin_dir / "uv"
     script.write_text(
@@ -131,7 +156,7 @@ def fake_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         f"printf '\\n' >> \"{args_file}\"\n"
         'case "$*" in\n'
         f"  *results*) printf '{results_text}' ;;\n"
-        '  *run*mutmut*) exit "${FAKE_MUTMUT_RUN_EXIT:-0}" ;;\n'
+        f'  *run*mutmut*) env > "{env_file}"; exit "${{FAKE_MUTMUT_RUN_EXIT:-0}}" ;;\n'
         "esac\n",
         encoding="utf-8",
     )
@@ -147,7 +172,17 @@ class TestMainEntry:
     def _prepare(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> tuple[Path, Path]:
-        """Point summary and results outputs at temp files."""
+        """Point summary and results outputs at temp files.
+
+        Ambient ``INPUT_*`` variables are cleared first so a value the
+        caller sets in the real CI environment (for example
+        ``INPUT_MODULE_PREFIX_STRIP=""`` leaking into mutmut's in-process
+        pytest baseline) cannot override the documented script defaults
+        that each test means to exercise.
+        """
+        for name in ("INPUT_FILES", "INPUT_MUTMUT_VERSION", "INPUT_EXTRA_ARGS"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv("INPUT_MODULE_PREFIX_STRIP", raising=False)
         summary_file = tmp_path / "summary.md"
         summary_file.touch()
         results_file = tmp_path / "results.txt"
@@ -186,6 +221,51 @@ class TestMainEntry:
             run_mutmut.app([])
         assert excinfo.value.code == 3, (
             "a failing mutmut run should propagate its exit code"
+        )
+
+    @POSIX_SHIMS_ONLY
+    def test_workflow_input_env_does_not_leak_into_mutmut(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
+    ) -> None:
+        """``INPUT_*`` vars are stripped before mutmut runs the baseline.
+
+        Reproduces shared-actions#369: the caller sets
+        ``INPUT_MODULE_PREFIX_STRIP=""``; without sanitisation that value
+        reaches mutmut's in-process pytest baseline and breaks tests that
+        read the ambient environment.
+        """
+        self._prepare(tmp_path, monkeypatch)
+        monkeypatch.setenv("INPUT_FILES", "src/mypkg/calc.py")
+        monkeypatch.setitem(local.env, "INPUT_FILES", "src/mypkg/calc.py")
+        monkeypatch.setenv("INPUT_MODULE_PREFIX_STRIP", "")
+        monkeypatch.setitem(local.env, "INPUT_MODULE_PREFIX_STRIP", "")
+        run_mutmut.app([])
+        env_dump = (tmp_path / "uv-env.txt").read_text(encoding="utf-8")
+        leaked = [line for line in env_dump.splitlines() if line.startswith("INPUT_")]
+        assert not leaked, (
+            f"no INPUT_* variable should reach the mutmut subprocess, found {leaked}"
+        )
+
+    def test_test_only_scope_short_circuits_with_summary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake_uv: Path
+    ) -> None:
+        """A test-only change window skips mutmut and notes the no-op.
+
+        Reproduces agent-helper-scripts#74: a lone changed test file maps
+        to no mutants, so the run short-circuits as a graceful no-op
+        instead of aborting mutmut with an empty filter.
+        """
+        summary_file, results_file = self._prepare(tmp_path, monkeypatch)
+        monkeypatch.setenv("INPUT_FILES", "hooks/test_post_turn_quality_stop_hook.py")
+        run_mutmut.app([])
+        assert not fake_uv.exists(), (
+            "uv should never be invoked when the scope has no mutable source"
+        )
+        assert results_file.read_text(encoding="utf-8") == "", (
+            "the results file should stay empty on the short-circuit path"
+        )
+        assert "no mutable source" in summary_file.read_text(encoding="utf-8"), (
+            "the job summary should record the graceful no-op"
         )
 
     def test_scope_without_python_files_short_circuits(

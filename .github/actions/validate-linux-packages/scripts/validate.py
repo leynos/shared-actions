@@ -26,7 +26,7 @@ else:  # pragma: no cover - exercised via CLI execution
 
     from syspath_hack import SysPathMode, ensure_module_dir
 
-    _SCRIPT_DIR = ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
+    ensure_module_dir(__file__, mode=SysPathMode.PREPEND)
 
     validate_cli = importlib.import_module("validate_cli")
     validate_exceptions = importlib.import_module("validate_exceptions")

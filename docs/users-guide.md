@@ -15,6 +15,34 @@ It also documents how to use the `install-nixie` action.
   and output tables.
 - [`rust-build-release` README](../.github/actions/rust-build-release/README.md)
   – full input and output tables.
+- [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
+  installer input and cache details.
+
+## `install-whitaker` action
+
+The `install-whitaker` composite action installs the `whitaker-installer`
+crate and runs it to install the Whitaker Dylint suite. The runner must have
+Cargo available. Use the action from a workflow in this repository with its
+local path:
+
+```yaml
+- name: Install Whitaker
+  uses: ./.github/actions/install-whitaker
+```
+
+The optional `installer-version` input selects the `whitaker-installer`
+version and defaults to `0.2.6`. The optional `cargo-home` input defaults to
+`~/.cargo`; it controls both the cached `whitaker-installer` location
+(`${{ inputs.cargo-home }}/bin/whitaker-installer`) and the installation step's
+`CARGO_HOME`, whose `bin` directory is prepended to that step's `PATH`.
+
+Before installation, the action restores the cached
+`${{ inputs.cargo-home }}/bin/whitaker-installer` binary and
+`~/.cache/cargo-binstall` using a key containing the runner operating system,
+architecture, and installer version. A cache hit reuses the installer binary.
+On a miss, the action first tries `cargo binstall`; if the cargo-binstall probe
+is unavailable, it falls back to building the requested version with `cargo
+install --locked`.
 
 ## The problem
 
@@ -161,7 +189,7 @@ To use the published action:
 
 ```yaml
 - name: Install Nixie
-  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+  uses: leynos/shared-actions/.github/actions/install-nixie@a197301888920eb21fbbc7e7bb6cb0c6f3d81584
 ```
 
 The action accepts three optional version inputs:
@@ -176,7 +204,7 @@ Override the pins when validating another supported toolchain combination:
 
 ```yaml
 - name: Install Nixie
-  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+  uses: leynos/shared-actions/.github/actions/install-nixie@a197301888920eb21fbbc7e7bb6cb0c6f3d81584
   with:
     nixie-version: "1.2.0"
     merman-version: "0.8.0"

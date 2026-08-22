@@ -9,10 +9,10 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 
 ## Inputs
 
-| Name                | Description                                                     | Required | Default    |
-| ------------------- | --------------------------------------------------------------- | -------- | ---------- |
-| `cargo-home`        | Cargo home that stores the cached whitaker-installer binary     | no       | `~/.cargo` |
-| `installer-version` | Version of `whitaker-installer` to install                      | no       | `0.2.6`    |
+| Name                | Type   | Description                                                 | Required | Default    |
+| ------------------- | ------ | ----------------------------------------------------------- | -------- | ---------- |
+| `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary | no       | `~/.cargo` |
+| `installer-version` | string | Version of `whitaker-installer` to install                  | no       | `0.2.6`    |
 
 ## Outputs
 

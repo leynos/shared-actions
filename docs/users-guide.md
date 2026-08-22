@@ -189,7 +189,7 @@ To use the published action:
 
 ```yaml
 - name: Install Nixie
-  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+  uses: leynos/shared-actions/.github/actions/install-nixie@a197301888920eb21fbbc7e7bb6cb0c6f3d81584
 ```
 
 The action accepts three optional version inputs:
@@ -204,7 +204,7 @@ Override the pins when validating another supported toolchain combination:
 
 ```yaml
 - name: Install Nixie
-  uses: leynos/shared-actions/.github/actions/install-nixie@v1
+  uses: leynos/shared-actions/.github/actions/install-nixie@a197301888920eb21fbbc7e7bb6cb0c6f3d81584
   with:
     nixie-version: "1.2.0"
     merman-version: "0.8.0"

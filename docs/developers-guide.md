@@ -163,7 +163,8 @@ The composite action's cache step restores these paths:
 Its key is the following expression:
 
 ```text
-whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
+whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{
+  inputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
 ```
 
 The `cargo-home` input defaults to `~/.cargo` and controls both the cached

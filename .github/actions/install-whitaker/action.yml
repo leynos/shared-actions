@@ -14,22 +14,62 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Validate Whitaker inputs
+      id: validate-inputs
+      shell: bash
+      env:
+        CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
+        INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
+      run: |
+        set -euo pipefail
+        input_error() {
+          echo "::error title=Invalid Whitaker input::$1" >&2
+          exit 1
+        }
+        if [[ "$CARGO_HOME_INPUT" == *$'\r'* || "$CARGO_HOME_INPUT" == *$'\n'* ]]; then
+          input_error "cargo-home must not contain a carriage return or newline"
+        fi
+        if [[ "$INSTALLER_VERSION_INPUT" == *$'\r'* || "$INSTALLER_VERSION_INPUT" == *$'\n'* ]]; then
+          input_error "installer-version must not contain a carriage return or newline"
+        fi
+        if (( ${#CARGO_HOME_INPUT} > 240 )); then
+          input_error "cargo-home must be at most 240 characters"
+        fi
+        if (( ${#INSTALLER_VERSION_INPUT} > 128 )); then
+          input_error "installer-version must be at most 128 characters"
+        fi
+        if [[ ! "$INSTALLER_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
+          input_error "installer-version must be one to three numeric components without leading zeros"
+        fi
+        if [[ "$CARGO_HOME_INPUT" == "~" || "$CARGO_HOME_INPUT" == "~/"* ]]; then
+          cargo_home="${HOME}${CARGO_HOME_INPUT:1}"
+        elif [[ "$CARGO_HOME_INPUT" == /* ]]; then
+          cargo_home="$CARGO_HOME_INPUT"
+        else
+          input_error "cargo-home must be an absolute path or start with ~/"
+        fi
+        if [[ "/${cargo_home}/" == *"/../"* ]]; then
+          input_error "cargo-home must not contain parent-directory components"
+        fi
+        printf 'cargo-home=%s\n' "$cargo_home" >> "$GITHUB_OUTPUT"
+        printf 'installer-version=%s\n' "$INSTALLER_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+
     - name: Cache Whitaker installer
       id: cache-whitaker-installer
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
-          ${{ inputs.cargo-home }}/bin/whitaker-installer
+          ${{ steps.validate-inputs.outputs.cargo-home }}/bin/whitaker-installer
           ~/.cache/cargo-binstall
         key: >-
-          whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ inputs.installer-version }}
+          whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
 
     - name: Install Whitaker Dylint suite
       shell: bash
       env:
-        CARGO_HOME: ${{ inputs.cargo-home }}
+        CARGO_HOME: ${{ steps.validate-inputs.outputs.cargo-home }}
         WHITAKER_INSTALLER_CACHE_HIT: ${{ steps.cache-whitaker-installer.outputs.cache-hit }}
-        WHITAKER_INSTALLER_VERSION: ${{ inputs.installer-version }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
         set -euo pipefail
         emit_metric() {

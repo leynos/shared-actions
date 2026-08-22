@@ -130,6 +130,7 @@ class _InstallScenario:
     installer_version: str = "0.2.6"
     cargo_home_name: str = "cargo-home"
     cargo_home_value: str | None = None
+    cache_hit: bool = False
     conflicting_installer: bool = False
 
 
@@ -165,6 +166,7 @@ def _run_install_script(
     cargo_log = tmp_path / "cargo.log"
     installer_log = tmp_path / "installer.log"
     conflict_log = tmp_path / "conflict.log"
+    summary_log = tmp_path / "summary.md"
     home_dir = tmp_path / "home"
     home_dir.mkdir(exist_ok=True)
     bash_cargo_home = _bash_path(bash, cargo_home)
@@ -174,6 +176,7 @@ def _run_install_script(
     bash_installer_log = (
         f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
     )
+    bash_summary_log = f"{_bash_path(bash, summary_log.parent)}/{summary_log.name}"
     _write_cargo_stub(bin_dir)
     original_path = "/usr/bin:/bin"
     if scenario.conflicting_installer:
@@ -214,7 +217,8 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "FAKE_BIN_DIR": bash_bin_dir,
         "INSTALLER_LOG": bash_installer_log,
-        "WHITAKER_INSTALLER_CACHE_HIT": "false",
+        "GITHUB_STEP_SUMMARY": bash_summary_log,
+        "WHITAKER_INSTALLER_CACHE_HIT": str(scenario.cache_hit).lower(),
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
     return _execute_install_script(bash, tmp_path, env)
@@ -279,6 +283,7 @@ def test_manifest_exposes_version_and_cache_contract() -> None:
     install_script = typ.cast("str", install_step["run"])
     assert "title=Whitaker installer cache" in install_script
     assert "title=Whitaker installer::status=complete" in install_script
+    assert "GITHUB_STEP_SUMMARY" in install_script
     assert 'CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"' in install_script
 
 
@@ -319,6 +324,11 @@ def test_installs_with_cargo_binstall_when_available(tmp_path: Path) -> None:
     assert "::notice title=Whitaker installer::status=complete version=0.2.6" in (
         result.stdout
     )
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
+        "whitaker-installer.cache=miss",
+        "whitaker-installer.path=cargo-binstall",
+        "whitaker-installer.result=success",
+    ]
 
 
 def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
@@ -353,6 +363,11 @@ def test_falls_back_to_cargo_install(tmp_path: Path) -> None:
     assert "::notice title=Whitaker installer::path=cargo-install version=0.2.6" in (
         result.stdout
     )
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
+        "whitaker-installer.cache=miss",
+        "whitaker-installer.path=cargo-install",
+        "whitaker-installer.result=success",
+    ]
 
 
 def test_reuses_cached_installer(tmp_path: Path) -> None:
@@ -381,6 +396,7 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
         _InstallScenario(
             binstall_available=False,
             installer_present=True,
+            cache_hit=True,
         ),
     )
 
@@ -392,6 +408,11 @@ def test_reuses_cached_installer(tmp_path: Path) -> None:
     assert "::notice title=Whitaker installer::path=cache version=0.2.6" in (
         result.stdout
     )
+    assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
+        "whitaker-installer.cache=hit",
+        "whitaker-installer.path=cache",
+        "whitaker-installer.result=success",
+    ]
 
 
 def test_installs_nondefault_version_into_nondefault_cargo_home(
@@ -435,6 +456,51 @@ def test_expands_tilde_cargo_home_before_prepending_path(tmp_path: Path) -> None
         "suite installed\n"
     )
     assert not (tmp_path / "cargo.log").exists()
+    assert not (tmp_path / "conflict.log").exists()
+
+
+def test_installs_into_expanded_tilde_cargo_home_before_ambient_path(
+    tmp_path: Path,
+) -> None:
+    """Verify installation selects the expanded Cargo bin ahead of ambient PATH.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Per-test directory used for deterministic Cargo and installer stubs.
+
+    Examples
+    --------
+    Run this PATH-precedence check directly with:
+
+    pytest .github/actions/install-whitaker/tests/test_install_whitaker.py \
+        -k installs_into_expanded_tilde_cargo_home_before_ambient_path
+
+    Returns
+    -------
+    None
+        Passes when the installer created in the expanded Cargo home executes
+        instead of a conflicting installer inherited through PATH.
+    """
+    result = _run_install_script(
+        tmp_path,
+        _InstallScenario(
+            binstall_available=True,
+            cargo_home_name="home/.cargo",
+            cargo_home_value="~/.cargo",
+            conflicting_installer=True,
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "home" / ".cargo" / "bin" / "whitaker-installer").is_file()
+    assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
+        "binstall --version",
+        "binstall --no-confirm --locked whitaker-installer@0.2.6",
+    ]
+    assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
+        "suite installed\n"
+    )
     assert not (tmp_path / "conflict.log").exists()
 
 
@@ -671,3 +737,6 @@ def test_reports_install_failure(
         f"::error title=Whitaker installer failed::exit-code={result.returncode} "
         "version=0.2.6"
     ) in result.stderr
+    assert "whitaker-installer.failure=command" in (tmp_path / "summary.md").read_text(
+        encoding="utf-8"
+    )

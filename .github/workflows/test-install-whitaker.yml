@@ -31,7 +31,7 @@ jobs:
           if [[ "${1:-}" == "binstall" && "${2:-}" == "--version" ]]; then
             exit 0
           fi
-          cat > "${CARGO_HOME}/bin/whitaker-installer" <<'INSTALLER'
+          cat > "${CARGO_HOME}/bin/whitaker-installer" <<INSTALLER
           #!/usr/bin/env bash
           set -euo pipefail
           printf '%s\n' "suite installed" >> "${CARGO_HOME}/installer.log"

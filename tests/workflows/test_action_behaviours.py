@@ -209,6 +209,40 @@ def test_env_overrides_normalize_inputs(
     [
         pytest.param(
             SimpleValidationTestCase(
+                workflow="test-install-whitaker.yml",
+                job="install-whitaker",
+                expected_patterns=[
+                    (
+                        r"whitaker_test_installer_path=.*whitaker-test-cargo/bin/whitaker-installer",
+                        "Whitaker installer path not found in logs",
+                    ),
+                    (
+                        r"whitaker_test_installation=complete",
+                        "Whitaker installation completion not found in logs",
+                    ),
+                ],
+            ),
+            id="install-whitaker",
+        ),
+        pytest.param(
+            SimpleValidationTestCase(
+                workflow="test-install-whitaker.yml",
+                job="install-whitaker-failure",
+                expected_patterns=[
+                    (
+                        r"Whitaker installer failed.*exit-code=33",
+                        "Whitaker failure annotation not found in logs",
+                    ),
+                    (
+                        r"whitaker_test_failure_propagated=true",
+                        "Whitaker failure propagation not found in logs",
+                    ),
+                ],
+            ),
+            id="install-whitaker-failure",
+        ),
+        pytest.param(
+            SimpleValidationTestCase(
                 workflow="test-stage-release-artefacts.yml",
                 job="test-stage-artefacts",
                 expected_patterns=[

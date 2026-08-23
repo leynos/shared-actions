@@ -153,6 +153,46 @@ act cannot execute the real `setup-uv` path on the local runner, document the
 reason and keep the unit or manifest tests that assert the pinned reference in
 sync with the new SHA.
 
+## `install-whitaker` action contract
+
+The composite action's cache step restores these paths:
+
+- `${{ steps.validate-inputs.outputs.installer-path }}`
+- `~/.cache/cargo-binstall`
+
+Its key is the following expression:
+
+```text
+whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{
+  steps.validate-inputs.outputs.installer-version }}-${{
+  steps.validate-inputs.outputs.cargo-home }}
+```
+
+The `cargo-home` input defaults to `~/.cargo` and controls both the cached
+installer location and the installation step's `CARGO_HOME`. The step expands a
+leading `~` against `HOME`, validates and exports `CARGO_HOME`, and records the
+expanded installer path for the cache and later execution. The installation
+step resolves Cargo from the existing `PATH` and invokes that validated
+installer path directly; it does not prepend the Cargo bin directory to `PATH`.
+The `installer-version` input defaults to `0.2.6`.
+
+Cargo must be available on `PATH` when the action needs to install or rebuild
+`whitaker-installer`. `cargo-binstall` is optional; the action uses it when
+available and falls back to `cargo install` otherwise. Different effective
+Cargo homes use separate cache keys; repeated writes for the same home share
+one key.
+
+If `whitaker-installer` is already available, the action skips Cargo
+installation and runs it. Otherwise it probes `cargo binstall --version`, uses
+`cargo binstall --no-confirm --locked` when that probe succeeds, and falls back
+to `cargo install --locked` when it does not. The fallback is limited to an
+unavailable cargo-binstall probe; an installation failure from either Cargo
+path, or a failure from `whitaker-installer` itself, stops the step and
+propagates the non-zero status. The contract is covered by
+`.github/actions/install-whitaker/tests/test_install_whitaker.py`, including
+the cache manifest, both installation paths, cache reuse, and failure
+boundaries.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It

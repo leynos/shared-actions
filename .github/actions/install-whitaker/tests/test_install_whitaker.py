@@ -282,6 +282,94 @@ printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
     return _execute_install_script(bash, tmp_path, env)
 
 
+def _assert_manifest_inputs(manifest: dict[str, object]) -> None:
+    """Assert the action input contract."""
+    assert manifest["inputs"] == {
+        "cargo-home": {
+            "description": (
+                "Cargo home that stores the cached whitaker-installer binary"
+            ),
+            "required": False,
+            "default": "~/.cargo",
+        },
+        "installer-version": {
+            "description": "Version of whitaker-installer to install",
+            "required": False,
+            "default": "0.2.6",
+        },
+    }
+
+
+def _assert_validate_step(validate_step: dict[str, object]) -> None:
+    """Assert the input-validation step contract."""
+    assert validate_step["id"] == "validate-inputs"
+    validate_env = typ.cast("dict[str, str]", validate_step["env"])
+    assert validate_env == {
+        "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
+        "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
+    }
+    validate_script = typ.cast("str", validate_step["run"])
+    assert "must not contain a carriage return or newline" in validate_script
+    assert "must be an absolute path or start with ~/" in validate_script
+    assert "must not contain the runner PATH separator" in validate_script
+    assert "without leading zeros" in validate_script
+
+
+def _assert_cache_step(cache_step: dict[str, object]) -> None:
+    """Assert the installer-cache step contract."""
+    assert cache_step["id"] == "cache-whitaker-installer"
+    assert cache_step["uses"] == (
+        "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+    )
+    cache_config = typ.cast("dict[str, str]", cache_step["with"])
+    assert "${{ steps.validate-inputs.outputs.installer-path }}" in cache_config["path"]
+    assert "~/.cache/cargo-binstall" in cache_config["path"]
+    assert cache_config["key"] == (
+        "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
+        "${{ steps.validate-inputs.outputs.installer-version }}-"
+        "${{ steps.validate-inputs.outputs.cargo-home }}"
+    )
+
+
+def _assert_cache_report_step(cache_report_step: dict[str, object]) -> None:
+    """Assert the cache-reporting step contract."""
+    cache_report_env = typ.cast("dict[str, str]", cache_report_step["env"])
+    assert cache_report_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
+        "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
+    )
+    cache_report_script = typ.cast("str", cache_report_step["run"])
+    assert "title=Whitaker installer cache" in cache_report_script
+
+
+def _assert_install_step(install_step: dict[str, object]) -> None:
+    """Assert the Cargo installation step contract."""
+    install_env = typ.cast("dict[str, str]", install_step["env"])
+    assert install_env["CARGO_HOME"] == (
+        "${{ steps.validate-inputs.outputs.cargo-home }}"
+    )
+    assert install_env["WHITAKER_INSTALLER_PATH"] == (
+        "${{ steps.validate-inputs.outputs.installer-path }}"
+    )
+    assert install_env["WHITAKER_INSTALLER_VERSION"] == (
+        "${{ steps.validate-inputs.outputs.installer-version }}"
+    )
+    install_script = typ.cast("str", install_step["run"])
+    assert "command -v cargo" in install_script
+    assert '"$cargo_path" binstall' in install_script
+    assert "export PATH" not in install_script
+
+
+def _assert_run_step(run_step: dict[str, object]) -> None:
+    """Assert the installer execution step contract."""
+    run_env = typ.cast("dict[str, str]", run_step["env"])
+    assert run_env["WHITAKER_INSTALLER_PATH"] == (
+        "${{ steps.validate-inputs.outputs.installer-path }}"
+    )
+    run_script = typ.cast("str", run_step["run"])
+    assert '"$WHITAKER_INSTALLER_PATH"' in run_script
+    assert "title=Whitaker installer::status=complete" in run_script
+
+
 class TestManifest:
     """Validate the action manifest's declared contract."""
 
@@ -289,81 +377,16 @@ class TestManifest:
         """Verify the manifest's versioned installer-cache contract."""
         manifest = _load_manifest()
 
-        assert manifest["inputs"] == {
-            "cargo-home": {
-                "description": (
-                    "Cargo home that stores the cached whitaker-installer binary"
-                ),
-                "required": False,
-                "default": "~/.cargo",
-            },
-            "installer-version": {
-                "description": "Version of whitaker-installer to install",
-                "required": False,
-                "default": "0.2.6",
-            },
-        }
+        _assert_manifest_inputs(manifest)
         runs = manifest["runs"]
         assert isinstance(runs, dict)
         steps = typ.cast("list[dict[str, object]]", runs["steps"])
         validate_step, cache_step, cache_report_step, install_step, run_step = steps
-        assert validate_step["id"] == "validate-inputs"
-        validate_env = typ.cast("dict[str, str]", validate_step["env"])
-        assert validate_env == {
-            "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
-            "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
-        }
-        validate_script = typ.cast("str", validate_step["run"])
-        assert "must not contain a carriage return or newline" in validate_script
-        assert "must be an absolute path or start with ~/" in validate_script
-        assert "must not contain the runner PATH separator" in validate_script
-        assert "without leading zeros" in validate_script
-
-        assert cache_step["id"] == "cache-whitaker-installer"
-        assert cache_step["uses"] == (
-            "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
-        )
-        cache_config = typ.cast("dict[str, str]", cache_step["with"])
-        assert (
-            "${{ steps.validate-inputs.outputs.installer-path }}"
-            in cache_config["path"]
-        )
-        assert "~/.cache/cargo-binstall" in cache_config["path"]
-        assert cache_config["key"] == (
-            "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
-            "${{ steps.validate-inputs.outputs.installer-version }}-"
-            "${{ steps.validate-inputs.outputs.cargo-home }}"
-        )
-
-        cache_report_env = typ.cast("dict[str, str]", cache_report_step["env"])
-        assert cache_report_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
-            "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
-        )
-        cache_report_script = typ.cast("str", cache_report_step["run"])
-        assert "title=Whitaker installer cache" in cache_report_script
-
-        install_env = typ.cast("dict[str, str]", install_step["env"])
-        assert install_env["CARGO_HOME"] == (
-            "${{ steps.validate-inputs.outputs.cargo-home }}"
-        )
-        assert install_env["WHITAKER_INSTALLER_PATH"] == (
-            "${{ steps.validate-inputs.outputs.installer-path }}"
-        )
-        assert install_env["WHITAKER_INSTALLER_VERSION"] == (
-            "${{ steps.validate-inputs.outputs.installer-version }}"
-        )
-        install_script = typ.cast("str", install_step["run"])
-        assert "command -v cargo" in install_script
-        assert '"$cargo_path" binstall' in install_script
-        assert "export PATH" not in install_script
-
-        run_env = typ.cast("dict[str, str]", run_step["env"])
-        assert run_env["WHITAKER_INSTALLER_PATH"] == (
-            "${{ steps.validate-inputs.outputs.installer-path }}"
-        )
-        run_script = typ.cast("str", run_step["run"])
-        assert '"$WHITAKER_INSTALLER_PATH"' in run_script
-        assert "title=Whitaker installer::status=complete" in run_script
+        _assert_validate_step(validate_step)
+        _assert_cache_step(cache_step)
+        _assert_cache_report_step(cache_report_step)
+        _assert_install_step(install_step)
+        _assert_run_step(run_step)
 
     def test_normalizes_valid_action_inputs(self, tmp_path: Path) -> None:
         """Verify validation expands the supported tilde Cargo-home form."""

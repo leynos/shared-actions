@@ -39,6 +39,7 @@ jobs:
           chmod +x "${CARGO_HOME}/bin/whitaker-installer"
           CARGO
           chmod +x "${cargo_home}/bin/cargo"
+          echo "${cargo_home}/bin" >> "$GITHUB_PATH"
 
       - name: Install Whitaker
         uses: ./.github/actions/install-whitaker

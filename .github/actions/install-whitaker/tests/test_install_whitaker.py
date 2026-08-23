@@ -158,6 +158,29 @@ class _InstallScenario:
     conflicting_installer: bool = False
 
 
+@dataclass(frozen=True)
+class _InstallPaths:
+    """Contain fixture paths in Bash-compatible form."""
+
+    bin_dir: Path
+    bash_cargo_home: str
+    bash_bin_dir: str
+    bash_cargo_log: str
+    bash_conflict_log: str
+    bash_home_dir: str
+    bash_installer_log: str
+    bash_summary_log: str
+
+
+@dataclass(frozen=True)
+class _InputValidationCase:
+    """Describe one invalid action-input contract case."""
+
+    cargo_home: str
+    installer_version: str
+    expected_error: str
+
+
 def _execute_install_script(
     bash: str,
     cwd: Path,
@@ -179,6 +202,8 @@ def _run_input_validation(
     tmp_path: Path,
     cargo_home: str,
     installer_version: str,
+    *,
+    runner_os: str = "Linux",
 ) -> subprocess.CompletedProcess[str]:
     """Run the validation fragment with supplied action inputs."""
     bash = shutil.which("bash")
@@ -200,6 +225,7 @@ def _run_input_validation(
             ),
             "HOME": _bash_path(bash, home_dir),
             "INSTALLER_VERSION_INPUT": installer_version,
+            "RUNNER_OS": runner_os,
         },
         capture_output=True,
         check=False,
@@ -217,6 +243,18 @@ def _run_install_script(
     if bash is None:
         pytest.skip("bash not found on PATH")
 
+    paths = _create_install_paths(tmp_path, scenario, bash)
+    original_path = _prepare_install_stubs(tmp_path, scenario, paths, bash)
+    env = _build_install_environment(scenario, paths, original_path)
+    return _execute_install_script(bash, tmp_path, env)
+
+
+def _create_install_paths(
+    tmp_path: Path,
+    scenario: _InstallScenario,
+    bash: str,
+) -> _InstallPaths:
+    """Create deterministic paths for an installation scenario."""
     cargo_home = tmp_path / scenario.cargo_home_name
     bin_dir = cargo_home / "bin"
     bin_dir.mkdir(parents=True)
@@ -226,16 +264,31 @@ def _run_install_script(
     summary_log = tmp_path / "summary.md"
     home_dir = tmp_path / "home"
     home_dir.mkdir(exist_ok=True)
-    bash_cargo_home = _bash_path(bash, cargo_home)
-    bash_bin_dir = _bash_path(bash, bin_dir)
-    bash_home_dir = _bash_path(bash, home_dir)
-    bash_cargo_log = f"{_bash_path(bash, cargo_log.parent)}/{cargo_log.name}"
-    bash_installer_log = (
-        f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
+    return _InstallPaths(
+        bin_dir=bin_dir,
+        bash_cargo_home=_bash_path(bash, cargo_home),
+        bash_bin_dir=_bash_path(bash, bin_dir),
+        bash_cargo_log=f"{_bash_path(bash, cargo_log.parent)}/{cargo_log.name}",
+        bash_conflict_log=(
+            f"{_bash_path(bash, conflict_log.parent)}/{conflict_log.name}"
+        ),
+        bash_home_dir=_bash_path(bash, home_dir),
+        bash_installer_log=(
+            f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
+        ),
+        bash_summary_log=(f"{_bash_path(bash, summary_log.parent)}/{summary_log.name}"),
     )
-    bash_summary_log = f"{_bash_path(bash, summary_log.parent)}/{summary_log.name}"
-    _write_cargo_stub(bin_dir)
-    original_path = f"{bash_bin_dir}:/usr/bin:/bin"
+
+
+def _prepare_install_stubs(
+    tmp_path: Path,
+    scenario: _InstallScenario,
+    paths: _InstallPaths,
+    bash: str,
+) -> str:
+    """Create Cargo and installer stubs and return the ambient PATH."""
+    _write_cargo_stub(paths.bin_dir)
+    original_path = f"{paths.bash_bin_dir}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         original_bin_dir = tmp_path / "original-bin"
         original_bin_dir.mkdir()
@@ -249,7 +302,7 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
         original_path = f"{_bash_path(bash, original_bin_dir)}:{original_path}"
     if scenario.installer_present:
         _write_executable(
-            bin_dir / "whitaker-installer",
+            paths.bin_dir / "whitaker-installer",
             """#!/usr/bin/env bash
 set -euo pipefail
 if [ "$FAIL_INSTALLER" = "true" ]; then
@@ -259,27 +312,34 @@ fi
 printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 """,
         )
+    return original_path
 
-    env = {
+
+def _build_install_environment(
+    scenario: _InstallScenario,
+    paths: _InstallPaths,
+    original_path: str,
+) -> dict[str, str]:
+    """Build the installation fragment environment."""
+    return {
         **os.environ,
         "PATH": original_path,
         "BASH_ENV": "",
-        "CARGO_HOME": scenario.cargo_home_value or bash_cargo_home,
-        "HOME": bash_home_dir,
+        "CARGO_HOME": scenario.cargo_home_value or paths.bash_cargo_home,
+        "HOME": paths.bash_home_dir,
         "BINSTALL_AVAILABLE": str(scenario.binstall_available).lower(),
-        "CARGO_LOG": bash_cargo_log,
-        "CONFLICT_LOG": f"{_bash_path(bash, conflict_log.parent)}/{conflict_log.name}",
+        "CARGO_LOG": paths.bash_cargo_log,
+        "CONFLICT_LOG": paths.bash_conflict_log,
         "FAIL_BINSTALL": str(scenario.fail_binstall).lower(),
         "FAIL_INSTALL": str(scenario.fail_install).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
-        "FAKE_BIN_DIR": bash_bin_dir,
-        "INSTALLER_LOG": bash_installer_log,
-        "GITHUB_STEP_SUMMARY": bash_summary_log,
+        "FAKE_BIN_DIR": paths.bash_bin_dir,
+        "INSTALLER_LOG": paths.bash_installer_log,
+        "GITHUB_STEP_SUMMARY": paths.bash_summary_log,
         "WHITAKER_INSTALLER_CACHE_HIT": str(scenario.cache_hit).lower(),
-        "WHITAKER_INSTALLER_PATH": f"{bash_bin_dir}/whitaker-installer",
+        "WHITAKER_INSTALLER_PATH": f"{paths.bash_bin_dir}/whitaker-installer",
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
-    return _execute_install_script(bash, tmp_path, env)
 
 
 def _assert_manifest_inputs(manifest: dict[str, object]) -> None:
@@ -404,43 +464,70 @@ class TestManifest:
         ]
 
     @pytest.mark.parametrize(
-        ("cargo_home", "installer_version", "expected_error"),
+        ("case", "runner_os"),
         [
             pytest.param(
-                "~/.cargo\ninjected-path",
-                "1.2.3",
-                "cargo-home must not contain a carriage return or newline",
+                _InputValidationCase(
+                    "~/.cargo\ninjected-path",
+                    "1.2.3",
+                    "cargo-home must not contain a carriage return or newline",
+                ),
+                "Linux",
                 id="cargo-home-newline",
             ),
             pytest.param(
-                "~/.cargo",
-                "1.2.3\ninjected-command",
-                "installer-version must not contain a carriage return or newline",
+                _InputValidationCase(
+                    "~/.cargo",
+                    "1.2.3\ninjected-command",
+                    "installer-version must not contain a carriage return or newline",
+                ),
+                "Linux",
                 id="installer-version-newline",
             ),
             pytest.param(
-                "relative/.cargo",
-                "1.2.3",
-                "cargo-home must be an absolute path or start with ~/",
+                _InputValidationCase(
+                    "relative/.cargo",
+                    "1.2.3",
+                    "cargo-home must be an absolute path or start with ~/",
+                ),
+                "Linux",
                 id="relative-cargo-home",
             ),
             pytest.param(
-                "/cargo-home:path",
-                "1.2.3",
-                "cargo-home must not contain the runner PATH separator",
-                id="cargo-home-path-separator",
+                _InputValidationCase(
+                    "/cargo-home:unsafe",
+                    "1.2.3",
+                    "cargo-home must not contain the runner PATH separator",
+                ),
+                "Linux",
+                id="linux-cargo-home-path-separator",
             ),
             pytest.param(
-                "~/.cargo",
-                "01.2.3",
-                "installer-version must be one to three numeric components "
-                "without leading zeros",
+                _InputValidationCase(
+                    "~/.cargo;unsafe",
+                    "1.2.3",
+                    "cargo-home must not contain the runner PATH separator",
+                ),
+                "Windows",
+                id="windows-cargo-home-path-separator",
+            ),
+            pytest.param(
+                _InputValidationCase(
+                    "~/.cargo",
+                    "01.2.3",
+                    "installer-version must be one to three numeric components "
+                    "without leading zeros",
+                ),
+                "Linux",
                 id="leading-zero-version",
             ),
             pytest.param(
-                "~/.cargo",
-                "1" * 129,
-                "installer-version must be at most 128 characters",
+                _InputValidationCase(
+                    "~/.cargo",
+                    "1" * 129,
+                    "installer-version must be at most 128 characters",
+                ),
+                "Linux",
                 id="overlong-version",
             ),
         ],
@@ -448,15 +535,19 @@ class TestManifest:
     def test_rejects_unsafe_action_inputs(
         self,
         tmp_path: Path,
-        cargo_home: str,
-        installer_version: str,
-        expected_error: str,
+        case: _InputValidationCase,
+        runner_os: str,
     ) -> None:
         """Verify malformed action inputs fail before cache evaluation."""
-        result = _run_input_validation(tmp_path, cargo_home, installer_version)
+        result = _run_input_validation(
+            tmp_path,
+            case.cargo_home,
+            case.installer_version,
+            runner_os=runner_os,
+        )
 
         assert result.returncode != 0
-        assert expected_error in result.stderr
+        assert case.expected_error in result.stderr
 
 
 class TestInstallation:

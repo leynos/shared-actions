@@ -66,9 +66,31 @@ def test_setup_rust_toolchain_workflow_shape() -> None:
         "every setup-rust-toolchain-available step must be a mapping"
     )
 
+    removal_steps = [
+        step
+        for step in steps
+        if step.get("name") == "Remove the preinstalled stable toolchain"
+    ]
+    assert len(removal_steps) == 1, (
+        "expected exactly one Remove the preinstalled stable toolchain step"
+    )
+    removal_step = removal_steps[0]
+    removal_script = removal_step["run"]
+    assert "rustup toolchain uninstall stable" in removal_script, (
+        "removal must uninstall the preinstalled stable toolchain"
+    )
+    assert re.search(
+        r"if rustup run stable rustc --version >/dev/null 2>&1; then.*?exit 1.*?fi",
+        removal_script,
+        flags=re.DOTALL,
+    ), "removal must fail when stable rustc remains available"
+
     setup_steps = [step for step in steps if step.get("name") == "Setup stable Rust"]
     assert len(setup_steps) == 1, "expected exactly one Setup stable Rust step"
     setup_step = setup_steps[0]
+    assert steps.index(removal_step) < steps.index(setup_step), (
+        "the stable toolchain must be removed before setup-rust runs"
+    )
     assert setup_step["uses"] == "./.github/actions/setup-rust", (
         "Setup stable Rust must call the local setup-rust action"
     )

@@ -86,7 +86,7 @@ readily available on later runs.
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite
       - name: Install MSYS2 toolchain and SQLite
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: MINGW64
           update: true

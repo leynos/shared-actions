@@ -18,7 +18,6 @@ It also documents how to use the `install-nixie` action.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
 
-
 ## Node.js 24 action dependencies
 
 `setup-rust` pins its Node.js-backed cache, sccache and MSYS2 dependencies to

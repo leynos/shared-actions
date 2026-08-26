@@ -104,10 +104,12 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
   complete successfully before requesting review. `make lint` includes a
   blocking Skylos production dead-code scan, which also runs in CI.
 
-  Investigate every Skylos finding. Remove genuine dead code. Record a
-  verified false positive with `make skylos-allow NAME=<symbol>`. The Skylos
-  subcommand records the name only, so record the verified runtime caller in
-  the reviewing change; do not add unexplained exceptions.
+  Investigate every Skylos finding. Remove genuine dead code. Prefer a typed
+  `[tool.skylos.dead_code]` entry-point rule for an implicit runtime caller.
+  Only when that cannot model the verified boundary, use
+  `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`.
+  Both values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
+  hostname `NAME` variable. Do not add unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

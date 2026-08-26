@@ -27,6 +27,8 @@ jobs:
     env:
       CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN || '' }}
       CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 || '' }}
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
         # v4
@@ -53,6 +55,16 @@ jobs:
         uses: ./.github/actions/install-nfpm
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Install Makefile parser
+        run: |
+          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+            --git https://github.com/leynos/makeutil \
+            --rev "${MAKEUTIL_REVISION}" \
+            --locked \
+            --force \
+            makeutil
+        shell: bash
       # Warm the project build so tests that shell out to `uv run --script`
       # do not emit uv build/install noise on stderr (see the note in ci.yml).
       - name: Sync project dependencies

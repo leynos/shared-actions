@@ -18,6 +18,8 @@ jobs:
     env:
       MERMAN_CLI_VERSION: '0.7.0'
       WHITAKER_INSTALLER_VERSION: '0.2.6'
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     strategy:
       fail-fast: false
       matrix:
@@ -100,6 +102,16 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make lint
         shell: bash
+      - name: Install Makefile parser
+        run: |
+          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+            --git https://github.com/leynos/makeutil \
+            --rev "${MAKEUTIL_REVISION}" \
+            --locked \
+            --force \
+            makeutil
+        shell: bash
       - name: Run tests
         run: |
           uv sync --group dev
@@ -114,6 +126,9 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    env:
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
         # v4
@@ -145,6 +160,16 @@ jobs:
         uses: ./.github/actions/install-nfpm
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+      - name: Install Makefile parser
+        run: |
+          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+            --git https://github.com/leynos/makeutil \
+            --rev "${MAKEUTIL_REVISION}" \
+            --locked \
+            --force \
+            makeutil
+        shell: bash
       # Build and cache the project like the python-tests job does. Several
       # tests shell out to `uv run --script`, which builds shared-actions into
       # the script environment; without a warm build cache that emits `Using
@@ -195,6 +220,9 @@ jobs:
     permissions:
       contents: read
     runs-on: windows-latest
+    env:
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Checkout repository
         # v4
@@ -207,6 +235,16 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
+      - name: Install Makefile parser
+        run: |
+          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+            --git https://github.com/leynos/makeutil \
+            --rev "${MAKEUTIL_REVISION}" \
+            --locked \
+            --force \
+            makeutil
+        shell: bash
       - name: Run tests
         run: |
           uv sync --group dev

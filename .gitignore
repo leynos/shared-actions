@@ -23,6 +23,7 @@ lib-cov
 coverage
 .coverage
 .skylos/
+.skylos-whitelist.lock
 *.lcov
 
 # nyc test coverage

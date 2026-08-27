@@ -109,7 +109,9 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
   Only when that cannot model the verified boundary, use
   `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`.
   Both values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
-  hostname `NAME` variable. Do not add unexplained exceptions.
+  hostname `NAME` variable. The helper serializes its `pyproject.toml` update
+  with `flock` and the ignored repository-local `.skylos-whitelist.lock`. Do not add
+  unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

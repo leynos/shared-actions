@@ -25,6 +25,11 @@ ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 _PROPERTY_TEST_SETTINGS = settings(
     derandomize=True,
     max_examples=25,
+    # Each example launches Bash and filesystem-backed command stubs.  Their
+    # runtime is scheduling-dependent under the repository's xdist test target,
+    # so the default per-example deadline would test host load rather than the
+    # installer contract.
+    deadline=None,
 )
 _VALID_INSTALLER_VERSIONS = st.lists(
     st.from_regex(r"0|[1-9][0-9]{0,2}", fullmatch=True),

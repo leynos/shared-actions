@@ -199,7 +199,6 @@ make lint UV=uv
 make test ACT=/usr/local/bin/act
 ```
 
-
 ## Python linting
 
 The lint architecture has four tiers, recorded in
@@ -212,7 +211,6 @@ The lint architecture has four tiers, recorded in
 
 `make lint` stops at the first failing tier. The CI lint step runs the same
 target, so every pull request rejects unexplained production dead code.
-
 
 ### Skylos dead-code policy
 

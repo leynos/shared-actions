@@ -175,7 +175,10 @@ Both values must contain non-whitespace text. `SYMBOL` avoids WSL's injected
 hostname `NAME` environment variable. The target passes the subcommand before
 scan options as `skylos whitelist <symbol> --reason <reason>`. Do not add
 baselines, bulk exceptions, or unreasoned allow-list entries. Remove an
-allow-list entry when its dynamic boundary disappears.
+allow-list entry when its dynamic boundary disappears. The ignored
+`.skylos-whitelist.lock` serializes the helper's `flock`-guarded
+read-modify-write update so concurrent verified exceptions cannot overwrite one
+another.
 
 The Skylos contract test parses the Makefile with Makeutil and checks the
 argument boundary with a non-mutating executable recorder. `make test` requires

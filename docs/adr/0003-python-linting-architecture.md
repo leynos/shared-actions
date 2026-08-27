@@ -37,7 +37,9 @@ Investigate every finding and remove genuine dead code. Prefer a typed
 implementation, or other implicit runtime caller. Use a documented whitelist
 entry only when that typed boundary cannot model a verified false positive.
 `SYMBOL` and `REASON` must both contain non-whitespace text; `SYMBOL` avoids
-the WSL-provided hostname `NAME` variable.
+the WSL-provided hostname `NAME` variable. The `skylos-allow` target takes the
+ignored repository-local `.skylos-whitelist.lock` with `flock` before changing
+the documented allow list, so concurrent exception updates do not lose entries.
 
 ## Consequences
 

@@ -49,6 +49,7 @@ SKYLOS = $(SKYLOS_CLI) --config-file pyproject.toml
 SKYLOS_PRODUCTION_TARGETS ?= .github/actions workflow_scripts scripts \
 	actions_common.py bool_utils.py cargo_utils.py cmd_utils.py cmd_utils_importer.py
 SKYLOS_EXCLUDE_FOLDERS ?= tests
+SKYLOS_WHITELIST_LOCK ?= .skylos-whitelist.lock
 
 makeutil: ## Verify the Makefile parser used by contract tests
 	@command -v $(MAKEUTIL) >/dev/null 2>&1 || { printf "Error: makeutil is required; install the pinned parser documented in docs/developers-guide.md\\n" >&2; exit 1; }
@@ -80,7 +81,7 @@ skylos-allow: export SKYLOS_REASON = $(value REASON)
 skylos-allow: ## Document one named Skylos exception, not an entry point
 	@case "$${SKYLOS_SYMBOL}" in *[![:space:]]*) ;; *) printf "Error: SYMBOL is required for a named whitelist exception\\n" >&2; exit 2;; esac
 	@case "$${SKYLOS_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a named whitelist exception\\n" >&2; exit 2;; esac
-	$(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
+	flock "$(SKYLOS_WHITELIST_LOCK)" env $(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}"
 
 typecheck: .venv ## Run static type checking with Ty
 	$(UV) run ty check \

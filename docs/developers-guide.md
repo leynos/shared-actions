@@ -23,6 +23,7 @@ entries by hand.
 ## Architecture Decision Records
 
 - [ADR 0002: Explicit ps-module-name for PowerShell sidecars](adr/0002-explicit-ps-module-name.md)
+- [ADR 0003: Four-tier Python linting architecture](adr/0003-python-linting-architecture.md)
 
 ## Python Coverage Venv Architecture
 
@@ -127,6 +128,7 @@ to bare names on `PATH`.
 | `ACT`              | `~/go/bin/act` if present, then `~/.local/bin/act` if present, otherwise `act`                               |
 | `ACTION_VALIDATOR` | `~/.bun/bin/action-validator` if present, then `~/.cargo/bin/action-validator`, otherwise `action-validator` |
 | `MDLINT`           | `~/.bun/bin/markdownlint-cli2` if present, otherwise `markdownlint-cli2`                                     |
+| `MAKEUTIL`         | `~/.cargo/bin/makeutil` if present, otherwise `makeutil`                                                     |
 
 Override example:
 
@@ -134,6 +136,64 @@ Override example:
 make lint UV=uv
 make test ACT=/usr/local/bin/act
 ```
+
+## Python linting
+
+The lint architecture has four tiers, recorded in
+[ADR 0003](adr/0003-python-linting-architecture.md):
+
+1. Ruff checks Python source and import hygiene.
+2. action-validator checks GitHub Action metadata.
+3. Whitaker checks the Rust action fixture with warnings denied.
+4. Skylos checks production Python code for dead code.
+
+`make lint` stops at the first failing tier. The CI lint step runs the same
+target, so every pull request rejects unexplained production dead code.
+
+### Skylos dead-code policy
+
+Skylos `4.33.2` scans action implementations, workflow helpers, root modules,
+and the maintained tooling script, while excluding test directories so test-only
+imports cannot make production symbols appear live. `$(SKYLOS_CLI)` runs it
+with Python 3.14 because Skylos parses source using its own runtime AST; pinning
+that runtime prevents phantom findings from newer Python syntax. `$(SKYLOS)`
+adds scan-only options such as `--config-file`, leaving the command-only CLI
+available for subcommands.
+
+Treat each finding as dead code until a runtime caller is verified. Remove
+genuine dead code. For framework callbacks, protocol implementations, or other
+implicit runtime callers, first add a narrowly typed
+`[tool.skylos.dead_code]` entry-point rule with the full name and verified
+caller. Only when that boundary cannot be modelled as an entry point, record a
+named exception with:
+
+```shell
+make skylos-allow SYMBOL=registered_handler REASON="Loaded by plugin registry"
+```
+
+Both values must contain non-whitespace text. `SYMBOL` avoids WSL's injected
+hostname `NAME` environment variable. The target passes the subcommand before
+scan options as `skylos whitelist <symbol> --reason <reason>`. Do not add
+baselines, bulk exceptions, or unreasoned allow-list entries. Remove an
+allow-list entry when its dynamic boundary disappears. The ignored
+`.skylos-whitelist.lock` serializes the helper's `flock`-guarded
+read-modify-write update so concurrent verified exceptions cannot overwrite one
+another.
+
+The Skylos contract test parses the Makefile with Makeutil and checks the
+argument boundary with a non-mutating executable recorder. `make test` requires
+Makeutil before executing the suite. Bootstrap the pinned local parser with:
+
+```shell
+rustup toolchain install nightly-2026-05-28 --profile minimal
+RUSTFLAGS="-Zpolonius=next" cargo +nightly-2026-05-28 install \
+  --git https://github.com/leynos/makeutil \
+  --rev 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c \
+  --locked --force makeutil
+```
+
+The full-suite and coverage CI jobs install this same revision and toolchain
+independently before invoking pytest.
 
 ## `setup-uv` Pinning
 

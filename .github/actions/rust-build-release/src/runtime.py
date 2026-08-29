@@ -262,38 +262,3 @@ def runtime_available(name: str, *, cwd: str | Path | None = None) -> bool:
             return False
 
     return True
-
-
-def detect_host_target(
-    *,
-    default: str = DEFAULT_HOST_TARGET,
-    rustc_path: str | Path | None = None,
-) -> str:
-    """Return the active Rust host triple, defaulting to *default* when unknown."""
-    candidate = rustc_path or shutil.which("rustc")
-    if candidate is None:
-        return default
-    try:
-        exec_path = ensure_allowed_executable(candidate, ("rustc", "rustc.exe"))
-    except UnexpectedExecutableError:
-        return default
-    try:
-        result = run_validated(
-            exec_path,
-            ["-vV"],
-            allowed_names=("rustc", "rustc.exe"),
-            timeout=PROBE_TIMEOUT,
-            method="run",
-        )
-    except (ProcessExecutionError, ProcessTimedOut, OSError):
-        return default
-
-    triple = next(
-        (
-            line.partition(":")[2].strip()
-            for line in (result.stdout or "").splitlines()
-            if line.startswith("host:")
-        ),
-        "",
-    )
-    return triple or default

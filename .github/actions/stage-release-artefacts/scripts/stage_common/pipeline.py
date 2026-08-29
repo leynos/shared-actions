@@ -80,15 +80,6 @@ class StagingDirs:
 
 
 @dataclasses.dataclass(slots=True, frozen=True)
-class StagedArtefact:
-    """Describe a staged artefact yielded by :func:`_iter_staged_artefacts`."""
-
-    path: Path
-    artefact: ArtefactConfig
-    checksum: str
-
-
-@dataclasses.dataclass(slots=True, frozen=True)
 class _BinstallMetadata:
     """Resolved values used to render cargo-binstall archive templates."""
 
@@ -360,12 +351,6 @@ def _resolve_configured_artefact(
     yield ResolvedArtefact(artefact, source_path, destination_path)
 
 
-def _iter_resolved_artefacts(env: StageEnv) -> typ.Iterator[ResolvedArtefact]:
-    """Yield artefacts with resolved source and destination paths."""
-    for artefact in env.config.artefacts:
-        yield from _resolve_configured_artefact(env, artefact)
-
-
 def _stage_resolved_artefact(env: StageEnv, ra: ResolvedArtefact) -> tuple[Path, str]:
     """Copy a resolved artefact and write its checksum sidecar."""
     _copy_resolved_artefact(
@@ -399,18 +384,6 @@ def _stage_configured_artefact(
     state.checksums[relative_path] = digest
     if resolved.artefact.output:
         state.outputs[resolved.artefact.output] = path
-
-
-def _iter_staged_artefacts(
-    config: StagingConfig, staging_dir: Path, context: dict[str, typ.Any]
-) -> typ.Iterator[StagedArtefact]:
-    """Yield :class:`StagedArtefact` entries describing staged artefacts."""
-    # TODO(#269): remove this compatibility wrapper after callers migrate to
-    # _iter_resolved_artefacts or stage_artefacts.
-    env = StageEnv(config, staging_dir, context)
-    for resolved in _iter_resolved_artefacts(env):
-        path, digest = _stage_resolved_artefact(env, resolved)
-        yield StagedArtefact(path, resolved.artefact, digest)
 
 
 def _resolve_destination_path(
@@ -545,7 +518,7 @@ def _resolve_binstall_metadata(config: StagingConfig) -> _BinstallMetadata:
 
 
 def _binstall_template_context(
-    config: StagingConfig, metadata: _BinstallMetadata, base_context: dict[str, typ.Any]
+    metadata: _BinstallMetadata, base_context: dict[str, typ.Any]
 ) -> dict[str, typ.Any]:
     """Return template context extended with cargo-binstall metadata."""
     return base_context | {
@@ -590,7 +563,7 @@ def _stage_binstall_archive(
 ) -> Path:
     """Create and stage a cargo-binstall archive."""
     metadata = _resolve_binstall_metadata(config)
-    context = _binstall_template_context(config, metadata, base_context)
+    context = _binstall_template_context(metadata, base_context)
     archive_name = _render_template(config.binstall.archive_name, context)
     archive_path = _safe_destination_path(staging_dir, archive_name)
     binary_source = _resolve_binstall_binary_source(config, context)

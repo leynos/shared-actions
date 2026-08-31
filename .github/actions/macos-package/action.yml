@@ -51,6 +51,8 @@ runs:
   steps:
     - name: Setup uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      with:
+        version: latest-known
     - name: Ensure macOS runner
       shell: bash
       run: uv run "${{ github.action_path }}/scripts/check_platform.py"

@@ -147,6 +147,16 @@ compatibility reason to split them. A pin update is repository-wide
 maintenance: search for `astral-sh/setup-uv@`, update every matching action or
 workflow reference together, and run the normal action test gates before review.
 
+The `macos-package` action passes `version: latest-known`, so it requires a
+setup-uv revision that resolves that value from bundled checksum metadata. Its
+current compatible pin is
+`20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this avoids fetching Astral's
+mutable remote versions manifest during release packaging. Keep the action's
+manifest test synchronized with both this SHA and `latest-known`. The
+repository's `rust-toy-app.yml` workflow exercises the actual action on macOS;
+local `act` tests cannot cover that path because macOS packaging tools are not
+available in its Linux container runtime.
+
 When changing the pin, include the target SHA in the change description and
 verify affected act workflow tests where the action runs under `nektos/act`. If
 act cannot execute the real `setup-uv` path on the local runner, document the
@@ -486,7 +496,7 @@ Internals for maintainers:
 ```bash
 make test          # full suite
 make check-fmt     # Ruff formatting check
-make typecheck     # mypy
+make typecheck     # Ty, resolving imports through .venv
 make lint          # Ruff lint + action-validator + markdownlint
 ```
 

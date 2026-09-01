@@ -55,7 +55,7 @@ jobs:
           include-license-panel: true
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-pkg-${{ steps.package.outputs.version }}
           path: dist/*.pkg

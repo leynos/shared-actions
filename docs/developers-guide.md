@@ -163,6 +163,25 @@ act cannot execute the real `setup-uv` path on the local runner, document the
 reason and keep the unit or manifest tests that assert the pinned reference in
 sync with the new SHA.
 
+## Maintaining `setup-rust` Node.js Action Pins
+
+The [`setup-rust` action manifest](../.github/actions/setup-rust/action.yml)
+uses `actions/cache`, `mozilla-actions/sccache-action`, and
+`msys2/setup-msys2`. Pin each action by a verified full commit SHA.
+
+When updating these Node.js 24 action dependencies:
+
+1. Inspect the upstream `action.yml` at the selected revision and verify that
+   its `runs.using` value declares the required Node.js runtime.
+2. Update every affected `setup-rust` manifest step together so all supported
+   runner paths use the intended revisions.
+3. Synchronize the exact revision strings in `NODE24_ACTION_REVISIONS` in the
+   [`setup-rust` manifest tests](../.github/actions/setup-rust/tests/test_setup_rust_manifest.py).
+4. Run the manifest tests and supported runner-backed workflow validation.
+
+The static manifest assertions must remain in place: runner execution proves
+that the action works, but cannot prove that a pin is the intended revision.
+
 ## `install-whitaker` action contract
 
 The composite action's cache step restores these paths:

@@ -86,7 +86,7 @@ readily available on later runs.
 ```yaml
       # Bring in MSYS2 plus the MinGW build of SQLite
       - name: Install MSYS2 toolchain and SQLite
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.32.0
         with:
           msystem: MINGW64
           update: true
@@ -130,10 +130,11 @@ cache compiler output. It sets `SCCACHE_GHA_ENABLED=true` and
 `RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
 compiled objects are stored in `~/.cache/sccache` and cached with a **separate
 cache key** from the directories above. This directory holds the sccache cache
-space and does not share data with the Rust dependency cache; the sccache step
-itself uses
-`mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad`,
-pinned to a specific commit for reproducibility.
+space and does not share data with the Rust dependency cache. The revised
+Node.js-backed actions are pinned to specific commits for reproducibility:
+`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
+`mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`
+and `msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884`.
 
 ### Extent and limitations
 

@@ -10,9 +10,10 @@ visible to a later step.
 from __future__ import annotations
 
 import re
-import typing as typ
+from pathlib import Path
 
 import pytest
+import yaml
 
 from .conftest import (
     FIXTURES_DIR,
@@ -22,10 +23,8 @@ from .conftest import (
     skip_unless_workflow_tests,
 )
 
-if typ.TYPE_CHECKING:
-    from pathlib import Path
-
 WORKFLOW = "test-rustflags-export.yml"
+WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / WORKFLOW
 # The workflow runs on the release event because the nested setup-rust skips
 # sccache for releases, whose post-step is unreliable under act.
 EVENT = "release"
@@ -47,6 +46,78 @@ def _run(job: str, artefact_dir: Path) -> str:
     code, logs = run_act(WORKFLOW, EVENT, job, config)
     assert code == 0, f"act failed:\n{logs}"
     return logs
+
+
+def test_setup_rust_toolchain_workflow_shape() -> None:
+    """The runner job exercises the intended local setup-rust path."""
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), f"{WORKFLOW_PATH} must contain a YAML mapping"
+    jobs = workflow.get("jobs")
+    assert isinstance(jobs, dict), f"{WORKFLOW_PATH} must define a jobs mapping"
+    job = jobs.get("setup-rust-toolchain-available")
+    assert isinstance(job, dict), (
+        "workflow must define the setup-rust-toolchain-available job"
+    )
+    steps = job.get("steps")
+    assert isinstance(steps, list), (
+        "setup-rust-toolchain-available must define a steps collection"
+    )
+    assert all(isinstance(step, dict) for step in steps), (
+        "every setup-rust-toolchain-available step must be a mapping"
+    )
+
+    removal_steps = [
+        step
+        for step in steps
+        if step.get("name") == "Remove the preinstalled stable toolchain"
+    ]
+    assert len(removal_steps) == 1, (
+        "expected exactly one Remove the preinstalled stable toolchain step"
+    )
+    removal_step = removal_steps[0]
+    removal_script = removal_step["run"]
+    assert "rustup toolchain uninstall stable" in removal_script, (
+        "removal must uninstall the preinstalled stable toolchain"
+    )
+    assert re.search(
+        r"if rustup run stable rustc --version >/dev/null 2>&1; then.*?exit 1.*?fi",
+        removal_script,
+        flags=re.DOTALL,
+    ), "removal must fail when stable rustc remains available"
+
+    setup_steps = [step for step in steps if step.get("name") == "Setup stable Rust"]
+    assert len(setup_steps) == 1, "expected exactly one Setup stable Rust step"
+    setup_step = setup_steps[0]
+    assert steps.index(removal_step) < steps.index(setup_step), (
+        "the stable toolchain must be removed before setup-rust runs"
+    )
+    assert setup_step["uses"] == "./.github/actions/setup-rust", (
+        "Setup stable Rust must call the local setup-rust action"
+    )
+    assert setup_step["with"] == {
+        "toolchain": "stable",
+        "install-binstall": "false",
+        "use-sccache": "false",
+    }, "Setup stable Rust must select the isolated stable toolchain path"
+
+    verify_steps = [
+        step
+        for step in steps
+        if step.get("name") == "Verify Rust tools remain available"
+    ]
+    assert len(verify_steps) == 1, (
+        "expected exactly one Verify Rust tools remain available step"
+    )
+    verify_step = verify_steps[0]
+    script = verify_step["run"]
+    assert "rustc --version" in script, "verification must execute rustc"
+    assert "cargo --version" in script, "verification must execute cargo"
+    assert 'test -n "${rustc_version}"' in script, (
+        "verification must assert that rustc returned a version"
+    )
+    assert 'test -n "${cargo_version}"' in script, (
+        "verification must assert that cargo returned a version"
+    )
 
 
 @skip_unless_act
@@ -116,4 +187,21 @@ def test_setup_rust_leaves_an_inherited_rustflags_alone(artefact_dir: Path) -> N
     )
     assert "debuginfo=2" not in logs.split("setup_rust_inherited_rustflags=")[-1], (
         f"the input displaced the inherited value:\n{logs}"
+    )
+
+
+@skip_unless_act
+@skip_unless_workflow_tests
+def test_setup_rust_exposes_rust_tools_to_later_steps(artefact_dir: Path) -> None:
+    """A supported Linux setup leaves rustc and cargo available downstream."""
+    logs = _run("setup-rust-toolchain-available", artefact_dir)
+
+    assert re.search(r"setup_rust_toolchain=\[stable-[^]]+", logs), (
+        f"setup-rust did not select the required stable toolchain:\n{logs}"
+    )
+    assert re.search(r"setup_rust_rustc=\[rustc \d+\.\d+\.\d+", logs), (
+        f"rustc was not available after setup-rust:\n{logs}"
+    )
+    assert re.search(r"setup_rust_cargo=\[cargo \d+\.\d+\.\d+", logs), (
+        f"cargo was not available after setup-rust:\n{logs}"
     )

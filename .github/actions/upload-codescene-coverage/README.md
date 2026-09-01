@@ -71,7 +71,7 @@ cache is restored at the start of the job and saved after the job finishes. A
 fallback restore key allows reuse across patch releases:
 
 ```yaml
-uses: actions/cache@v4
+uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
 with:
   path: ~/.local/bin/cs-coverage
   key: cs-coverage-cache-${{ runner.os }}-${{ version }}

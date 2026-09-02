@@ -1,11 +1,13 @@
 # Install Whitaker
 
-Install the Whitaker Dylint suite with a cached `whitaker-installer`.
+Install the Whitaker Dylint suite with cached installer and suite state.
 
-The action restores the installer and cargo-binstall cache before installation.
-When the installer is not cached, it prefers `cargo binstall` and falls back to
-`cargo install` when cargo-binstall is unavailable. It then runs
-`whitaker-installer` to install the suite.
+The action restores the installer and installed suite before installation. On a
+miss, it
+downloads the requested prebuilt installer and checksum from Whitaker's
+official GitHub release, verifies the archive, and installs the executable. It
+never builds the installer from source. It then runs `whitaker-installer` to
+install the suite.
 
 ## Inputs
 
@@ -13,6 +15,7 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 | ------------------- | ------ | ----------------------------------------------------------- | -------- | ---------- |
 | `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary | no       | `~/.cargo` |
 | `installer-version` | string | Version of `whitaker-installer` to install                  | no       | `0.2.6`    |
+| `cache-provider`    | string | Built-in `github` cache or caller-owned `external` cache    | no       | `github`   |
 
 ## Outputs
 
@@ -37,15 +40,21 @@ When the installer is not cached, it prefers `cargo binstall` and falls back to
 ```
 
 The repository must be checked out before invoking this local action; use the
-relative path without a version suffix. The runner must have Cargo available.
-If `cargo binstall --version` succeeds, the action installs the requested
-version with `cargo binstall --locked`.
-Otherwise, it builds the same version from crates.io with
-`cargo install --locked`.
+relative path without a version suffix. The runner must provide Bash, curl, an
+SHA-256 utility, and the platform archive utility (`tar` or `unzip`). Missing
+official release assets are hard failures; there is no Cargo or source-build
+fallback.
 
 The `cargo-home` input defaults to `~/.cargo`; it controls both the cached
-installer location and the installation step's `CARGO_HOME`. That step prepends
-`${CARGO_HOME}/bin` to its `PATH`.
+installer location. In `github` mode, the same cache also owns
+`~/.local/share/whitaker`, keyed by `dylint.toml`.
+
+Set `cache-provider: external` when the caller mounts these paths through a
+Namespace cache volume; the action then skips its GitHub cache and reports the
+built-in cache as disabled. Mount `~/.local/share`, not the terminal
+`~/.local/share/whitaker` directory: the installer distinguishes an absent
+checkout from an existing Git checkout, while a volume mount makes its target
+exist even when empty.
 
 ## Release history
 

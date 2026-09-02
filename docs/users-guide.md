@@ -60,10 +60,10 @@ their paths.
 
 ## `install-whitaker` action
 
-The `install-whitaker` composite action installs the `whitaker-installer`
-crate and runs it to install the Whitaker Dylint suite. The runner must have
-Cargo available. Use the action from a workflow in this repository with its
-local path:
+The `install-whitaker` composite action downloads a verified prebuilt
+`whitaker-installer` from the requested Whitaker GitHub release and runs it to
+install the Dylint suite. It never builds the installer from source. Use the
+action from a workflow in this repository with its local path:
 
 ```yaml
 - name: Check out the repository
@@ -78,17 +78,21 @@ The repository must be checked out before invoking this local action.
 The optional `installer-version` input selects the `whitaker-installer`
 version and defaults to `0.2.6`. The optional `cargo-home` input defaults to
 `~/.cargo`; it controls both the cached `whitaker-installer` location
-(`${{ steps.validate-inputs.outputs.installer-path }}`) and the installation
-step's `CARGO_HOME`. The action resolves Cargo from the existing `PATH` and
-invokes the validated installer path directly.
+(`${{ steps.validate-inputs.outputs.installer-path }}`). The optional
+`cache-provider` input defaults to `github`; use `external` when the caller
+mounts this path and the installed suite through a Namespace cache volume.
 
-Before installation, the action restores the cached
-`${{ steps.validate-inputs.outputs.installer-path }}` and
-`~/.cache/cargo-binstall` using a key containing the runner operating system,
-architecture, installer version, and effective expanded Cargo home. A cache
-hit reuses the installer binary. On a miss, the action first tries `cargo
-binstall`; if the cargo-binstall probe is unavailable, it falls back to
-building the requested version with `cargo install --locked`.
+In `github` mode, the action restores the installer and
+`~/.local/share/whitaker` using a key containing the runner operating system,
+architecture, installer version, `dylint.toml` hash, and effective expanded
+Cargo home. A hit reuses both tool layers. On a miss, the action verifies the
+official release archive's published SHA-256 before extracting its executable.
+A missing prebuilt asset is a hard failure.
+
+For an external cache, mount `~/.local/share`, not the terminal
+`~/.local/share/whitaker` directory. The installer expects that child to be
+absent for a fresh install; an empty volume mounted at the child looks like an
+existing but invalid Git checkout.
 
 ## The problem
 

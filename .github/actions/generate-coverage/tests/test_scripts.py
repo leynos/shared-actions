@@ -1567,10 +1567,10 @@ def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> N
     [
         ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
         ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
-        ("linux-aarch64-gnu", None),
-        ("mac-universal", None),
-        ("windows-x86_64", None),
-        ("windows-aarch64", None),
+        ("linux-aarch64-gnu", "aarch64-unknown-linux-gnu"),
+        ("mac-universal", "universal-apple-darwin"),
+        ("windows-x86_64", "x86_64-pc-windows-msvc"),
+        ("windows-aarch64", "aarch64-pc-windows-msvc"),
     ],
 )
 def test_expected_sha_for_supported_platforms(
@@ -1581,27 +1581,19 @@ def test_expected_sha_for_supported_platforms(
 ) -> None:
     """Expected SHA lookup matches the platform mapping."""
     monkeypatch.setattr(install_nextest_module, "_platform_key", lambda: key)
-    sha, target = install_nextest_module._expected_sha_for_platform()
+    sha, asset = install_nextest_module._release_for_platform()
     assert sha == install_nextest_module.CARGO_NEXTEST_SHA256[key]
-    assert target == expected_target
+    assert asset == install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS[key]
+    assert asset.target == expected_target
 
 
-@pytest.mark.parametrize(
-    ("key", "expected_target"),
-    [
-        ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
-        ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
-        ("linux-aarch64-gnu", None),
-        ("mac-universal", None),
-    ],
-)
-def test_binstall_target_for_key(
-    key: str,
-    expected_target: str | None,
+def test_release_assets_pin_archive_checksums(
     install_nextest_module: ModuleType,
 ) -> None:
-    """Binstall targets are explicit only for Linux x86_64 libc variants."""
-    assert install_nextest_module._binstall_target_for_key(key) == expected_target
+    """Every supported platform pins a full release-archive checksum."""
+    assets = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS
+    assert assets.keys() == install_nextest_module.CARGO_NEXTEST_SHA256.keys()
+    assert all(len(asset.sha256) == 64 for asset in assets.values())
 
 
 def test_expected_sha_for_unsupported_platform(
@@ -1617,7 +1609,7 @@ def test_expected_sha_for_unsupported_platform(
     )
 
     with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module._expected_sha_for_platform()
+        install_nextest_module._release_for_platform()
 
     assert _exit_code(excinfo.value) == 1
     assert "Unsupported platform for cargo-nextest" in capsys.readouterr().err
@@ -1683,7 +1675,7 @@ def test_install_nextest_skips_when_verified(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Installer skips binstall when an existing binary verifies."""
+    """Installer skips the release download when a binary verifies."""
     binary = tmp_path / "cargo-nextest"
     binary.write_bytes(b"payload")
     expected = hashlib.sha256(b"payload").hexdigest()
@@ -1695,11 +1687,12 @@ def test_install_nextest_skips_when_verified(
         called["verify"] = True
         return True
 
-    def fail_install() -> None:
+    def fail_install(*_args: object) -> None:
         raise AssertionError
 
+    asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
     monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: (expected, None)
+        install_nextest_module, "_release_for_platform", lambda: (expected, asset)
     )
     monkeypatch.setattr(
         install_nextest_module, "_resolve_nextest_binary", lambda: binary
@@ -1711,77 +1704,65 @@ def test_install_nextest_skips_when_verified(
     assert called["verify"] is True
 
 
-def test_install_nextest_invokes_binstall(
+def test_install_nextest_installs_official_release(
     tmp_path: Path,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``install_cargo_nextest.py`` calls cargo binstall and verifies hash."""
-    recorded: dict[str, object] = {}
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    expected = hashlib.sha256(b"payload").hexdigest()
+    """The official archive is verified before its binary is installed."""
+    archive_payload = b"archive"
+    binary_payload = b"binary"
+    asset = install_nextest_module.ReleaseAsset(
+        "x86_64-unknown-linux-gnu",
+        "tar.gz",
+        hashlib.sha256(archive_payload).hexdigest(),
+    )
+    expected = hashlib.sha256(binary_payload).hexdigest()
 
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded["cmd"] = cmd
+    def fake_download(_asset: object, destination: Path) -> None:
+        destination.write_bytes(archive_payload)
 
-    monkeypatch.setattr(install_nextest_module, "run_cmd", fake_run_cmd)
+    def fake_extract(_archive: Path, _asset: object, destination: Path) -> None:
+        destination.write_bytes(binary_payload)
+
+    monkeypatch.setenv("CARGO_HOME", str(tmp_path / "cargo-home"))
+    monkeypatch.setattr(install_nextest_module, "_download_archive", fake_download)
+    monkeypatch.setattr(install_nextest_module, "_extract_binary", fake_extract)
     monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
-    monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
     monkeypatch.setattr(
         install_nextest_module,
-        "_expected_sha_for_platform",
-        lambda: (expected, "x86_64-unknown-linux-gnu"),
+        "_release_for_platform",
+        lambda: (expected, asset),
     )
 
     install_nextest_module.main()
 
-    cmd = recorded.get("cmd")
-    assert cmd is not None
-    parts = list(cmd.formulate())
-    assert Path(parts[0]).name == "cargo"
-    assert parts[1:] == [
-        "binstall",
-        "cargo-nextest",
-        "--version",
-        install_nextest_module.CARGO_NEXTEST_VERSION,
-        "--locked",
-        "--no-confirm",
-        "--force",
-        "--targets",
-        "x86_64-unknown-linux-gnu",
-    ]
+    binary = tmp_path / "cargo-home" / "bin" / "cargo-nextest"
+    assert binary.read_bytes() == binary_payload
+    assert binary.stat().st_mode & 0o111
 
 
-def test_install_nextest_binstall_failure(
+def test_install_nextest_download_failure(
+    tmp_path: Path,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Binstall failures cause a Typer exit with stderr content."""
-    retcode = 2
-    stderr_msg = "simulated cargo-binstall failure"
+    """Official release download failures cause a clear Typer exit."""
+    asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
 
-    def fail_run_cmd(*_args: object, **_kwargs: object) -> None:
-        raise install_nextest_module.ProcessExecutionError(
-            ["cargo", "binstall", "cargo-nextest"],
-            retcode,
-            "",
-            stderr_msg,
-        )
+    def fail_urlopen(*_args: object, **_kwargs: object) -> None:
+        message = "simulated failure"
+        raise install_nextest_module.urllib.error.URLError(message)
 
-    monkeypatch.setattr(install_nextest_module, "run_cmd", fail_run_cmd)
-    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
-    monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: ("deadbeef", None)
-    )
+    monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fail_urlopen)
 
     with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module.main()
+        install_nextest_module._download_archive(asset, tmp_path / asset.filename)
 
-    assert _exit_code(excinfo.value) == retcode
+    assert _exit_code(excinfo.value) == 1
     captured = capsys.readouterr()
-    assert stderr_msg in captured.err
+    assert "cargo-nextest release download failed" in captured.err
 
 
 def test_install_nextest_checksum_match(

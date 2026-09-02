@@ -12,6 +12,9 @@
 - Preserve setup-uv's automatic GitHub-hosted versus self-hosted default and
   report bounded Cargo, Python, and uv cache outcomes in the log and job
   summary.
+- Download `cargo-nextest` directly from its pinned official release and verify
+  both the archive and executable SHA-256 digests. This removes
+  cargo-binstall's QuickInstall substitution and any source-build fallback.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes
@@ -64,8 +67,7 @@
   Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
   existing binary against the pinned version and reuses it only on a match;
   otherwise it downloads the checksum-pinned installer script and verifies the
-  freshly installed version. This keeps the `cargo-llvm-cov` and
-  `cargo-nextest` installs — which shell out to `cargo binstall` — from
+  freshly installed version. This keeps the `cargo-llvm-cov` install from
   relying on an unpinned or stale binary already on the runner.
 - Run the Python coverage suite under `pytest-xdist` by default. The new
   `pytest-workers` input (default `auto`) is forwarded to slipcover's

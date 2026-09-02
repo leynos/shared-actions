@@ -6,4 +6,7 @@ this file.
 ## v1.0.0 (Unreleased)
 
 - Add cached installation of the Whitaker Dylint suite
-- Prefer cargo-binstall with a `cargo install` fallback
+- Download and verify official prebuilt installer releases without a source
+  build fallback
+- Support caller-owned caches through `cache-provider: external`
+- Cache the installed suite as well as the installer, keyed by `dylint.toml`

@@ -10,14 +10,12 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` and
-`cargo-nextest` are installed automatically via a pinned `cargo-binstall`. The
-action provisions a specific `cargo-binstall` version — reusing a cached build
-when its version matches exactly, otherwise installing it from a
-checksum-verified installer script — and verifies the resolved version before
-running the coverage tooling. If both configuration files are present, coverage
-is run for each language and the Cobertura reports are merged using
-`uvx merge-cobertura`.
+are required. When Rust coverage is required, `cargo-llvm-cov` is installed via
+a pinned `cargo-binstall`. `cargo-nextest` is downloaded directly from its
+pinned official release; both the archive and extracted binary have fixed
+SHA-256 digests, and no Cargo source-build fallback exists. If both
+configuration files are present, coverage is run for each language and the
+Cobertura reports are merged using `uvx merge-cobertura`.
 
 ## Flow
 

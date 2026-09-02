@@ -254,43 +254,42 @@ changelogs, the users' guide, that contract test, and these tests together.
 
 ## `install-whitaker` action contract
 
-The composite action's cache step restores these paths:
-
-- `${{ steps.validate-inputs.outputs.installer-path }}`
-- `~/.cache/cargo-binstall`
+The composite action's built-in cache restores
+`${{ steps.validate-inputs.outputs.installer-path }}` and
+`~/.local/share/whitaker`. The `cache-provider` input defaults to `github`;
+`external` skips the built-in cache when the caller mounts both states through
+another provider.
 
 Its key is the following expression:
 
 ```text
-whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{
+whitaker-${{ runner.os }}-${{ runner.arch }}-${{
   steps.validate-inputs.outputs.installer-version }}-${{
+  hashFiles('dylint.toml') }}-${{
   steps.validate-inputs.outputs.cargo-home }}
 ```
 
 The `cargo-home` input defaults to `~/.cargo` and controls both the cached
-installer location and the installation step's `CARGO_HOME`. The step expands a
-leading `~` against `HOME`, validates and exports `CARGO_HOME`, and records the
-expanded installer path for the cache and later execution. The installation
-step resolves Cargo from the existing `PATH` and invokes that validated
-installer path directly; it does not prepend the Cargo bin directory to `PATH`.
-The `installer-version` input defaults to `0.2.6`.
+installer location. The step expands a leading `~` against `HOME`, validates
+the path, adds the Windows executable suffix when required, and records the
+installer path for the cache and later execution. The `installer-version`
+input defaults to `0.2.6`.
 
-Cargo must be available on `PATH` when the action needs to install or rebuild
-`whitaker-installer`. `cargo-binstall` is optional; the action uses it when
-available and falls back to `cargo install` otherwise. Different effective
-Cargo homes use separate cache keys; repeated writes for the same home share
-one key.
-
-If `whitaker-installer` is already available, the action skips Cargo
-installation and runs it. Otherwise it probes `cargo binstall --version`, uses
-`cargo binstall --no-confirm --locked` when that probe succeeds, and falls back
-to `cargo install --locked` when it does not. The fallback is limited to an
-unavailable cargo-binstall probe; an installation failure from either Cargo
-path, or a failure from `whitaker-installer` itself, stops the step and
-propagates the non-zero status. The contract is covered by
+On a miss, the action selects the runner's supported release target, downloads
+the prebuilt archive and SHA-256 sidecar from the versioned Whitaker GitHub
+release, verifies the archive, and extracts only the installer executable.
+Unsupported platforms, missing assets, and checksum failures stop the action.
+There is deliberately no Cargo or source-build fallback. The contract is
+covered by
 `.github/actions/install-whitaker/tests/test_install_whitaker.py`, including
-the cache manifest, both installation paths, cache reuse, and failure
+cache ownership, official release selection, cache reuse, and failure
 boundaries.
+
+An external volume must mount the suite's parent (`~/.local/share`) rather than
+the terminal `~/.local/share/whitaker` path. Whitaker treats an absent child as
+a fresh install and an existing child as a Git checkout; a cache volume makes
+its mount point exist even when empty, so mounting the child causes the
+installer to attempt `git pull` in a non-repository.
 
 ## `upload-codescene-coverage` check-mode contract
 
@@ -341,10 +340,9 @@ match the pinned release. Keep that runtime check in sync with
 ## `generate-coverage` cargo-binstall Pinning
 
 `generate-coverage` provisions its own `cargo-binstall` in the "Ensure
-cargo-binstall" step before installing `cargo-llvm-cov` or `cargo-nextest`,
-both of which shell out to `cargo binstall`. It follows the same pinning
-discipline as `setup-rust`: `BINSTALL_VERSION` and the installer-script
-`BINSTALL_SHA256` are a pair and must be updated together.
+cargo-binstall" step before installing `cargo-llvm-cov`. It follows the same
+pinning discipline as `setup-rust`: `BINSTALL_VERSION` and the
+installer-script `BINSTALL_SHA256` are a pair and must be updated together.
 
 The step is idempotent and verifies the version on both paths:
 
@@ -363,15 +361,21 @@ rather than asserting on the step's source text.
 
 ## `generate-coverage` `cargo-nextest` Installation
 
-`install_cargo_nextest.py` resolves expected checksums using `_platform_key()`.
-On Linux, `_platform_key()` calls `_is_musl()` to choose between
-`linux-<arch>-gnu` and `linux-<arch>-musl` keys before looking up
-`CARGO_NEXTEST_SHA256`.
+`install_cargo_nextest.py` resolves the official release target and expected
+archive and binary checksums using `_platform_key()`. On Linux,
+`_platform_key()` calls `_is_musl()` to choose between `linux-<arch>-gnu` and
+`linux-<arch>-musl` keys.
 
 `_is_musl()` wraps libc probing in one place via injectable `ctypes.CDLL`
 /symbol lookup and surfaces probe failures through the normal error path, so
 orchestrating code consumes a concrete `typer.Exit` from
-`_expected_sha_for_platform()` and keeps loader details local to the installer.
+`_release_for_platform()` and keeps loader details local to the installer.
+
+The installer downloads the selected archive directly from the pinned
+`nextest-rs/nextest` GitHub release. It verifies the archive before extracting
+only the expected executable into a temporary file, verifies that executable,
+then replaces the destination atomically. It never invokes Cargo, and a missing
+official archive is a hard failure.
 
 ### CARGO_HOME resolution and PATH handling
 

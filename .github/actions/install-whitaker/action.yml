@@ -10,6 +10,12 @@ inputs:
     description: Version of whitaker-installer to install
     required: false
     default: "0.2.6"
+  cache-provider:
+    description: >-
+      Cache owner for the installer binary. Use "github" for the action's
+      built-in cache or "external" when the caller mounts the Cargo home.
+    required: false
+    default: "github"
 
 runs:
   using: composite
@@ -18,6 +24,7 @@ runs:
       id: validate-inputs
       shell: bash
       env:
+        CACHE_PROVIDER_INPUT: ${{ inputs.cache-provider }}
         CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
       run: |
@@ -32,6 +39,10 @@ runs:
         if [[ "$INSTALLER_VERSION_INPUT" == *$'\r'* || "$INSTALLER_VERSION_INPUT" == *$'\n'* ]]; then
           input_error "installer-version must not contain a carriage return or newline"
         fi
+        case "$CACHE_PROVIDER_INPUT" in
+          github|external) ;;
+          *) input_error "cache-provider must be github or external" ;;
+        esac
         if (( ${#CARGO_HOME_INPUT} > 240 )); then
           input_error "cargo-home must be at most 240 characters"
         fi
@@ -64,22 +75,28 @@ runs:
           input_error "cargo-home must not contain the runner PATH separator"
         fi
         printf 'cargo-home=%s\n' "$cargo_home" >> "$GITHUB_OUTPUT"
-        printf 'installer-path=%s\n' "${cargo_home}/bin/whitaker-installer" >> "$GITHUB_OUTPUT"
+        installer_suffix=
+        if [[ "${RUNNER_OS:-}" == Windows ]]; then
+          installer_suffix=.exe
+        fi
+        printf 'installer-path=%s\n' "${cargo_home}/bin/whitaker-installer${installer_suffix}" >> "$GITHUB_OUTPUT"
         printf 'installer-version=%s\n' "$INSTALLER_VERSION_INPUT" >> "$GITHUB_OUTPUT"
 
     - name: Cache Whitaker installer
       id: cache-whitaker-installer
+      if: ${{ inputs.cache-provider == 'github' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ${{ steps.validate-inputs.outputs.installer-path }}
-          ~/.cache/cargo-binstall
+          ~/.local/share/whitaker
         key: >-
-          whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
+          whitaker-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-${{ hashFiles('dylint.toml') }}-${{ steps.validate-inputs.outputs.cargo-home }}
 
     - name: Report Whitaker installer cache
       shell: bash
       env:
+        WHITAKER_CACHE_PROVIDER: ${{ inputs.cache-provider }}
         WHITAKER_INSTALLER_CACHE_HIT: ${{ steps.cache-whitaker-installer.outputs.cache-hit }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
@@ -89,18 +106,21 @@ runs:
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
           fi
         }
-        cache_state=miss
-        if [[ "$WHITAKER_INSTALLER_CACHE_HIT" == "true" ]]; then
+        cache_state=disabled
+        if [[ "$WHITAKER_CACHE_PROVIDER" == github && "$WHITAKER_INSTALLER_CACHE_HIT" == true ]]; then
           cache_state=hit
+        elif [[ "$WHITAKER_CACHE_PROVIDER" == github ]]; then
+          cache_state=miss
         fi
-        echo "::notice title=Whitaker installer cache::hit=${WHITAKER_INSTALLER_CACHE_HIT} version=${WHITAKER_INSTALLER_VERSION}"
+        echo "::notice title=Whitaker installer cache::provider=${WHITAKER_CACHE_PROVIDER} state=${cache_state} version=${WHITAKER_INSTALLER_VERSION}"
         emit_metric "whitaker-installer.cache=${cache_state}"
 
     - name: Install Whitaker installer
       id: install-whitaker-installer
       shell: bash
       env:
-        CARGO_HOME: ${{ steps.validate-inputs.outputs.cargo-home }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
@@ -112,22 +132,45 @@ runs:
         }
         trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
         if [[ ! -x "$WHITAKER_INSTALLER_PATH" ]]; then
-          cargo_path="$(command -v cargo || true)"
-          if [[ "$cargo_path" != /* || ! -x "$cargo_path" ]]; then
-            echo "::error title=Whitaker installer failed::cargo must resolve to an executable absolute path" >&2
-            exit 1
-          fi
-          cargo_path="$(cd -- "$(dirname -- "$cargo_path")" && pwd -P)/$(basename -- "$cargo_path")"
-          if "$cargo_path" binstall --version >/dev/null 2>&1; then
-            echo "::notice title=Whitaker installer::path=cargo-binstall version=${WHITAKER_INSTALLER_VERSION}"
-            emit_metric "whitaker-installer.path=cargo-binstall"
-            "$cargo_path" binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
+          case "${RUNNER_OPERATING_SYSTEM}:${RUNNER_ARCHITECTURE}" in
+            Linux:X64) target=x86_64-unknown-linux-gnu; extension=tgz ;;
+            Linux:ARM64) target=aarch64-unknown-linux-gnu; extension=tgz ;;
+            macOS:X64) target=x86_64-apple-darwin; extension=tgz ;;
+            macOS:ARM64) target=aarch64-apple-darwin; extension=tgz ;;
+            Windows:X64) target=x86_64-pc-windows-msvc; extension=zip ;;
+            *)
+              echo "::error title=Whitaker installer failed::unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}" >&2
+              exit 1
+              ;;
+          esac
+          asset="whitaker-installer-${target}-v${WHITAKER_INSTALLER_VERSION}.${extension}"
+          release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
+          download_dir="$(mktemp -d)"
+          trap 'status=$?; rm -rf -- "$download_dir"; exit "$status"' EXIT
+          curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${asset}" -o "${download_dir}/${asset}"
+          curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${asset}.sha256" -o "${download_dir}/${asset}.sha256"
+          expected_sha="$(awk '{print $1}' "${download_dir}/${asset}.sha256")"
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual_sha="$(sha256sum "${download_dir}/${asset}" | awk '{print $1}')"
           else
-            echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
-            echo "::notice title=Whitaker installer::path=cargo-install version=${WHITAKER_INSTALLER_VERSION}"
-            emit_metric "whitaker-installer.path=cargo-install"
-            "$cargo_path" install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
+            actual_sha="$(shasum -a 256 "${download_dir}/${asset}" | awk '{print $1}')"
           fi
+          [[ "$actual_sha" == "$expected_sha" ]]
+          extract_dir="${download_dir}/extract"
+          mkdir -p -- "$extract_dir"
+          if [[ "$extension" == zip ]]; then
+            unzip -q -j "${download_dir}/${asset}" -d "$extract_dir"
+          else
+            tar -xzf "${download_dir}/${asset}" --strip-components=1 -C "$extract_dir"
+          fi
+          mkdir -p -- "$(dirname -- "$WHITAKER_INSTALLER_PATH")"
+          installer_name=whitaker-installer
+          if [[ "$RUNNER_OPERATING_SYSTEM" == Windows ]]; then
+            installer_name=whitaker-installer.exe
+          fi
+          install -m 0755 "${extract_dir}/${installer_name}" "$WHITAKER_INSTALLER_PATH"
+          echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
+          emit_metric "whitaker-installer.path=official-release"
         else
           echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
           emit_metric "whitaker-installer.path=cache"

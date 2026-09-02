@@ -13,7 +13,6 @@ import string
 import subprocess
 import typing as typ
 from dataclasses import dataclass  # noqa: ICN003 - required scenario decorator.
-from itertools import product
 from pathlib import Path
 
 import pytest
@@ -101,26 +100,46 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _write_cargo_stub(bin_dir: Path) -> None:
-    """Write a Cargo stub that records and simulates installer commands."""
+def _write_release_stubs(bin_dir: Path) -> None:
+    """Write release-download stubs that install a deterministic binary."""
     _write_executable(
-        bin_dir / "cargo",
+        bin_dir / "curl",
         """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$CARGO_LOG"
-if [ "${1:-}" = "binstall" ] && [ "${2:-}" = "--version" ]; then
-  [ "$BINSTALL_AVAILABLE" = "true" ]
-  exit
-fi
-if [ "${1:-}" = "binstall" ] && [ "$FAIL_BINSTALL" = "true" ]; then
-  echo "cargo binstall failed while installing whitaker-installer" >&2
+printf '%s\n' "$*" >> "$DOWNLOAD_LOG"
+if [ "$FAIL_DOWNLOAD" = "true" ]; then
+  echo "Whitaker release download failed" >&2
   exit 31
 fi
-if [ "${1:-}" = "install" ] && [ "$FAIL_INSTALL" = "true" ]; then
-  echo "cargo install failed while installing whitaker-installer" >&2
-  exit 32
+output=
+url=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+if [[ "$url" == *.sha256 ]]; then
+  expected_sha='239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5'
+  printf '%s  archive\n' "$expected_sha" > "$output"
+else
+  printf payload > "$output"
 fi
-cat > "$FAKE_BIN_DIR/whitaker-installer" <<'INSTALLER'
+""",
+    )
+    _write_executable(
+        bin_dir / "tar",
+        """#!/usr/bin/env bash
+set -euo pipefail
+extract_dir=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -C) extract_dir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cat > "$extract_dir/whitaker-installer" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "$FAIL_INSTALLER" = "true" ]; then
@@ -129,7 +148,7 @@ if [ "$FAIL_INSTALLER" = "true" ]; then
 fi
 printf '%s\n' "suite installed" >> "$INSTALLER_LOG"
 INSTALLER
-chmod +x "$FAKE_BIN_DIR/whitaker-installer"
+chmod +x "$extract_dir/whitaker-installer"
 """,
     )
 
@@ -147,15 +166,14 @@ def _bash_path(bash: str, path: Path) -> str:
 
 @dataclass(frozen=True)
 class _InstallScenario:
-    binstall_available: bool
     installer_present: bool = False
-    fail_binstall: bool = False
-    fail_install: bool = False
+    fail_download: bool = False
     fail_installer: bool = False
     installer_version: str = "0.2.6"
     cargo_home_name: str = "cargo-home"
     cargo_home_value: str | None = None
     cache_hit: bool = False
+    cache_provider: str = "github"
     conflicting_installer: bool = False
 
 
@@ -166,7 +184,7 @@ class _InstallPaths:
     bin_dir: Path
     bash_cargo_home: str
     bash_bin_dir: str
-    bash_cargo_log: str
+    bash_download_log: str
     bash_conflict_log: str
     bash_home_dir: str
     bash_installer_log: str
@@ -204,6 +222,7 @@ def _run_input_validation(
     cargo_home: str,
     installer_version: str,
     *,
+    cache_provider: str = "github",
     runner_os: str = "Linux",
 ) -> subprocess.CompletedProcess[str]:
     """Run the validation fragment with supplied action inputs."""
@@ -220,6 +239,7 @@ def _run_input_validation(
         env={
             **os.environ,
             "BASH_ENV": "",
+            "CACHE_PROVIDER_INPUT": cache_provider,
             "CARGO_HOME_INPUT": cargo_home,
             "GITHUB_OUTPUT": (
                 f"{_bash_path(bash, output_path.parent)}/{output_path.name}"
@@ -259,7 +279,7 @@ def _create_install_paths(
     cargo_home = tmp_path / scenario.cargo_home_name
     bin_dir = cargo_home / "bin"
     bin_dir.mkdir(parents=True)
-    cargo_log = tmp_path / "cargo.log"
+    download_log = tmp_path / "download.log"
     installer_log = tmp_path / "installer.log"
     conflict_log = tmp_path / "conflict.log"
     summary_log = tmp_path / "summary.md"
@@ -269,7 +289,9 @@ def _create_install_paths(
         bin_dir=bin_dir,
         bash_cargo_home=_bash_path(bash, cargo_home),
         bash_bin_dir=_bash_path(bash, bin_dir),
-        bash_cargo_log=f"{_bash_path(bash, cargo_log.parent)}/{cargo_log.name}",
+        bash_download_log=(
+            f"{_bash_path(bash, download_log.parent)}/{download_log.name}"
+        ),
         bash_conflict_log=(
             f"{_bash_path(bash, conflict_log.parent)}/{conflict_log.name}"
         ),
@@ -287,8 +309,8 @@ def _prepare_install_stubs(
     paths: _InstallPaths,
     bash: str,
 ) -> str:
-    """Create Cargo and installer stubs and return the ambient PATH."""
-    _write_cargo_stub(paths.bin_dir)
+    """Create release and installer stubs and return the ambient PATH."""
+    _write_release_stubs(paths.bin_dir)
     original_path = f"{paths.bash_bin_dir}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         original_bin_dir = tmp_path / "original-bin"
@@ -328,15 +350,15 @@ def _build_install_environment(
         "BASH_ENV": "",
         "CARGO_HOME": scenario.cargo_home_value or paths.bash_cargo_home,
         "HOME": paths.bash_home_dir,
-        "BINSTALL_AVAILABLE": str(scenario.binstall_available).lower(),
-        "CARGO_LOG": paths.bash_cargo_log,
+        "DOWNLOAD_LOG": paths.bash_download_log,
         "CONFLICT_LOG": paths.bash_conflict_log,
-        "FAIL_BINSTALL": str(scenario.fail_binstall).lower(),
-        "FAIL_INSTALL": str(scenario.fail_install).lower(),
+        "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
-        "FAKE_BIN_DIR": paths.bash_bin_dir,
         "INSTALLER_LOG": paths.bash_installer_log,
         "GITHUB_STEP_SUMMARY": paths.bash_summary_log,
+        "RUNNER_ARCHITECTURE": "X64",
+        "RUNNER_OPERATING_SYSTEM": "Linux",
+        "WHITAKER_CACHE_PROVIDER": scenario.cache_provider,
         "WHITAKER_INSTALLER_CACHE_HIT": str(scenario.cache_hit).lower(),
         "WHITAKER_INSTALLER_PATH": f"{paths.bash_bin_dir}/whitaker-installer",
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
@@ -358,6 +380,15 @@ def _assert_manifest_inputs(manifest: dict[str, object]) -> None:
             "required": False,
             "default": "0.2.6",
         },
+        "cache-provider": {
+            "description": (
+                'Cache owner for the installer binary. Use "github" for the '
+                'action\'s built-in cache or "external" when the caller mounts '
+                "the Cargo home."
+            ),
+            "required": False,
+            "default": "github",
+        },
     }
 
 
@@ -366,6 +397,7 @@ def _assert_validate_step(validate_step: dict[str, object]) -> None:
     assert validate_step["id"] == "validate-inputs"
     validate_env = typ.cast("dict[str, str]", validate_step["env"])
     assert validate_env == {
+        "CACHE_PROVIDER_INPUT": "${{ inputs.cache-provider }}",
         "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
         "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
     }
@@ -374,6 +406,7 @@ def _assert_validate_step(validate_step: dict[str, object]) -> None:
     assert "must be an absolute path or start with ~/" in validate_script
     assert "must not contain the runner PATH separator" in validate_script
     assert "without leading zeros" in validate_script
+    assert "cache-provider must be github or external" in validate_script
 
 
 def _assert_cache_step(cache_step: dict[str, object]) -> None:
@@ -382,12 +415,16 @@ def _assert_cache_step(cache_step: dict[str, object]) -> None:
     assert cache_step["uses"] == (
         "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
     )
+    assert cache_step["if"] == "${{ inputs.cache-provider == 'github' }}"
     cache_config = typ.cast("dict[str, str]", cache_step["with"])
-    assert "${{ steps.validate-inputs.outputs.installer-path }}" in cache_config["path"]
-    assert "~/.cache/cargo-binstall" in cache_config["path"]
+    assert cache_config["path"].splitlines() == [
+        "${{ steps.validate-inputs.outputs.installer-path }}",
+        "~/.local/share/whitaker",
+    ]
     assert cache_config["key"] == (
-        "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
+        "whitaker-${{ runner.os }}-${{ runner.arch }}-"
         "${{ steps.validate-inputs.outputs.installer-version }}-"
+        "${{ hashFiles('dylint.toml') }}-"
         "${{ steps.validate-inputs.outputs.cargo-home }}"
     )
 
@@ -395,19 +432,21 @@ def _assert_cache_step(cache_step: dict[str, object]) -> None:
 def _assert_cache_report_step(cache_report_step: dict[str, object]) -> None:
     """Assert the cache-reporting step contract."""
     cache_report_env = typ.cast("dict[str, str]", cache_report_step["env"])
+    assert cache_report_env["WHITAKER_CACHE_PROVIDER"] == (
+        "${{ inputs.cache-provider }}"
+    )
     assert cache_report_env["WHITAKER_INSTALLER_CACHE_HIT"] == (
         "${{ steps.cache-whitaker-installer.outputs.cache-hit }}"
     )
     cache_report_script = typ.cast("str", cache_report_step["run"])
-    assert "title=Whitaker installer cache" in cache_report_script
+    assert "provider=${WHITAKER_CACHE_PROVIDER}" in cache_report_script
 
 
 def _assert_install_step(install_step: dict[str, object]) -> None:
-    """Assert the Cargo installation step contract."""
+    """Assert the prebuilt release installation step contract."""
     install_env = typ.cast("dict[str, str]", install_step["env"])
-    assert install_env["CARGO_HOME"] == (
-        "${{ steps.validate-inputs.outputs.cargo-home }}"
-    )
+    assert install_env["RUNNER_ARCHITECTURE"] == "${{ runner.arch }}"
+    assert install_env["RUNNER_OPERATING_SYSTEM"] == "${{ runner.os }}"
     assert install_env["WHITAKER_INSTALLER_PATH"] == (
         "${{ steps.validate-inputs.outputs.installer-path }}"
     )
@@ -415,9 +454,11 @@ def _assert_install_step(install_step: dict[str, object]) -> None:
         "${{ steps.validate-inputs.outputs.installer-version }}"
     )
     install_script = typ.cast("str", install_step["run"])
-    assert "command -v cargo" in install_script
-    assert '"$cargo_path" binstall' in install_script
-    assert "export PATH" not in install_script
+    assert "releases/download/v${WHITAKER_INSTALLER_VERSION}" in install_script
+    assert "curl -fsSL --proto '=https' --tlsv1.2" in install_script
+    assert "sha256sum" in install_script
+    assert "cargo install" not in install_script
+    assert "cargo binstall" not in install_script
 
 
 def _assert_run_step(run_step: dict[str, object]) -> None:
@@ -463,6 +504,36 @@ class TestManifest:
             }/.cargo/bin/whitaker-installer",
             "installer-version=1.2.3",
         ]
+
+    def test_rejects_unknown_cache_provider(self, tmp_path: Path) -> None:
+        """Verify cache ownership fails closed before cache evaluation."""
+        result = _run_input_validation(
+            tmp_path,
+            "~/.cargo",
+            "1.2.3",
+            cache_provider="namespace",
+        )
+
+        assert result.returncode != 0
+        assert "cache-provider must be github or external" in result.stderr
+
+    def test_selects_windows_executable_suffix(self, tmp_path: Path) -> None:
+        """Verify Windows caches and executes the native installer filename."""
+        result = _run_input_validation(
+            tmp_path,
+            "~/.cargo",
+            "1.2.3",
+            runner_os="Windows",
+        )
+
+        assert result.returncode == 0, result.stderr
+        output = (tmp_path / "output").read_text(encoding="utf-8")
+        assert "installer-path=" in output
+        assert (
+            output.split("installer-path=", maxsplit=1)[1]
+            .splitlines()[0]
+            .endswith("/whitaker-installer.exe")
+        )
 
     @pytest.mark.parametrize(
         ("case", "runner_os"),
@@ -554,23 +625,20 @@ class TestManifest:
 class TestInstallation:
     """Exercise installation, cache, and PATH precedence paths."""
 
-    def test_installs_with_cargo_binstall_when_available(self, tmp_path: Path) -> None:
-        """Verify cargo-binstall installs the pinned installer."""
-        result = _run_install_script(
-            tmp_path,
-            _InstallScenario(binstall_available=True),
-        )
+    def test_installs_official_release_binary(self, tmp_path: Path) -> None:
+        """Verify the pinned official release supplies the installer."""
+        result = _run_install_script(tmp_path, _InstallScenario())
 
         assert result.returncode == 0, result.stderr
-        assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
-            "binstall --version",
-            "binstall --no-confirm --locked whitaker-installer@0.2.6",
-        ]
+        download_log = (tmp_path / "download.log").read_text(encoding="utf-8")
+        asset = "whitaker-installer-x86_64-unknown-linux-gnu-v0.2.6.tgz"
+        assert f"/v0.2.6/{asset} " in download_log
+        assert f"/v0.2.6/{asset}.sha256 " in download_log
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
         assert (
-            "::notice title=Whitaker installer::path=cargo-binstall version=0.2.6"
+            "::notice title=Whitaker installer::path=official-release version=0.2.6"
             in result.stdout
         )
         assert (
@@ -579,46 +647,22 @@ class TestInstallation:
         )
         assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
             "whitaker-installer.cache=miss",
-            "whitaker-installer.path=cargo-binstall",
-            "whitaker-installer.result=success",
-        ]
-
-    def test_falls_back_to_cargo_install(self, tmp_path: Path) -> None:
-        """Verify the Cargo-install fallback when cargo-binstall is unavailable."""
-        result = _run_install_script(
-            tmp_path,
-            _InstallScenario(binstall_available=False),
-        )
-
-        assert result.returncode == 0, result.stderr
-        assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
-            "binstall --version",
-            "install --locked whitaker-installer --version 0.2.6",
-        ]
-        assert "cargo-binstall unavailable" in result.stdout
-        assert (
-            "::notice title=Whitaker installer::path=cargo-install version=0.2.6"
-            in result.stdout
-        )
-        assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
-            "whitaker-installer.cache=miss",
-            "whitaker-installer.path=cargo-install",
+            "whitaker-installer.path=official-release",
             "whitaker-installer.result=success",
         ]
 
     def test_reuses_cached_installer(self, tmp_path: Path) -> None:
-        """Verify a restored installer bypasses both Cargo installation paths."""
+        """Verify a restored installer bypasses the release download."""
         result = _run_install_script(
             tmp_path,
             _InstallScenario(
-                binstall_available=False,
                 installer_present=True,
                 cache_hit=True,
             ),
         )
 
         assert result.returncode == 0, result.stderr
-        assert not (tmp_path / "cargo.log").exists()
+        assert not (tmp_path / "download.log").exists()
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
@@ -631,13 +675,25 @@ class TestInstallation:
             "whitaker-installer.result=success",
         ]
 
+    def test_reports_external_cache_ownership(self, tmp_path: Path) -> None:
+        """Verify caller-owned cache mode reports the built-in cache disabled."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(installer_present=True, cache_provider="external"),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "provider=external state=disabled" in result.stdout
+        assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines()[
+            0
+        ] == "whitaker-installer.cache=disabled"
+
     def test_installs_nondefault_version_into_nondefault_cargo_home(
         self,
         tmp_path: Path,
     ) -> None:
         """Verify a custom Cargo home contains the requested installer version."""
         scenario = _InstallScenario(
-            binstall_available=True,
             installer_version="9.9.9",
             cargo_home_name="custom-cargo-home",
         )
@@ -645,13 +701,10 @@ class TestInstallation:
 
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "custom-cargo-home" / "bin" / "whitaker-installer").is_file()
-        assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
-            "binstall --version",
-            "binstall --no-confirm --locked whitaker-installer@9.9.9",
-        ]
-        assert "::notice title=Whitaker installer cache::hit=false version=9.9.9" in (
-            result.stdout
-        )
+        assert "/v9.9.9/whitaker-installer-x86_64-unknown-linux-gnu-v9.9.9.tgz" in (
+            tmp_path / "download.log"
+        ).read_text(encoding="utf-8")
+        assert "state=miss version=9.9.9" in result.stdout
 
     def test_expands_tilde_cargo_home_before_prepending_path(
         self,
@@ -661,7 +714,6 @@ class TestInstallation:
         result = _run_install_script(
             tmp_path,
             _InstallScenario(
-                binstall_available=True,
                 installer_present=True,
                 cargo_home_name="home/.cargo",
                 cargo_home_value="~/.cargo",
@@ -674,7 +726,7 @@ class TestInstallation:
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
-        assert not (tmp_path / "cargo.log").exists()
+        assert not (tmp_path / "download.log").exists()
         assert not (tmp_path / "conflict.log").exists()
 
     def test_installs_into_expanded_tilde_cargo_home_before_ambient_path(
@@ -685,7 +737,6 @@ class TestInstallation:
         result = _run_install_script(
             tmp_path,
             _InstallScenario(
-                binstall_available=True,
                 cargo_home_name="home/.cargo",
                 cargo_home_value="~/.cargo",
                 conflicting_installer=True,
@@ -694,10 +745,7 @@ class TestInstallation:
 
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "home" / ".cargo" / "bin" / "whitaker-installer").is_file()
-        assert (tmp_path / "cargo.log").read_text(encoding="utf-8").splitlines() == [
-            "binstall --version",
-            "binstall --no-confirm --locked whitaker-installer@0.2.6",
-        ]
+        assert (tmp_path / "download.log").is_file()
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
@@ -714,23 +762,19 @@ class TestProperties:
         tmp_path_factory: pytest.TempPathFactory,
         installer_version: str,
     ) -> None:
-        """Verify cargo-binstall accepts each generated Cargo-compatible version."""
+        """Verify release URLs accept each generated compatible version."""
         example_path = tmp_path_factory.mktemp("installer-version-")
         result = _run_install_script(
             example_path,
             _InstallScenario(
-                binstall_available=True,
                 installer_version=installer_version,
             ),
         )
 
         assert result.returncode == 0, result.stderr
-        assert (example_path / "cargo.log").read_text(
-            encoding="utf-8"
-        ).splitlines() == [
-            "binstall --version",
-            f"binstall --no-confirm --locked whitaker-installer@{installer_version}",
-        ]
+        assert f"/v{installer_version}/whitaker-installer-" in (
+            example_path / "download.log"
+        ).read_text(encoding="utf-8")
         assert (
             "::notice title=Whitaker installer::status=complete "
             f"version={installer_version}"
@@ -757,7 +801,6 @@ class TestProperties:
         result = _run_install_script(
             example_path,
             _InstallScenario(
-                binstall_available=False,
                 installer_present=True,
                 cargo_home_name=cargo_home_name,
                 cargo_home_value=cargo_home_value,
@@ -771,16 +814,14 @@ class TestProperties:
             "suite installed\n"
         )
         assert not (example_path / "conflict.log").exists()
-        assert not (example_path / "cargo.log").exists()
+        assert not (example_path / "download.log").exists()
 
 
 def _scenario_should_fail(scenario: _InstallScenario) -> bool:
     """Return whether the selected installer path is expected to fail."""
     if scenario.installer_present:
         return scenario.fail_installer
-    if scenario.binstall_available:
-        return scenario.fail_binstall or scenario.fail_installer
-    return scenario.fail_install or scenario.fail_installer
+    return scenario.fail_download or scenario.fail_installer
 
 
 class TestScenarioMatrix:
@@ -788,22 +829,16 @@ class TestScenarioMatrix:
 
     @pytest.mark.parametrize(
         "scenario",
-        tuple(
+        [
             _InstallScenario(
-                binstall_available=binstall_available,
                 installer_present=installer_present,
-                fail_binstall=fail_binstall,
-                fail_install=fail_install,
+                fail_download=fail_download,
                 fail_installer=fail_installer,
             )
-            for (
-                binstall_available,
-                installer_present,
-                fail_binstall,
-                fail_install,
-                fail_installer,
-            ) in product((False, True), repeat=5)
-        ),
+            for installer_present in (False, True)
+            for fail_download in (False, True)
+            for fail_installer in (False, True)
+        ],
     )
     def test_install_scenario_matrix(
         self,
@@ -825,26 +860,12 @@ class TestFailures:
         ("scenario", "expected_error"),
         [
             pytest.param(
-                _InstallScenario(
-                    binstall_available=True,
-                    fail_binstall=True,
-                ),
-                "cargo binstall failed while installing whitaker-installer",
-                id="cargo-binstall",
+                _InstallScenario(fail_download=True),
+                "Whitaker release download failed",
+                id="release-download",
             ),
             pytest.param(
-                _InstallScenario(
-                    binstall_available=False,
-                    fail_install=True,
-                ),
-                "cargo install failed while installing whitaker-installer",
-                id="cargo-install",
-            ),
-            pytest.param(
-                _InstallScenario(
-                    binstall_available=True,
-                    fail_installer=True,
-                ),
+                _InstallScenario(fail_installer=True),
                 "whitaker-installer failed while installing the Dylint suite",
                 id="whitaker-installer",
             ),

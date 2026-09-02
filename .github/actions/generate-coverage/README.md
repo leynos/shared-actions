@@ -148,10 +148,38 @@ Known limitations:
 | cucumber-rs-features | Path to cucumber feature files | no | |
 | cucumber-rs-args | Extra arguments for cucumber | no | |
 | pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
+| cache-provider | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner. | no | `github` |
 <!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.
+
+### Caching
+
+With the default `cache-provider: github`, setup-uv retains its historical
+automatic policy: its GitHub cache is enabled on GitHub-hosted runners and
+disabled on self-hosted runners. The action also caches Cargo artefacts and
+Python dependencies with `actions/cache`.
+
+Set `cache-provider: external` when the caller mounts those Rust and uv cache
+paths through one external cache service, such as a Namespace cache volume.
+External mode disables the action's setup-uv cache and its Cargo and Python
+dependency cache steps; it does not mount a replacement. The caller must mount
+the external cache before dependencies are installed or coverage runs, so each
+path has exactly one cache owner. Ratchet baseline restore and save remain
+GitHub caches because their paths are outside the Namespace Rust and uv mounts.
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    cache-provider: external
+    output-path: coverage.xml
+```
+
+The action writes a bounded `hit`, `miss`, `disabled`, or `error` observation
+for each archive cache to the workflow log and job summary. External cache hit
+telemetry remains the caller's responsibility because this action does not
+mount that cache.
 
 ### Selecting the coverage language
 

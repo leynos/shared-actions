@@ -1,10 +1,10 @@
-# Users' Guide: Rust Flags, CodeScene Coverage, and Install Nixie
+# Users' Guide: Rust Caching, Rust Flags, CodeScene Coverage, and Install Nixie
 
-This guide explains the `rustflags` inputs exposed by the `setup-rust` and
-`rust-build-release` composite actions, and the CodeScene coverage modes
-provided by `upload-codescene-coverage`. It covers why these inputs and modes
-exist and how to configure them for common scenarios.
-It also documents how to use the `install-nixie` action.
+This guide explains cache ownership and the `rustflags` inputs exposed by the
+`setup-rust` and `rust-build-release` composite actions, and the CodeScene
+coverage modes provided by `upload-codescene-coverage`. It covers why these
+inputs and modes exist and how to configure them for common scenarios. It also
+documents how to use the `install-nixie` action.
 
 ## Related documents
 
@@ -24,7 +24,32 @@ It also documents how to use the `install-nixie` action.
 revisions that support the GitHub Actions Node.js 24 runtime. This removes the
 Node.js 20 deprecation warnings without changing the action's inputs or cache
 configuration. See the [`setup-rust` README](../.github/actions/setup-rust/README.md)
-for the pinned revisions and cache behaviour.
+for the pinned revisions and current cache behaviour.
+
+## Rust cache ownership
+
+`setup-rust` and `generate-coverage` accept `cache-provider: github` or
+`cache-provider: external`. Any other value fails before a cache step runs.
+The default `github` mode preserves the actions' Cargo and uv GitHub caches;
+setup-uv remains automatic, so its cache is enabled on GitHub-hosted runners
+and disabled on self-hosted runners.
+
+Use `external` when the calling workflow mounts the same Cargo, target, or uv
+paths through another service such as a Namespace cache volume. The action then
+skips its overlapping GitHub archive caches; it does not mount or report the
+external cache itself. Mount the external cache before installing dependencies
+or building, and report its own cache-hit signal in the caller.
+
+The `use-sccache` input is independent. When the external service owns a local
+sccache directory, set `use-sccache: 'false'`, install a trusted prebuilt
+sccache binary, set `RUSTC_WRAPPER=sccache`, and mount that directory explicitly.
+Otherwise the shared action would still select its GitHub-backed compiler-cache
+integration even though its Cargo and uv archive caches were disabled.
+
+Both actions report bounded `hit`, `miss`, `disabled`, or `error` states for
+their own archive caches in the workflow log and job summary. Coverage ratchet
+baseline files remain separate GitHub caches when external mode does not mount
+their paths.
 
 ## `install-whitaker` action
 

@@ -18,6 +18,13 @@ inputs:
     description: Enable sccache for non-release runs
     required: false
     default: "true"
+  cache-provider:
+    description: >
+      Cache owner for Cargo and uv state. Use "github" for the action's
+      built-in GitHub caches or "external" when the caller mounts one cache
+      owner, such as a Namespace cache volume.
+    required: false
+    default: "github"
   install-binstall:
     description: Install cargo-binstall for faster binary crate installations
     required: false
@@ -65,6 +72,19 @@ runs:
         case "$SR_RUSTFLAGS" in
           *$'\n'*|*$'\r'*)
             echo "::error::rustflags must not contain line breaks" >&2
+            exit 1
+            ;;
+        esac
+    - name: Validate cache provider
+      shell: bash
+      env:
+        SR_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+      run: |
+        set -euo pipefail
+        case "$SR_CACHE_PROVIDER" in
+          github|external) ;;
+          *)
+            echo "::error::cache-provider must be github or external" >&2
             exit 1
             ;;
         esac
@@ -150,8 +170,10 @@ runs:
         echo "cargo-binstall $("$cargo_binstall" -V) verified"
       shell: bash
     - name: Install uv
+      id: setup-uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
+        enable-cache: ${{ inputs.cache-provider == 'github' && runner.environment == 'github-hosted' }}
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
@@ -168,6 +190,8 @@ runs:
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
     - name: Cache cargo registry
+      id: cargo-cache
+      if: ${{ inputs.cache-provider == 'github' }}
       # v6.1.0
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
@@ -178,6 +202,55 @@ runs:
         key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+    - name: Report archive cache decisions
+      if: ${{ always() }}
+      shell: bash
+      env:
+        SR_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+        SR_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SR_UV_STEP_OUTCOME: ${{ steps.setup-uv.outcome }}
+        SR_UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
+        SR_CARGO_STEP_OUTCOME: ${{ steps.cargo-cache.outcome }}
+        SR_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        cache_outcome() {
+          local step_outcome="$1"
+          local cache_hit="$2"
+          case "$step_outcome" in
+            success)
+              case "$cache_hit" in
+                true) printf 'hit' ;;
+                false|'') printf 'miss' ;;
+                *) printf 'error' ;;
+              esac
+              ;;
+            skipped) printf 'disabled' ;;
+            *) printf 'error' ;;
+          esac
+        }
+
+        if [[ "$SR_CACHE_PROVIDER" == 'external' ]]; then
+          cargo_outcome='disabled'
+          uv_outcome='disabled'
+        else
+          cargo_outcome="$(cache_outcome "$SR_CARGO_STEP_OUTCOME" "$SR_CARGO_CACHE_HIT")"
+          if [[ "$SR_RUNNER_ENVIRONMENT" == 'github-hosted' ]]; then
+            uv_outcome="$(cache_outcome "$SR_UV_STEP_OUTCOME" "$SR_UV_CACHE_HIT")"
+          else
+            uv_outcome='disabled'
+          fi
+        fi
+
+        printf '::notice title=setup-rust cache::provider=%s cargo=%s uv=%s\n' \
+          "$SR_CACHE_PROVIDER" "$cargo_outcome" "$uv_outcome"
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' \
+            '### setup-rust cache' \
+            "- provider: $SR_CACHE_PROVIDER" \
+            "- cargo archive: $cargo_outcome" \
+            "- uv archive: $uv_outcome" >> "$GITHUB_STEP_SUMMARY"
+        fi
     # x86_64-apple-darwin binaries were dropped after sccache v0.12.0
     - name: Run sccache (x86_64 macOS)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && runner.os == 'macOS' && runner.arch == 'X64' }}

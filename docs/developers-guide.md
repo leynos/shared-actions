@@ -182,6 +182,32 @@ When updating these Node.js 24 action dependencies:
 The static manifest assertions must remain in place: runner execution proves
 that the action works, but cannot prove that a pin is the intended revision.
 
+## Rust action cache ownership
+
+The [`setup-rust`](../.github/actions/setup-rust/action.yml) and
+[`generate-coverage`](../.github/actions/generate-coverage/action.yml) manifests
+share a `cache-provider` boundary. `github` is the backward-compatible default:
+the actions own their Cargo archive caches, while setup-uv retains its automatic
+GitHub-hosted versus self-hosted policy. `external` disables those Cargo and uv
+archive caches so the caller can mount the same paths through exactly one other
+provider. The coverage action deliberately leaves ratchet-baseline paths under
+their separate GitHub cache because external mode does not mount them.
+
+Do not couple this input to `use-sccache`. The setup action's compiler-cache
+backend is independent of its Cargo and uv archive caches. A caller mounting
+`~/.cache/sccache` must disable the shared sccache action, install a trusted
+prebuilt binary, set `RUSTC_WRAPPER=sccache`, and report the external volume's
+cache result itself.
+
+Both actions validate the provider before cache use and report bounded provider
+and archive-cache outcomes. Keep the allowed states closed to `hit`, `miss`,
+`disabled`, and `error`; never include cache keys, paths, tokens, or raw errors
+in the notice. The property tests in the setup-rust and generate-coverage test
+directories prove that only the two exact provider names are accepted. Their
+reporter tests exercise success, disabled, and failure observations. When this
+boundary changes, update both manifests, their action READMEs and changelogs,
+the users' guide, and these tests together.
+
 ## `install-whitaker` action contract
 
 The composite action's cache step restores these paths:

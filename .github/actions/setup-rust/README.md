@@ -32,7 +32,7 @@ None
 ## Example
 
 ```yaml
-uses: ./.github/actions/setup-rust@v1
+- uses: ./.github/actions/setup-rust
   with:
     toolchain: 'nightly'
     install-postgres-deps: 'true'
@@ -106,8 +106,10 @@ readily available on later runs.
 
 With the default `cache-provider: github`, this action uses `actions/cache` for
 the Cargo registry, Cargo Git dependencies, and the configured build-profile
-target directory. It also enables `setup-uv`'s GitHub cache. These archive
-caches are restored during setup and saved after the job.
+target directory. `setup-uv` retains its historical automatic policy: its
+GitHub cache is enabled on GitHub-hosted runners and disabled on self-hosted
+runners. These archive caches are restored during setup and saved after the
+job.
 
 Set `cache-provider: external` when the caller mounts those paths through one
 other cache service, such as a Namespace cache volume. External mode disables
@@ -119,13 +121,13 @@ Example using an external cache owner:
 
 ```yaml
   - name: Set up Rust
-    uses: leynos/shared-actions/.github/actions/setup-rust@<full-commit-sha>
+    uses: ./.github/actions/setup-rust
     with:
       cache-provider: external
       use-sccache: 'false'
 
   - name: Mount the caller-owned cache
-    uses: namespacelabs/nscloud-cache-action@<full-commit-sha>
+    uses: namespacelabs/nscloud-cache-action@c5f8dab7560444c4bf8dbc64f1b203431873c547
     with:
       cache: rust
 ```
@@ -146,6 +148,10 @@ An external cache does not replace this compiler-cache backend automatically.
 Callers that use a local cache volume for sccache must pass
 `use-sccache: 'false'`, install a trusted prebuilt sccache binary into a cached
 path, set `RUSTC_WRAPPER=sccache`, and mount its cache directory themselves.
+The action writes a bounded `hit`, `miss`, `disabled`, or `error` observation
+for each archive cache to the workflow log and job summary. External cache hit
+telemetry remains the caller's responsibility because this action does not
+mount that cache.
 
 ### Extent and limitations
 

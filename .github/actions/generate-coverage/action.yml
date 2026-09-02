@@ -102,9 +102,10 @@ runs:
             ;;
         esac
     - name: Setup uv
+      id: setup-uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
-        enable-cache: ${{ inputs.cache-provider == 'github' }}
+        enable-cache: ${{ inputs.cache-provider == 'github' && runner.environment == 'github-hosted' }}
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
@@ -139,6 +140,7 @@ runs:
         fi
       shell: bash
     - name: Cache cargo artefacts
+      id: cargo-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
       uses: actions/cache@v4
       with:
@@ -251,6 +253,7 @@ runs:
       shell: bash
 
     - name: Cache Python deps
+      id: python-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed')
       uses: actions/cache@v4
       with:
@@ -258,6 +261,63 @@ runs:
         key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}
         restore-keys: |
           ${{ runner.os }}-py-deps-
+
+    - name: Report archive cache decisions
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GC_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+        GC_LANGUAGE: ${{ steps.detect.outputs.lang }}
+        GC_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        GC_UV_STEP_OUTCOME: ${{ steps.setup-uv.outcome }}
+        GC_UV_CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
+        GC_CARGO_STEP_OUTCOME: ${{ steps.cargo-cache.outcome }}
+        GC_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+        GC_PYTHON_STEP_OUTCOME: ${{ steps.python-cache.outcome }}
+        GC_PYTHON_CACHE_HIT: ${{ steps.python-cache.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        cache_outcome() {
+          local step_outcome="$1"
+          local cache_hit="$2"
+          case "$step_outcome" in
+            success)
+              case "$cache_hit" in
+                true) printf 'hit' ;;
+                false|'') printf 'miss' ;;
+                *) printf 'error' ;;
+              esac
+              ;;
+            skipped) printf 'disabled' ;;
+            *) printf 'error' ;;
+          esac
+        }
+
+        cargo_outcome='disabled'
+        python_outcome='disabled'
+        uv_outcome='disabled'
+        if [[ "$GC_CACHE_PROVIDER" == 'github' ]]; then
+          if [[ "$GC_RUNNER_ENVIRONMENT" == 'github-hosted' ]]; then
+            uv_outcome="$(cache_outcome "$GC_UV_STEP_OUTCOME" "$GC_UV_CACHE_HIT")"
+          fi
+          if [[ "$GC_LANGUAGE" == 'rust' || "$GC_LANGUAGE" == 'mixed' ]]; then
+            cargo_outcome="$(cache_outcome "$GC_CARGO_STEP_OUTCOME" "$GC_CARGO_CACHE_HIT")"
+          fi
+          if [[ "$GC_LANGUAGE" == 'python' || "$GC_LANGUAGE" == 'mixed' ]]; then
+            python_outcome="$(cache_outcome "$GC_PYTHON_STEP_OUTCOME" "$GC_PYTHON_CACHE_HIT")"
+          fi
+        fi
+
+        printf '::notice title=generate-coverage cache::provider=%s cargo=%s python=%s uv=%s\n' \
+          "$GC_CACHE_PROVIDER" "$cargo_outcome" "$python_outcome" "$uv_outcome"
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' \
+            '### generate-coverage cache' \
+            "- provider: $GC_CACHE_PROVIDER" \
+            "- cargo archive: $cargo_outcome" \
+            "- Python archive: $python_outcome" \
+            "- uv archive: $uv_outcome" >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - id: python
       if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'

@@ -7,6 +7,9 @@
   when the caller mounts those paths through one external cache owner, such as
   a Namespace cache volume; the action then disables its overlapping caches.
   Ratchet baseline caching remains unchanged.
+- Preserve setup-uv's automatic GitHub-hosted versus self-hosted default and
+  report bounded Cargo, Python, and uv cache outcomes in the log and job
+  summary.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes

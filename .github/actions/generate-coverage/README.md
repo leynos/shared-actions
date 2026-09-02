@@ -156,9 +156,10 @@ supported for Python projects. Mixed projects must use `cobertura`.
 
 ### Caching
 
-With the default `cache-provider: github`, this action enables setup-uv's
-GitHub cache and caches Cargo artefacts and Python dependencies with
-`actions/cache`.
+With the default `cache-provider: github`, setup-uv retains its historical
+automatic policy: its GitHub cache is enabled on GitHub-hosted runners and
+disabled on self-hosted runners. The action also caches Cargo artefacts and
+Python dependencies with `actions/cache`.
 
 Set `cache-provider: external` when the caller mounts those Rust and uv cache
 paths through one external cache service, such as a Namespace cache volume.
@@ -169,11 +170,16 @@ path has exactly one cache owner. Ratchet baseline restore and save remain
 GitHub caches because their paths are outside the Namespace Rust and uv mounts.
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+- uses: ./.github/actions/generate-coverage
   with:
     cache-provider: external
     output-path: coverage.xml
 ```
+
+The action writes a bounded `hit`, `miss`, `disabled`, or `error` observation
+for each archive cache to the workflow log and job summary. External cache hit
+telemetry remains the caller's responsibility because this action does not
+mount that cache.
 
 ### Selecting the coverage language
 

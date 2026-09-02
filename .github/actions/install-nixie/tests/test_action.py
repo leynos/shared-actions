@@ -37,8 +37,7 @@ def _load_action() -> dict[str, typ.Any]:
 def _install_script() -> str:
     """Return the action's installation shell fragment."""
     steps = _load_action()["runs"]["steps"]
-    assert len(steps) == 1, "install-nixie should have one atomic install step"
-    run_script = steps[0].get("run")
+    run_script = steps[-1].get("run")
     assert isinstance(run_script, str), "install step must define a shell script"
     return run_script
 
@@ -149,7 +148,23 @@ def test_manifest_exposes_pinned_version_inputs() -> None:
     assert manifest["inputs"]["nixie-version"]["default"] == "1.1.0"
     assert manifest["inputs"]["merman-version"]["default"] == "0.7.0"
     assert manifest["inputs"]["python-version"]["default"] == "3.14"
-    assert manifest["runs"]["steps"][0]["env"] == {
+    steps = manifest["runs"]["steps"]
+    assert steps[0] == {
+        "name": "Check cargo-binstall availability",
+        "id": "check-cargo-binstall",
+        "shell": "bash",
+        "run": "if command -v cargo-binstall >/dev/null 2>&1; then\n"
+        '  echo "installed=true" >> "${GITHUB_OUTPUT}"\n'
+        "else\n"
+        '  echo "installed=false" >> "${GITHUB_OUTPUT}"\n'
+        "fi\n",
+    }
+    assert steps[1] == {
+        "name": "Install cargo-binstall",
+        "if": "steps.check-cargo-binstall.outputs.installed != 'true'",
+        "uses": "cargo-bins/cargo-binstall@8f137732cada3c067cb574fe3537fedfe2a6451d",
+    }
+    assert steps[2]["env"] == {
         "NIXIE_VERSION": "${{ inputs.nixie-version }}",
         "MERMAN_VERSION": "${{ inputs.merman-version }}",
         "PYTHON_VERSION": "${{ inputs.python-version }}",

@@ -18,6 +18,13 @@ inputs:
     description: Enable sccache for non-release runs
     required: false
     default: "true"
+  cache-provider:
+    description: >
+      Cache owner for Cargo and uv state. Use "github" for the action's
+      built-in GitHub caches or "external" when the caller mounts one cache
+      owner, such as a Namespace cache volume.
+    required: false
+    default: "github"
   install-binstall:
     description: Install cargo-binstall for faster binary crate installations
     required: false
@@ -65,6 +72,19 @@ runs:
         case "$SR_RUSTFLAGS" in
           *$'\n'*|*$'\r'*)
             echo "::error::rustflags must not contain line breaks" >&2
+            exit 1
+            ;;
+        esac
+    - name: Validate cache provider
+      shell: bash
+      env:
+        SR_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+      run: |
+        set -euo pipefail
+        case "$SR_CACHE_PROVIDER" in
+          github|external) ;;
+          *)
+            echo "::error::cache-provider must be github or external" >&2
             exit 1
             ;;
         esac
@@ -152,6 +172,7 @@ runs:
     - name: Install uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
+        enable-cache: ${{ inputs.cache-provider == 'github' }}
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
@@ -168,6 +189,7 @@ runs:
         echo "NIGHTLY_SYSROOT=$(rustc +$OPENBSD_NIGHTLY --print sysroot)" >> "$GITHUB_ENV"
       shell: bash
     - name: Cache cargo registry
+      if: ${{ inputs.cache-provider == 'github' }}
       # v6.1.0
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:

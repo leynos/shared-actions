@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add a `cache-provider` input. The default preserves the existing GitHub
+  Cargo and uv archive caches; `external` disables them so callers can mount a
+  single external cache owner without overlapping writes.
+
 ## v1.0.16 - 2026-08-02
 
 - Update actions/cache, sccache-action, and setup-msys2 to releases that use

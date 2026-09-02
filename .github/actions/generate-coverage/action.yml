@@ -65,6 +65,13 @@ inputs:
       disable parallelism and keep the historical serial pytest behaviour.
     required: false
     default: auto
+  cache-provider:
+    description: >
+      Cache owner for Cargo and uv state. Use "github" for the action's
+      built-in GitHub caches or "external" when the caller mounts one cache
+      owner, such as a Namespace cache volume.
+    required: false
+    default: github
 outputs:
   file:
     description: Path to the generated coverage file
@@ -81,9 +88,23 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate cache provider
+      shell: bash
+      env:
+        GC_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+      run: |
+        set -euo pipefail
+        case "$GC_CACHE_PROVIDER" in
+          github|external) ;;
+          *)
+            echo "::error::cache-provider must be github or external" >&2
+            exit 1
+            ;;
+        esac
     - name: Setup uv
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
       with:
+        enable-cache: ${{ inputs.cache-provider == 'github' }}
         cache-dependency-glob: |
           **/pyproject.toml
           **/uv.lock
@@ -118,7 +139,7 @@ runs:
         fi
       shell: bash
     - name: Cache cargo artefacts
-      if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
+      if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
       uses: actions/cache@v4
       with:
         path: |
@@ -230,7 +251,7 @@ runs:
       shell: bash
 
     - name: Cache Python deps
-      if: steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed'
+      if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed')
       uses: actions/cache@v4
       with:
         path: ~/.cache/uv

@@ -136,6 +136,14 @@ manifest, so a compromised release cannot satisfy its own check by publishing a
 matching `.sha256` sidecar. The sidecar is still fetched and must agree with
 the verified archive.
 
+Digests are computed in a way that does not depend on what the file is called.
+`sha256sum` escapes its output line when the name it was given contains a
+backslash or a newline, and a Windows runner's Git Bash paths contain
+backslashes, so reading the digest back out of that line used to reject an
+intact archive. The action now hashes the archive from standard input, where no
+name appears, and strips a leading backslash from a digest read out of a
+release sidecar. Windows lanes verify correctly with no caller change.
+
 The pinned manifest takes precedence. Pass the optional `installer-sha256`
 input only for an asset the manifest does not pin; a digest that disagrees with
 a pinned one is rejected, and an asset with neither anchor fails before

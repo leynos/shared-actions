@@ -58,7 +58,15 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 def _write_download_stubs(stubs_dir: Path) -> None:
-    """Write deterministic curl, checksum, and archive-extraction stubs."""
+    """Write the deterministic stubs needed for Merman cache-miss scenarios."""
+    _write_curl_stub(stubs_dir)
+    _write_checksum_stub(stubs_dir)
+    _write_unix_archive_stub(stubs_dir)
+    _write_windows_archive_stubs(stubs_dir)
+
+
+def _write_curl_stub(stubs_dir: Path) -> None:
+    """Write a curl stub that records the release archive download."""
     _write_executable(
         stubs_dir / "curl",
         """#!/usr/bin/env bash
@@ -79,6 +87,10 @@ fi
 exit "$CURL_STATUS"
 """,
     )
+
+
+def _write_checksum_stub(stubs_dir: Path) -> None:
+    """Write a shasum stub that returns the scenario's Merman checksum."""
     _write_executable(
         stubs_dir / "shasum",
         """#!/usr/bin/env bash
@@ -87,6 +99,10 @@ printf 'shasum <%s>\\n' "$*" >> "$CALLS_PATH"
 printf '%s  %s\\n' "$MERMAN_ACTUAL_CHECKSUM" "${@: -1}"
 """,
     )
+
+
+def _write_unix_archive_stub(stubs_dir: Path) -> None:
+    """Write a tar stub that extracts Unix Merman executables under archive roots."""
     _write_executable(
         stubs_dir / "tar",
         """#!/usr/bin/env bash
@@ -111,6 +127,10 @@ for archive_root in \
 done
 """,
     )
+
+
+def _write_windows_archive_stubs(stubs_dir: Path) -> None:
+    """Write cygpath and PowerShell stubs for Windows archive handling."""
     _write_executable(
         stubs_dir / "cygpath",
         """#!/usr/bin/env bash
@@ -276,9 +296,13 @@ def test_install_script_uses_cached_merman_and_normal_nixie_reconciliation(
         "uv <tool install --python 3.14 nixie-cli==1.1.0>",
         "uv <tool dir --bin>",
     ]
-    assert (tmp_path / "github-path").read_text(encoding="utf-8") == (
-        f"{tmp_path / 'cargo-home' / 'bin'}\n{tmp_path / 'uv-bin'}\n"
+    expected_github_path = (
+        f"{(tmp_path / 'cargo-home' / 'bin').as_posix()}\n"
+        f"{(tmp_path / 'uv-bin').as_posix()}\n"
     )
+    assert (tmp_path / "github-path").read_text(
+        encoding="utf-8"
+    ) == expected_github_path
 
 
 def test_install_script_downloads_only_the_verified_official_merman_asset(

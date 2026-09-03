@@ -74,6 +74,7 @@ the compiler cache and the Cargo and uv archive caches can be switched
 separately. An unrecognized `cache-provider` fails before toolchain setup runs.
 
 ```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 - uses: ./.github/actions/rust-build-release
   with:
     target: x86_64-unknown-linux-gnu

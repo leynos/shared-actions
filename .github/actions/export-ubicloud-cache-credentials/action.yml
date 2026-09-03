@@ -1,0 +1,92 @@
+name: Export Ubicloud cache credentials
+description: >
+  Publish Ubicloud's local cache proxy credentials to the job environment so
+  later shell steps, such as an sccache server, can reach it.
+runs:
+  using: composite
+  steps:
+    - name: Export cache credentials
+      # A JavaScript action, not a shell step, and that is the whole point.
+      # The runner exposes ACTIONS_CACHE_URL and ACTIONS_RUNTIME_TOKEN to
+      # action steps only; a `run:` step never sees them. This step reads them
+      # where they exist and republishes them through GITHUB_ENV, where every
+      # later step can.
+      # v9.0.0
+      uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71
+      with:
+        script: |
+          const PRIVATE_IPV4 = [
+            /^10\./,
+            /^127\./,
+            /^192\.168\./,
+            /^172\.(1[6-9]|2[0-9]|3[01])\./,
+          ];
+
+          // Ubicloud's proxy listens on the runner's private network. A public
+          // host means this is not an Ubicloud runner, and republishing a
+          // GitHub-hosted cache endpoint would point sccache at the wrong
+          // service while claiming otherwise.
+          const isPrivateHost = (hostname) => {
+            const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+            if (host === 'localhost' || host === '::1') {
+              return true;
+            }
+            if (PRIVATE_IPV4.some((range) => range.test(host))) {
+              return true;
+            }
+            // fc00::/7, the IPv6 unique-local range.
+            return /^f[cd][0-9a-f]{2}:/.test(host);
+          };
+
+          const cacheUrl = process.env.ACTIONS_CACHE_URL ?? '';
+          const runtimeToken = process.env.ACTIONS_RUNTIME_TOKEN ?? '';
+
+          if (!cacheUrl) {
+            core.setFailed(
+              'ACTIONS_CACHE_URL is not set. This action is for Ubicloud ' +
+                'runners, whose local cache proxy exports it; do not call it ' +
+                'on GitHub-hosted runners.',
+            );
+            return;
+          }
+          if (!runtimeToken) {
+            core.setFailed(
+              'ACTIONS_RUNTIME_TOKEN is not set, so the cache proxy could ' +
+                'not be authenticated.',
+            );
+            return;
+          }
+
+          let parsed;
+          try {
+            parsed = new URL(cacheUrl);
+          } catch {
+            core.setFailed('ACTIONS_CACHE_URL is not a valid URL.');
+            return;
+          }
+          if (!isPrivateHost(parsed.hostname)) {
+            core.setFailed(
+              `ACTIONS_CACHE_URL host ${parsed.hostname} is not on a private ` +
+                'network, so this is not an Ubicloud cache proxy. Remove this ' +
+                'action from GitHub-hosted jobs.',
+            );
+            return;
+          }
+
+          // The proxy URL carries a bearer-like path segment, so it is as
+          // sensitive as the token. Mask both before anything is logged.
+          core.setSecret(runtimeToken);
+          core.setSecret(cacheUrl);
+
+          core.exportVariable('ACTIONS_CACHE_URL', cacheUrl);
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', runtimeToken);
+          // sccache's GHA backend selects the v2 cache service when this is
+          // set. Ubicloud's proxy serves v1, so clear it rather than leaving
+          // whatever the runner set.
+          core.exportVariable('ACTIONS_CACHE_SERVICE_V2', '');
+
+          // Name the host and port only. The path segment is the secret.
+          core.notice(
+            `Ubicloud cache proxy exported: host=${parsed.host}`,
+            { title: 'Ubicloud cache credentials' },
+          );

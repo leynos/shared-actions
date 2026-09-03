@@ -300,6 +300,44 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
+## `export-ubicloud-cache-credentials` action contract
+
+A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
+to action steps only. A `run:` step never sees them. That is why this action's
+single step is a pinned `actions/github-script` invocation rather than a shell
+fragment: JavaScript running as an action can read the values, and
+`core.exportVariable` republishes them through `GITHUB_ENV` for every later
+step. Replacing that step with `run:` would export nothing and fail silently,
+so the manifest test asserts the pinned reference.
+
+On Ubicloud the cache URL names a proxy on the runner's private network, and
+that proxy stores objects in Ubicloud's cache rather than GitHub's. The
+evidence for the distinction is direct: cuprum run 33748907011 exported the
+proxy URL, ran sccache 0.12 against the v1 service, and landed 167 objects in
+Ubicloud's store, while the netsuke run for #664 and rstest-bdd run 33801703494
+exported only `ACTIONS_RESULTS_URL`, ran sccache 0.16 against v2, and either
+wrote to GitHub or failed outright.
+
+Two consequences the action encodes:
+
+- `ACTIONS_CACHE_SERVICE_V2` is exported empty. sccache's GitHub Actions
+  backend selects the v2 service whenever that variable is set, and the proxy
+  serves v1, so the runner's value has to be cleared rather than passed
+  through.
+- A public cache host fails the step. This is an Ubicloud-only action; on a
+  GitHub-hosted runner the variable points at GitHub's endpoint, and exporting
+  that under this action's name would send sccache somewhere other than where
+  the job believes. Private means an RFC 1918 range, IPv4 loopback,
+  `localhost`, or an IPv6 unique-local or loopback address.
+
+The proxy URL's path segment is bearer-like, so the action masks the URL as
+well as the token, and its single notice names only the host and port. Keep it
+that way: a notice carrying the path would publish a credential to the log.
+
+Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
+before any step that starts an sccache server, because sccache reads the cache
+configuration once at server start and keeps it for that server's life.
+
 ## `install-whitaker` action contract
 
 The composite action's built-in cache restores

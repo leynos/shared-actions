@@ -558,10 +558,10 @@ All three default to off, so a caller that does not set them sees the previous
 behaviour exactly.
 
 `feature_selection_args` in
-[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is
-the single place feature flags are decided, and both the coverage command and
-the doc-test command call it. Keep it that way: the precedence rule only holds
-if one function owns it. That rule is that `all_features` wins outright. It
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
+single place feature flags are decided, and both the coverage command and the
+doc-test command call it. Keep it that way: the precedence rule only holds if
+one function owns it. That rule is that `all_features` wins outright. It
 supersedes `with_default`, so `--all-features --no-default-features` can never
 be emitted, and it is rejected outright alongside a non-empty feature list,
 because silently widening a caller's named selection would misreport what ran.
@@ -585,15 +585,15 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                                                       | Role                                                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
-| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
-| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
+| Symbol | Role |
+| --- | --- |
+| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
+| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
+| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
-| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
-| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
+| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
+| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
+| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and

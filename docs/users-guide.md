@@ -117,6 +117,47 @@ their own archive caches in the workflow log and job summary. Coverage ratchet
 baseline files remain separate GitHub caches when external mode does not mount
 their paths.
 
+## `export-ubicloud-cache-credentials` action
+
+Use this action on **Ubicloud runners only**, to make Ubicloud's cache proxy
+reachable from shell steps.
+
+A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
+to action steps alone. A `run:` step never sees them, so a shell step that
+starts an sccache server cannot learn where the cache lives. On Ubicloud those
+values name a proxy on the runner's private network that stores objects in
+Ubicloud's cache rather than GitHub's. The action reads them where they are
+visible and republishes them through `GITHUB_ENV`.
+
+It also exports `ACTIONS_CACHE_SERVICE_V2` empty. sccache's GitHub Actions
+backend selects the v2 cache service whenever that variable is set, and the
+proxy serves v1.
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
+- name: Configure sccache
+  shell: bash
+  run: |
+    echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+    echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+```
+
+Order matters. Set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action
+and before any step that starts an sccache server or runs a build, because
+sccache reads the cache configuration once at server start and keeps it for
+that server's life.
+
+The action fails the step when the cache URL or runtime token is absent, when
+the URL does not parse, or when its host is not a private-network address
+literal. A public host means the variable points at GitHub's own endpoint, so
+this is not an Ubicloud runner and the action must not be used there. Both the
+token and the URL are masked before anything is logged, because the URL's path
+segment is bearer-like, and the single notice names the proxy's host and port
+only. Each run reports one bounded
+`metric ubicloud-cache-credentials.result=<state>` line, over `exported`,
+`missing-cache-url`, `missing-runtime-token`, `invalid-url`, and `public-host`.
+
 ## `install-whitaker` action
 
 The `install-whitaker` composite action downloads a verified prebuilt

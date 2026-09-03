@@ -13,6 +13,7 @@ stub standing in for `@actions/core`, so what is measured is what runs.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import typing as typ
@@ -20,6 +21,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
@@ -69,49 +72,81 @@ class CoreCalls(typ.NamedTuple):
     exported: dict[str, str]
     secrets: list[str]
     notices: list[str]
+    info: list[str]
+    order: list[str]
     failure: str | None
+
+    def result_metric(self) -> str | None:
+        """Return the bounded outcome the script reported, if any."""
+        prefix = "metric ubicloud-cache-credentials.result="
+        reported = [line for line in self.info if line.startswith(prefix)]
+        assert len(reported) <= 1, f"more than one result metric: {reported}"
+        return reported[0].removeprefix(prefix) if reported else None
 
 
 def _run_script(
     *, cache_url: str | None = PROXY_URL, runtime_token: str | None = RUNTIME_TOKEN
 ) -> CoreCalls:
-    """Execute the shipped script under Node with a stubbed `core`."""
+    """Execute the shipped script under Node with a stubbed `core`.
+
+    The runner variables are supplied through the subprocess environment
+    rather than spliced into the script, so the script reads them exactly as
+    it would on a runner and nothing test-side can alter its text.
+    """
     node = shutil.which("node")
     if node is None:  # pragma: no cover - environment guard
         pytest.skip("node not found on PATH")
 
-    environment_lines = [
-        f"process.env.{name} = {json.dumps(value)};"
-        for name, value in (
-            ("ACTIONS_CACHE_URL", cache_url),
-            ("ACTIONS_RUNTIME_TOKEN", runtime_token),
-        )
-        if value is not None
-    ]
     harness = f"""
-      const calls = {{ exported: {{}}, secrets: [], notices: [], failure: null }};
-      const core = {{
-        exportVariable: (name, value) => {{ calls.exported[name] = value; }},
-        setSecret: (value) => calls.secrets.push(value),
-        notice: (message) => calls.notices.push(message),
-        setFailed: (message) => {{ calls.failure = message; }},
+      const calls = {{
+        exported: {{}}, secrets: [], notices: [], info: [], order: [],
+        failure: null,
       }};
-      {chr(10).join(environment_lines)}
+      const core = {{
+        exportVariable: (name, value) => {{
+          calls.order.push('exportVariable');
+          calls.exported[name] = value;
+        }},
+        setSecret: (value) => {{
+          calls.order.push('setSecret');
+          calls.secrets.push(value);
+        }},
+        notice: (message) => {{
+          calls.order.push('notice');
+          calls.notices.push(message);
+        }},
+        info: (message) => {{
+          calls.order.push('info');
+          calls.info.push(message);
+        }},
+        setFailed: (message) => {{
+          calls.order.push('setFailed');
+          calls.failure = message;
+        }},
+      }};
       (() => {{
       {_script()}
       }})();
       process.stdout.write(JSON.stringify(calls));
     """
+    # A minimal environment: PATH so node runs, and only the variables under
+    # test, so an ambient ACTIONS_* value on the host cannot change the result.
+    environment = {"PATH": os.environ.get("PATH", "")}
+    if cache_url is not None:
+        environment["ACTIONS_CACHE_URL"] = cache_url
+    if runtime_token is not None:
+        environment["ACTIONS_RUNTIME_TOKEN"] = runtime_token
+
     completed = subprocess.run(  # noqa: S603,TID251 - exercise the shipped script.
         [node, "--input-type=module", "-e", harness],
         capture_output=True,
         check=False,
+        env=environment,
         text=True,
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr
-    parsed = json.loads(completed.stdout)
-    return CoreCalls(**parsed)
+    return CoreCalls(**json.loads(completed.stdout))
 
 
 class TestManifest:
@@ -141,31 +176,64 @@ class TestManifest:
 class TestBehaviour:
     """Run the shipped script and check what it does."""
 
-    def test_exports_the_proxy_credentials(self) -> None:
-        """The happy path publishes all three variables."""
-        calls = _run_script()
+    @pytest.mark.parametrize(
+        ("cache_url", "runtime_token", "expected_host", "secret_path"),
+        [
+            (PROXY_URL, RUNTIME_TOKEN, "10.1.2.3:51123", "e3b0c44298fc1c14"),
+            (
+                "http://192.168.40.9:8080/9f86d081884c7d65/",
+                "second-runtime-token",
+                "192.168.40.9:8080",
+                "9f86d081884c7d65",
+            ),
+        ],
+    )
+    def test_exports_and_masks_exactly_what_it_was_given(
+        self,
+        cache_url: str,
+        runtime_token: str,
+        expected_host: str,
+        secret_path: str,
+    ) -> None:
+        """Both credentials pass through unchanged, masked, and unlogged.
+
+        Two distinct pairs, so a hard-coded value or a swapped variable would
+        show rather than coincide with the fixture.
+        """
+        calls = _run_script(cache_url=cache_url, runtime_token=runtime_token)
 
         assert calls.failure is None
-        assert calls.exported["ACTIONS_CACHE_URL"] == PROXY_URL
-        assert calls.exported["ACTIONS_RUNTIME_TOKEN"] == RUNTIME_TOKEN
+        assert calls.exported["ACTIONS_CACHE_URL"] == cache_url
+        assert calls.exported["ACTIONS_RUNTIME_TOKEN"] == runtime_token
         assert calls.exported["ACTIONS_CACHE_SERVICE_V2"] == ""
-
-    def test_masks_the_token_and_the_proxy_url(self) -> None:
-        """The URL path is a bearer-like secret, so both are masked."""
-        calls = _run_script()
-
-        assert RUNTIME_TOKEN in calls.secrets
-        assert PROXY_URL in calls.secrets
-
-    def test_notice_names_the_host_but_never_the_path(self) -> None:
-        """The path segment is the secret, so it must not reach the log."""
-        calls = _run_script()
+        assert set(calls.secrets) == {cache_url, runtime_token}
 
         assert len(calls.notices) == 1
         notice = calls.notices[0]
-        assert "10.1.2.3:51123" in notice
-        assert "e3b0c44298fc1c14" not in notice
-        assert RUNTIME_TOKEN not in notice
+        assert expected_host in notice
+        assert secret_path not in notice
+        assert runtime_token not in notice
+        assert cache_url not in notice
+
+    def test_masks_before_it_logs(self) -> None:
+        """Registering the secrets after logging would publish them.
+
+        The runner only redacts what it already knows, so the order is the
+        protection, not the `setSecret` call on its own.
+        """
+        calls = _run_script()
+
+        assert "setSecret" in calls.order
+        first_output = min(
+            calls.order.index(name)
+            for name in ("notice", "info")
+            if name in calls.order
+        )
+        assert calls.order.index("setSecret") < first_output
+
+    def test_reports_the_exported_outcome(self) -> None:
+        """The happy path reports its bounded outcome."""
+        assert _run_script().result_metric() == "exported"
 
     @pytest.mark.parametrize(
         ("host", "expected_private"),
@@ -252,6 +320,120 @@ class TestBehaviour:
     def test_fails_on_a_malformed_url(self, cache_url: str) -> None:
         """A value that is not a URL cannot be checked, so it is refused."""
         calls = _run_script(cache_url=cache_url)
+
+        assert calls.failure is not None
+        assert calls.exported == {}
+
+
+#: Every outcome the action may report, and nothing else. Widening this in the
+#: script without widening it here breaks a scraper aggregating the series.
+RESULT_VOCABULARY = frozenset(
+    {
+        "exported",
+        "missing-cache-url",
+        "missing-runtime-token",
+        "invalid-url",
+        "public-host",
+    }
+)
+
+
+class TestOutcomeMetric:
+    """Hold the bounded outcome the action reports on every terminal path."""
+
+    @pytest.mark.parametrize(
+        ("cache_url", "runtime_token", "expected"),
+        [
+            (PROXY_URL, RUNTIME_TOKEN, "exported"),
+            (None, RUNTIME_TOKEN, "missing-cache-url"),
+            (PROXY_URL, None, "missing-runtime-token"),
+            ("not-a-url", RUNTIME_TOKEN, "invalid-url"),
+            ("https://example.com/token/", RUNTIME_TOKEN, "public-host"),
+        ],
+    )
+    def test_every_terminal_path_reports_its_outcome(
+        self, cache_url: str | None, runtime_token: str | None, expected: str
+    ) -> None:
+        """No path may exit without saying which one it took."""
+        calls = _run_script(cache_url=cache_url, runtime_token=runtime_token)
+
+        assert calls.result_metric() == expected
+        assert expected in RESULT_VOCABULARY
+
+    def test_the_metric_carries_no_identifiers(self) -> None:
+        """A metric naming a host or token would defeat the masking."""
+        calls = _run_script()
+        reported = [line for line in calls.info if "metric " in line]
+
+        assert reported
+        for line in reported:
+            assert PROXY_URL not in line
+            assert RUNTIME_TOKEN not in line
+            assert "10.1.2.3" not in line
+
+
+def _is_private_ipv4(octets: tuple[int, int, int, int]) -> bool:
+    """Return whether *octets* names an RFC 1918 or loopback address.
+
+    An oracle written from the ranges rather than from the implementation, so
+    agreeing with it means something.
+    """
+    first, second, *_ = octets
+    if first in {10, 127}:
+        return True
+    if first == 192 and second == 168:
+        return True
+    return first == 172 and 16 <= second <= 31
+
+
+OCTETS = st.tuples(*(st.integers(min_value=0, max_value=255) for _ in range(4)))
+
+
+class TestPrivateHostProperty:
+    """Check the host classification against an independent oracle."""
+
+    @given(octets=OCTETS)
+    @settings(max_examples=120, derandomize=True, deadline=None)
+    def test_ipv4_classification_matches_the_ranges(
+        self, octets: tuple[int, int, int, int]
+    ) -> None:
+        """Accept exactly the private IPv4 space, across the whole address."""
+        address = ".".join(str(octet) for octet in octets)
+        calls = _run_script(cache_url=f"http://{address}:51123/token/")
+
+        assert (calls.failure is None) is _is_private_ipv4(octets)
+
+    @given(leading=st.integers(min_value=0, max_value=0xFFFF))
+    @settings(max_examples=60, derandomize=True, deadline=None)
+    def test_ipv6_classification_covers_the_unique_local_block(
+        self, leading: int
+    ) -> None:
+        """Accept exactly `fc00::/7`, whose first byte is `fc` or `fd`.
+
+        A leading hextet of zero is the exception, and not a special case in
+        the action: the URL parser compresses `0000::1` to `::1`, so what the
+        host check sees is loopback, which is accepted on its own terms.
+        """
+        calls = _run_script(cache_url=f"http://[{leading:04x}::1]:51123/token/")
+
+        expected_private = (leading >> 8) in {0xFC, 0xFD} or leading == 0
+        assert (calls.failure is None) is expected_private
+
+    @given(
+        label=st.text(
+            st.sampled_from("abcdefghijklmnopqrstuvwxyz0123456789-"),
+            min_size=1,
+            max_size=8,
+        ).filter(lambda value: not value.startswith("-") and not value.endswith("-"))
+    )
+    @settings(max_examples=40, derandomize=True, deadline=None)
+    def test_a_private_prefix_on_a_name_is_never_private(self, label: str) -> None:
+        """A name beginning with a private octet must never be accepted.
+
+        This is the finding that prompted the parser: a prefix match would
+        hand `10.<anything>.example` the runtime token.
+        """
+        calls = _run_script(cache_url=f"http://10.{label}.example/token/")
 
         assert calls.failure is not None
         assert calls.exported == {}

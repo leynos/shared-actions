@@ -336,7 +336,19 @@ Two consequences the action encodes:
 
 The proxy URL's path segment is bearer-like, so the action masks the URL as
 well as the token, and its single notice names only the host and port. Keep it
-that way: a notice carrying the path would publish a credential to the log.
+that way: a notice carrying the path would publish a credential to the log, and
+register the secrets before anything is written, because the runner redacts
+only what it already knows.
+
+Every terminal path reports one bounded
+`metric ubicloud-cache-credentials.result=<state>` line over a closed set:
+`exported`, `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and
+`public-host`. Keep the name fixed and the values inside that set, and keep
+tokens, URLs, hosts, and error text out of both. A runner-backed workflow,
+`.github/workflows/test-export-ubicloud-cache-credentials.yml`, drives the
+action with fabricated private credentials and asserts a later shell step sees
+all three exports, then asserts it fails closed on a public host and on a
+missing cache URL.
 
 Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
 before any step that starts an sccache server, because sccache reads the cache

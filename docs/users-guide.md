@@ -57,9 +57,10 @@ The coverage action's ratchet baseline is cached separately from all of this.
 Its restore step uses `actions/cache/restore` and its save step uses
 `actions/cache/save`, both at the same pinned revision, keyed by the run id.
 Only the save step writes, so the two halves no longer contend for the key.
-That pair reports its own bounded `hit`, `miss`, `disabled`, or `error` restore
-state and `saved`, `skipped`, `disabled`, or `error` save state, naming neither
-the key nor the baseline paths.
+That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
+`error` restore state and `saved`, `skipped`, `disabled`, or `error` save
+state, naming neither the key nor the baseline paths. `disabled` means the
+ratchet is off; `skipped` means an earlier failure stopped the step running.
 
 ## Running coverage as the only test execution
 

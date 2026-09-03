@@ -137,19 +137,52 @@ def _run_cargo(
     )
 
 
-def validate_feature_selection(features: str, *, all_features: bool) -> None:
-    """Reject a feature list that ``--all-features`` would silently swallow.
+#: Diagnostics ``check_feature_selection`` reports, keyed by the condition it
+#: found. The rejection is fatal; the supersession is a warning.
+FEATURE_SELECTION_CONFLICT = (
+    "::error::all-features cannot be combined with a features list; "
+    "--all-features already enables every feature"
+)
+FEATURE_SELECTION_SUPERSEDED = (
+    "::warning::all-features supersedes with-default-features; "
+    "--no-default-features is not passed"
+)
 
-    ``--all-features`` already enables every feature a list could name, so
-    accepting both would leave the caller believing a narrower set was
-    measured than the one that ran.
+
+def feature_selection_diagnostics(
+    features: str, *, with_default: bool, all_features: bool
+) -> tuple[str | None, str | None]:
+    """Return the ``(error, warning)`` a feature selection deserves.
+
+    A pure query, so the command builders can stay pure too. ``main`` turns
+    the result into output and an exit code.
     """
-    if all_features and features.strip():
-        typer.echo(
-            "::error::all-features cannot be combined with a features list; "
-            "--all-features already enables every feature",
-            err=True,
-        )
+    if not all_features:
+        return None, None
+    if features.strip():
+        return FEATURE_SELECTION_CONFLICT, None
+    if not with_default:
+        return None, FEATURE_SELECTION_SUPERSEDED
+    return None, None
+
+
+def check_feature_selection(
+    features: str, *, with_default: bool, all_features: bool
+) -> None:
+    """Report on a feature selection at the command boundary, or fail.
+
+    ``--all-features`` already enables every feature a list could name, so a
+    caller naming both is rejected rather than silently widened: accepting it
+    would leave them believing a narrower set was measured than the one that
+    ran.
+    """
+    error, warning = feature_selection_diagnostics(
+        features, with_default=with_default, all_features=all_features
+    )
+    if warning is not None:
+        typer.echo(warning, err=True)
+    if error is not None:
+        typer.echo(error, err=True)
         raise typer.Exit(1)
 
 
@@ -158,18 +191,13 @@ def feature_selection_args(
 ) -> list[str]:
     """Return the Cargo feature flags shared by every invocation.
 
-    ``all_features`` wins outright: it supersedes both ``with_default`` and
-    ``features``, so the caller cannot end up with a contradictory pair such
-    as ``--all-features --no-default-features``.
+    A pure function: it neither validates nor reports. ``all_features`` wins
+    outright, superseding both ``with_default`` and ``features``, so the
+    contradictory pair ``--all-features --no-default-features`` can never be
+    produced. ``check_feature_selection`` reports the selections this silently
+    resolves.
     """
-    validate_feature_selection(features, all_features=all_features)
     if all_features:
-        if not with_default:
-            typer.echo(
-                "::warning::all-features supersedes with-default-features; "
-                "--no-default-features is not passed",
-                err=True,
-            )
         return ["--all-features"]
     args: list[str] = []
     if not with_default:
@@ -523,7 +551,9 @@ def main(
     )
     all_targets = _resolve_bool_input(all_targets, "INPUT_ALL_TARGETS", default=False)
     doctests = _resolve_bool_input(doctests, "INPUT_DOCTESTS", default=False)
-    validate_feature_selection(features, all_features=all_features)
+    check_feature_selection(
+        features, with_default=with_default, all_features=all_features
+    )
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 

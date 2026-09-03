@@ -305,6 +305,17 @@ def _run_ratchet_report(**environment: str) -> subprocess.CompletedProcess[str]:
             },
             "restore=error save=error",
         ),
+        (
+            # An earlier failure skips the restore step through the implicit
+            # success() in its condition, while the cache remains enabled.
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "skipped",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            "restore=skipped save=skipped",
+        ),
     ],
 )
 def test_ratchet_report_uses_bounded_outcomes(

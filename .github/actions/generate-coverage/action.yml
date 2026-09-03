@@ -436,7 +436,11 @@ runs:
                 *) restore_outcome='error' ;;
               esac
               ;;
-            skipped) restore_outcome='disabled' ;;
+            # 'disabled' is reserved for with-ratchet being off. The step's
+            # own condition carries an implicit success(), so an earlier
+            # failure skips it while the cache was still enabled; calling that
+            # 'disabled' would misreport a configured cache as switched off.
+            skipped) restore_outcome='skipped' ;;
             *) restore_outcome='error' ;;
           esac
           case "$GC_SAVE_STEP_OUTCOME" in

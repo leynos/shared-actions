@@ -12,6 +12,7 @@ too, because these inputs are the reason a caller would set it.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import typing as typ
 from pathlib import Path
@@ -19,9 +20,15 @@ from pathlib import Path
 import pytest
 import typer
 import yaml
+from plumbum import local
+
+from test_support.cmd_mox_stub_adapter import DefaultResponse
+from test_support.plumbum_helpers import run_plumbum_command
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
+
+    from test_support.cmd_mox_stub_adapter import StubManager
 
 ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
@@ -147,12 +154,65 @@ def test_flags_are_absent_by_default(run_rust: ModuleType) -> None:
 
 
 def test_all_features_supersedes_default_feature_selection(
-    run_rust: ModuleType, capsys: pytest.CaptureFixture[str]
+    run_rust: ModuleType,
 ) -> None:
     """``--all-features`` must not be paired with ``--no-default-features``."""
     args = run_rust.feature_selection_args("", with_default=False, all_features=True)
 
     assert args == ["--all-features"]
+
+
+def test_argument_builder_reports_nothing(
+    run_rust: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The builder is a pure query; diagnostics belong to the boundary."""
+    run_rust.feature_selection_args("cli", with_default=False, all_features=True)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize(
+    ("features", "with_default", "all_features", "expected"),
+    [
+        ("", True, False, (None, None)),
+        ("cli", True, False, (None, None)),
+        ("", False, False, (None, None)),
+        ("", True, True, (None, None)),
+        ("", False, True, (None, "supersedes")),
+        ("cli", True, True, ("already enables every feature", None)),
+        ("cli", False, True, ("already enables every feature", None)),
+    ],
+)
+def test_feature_selection_diagnostics_are_a_pure_query(
+    run_rust: ModuleType,
+    features: str,
+    expected: tuple[str | None, str | None],
+    *,
+    with_default: bool,
+    all_features: bool,
+) -> None:
+    """Each selection maps to the diagnostics it deserves, with no output."""
+    error, warning = run_rust.feature_selection_diagnostics(
+        features, with_default=with_default, all_features=all_features
+    )
+
+    expected_error, expected_warning = expected
+    assert (error is None) is (expected_error is None)
+    assert (warning is None) is (expected_warning is None)
+    if expected_error is not None:
+        assert expected_error in error
+    if expected_warning is not None:
+        assert expected_warning in warning
+
+
+def test_boundary_check_warns_on_superseded_defaults(
+    run_rust: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The boundary reports what the builder silently resolves."""
+    run_rust.check_feature_selection("", with_default=False, all_features=True)
+
     assert "supersedes with-default-features" in capsys.readouterr().err
 
 
@@ -161,7 +221,9 @@ def test_all_features_with_a_features_list_fails_closed(
 ) -> None:
     """A caller naming both selections must be told, not silently widened."""
     with pytest.raises(typer.Exit) as excinfo:
-        run_rust.validate_feature_selection("cli,tui", all_features=True)
+        run_rust.check_feature_selection(
+            "cli,tui", with_default=True, all_features=True
+        )
 
     assert excinfo.value.exit_code == 1
     assert "already enables every feature" in capsys.readouterr().err
@@ -305,3 +367,215 @@ def test_coverage_environment_never_touches_rustflags(
 
     assert "RUSTFLAGS" not in overrides
     assert "RUSTFLAGS" not in run_rust._CARGO_COVERAGE_ENV_UNSETS
+
+
+def test_main_forwards_the_selection_to_both_commands(
+    run_rust: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A whole-workspace run must reach the coverage and doc-test commands.
+
+    Both are built from the same selection, so a change that forwarded the
+    flags to only one of them would leave the doc tests compiling a different
+    feature set from the code they document.
+    """
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n")
+    calls: list[list[str]] = []
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        calls.append(args)
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+
+    run_rust.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=True,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=Path("Cargo.toml"),
+        github_output=tmp_path / "gh.txt",
+        cucumber_rs_features="",
+        cucumber_rs_args="",
+        with_cucumber_rs=False,
+        all_features=True,
+        all_targets=True,
+        doctests=True,
+        baseline_file=None,
+    )
+
+    coverage_args, doctest_args = calls
+    assert "--all-targets" in coverage_args
+    assert "--all-features" in coverage_args
+    assert "--all-features" in doctest_args
+    assert "--all-targets" not in doctest_args
+
+
+def test_main_forwards_a_narrow_selection_to_the_doc_tests(
+    run_rust: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A named feature list and disabled defaults must reach the doc tests."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\n")
+    calls: list[list[str]] = []
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        calls.append(args)
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+
+    run_rust.main(
+        output,
+        "cli,tui",
+        with_default=False,
+        use_nextest=True,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=Path("Cargo.toml"),
+        github_output=tmp_path / "gh.txt",
+        cucumber_rs_features="",
+        cucumber_rs_args="",
+        with_cucumber_rs=False,
+        all_features=False,
+        all_targets=False,
+        doctests=True,
+        baseline_file=None,
+    )
+
+    _coverage_args, doctest_args = calls
+    assert doctest_args == [
+        "test",
+        "--doc",
+        "--workspace",
+        "--manifest-path",
+        "Cargo.toml",
+        "--no-default-features",
+        "--features",
+        "cli,tui",
+    ]
+
+
+def test_main_rejects_a_conflicting_selection_before_running_cargo(
+    run_rust: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The conflict must fail the step, not run a widened coverage build."""
+    monkeypatch.chdir(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:  # pragma: no cover - must never be reached
+        calls.append(args)
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        run_rust.main(
+            tmp_path / "cov.lcov",
+            "cli",
+            with_default=True,
+            use_nextest=True,
+            lang="rust",
+            fmt="lcov",
+            manifest_path=Path("Cargo.toml"),
+            github_output=tmp_path / "gh.txt",
+            cucumber_rs_features="",
+            cucumber_rs_args="",
+            with_cucumber_rs=False,
+            all_features=True,
+            all_targets=False,
+            doctests=False,
+            baseline_file=None,
+        )
+
+    assert excinfo.value.exit_code == 1
+    assert calls == []
+
+
+def test_run_rust_script_honours_the_input_environment(
+    tmp_path: Path, shell_stubs: StubManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the script the way the composite action does.
+
+    The action passes these selections as environment variables, so this runs
+    ``run_rust.py`` as a subprocess against a stubbed ``cargo`` and asserts the
+    two commands it issues, rather than calling ``main`` directly.
+    """
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:200\nLH:163\n")
+    github_output = tmp_path / "gh.txt"
+    shell_stubs.register("cargo", default=DefaultResponse(stdout="Coverage: 81.5%\n"))
+    monkeypatch.chdir(tmp_path)
+
+    environment = {
+        **shell_stubs.env,
+        "INPUT_OUTPUT_PATH": str(output),
+        "DETECTED_LANG": "rust",
+        "DETECTED_FMT": "lcov",
+        "DETECTED_CARGO_MANIFEST": "Cargo.toml",
+        "INPUT_FEATURES": "",
+        "INPUT_WITH_DEFAULT_FEATURES": "true",
+        "INPUT_USE_CARGO_NEXTEST": "true",
+        "INPUT_ALL_FEATURES": "true",
+        "INPUT_ALL_TARGETS": "true",
+        "INPUT_DOCTESTS": "true",
+        "GITHUB_OUTPUT": str(github_output),
+        "RUSTFLAGS": "-D warnings",
+    }
+    script = ACTION_DIR / "scripts" / "run_rust.py"
+    repository_root = Path(__file__).resolve().parents[4]
+    merged = {**os.environ, **environment}
+    existing_path = merged.get("PYTHONPATH", "")
+    merged["PYTHONPATH"] = (
+        f"{repository_root}{os.pathsep}{existing_path}"
+        if existing_path
+        else str(repository_root)
+    )
+    merged["PYTHONIOENCODING"] = "utf-8"
+    returncode, _stdout, stderr = run_plumbum_command(
+        local[sys.executable][str(script)], method="run", env=merged
+    )
+
+    assert returncode == 0, stderr
+    coverage_call, doctest_call = shell_stubs.calls_of("cargo")
+    assert coverage_call.argv == [
+        "llvm-cov",
+        "nextest",
+        "--manifest-path",
+        "Cargo.toml",
+        "--workspace",
+        "--all-targets",
+        "--all-features",
+        "--lcov",
+        "--output-path",
+        str(output),
+    ]
+    assert doctest_call.argv == [
+        "test",
+        "--doc",
+        "--workspace",
+        "--manifest-path",
+        "Cargo.toml",
+        "--all-features",
+    ]
+    assert coverage_call.env["RUSTFLAGS"] == "-D warnings"
+    assert doctest_call.env["RUSTFLAGS"] == "-D warnings"

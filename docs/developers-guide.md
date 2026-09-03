@@ -210,8 +210,11 @@ baseline again after the ratchet has advanced it.
 
 A separate reporting step emits bounded outcomes for both halves, because the
 save runs long after the archive-cache reporter. Keep the restore states closed
-to `hit`, `miss`, `disabled`, and `error`, and the save states to `saved`,
-`skipped`, `disabled`, and `error`. The notice must never carry the key, which
+to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to
+`saved`, `skipped`, `disabled`, and `error`. Keep `skipped` distinct from
+`disabled`: the steps carry an implicit `success()`, so an earlier failure
+skips them while the cache is still configured, and conflating the two would
+report a live cache as switched off. The notice must never carry the key, which
 embeds the run id, nor the baseline paths.
 
 Those archive caches cover the Cargo registry and Git index only, plus the

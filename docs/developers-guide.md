@@ -300,6 +300,75 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
+## `export-ubicloud-cache-credentials` action contract
+
+A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
+to action steps only. A `run:` step never sees them. That is why this action's
+single step is a pinned `actions/github-script` invocation rather than a shell
+fragment: JavaScript running as an action can read the values, and
+`core.exportVariable` republishes them through `GITHUB_ENV` for every later
+step. Replacing that step with `run:` would export nothing and fail silently,
+so the manifest test asserts the pinned reference.
+
+On Ubicloud the cache URL names a proxy on the runner's private network, and
+that proxy stores objects in Ubicloud's cache rather than GitHub's. The
+evidence for the distinction is direct: cuprum run 33748907011 exported the
+proxy URL, ran sccache 0.12 against the v1 service, and landed 167 objects in
+Ubicloud's store, while the netsuke run for #664 and rstest-bdd run 33801703494
+exported only `ACTIONS_RESULTS_URL`, ran sccache 0.16 against v2, and either
+wrote to GitHub or failed outright.
+
+Two consequences the action encodes:
+
+- `ACTIONS_CACHE_SERVICE_V2` is exported empty. sccache's GitHub Actions
+  backend selects the v2 service whenever that variable is set, and the proxy
+  serves v1, so the runner's value has to be cleared rather than passed
+  through.
+- A public cache host fails the step. This is an Ubicloud-only action; on a
+  GitHub-hosted runner the variable points at GitHub's endpoint, and exporting
+  that under this action's name would send sccache somewhere other than where
+  the job believes. Private means an RFC 1918 range, IPv4 loopback,
+  `localhost`, or an IPv6 unique-local or loopback address. `localhost` is the
+  one name accepted; every other host must be a complete address literal.
+  Checking a prefix would accept the DNS name
+  `10.attacker.example` and hand it the runtime token, so the address is parsed
+  as a dotted quad, or as an IPv6 hextet for the unique-local range, before any
+  range is considered.
+
+The proxy URL's path segment is bearer-like, so the action masks the URL as
+well as the token, and its single notice names only the host and port. Keep it
+that way: a notice carrying the path would publish a credential to the log, and
+register the secrets before anything is written, because the runner redacts
+only what it already knows.
+
+Every terminal path reports one bounded
+`metric ubicloud-cache-credentials.result=<state>` line over a closed set:
+`exported`, `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and
+`public-host`. Keep the name fixed and the values inside that set, and keep
+tokens, URLs, hosts, and error text out of both.
+
+The runner-backed workflow,
+`.github/workflows/test-export-ubicloud-cache-credentials.yml`, asserts one
+thing only: that the action refuses a GitHub-hosted runner. The success path
+cannot be simulated there. The runner supplies its own `ACTIONS_CACHE_URL` and
+`ACTIONS_RUNTIME_TOKEN` to every action step and **overrides workflow-level
+values of the same names**, so a job that sets a private URL still sees
+GitHub's public one inside the action. That was established by observation: an
+earlier version of this workflow set a `10.0.0.0/8` URL at job level, the step
+log showed it in the declared environment, and the action still read
+`artifactcache.actions.githubusercontent.com`.
+
+So the success path belongs to the Node tests, which run the shipped script
+directly, and the refusal belongs to the runner, which is the only place a
+real GitHub cache endpoint can be put in front of the guard. Do not try to
+recover the success path by adding an input that overrides the environment:
+that would put a way to bypass the private-host check into the action's public
+surface.
+
+Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
+before any step that starts an sccache server, because sccache reads the cache
+configuration once at server start and keeps it for that server's life.
+
 ## `install-whitaker` action contract
 
 The composite action's built-in cache restores

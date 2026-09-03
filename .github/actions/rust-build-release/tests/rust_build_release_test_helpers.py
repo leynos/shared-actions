@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
@@ -35,3 +37,11 @@ def export_rustflags_run_script() -> str:
     run_script = find_step(steps, "Export caller RUSTFLAGS").get("run")
     assert isinstance(run_script, str), "export step has no run script"  # noqa: S101
     return run_script
+
+
+def requires_bash() -> str:
+    """Return a usable bash path or skip shell-fragment tests."""
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+    return bash

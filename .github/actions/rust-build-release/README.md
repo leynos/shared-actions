@@ -41,6 +41,8 @@ manifest `rust-version`, then the action's bundled fallback version.
 | features                | string  | (empty)                    | Comma-separated Cargo features    | no       |
 | skip-man-page-discovery | boolean | `false`                    | Post-build man opt-out            | no       |
 | rustflags               | string  | (empty)                    | RUSTFLAGS exported pre-setup      | no       |
+| cache-provider          | string  | `github`                   | Nested setup-rust cache owner     | no       |
+| use-sccache             | boolean | `true`                     | Nested setup-rust sccache switch  | no       |
 
 When `toolchain` is empty, the action resolves the toolchain from the target
 repository before falling back to the action default. `manifest-path` may be
@@ -54,6 +56,31 @@ solve that problem. Setting a value exports it before toolchain setup so the
 build honours it (for example, a required `-Z` flag such as
 `-Zpolonius=next`). A pre-existing `RUSTFLAGS` in the environment always
 wins, including when it is deliberately set to the empty string.
+
+### Caller-owned caches
+
+`cache-provider` and `use-sccache` are forwarded verbatim to the nested
+`setup-rust` step; this action adds no caches of its own. The default
+`cache-provider: github` keeps that step's Cargo and uv GitHub archive caches,
+and `use-sccache: 'true'` keeps its GitHub-backed sccache integration.
+
+Pass `cache-provider: external` whenever the caller already owns those paths,
+for example on Ubicloud or with a Namespace cache volume mounted before the
+build. External mode disables the nested archive caches; it does not mount a
+replacement. Pair it with `use-sccache: 'false'` when the caller installs its
+own sccache binary, sets `RUSTC_WRAPPER=sccache`, and mounts that cache
+directory, so only one owner writes each path. The two inputs are independent:
+the compiler cache and the Cargo and uv archive caches can be switched
+separately. An unrecognized `cache-provider` fails before toolchain setup runs.
+
+```yaml
+- uses: ./.github/actions/rust-build-release
+  with:
+    target: x86_64-unknown-linux-gnu
+    project-dir: rust-toy-app
+    cache-provider: external
+    use-sccache: 'false'
+```
 
 By default, Linux and illumos staging discovers man pages generated during
 `cargo build` at `target/generated-man/<target>/release/<bin>.1`, then falls

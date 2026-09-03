@@ -24,6 +24,15 @@ RUST_ACTION_MANIFESTS = (
 )
 
 
+CACHE_ACTION_PREFIXES = ("actions/cache@", "actions/cache/")
+
+
+def _is_cache_step(step: dict[str, object]) -> bool:
+    """Report whether ``step`` invokes ``actions/cache`` or its save/restore forms."""
+    uses = step.get("uses")
+    return isinstance(uses, str) and uses.startswith(CACHE_ACTION_PREFIXES)
+
+
 def _cache_path_block(step: dict[str, object]) -> str | None:
     """Return the ``with.path`` block of ``step``, or ``None`` if it has none."""
     step_inputs = step.get("with")
@@ -39,9 +48,10 @@ def _path_entries(block: str) -> cabc.Iterator[str]:
 
 
 def _cache_path_entries(manifest_path: Path) -> cabc.Iterator[tuple[str, str]]:
-    """Yield ``(step name, path entry)`` pairs for every cache-like step."""
+    """Yield ``(step name, path entry)`` pairs for every archive-cache step."""
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    for step in manifest["runs"]["steps"]:
+    cache_steps = (step for step in manifest["runs"]["steps"] if _is_cache_step(step))
+    for step in cache_steps:
         block = _cache_path_block(step)
         if block is None:
             continue
@@ -92,6 +102,33 @@ def test_is_target_entry_rejects_archived_target_trees(entry: str) -> None:
 def test_is_target_entry_accepts_unrelated_paths(entry: str) -> None:
     """Paths that merely resemble ``target`` remain cacheable."""
     assert not _is_target_entry(entry)
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "actions/cache@v4",
+        "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+        "actions/cache/restore@v4",
+        "actions/cache/save@v4",
+    ],
+)
+def test_is_cache_step_selects_archive_cache_steps(uses: str) -> None:
+    """Every ``actions/cache`` form contributes path entries to the contract."""
+    assert _is_cache_step({"uses": uses})
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        {"uses": "actions/upload-artifact@v4"},
+        {"uses": "mozilla-actions/sccache-action@v0.0.9"},
+        {"run": "cargo build"},
+    ],
+)
+def test_is_cache_step_ignores_other_steps(step: dict[str, object]) -> None:
+    """A non-cache step's ``path`` input is not an archive-cache entry."""
+    assert not _is_cache_step(step)
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ too, because these inputs are the reason a caller would set it.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
 import os
 import sys
@@ -173,38 +174,61 @@ def test_argument_builder_reports_nothing(
     assert captured.err == ""
 
 
-@pytest.mark.parametrize(
-    ("features", "with_default", "all_features", "expected"),
-    [
-        ("", True, False, (None, None)),
-        ("cli", True, False, (None, None)),
-        ("", False, False, (None, None)),
-        ("", True, True, (None, None)),
-        ("", False, True, (None, "supersedes")),
-        ("cli", True, True, ("already enables every feature", None)),
-        ("cli", False, True, ("already enables every feature", None)),
-    ],
+@dataclasses.dataclass(frozen=True, slots=True)
+class DiagnosticsCase:
+    """One feature selection and the diagnostics it should produce.
+
+    ``expected_error`` and ``expected_warning`` hold a substring to look for,
+    or ``None`` when that diagnostic must be absent.
+    """
+
+    features: str
+    with_default: bool
+    all_features: bool
+    expected_error: str | None = None
+    expected_warning: str | None = None
+
+
+DIAGNOSTICS_CASES = (
+    DiagnosticsCase("", with_default=True, all_features=False),
+    DiagnosticsCase("cli", with_default=True, all_features=False),
+    DiagnosticsCase("", with_default=False, all_features=False),
+    DiagnosticsCase("", with_default=True, all_features=True),
+    DiagnosticsCase(
+        "", with_default=False, all_features=True, expected_warning="supersedes"
+    ),
+    DiagnosticsCase(
+        "cli",
+        with_default=True,
+        all_features=True,
+        expected_error="already enables every feature",
+    ),
+    DiagnosticsCase(
+        "cli",
+        with_default=False,
+        all_features=True,
+        expected_error="already enables every feature",
+    ),
 )
+
+
+@pytest.mark.parametrize("case", DIAGNOSTICS_CASES)
 def test_feature_selection_diagnostics_are_a_pure_query(
-    run_rust: ModuleType,
-    features: str,
-    expected: tuple[str | None, str | None],
-    *,
-    with_default: bool,
-    all_features: bool,
+    run_rust: ModuleType, case: DiagnosticsCase
 ) -> None:
     """Each selection maps to the diagnostics it deserves, with no output."""
     error, warning = run_rust.feature_selection_diagnostics(
-        features, with_default=with_default, all_features=all_features
+        case.features,
+        with_default=case.with_default,
+        all_features=case.all_features,
     )
 
-    expected_error, expected_warning = expected
-    assert (error is None) is (expected_error is None)
-    assert (warning is None) is (expected_warning is None)
-    if expected_error is not None:
-        assert expected_error in error
-    if expected_warning is not None:
-        assert expected_warning in warning
+    assert (error is None) is (case.expected_error is None)
+    assert (warning is None) is (case.expected_warning is None)
+    if case.expected_error is not None:
+        assert case.expected_error in error
+    if case.expected_warning is not None:
+        assert case.expected_warning in warning
 
 
 def test_boundary_check_warns_on_superseded_defaults(

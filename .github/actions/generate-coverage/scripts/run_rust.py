@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import logging
 import os
@@ -506,6 +507,175 @@ def _resolve_bool_input(
     return _env_bool(envvar, default=default)
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _RawInputs:
+    """Inputs exactly as the CLI received them, before environment fallbacks.
+
+    ``main`` is the only place these arrive as loose parameters, because Typer
+    builds the option list from its signature. Bundling them here lets each
+    resolver take one argument and stay small enough to read at a glance.
+    """
+
+    output_path: Path | None
+    features: str
+    with_default: bool | None
+    use_nextest: bool | None
+    lang: str | None
+    fmt: str | None
+    manifest_path: Path | None
+    github_output: Path | None
+    cucumber_rs_features: str
+    cucumber_rs_args: str
+    with_cucumber_rs: bool | None
+    all_features: bool | None
+    all_targets: bool | None
+    doctests: bool | None
+    baseline_file: Path | None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class CoverageTargets:
+    """Where the run reads its manifest and writes its results."""
+
+    out: Path
+    lang: str
+    fmt: str
+    manifest_path: Path
+    github_output: Path
+    baseline_file: Path | None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class FeatureSelection:
+    """What the run builds and executes."""
+
+    features: str
+    with_default: bool
+    use_nextest: bool
+    all_features: bool
+    all_targets: bool
+    doctests: bool
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class CucumberSelection:
+    """Whether and how to fold cucumber.rs scenarios into the report."""
+
+    enabled: bool
+    features: str
+    args: str
+
+    @property
+    def requested(self) -> bool:
+        """Return whether a cucumber run was both enabled and given features."""
+        return self.enabled and bool(self.features)
+
+
+def _resolve_targets(raw: _RawInputs) -> CoverageTargets:
+    """Resolve paths and formats, falling back to the action's environment."""
+    lang = raw.lang or _required_env("DETECTED_LANG")
+    output_path = raw.output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+    manifest_path = raw.manifest_path
+    if manifest_path is None:
+        detected = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
+        manifest_path = Path(detected or "Cargo.toml")
+    return CoverageTargets(
+        out=_resolve_output_path(output_path, lang),
+        lang=lang,
+        fmt=raw.fmt or _required_env("DETECTED_FMT"),
+        manifest_path=manifest_path,
+        github_output=raw.github_output or Path(_required_env("GITHUB_OUTPUT")),
+        baseline_file=raw.baseline_file,
+    )
+
+
+def _resolve_features(raw: _RawInputs) -> FeatureSelection:
+    """Resolve the feature and target selection from inputs and environment."""
+    return FeatureSelection(
+        features=raw.features or os.getenv("INPUT_FEATURES", ""),
+        with_default=_resolve_bool_input(
+            raw.with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
+        ),
+        use_nextest=_resolve_bool_input(
+            raw.use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True
+        ),
+        all_features=_resolve_bool_input(
+            raw.all_features, "INPUT_ALL_FEATURES", default=False
+        ),
+        all_targets=_resolve_bool_input(
+            raw.all_targets, "INPUT_ALL_TARGETS", default=False
+        ),
+        doctests=_resolve_bool_input(raw.doctests, "INPUT_DOCTESTS", default=False),
+    )
+
+
+def _resolve_cucumber(raw: _RawInputs) -> CucumberSelection:
+    """Resolve the cucumber.rs selection from inputs and environment."""
+    return CucumberSelection(
+        enabled=_resolve_bool_input(
+            raw.with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
+        ),
+        features=raw.cucumber_rs_features
+        or os.getenv("INPUT_CUCUMBER_RS_FEATURES", ""),
+        args=raw.cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", ""),
+    )
+
+
+def _run_coverage(
+    targets: CoverageTargets,
+    selection: FeatureSelection,
+    cucumber: CucumberSelection,
+) -> str:
+    """Run the instrumented build, then any cucumber and doc-test runs.
+
+    Returns the captured stdout of the instrumented run, from which the
+    percentage is parsed for streamed formats.
+    """
+    args = get_cargo_coverage_cmd(
+        targets.fmt,
+        targets.out,
+        selection.features,
+        manifest_path=targets.manifest_path,
+        with_default=selection.with_default,
+        use_nextest=selection.use_nextest,
+        all_features=selection.all_features,
+        all_targets=selection.all_targets,
+    )
+    config_context = (
+        ensure_nextest_config() if selection.use_nextest else contextlib.nullcontext()
+    )
+    cargo_env = get_cargo_coverage_env(targets.manifest_path)
+    with config_context:
+        stdout = _run_cargo(
+            args,
+            env_overrides=cargo_env,
+            env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
+        )
+        if cucumber.requested:
+            run_cucumber_rs_coverage(
+                targets.out,
+                targets.fmt,
+                selection.features,
+                manifest_path=targets.manifest_path,
+                cargo_env=cargo_env,
+                with_default=selection.with_default,
+                use_nextest=selection.use_nextest,
+                cucumber_rs_features=cucumber.features,
+                cucumber_rs_args=cucumber.args,
+                all_features=selection.all_features,
+                all_targets=selection.all_targets,
+            )
+    if selection.doctests:
+        run_doctests(
+            selection.features,
+            manifest_path=targets.manifest_path,
+            cargo_env=cargo_env,
+            with_default=selection.with_default,
+            all_features=selection.all_features,
+        )
+    return stdout
+
+
 def main(
     output_path: typ.Annotated[Path | None, typer.Option()] = None,
     features: typ.Annotated[str, typer.Option()] = "",
@@ -525,84 +695,37 @@ def main(
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
-    output_path = output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
-    lang = lang or _required_env("DETECTED_LANG")
-    fmt = fmt or _required_env("DETECTED_FMT")
-    github_output = github_output or Path(_required_env("GITHUB_OUTPUT"))
-    features = features or os.getenv("INPUT_FEATURES", "")
-    if manifest_path is None:
-        detected_manifest = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
-        manifest_path = Path(detected_manifest or "Cargo.toml")
-    cucumber_rs_features = cucumber_rs_features or os.getenv(
-        "INPUT_CUCUMBER_RS_FEATURES", ""
-    )
-    cucumber_rs_args = cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", "")
-    with_default = _resolve_bool_input(
-        with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
-    )
-    use_nextest = _resolve_bool_input(
-        use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True
-    )
-    with_cucumber_rs = _resolve_bool_input(
-        with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
-    )
-    all_features = _resolve_bool_input(
-        all_features, "INPUT_ALL_FEATURES", default=False
-    )
-    all_targets = _resolve_bool_input(all_targets, "INPUT_ALL_TARGETS", default=False)
-    doctests = _resolve_bool_input(doctests, "INPUT_DOCTESTS", default=False)
-    check_feature_selection(
-        features, with_default=with_default, all_features=all_features
-    )
-    out = _resolve_output_path(output_path, lang)
-    out.parent.mkdir(parents=True, exist_ok=True)
-
-    args = get_cargo_coverage_cmd(
-        fmt,
-        out,
-        features,
-        manifest_path=manifest_path,
+    raw = _RawInputs(
+        output_path=output_path,
+        features=features,
         with_default=with_default,
         use_nextest=use_nextest,
+        lang=lang,
+        fmt=fmt,
+        manifest_path=manifest_path,
+        github_output=github_output,
+        cucumber_rs_features=cucumber_rs_features,
+        cucumber_rs_args=cucumber_rs_args,
+        with_cucumber_rs=with_cucumber_rs,
         all_features=all_features,
         all_targets=all_targets,
+        doctests=doctests,
+        baseline_file=baseline_file,
     )
-    config_context = (
-        ensure_nextest_config() if use_nextest else contextlib.nullcontext()
+    targets = _resolve_targets(raw)
+    selection = _resolve_features(raw)
+    cucumber = _resolve_cucumber(raw)
+    check_feature_selection(
+        selection.features,
+        with_default=selection.with_default,
+        all_features=selection.all_features,
     )
-    cargo_env = get_cargo_coverage_env(manifest_path)
-    with config_context:
-        stdout = _run_cargo(
-            args,
-            env_overrides=cargo_env,
-            env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
-        )
+    targets.out.parent.mkdir(parents=True, exist_ok=True)
 
-        if with_cucumber_rs and cucumber_rs_features:
-            run_cucumber_rs_coverage(
-                out,
-                fmt,
-                features,
-                manifest_path=manifest_path,
-                cargo_env=cargo_env,
-                with_default=with_default,
-                use_nextest=use_nextest,
-                cucumber_rs_features=cucumber_rs_features,
-                cucumber_rs_args=cucumber_rs_args,
-                all_features=all_features,
-                all_targets=all_targets,
-            )
-    if doctests:
-        run_doctests(
-            features,
-            manifest_path=manifest_path,
-            cargo_env=cargo_env,
-            with_default=with_default,
-            all_features=all_features,
-        )
-    percent = _compute_coverage_percent(fmt, out, stdout)
-    previous = read_previous_coverage(baseline_file)
-    _report_coverage(percent, previous, github_output, out)
+    stdout = _run_coverage(targets, selection, cucumber)
+    percent = _compute_coverage_percent(targets.fmt, targets.out, stdout)
+    previous = read_previous_coverage(targets.baseline_file)
+    _report_coverage(percent, previous, targets.github_output, targets.out)
 
 
 if __name__ == "__main__":

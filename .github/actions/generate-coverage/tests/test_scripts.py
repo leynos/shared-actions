@@ -102,6 +102,9 @@ def _load_module(
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # Register before executing: dataclass field resolution looks the defining
+    # module up in ``sys.modules`` while the class body runs.
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 

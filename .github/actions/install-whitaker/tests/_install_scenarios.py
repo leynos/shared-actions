@@ -89,7 +89,14 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
 """
 
 
-_TAR_SHIM = r'''#!{interpreter}
+_TAR_SHIM_WRAPPER = """#!/usr/bin/env bash
+# Runs the shim body with an explicitly quoted interpreter. A shebang cannot
+# name an interpreter whose path contains a space, and `sys.executable` does
+# on the Windows runner.
+exec "{interpreter}" "{script}" "$@"
+"""
+
+_TAR_SHIM = r'''
 """Stand in for the runner's tar, delegating to it except for zip archives.
 
 GNU tar cannot read zip, so a Linux test host cannot exercise the Windows
@@ -386,6 +393,11 @@ def _build_context(
     )
 
 
+def _posix_path(path: str) -> str:
+    """Return a path Bash can execute, with forward separators."""
+    return path.replace("\\", "/")
+
+
 def _real_tar() -> str:
     """Return the ambient ``tar`` the shim delegates gzip extraction to."""
     resolved = shutil.which("tar")
@@ -424,9 +436,15 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
     """Create the command stubs and return the ``PATH`` for the fragments."""
     stub_bin = root / "stub-bin"
     _write_executable(stub_bin / "curl", _CURL_STUB)
+    shim_body = stub_bin / "tar-shim.py"
+    shim_body.parent.mkdir(parents=True, exist_ok=True)
+    shim_body.write_text(_TAR_SHIM, encoding="utf-8")
     _write_executable(
         stub_bin / "tar",
-        _TAR_SHIM.replace("{interpreter}", sys.executable),
+        _TAR_SHIM_WRAPPER.format(
+            interpreter=_posix_path(sys.executable),
+            script=_posix_path(str(shim_body)),
+        ),
     )
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
     path = f"{bash_path(stub_bin)}:/usr/bin:/bin"

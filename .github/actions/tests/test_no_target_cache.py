@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -102,6 +104,57 @@ def test_is_target_entry_rejects_archived_target_trees(entry: str) -> None:
 def test_is_target_entry_accepts_unrelated_paths(entry: str) -> None:
     """Paths that merely resemble ``target`` remain cacheable."""
     assert not _is_target_entry(entry)
+
+
+SAFE_SEGMENTS = st.text(
+    alphabet=st.characters(
+        codec="ascii", categories=("Ll", "Lu", "Nd"), include_characters="._-~"
+    ),
+    min_size=1,
+    max_size=12,
+).filter(lambda segment: segment != "target" and not segment.startswith("target$"))
+SEPARATORS = st.sampled_from(["/", "\\"])
+
+
+def _join(segments: list[str], separators: list[str]) -> str:
+    """Join ``segments`` using one separator from ``separators`` per gap."""
+    joined = segments[0]
+    for separator, segment in zip(separators, segments[1:], strict=True):
+        joined += separator + segment
+    return joined
+
+
+@given(
+    prefix=st.lists(SAFE_SEGMENTS, max_size=3),
+    suffix=st.lists(SAFE_SEGMENTS, max_size=3),
+    target_segment=st.sampled_from(["target", "target${{ env.BUILD_PROFILE }}"]),
+    data=st.data(),
+)
+def test_any_complete_target_segment_is_rejected(
+    prefix: list[str],
+    suffix: list[str],
+    target_segment: str,
+    data: st.DataObject,
+) -> None:
+    """A ``target`` segment is rejected wherever it sits, under either separator."""
+    segments = [*prefix, target_segment, *suffix]
+    separators = data.draw(
+        st.lists(SEPARATORS, min_size=len(segments) - 1, max_size=len(segments) - 1)
+    )
+
+    assert _is_target_entry(_join(segments, separators))
+
+
+@given(segments=st.lists(SAFE_SEGMENTS, min_size=1, max_size=6), data=st.data())
+def test_paths_without_a_target_segment_are_accepted(
+    segments: list[str], data: st.DataObject
+) -> None:
+    """Paths whose segments never equal ``target`` stay cacheable."""
+    separators = data.draw(
+        st.lists(SEPARATORS, min_size=len(segments) - 1, max_size=len(segments) - 1)
+    )
+
+    assert not _is_target_entry(_join(segments, separators))
 
 
 @pytest.mark.parametrize(

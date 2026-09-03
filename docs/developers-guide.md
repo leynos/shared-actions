@@ -221,6 +221,10 @@ Coverage keeps the LLVM codegen backend. Cranelift has no
 so an instrumented build must use LLVM. mold remains usable as the linker for
 those builds.
 
+[ADR 0003](adr/0003-sccache-owns-rust-compiler-output.md) records this decision
+for both actions, including the measurements behind it and the consequence of a
+cold sccache store.
+
 Do not couple this input to `use-sccache`. The setup action's compiler-cache
 backend is independent of its Cargo and uv archive caches. A caller mounting
 `~/.cache/sccache` must disable the shared sccache action, install a trusted

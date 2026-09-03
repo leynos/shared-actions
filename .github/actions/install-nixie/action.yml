@@ -44,11 +44,24 @@ runs:
           exit 1
         fi
 
+        sha256_for_path() {
+          local path_to_hash="$1"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            local windows_path
+            windows_path="$(cygpath --windows "$path_to_hash")"
+            MERMAN_HASH_PATH="$windows_path" powershell.exe -NoProfile -NonInteractive -Command \
+              '(Get-FileHash -Algorithm SHA256 -LiteralPath $env:MERMAN_HASH_PATH).Hash.ToLowerInvariant()' | tr -d '\r'
+          else
+            shasum -a 256 "$path_to_hash" | awk '{print $1}'
+          fi
+        }
+
         case "${RUNNER_OS:-}/${RUNNER_ARCH:-}" in
           Linux/X64)
             merman_archive="merman-cli-x86_64-unknown-linux-gnu.tar.xz"
             merman_archive_root="merman-cli-x86_64-unknown-linux-gnu"
             merman_checksum="dfdc2a978a884aa5a2ad5b85285fb5175cb435e82cf96efa860a550749e09d99"
+            merman_executable_checksum="5e228914b31061ddc5f8d05c335e4cc88dcd116b888768494d78a9b670520965"
             merman_executable="merman-cli"
             nixie_executable="nixie"
             ;;
@@ -56,6 +69,7 @@ runs:
             merman_archive="merman-cli-aarch64-apple-darwin.tar.xz"
             merman_archive_root="merman-cli-aarch64-apple-darwin"
             merman_checksum="5c61d806c9cdb1b16062797955fb51849d5df7789e0dc8ea4c54e22d61b865ae"
+            merman_executable_checksum="70f78cd01fa41c573ed823bdd7dae30d4729c7c1483b485c80d239949400abd8"
             merman_executable="merman-cli"
             nixie_executable="nixie"
             ;;
@@ -63,6 +77,7 @@ runs:
             merman_archive="merman-cli-x86_64-apple-darwin.tar.xz"
             merman_archive_root="merman-cli-x86_64-apple-darwin"
             merman_checksum="c73a9f676b2f9ec5b81ec805253f39f160b1d76a503c80408bea72fa017fb8f1"
+            merman_executable_checksum="28ff1ec3a7ce3ce146be6559fa11d3340b37f3639efc53b8ecd9b3590ac27544"
             merman_executable="merman-cli"
             nixie_executable="nixie"
             ;;
@@ -70,6 +85,7 @@ runs:
             merman_archive="merman-cli-x86_64-pc-windows-msvc.zip"
             merman_archive_root=""
             merman_checksum="51f4898058d7bae48255a15663cafc14fcee3e352f271a916b2c057587070977"
+            merman_executable_checksum="8cafb025e90683b67c5eac646b07f656a0d519af21a292666df9a01ecbc3f794"
             merman_executable="merman-cli.exe"
             nixie_executable="nixie.exe"
             ;;
@@ -79,27 +95,34 @@ runs:
             ;;
         esac
 
-        merman_bin_dir="${CARGO_HOME:-${HOME}/.cargo}/bin"
+        merman_bin_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/merman/${MERMAN_VERSION}/bin"
         merman_path="${merman_bin_dir}/${merman_executable}"
-        if [[ ! -x "$merman_path" ]]; then
+        merman_is_verified=false
+        if [[ -x "$merman_path" ]]; then
+          actual_executable_checksum="$(sha256_for_path "$merman_path")"
+          if [[ "$actual_executable_checksum" == "$merman_executable_checksum" ]]; then
+            merman_is_verified=true
+          else
+            echo "::notice title=Merman cache refresh::cached merman-cli checksum did not match the verified release"
+          fi
+        fi
+
+        if [[ "$merman_is_verified" != true ]]; then
           temporary_dir="$(mktemp -d)"
           trap 'rm -rf -- "${temporary_dir}"' EXIT
           merman_url="https://github.com/Latias94/merman/releases/download/v${MERMAN_VERSION}/${merman_archive}"
           archive_path="${temporary_dir}/${merman_archive}"
 
-          curl --fail --location --silent --show-error --output "$archive_path" "$merman_url"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            windows_archive_path="$(cygpath --windows "$archive_path")"
-            export MERMAN_ARCHIVE_PATH="$windows_archive_path"
-            actual_checksum="$(powershell.exe -NoProfile -NonInteractive -Command '(Get-FileHash -Algorithm SHA256 -LiteralPath $env:MERMAN_ARCHIVE_PATH).Hash.ToLowerInvariant()' | tr -d '\r')"
-          else
-            actual_checksum="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
-          fi
+          curl --connect-timeout 15 --max-time 90 --retry 3 --retry-delay 2 --retry-max-time 120 \
+            --fail --location --silent --show-error --output "$archive_path" "$merman_url"
+          actual_checksum="$(sha256_for_path "$archive_path")"
           if [[ "$actual_checksum" != "$merman_checksum" ]]; then
             echo "::error title=Merman checksum mismatch::expected ${merman_checksum}, received ${actual_checksum}" >&2
             exit 1
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            windows_archive_path="$(cygpath --windows "$archive_path")"
+            export MERMAN_ARCHIVE_PATH="$windows_archive_path"
             windows_extract_dir="$(cygpath --windows "$temporary_dir")"
             export MERMAN_EXTRACT_DIR="$windows_extract_dir"
             powershell.exe -NoProfile -NonInteractive -Command \
@@ -111,6 +134,11 @@ runs:
           fi
           mkdir -p -- "$merman_bin_dir"
           install -m 0755 "$merman_source_path" "$merman_path"
+          actual_executable_checksum="$(sha256_for_path "$merman_path")"
+          if [[ "$actual_executable_checksum" != "$merman_executable_checksum" ]]; then
+            echo "::error title=Merman executable checksum mismatch::installed merman-cli did not match the verified release" >&2
+            exit 1
+          fi
         fi
 
         if [[ ! -x "$merman_path" ]]; then
@@ -120,7 +148,11 @@ runs:
 
         uv tool install --python "${PYTHON_VERSION}" "nixie-cli==${NIXIE_VERSION}"
         uv_bin_dir="$(uv tool dir --bin)" || exit $?
-        nixie_path="${uv_bin_dir}/${nixie_executable}"
+        nixie_bin_dir="$uv_bin_dir"
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          nixie_bin_dir="$(cygpath --unix "$uv_bin_dir")"
+        fi
+        nixie_path="${nixie_bin_dir}/${nixie_executable}"
         if [[ ! -x "$nixie_path" ]]; then
           echo "::notice title=Nixie shim repair::reinstalling nixie-cli because ${nixie_path} is absent"
           uv tool install --force --python "${PYTHON_VERSION}" "nixie-cli==${NIXIE_VERSION}"

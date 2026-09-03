@@ -1,11 +1,12 @@
 # Install Nixie
 
-Install pinned Nixie and a checksum-verified Merman CLI release for Mermaid
-validation.
+Install pinned Nixie and a checksum-verified Merman command-line interface
+(CLI) release for Mermaid validation.
 
 The action installs Nixie through `uv` and obtains Merman only from the
 official `Latias94/merman` v0.7.0 release assets. It verifies the downloaded
-archive against an embedded SHA-256 digest before installing the executable.
+archive against an embedded Secure Hash Algorithm 256-bit (SHA-256) digest
+before installing the executable.
 It never uses Cargo, `cargo binstall`, or a source-build fallback.
 
 ## Inputs
@@ -70,8 +71,10 @@ To override the Nixie and Python pins:
   `Windows/X64`; every supported pair maps to one official release archive and
   an embedded SHA-256 digest. Any other version or platform fails before a
   download is attempted.
-  A cached `${CARGO_HOME:-~/.cargo}/bin/merman-cli` executable is reused
-  (`.exe` on Windows).
+  The action stores Merman under
+  `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/0.7.0/bin` (`.exe` on Windows) and
+  verifies the pinned executable digest before every reuse. Cache callers must
+  include `~/.cache/merman` in their persisted paths.
 - **Nixie installation**: The action reconciles the requested Nixie package
   with `uv tool install`. It uses `--force` only when the expected `nixie`
   executable shim is absent after normal reconciliation. It does not invoke

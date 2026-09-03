@@ -555,12 +555,14 @@ inputs and their defaults synchronized with the action README and users' guide.
 
 Merman is a release-asset policy, not a package-manager policy. The action
 supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`,
-and `Windows/X64` to an official `Latias94/merman` archive and a literal
-SHA-256 digest. The Windows archive is verified with PowerShell's
-`Get-FileHash` and extracted by `Expand-Archive` through Git Bash's path
-conversion. It reuses `${CARGO_HOME:-~/.cargo}/bin/merman-cli` (`.exe` on
-Windows) when that cached executable exists. On a cache miss it downloads,
-checksums, extracts, and installs the release asset. Do not add Cargo,
+and `Windows/X64` to an official `Latias94/merman` archive and literal Secure
+Hash Algorithm 256-bit (SHA-256) archive and executable digests. The Windows
+archive is verified with PowerShell's `Get-FileHash` and extracted by
+`Expand-Archive` through Git Bash's path conversion. The action stores Merman
+at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
+and revalidates its pinned executable digest before every cache reuse. Callers
+that persist the action's cache must include `~/.cache/merman`. On a cache miss
+it downloads, checksums, extracts, and installs the release asset. Do not add Cargo,
 `cargo binstall`, or a source-build fallback. Adding a new Merman release or
 runner pair requires an official release asset, an independently reviewed
 digest, focused tests, and synchronized user-facing documentation; fail closed
@@ -568,10 +570,11 @@ until all four exist.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the
-`nixie` executable shim and repeats the install with `--force` only when that
+`nixie` executable shim and repeats the installation with `--force` only when that
 shim is absent. Do not add a `nixie --version` probe. Both Merman and Nixie
 executable checks must succeed before their directories are written to
-`GITHUB_PATH`.
+`GITHUB_PATH`. On Windows, convert the native `uv` directory to a Git Bash path
+for executable checks, while retaining the native directory for `GITHUB_PATH`.
 
 `.github/actions/install-nixie/tests/test_action.py` is the behavioural test
 boundary. Changes must retain coverage for a warm Merman cache, the official

@@ -14,8 +14,14 @@ import yaml
 
 ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
 _MERMAN_CHECKSUM = "dfdc2a978a884aa5a2ad5b85285fb5175cb435e82cf96efa860a550749e09d99"
+_MERMAN_EXECUTABLE_CHECKSUM = (
+    "5e228914b31061ddc5f8d05c335e4cc88dcd116b888768494d78a9b670520965"
+)
 _WINDOWS_MERMAN_CHECKSUM = (
     "51f4898058d7bae48255a15663cafc14fcee3e352f271a916b2c057587070977"
+)
+_WINDOWS_MERMAN_EXECUTABLE_CHECKSUM = (
+    "8cafb025e90683b67c5eac646b07f656a0d519af21a292666df9a01ecbc3f794"
 )
 
 
@@ -30,10 +36,12 @@ class _InstallOptions:
     nixie_version: str = "1.1.0"
     python_version: str = "3.14"
     actual_checksum: str = _MERMAN_CHECKSUM
+    actual_executable_checksum: str = _MERMAN_EXECUTABLE_CHECKSUM
     curl_status: int = 0
     include_uv: bool = True
     runner_arch: str = "X64"
     runner_os: str = "Linux"
+    uv_bin_dir_output: str | None = None
     uv_install_status: int = 0
 
 
@@ -90,13 +98,19 @@ exit "$CURL_STATUS"
 
 
 def _write_checksum_stub(stubs_dir: Path) -> None:
-    """Write a shasum stub that returns the scenario's Merman checksum."""
+    """Write a shasum stub that returns the scenario's expected checksum."""
     _write_executable(
         stubs_dir / "shasum",
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'shasum <%s>\\n' "$*" >> "$CALLS_PATH"
-printf '%s  %s\\n' "$MERMAN_ACTUAL_CHECKSUM" "${@: -1}"
+path_to_hash="${@: -1}"
+if [[ "$path_to_hash" == *"/merman-cli" ]]; then
+  checksum="$MERMAN_EXECUTABLE_CHECKSUM"
+else
+  checksum="$MERMAN_ACTUAL_CHECKSUM"
+fi
+printf '%s  %s\\n' "$checksum" "$path_to_hash"
 """,
     )
 
@@ -136,6 +150,10 @@ def _write_windows_archive_stubs(stubs_dir: Path) -> None:
         """#!/usr/bin/env bash
 set -euo pipefail
 printf 'cygpath <%s>\\n' "$*" >> "$CALLS_PATH"
+if [[ "${1:-}" == "--unix" ]]; then
+  printf '%s\\n' "$UV_BIN_DIR"
+  exit 0
+fi
 printf '%s\\n' "${@: -1}"
 """,
     )
@@ -145,7 +163,11 @@ printf '%s\\n' "${@: -1}"
 set -euo pipefail
 printf 'powershell.exe <%s>\\n' "$*" >> "$CALLS_PATH"
 if [[ "$*" == *"Get-FileHash"* ]]; then
-  printf '%s\\n' "$MERMAN_ACTUAL_CHECKSUM"
+  if [[ "$MERMAN_HASH_PATH" == *.exe ]]; then
+    printf '%s\\n' "$MERMAN_EXECUTABLE_CHECKSUM"
+  else
+    printf '%s\\n' "$MERMAN_ACTUAL_CHECKSUM"
+  fi
   exit 0
 fi
 mkdir -p "$MERMAN_EXTRACT_DIR"
@@ -163,7 +185,7 @@ def _write_uv_stub(stubs_dir: Path) -> None:
 set -euo pipefail
 printf 'uv <%s>\\n' "$*" >> "$CALLS_PATH"
 if [[ "${1:-}" == "tool" && "${2:-}" == "dir" && "${3:-}" == "--bin" ]]; then
-  printf '%s\\n' "$UV_BIN_DIR"
+  printf '%s\\n' "$UV_BIN_DIR_OUTPUT"
   exit 0
 fi
 if [[ "${1:-}" == "tool" && "${2:-}" == "install" ]]; then
@@ -203,30 +225,32 @@ def _run_install_script(
     stubs_dir.mkdir()
     calls_path = tmp_path / "calls"
     github_path = tmp_path / "github-path"
-    cargo_home = tmp_path / "cargo-home"
+    cache_home = tmp_path / "cache-home"
     is_windows_runner = options.runner_os == "Windows"
     merman_executable = "merman-cli.exe" if is_windows_runner else "merman-cli"
     nixie_executable = "nixie.exe" if is_windows_runner else "nixie"
-    merman_path = cargo_home / "bin" / merman_executable
+    merman_path = (
+        cache_home / "merman" / options.merman_version / "bin" / merman_executable
+    )
+    _write_download_stubs(stubs_dir)
     if options.merman_cached:
         merman_path.parent.mkdir(parents=True)
         _write_executable(merman_path, "#!/usr/bin/env bash\nexit 0\n")
-    else:
-        _write_download_stubs(stubs_dir)
     if options.include_uv:
         _write_uv_stub(stubs_dir)
 
     uv_bin_dir = tmp_path / "uv-bin"
+    uv_bin_dir_output = options.uv_bin_dir_output or uv_bin_dir.as_posix()
     path = f"{stubs_dir}{os.pathsep}{os.environ['PATH']}"
     if not options.include_uv:
         path = stubs_dir.as_posix()
     env = {
         **os.environ,
         "CALLS_PATH": calls_path.as_posix(),
-        "CARGO_HOME": cargo_home.as_posix(),
         "CURL_STATUS": str(options.curl_status),
         "GITHUB_PATH": github_path.as_posix(),
         "MERMAN_ACTUAL_CHECKSUM": options.actual_checksum,
+        "MERMAN_EXECUTABLE_CHECKSUM": options.actual_executable_checksum,
         "MERMAN_VERSION": options.merman_version,
         "NIXIE_SHIM_AFTER_FORCE": str(options.nixie_shim_after_force).lower(),
         "NIXIE_SHIM_AFTER_INSTALL": str(options.nixie_shim_after_install).lower(),
@@ -236,8 +260,10 @@ def _run_install_script(
         "RUNNER_ARCH": options.runner_arch,
         "RUNNER_OS": options.runner_os,
         "UV_BIN_DIR": uv_bin_dir.as_posix(),
+        "UV_BIN_DIR_OUTPUT": uv_bin_dir_output,
         "UV_EXECUTABLE": nixie_executable,
         "UV_INSTALL_STATUS": str(options.uv_install_status),
+        "XDG_CACHE_HOME": cache_home.as_posix(),
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
         [bash, "-c", _install_script()],
@@ -281,6 +307,11 @@ def test_manifest_exposes_pinned_version_inputs_and_verified_assets() -> None:
     assert "Windows/X64" in script
     assert _MERMAN_CHECKSUM in script
     assert _WINDOWS_MERMAN_CHECKSUM in script
+    assert _MERMAN_EXECUTABLE_CHECKSUM in script
+    assert _WINDOWS_MERMAN_EXECUTABLE_CHECKSUM in script
+    assert "--connect-timeout 15" in script
+    assert "--max-time 90" in script
+    assert "--retry 3" in script
     assert "c73a9f676b2f9ec5b81ec805253f39f160b1d76a503c80408bea72fa017fb8f1" in script
     assert "5c61d806c9cdb1b16062797955fb51849d5df7789e0dc8ea4c54e22d61b865ae" in script
 
@@ -292,17 +323,38 @@ def test_install_script_uses_cached_merman_and_normal_nixie_reconciliation(
     result = _run_install_script(tmp_path, _InstallOptions())
 
     assert result.returncode == 0, result.stderr
-    assert _calls(tmp_path) == [
+    calls = _calls(tmp_path)
+    assert calls[0].startswith("shasum <-a 256 ")
+    assert calls[1:] == [
         "uv <tool install --python 3.14 nixie-cli==1.1.0>",
         "uv <tool dir --bin>",
     ]
     expected_github_path = (
-        f"{(tmp_path / 'cargo-home' / 'bin').as_posix()}\n"
+        f"{(tmp_path / 'cache-home' / 'merman' / '0.7.0' / 'bin').as_posix()}\n"
         f"{(tmp_path / 'uv-bin').as_posix()}\n"
     )
     assert (tmp_path / "github-path").read_text(
         encoding="utf-8"
     ) == expected_github_path
+
+
+def test_install_script_refreshes_an_unverified_cached_merman(tmp_path: Path) -> None:
+    """An unverified warm cache should not bypass the official release policy."""
+    result = _run_install_script(
+        tmp_path,
+        _InstallOptions(actual_executable_checksum="0" * 64),
+    )
+
+    assert result.returncode == 1
+    assert "Merman cache refresh" in result.stdout
+    assert "Merman executable checksum mismatch" in result.stderr
+    calls = _calls(tmp_path)
+    assert calls[0].startswith("shasum <-a 256 ")
+    assert calls[1].startswith("curl <")
+    assert calls[2].startswith("shasum <-a 256 ")
+    assert calls[3].startswith("tar <-xJf ")
+    assert calls[4].startswith("shasum <-a 256 ")
+    _assert_github_path_empty(tmp_path)
 
 
 def test_install_script_downloads_only_the_verified_official_merman_asset(
@@ -319,11 +371,14 @@ def test_install_script_downloads_only_the_verified_official_merman_asset(
     )
     assert calls[1].startswith("shasum <-a 256 ")
     assert calls[2].startswith("tar <-xJf ")
-    assert calls[3:] == [
+    assert calls[3].startswith("shasum <-a 256 ")
+    assert calls[4:] == [
         "uv <tool install --python 3.14 nixie-cli==1.1.0>",
         "uv <tool dir --bin>",
     ]
-    assert (tmp_path / "cargo-home" / "bin" / "merman-cli").is_file()
+    assert (
+        tmp_path / "cache-home" / "merman" / "0.7.0" / "bin" / "merman-cli"
+    ).is_file()
 
 
 def test_install_script_installs_the_verified_windows_release_and_shims(
@@ -334,8 +389,10 @@ def test_install_script_installs_the_verified_windows_release_and_shims(
         tmp_path,
         _InstallOptions(
             actual_checksum=_WINDOWS_MERMAN_CHECKSUM,
+            actual_executable_checksum=_WINDOWS_MERMAN_EXECUTABLE_CHECKSUM,
             merman_cached=False,
             runner_os="Windows",
+            uv_bin_dir_output=r"C:\Users\runneradmin\.local\bin",
         ),
     )
 
@@ -345,17 +402,23 @@ def test_install_script_installs_the_verified_windows_release_and_shims(
         "https://github.com/Latias94/merman/releases/download/v0.7.0/"
         "merman-cli-x86_64-pc-windows-msvc.zip>"
     )
-    assert [call.split(" <", maxsplit=1)[0] for call in calls[1:5]] == [
+    assert [call.split(" <", maxsplit=1)[0] for call in calls[1:8]] == [
+        "cygpath",
+        "powershell.exe",
+        "cygpath",
         "cygpath",
         "powershell.exe",
         "cygpath",
         "powershell.exe",
     ]
-    assert calls[5:] == [
+    assert calls[8:] == [
         "uv <tool install --python 3.14 nixie-cli==1.1.0>",
         "uv <tool dir --bin>",
+        r"cygpath <--unix C:\Users\runneradmin\.local\bin>",
     ]
-    assert (tmp_path / "cargo-home" / "bin" / "merman-cli.exe").is_file()
+    assert (
+        tmp_path / "cache-home" / "merman" / "0.7.0" / "bin" / "merman-cli.exe"
+    ).is_file()
     assert (tmp_path / "uv-bin" / "nixie.exe").is_file()
 
 
@@ -370,6 +433,19 @@ def test_install_script_stops_when_the_merman_checksum_differs(tmp_path: Path) -
     assert "Merman checksum mismatch" in result.stderr
     assert len(_calls(tmp_path)) == 2
     assert not any(call.startswith("uv <tool install") for call in _calls(tmp_path))
+    _assert_github_path_empty(tmp_path)
+
+
+def test_install_script_stops_when_the_merman_download_fails(tmp_path: Path) -> None:
+    """Prevent checksum, extraction, and PATH export after a failed download."""
+    result = _run_install_script(
+        tmp_path,
+        _InstallOptions(curl_status=22, merman_cached=False),
+    )
+
+    assert result.returncode == 22
+    assert len(_calls(tmp_path)) == 1
+    assert _calls(tmp_path)[0].startswith("curl <")
     _assert_github_path_empty(tmp_path)
 
 
@@ -390,6 +466,27 @@ def test_install_script_rejects_unverified_merman_versions(
     _assert_github_path_empty(tmp_path)
 
 
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (_InstallOptions(nixie_version="1.1"), "nixie-version must use"),
+        (_InstallOptions(python_version="3"), "python-version must use"),
+    ],
+)
+def test_install_script_rejects_malformed_nixie_or_python_versions(
+    tmp_path: Path,
+    options: _InstallOptions,
+    message: str,
+) -> None:
+    """Malformed Nixie or Python version pins should stop before installation."""
+    result = _run_install_script(tmp_path, options)
+
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert _calls(tmp_path) == []
+    _assert_github_path_empty(tmp_path)
+
+
 def test_install_script_repairs_only_a_missing_nixie_shim(tmp_path: Path) -> None:
     """A missing Nixie shim should trigger exactly one forced reconciliation."""
     result = _run_install_script(
@@ -398,7 +495,9 @@ def test_install_script_repairs_only_a_missing_nixie_shim(tmp_path: Path) -> Non
     )
 
     assert result.returncode == 0, result.stderr
-    assert _calls(tmp_path) == [
+    calls = _calls(tmp_path)
+    assert calls[0].startswith("shasum <-a 256 ")
+    assert calls[1:] == [
         "uv <tool install --python 3.14 nixie-cli==1.1.0>",
         "uv <tool dir --bin>",
         "uv <tool install --force --python 3.14 nixie-cli==1.1.0>",
@@ -445,7 +544,9 @@ def test_install_script_propagates_supported_nixie_and_python_overrides(
     )
 
     assert result.returncode == 0, result.stderr
-    assert _calls(tmp_path) == [
+    calls = _calls(tmp_path)
+    assert calls[0].startswith("shasum <-a 256 ")
+    assert calls[1:] == [
         "uv <tool install --python 3.13 nixie-cli==1.2.3>",
         "uv <tool dir --bin>",
     ]
@@ -456,7 +557,9 @@ def test_install_script_stops_after_nixie_install_failure(tmp_path: Path) -> Non
     result = _run_install_script(tmp_path, _InstallOptions(uv_install_status=19))
 
     assert result.returncode == 19
-    assert _calls(tmp_path) == ["uv <tool install --python 3.14 nixie-cli==1.1.0>"]
+    calls = _calls(tmp_path)
+    assert calls[0].startswith("shasum <-a 256 ")
+    assert calls[1:] == ["uv <tool install --python 3.14 nixie-cli==1.1.0>"]
     _assert_github_path_empty(tmp_path)
 
 

@@ -210,8 +210,10 @@ Pass an extra flag required by the source tree:
 ## Install Nixie
 
 The `install-nixie` action installs pinned Nixie and a checksum-verified Merman
-CLI release for Mermaid validation. The runner must already provide `uv`,
-`curl`, `shasum`, and `tar` on `PATH`.
+command-line interface (CLI) release for Mermaid validation. The runner must
+already provide `uv` and `curl` on `PATH`. Linux and macOS runners must also
+provide `shasum` and `tar`; Windows runners must provide Git Bash's `cygpath`
+and `powershell.exe`.
 
 To use the action from this repository, check out the repository before calling
 the local action:
@@ -253,10 +255,11 @@ combination:
 Merman version `0.7.0` is the only supported `merman-version`: each supported
 runner pair (`Linux/X64`, `macOS/X64`, `macOS/ARM64`, and `Windows/X64`) has a
 named official release archive and a checksum embedded in the action. Other
-Merman versions and platforms fail closed before download. The action reuses a
-cached `${CARGO_HOME:-~/.cargo}/bin/merman-cli` executable (`.exe` on Windows);
-on a miss it verifies the official archive before installing it. It never
-invokes Cargo or builds Merman from source.
+Merman versions and platforms fail closed before download. The action stores
+Merman in `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/0.7.0/bin` (`.exe` on
+Windows), verifies its executable digest before every reuse, and verifies the
+official archive on a cache miss. Callers that persist tool caches must include
+`~/.cache/merman`. The action never invokes Cargo or builds Merman from source.
 
 Nixie uses ordinary `uv tool install` reconciliation. The action requests
 `--force` only when the expected executable shim is absent afterwards, and does

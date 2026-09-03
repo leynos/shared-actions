@@ -8,6 +8,30 @@ inputs:
     description: Enable default features
     required: false
     default: "true"
+  all-features:
+    description: >
+      Enable every Cargo feature via --all-features. Takes precedence over
+      with-default-features, which it supersedes. Setting this together with a
+      non-empty features list is rejected, because --all-features already
+      enables everything the list could name.
+    required: false
+    default: "false"
+  all-targets:
+    description: >
+      Pass --all-targets to the coverage run so benches, examples, and every
+      test target are built and executed alongside lib and bin tests. Doc tests
+      are not a --all-targets target; use the doctests input for those.
+    required: false
+    default: "false"
+  doctests:
+    description: >
+      Run `cargo test --doc --workspace` after the instrumented run, using the
+      same feature selection. The doc-test run is uninstrumented and
+      contributes no coverage, because llvm-cov's nextest path cannot execute
+      doc tests; it exists so one coverage job can be a repository's only test
+      execution.
+    required: false
+    default: "false"
   language:
     description: |
       Coverage language scope. `auto` (the default) keeps the historical
@@ -251,6 +275,9 @@ runs:
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         INPUT_FEATURES: ${{ inputs.features }}
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
+        INPUT_ALL_FEATURES: ${{ inputs.all-features }}
+        INPUT_ALL_TARGETS: ${{ inputs.all-targets }}
+        INPUT_DOCTESTS: ${{ inputs.doctests }}
         INPUT_USE_CARGO_NEXTEST: ${{ inputs.use-cargo-nextest }}
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}

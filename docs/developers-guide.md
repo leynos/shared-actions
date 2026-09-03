@@ -347,6 +347,35 @@ After the installer runs, the action verifies the installed binary with
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
 
+## `generate-coverage` whole-workspace test selection
+
+`all-features`, `all-targets`, and `doctests` exist so a repository can make
+the coverage job its only test execution instead of running the suite twice.
+All three default to off, so a caller that does not set them sees the previous
+behaviour exactly.
+
+`feature_selection_args` in
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
+single place feature flags are decided, and both the coverage command and the
+doc-test command call it. Keep it that way: the precedence rule only holds if
+one function owns it. That rule is that `all_features` wins outright. It
+supersedes `with_default`, so `--all-features --no-default-features` can never
+be emitted, and it is rejected outright alongside a non-empty feature list,
+because silently widening a caller's named selection would misreport what ran.
+
+Doc tests are a separate Cargo target kind, so `--all-targets` does not reach
+them and `--doc` cannot be combined with it. `run_doctests` therefore issues a
+plain `cargo test --doc --workspace` after the instrumented run, forwarding the
+feature selection but not `--all-targets`. That run is uninstrumented: it
+contributes no coverage and exists so a broken doc test fails the job.
+
+A caller's `RUSTFLAGS` survives into every Cargo invocation because
+`_build_cargo_env` starts from a copy of `os.environ` and neither the coverage
+overrides nor `_CARGO_COVERAGE_ENV_UNSETS` names that variable. Repositories
+running warnings-denied coverage depend on this; the guarantee is asserted in
+[`test_generate_coverage_feature_selection.py`](../.github/actions/generate-coverage/tests/test_generate_coverage_feature_selection.py),
+which also holds the manifest contract and the rendered cargo commands.
+
 ## `generate-coverage` cargo-binstall Pinning
 
 `generate-coverage` provisions its own `cargo-binstall` in the "Ensure

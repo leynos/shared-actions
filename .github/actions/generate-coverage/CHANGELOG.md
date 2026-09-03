@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `all-features`, `all-targets`, and `doctests` inputs so one coverage job
+  can be a repository's only test execution. All three default to off.
+  `all-features` supersedes `with-default-features` and is rejected alongside a
+  non-empty `features` list. `all-targets` covers benches, examples, and every
+  test target; doc tests are a separate target kind, so `doctests` runs
+  `cargo test --doc --workspace` afterwards, uninstrumented, with the same
+  feature selection.
 - Stop every ratchet run failing its cache reservation. "Restore baselines"
   used the full `actions/cache` action, which registers a post-job save of its
   own, so it and the explicit "Save baselines" step both wrote the same

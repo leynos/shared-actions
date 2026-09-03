@@ -137,6 +137,48 @@ def _run_cargo(
     )
 
 
+def validate_feature_selection(features: str, *, all_features: bool) -> None:
+    """Reject a feature list that ``--all-features`` would silently swallow.
+
+    ``--all-features`` already enables every feature a list could name, so
+    accepting both would leave the caller believing a narrower set was
+    measured than the one that ran.
+    """
+    if all_features and features.strip():
+        typer.echo(
+            "::error::all-features cannot be combined with a features list; "
+            "--all-features already enables every feature",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
+def feature_selection_args(
+    features: str, *, with_default: bool, all_features: bool
+) -> list[str]:
+    """Return the Cargo feature flags shared by every invocation.
+
+    ``all_features`` wins outright: it supersedes both ``with_default`` and
+    ``features``, so the caller cannot end up with a contradictory pair such
+    as ``--all-features --no-default-features``.
+    """
+    validate_feature_selection(features, all_features=all_features)
+    if all_features:
+        if not with_default:
+            typer.echo(
+                "::warning::all-features supersedes with-default-features; "
+                "--no-default-features is not passed",
+                err=True,
+            )
+        return ["--all-features"]
+    args: list[str] = []
+    if not with_default:
+        args.append("--no-default-features")
+    if features:
+        args += ["--features", features]
+    return args
+
+
 def get_cargo_coverage_cmd(
     fmt: str,
     out: Path,
@@ -145,6 +187,8 @@ def get_cargo_coverage_cmd(
     manifest_path: Path,
     with_default: bool,
     use_nextest: bool,
+    all_features: bool = False,
+    all_targets: bool = False,
 ) -> list[str]:
     """Return the cargo llvm-cov command arguments.
 
@@ -154,19 +198,49 @@ def get_cargo_coverage_cmd(
     elements) and consumers such as CodeScene cannot evaluate changed-line
     coverage. Other formats keep the flag so the streamed summary output
     remains parseable.
+
+    ``all_targets`` adds benches, examples, and every test target to the run.
+    Doc tests are not among them; ``run_doctests`` covers those separately.
     """
     args = ["llvm-cov"]
     if use_nextest:
         args.append("nextest")
     args += ["--manifest-path", str(manifest_path), "--workspace"]
+    if all_targets:
+        args.append("--all-targets")
     if fmt not in ("lcov", "cobertura"):
         args.append("--summary-only")
-    if not with_default:
-        args.append("--no-default-features")
-    if features:
-        args += ["--features", features]
+    args += feature_selection_args(
+        features, with_default=with_default, all_features=all_features
+    )
     args += [f"--{fmt}", "--output-path", str(out)]
     return args
+
+
+def run_doctests(
+    features: str,
+    *,
+    manifest_path: Path,
+    cargo_env: typ.Mapping[str, str],
+    with_default: bool,
+    all_features: bool,
+) -> None:
+    """Run the workspace doc tests uninstrumented.
+
+    ``cargo llvm-cov nextest`` cannot execute doc tests, so they are invoked
+    as a plain ``cargo test --doc`` afterwards and contribute no coverage.
+    ``--all-targets`` is deliberately not forwarded: doc tests are their own
+    target kind and the two selections are mutually exclusive.
+    """
+    args = ["test", "--doc", "--workspace", "--manifest-path", str(manifest_path)]
+    args += feature_selection_args(
+        features, with_default=with_default, all_features=all_features
+    )
+    _run_cargo(
+        args,
+        env_overrides=cargo_env,
+        env_unsets=_CARGO_COVERAGE_ENV_UNSETS,
+    )
 
 
 def extract_percent(output: str) -> str:
@@ -259,6 +333,8 @@ def run_cucumber_rs_coverage(
     use_nextest: bool,
     cucumber_rs_features: str,
     cucumber_rs_args: str,
+    all_features: bool = False,
+    all_targets: bool = False,
 ) -> None:
     """Run cucumber.rs coverage and merge results into ``out``."""
     cucumber_file = out.with_name(f"{out.stem}.cucumber{out.suffix}")
@@ -269,6 +345,8 @@ def run_cucumber_rs_coverage(
         manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
+        all_features=all_features,
+        all_targets=all_targets,
     )
     c_args += [
         "--",
@@ -413,6 +491,9 @@ def main(
     cucumber_rs_features: typ.Annotated[str, typer.Option()] = "",
     cucumber_rs_args: typ.Annotated[str, typer.Option()] = "",
     with_cucumber_rs: typ.Annotated[bool | None, typer.Option()] = None,
+    all_features: typ.Annotated[bool | None, typer.Option()] = None,
+    all_targets: typ.Annotated[bool | None, typer.Option()] = None,
+    doctests: typ.Annotated[bool | None, typer.Option()] = None,
     baseline_file: typ.Annotated[Path | None, typer.Option()] = None,
 ) -> None:
     """Run cargo llvm-cov and write the output file path to ``GITHUB_OUTPUT``."""
@@ -437,6 +518,12 @@ def main(
     with_cucumber_rs = _resolve_bool_input(
         with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
     )
+    all_features = _resolve_bool_input(
+        all_features, "INPUT_ALL_FEATURES", default=False
+    )
+    all_targets = _resolve_bool_input(all_targets, "INPUT_ALL_TARGETS", default=False)
+    doctests = _resolve_bool_input(doctests, "INPUT_DOCTESTS", default=False)
+    validate_feature_selection(features, all_features=all_features)
     out = _resolve_output_path(output_path, lang)
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -447,6 +534,8 @@ def main(
         manifest_path=manifest_path,
         with_default=with_default,
         use_nextest=use_nextest,
+        all_features=all_features,
+        all_targets=all_targets,
     )
     config_context = (
         ensure_nextest_config() if use_nextest else contextlib.nullcontext()
@@ -470,7 +559,17 @@ def main(
                 use_nextest=use_nextest,
                 cucumber_rs_features=cucumber_rs_features,
                 cucumber_rs_args=cucumber_rs_args,
+                all_features=all_features,
+                all_targets=all_targets,
             )
+    if doctests:
+        run_doctests(
+            features,
+            manifest_path=manifest_path,
+            cargo_env=cargo_env,
+            with_default=with_default,
+            all_features=all_features,
+        )
     percent = _compute_coverage_percent(fmt, out, stdout)
     previous = read_previous_coverage(baseline_file)
     _report_coverage(percent, previous, github_output, out)

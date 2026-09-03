@@ -17,6 +17,7 @@ from _fragment_runner import (
     FragmentEnvironment,
     ambient_env,
     bash_path,
+    require_posix_host,
     run_step,
 )
 
@@ -24,6 +25,8 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 _PAYLOAD_SHA256 = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
+
+require_posix_host()
 
 
 @dc.dataclass(frozen=True)

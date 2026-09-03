@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import typing as typ
 
 import pytest
@@ -24,6 +25,24 @@ if typ.TYPE_CHECKING:
 _EXPRESSION = re.compile(r"\$\{\{\s*(?P<body>[^}]+?)\s*\}\}")
 _STEP_OUTPUT = re.compile(r"^steps\.(?P<step>[\w-]+)\.outputs\.(?P<name>[\w-]+)$")
 _INPUT = re.compile(r"^inputs\.(?P<name>[\w-]+)$")
+
+
+def require_posix_host() -> None:
+    """Skip a module that drives the action's Bash fragments on a Windows host.
+
+    The fragments only ever run on a GitHub runner's Bash. Simulating that from
+    Git Bash tests the simulation, not the action: the interpreter and PATH
+    conversions Git Bash applies to a colon-separated PATH and to command words
+    under directories containing a space defeat the harness before any fragment
+    executes. The action's Windows runner pair is covered from POSIX hosts by
+    the platform matrix, which drives every supported pair, and its real Windows
+    behaviour is covered by the ``Test install-whitaker`` workflow.
+    """
+    if sys.platform.startswith("win"):
+        pytest.skip(
+            "the Bash fragment harness requires a POSIX shell host",
+            allow_module_level=True,
+        )
 
 
 def bash_executable() -> str:

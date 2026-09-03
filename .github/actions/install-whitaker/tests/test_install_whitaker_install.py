@@ -19,6 +19,7 @@ from pathlib import PurePosixPath
 
 import pytest
 from _action_manifest import SUPPORTED_PLATFORMS
+from _fragment_runner import require_posix_host
 from _install_scenarios import (
     InstallRun,
     InstallScenario,
@@ -33,6 +34,8 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 ScenarioRunner = cabc.Callable[[InstallScenario], InstallRun]
+
+require_posix_host()
 
 _WRONG_SHA256 = "0" * 64
 _PROPERTY_SETTINGS = settings(deadline=None, derandomize=True, max_examples=25)

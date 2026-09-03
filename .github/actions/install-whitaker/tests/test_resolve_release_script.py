@@ -13,7 +13,11 @@ import typing as typ
 
 import pytest
 from _action_manifest import RESOLVE_SCRIPT_PATH, asset_name
-from _fragment_runner import ambient_env, bash_executable
+from _fragment_runner import (
+    ambient_env,
+    bash_executable,
+    require_posix_host,
+)
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -21,6 +25,8 @@ if typ.TYPE_CHECKING:
 _PINNED = "a" * 64
 _SUPPLIED = "b" * 64
 _VERSION = "0.2.7"
+
+require_posix_host()
 
 
 def _run_resolution(

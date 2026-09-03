@@ -1,9 +1,12 @@
 # Debugging Plan: Whitaker property-test flakiness
 
-**Generated**: 2026-08-25 **Issue ID**: Rebase gate failure **Severity**:
-Medium **Falsification sub-agent**: alchemist **Planning agent boundary**: This
-document was prepared by the planning agent. Falsification must be executed by
-the named sub-agent, not by the planning agent.
+**Generated**: 2026-08-25
+**Issue ID**: Rebase gate failure
+**Severity**: Medium
+**Falsification sub-agent**: alchemist
+**Planning agent boundary**: This document was prepared by the planning agent.
+Falsification must be executed by the named sub-agent, not by the planning
+agent.
 
 ## Problem Statement
 
@@ -14,12 +17,12 @@ reliable gate without weakening its installation assertions.
 
 ## Context Summary
 
-| Aspect              | Details                                                           |
-| ------------------- | ----------------------------------------------------------------- |
-| First observed      | 2026-08-25 rebase validation                                      |
-| Reproduction rate   | Two first-run deadline failures in one parallel suite run         |
+| Aspect | Details |
+| --- | --- |
+| First observed | 2026-08-25 rebase validation |
+| Reproduction rate | Two first-run deadline failures in one parallel suite run |
 | Affected components | `.github/actions/install-whitaker/tests/test_install_whitaker.py` |
-| Recent changes      | The rebased `origin/main` added the `install-whitaker` action     |
+| Recent changes | The rebased `origin/main` added the `install-whitaker` action |
 
 ### Error Artefacts
 
@@ -44,10 +47,10 @@ functional assertions and avoid an intermittent `DeadlineExceeded` failure.
 
 #### H1 Falsification Plan
 
-| Step | Action                                                                          | Expected Negative Result                                          |
-| ---- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 1    | Run one reported property with `pytest -n 0` and its existing test environment. | A deterministic assertion failure disproves pure startup latency. |
-| 2    | Repeat the same targeted test once.                                             | A repeatable semantic failure disproves a deadline-only cause.    |
+| Step | Action | Expected Negative Result |
+| --- | --- | --- |
+| 1 | Run one reported property with `pytest -n 0` and its existing test environment. | A deterministic assertion failure disproves pure startup latency. |
+| 2 | Repeat the same targeted test once. | A repeatable semantic failure disproves a deadline-only cause. |
 
 **Tooling**: `uv run` with the dependencies from the `make test` command.
 
@@ -67,10 +70,10 @@ together with xdist but not separately.
 
 #### H2 Falsification Plan
 
-| Step | Action                                                                       | Expected Negative Result                         |
-| ---- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
-| 1    | Inspect the two properties and their helper inputs for non-`tmp_path` state. | No shared mutable state weakens this hypothesis. |
-| 2    | Run the two properties together under xdist after H1 is tested.              | Passing together weakens this hypothesis.        |
+| Step | Action | Expected Negative Result |
+| --- | --- | --- |
+| 1 | Inspect the two properties and their helper inputs for non-`tmp_path` state. | No shared mutable state weakens this hypothesis. |
+| 2 | Run the two properties together under xdist after H1 is tested. | Passing together weakens this hypothesis. |
 
 **Tooling**: Targeted `pytest` selection only; do not run repository gates.
 

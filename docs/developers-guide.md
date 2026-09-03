@@ -149,12 +149,13 @@ workflow reference together, and run the normal action test gates before review.
 
 The `macos-package` action passes `version: latest-known`, so it requires a
 setup-uv revision that resolves that value from bundled checksum metadata. Its
-current compatible pin is `20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this
-avoids fetching Astral's mutable remote versions manifest during release
-packaging. Keep the action's manifest test synchronized with both this SHA and
-`latest-known`. The repository's `rust-toy-app.yml` workflow exercises the
-actual action on macOS; local `act` tests cannot cover that path because macOS
-packaging tools are not available in its Linux container runtime.
+current compatible pin is
+`20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this avoids fetching Astral's
+mutable remote versions manifest during release packaging. Keep the action's
+manifest test synchronized with both this SHA and `latest-known`. The
+repository's `rust-toy-app.yml` workflow exercises the actual action on macOS;
+local `act` tests cannot cover that path because macOS packaging tools are not
+available in its Linux container runtime.
 
 When changing the pin, include the target SHA in the change description and
 verify affected act workflow tests where the action runs under `nektos/act`. If
@@ -184,15 +185,15 @@ that the action works, but cannot prove that a pin is the intended revision.
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and
-[`generate-coverage`](../.github/actions/generate-coverage/action.yml)
-manifests share a `cache-provider` boundary. `github` is the
-backward-compatible default: the actions own their Cargo archive caches, while
-setup-uv retains its automatic GitHub-hosted versus self-hosted policy.
-`external` disables those Cargo and uv archive caches so the caller can mount
-the same paths through exactly one other provider. Consumers on Ubicloud, or on
-any other caller-owned cache setup, continue to use `cache-provider: external`.
-The coverage action deliberately leaves ratchet-baseline paths under their
-separate GitHub cache because external mode does not mount them.
+[`generate-coverage`](../.github/actions/generate-coverage/action.yml) manifests
+share a `cache-provider` boundary. `github` is the backward-compatible default:
+the actions own their Cargo archive caches, while setup-uv retains its automatic
+GitHub-hosted versus self-hosted policy. `external` disables those Cargo and uv
+archive caches so the caller can mount the same paths through exactly one other
+provider. Consumers on Ubicloud, or on any other caller-owned cache setup,
+continue to use `cache-provider: external`. The coverage action deliberately
+leaves ratchet-baseline paths under their separate GitHub cache because
+external mode does not mount them.
 
 Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
 sub-actions rather than the full `actions/cache` action. The full action
@@ -229,8 +230,8 @@ The same states are emitted as two fixed metric lines,
 `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
 for consumers that scrape rather than read. Keep the metric names fixed and the
 values drawn from those vocabularies: a name or value that varied with the run
-would give the series unbounded cardinality and make it useless to aggregate. A
-test enumerates every step-outcome combination and asserts the emitted values
+would give the series unbounded cardinality and make it useless to aggregate.
+A test enumerates every step-outcome combination and asserts the emitted values
 stay inside both sets, so widening a vocabulary in the manifest without
 widening it there fails.
 
@@ -341,21 +342,22 @@ not an analysed branch. An empty base does not trigger this skip, which keeps
 the applicability check usable outside a pull-request event.
 
 The applicability output is the boundary for the rest of the action. Every
-following step — coverage-path resolution, installer download, GitHub artefact
-upload, cache and CLI installation, PATH setup, and the upload/check commands —
-must require `steps.gate-applicability.outputs.skip != 'true'`. Do not add a
-check-mode step outside that guard unless it is deliberately meant to run for
-skipped pull requests.
+following step — coverage-path resolution, installer download, GitHub
+artefact upload, cache and CLI installation, PATH setup, and the upload/check
+commands — must require
+`steps.gate-applicability.outputs.skip != 'true'`. Do not add a check-mode
+step outside that guard unless it is deliberately meant to run for skipped
+pull requests.
 
 The check command is an observable diagnostic contract. After validating the
 CLI, coverage file, and LCOV suffix, run
 `cs-coverage check --verbose --coverage-files "$file"` directly so its native
-standard-output and standard-error streams remain intact. Put the invocation in
-an `if` condition; in the failure branch, capture `$?` as the first command,
-add the uploaded-base explanation when the status is `2`, then
-`exit "$status"`. This preserves every CLI failure status rather than masking
-it with diagnostic handling. The behavioural contract is covered by the
-[check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
+standard-output and standard-error streams remain intact. Put the invocation
+in an `if` condition; in the failure branch, capture `$?` as the first
+command, add the uploaded-base explanation when the status is `2`, then
+`exit "$status"`. This preserves every CLI failure status rather than
+masking it with diagnostic handling. The behavioural contract is covered by
+the [check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
 
 ## `setup-rust` cargo-binstall Pinning
 
@@ -384,10 +386,10 @@ All three default to off, so a caller that does not set them sees the previous
 behaviour exactly.
 
 `feature_selection_args` in
-[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is
-the single place feature flags are decided, and both the coverage command and
-the doc-test command call it. Keep it that way: the precedence rule only holds
-if one function owns it. That rule is that `all_features` wins outright. It
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
+single place feature flags are decided, and both the coverage command and the
+doc-test command call it. Keep it that way: the precedence rule only holds if
+one function owns it. That rule is that `all_features` wins outright. It
 supersedes `with_default`, so `--all-features --no-default-features` can never
 be emitted, and it is rejected outright alongside a non-empty feature list,
 because silently widening a caller's named selection would misreport what ran.
@@ -411,15 +413,15 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                                                       | Role                                                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
-| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
-| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
+| Symbol | Role |
+| --- | --- |
+| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
+| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
+| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
-| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
-| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
+| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
+| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
+| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and
@@ -688,25 +690,25 @@ defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
 inputs and their defaults synchronized with the action README and users' guide.
 
 Merman is a release-asset policy, not a package-manager policy. The action
-supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
-`Windows/X64` to an official `Latias94/merman` archive and literal Secure Hash
-Algorithm 256-bit (SHA-256) archive and executable digests. The Windows archive
-is verified with PowerShell's `Get-FileHash` and extracted by `Expand-Archive`
-through Git Bash's path conversion. The action stores Merman at
-`${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
+supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`,
+and `Windows/X64` to an official `Latias94/merman` archive and literal Secure
+Hash Algorithm 256-bit (SHA-256) archive and executable digests. The Windows
+archive is verified with PowerShell's `Get-FileHash` and extracted by
+`Expand-Archive` through Git Bash's path conversion. The action stores Merman
+at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
 and revalidates its pinned executable digest before every cache reuse. Callers
 that persist the action's cache must include `~/.cache/merman`. On a cache miss
-it downloads, checksums, extracts, and installs the release asset. Do not add
-Cargo, `cargo binstall`, or a source-build fallback. Adding a new Merman
-release or runner pair requires an official release asset, an independently
-reviewed digest, focused tests, and synchronized user-facing documentation;
-fail closed until all four exist.
+it downloads, checksums, extracts, and installs the release asset. Do not add Cargo,
+`cargo binstall`, or a source-build fallback. Adding a new Merman release or
+runner pair requires an official release asset, an independently reviewed
+digest, focused tests, and synchronized user-facing documentation; fail closed
+until all four exist.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the
-`nixie` executable shim and repeats the installation with `--force` only when
-that shim is absent. Do not add a `nixie --version` probe. Both Merman and
-Nixie executable checks must succeed before their directories are written to
+`nixie` executable shim and repeats the installation with `--force` only when that
+shim is absent. Do not add a `nixie --version` probe. Both Merman and Nixie
+executable checks must succeed before their directories are written to
 `GITHUB_PATH`. On Windows, convert the native `uv` directory to a Git Bash path
 for executable checks, while retaining the native directory for `GITHUB_PATH`.
 
@@ -791,13 +793,13 @@ past the current pin.
 
 ### RUSTFLAGS Export
 
-Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but they
-wire it differently. `setup-rust` forwards the input straight through to each
-of its three `actions-rust-lang/setup-rust-toolchain` invocations, so what
-happens to an inherited `RUSTFLAGS` is that nested action's decision.
+Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but
+they wire it differently. `setup-rust` forwards the input straight through to
+each of its three `actions-rust-lang/setup-rust-toolchain` invocations, so
+what happens to an inherited `RUSTFLAGS` is that nested action's decision.
 `rust-build-release` instead exports the value itself, in an "Export caller
-RUSTFLAGS" step that runs *before* its own pinned nested `setup-rust` step (see
-`.github/actions/rust-build-release/action.yml`), so that step's
+RUSTFLAGS" step that runs *before* its own pinned nested `setup-rust` step
+(see `.github/actions/rust-build-release/action.yml`), so that step's
 `setup-rust-toolchain` — which only applies its `-D warnings` default when
 `RUSTFLAGS` is unset — defers to the caller's value. The design rationale for
 this split lives in section 3.1.3, "Caller-Controlled `RUSTFLAGS`", of the
@@ -809,33 +811,34 @@ safely.
 #### Precedence guard
 
 The export step is skipped entirely by `if: inputs.rustflags != ''`, but even
-when it runs it must not clobber a `RUSTFLAGS` the caller already exported. It
-guards with `[[ ${RUSTFLAGS+x} ]]`, which is true whenever `RUSTFLAGS` is set,
-including to the empty string, so an inherited value — empty or not — always
-wins over the input. `setup-rust` has no equivalent guard; forwarding the empty
-string to it leaves `RUSTFLAGS` alone only because `setup-rust-toolchain`
-treats an empty forwarded value as "unset".
+when it runs it must not clobber a `RUSTFLAGS` the caller already exported.
+It guards with `[[ ${RUSTFLAGS+x} ]]`, which is true whenever `RUSTFLAGS` is
+set, including to the empty string, so an inherited value — empty or not —
+always wins over the input. `setup-rust` has no equivalent guard; forwarding
+the empty string to it leaves `RUSTFLAGS` alone only because
+`setup-rust-toolchain` treats an empty forwarded value as "unset".
 
 #### Bash 3.2 compatibility
 
 `[[ ${RUSTFLAGS+x} ]]` is used rather than the more idiomatic
 `[[ -v RUSTFLAGS ]]` because `-v` needs Bash 4.2 and macOS runners ship Bash
-3.2, which cannot parse that conditional primary. Both forms treat an inherited
-empty value as set. Keep this constraint in mind for any future edit to this or
-similar shell fragments in the two actions: parameter expansion of the
-`${NAME+x}` form, not `-v`, is the portable way to test "is this variable set".
+3.2, which cannot parse that conditional primary. Both forms treat an
+inherited empty value as set. Keep this constraint in mind for any future
+edit to this or similar shell fragments in the two actions: parameter
+expansion of the `${NAME+x}` form, not `-v`, is the portable way to test "is
+this variable set".
 
 #### `GITHUB_ENV` heredoc safety
 
 The step writes `RUSTFLAGS` to `GITHUB_ENV` as a heredoc rather than a plain
 assignment because the value may contain newlines. The delimiter is derived
-from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against the
-value with `grep -qxF` before use. If a value contained the delimiter on a line
-of its own, that line would close the heredoc block early, and whatever
-followed would be read back by the runner as further environment-file commands
-— an injection route, not just a formatting bug. The step retries with a fresh
-candidate up to three times and fails the step, rather than writing an unsafe
-delimiter, if all three collide.
+from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against
+the value with `grep -qxF` before use. If a value contained the delimiter on
+a line of its own, that line would close the heredoc block early, and
+whatever followed would be read back by the runner as further
+environment-file commands — an injection route, not just a formatting bug.
+The step retries with a fresh candidate up to three times and fails the step,
+rather than writing an unsafe delimiter, if all three collide.
 
 #### RUSTFLAGS export observability
 
@@ -849,18 +852,19 @@ The step logs three kinds of event, all to `stderr`:
   rustflags input on attempt `N` of 3").
 
 It deliberately never logs the `RUSTFLAGS` value itself or a colliding
-delimiter candidate: a candidate only collides because the value contains it as
-a substring, so echoing the candidate would leak a line of the caller's
+delimiter candidate: a candidate only collides because the value contains it
+as a substring, so echoing the candidate would leak a line of the caller's
 `RUSTFLAGS` into the CI log.
 
 #### RUSTFLAGS export testing
 
 `.github/actions/rust-build-release/tests/test_rustflags_export.py` extracts
-and runs the export step's shell fragment under bash. It covers the precedence
-guard (including an inherited empty value), the heredoc round-trip for
-adversarial payloads via Hypothesis properties, the delimiter-collision retry
-and give-up paths (using a stubbed `od` to make a collision reachable), and
-that neither the value nor a colliding candidate reaches the log.
+and runs the export step's shell fragment under bash. It covers the
+precedence guard (including an inherited empty value), the heredoc
+round-trip for adversarial payloads via Hypothesis properties, the
+delimiter-collision retry and give-up paths (using a stubbed `od` to make a
+collision reachable), and that neither the value nor a colliding candidate
+reaches the log.
 `.github/actions/rust-build-release/tests/test_manifest_input_step.py` checks
 the manifest's declared shape instead: the `rustflags` input's empty default,
 the export step's `if` condition and `RBR_RUSTFLAGS` wiring, the

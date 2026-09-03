@@ -23,15 +23,14 @@ documents how to use the `install-nixie` action.
 `setup-rust` pins its Node.js-backed cache, sccache and MSYS2 dependencies to
 revisions that support the GitHub Actions Node.js 24 runtime. This removes the
 Node.js 20 deprecation warnings without changing the action's inputs or cache
-configuration. See the
-[`setup-rust` README](../.github/actions/setup-rust/README.md) for the pinned
-revisions and current cache behaviour.
+configuration. See the [`setup-rust` README](../.github/actions/setup-rust/README.md)
+for the pinned revisions and current cache behaviour.
 
 ## Rust cache ownership
 
 `setup-rust` and `generate-coverage` accept `cache-provider: github` or
-`cache-provider: external`. Any other value fails before a cache step runs. The
-default `github` mode preserves the actions' Cargo and uv GitHub caches;
+`cache-provider: external`. Any other value fails before a cache step runs.
+The default `github` mode preserves the actions' Cargo and uv GitHub caches;
 setup-uv remains automatic, so its cache is enabled on GitHub-hosted runners
 and disabled on self-hosted runners. Those Cargo caches archive the registry,
 the Git index, and (for coverage) the installed Cargo binaries. The `target`
@@ -45,10 +44,9 @@ building, and report its own cache-hit signal in the caller.
 
 The `use-sccache` input is independent. When the external service owns a local
 sccache directory, set `use-sccache: 'false'`, install a trusted prebuilt
-sccache binary, set `RUSTC_WRAPPER=sccache`, and mount that directory
-explicitly. Otherwise the shared action would still select its GitHub-backed
-compiler-cache integration even though its Cargo and uv archive caches were
-disabled.
+sccache binary, set `RUSTC_WRAPPER=sccache`, and mount that directory explicitly.
+Otherwise the shared action would still select its GitHub-backed compiler-cache
+integration even though its Cargo and uv archive caches were disabled.
 
 `rust-build-release` accepts both inputs too and forwards them to the
 `setup-rust` step it runs internally, so a workflow that only calls the build
@@ -64,8 +62,8 @@ That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 state, naming neither the key nor the baseline paths. Each outcome is also
 written as a fixed `metric ratchet-cache.restore=<state>` or
 `metric ratchet-cache.save=<state>` line, so a log scraper can read the result
-without parsing the notice text. `disabled` means the ratchet is off; `skipped`
-means an earlier failure stopped the step running.
+without parsing the notice text. `disabled` means the
+ratchet is off; `skipped` means an earlier failure stopped the step running.
 
 ## Running coverage as the only test execution
 
@@ -73,8 +71,8 @@ means an earlier failure stopped the step running.
 repository can make the coverage job its entire test run rather than executing
 the suite twice. All three default to off, and the ratchet cache change above
 is internal to the action, so a workflow already pinned to `v1` needs no edit
-to keep its current behaviour. Opt in only when the coverage job must replace a
-separate test job.
+to keep its current behaviour. Opt in only when the coverage job must replace
+a separate test job.
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1
@@ -102,10 +100,10 @@ their paths.
 
 ## `install-whitaker` action
 
-The `install-whitaker` composite action installs the `whitaker-installer` crate
-and runs it to install the Whitaker Dylint suite. The runner must have Cargo
-available. Use the action from a workflow in this repository with its local
-path:
+The `install-whitaker` composite action installs the `whitaker-installer`
+crate and runs it to install the Whitaker Dylint suite. The runner must have
+Cargo available. Use the action from a workflow in this repository with its
+local path:
 
 ```yaml
 - name: Check out the repository
@@ -117,8 +115,8 @@ path:
 
 The repository must be checked out before invoking this local action.
 
-The optional `installer-version` input selects the `whitaker-installer` version
-and defaults to `0.2.6`. The optional `cargo-home` input defaults to
+The optional `installer-version` input selects the `whitaker-installer`
+version and defaults to `0.2.6`. The optional `cargo-home` input defaults to
 `~/.cargo`; it controls both the cached `whitaker-installer` location
 (`${{ steps.validate-inputs.outputs.installer-path }}`) and the installation
 step's `CARGO_HOME`. The action resolves Cargo from the existing `PATH` and
@@ -127,29 +125,30 @@ invokes the validated installer path directly.
 Before installation, the action restores the cached
 `${{ steps.validate-inputs.outputs.installer-path }}` and
 `~/.cache/cargo-binstall` using a key containing the runner operating system,
-architecture, installer version, and effective expanded Cargo home. A cache hit
-reuses the installer binary. On a miss, the action first tries
-`cargo binstall`; if the cargo-binstall probe is unavailable, it falls back to
+architecture, installer version, and effective expanded Cargo home. A cache
+hit reuses the installer binary. On a miss, the action first tries `cargo
+binstall`; if the cargo-binstall probe is unavailable, it falls back to
 building the requested version with `cargo install --locked`.
 
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports
-`RUSTFLAGS="-D warnings"` whenever `RUSTFLAGS` is unset. An ambient `RUSTFLAGS`
-environment variable overrides Cargo's `build.rustflags` setting in
-`.cargo/config.toml`. Together these two behaviours mean that a project whose
-source tree needs specific compiler flags — the motivating case is a
-`-Zpolonius=next` borrow-checker flag — silently loses them in every step after
-toolchain setup, because the setup step's default (or an inherited value) takes
-precedence over the project's own configuration.
+`RUSTFLAGS="-D warnings"` whenever `RUSTFLAGS` is unset. An ambient
+`RUSTFLAGS` environment variable overrides Cargo's `build.rustflags` setting
+in `.cargo/config.toml`. Together these two behaviours mean that a project
+whose source tree needs specific compiler flags — the motivating case is a
+`-Zpolonius=next` borrow-checker flag — silently loses them in every step
+after toolchain setup, because the setup step's default (or an inherited
+value) takes precedence over the project's own configuration.
 
-Both actions expose a `rustflags` input so callers can control this behaviour
-explicitly.
+Both actions expose a `rustflags` input so callers can control this
+behaviour explicitly.
 
 ## `setup-rust`'s `rustflags` input
 
 `setup-rust` forwards `rustflags` directly to the nested
-`actions-rust-lang/setup-rust-toolchain` step, which exports it as `RUSTFLAGS`.
+`actions-rust-lang/setup-rust-toolchain` step, which exports it as
+`RUSTFLAGS`.
 
 - The default is `-D warnings`, preserving the action's historical
   behaviour.
@@ -161,23 +160,23 @@ explicitly.
 ## `rust-build-release`'s `rustflags` input
 
 `rust-build-release` pins its own nested `setup-rust` step. Its `rustflags`
-input defaults to empty, meaning the environment is left untouched: the nested
-`setup-rust` step still applies its own `-D warnings` default in that case.
-Setting a value exports it as `RUSTFLAGS` in an "Export caller RUSTFLAGS" step
-that runs *before* toolchain setup, so the nested `setup-rust-toolchain` step
-defers to it and the build honours it.
+input defaults to empty, meaning the environment is left untouched: the
+nested `setup-rust` step still applies its own `-D warnings` default in that
+case. Setting a value exports it as `RUSTFLAGS` in an "Export caller
+RUSTFLAGS" step that runs *before* toolchain setup, so the nested
+`setup-rust-toolchain` step defers to it and the build honours it.
 
 ## Precedence
 
 `rust-build-release` never overwrites a `RUSTFLAGS` value the caller has
-already exported: its export step checks whether the variable is set at all, so
-an inherited value wins over the `rustflags` input even when that inherited
-value is the empty string.
+already exported: its export step checks whether the variable is set at all,
+so an inherited value wins over the `rustflags` input even when that
+inherited value is the empty string.
 
 `setup-rust` has no such guard. It forwards `rustflags` to
-`actions-rust-lang/setup-rust-toolchain` unconditionally, so what happens to an
-inherited `RUSTFLAGS` is that action's decision, not this one's. Pass the empty
-string to have it leave `RUSTFLAGS` alone.
+`actions-rust-lang/setup-rust-toolchain` unconditionally, so what happens to
+an inherited `RUSTFLAGS` is that action's decision, not this one's. Pass the
+empty string to have it leave `RUSTFLAGS` alone.
 
 ## Usage examples
 
@@ -252,8 +251,8 @@ Pass an extra flag required by the source tree:
 
 - Use `setup-rust`'s `rustflags` input when calling that action directly.
 - Use `rust-build-release`'s `rustflags` input when using the build action,
-  which pins its own nested `setup-rust` step and exports the value before that
-  step runs.
+  which pins its own nested `setup-rust` step and exports the value before
+  that step runs.
 
 ## Install Nixie
 
@@ -318,10 +317,11 @@ workflow steps can therefore invoke `nixie` and `merman-cli` directly.
 ## CodeScene coverage checks
 
 The [`upload-codescene-coverage` action][codescene-coverage-action] supports
-`upload` mode for analysed branches and `check` mode for the pull-request
-changed-line coverage gate. In `check` mode, check out the full history
-(`fetch-depth: 0`) and provide the CodeScene `project-url`; the CLI uses the
-merge base to evaluate the gate. For LCOV, the report path must end in `.info`.
+`upload` mode for analysed branches and `check` mode for the
+pull-request changed-line coverage gate. In `check` mode, check out the full
+history (`fetch-depth: 0`) and provide the CodeScene `project-url`; the CLI
+uses the merge base to evaluate the gate. For LCOV, the report path must end
+in `.info`.
 
 The pull request's base must already have coverage uploaded to CodeScene. If
 that baseline is unavailable, `cs-coverage` cannot evaluate the gate; the
@@ -329,10 +329,10 @@ action prints the CLI's verbose diagnostic, adds the uploaded-base explanation
 for status 2, and preserves the CLI's original exit status.
 
 Checks for stacked pull requests are intentionally skipped. When the pull
-request base is not the repository's default branch, the action emits a warning
-and skips the remaining check-mode steps, including CLI installation, artefact
-upload, and the coverage gate. This lets a stacked pull request pass without
-claiming that its changed-line coverage was evaluated; rebase or merge it onto
-the default branch before relying on the gate result.
+request base is not the repository's default branch, the action emits a
+warning and skips the remaining check-mode steps, including CLI installation,
+artefact upload, and the coverage gate. This lets a stacked pull request pass
+without claiming that its changed-line coverage was evaluated; rebase or merge
+it onto the default branch before relying on the gate result.
 
 [codescene-coverage-action]: ../.github/actions/upload-codescene-coverage/README.md

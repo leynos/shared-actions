@@ -4,13 +4,13 @@
 
 ## Context
 
-The `setup-rust` and `generate-coverage` composite actions each archived a Cargo
-`target` tree with `actions/cache` whenever the caller used the default
-`github` cache provider. `setup-rust` archived
-`target/${{ env.BUILD_PROFILE }}` and keyed the archive by the same placeholder.
-`BUILD_PROFILE` is never set anywhere in this repository, so that path
-resolved to a bare `target/` and the key never varied by profile.
-`generate-coverage` archived the whole `target` tree.
+The `setup-rust` and `generate-coverage` composite actions each archived a
+Cargo `target` tree with `actions/cache` whenever the caller used the default
+`github` cache provider. `setup-rust` archived `target/${{ env.BUILD_PROFILE }}`
+and keyed the archive by the same placeholder. `BUILD_PROFILE` is never set
+anywhere in this repository, so that path resolved to a bare `target/` and the
+key never varied by profile. `generate-coverage` archived the whole `target`
+tree.
 
 Repositories across this estate build in at least two shapes. Lint and test
 builds produce a debug or dev-fast tree built with the Cranelift backend and
@@ -35,8 +35,8 @@ keyed by compiler flags.
 Neither Rust action archives a `target` tree. sccache is the sole owner of
 compiler output.
 
-`setup-rust` caches the Cargo registry and Git index under the profile-agnostic
-key
+`setup-rust` caches the Cargo registry and Git index under the
+profile-agnostic key
 `${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}`,
 with a matching `${{ runner.os }}-cargo-` restore prefix. `generate-coverage`
 caches the `cargo-binstall`, `cargo-llvm-cov`, and `cargo-nextest` binaries

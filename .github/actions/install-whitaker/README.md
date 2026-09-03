@@ -77,7 +77,9 @@ is in place.
 
 The repository must be checked out before invoking this local action; use the
 relative path without a version suffix. The runner must provide Bash, curl, an
-SHA-256 utility, and the platform archive utility (`tar` or `unzip`). Missing
+SHA-256 utility, and `tar`. Both archive formats are extracted with `tar`:
+bsdtar, the bundled `tar` on Windows and macOS runners, reads zip as well as
+gzip, and `unzip` is not present on every runner image. Missing
 official release assets are hard failures; there is no Cargo or source-build
 fallback.
 

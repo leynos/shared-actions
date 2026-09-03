@@ -189,19 +189,23 @@ class TestPlatformMatrix:
         ("runner_os", "runner_arch"),
         [tuple(pair.split(":")) for pair in SUPPORTED_PLATFORMS],
     )
-    def test_uses_the_platform_archive_extractor(
+    def test_extracts_every_archive_format_with_tar(
         self,
         run_scenario: ScenarioRunner,
         runner_os: str,
         runner_arch: str,
     ) -> None:
-        """Verify the zip runner takes the zip path and the rest take tar."""
+        """Verify every runner extracts with tar and never calls unzip."""
         scenario = InstallScenario(runner_os=runner_os, runner_arch=runner_arch)
         run = run_scenario(scenario)
 
         assert run.result.returncode == 0, run.result.stderr
         expected_suffix = ".zip" if runner_os == "Windows" else ".tgz"
         assert scenario.asset.endswith(expected_suffix)
+        extract_log = run.extract_log.read_text(encoding="utf-8")
+        assert "--strip-components=1" in extract_log
+        assert scenario.asset in extract_log
+        assert not run.forbidden_log.exists()
         assert run.installer_path.name == (
             "whitaker-installer.exe" if runner_os == "Windows" else "whitaker-installer"
         )

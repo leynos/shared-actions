@@ -218,7 +218,7 @@ runs:
         WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
-        set -euo pipefail
+        set -Eeuo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
@@ -232,8 +232,14 @@ runs:
         rm -rf -- "$WHITAKER_STAGING_DIR"
         mkdir -p -- "$WHITAKER_STAGING_DIR"
         started="$SECONDS"
-        curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${WHITAKER_ASSET}" -o "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
-        curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${WHITAKER_ASSET}.sha256" -o "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256"
+        fetch() {
+          curl -fsSL --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 \
+            "$1" -o "$2"
+        }
+        fetch "${release_url}/${WHITAKER_ASSET}" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        fetch "${release_url}/${WHITAKER_ASSET}.sha256" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256"
         echo "::notice title=Whitaker installer download::asset=${WHITAKER_ASSET} outcome=ok seconds=$(( SECONDS - started ))"
 
     - name: Verify Whitaker release
@@ -283,12 +289,11 @@ runs:
       shell: bash
       env:
         WHITAKER_ASSET: ${{ steps.resolve-release.outputs.asset }}
-        WHITAKER_EXTENSION: ${{ steps.resolve-release.outputs.extension }}
         WHITAKER_NEEDS_INSTALL: ${{ steps.resolve-release.outputs.needs-install }}
         WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
-        set -euo pipefail
+        set -Eeuo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
@@ -301,11 +306,11 @@ runs:
         archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
         extract_dir="${WHITAKER_STAGING_DIR}/extract"
         mkdir -p -- "$extract_dir"
-        if [[ "$WHITAKER_EXTENSION" == zip ]]; then
-          unzip -q -j "$archive" -d "$extract_dir"
-        else
-          tar -xzf "$archive" --strip-components=1 -C "$extract_dir"
-        fi
+        # Both release archives hold one top-level directory. bsdtar, which is
+        # the bundled tar on Windows and macOS runners, reads zip as well as
+        # gzip, and GNU tar detects gzip without an explicit flag. unzip is not
+        # guaranteed to be present on a Windows runner.
+        tar -xf "$archive" --strip-components=1 -C "$extract_dir"
 
     - name: Install Whitaker installer
       id: install-whitaker-installer
@@ -317,7 +322,7 @@ runs:
         WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
-        set -euo pipefail
+        set -Eeuo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
@@ -339,7 +344,7 @@ runs:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
-        set -euo pipefail
+        set -Eeuo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"

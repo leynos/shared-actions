@@ -207,6 +207,31 @@ class TestLifecycleSteps:
         assert "releases/download/v${WHITAKER_INSTALLER_VERSION}" in script
         assert "curl -fsSL --proto '=https' --tlsv1.2" in script
 
+    def test_download_bounds_and_retries_each_transfer(self) -> None:
+        """Verify transient network failures are retried within a bound."""
+        script = _step_script("Download Whitaker release")
+
+        for flag in (
+            "--retry 3",
+            "--retry-delay 2",
+            "--retry-all-errors",
+            "--connect-timeout 20",
+            "--max-time 300",
+        ):
+            assert flag in script
+
+    def test_extraction_uses_tar_for_every_archive_format(self) -> None:
+        """Verify extraction never depends on unzip being installed."""
+        script = _step_script("Extract Whitaker installer")
+
+        assert 'tar -xf "$archive" --strip-components=1 -C "$extract_dir"' in script
+        commands = [
+            line.strip()
+            for line in script.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert not any("unzip" in command for command in commands)
+
     def test_verification_compares_the_anchor_then_the_sidecar(self) -> None:
         """Verify the verify step's digest comparisons and metrics."""
         script = _step_script("Verify Whitaker release")

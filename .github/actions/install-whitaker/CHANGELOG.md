@@ -18,5 +18,8 @@ this file.
   supplied digest that disagrees with a pinned one
 - Split the release lifecycle into explicit resolve, download, verify, extract,
   and install steps
+- Extract both archive formats with `tar` rather than `unzip`, which is not
+  present on every runner image
+- Retry each release download with bounded connect and transfer timeouts
 - Report the digest outcome and trust-anchor source in the job summary
 - Default `installer-version` to `0.2.7`

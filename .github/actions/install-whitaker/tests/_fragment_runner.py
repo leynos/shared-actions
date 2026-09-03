@@ -97,6 +97,20 @@ class ActionContext:
 
 
 @dc.dataclass(frozen=True)
+class FragmentEnvironment:
+    """Describe where fragments run and what ambient state they observe."""
+
+    base_env: dict[str, str]
+    cwd: Path
+    output_dir: Path
+
+    def output_file(self, name: str) -> Path:
+        """Return the ``$GITHUB_OUTPUT`` file backing one fragment."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        return self.output_dir / name
+
+
+@dc.dataclass(frozen=True)
 class StepResult:
     """Record one executed fragment and its process result."""
 
@@ -133,24 +147,23 @@ class LifecycleResult:
 def run_step(
     step: dict[str, object],
     context: ActionContext,
-    *,
-    base_env: dict[str, str],
-    cwd: Path,
-    output_file: Path,
+    environment: FragmentEnvironment,
+    output_name: str,
 ) -> subprocess.CompletedProcess[str]:
     """Run one fragment and record its outputs against ``context``."""
     script = step["run"]
     if not isinstance(script, str):
         message = f"step {step.get('name')!r} declares no Bash fragment"
         raise TypeError(message)
+    output_file = environment.output_file(output_name)
     env = {
-        **base_env,
+        **environment.base_env,
         **context.step_env(step),
         "GITHUB_OUTPUT": bash_file_path(output_file),
     }
     process = subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
         [bash_executable(), "-c", script],
-        cwd=cwd,
+        cwd=environment.cwd,
         env=env,
         capture_output=True,
         check=False,
@@ -164,23 +177,13 @@ def run_step(
 def run_lifecycle(
     steps: list[dict[str, object]],
     context: ActionContext,
-    *,
-    base_env: dict[str, str],
-    cwd: Path,
-    output_dir: Path,
+    environment: FragmentEnvironment,
 ) -> LifecycleResult:
     """Run fragments in order, stopping at the first failing fragment."""
-    output_dir.mkdir(parents=True, exist_ok=True)
     results: list[StepResult] = []
     for index, step in enumerate(steps):
         name = typ.cast("str", step["name"])
-        process = run_step(
-            step,
-            context,
-            base_env=base_env,
-            cwd=cwd,
-            output_file=output_dir / f"{index:02d}-output",
-        )
+        process = run_step(step, context, environment, f"{index:02d}-output")
         results.append(StepResult(name=name, process=process))
         if process.returncode != 0:
             break

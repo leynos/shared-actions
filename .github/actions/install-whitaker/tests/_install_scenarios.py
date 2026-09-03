@@ -22,6 +22,7 @@ from _action_manifest import (
 )
 from _fragment_runner import (
     ActionContext,
+    FragmentEnvironment,
     LifecycleResult,
     StepResult,
     ambient_env,
@@ -72,20 +73,26 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
 """
 
 
-def _extractor_stub(flag: str, installer_name: str) -> str:
-    """Return an archive-extractor stub that writes ``installer_name``."""
-    return f"""#!/usr/bin/env bash
+_TAR_STUB = f"""#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\\n' "$*" >> "$EXTRACT_LOG"
 extract_dir=
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    {flag}) extract_dir="$2"; shift 2 ;;
+    -C) extract_dir="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
-cat > "$extract_dir/{installer_name}" <<'INSTALLER'
+cat > "$extract_dir/$EXPECTED_INSTALLER_NAME" <<'INSTALLER'
 {_INSTALLER_STUB}INSTALLER
-chmod +x "$extract_dir/{installer_name}"
+chmod +x "$extract_dir/$EXPECTED_INSTALLER_NAME"
+"""
+
+_FORBIDDEN_STUB = """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$0 $*" >> "$FORBIDDEN_LOG"
+echo "$0 is not available on every supported runner" >&2
+exit 127
 """
 
 
@@ -170,6 +177,16 @@ class InstallRun:
         return self.root / "conflict.log"
 
     @property
+    def extract_log(self) -> Path:
+        """Return the log of stubbed ``tar`` invocations."""
+        return self.root / "extract.log"
+
+    @property
+    def forbidden_log(self) -> Path:
+        """Return the log of commands the action must never invoke."""
+        return self.root / "forbidden.log"
+
+    @property
     def summary(self) -> Path:
         """Return the job-summary file the fragments append metrics to."""
         return self.root / "summary.md"
@@ -210,11 +227,8 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
     """Create the command stubs and return the ``PATH`` for the fragments."""
     stub_bin = root / "stub-bin"
     _write_executable(stub_bin / "curl", _CURL_STUB)
-    _write_executable(stub_bin / "tar", _extractor_stub("-C", "whitaker-installer"))
-    _write_executable(
-        stub_bin / "unzip",
-        _extractor_stub("-d", "whitaker-installer.exe"),
-    )
+    _write_executable(stub_bin / "tar", _TAR_STUB)
+    _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
     path = f"{bash_path(stub_bin)}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         ambient_bin = root / "ambient-bin"
@@ -238,6 +252,9 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "ARCHIVE_PAYLOAD": scenario.archive_payload,
         "CONFLICT_LOG": bash_file_path(root / "conflict.log"),
         "DOWNLOAD_LOG": bash_file_path(root / "download.log"),
+        "EXPECTED_INSTALLER_NAME": scenario.installer_name,
+        "EXTRACT_LOG": bash_file_path(root / "extract.log"),
+        "FORBIDDEN_LOG": bash_file_path(root / "forbidden.log"),
         "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "GITHUB_STEP_SUMMARY": bash_file_path(root / "summary.md"),
@@ -282,14 +299,16 @@ def run_install_scenario(root: Path, scenario: InstallScenario) -> InstallRun:
             },
         },
     )
-    outputs = root / "outputs"
-    outputs.mkdir(parents=True, exist_ok=True)
+    environment = FragmentEnvironment(
+        base_env=base_env,
+        cwd=root,
+        output_dir=root / "outputs",
+    )
     validation = run_step(
         step_by_id("validate-inputs"),
         context,
-        base_env=base_env,
-        cwd=root,
-        output_file=outputs / "validate-output",
+        environment,
+        "validate-output",
     )
     if validation.returncode != 0:
         result = LifecycleResult(
@@ -302,13 +321,7 @@ def run_install_scenario(root: Path, scenario: InstallScenario) -> InstallRun:
             cargo_home=cargo_home,
             staging_dir=root / "runner-temp" / "whitaker-installer-release",
         )
-    result = run_lifecycle(
-        lifecycle_steps(),
-        context,
-        base_env=base_env,
-        cwd=root,
-        output_dir=outputs,
-    )
+    result = run_lifecycle(lifecycle_steps(), context, environment)
     return InstallRun(
         result=result,
         context=context,

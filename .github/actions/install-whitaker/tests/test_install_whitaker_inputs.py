@@ -14,6 +14,7 @@ import pytest
 from _action_manifest import step_by_id
 from _fragment_runner import (
     ActionContext,
+    FragmentEnvironment,
     ambient_env,
     bash_path,
     run_step,
@@ -73,13 +74,16 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
     process = run_step(
         step_by_id("validate-inputs"),
         context,
-        base_env={
-            **ambient_env(),
-            "HOME": bash_path(home),
-            "RUNNER_OS": inputs.runner_os,
-        },
-        cwd=tmp_path,
-        output_file=tmp_path / "output",
+        FragmentEnvironment(
+            base_env={
+                **ambient_env(),
+                "HOME": bash_path(home),
+                "RUNNER_OS": inputs.runner_os,
+            },
+            cwd=tmp_path,
+            output_dir=tmp_path,
+        ),
+        "output",
     )
     return ValidationRun(
         returncode=process.returncode,

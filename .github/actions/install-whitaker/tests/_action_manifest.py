@@ -83,5 +83,10 @@ def asset_name(runner_os: str, runner_arch: str, version: str) -> str:
 
 
 def installer_filename(runner_os: str, runner_arch: str) -> str:
-    """Return the installer filename the action installs for a runner pair."""
-    return SUPPORTED_PLATFORMS[f"{runner_os}:{runner_arch}"][2]
+    """Return the installer filename the action installs for a runner pair.
+
+    An unsupported pair falls back to the POSIX filename so a fixture can be
+    built for it; the action rejects such a pair before it extracts anything.
+    """
+    platform = SUPPORTED_PLATFORMS.get(f"{runner_os}:{runner_arch}")
+    return platform[2] if platform is not None else "whitaker-installer"

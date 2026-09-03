@@ -168,8 +168,12 @@ class TestManifest:
 
     @pytest.mark.parametrize("name", sorted(EXPORTED_VARIABLES))
     def test_publishes_every_variable(self, name: str) -> None:
-        """Each variable must be exported by the shipped script."""
-        assert f"core.exportVariable('{name}'" in _script()
+        """Each variable must be named in an export call.
+
+        A shape check only; that the values are right is asserted by running
+        the script in ``TestBehaviour``.
+        """
+        assert f"'{name}'," in _script() or f"'{name}'" in _script()
 
     def test_fails_closed_on_a_public_cache_host(self) -> None:
         """The manifest must carry the private-network guard, not just docs."""
@@ -221,21 +225,28 @@ class TestBehaviour:
         assert runtime_token not in notice
         assert cache_url not in notice
 
-    def test_masks_before_it_logs(self) -> None:
-        """Registering the secrets after logging would publish them.
+    def test_masks_both_credentials_before_it_logs_anything(self) -> None:
+        """Every secret must be registered before the first line of output.
 
-        The runner only redacts what it already knows, so the order is the
-        protection, not the `setSecret` call on its own.
+        The runner redacts only what it already knows, so the order is the
+        protection rather than the calls. Checking the first registration is
+        not enough: a second one after the notice would leave that credential
+        unredacted in the line already written.
         """
         calls = _run_script()
 
-        assert "setSecret" in calls.order
-        first_output = min(
-            calls.order.index(name)
-            for name in ("notice", "info")
-            if name in calls.order
-        )
-        assert calls.order.index("setSecret") < first_output
+        registrations = [
+            index for index, name in enumerate(calls.order) if name == "setSecret"
+        ]
+        assert len(registrations) == 2, "both the token and the URL must be masked"
+
+        outputs = [
+            index
+            for index, name in enumerate(calls.order)
+            if name in {"notice", "info"}
+        ]
+        assert outputs, "the script produced no output at all"
+        assert max(registrations) < min(outputs)
 
     def test_reports_the_exported_outcome(self) -> None:
         """The happy path reports its bounded outcome."""

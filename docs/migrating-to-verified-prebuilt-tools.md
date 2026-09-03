@@ -34,8 +34,11 @@ verifies the downloaded archive directly against the digest pinned in the script
 Neither action falls back to `cargo install`, `cargo binstall`, or a source
 build:
 
-- `install-whitaker` has never built `whitaker-installer` from source; this
-  is unchanged.
+- `install-whitaker` previously installed `whitaker-installer` with
+  `cargo binstall`, falling back to `cargo install` (a source build) when
+  `cargo-binstall` was unavailable. Both paths are removed; a caller who relied
+  on either must use a version this repository's pinned digest manifest covers,
+  or supply a verified `installer-sha256` for the resolved asset.
 - `generate-coverage` previously installed `cargo-nextest` through
   cargo-binstall, which could itself fall back to a QuickInstall substitute or
   a source build. That substitution path is gone. A missing or unverifiable

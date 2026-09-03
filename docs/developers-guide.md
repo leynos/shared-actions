@@ -347,6 +347,142 @@ Beyond Bash, the runner must provide:
   preconditions, so the action fails before any download, because the download
   is staged beneath it.
 
+### Resolution and publication split
+
+`Resolve Whitaker release` and `Publish Whitaker resolution` divide the
+release-resolution lifecycle into a pure query and its one externally visible
+consumer:
+
+- `Resolve Whitaker release` is a thin adapter. It runs
+  `scripts/resolve-release.sh`, captures everything the script prints on
+  stdout, and writes that captured record to the step's `resolution` output. It
+  has no other effect, beyond an `ERR` trap that reports a genuine internal
+  failure (the script being unreadable, or a shell builtin such as `awk` dying)
+  rather than an expected resolution outcome.
+- `Publish Whitaker resolution` is the only step that turns the record into
+  anything a caller or reviewer can observe: it writes the step outputs later
+  steps consume (`needs-install`, `asset`, `extension`, `installer-name`,
+  `expected-sha`, `trust-anchor`, `staging-dir`), emits job-summary metrics,
+  prints `::notice` and `::error` annotations, and decides whether the job
+  fails.
+
+Keeping resolution pure and separate from publication lets the action's test
+suite exercise `resolve-release.sh` directly, without stubbing GitHub Actions
+outputs, annotations, or the job summary.
+
+### The `resolve-release.sh` contract
+
+`scripts/resolve-release.sh` reads named environment variables set by
+`Resolve Whitaker release` (`RUNNER_OPERATING_SYSTEM`, `RUNNER_ARCHITECTURE`,
+`WHITAKER_DIGEST_MANIFEST`, `WHITAKER_INSTALLER_PATH`,
+`WHITAKER_INSTALLER_SHA256`, `WHITAKER_INSTALLER_VERSION`,
+`WHITAKER_INSTALLER_VERSION_PATH`, and `WHITAKER_STAGING_DIR`) and prints a
+`key=value` record on stdout, one field per line. It writes no file, emits no
+job-summary metric, and prints no workflow annotation; every externally visible
+effect belongs to the publication step. An expected resolution failure — an
+unsupported runner, or a digest that cannot be resolved — is reported as an
+`error` record on stdout, not as a non-zero exit. A non-zero exit is reserved
+for a genuine internal failure, which is why the script omits `errexit` and
+lets its caller own the `ERR` trap.
+
+The record's `status` field takes one of three values:
+
+- `cached` — an executable installer is already present at
+  `WHITAKER_INSTALLER_PATH` and its version marker names the requested version.
+  No other field is printed.
+- `install` — the release must be downloaded. The record also carries
+  `asset`, `extension`, `installer-name`, `expected-sha`, `trust-anchor`, and
+  `staging-dir`. When a cached installer exists but names a different version,
+  the record also carries `stale-version`.
+- `error` — resolution could not proceed. The record also carries
+  `error-kind` and `error-message`.
+
+The `error-kind` field takes one of five values, each produced by a different
+check in the script:
+
+- `unsupported-runner` — the runner operating-system and architecture pair
+  has no mapped release target. This is checked before any cache reuse, so a
+  cached installer cannot mask an unsupported runner.
+- `digest-conflict` — the manifest pins a digest for the resolved asset and
+  the supplied `installer-sha256` disagrees with it.
+- `unpinned-digest` — the asset has neither a pinned digest nor a supplied
+  `installer-sha256`.
+- `manifest-unreadable` — the digest manifest exists but could not be read.
+- `version-marker-unreadable` — the installed-version marker exists but could
+  not be read.
+
+The two `unreadable` kinds matter more than they look. An absent manifest or
+marker is a result, meaning nothing is pinned or nothing is cached, but one
+that exists and cannot be read is a failure. Degrading it to the absent case
+would silently fall back to the caller's digest, report a pinned asset as
+unpinned, or reuse a cached installer of unknown version. The lookup helpers
+therefore return a distinct non-zero status for a read failure, and every
+caller propagates it.
+
+`Publish Whitaker resolution` maps `digest-conflict`, `unpinned-digest`,
+`manifest-unreadable`, and `version-marker-unreadable` to the
+`whitaker-installer.digest=conflict`, `whitaker-installer.digest=unpinned`,
+`whitaker-installer.digest=unreadable`, and
+`whitaker-installer.cache-entry=unreadable` metrics respectively;
+`unsupported-runner` has no dedicated metric and falls through to the generic
+`whitaker-installer.failure=install` metric.
+
+### Version marker and cache reuse
+
+Alongside the installer binary, the action writes a version marker file
+(`.whitaker-installer-version`, recorded in
+`steps.validate-inputs.outputs.installer-version-path`) and caches it beside
+the installer. `resolve-release.sh` reuses a cached installer only when this
+marker names the exact version requested by `installer-version`; any other
+content, including no file at all, is treated as a cache miss for reuse
+purposes.
+
+This check matters most for `cache-provider: external`. With the built-in
+`github` cache, a `installer-version` bump changes the cache key, so a stale
+installer is never restored in the first place. With an external, caller-
+mounted Cargo home, nothing rotates the mount when `installer-version` changes:
+without the marker check, a persistent Cargo home would keep serving an
+installer built for an older version indefinitely, regardless of what the
+caller now requests. The marker check makes version correctness independent of
+how the cache is provisioned.
+
+A stale or absent marker is reported as `whitaker-installer.cache-entry=stale`
+in the job summary, and the action falls through to a freshly verified download
+of the requested version.
+
+### Transfer and job-summary telemetry
+
+`Download Whitaker release` fetches the release archive and its `.sha256`
+sidecar in two separate `curl` invocations, and reports each transfer with both
+a `::notice title=Whitaker installer transfer::` annotation and a
+`whitaker-installer.transfer.<part>=...` job-summary metric, where `<part>` is
+`archive` or `sha256`. Each report names the outcome (`ok` or `failed`), the
+HTTP status code, the downloaded byte count, the elapsed time in seconds, and
+the retry attempt count.
+
+The attempt count depends on `curl`'s `num_retries` write-out variable, which
+was added in curl 8.9.0. The step compares the runner's `curl --version` against
+`8.9.0` before adding `%{num_retries}` to its `--write-out` format, and reports
+`attempts=unknown` when the runner's curl predates that version.
+
+The job summary carries these metric names, read from `action.yml`:
+
+- `whitaker-installer.cache=<state>`, where `<state>` is `disabled`, `hit`, or
+  `miss`.
+- `whitaker-installer.cache-entry=stale`.
+- `whitaker-installer.path=cache`, `whitaker-installer.path=official-release`.
+- `whitaker-installer.trust-anchor=<anchor>`, where `<anchor>` is `pinned` or
+  `input`.
+- `whitaker-installer.digest=conflict`, `whitaker-installer.digest=unpinned`,
+  `whitaker-installer.digest=mismatch`,
+  `whitaker-installer.digest=sidecar-mismatch`,
+  `whitaker-installer.digest=verified`.
+- `whitaker-installer.transfer.archive=...`,
+  `whitaker-installer.transfer.sha256=...`.
+- `whitaker-installer.failure=resolve`, `whitaker-installer.failure=install`,
+  `whitaker-installer.failure=execution`.
+- `whitaker-installer.result=success`.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It
@@ -479,6 +615,31 @@ digest in `CARGO_NEXTEST_SHA256`, then replaces the destination atomically.
 Keep `CARGO_NEXTEST_VERSION` and both checksum tables
 (`CARGO_NEXTEST_RELEASE_ASSETS` and `CARGO_NEXTEST_SHA256`) in sync: update the
 version and every pinned archive and binary digest together.
+
+### `ReleaseAsset` and `emit_metric` boundaries
+
+Two small constructs in `install_cargo_nextest.py` are worth understanding
+before changing it:
+
+- `ReleaseAsset` is a `typing.NamedTuple` that pins one release archive's
+  `target`, `extension`, and `sha256` digest. Its `filename` property derives
+  the official archive filename
+  (`cargo-nextest-{CARGO_NEXTEST_VERSION}-{target}.{extension}`) from those
+  fields and the module-level `CARGO_NEXTEST_VERSION`, so the filename can
+  never drift from the pinned target and extension it was built from.
+- `emit_metric()` is the single place that appends a bounded line to
+  `$GITHUB_STEP_SUMMARY`. Every metric in the script goes through this one
+  function, and it does nothing when `GITHUB_STEP_SUMMARY` is unset, which is
+  the case when running the script or its tests outside a GitHub Actions job.
+
+The script emits these `cargo-nextest.` metric names, read from
+`install_cargo_nextest.py`:
+
+- `cargo-nextest.download=ok`, `cargo-nextest.download=failed`.
+- `cargo-nextest.archive-digest=ok`, `cargo-nextest.archive-digest=mismatch`.
+- `cargo-nextest.binary-digest=ok`, `cargo-nextest.binary-digest=mismatch`.
+- `cargo-nextest.install=ok`, `cargo-nextest.install=failed`,
+  `cargo-nextest.install=reused`.
 
 ## `stage-release-artefacts` Action Architecture
 

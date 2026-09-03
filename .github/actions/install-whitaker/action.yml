@@ -167,6 +167,16 @@ runs:
         # resolve script being unreadable. An expected resolution failure is a
         # record printed by the script.
         trap 'status=$?; echo "::error title=Whitaker installer failed::resolution failed with exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=resolve"; exit "${status}"' ERR
+        # RUNNER_TEMP is a native path, so under Git Bash the staging
+        # directory arrives as D:\a\_temp/... . GNU tar reads a colon in an
+        # archive path as rmt's host:path syntax and tries to resolve the
+        # drive letter as a hostname. Normalize here, where the path is first
+        # produced, so download, verify, extract, and install all receive the
+        # POSIX form rather than each having to cope.
+        if command -v cygpath >/dev/null 2>&1; then
+          WHITAKER_STAGING_DIR="$(cygpath -u "$WHITAKER_STAGING_DIR")"
+          export WHITAKER_STAGING_DIR
+        fi
         resolution="$(bash "$WHITAKER_RESOLVE_SCRIPT")"
         {
           printf 'resolution<<WHITAKER_RESOLUTION_EOF\n'
@@ -382,7 +392,16 @@ runs:
         # the bundled tar on Windows and macOS runners, reads zip as well as
         # gzip, and GNU tar detects gzip without an explicit flag. unzip is not
         # guaranteed to be present on a Windows runner.
-        tar -xf "$archive" --strip-components=1 -C "$extract_dir"
+        #
+        # --force-local tells GNU tar to read a colon in the archive path as
+        # part of the name rather than as rmt's host:path syntax. The staging
+        # path is normalized upstream, so this is a second line of defence for
+        # any other colon; bsdtar rejects the flag outright, hence the probe.
+        tar_options=()
+        if tar --version 2>/dev/null | grep -q GNU; then
+          tar_options+=(--force-local)
+        fi
+        tar "${tar_options[@]}" -xf "$archive" --strip-components=1 -C "$extract_dir"
 
     - name: Install Whitaker installer
       id: install-whitaker-installer

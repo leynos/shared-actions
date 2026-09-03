@@ -319,7 +319,10 @@ class TestLifecycleSteps:
         """Verify extraction never depends on unzip being installed."""
         script = _step_script("Extract Whitaker installer")
 
-        assert 'tar -xf "$archive" --strip-components=1 -C "$extract_dir"' in script
+        assert (
+            'tar "${tar_options[@]}" -xf "$archive" '
+            '--strip-components=1 -C "$extract_dir"'
+        ) in script
         commands = [
             line.strip()
             for line in script.splitlines()

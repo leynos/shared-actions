@@ -1769,30 +1769,35 @@ def test_install_nextest_download_failure(
     assert "cargo-nextest release download failed" in captured.err
 
 
-def test_install_nextest_checksum_match(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """Matching checksums pass verification."""
-    binary = tmp_path / "cargo-nextest"
-    payload = b"payload"
-    binary.write_bytes(payload)
-    expected = hashlib.sha256(payload).hexdigest()
-
-    assert install_nextest_module.verify_nextest_binary(binary, expected)
-
-
-def test_install_nextest_checksum_mismatch(
+@pytest.mark.parametrize(
+    ("use_matching_digest", "expect_verified"),
+    [
+        (True, True),
+        (False, False),
+    ],
+    ids=["digest-matches", "digest-mismatches"],
+)
+def test_install_nextest_checksum_verification(
     tmp_path: Path,
     install_nextest_module: ModuleType,
     capsys: pytest.CaptureFixture[str],
+    *,
+    use_matching_digest: bool,
+    expect_verified: bool,
 ) -> None:
-    """Checksum mismatches raise a Typer exit."""
+    """Verification passes only when the digest matches the binary exactly."""
     binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
+    payload = b"payload"
+    binary.write_bytes(payload)
+    expected = (
+        hashlib.sha256(payload).hexdigest() if use_matching_digest else "deadbeef"
+    )
 
-    assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
-    assert "cargo-nextest checksum mismatch" in capsys.readouterr().err
+    verified = install_nextest_module.verify_nextest_binary(binary, expected)
+
+    assert verified is expect_verified
+    if not expect_verified:
+        assert "cargo-nextest checksum mismatch" in capsys.readouterr().err
 
 
 _NEXTEST_ARCHIVE_PAYLOAD = b"nextest-archive"
@@ -3431,7 +3436,16 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
+@dataclasses.dataclass(frozen=True)
+class _BinstallScriptResult:
+    """Capture the outcome of running the Ensure cargo-binstall shell body."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def _run_ensure_binstall_script(tmp_path: Path) -> _BinstallScriptResult:
     """Execute the Ensure cargo-binstall shell body in an isolated PATH."""
     env = {
         **os.environ,
@@ -3441,7 +3455,12 @@ def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
         "PATH": f"{tmp_path / 'bin'}{os.pathsep}/usr/bin{os.pathsep}/bin",
     }
     command = local["/bin/bash"]["-c", _ensure_binstall_script()]
-    return run_plumbum_command(command, method="run", env=env)
+    result = run_plumbum_command(command, method="run", env=env)
+    return _BinstallScriptResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
 
 
 def _write_fake_binstall_installer(
@@ -3508,58 +3527,83 @@ printf '%s\\n' "cargo-binstall {version}"
     )
 
 
-def test_generate_coverage_binstall_fast_path_verifies_existing_version(
+@pytest.mark.parametrize(
+    (
+        "existing_version",
+        "arrange_pinned_installer",
+        "ran_pinned_installer",
+        "expected_message",
+        "expected_stream",
+    ),
+    [
+        (
+            "1.19.1",
+            False,
+            False,
+            "cargo-binstall already installed: cargo-binstall 1.19.1",
+            "stdout",
+        ),
+        (
+            "1.15.0",
+            True,
+            True,
+            "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0",
+            "stderr",
+        ),
+        (
+            "1.19.10",
+            True,
+            True,
+            "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10",
+            "stderr",
+        ),
+    ],
+    ids=[
+        "fast-path-verified-version",
+        "mismatch-installs-pinned-version",
+        "longer-version-look-alike-is-rejected",
+    ],
+)
+def test_generate_coverage_binstall_version_comparison_outcomes(
     tmp_path: Path,
+    existing_version: str,
+    expected_message: str,
+    expected_stream: str,
+    *,
+    arrange_pinned_installer: bool,
+    ran_pinned_installer: bool,
 ) -> None:
-    """An existing cargo-binstall is reused only after version verification."""
-    _write_existing_cargo_binstall(tmp_path, "1.19.1")
-    _write_executable(
-        tmp_path / "bin" / "curl",
-        """#!/bin/sh
+    """Existing cargo-binstall versions are compared exactly, not by substring.
+
+    A verified existing binary is reused without installing; anything else,
+    including a longer version string that merely starts with the pin (a
+    ``1.19.10`` look-alike for ``1.19.1``), falls through to the pinned
+    installer.
+    """
+    _write_existing_cargo_binstall(tmp_path, existing_version)
+    if arrange_pinned_installer:
+        _write_fake_binstall_installer(tmp_path)
+    else:
+        _write_executable(
+            tmp_path / "bin" / "curl",
+            """#!/bin/sh
 echo "curl should not run for a verified cargo-binstall" >&2
 exit 99
 """,
-    )
+        )
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    assert (tmp_path / "existing-binstall.log").read_text(encoding="utf-8") == "-V\n"
-    assert "cargo-binstall already installed: cargo-binstall 1.19.1" in stdout
-
-
-def test_generate_coverage_binstall_mismatch_installs_pinned_version(
-    tmp_path: Path,
-) -> None:
-    """A mismatched existing cargo-binstall falls through to pinned install."""
-    _write_existing_cargo_binstall(tmp_path, "1.15.0")
-    _write_fake_binstall_installer(tmp_path)
-
-    result = _run_ensure_binstall_script(tmp_path)
-
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0" in (stderr)
-    assert (tmp_path / "installer.log").read_text(encoding="utf-8")
-    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
-
-
-def test_generate_coverage_binstall_rejects_longer_version_look_alike(
-    tmp_path: Path,
-) -> None:
-    """A 1.19.10 binary must not satisfy the 1.19.1 pin via substring match."""
-    _write_existing_cargo_binstall(tmp_path, "1.19.10")
-    _write_fake_binstall_installer(tmp_path)
-
-    result = _run_ensure_binstall_script(tmp_path)
-
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    # The look-alike is rejected and the pinned installer runs instead.
-    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10" in stderr
-    assert (tmp_path / "installer.log").exists()
-    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
+    assert result.returncode == 0, result.stderr
+    haystack = result.stdout if expected_stream == "stdout" else result.stderr
+    assert expected_message in haystack
+    if ran_pinned_installer:
+        assert (tmp_path / "installer.log").read_text(encoding="utf-8")
+        assert "cargo-binstall cargo-binstall 1.19.1 verified" in result.stdout
+    else:
+        assert (tmp_path / "existing-binstall.log").read_text(
+            encoding="utf-8"
+        ) == "-V\n"
 
 
 def test_generate_coverage_binstall_install_verifies_installed_version(
@@ -3570,9 +3614,10 @@ def test_generate_coverage_binstall_install_verifies_installed_version(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 1
-    assert "cargo-binstall version verification failed: expected 1.19.1" in (stderr)
+    assert result.returncode == 1
+    assert "cargo-binstall version verification failed: expected 1.19.1" in (
+        result.stderr
+    )
 
 
 def test_generate_coverage_binstall_exports_pinned_version_to_installer(
@@ -3583,8 +3628,7 @@ def test_generate_coverage_binstall_exports_pinned_version_to_installer(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 0, stderr
+    assert result.returncode == 0, result.stderr
     version_seen = (tmp_path / "binstall-version.log").read_text(encoding="utf-8")
     # Without `export`, the installer subshell sees BINSTALL_VERSION unset and
     # would silently fall back to releases/latest.
@@ -3599,8 +3643,7 @@ def test_generate_coverage_binstall_appends_cargo_bin_to_github_path(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 0, stderr
+    assert result.returncode == 0, result.stderr
     github_path = (tmp_path / "github-path").read_text(encoding="utf-8")
     expected_bin = str(tmp_path / "cargo-home" / "bin")
     assert expected_bin in github_path.splitlines()
@@ -3622,9 +3665,8 @@ printf '%s  %s\\n' "$z16$z16$z16$z16" "$1"
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 1
-    assert "install script checksum mismatch" in stderr
+    assert result.returncode == 1
+    assert "install script checksum mismatch" in result.stderr
     # The installer script must not run when the checksum does not match.
     assert not (tmp_path / "installer.log").exists()
 

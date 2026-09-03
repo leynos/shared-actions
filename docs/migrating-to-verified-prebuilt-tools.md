@@ -10,17 +10,17 @@ pulling in the next major tag of either action.
 
 Both actions now implement the same trusted-prebuilt-binary policy: install a
 named version from its official GitHub release, verify the downloaded archive
-against a digest pinned inside this repository, and refuse to proceed when
-that digest is absent or wrong. Neither action builds its tool from source,
-and neither falls back to an unverified installation path.
+against a digest pinned inside this repository, and refuse to proceed when that
+digest is absent or wrong. Neither action builds its tool from source, and
+neither falls back to an unverified installation path.
 
-The pinned digest, not the release's own checksum sidecar, is the trust
-anchor. A compromised release could publish a matching `.sha256` sidecar for
-a tampered archive, so trusting the sidecar alone would not catch that
-tampering. Pinning the digest in this repository means an attacker who
-compromises the upstream release cannot also rewrite the digest already
-committed here. Both actions still download the sidecar and compare it with
-the digest they verified, but only as a consistency check.
+The pinned digest, not the release's own checksum sidecar, is the trust anchor.
+A compromised release could publish a matching `.sha256` sidecar for a tampered
+archive, so trusting the sidecar alone would not catch that tampering. Pinning
+the digest in this repository means an attacker who compromises the upstream
+release cannot also rewrite the digest already committed here. Both actions
+still download the sidecar and compare it with the digest they verified, but
+only as a consistency check.
 
 ## Behaviour that is no longer available
 
@@ -30,15 +30,15 @@ build:
 - `install-whitaker` has never built `whitaker-installer` from source; this
   is unchanged.
 - `generate-coverage` previously installed `cargo-nextest` through
-  cargo-binstall, which could itself fall back to a QuickInstall substitute
-  or a source build. That substitution path is gone. A missing or
-  unverifiable prebuilt `cargo-nextest` binary is now a hard failure with no
-  further fallback.
+  cargo-binstall, which could itself fall back to a QuickInstall substitute or
+  a source build. That substitution path is gone. A missing or unverifiable
+  prebuilt `cargo-nextest` binary is now a hard failure with no further
+  fallback.
 
 A caller who relied on cargo-binstall reaching an unpinned or
-QuickInstall-provided `cargo-nextest` build must either use a version that
-this repository's pinned digests cover, or supply its own verified binary on
-`PATH` before `generate-coverage` runs (see `install_cargo_nextest.py`'s
+QuickInstall-provided `cargo-nextest` build must either use a version that this
+repository's pinned digests cover, or supply its own verified binary on `PATH`
+before `generate-coverage` runs (see `install_cargo_nextest.py`'s
 `_resolve_nextest_binary` check, which accepts a preinstalled binary that
 already matches the pinned digest).
 
@@ -64,8 +64,8 @@ Each line pairs a digest with an asset filename, for example:
 ### The `installer-sha256` input
 
 The action gained an optional `installer-sha256` input: a caller-supplied
-SHA-256 digest of the release archive for the current runner. Its
-description in `action.yml` states the precedence rule:
+SHA-256 digest of the release archive for the current runner. Its description in
+`action.yml` states the precedence rule:
 
 > SHA-256 digest of the whitaker-installer release archive for this runner.
 > The action's pinned digest manifest takes precedence; supply this only for
@@ -91,20 +91,23 @@ The action's caller-visible digest failures, each reported through both a
 `::error` annotation and a job-summary metric, are:
 
 - `whitaker-installer.digest=mismatch` — the downloaded archive's computed
-  SHA-256 does not match the expected digest. The error names both digests,
-  for example `archive digest mismatch for <asset>: expected <expected> but
+  SHA-256 does not match the expected digest. The error names both digests, for
+  example
+  `archive digest mismatch for <asset>: expected <expected> but
   computed <actual>`.
 - `whitaker-installer.digest=sidecar-mismatch` — the release's own
-  `.sha256` sidecar disagrees with the archive digest that was just
-  verified against the pinned or supplied anchor. The error names both
-  digests: `release sidecar digest <sidecar> disagrees with the verified
+  `.sha256` sidecar disagrees with the archive digest that was just verified
+  against the pinned or supplied anchor. The error names both digests:
+  `release sidecar digest <sidecar> disagrees with the verified
   archive digest <actual> for <asset>`.
 - `whitaker-installer.digest=conflict` — the manifest pins a digest for the
-  asset and the supplied `installer-sha256` disagrees with it. The error
-  names both digests: `installer-sha256 <supplied> conflicts with the
+  asset and the supplied `installer-sha256` disagrees with it. The error names
+  both digests:
+  `installer-sha256 <supplied> conflicts with the
   digest pinned for <asset> (<pinned>); remove the input or correct it`.
 - `whitaker-installer.digest=unpinned` — the asset has neither a pinned nor
-  a supplied digest. The error reads `no pinned SHA-256 for <asset>; supply
+  a supplied digest. The error reads
+  `no pinned SHA-256 for <asset>; supply
   the installer-sha256 input to install version <version>`.
 
 Each of these stops the workflow step; none of them falls back to a source
@@ -115,8 +118,8 @@ build.
 To install a `whitaker-installer` version the manifest does not cover, supply
 its archive digest through `installer-sha256`. Compute that digest yourself
 from an independently downloaded copy of the archive with `sha256sum`; do not
-copy it from the release's `.sha256` sidecar, since the sidecar is not a
-trust anchor.
+copy it from the release's `.sha256` sidecar, since the sidecar is not a trust
+anchor.
 
 ## Adding a version to the manifest
 
@@ -127,8 +130,8 @@ need to supply `installer-sha256` themselves:
    from the Whitaker GitHub release.
 2. Compute each archive's digest locally with `sha256sum`.
 3. Cross-check each computed digest against the release's own `.sha256`
-   sidecar for that asset. A disagreement between the two blocks the
-   change; investigate before pinning anything.
+   sidecar for that asset. A disagreement between the two blocks the change;
+   investigate before pinning anything.
 4. Append one `sha256sum`-formatted line per asset to
    `installer-digests.sha256`, alongside the existing entries.
 5. Open a pull request that reviews the new manifest lines together with any
@@ -147,8 +150,8 @@ failure.
 The `use-cargo-nextest` input is unchanged in shape — it still defaults to
 `"true"` and still selects whether Rust coverage runs through
 `cargo llvm-cov nextest` or `cargo llvm-cov` directly — but a caller that sets
-it to `"true"` now gets the verified-prebuilt installation path described
-above instead of the previous cargo-binstall path. A caller that sets
+it to `"true"` now gets the verified-prebuilt installation path described above
+instead of the previous cargo-binstall path. A caller that sets
 `use-cargo-nextest: "false"` is unaffected, since the action never installs
 `cargo-nextest` in that mode.
 

@@ -17,6 +17,9 @@ documents how to use the `install-nixie` action.
   – full input and output tables.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
+- [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
+  – upgrade guidance for the `install-whitaker` and `generate-coverage`
+  verified prebuilt tool installation.
 
 ## Node.js 24 action dependencies
 
@@ -94,15 +97,17 @@ extracting its executable. A missing prebuilt asset is a hard failure.
 The pinned digests live in `installer-digests.sha256` beside the action
 manifest, so a compromised release cannot satisfy its own check by publishing a
 matching `.sha256` sidecar. The sidecar is still fetched and must agree with
-the verified archive. To install a version the manifest does not pin, pass its
-archive digest through the optional `installer-sha256` input; without it, an
-unpinned version fails before anything is downloaded.
+the verified archive.
+
+The pinned manifest takes precedence. Pass the optional `installer-sha256`
+input only for an asset the manifest does not pin; a digest that disagrees with
+a pinned one is rejected, and an asset with neither anchor fails before
+anything is downloaded.
 
 For an external cache, mount `~/.local/share`, not the terminal
 `~/.local/share/whitaker` directory. The installer expects that child to be
 absent for a fresh install; an empty volume mounted at the child looks like an
 existing but invalid Git checkout.
-
 
 ## `generate-coverage` action
 

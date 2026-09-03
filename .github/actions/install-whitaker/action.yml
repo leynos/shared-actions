@@ -13,8 +13,9 @@ inputs:
   installer-sha256:
     description: >-
       SHA-256 digest of the whitaker-installer release archive for this
-      runner. Required only for a version absent from the action's pinned
-      digest manifest; the pinned digest is used when this is empty.
+      runner. The action's pinned digest manifest takes precedence; supply
+      this only for an asset the manifest does not pin. A value that
+      disagrees with a pinned digest is rejected.
     required: false
     default: ""
   cache-provider:
@@ -131,8 +132,8 @@ runs:
         echo "::notice title=Whitaker installer cache::provider=${WHITAKER_CACHE_PROVIDER} state=${cache_state} version=${WHITAKER_INSTALLER_VERSION}"
         emit_metric "whitaker-installer.cache=${cache_state}"
 
-    - name: Install Whitaker installer
-      id: install-whitaker-installer
+    - name: Resolve Whitaker release
+      id: resolve-release
       shell: bash
       env:
         RUNNER_ARCHITECTURE: ${{ runner.arch }}
@@ -148,11 +149,20 @@ runs:
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
           fi
         }
-        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
-        install_error() {
+        step_error() {
           echo "::error title=Whitaker installer failed::$1" >&2
           emit_metric "whitaker-installer.failure=install"
           exit 1
+        }
+        resolve_target() {
+          case "${RUNNER_OPERATING_SYSTEM}:${RUNNER_ARCHITECTURE}" in
+            Linux:X64) echo 'x86_64-unknown-linux-gnu tgz whitaker-installer' ;;
+            Linux:ARM64) echo 'aarch64-unknown-linux-gnu tgz whitaker-installer' ;;
+            macOS:X64) echo 'x86_64-apple-darwin tgz whitaker-installer' ;;
+            macOS:ARM64) echo 'aarch64-apple-darwin tgz whitaker-installer' ;;
+            Windows:X64) echo 'x86_64-pc-windows-msvc zip whitaker-installer.exe' ;;
+            *) return 1 ;;
+          esac
         }
         pinned_digest() {
           if [[ ! -f "${WHITAKER_DIGEST_MANIFEST:-}" ]]; then
@@ -160,69 +170,168 @@ runs:
           fi
           awk -v asset="$1" '$2 == asset { print $1; exit }' "$WHITAKER_DIGEST_MANIFEST"
         }
-        if [[ ! -x "$WHITAKER_INSTALLER_PATH" ]]; then
-          case "${RUNNER_OPERATING_SYSTEM}:${RUNNER_ARCHITECTURE}" in
-            Linux:X64) target=x86_64-unknown-linux-gnu; extension=tgz ;;
-            Linux:ARM64) target=aarch64-unknown-linux-gnu; extension=tgz ;;
-            macOS:X64) target=x86_64-apple-darwin; extension=tgz ;;
-            macOS:ARM64) target=aarch64-apple-darwin; extension=tgz ;;
-            Windows:X64) target=x86_64-pc-windows-msvc; extension=zip ;;
-            *)
-              install_error "unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}"
-              ;;
-          esac
-          asset="whitaker-installer-${target}-v${WHITAKER_INSTALLER_VERSION}.${extension}"
-          trust_anchor=input
-          expected_sha="${WHITAKER_INSTALLER_SHA256:-}"
-          if [[ -z "$expected_sha" ]]; then
-            trust_anchor=pinned
-            expected_sha="$(pinned_digest "$asset")"
-          fi
-          if [[ -z "$expected_sha" ]]; then
-            emit_metric "whitaker-installer.digest=unpinned"
-            install_error "no pinned SHA-256 for ${asset}; supply the installer-sha256 input to install version ${WHITAKER_INSTALLER_VERSION}"
-          fi
-          release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
-          download_dir="$(mktemp -d)"
-          trap 'status=$?; rm -rf -- "$download_dir"; exit "$status"' EXIT
-          curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${asset}" -o "${download_dir}/${asset}"
-          curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${asset}.sha256" -o "${download_dir}/${asset}.sha256"
-          if command -v sha256sum >/dev/null 2>&1; then
-            actual_sha="$(sha256sum "${download_dir}/${asset}" | awk '{print $1}')"
-          else
-            actual_sha="$(shasum -a 256 "${download_dir}/${asset}" | awk '{print $1}')"
-          fi
-          if [[ "$actual_sha" != "$expected_sha" ]]; then
-            emit_metric "whitaker-installer.digest=mismatch"
-            install_error "archive digest mismatch for ${asset}: expected ${expected_sha} but computed ${actual_sha}"
-          fi
-          sidecar_sha="$(awk 'NR == 1 { print $1 }' "${download_dir}/${asset}.sha256")"
-          if [[ "$sidecar_sha" != "$actual_sha" ]]; then
-            emit_metric "whitaker-installer.digest=sidecar-mismatch"
-            install_error "release sidecar digest ${sidecar_sha} disagrees with the verified archive digest ${actual_sha} for ${asset}"
-          fi
-          echo "::notice title=Whitaker installer digest::asset=${asset} outcome=verified anchor=${trust_anchor}"
-          emit_metric "whitaker-installer.digest=verified"
-          emit_metric "whitaker-installer.trust-anchor=${trust_anchor}"
-          extract_dir="${download_dir}/extract"
-          mkdir -p -- "$extract_dir"
-          if [[ "$extension" == zip ]]; then
-            unzip -q -j "${download_dir}/${asset}" -d "$extract_dir"
-          else
-            tar -xzf "${download_dir}/${asset}" --strip-components=1 -C "$extract_dir"
-          fi
-          mkdir -p -- "$(dirname -- "$WHITAKER_INSTALLER_PATH")"
-          installer_name=whitaker-installer
-          if [[ "$RUNNER_OPERATING_SYSTEM" == Windows ]]; then
-            installer_name=whitaker-installer.exe
-          fi
-          install -m 0755 "${extract_dir}/${installer_name}" "$WHITAKER_INSTALLER_PATH"
-          echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
-          emit_metric "whitaker-installer.path=official-release"
-        else
+        if [[ -x "$WHITAKER_INSTALLER_PATH" ]]; then
           echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
           emit_metric "whitaker-installer.path=cache"
+          printf 'needs-install=false\n' >> "$GITHUB_OUTPUT"
+          exit 0
         fi
+        if ! target_spec="$(resolve_target)"; then
+          step_error "unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}"
+        fi
+        read -r target extension installer_name <<< "$target_spec"
+        asset="whitaker-installer-${target}-v${WHITAKER_INSTALLER_VERSION}.${extension}"
+        pinned_sha="$(pinned_digest "$asset")"
+        supplied_sha="${WHITAKER_INSTALLER_SHA256:-}"
+        if [[ -n "$pinned_sha" ]]; then
+          if [[ -n "$supplied_sha" && "$supplied_sha" != "$pinned_sha" ]]; then
+            emit_metric "whitaker-installer.digest=conflict"
+            step_error "installer-sha256 ${supplied_sha} conflicts with the digest pinned for ${asset} (${pinned_sha}); remove the input or correct it"
+          fi
+          expected_sha="$pinned_sha"
+          trust_anchor=pinned
+        elif [[ -n "$supplied_sha" ]]; then
+          expected_sha="$supplied_sha"
+          trust_anchor=input
+        else
+          emit_metric "whitaker-installer.digest=unpinned"
+          step_error "no pinned SHA-256 for ${asset}; supply the installer-sha256 input to install version ${WHITAKER_INSTALLER_VERSION}"
+        fi
+        if [[ -z "${RUNNER_TEMP:-}" ]]; then
+          step_error "RUNNER_TEMP must name a writable staging directory"
+        fi
+        {
+          printf 'needs-install=true\n'
+          printf 'asset=%s\n' "$asset"
+          printf 'extension=%s\n' "$extension"
+          printf 'installer-name=%s\n' "$installer_name"
+          printf 'expected-sha=%s\n' "$expected_sha"
+          printf 'trust-anchor=%s\n' "$trust_anchor"
+          printf 'staging-dir=%s\n' "${RUNNER_TEMP}/whitaker-installer-release"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Download Whitaker release
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.resolve-release.outputs.asset }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.resolve-release.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
+        rm -rf -- "$WHITAKER_STAGING_DIR"
+        mkdir -p -- "$WHITAKER_STAGING_DIR"
+        started="$SECONDS"
+        curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${WHITAKER_ASSET}" -o "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        curl -fsSL --proto '=https' --tlsv1.2 "${release_url}/${WHITAKER_ASSET}.sha256" -o "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256"
+        echo "::notice title=Whitaker installer download::asset=${WHITAKER_ASSET} outcome=ok seconds=$(( SECONDS - started ))"
+
+    - name: Verify Whitaker release
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.resolve-release.outputs.asset }}
+        WHITAKER_EXPECTED_SHA: ${{ steps.resolve-release.outputs.expected-sha }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.resolve-release.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
+        WHITAKER_TRUST_ANCHOR: ${{ steps.resolve-release.outputs.trust-anchor }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        step_error() {
+          echo "::error title=Whitaker installer failed::$1" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
+        }
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
+        else
+          actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
+        fi
+        if [[ "$actual_sha" != "$WHITAKER_EXPECTED_SHA" ]]; then
+          emit_metric "whitaker-installer.digest=mismatch"
+          step_error "archive digest mismatch for ${WHITAKER_ASSET}: expected ${WHITAKER_EXPECTED_SHA} but computed ${actual_sha}"
+        fi
+        sidecar_sha="$(awk 'NR == 1 { print $1 }' "${archive}.sha256")"
+        if [[ "$sidecar_sha" != "$actual_sha" ]]; then
+          emit_metric "whitaker-installer.digest=sidecar-mismatch"
+          step_error "release sidecar digest ${sidecar_sha} disagrees with the verified archive digest ${actual_sha} for ${WHITAKER_ASSET}"
+        fi
+        echo "::notice title=Whitaker installer digest::asset=${WHITAKER_ASSET} outcome=verified anchor=${WHITAKER_TRUST_ANCHOR}"
+        emit_metric "whitaker-installer.digest=verified"
+        emit_metric "whitaker-installer.trust-anchor=${WHITAKER_TRUST_ANCHOR}"
+
+    - name: Extract Whitaker installer
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.resolve-release.outputs.asset }}
+        WHITAKER_EXTENSION: ${{ steps.resolve-release.outputs.extension }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.resolve-release.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        extract_dir="${WHITAKER_STAGING_DIR}/extract"
+        mkdir -p -- "$extract_dir"
+        if [[ "$WHITAKER_EXTENSION" == zip ]]; then
+          unzip -q -j "$archive" -d "$extract_dir"
+        else
+          tar -xzf "$archive" --strip-components=1 -C "$extract_dir"
+        fi
+
+    - name: Install Whitaker installer
+      id: install-whitaker-installer
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_NAME: ${{ steps.resolve-release.outputs.installer-name }}
+        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.resolve-release.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.resolve-release.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        mkdir -p -- "$(dirname -- "$WHITAKER_INSTALLER_PATH")"
+        install -m 0755 "${WHITAKER_STAGING_DIR}/extract/${WHITAKER_INSTALLER_NAME}" "$WHITAKER_INSTALLER_PATH"
+        rm -rf -- "$WHITAKER_STAGING_DIR"
+        echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
+        emit_metric "whitaker-installer.path=official-release"
 
     - name: Run Whitaker installer
       shell: bash

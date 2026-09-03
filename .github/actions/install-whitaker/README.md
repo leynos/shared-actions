@@ -18,13 +18,31 @@ must agree with the verified archive, but it is a consistency check rather than
 the trust anchor: a compromised release could publish a matching sidecar for a
 tampered archive, whereas it cannot change a digest already pinned here.
 
-To install a version that the manifest does not pin, supply its archive digest
-through `installer-sha256`. An unpinned version with no supplied digest is a
-hard failure, and no archive is downloaded. The action reports the anchor it
-used in the job summary as `whitaker-installer.trust-anchor=pinned` or
+The pinned manifest takes precedence over the `installer-sha256` input. When
+the manifest pins the asset, the pinned digest is the anchor; a supplied digest
+that disagrees with it is rejected before anything is downloaded, and the error
+names both digests. Supply `installer-sha256` only for an asset the manifest
+does not pin. An asset with neither anchor is a hard failure, again before any
+download.
+
+The action reports the anchor it used in the job summary as
+`whitaker-installer.trust-anchor=pinned` or
 `whitaker-installer.trust-anchor=input`, alongside
-`whitaker-installer.digest=verified` or a `mismatch`, `sidecar-mismatch`, or
-`unpinned` outcome.
+`whitaker-installer.digest=verified` or a `mismatch`, `sidecar-mismatch`,
+`conflict`, or `unpinned` outcome.
+
+## Lifecycle
+
+The action separates the release lifecycle into explicit steps. `Resolve
+Whitaker release` is a read-only query: it selects the platform asset, looks up
+the pinned digest, applies the precedence rule, and publishes the resolved
+asset, extension, installer filename, expected digest, trust anchor, and
+staging directory as step outputs. It also short-circuits the remaining steps
+when the cache already holds an executable installer. `Download Whitaker
+release`, `Verify Whitaker release`, `Extract Whitaker installer`, and `Install
+Whitaker installer` each perform one of those actions and nothing else. The
+staging directory lives under `RUNNER_TEMP` and is removed once the installer
+is in place.
 
 ## Inputs
 
@@ -32,7 +50,7 @@ used in the job summary as `whitaker-installer.trust-anchor=pinned` or
 | ------------------- | ------ | ------------------------------------------------------------ | -------- | ---------- |
 | `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary  | no       | `~/.cargo` |
 | `installer-version` | string | Version of `whitaker-installer` to install                   | no       | `0.2.7`    |
-| `installer-sha256`  | string | Archive digest for a version absent from the pinned manifest | no       | `""`       |
+| `installer-sha256`  | string | Archive digest for an asset absent from the pinned manifest  | no       | `""`       |
 | `cache-provider`    | string | Built-in `github` cache or caller-owned `external` cache     | no       | `github`   |
 
 ## Outputs

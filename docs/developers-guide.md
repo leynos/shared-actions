@@ -231,6 +231,15 @@ backend is independent of its Cargo and uv archive caches. A caller mounting
 prebuilt binary, set `RUSTC_WRAPPER=sccache`, and report the external volume's
 cache result itself.
 
+`rust-build-release` owns no caches itself. It declares the same
+`cache-provider` and `use-sccache` inputs, validates the provider with the same
+guard, and forwards both verbatim to its pinned nested `setup-rust` step, so a
+caller three layers up can still name the cache owner. Its pin must therefore
+stay on a revision that declares both inputs; the contract test in
+[`test_setup_rust_reference.py`](../.github/actions/rust-build-release/tests/test_setup_rust_reference.py)
+holds the expected SHA, the referenced revision's input surface, and the
+forwarding together, so a bump that drops either input fails there.
+
 Both actions validate the provider before cache use and report bounded provider
 and archive-cache outcomes. Keep the allowed states closed to `hit`, `miss`,
 `disabled`, and `error`; never include cache keys, paths, tokens, or raw errors
@@ -670,6 +679,25 @@ it, and runs it under bash. Five scenarios are covered: stable path present,
 legacy fallback, missing man page (error), multiple legacy matches (error), and
 skip mode (no man-page staging, binary only). Tests are automatically skipped
 on Windows.
+
+### Nested `setup-rust` Cache Passthrough
+
+The `cache-provider` and `use-sccache` inputs exist only to reach the nested
+`setup-rust` step; this action neither restores nor saves a cache. Keep the
+forwarding verbatim (`${{ inputs.cache-provider }}` and
+`${{ inputs.use-sccache }}`) rather than deriving a value, so the nested action
+remains the single place that decides what each mode disables. The "Validate
+cache provider" step duplicates the nested guard on purpose: it runs before
+toolchain setup, so a typo fails in seconds instead of after a toolchain
+install. When the accepted provider names change, update both manifests and
+their guards together.
+
+The nested pin is a `main` revision rather than the `setup-rust-v1` tag,
+because that tag predates the two inputs. When bumping it, confirm the target
+revision still declares them, update `EXPECTED_SETUP_RUST_SHA` in
+[`test_setup_rust_reference.py`](../.github/actions/rust-build-release/tests/test_setup_rust_reference.py)
+in the same change, and prefer the tagged commit once `setup-rust-v1` moves
+past the current pin.
 
 ### RUSTFLAGS Export
 

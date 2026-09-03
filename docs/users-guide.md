@@ -48,6 +48,11 @@ sccache binary, set `RUSTC_WRAPPER=sccache`, and mount that directory explicitly
 Otherwise the shared action would still select its GitHub-backed compiler-cache
 integration even though its Cargo and uv archive caches were disabled.
 
+`rust-build-release` accepts both inputs too and forwards them to the
+`setup-rust` step it runs internally, so a workflow that only calls the build
+action can still name the cache owner. It caches nothing itself, and rejects an
+unrecognized `cache-provider` before installing a toolchain.
+
 Both actions report bounded `hit`, `miss`, `disabled`, or `error` states for
 their own archive caches in the workflow log and job summary. Coverage ratchet
 baseline files remain separate GitHub caches when external mode does not mount

@@ -44,6 +44,21 @@ inputs:
       this input.
     required: false
     default: ""
+  cache-provider:
+    description: >
+      Cache owner for the nested setup-rust step's Cargo and uv state, passed
+      through verbatim. Use "github" for that action's built-in GitHub caches
+      or "external" when the caller mounts one cache owner, such as a Namespace
+      cache volume.
+    required: false
+    default: "github"
+  use-sccache:
+    description: >
+      Enable sccache for non-release runs, passed through verbatim to the
+      nested setup-rust step. Set to 'false' when the caller installs its own
+      sccache binary and mounts its cache directory.
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -55,6 +70,21 @@ runs:
         set -euo pipefail
         uv run --script "$GITHUB_ACTION_PATH/src/action_setup.py" \
           validate "${{ inputs.target }}"
+    - name: Validate cache provider
+      # Mirrors the nested setup-rust guard so an unrecognized value fails here
+      # rather than part-way through toolchain setup.
+      shell: bash
+      env:
+        RBR_CACHE_PROVIDER: ${{ inputs.cache-provider }}
+      run: |
+        set -euo pipefail
+        case "$RBR_CACHE_PROVIDER" in
+          github|external) ;;
+          *)
+            echo "::error::cache-provider must be github or external" >&2
+            exit 1
+            ;;
+        esac
     - name: Determine toolchain
       shell: bash
       working-directory: ${{ inputs.project-dir }}
@@ -115,13 +145,19 @@ runs:
         } >> "$GITHUB_ENV"
         echo "RUSTFLAGS exported from the rustflags input on attempt $attempt of $attempts" >&2
     - name: Setup Rust toolchain
-      # setup-rust-v1
-      # Update this SHA when setup-rust publishes a new release: run
+      # Pinned ahead of setup-rust-v1: that tag predates the cache-provider
+      # and use-sccache inputs forwarded below. Bump this SHA only to a
+      # revision that still declares both inputs; once setup-rust-v1 moves past
+      # this commit, resolve the tag with
       # `git ls-remote https://github.com/leynos/shared-actions.git refs/tags/setup-rust-v1`
-      # and replace the SHA with the resolved commit (verify compatibility and run CI).
-      uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      # and prefer the tagged commit (verify compatibility and run CI).
+      # tests/test_setup_rust_reference.py pins the expected SHA; update it in
+      # the same change.
+      uses: leynos/shared-actions/.github/actions/setup-rust@bffacaf91d3f3515110679a30fbf6dc781ddc549
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
+        cache-provider: ${{ inputs.cache-provider }}
+        use-sccache: ${{ inputs.use-sccache }}
     - name: Configure gnullvm target on Windows
       if: runner.os == 'Windows' && endsWith(inputs.target, '-pc-windows-gnullvm')
       shell: bash

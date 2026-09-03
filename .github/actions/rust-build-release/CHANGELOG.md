@@ -10,6 +10,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add `cache-provider` and `use-sccache` inputs, forwarded verbatim to the
+  nested `setup-rust` step. The defaults (`github` and `true`) preserve the
+  existing caching behaviour; `cache-provider: external` lets a caller that
+  already owns the Cargo and uv paths, such as an Ubicloud or Namespace lane,
+  avoid a second cache owner. An unrecognized `cache-provider` fails before
+  toolchain setup.
+
 - Add a `rustflags` input exported before the toolchain setup step so
   builds that require specific flags (for example `-Zpolonius=next`) are
   not stripped by the nested setup step's `-D warnings` default, which
@@ -28,6 +35,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add a `manifest-path` input for selecting an alternate Cargo manifest.
 - Add a `toolchain` input for explicitly overriding the resolved build
   toolchain.
+
+### Changed
+
+- Bump the nested `setup-rust` pin to
+  `bffacaf91d3f3515110679a30fbf6dc781ddc549`, which carries the
+  `cache-provider` and `use-sccache` inputs along with the Node.js 24
+  dependency revisions. Cache paths, keys, and the effective `RUSTFLAGS`
+  default are unchanged.
 
 ### Fixed
 

@@ -159,7 +159,21 @@ supported for Python projects. Mixed projects must use `cobertura`.
 With the default `cache-provider: github`, setup-uv retains its historical
 automatic policy: its GitHub cache is enabled on GitHub-hosted runners and
 disabled on self-hosted runners. The action also caches Cargo artefacts and
-Python dependencies with `actions/cache`.
+Python dependencies with `actions/cache`. The Cargo cache covers the
+`cargo-binstall`, `cargo-llvm-cov`, and `cargo-nextest` binaries, the Cargo
+registry, and the Cargo Git index. It no longer archives the `target` tree.
+
+Coverage builds an instrumented `target/llvm-cov-target` tree, whereas lint and
+test builds use a debug or dev-fast tree built with Cranelift and linked with
+mold. Archiving either tree captures one shape and invalidates on almost every
+change. sccache carries the compiler output across both shapes instead, keying
+entries by compiler flags so the two never collide. Whitaker run 33744418209
+(coverage under `-C instrument-coverage`) and Cuprum run 33677926269
+(Cranelift-built Whitaker lints) each report `Non-cacheable compilations 0`.
+
+Coverage keeps the LLVM codegen backend because `-C instrument-coverage` has no
+Cranelift equivalent, so an instrumented build cannot use the Cranelift
+backend. mold remains usable as the linker for coverage builds.
 
 Set `cache-provider: external` when the caller mounts those Rust and uv cache
 paths through one external cache service, such as a Namespace cache volume.

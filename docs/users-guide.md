@@ -32,13 +32,15 @@ for the pinned revisions and current cache behaviour.
 `cache-provider: external`. Any other value fails before a cache step runs.
 The default `github` mode preserves the actions' Cargo and uv GitHub caches;
 setup-uv remains automatic, so its cache is enabled on GitHub-hosted runners
-and disabled on self-hosted runners.
+and disabled on self-hosted runners. Those Cargo caches archive the registry,
+the Git index, and (for coverage) the installed Cargo binaries. The `target`
+tree is deliberately uncached in both modes: sccache owns compiler output.
 
-Use `external` when the calling workflow mounts the same Cargo, target, or uv
-paths through another service such as a Namespace cache volume. The action then
-skips its overlapping GitHub archive caches; it does not mount or report the
-external cache itself. Mount the external cache before installing dependencies
-or building, and report its own cache-hit signal in the caller.
+Use `external` when the calling workflow mounts the same Cargo or uv paths
+through another service such as a Namespace cache volume. The action then skips
+its overlapping GitHub archive caches; it does not mount or report the external
+cache itself. Mount the external cache before installing dependencies or
+building, and report its own cache-hit signal in the caller.
 
 The `use-sccache` input is independent. When the external service owns a local
 sccache directory, set `use-sccache: 'false'`, install a trusted prebuilt

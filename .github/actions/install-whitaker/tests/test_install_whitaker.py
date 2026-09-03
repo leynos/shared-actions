@@ -200,6 +200,16 @@ class _InputValidationCase:
     expected_error: str
 
 
+@dataclass(frozen=True)
+class _ValidationInputs:
+    """Describe the action inputs supplied to the validation fragment."""
+
+    cargo_home: str
+    installer_version: str
+    cache_provider: str = "github"
+    runner_os: str = "Linux"
+
+
 def _execute_install_script(
     bash: str,
     cwd: Path,
@@ -219,11 +229,7 @@ def _execute_install_script(
 
 def _run_input_validation(
     tmp_path: Path,
-    cargo_home: str,
-    installer_version: str,
-    *,
-    cache_provider: str = "github",
-    runner_os: str = "Linux",
+    inputs: _ValidationInputs,
 ) -> subprocess.CompletedProcess[str]:
     """Run the validation fragment with supplied action inputs."""
     bash = shutil.which("bash")
@@ -239,14 +245,14 @@ def _run_input_validation(
         env={
             **os.environ,
             "BASH_ENV": "",
-            "CACHE_PROVIDER_INPUT": cache_provider,
-            "CARGO_HOME_INPUT": cargo_home,
+            "CACHE_PROVIDER_INPUT": inputs.cache_provider,
+            "CARGO_HOME_INPUT": inputs.cargo_home,
             "GITHUB_OUTPUT": (
                 f"{_bash_path(bash, output_path.parent)}/{output_path.name}"
             ),
             "HOME": _bash_path(bash, home_dir),
-            "INSTALLER_VERSION_INPUT": installer_version,
-            "RUNNER_OS": runner_os,
+            "INSTALLER_VERSION_INPUT": inputs.installer_version,
+            "RUNNER_OS": inputs.runner_os,
         },
         capture_output=True,
         check=False,
@@ -492,7 +498,7 @@ class TestManifest:
 
     def test_normalizes_valid_action_inputs(self, tmp_path: Path) -> None:
         """Verify validation expands the supported tilde Cargo-home form."""
-        result = _run_input_validation(tmp_path, "~/.cargo", "1.2.3")
+        result = _run_input_validation(tmp_path, _ValidationInputs("~/.cargo", "1.2.3"))
 
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "output").read_text(encoding="utf-8").splitlines() == [
@@ -509,9 +515,7 @@ class TestManifest:
         """Verify cache ownership fails closed before cache evaluation."""
         result = _run_input_validation(
             tmp_path,
-            "~/.cargo",
-            "1.2.3",
-            cache_provider="namespace",
+            _ValidationInputs("~/.cargo", "1.2.3", cache_provider="namespace"),
         )
 
         assert result.returncode != 0
@@ -521,9 +525,7 @@ class TestManifest:
         """Verify Windows caches and executes the native installer filename."""
         result = _run_input_validation(
             tmp_path,
-            "~/.cargo",
-            "1.2.3",
-            runner_os="Windows",
+            _ValidationInputs("~/.cargo", "1.2.3", runner_os="Windows"),
         )
 
         assert result.returncode == 0, result.stderr
@@ -613,9 +615,11 @@ class TestManifest:
         """Verify malformed action inputs fail before cache evaluation."""
         result = _run_input_validation(
             tmp_path,
-            case.cargo_home,
-            case.installer_version,
-            runner_os=runner_os,
+            _ValidationInputs(
+                case.cargo_home,
+                case.installer_version,
+                runner_os=runner_os,
+            ),
         )
 
         assert result.returncode != 0

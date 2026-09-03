@@ -219,22 +219,33 @@ def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
         raise typer.Exit(1) from exc
 
 
-def _extract_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
-    """Extract only the cargo-nextest executable from a verified archive."""
-    executable = "cargo-nextest.exe" if asset.extension == "zip" else "cargo-nextest"
-    if asset.extension == "zip":
-        with zipfile.ZipFile(archive) as package:
-            member = next(
-                (name for name in package.namelist() if Path(name).name == executable),
-                None,
-            )
-            if member is None:
-                message = f"{executable} missing from {asset.filename}"
-                raise ValueError(message)
-            with package.open(member) as source, destination.open("wb") as output:
-                shutil.copyfileobj(source, output)
-        return
+def _copy_member(source: typ.IO[bytes], destination: Path) -> None:
+    """Copy one archive member stream to ``destination`` and close the stream."""
+    with source, destination.open("wb") as output:
+        shutil.copyfileobj(source, output)
 
+
+def _missing_member(executable: str, asset: ReleaseAsset) -> ValueError:
+    """Build the error raised when an archive lacks the expected executable."""
+    return ValueError(f"{executable} missing from {asset.filename}")
+
+
+def _extract_zip_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract ``cargo-nextest.exe`` from a Windows release archive."""
+    executable = "cargo-nextest.exe"
+    with zipfile.ZipFile(archive) as package:
+        member = next(
+            (name for name in package.namelist() if Path(name).name == executable),
+            None,
+        )
+        if member is None:
+            raise _missing_member(executable, asset)
+        _copy_member(package.open(member), destination)
+
+
+def _extract_tar_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract ``cargo-nextest`` from a Linux or macOS release archive."""
+    executable = "cargo-nextest"
     with tarfile.open(archive, "r:gz") as package:
         member = next(
             (
@@ -245,14 +256,20 @@ def _extract_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> No
             None,
         )
         if member is None:
-            message = f"{executable} missing from {asset.filename}"
-            raise ValueError(message)
+            raise _missing_member(executable, asset)
         source = package.extractfile(member)
         if source is None:
             message = f"{executable} is not a file in {asset.filename}"
             raise ValueError(message)
-        with source, destination.open("wb") as output:
-            shutil.copyfileobj(source, output)
+        _copy_member(source, destination)
+
+
+def _extract_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract only the cargo-nextest executable from a verified archive."""
+    if asset.extension == "zip":
+        _extract_zip_binary(archive, asset, destination)
+    else:
+        _extract_tar_binary(archive, asset, destination)
 
 
 def verify_nextest_binary(path: Path, expected_sha: str) -> bool:

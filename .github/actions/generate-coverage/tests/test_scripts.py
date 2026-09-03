@@ -1633,6 +1633,7 @@ def test_find_nextest_binary_falls_back_to_home(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Binary lookup falls back to ~/.cargo/bin when PATH is empty."""
+    monkeypatch.delenv("CARGO_HOME", raising=False)
     monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
     monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
     cargo_bin = tmp_path / ".cargo" / "bin"
@@ -1649,6 +1650,7 @@ def test_find_nextest_binary_missing_exits(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Missing cargo-nextest after install raises a Typer exit."""
+    monkeypatch.delenv("CARGO_HOME", raising=False)
     monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
     monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
 

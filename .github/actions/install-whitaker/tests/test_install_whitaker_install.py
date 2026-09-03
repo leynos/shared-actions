@@ -453,6 +453,26 @@ class TestTrustAnchor:
         assert not run.installer_path.exists()
         assert "whitaker-installer.digest=sidecar-mismatch" in run.summary_lines()
 
+    def test_accepts_a_backslash_escaped_release_sidecar(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """Verify an escaped sidecar installs, through the whole lifecycle.
+
+        ``sha256sum`` prefixes its output line with a backslash when the name
+        it was given contains one. A release built on such a host publishes a
+        sidecar carrying that escape over a correct digest, so installation
+        must succeed rather than report a disagreement.
+        """
+        scenario = InstallScenario()
+        run = run_scenario(
+            InstallScenario(sidecar_sha256=f"\\{scenario.payload_sha256}")
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_path.is_file()
+        assert "whitaker-installer.digest=verified" in run.summary_lines()
+        assert "sidecar" not in run.result.stderr
+
     def test_the_pinned_manifest_wins_over_a_matching_input(
         self,
         run_scenario: ScenarioRunner,

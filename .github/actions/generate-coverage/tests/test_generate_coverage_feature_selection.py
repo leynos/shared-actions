@@ -745,11 +745,14 @@ def test_resolvers_read_only_the_mapping_they_are_given(
         ("INPUT_OUTPUT_PATH", "/ambient/cov.xml"),
         ("GITHUB_OUTPUT", "/ambient/gh.txt"),
         ("INPUT_FEATURES", "ambient"),
+        ("INPUT_WITH_DEFAULT_FEATURES", "true"),
+        ("INPUT_USE_CARGO_NEXTEST", "true"),
         ("INPUT_ALL_FEATURES", "true"),
         ("INPUT_ALL_TARGETS", "true"),
         ("INPUT_DOCTESTS", "true"),
         ("INPUT_WITH_CUCUMBER_RS", "true"),
         ("INPUT_CUCUMBER_RS_FEATURES", "ambient/features"),
+        ("INPUT_CUCUMBER_RS_ARGS", "--tag ambient"),
     ):
         monkeypatch.setenv(name, value)
 
@@ -760,11 +763,14 @@ def test_resolvers_read_only_the_mapping_they_are_given(
         "INPUT_OUTPUT_PATH": "cov.lcov",
         "GITHUB_OUTPUT": "gh.txt",
         "INPUT_FEATURES": "cli",
+        "INPUT_WITH_DEFAULT_FEATURES": "false",
+        "INPUT_USE_CARGO_NEXTEST": "false",
         "INPUT_ALL_FEATURES": "false",
         "INPUT_ALL_TARGETS": "false",
         "INPUT_DOCTESTS": "false",
         "INPUT_WITH_CUCUMBER_RS": "false",
         "INPUT_CUCUMBER_RS_FEATURES": "tests/features",
+        "INPUT_CUCUMBER_RS_ARGS": "--tag fast",
     }
     raw = _raw_inputs(run_rust)
 
@@ -777,20 +783,29 @@ def test_resolvers_read_only_the_mapping_they_are_given(
     assert targets.manifest_path == Path("crates/api/Cargo.toml")
     assert targets.github_output == Path("gh.txt")
     assert selection.features == "cli"
+    assert selection.with_default is False
+    assert selection.use_nextest is False
     assert selection.all_features is False
     assert selection.all_targets is False
     assert selection.doctests is False
     assert cucumber.enabled is False
     assert cucumber.features == "tests/features"
+    assert cucumber.args == "--tag fast"
 
 
 def test_resolvers_apply_defaults_for_an_empty_mapping(
     run_rust: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An empty mapping must yield the documented defaults, not ambient state."""
-    monkeypatch.setenv("INPUT_ALL_FEATURES", "true")
-    monkeypatch.setenv("INPUT_ALL_TARGETS", "true")
-    monkeypatch.setenv("INPUT_DOCTESTS", "true")
+    for name, value in (
+        ("INPUT_FEATURES", "ambient"),
+        ("INPUT_WITH_DEFAULT_FEATURES", "false"),
+        ("INPUT_USE_CARGO_NEXTEST", "false"),
+        ("INPUT_ALL_FEATURES", "true"),
+        ("INPUT_ALL_TARGETS", "true"),
+        ("INPUT_DOCTESTS", "true"),
+    ):
+        monkeypatch.setenv(name, value)
 
     selection = run_rust._resolve_features(_raw_inputs(run_rust), {})
 

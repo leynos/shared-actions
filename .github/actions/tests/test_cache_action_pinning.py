@@ -23,11 +23,15 @@ PINNED_REFERENCE = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 
 
 def _action_manifests() -> list[Path]:
-    """Return every composite action manifest in the repository."""
+    """Return every composite action manifest in the repository.
+
+    Recursive, so a manifest nested under an action's own directory cannot sit
+    outside the contract. The sweep is only as good as its reach.
+    """
     manifests = sorted(
         path
         for suffix in ("action.yml", "action.yaml")
-        for path in ACTIONS_ROOT.glob(f"*/{suffix}")
+        for path in ACTIONS_ROOT.rglob(suffix)
     )
     assert manifests, "no action manifests found"
     return manifests
@@ -50,7 +54,9 @@ def _cache_references(manifest: Path) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "manifest", _action_manifests(), ids=lambda manifest: manifest.parent.name
+    "manifest",
+    _action_manifests(),
+    ids=lambda manifest: str(manifest.relative_to(ACTIONS_ROOT).parent),
 )
 def test_cache_references_are_sha_pinned(manifest: Path) -> None:
     """No action may reach `actions/cache` through a floating tag."""
@@ -60,7 +66,8 @@ def test_cache_references_are_sha_pinned(manifest: Path) -> None:
         if not PINNED_REFERENCE.fullmatch(uses)
     ]
 
-    assert not unpinned, f"{manifest.parent.name} has unpinned references: {unpinned}"
+    relative = manifest.relative_to(ACTIONS_ROOT)
+    assert not unpinned, f"{relative} has unpinned references: {unpinned}"
 
 
 def test_every_action_shares_one_cache_revision() -> None:

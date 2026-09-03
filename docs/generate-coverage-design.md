@@ -85,6 +85,19 @@ action and the evolution of its supporting scripts.
   carrying the same feature selection. A caller's `RUSTFLAGS` reaches every
   Cargo invocation, because the spawned environment starts from a copy of
   `os.environ` and neither the coverage overrides nor the unset list names it.
+- *2026-09-03* — The ratchet baseline cache became a shared contract across the
+  two actions that persist one, `generate-coverage` and `ratchet-coverage`.
+  Both restore through `actions/cache/restore` on a run-scoped key with a
+  shared prefix as the restore-key, and save through `actions/cache/save` under
+  that same key, at one pinned revision. The ordered invariant is that the
+  earlier step reads and does not write and the later writes and does not read;
+  any other pairing gives the key two writers, which loses the reservation, or
+  restores again after the ratchet has advanced the file. A constant key would
+  additionally freeze the baseline, because cache entries are immutable. The
+  contract lives in `.github/actions/tests/test_ratchet_baseline_cache.py`,
+  parametrized over both actions, so a third action adopting the pattern joins
+  it by adding one entry. Each outcome is reported as a bounded log notice, a
+  job-summary line, and a fixed `metric ratchet-cache.<half>=<state>` line.
 
 ## Rust Coverage Environment Overrides
 

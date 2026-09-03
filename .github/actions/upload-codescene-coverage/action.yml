@@ -213,7 +213,8 @@ runs:
           status=$?
           if [ "$status" -eq 2 ]; then
             printf '%s\n' \
-              "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2
+              "::warning title=CodeScene coverage gate skipped::CodeScene has no uploaded coverage baseline for pull request merge base '${GITHUB_BASE_REF}'. The changed-line gate could not run."
+            exit 0
           fi
           exit "$status"
         fi

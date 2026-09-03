@@ -133,6 +133,9 @@ Known limitations:
 | --- | --- | --- | --- |
 | features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
 | with-default-features | Enable default Cargo features (Rust) | no | `true` |
+| all-features | Pass `--all-features`. Supersedes `with-default-features`; rejected alongside a non-empty `features` list. | no | `false` |
+| all-targets | Pass `--all-targets` so benches, examples, and every test target run under coverage. | no | `false` |
+| doctests | Run `cargo test --doc --workspace` after the instrumented run, uninstrumented. | no | `false` |
 | language | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below. | no | `auto` |
 | cargo-manifest | Optional path to Cargo.toml if root Cargo.toml is missing | no | |
 | use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
@@ -151,6 +154,47 @@ Known limitations:
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.
+
+### Upgrading
+
+Everything described in this section is additive within `v1`. `all-features`,
+`all-targets`, and `doctests` all default to off, and the ratchet baseline
+cache change is internal to the action, so a workflow already on `v1` needs no
+edit to keep its current behaviour. Opt in only when the coverage job must
+replace a separate test job.
+
+### Running coverage as the only test execution
+
+`all-features`, `all-targets` and `doctests` exist so one coverage job can be a
+repository's entire test run, rather than a second execution alongside a
+separate test job. All three default to off, so existing callers are
+unaffected.
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    all-features: 'true'
+    all-targets: 'true'
+    doctests: 'true'
+```
+
+`all-features` takes precedence over the narrower feature inputs. It
+supersedes `with-default-features`, so `--no-default-features` is not passed
+and a warning is logged if the two disagree. Setting it together with a
+non-empty `features` list fails the step: `--all-features` already enables
+everything the list could name, and accepting both would misreport a narrower
+set as measured when a wider one ran.
+
+`all-targets` does not cover doc tests, which are a separate Cargo target
+kind. `doctests` runs them afterwards through `cargo test --doc --workspace`
+with the same feature selection. That run is uninstrumented and contributes no
+coverage, because `cargo llvm-cov`'s nextest path cannot execute doc tests; it
+is there to make the doc tests fail the job when they break.
+
+`RUSTFLAGS` from the calling workflow is inherited by every Cargo invocation
+the action makes, so a job that exports `-D warnings` gets warnings denied
+throughout, including the doc-test run.
 
 ### Caching
 
@@ -180,6 +224,8 @@ dependency cache steps; it does not mount a replacement. The caller must mount
 the external cache before dependencies are installed or coverage runs, so each
 path has exactly one cache owner. Ratchet baseline restore and save remain
 GitHub caches because their paths are outside the Namespace Rust and uv mounts.
+They use the `actions/cache/restore` and `actions/cache/save` sub-actions
+rather than the full action, so only the save step writes the baseline key.
 
 ```yaml
 - uses: ./.github/actions/generate-coverage

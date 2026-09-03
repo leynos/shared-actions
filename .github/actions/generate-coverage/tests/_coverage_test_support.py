@@ -60,6 +60,9 @@ def _load_module(
         message = f"could not load {name} from {script_dir}"
         raise RuntimeError(message)
     module = importlib.util.module_from_spec(spec)
+    # Register before executing: dataclass field resolution looks the defining
+    # module up in ``sys.modules`` while the class body runs.
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 

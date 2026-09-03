@@ -975,6 +975,8 @@ def _make_cucumber_spy(
         use_nextest: bool,
         cucumber_rs_features: str,
         cucumber_rs_args: str,
+        all_features: bool = False,
+        all_targets: bool = False,
     ) -> None:
         calls.append(
             {
@@ -987,6 +989,8 @@ def _make_cucumber_spy(
                 "use_nextest": use_nextest,
                 "cucumber_rs_features": cucumber_rs_features,
                 "cucumber_rs_args": cucumber_rs_args,
+                "all_features": all_features,
+                "all_targets": all_targets,
             }
         )
 

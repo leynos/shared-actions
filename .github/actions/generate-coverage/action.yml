@@ -8,6 +8,30 @@ inputs:
     description: Enable default features
     required: false
     default: "true"
+  all-features:
+    description: >
+      Enable every Cargo feature via --all-features. Takes precedence over
+      with-default-features, which it supersedes. Setting this together with a
+      non-empty features list is rejected, because --all-features already
+      enables everything the list could name.
+    required: false
+    default: "false"
+  all-targets:
+    description: >
+      Pass --all-targets to the coverage run so benches, examples, and every
+      test target are built and executed alongside lib and bin tests. Doc tests
+      are not a --all-targets target; use the doctests input for those.
+    required: false
+    default: "false"
+  doctests:
+    description: >
+      Run `cargo test --doc --workspace` after the instrumented run, using the
+      same feature selection. The doc-test run is uninstrumented and
+      contributes no coverage, because llvm-cov's nextest path cannot execute
+      doc tests; it exists so one coverage job can be a repository's only test
+      execution.
+    required: false
+    default: "false"
   language:
     description: |
       Coverage language scope. `auto` (the default) keeps the historical
@@ -120,7 +144,13 @@ runs:
     - name: Restore baselines
       id: restore-baselines
       if: inputs.with-ratchet == 'true'
-      uses: actions/cache@v4
+      # The restore sub-action, not the full `actions/cache` action: the full
+      # action also registers a post-job save on its primary key, which the
+      # "Save baselines" step below already writes. Both firing on the same
+      # run-id key made every run log
+      # "Failed to save: Unable to reserve cache ... already exists".
+      # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
@@ -142,7 +172,8 @@ runs:
     - name: Cache cargo artefacts
       id: cargo-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ~/.cargo/bin/cargo-binstall
@@ -244,6 +275,9 @@ runs:
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         INPUT_FEATURES: ${{ inputs.features }}
         INPUT_WITH_DEFAULT_FEATURES: ${{ inputs.with-default-features }}
+        INPUT_ALL_FEATURES: ${{ inputs.all-features }}
+        INPUT_ALL_TARGETS: ${{ inputs.all-targets }}
+        INPUT_DOCTESTS: ${{ inputs.doctests }}
         INPUT_USE_CARGO_NEXTEST: ${{ inputs.use-cargo-nextest }}
         INPUT_WITH_CUCUMBER_RS: ${{ inputs.with-cucumber-rs }}
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
@@ -254,7 +288,8 @@ runs:
     - name: Cache Python deps
       id: python-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed')
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.cache/uv
         key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}
@@ -354,6 +389,7 @@ runs:
         fi
       shell: bash
     - name: Save baselines
+      id: save-baselines
       # Save under the same run-id-suffixed key the restore step uses as its
       # primary key. GitHub Actions cache entries are immutable, so a constant
       # key (`ratchet-baseline-${{ runner.os }}`) can only ever be written once
@@ -364,13 +400,64 @@ runs:
       # dropped: the restore primary key never matches within the same run, so
       # `cache-hit` is always false here and the guard only ever suppressed the
       # save on the constant key.
+      # The save sub-action pairs with the restore sub-action above, so exactly
+      # one step writes this key.
       if: success() && inputs.with-ratchet == 'true'
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
         key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+    - name: Report ratchet baseline cache decisions
+      # Reported here rather than in the archive-cache step above because the
+      # save half runs later; both halves of the split are observable in one
+      # place. The notice names only the operation and a bounded outcome:
+      # cache keys carry the run id, and neither key nor path belongs in a log
+      # line consumers parse.
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GC_WITH_RATCHET: ${{ inputs.with-ratchet }}
+        GC_RESTORE_STEP_OUTCOME: ${{ steps.restore-baselines.outcome }}
+        GC_RESTORE_CACHE_HIT: ${{ steps.restore-baselines.outputs.cache-hit }}
+        GC_SAVE_STEP_OUTCOME: ${{ steps.save-baselines.outcome }}
+      run: |
+        set -euo pipefail
+        restore_outcome='disabled'
+        save_outcome='disabled'
+        if [[ "$GC_WITH_RATCHET" == 'true' ]]; then
+          case "$GC_RESTORE_STEP_OUTCOME" in
+            success)
+              case "$GC_RESTORE_CACHE_HIT" in
+                true) restore_outcome='hit' ;;
+                false|'') restore_outcome='miss' ;;
+                *) restore_outcome='error' ;;
+              esac
+              ;;
+            # 'disabled' is reserved for with-ratchet being off. The step's
+            # own condition carries an implicit success(), so an earlier
+            # failure skips it while the cache was still enabled; calling that
+            # 'disabled' would misreport a configured cache as switched off.
+            skipped) restore_outcome='skipped' ;;
+            *) restore_outcome='error' ;;
+          esac
+          case "$GC_SAVE_STEP_OUTCOME" in
+            success) save_outcome='saved' ;;
+            skipped) save_outcome='skipped' ;;
+            *) save_outcome='error' ;;
+          esac
+        fi
+
+        printf '::notice title=generate-coverage ratchet cache::restore=%s save=%s\n' \
+          "$restore_outcome" "$save_outcome"
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' \
+            '### generate-coverage ratchet cache' \
+            "- baseline restore: $restore_outcome" \
+            "- baseline save: $save_outcome" >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - id: out
       # Run even after a *later* failure (for example a ratchet gate that

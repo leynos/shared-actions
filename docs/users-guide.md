@@ -58,6 +58,43 @@ disabled.
 action can still name the cache owner. It caches nothing itself, and rejects an
 unrecognized `cache-provider` before installing a toolchain.
 
+The coverage action's ratchet baseline is cached separately from all of this.
+Its restore step uses `actions/cache/restore` and its save step uses
+`actions/cache/save`, both at the same pinned revision, keyed by the run id.
+Only the save step writes, so the two halves no longer contend for the key.
+That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
+`error` restore state and `saved`, `skipped`, `disabled`, or `error` save
+state, naming neither the key nor the baseline paths. `disabled` means the
+ratchet is off; `skipped` means an earlier failure stopped the step running.
+
+## Running coverage as the only test execution
+
+`generate-coverage` accepts `all-features`, `all-targets`, and `doctests` so a
+repository can make the coverage job its entire test run rather than executing
+the suite twice. All three default to off, and the ratchet cache change above
+is internal to the action, so a workflow already pinned to `v1` needs no edit
+to keep its current behaviour. Opt in only when the coverage job must replace
+a separate test job.
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    all-features: 'true'
+    all-targets: 'true'
+    doctests: 'true'
+```
+
+`all-features` supersedes `with-default-features` and is rejected alongside a
+non-empty `features` list, because it already enables everything that list
+could name. `all-targets` covers benches, examples, and every test target. Doc
+tests are a separate Cargo target kind that `cargo llvm-cov`'s nextest path
+cannot execute, so `doctests` runs them afterwards through
+`cargo test --doc --workspace` with the same feature selection; that run is
+uninstrumented and contributes no coverage. A `RUSTFLAGS` value the workflow
+exports, such as `-D warnings`, applies to every Cargo invocation the action
+makes.
+
 Both actions report bounded `hit`, `miss`, `disabled`, or `error` states for
 their own archive caches in the workflow log and job summary. Coverage ratchet
 baseline files remain separate GitHub caches when external mode does not mount

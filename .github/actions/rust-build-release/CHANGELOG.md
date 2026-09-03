@@ -39,10 +39,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Bump the nested `setup-rust` pin to
-  `bffacaf91d3f3515110679a30fbf6dc781ddc549`, which carries the
+  `7c9d66030879b504365202df90f439ea419e72bd`, which carries the
   `cache-provider` and `use-sccache` inputs along with the Node.js 24
-  dependency revisions. Cache paths, keys, and the effective `RUSTFLAGS`
-  default are unchanged.
+  dependency revisions, and no longer archives the `target` tree. The Cargo
+  cache keys and the effective `RUSTFLAGS` default are unchanged.
 
 ### Fixed
 

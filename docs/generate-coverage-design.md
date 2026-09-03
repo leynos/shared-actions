@@ -59,6 +59,32 @@ action and the evolution of its supporting scripts.
   relying on an unpinned or stale binary already present on the runner. Both
   the fast (reuse) and install paths are covered by behavioural tests that
   execute the extracted step body against fake binaries and installers.
+- *2026-09-03* — The ratchet baseline cache moved from the full `actions/cache`
+  action to the `actions/cache/restore` and `actions/cache/save` sub-actions at
+  one pinned revision. The full action registers a post-job save of its own, so
+  pairing it with an explicit save step gave the run-id-suffixed key two
+  writers and every run lost the reservation. The lifecycle invariant is
+  ordered rather than counted: the earlier step reads and does not write, the
+  later writes and does not read. A dedicated always-run step reports bounded
+  outcomes for both halves, with `skipped` distinguished from `disabled` so an
+  earlier failure that skips the restore is not reported as a switched-off
+  cache.
+- *2026-09-03* — `all-features`, `all-targets`, and `doctests` inputs let one
+  coverage job be a repository's whole test run instead of a second execution
+  beside a separate test job. All three default to off. Feature selection is
+  split along command/query lines: `feature_selection_args` is a pure builder,
+  `feature_selection_diagnostics` a pure query returning the error and warning
+  a selection deserves, and `check_feature_selection` the only place that
+  writes output or exits, called once from `main`. That keeps the precedence
+  rule in one place: `all_features` supersedes `with_default`, so
+  `--all-features --no-default-features` can never be emitted, and it is
+  rejected alongside a non-empty feature list rather than silently widening
+  what the caller named. Doc tests are a separate Cargo target kind that
+  `--all-targets` does not reach and `--doc` cannot be combined with, so they
+  run afterwards as a plain uninstrumented `cargo test --doc --workspace`
+  carrying the same feature selection. A caller's `RUSTFLAGS` reaches every
+  Cargo invocation, because the spawned environment starts from a copy of
+  `os.environ` and neither the coverage overrides nor the unset list names it.
 
 ## Rust Coverage Environment Overrides
 

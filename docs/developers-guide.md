@@ -273,16 +273,17 @@ The `cargo-home` input defaults to `~/.cargo` and controls both the cached
 installer location. The step expands a leading `~` against `HOME`, validates
 the path, adds the Windows executable suffix when required, and records the
 installer path for the cache and later execution. The `installer-version`
-input defaults to `0.2.6`.
+input defaults to `0.2.7`.
 
-On a miss, the action selects the runner's supported release target, downloads
-the prebuilt archive and SHA-256 sidecar from the versioned Whitaker GitHub
-release, verifies the archive, and extracts only the installer executable.
-Unsupported platforms, missing assets, and checksum failures stop the action.
-There is deliberately no Cargo or source-build fallback. The contract is
-covered by
-`.github/actions/install-whitaker/tests/test_install_whitaker.py`, including
-cache ownership, official release selection, cache reuse, and failure
+On a miss, a `Resolve Whitaker release` step selects the runner's supported
+release target and resolves the expected digest, then dedicated `Download
+Whitaker release`, `Verify Whitaker release`, `Extract Whitaker installer`,
+and `Install Whitaker installer` steps each perform one part of the
+lifecycle. Unsupported platforms, missing assets, and checksum failures stop
+the action. There is deliberately no Cargo or source-build fallback. The
+contract is covered by the test suite in
+`.github/actions/install-whitaker/tests/`, including cache ownership,
+official release selection, cache reuse, digest precedence, and failure
 boundaries.
 
 An external volume must mount the suite's parent (`~/.local/share`) rather than
@@ -290,6 +291,42 @@ the terminal `~/.local/share/whitaker` path. Whitaker treats an absent child as
 a fresh install and an existing child as a Git checkout; a cache volume makes
 its mount point exist even when empty, so mounting the child causes the
 installer to attempt `git pull` in a non-repository.
+
+
+### Digest manifest and trust anchor
+
+The archive's SHA-256 digest is pinned in
+`.github/actions/install-whitaker/installer-digests.sha256`, a plain
+`sha256sum` manifest that sits beside `action.yml` and is reviewed with it.
+Each line pairs a digest with an asset filename, for example:
+
+```text
+78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+```
+
+This pinned manifest is the trust anchor, not the release's own `.sha256`
+sidecar. The `Verify Whitaker release` step still downloads the sidecar and
+compares it with the archive digest it just verified, but only as a
+consistency check: a compromised release could publish a matching sidecar
+for a tampered archive, whereas it cannot change a digest already committed
+to this repository.
+
+To extend the manifest, compute each new digest locally from an
+independently downloaded archive with `sha256sum`, then cross-check it
+against the release's own `.sha256` sidecar for that asset. A disagreement
+between the two blocks the change. Never copy a digest from the sidecar
+alone; the sidecar is a check on the locally computed digest, not a source
+for it.
+
+The optional `installer-sha256` input supplies a digest for an asset the
+manifest does not pin. The `Resolve Whitaker release` step applies a
+manifest-first precedence rule: when the manifest pins the resolved asset,
+that pinned digest is the anchor (`whitaker-installer.trust-anchor=pinned`),
+and a supplied `installer-sha256` that disagrees with it is rejected before
+any download (`whitaker-installer.digest=conflict`). Only when the manifest
+does not pin the asset does a supplied `installer-sha256` become the anchor
+(`whitaker-installer.trust-anchor=input`). An asset with neither anchor
+fails before any download (`whitaker-installer.digest=unpinned`).
 
 ## `upload-codescene-coverage` check-mode contract
 

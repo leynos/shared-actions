@@ -1,33 +1,25 @@
-"""Tests for the coverage ratchet baseline contract.
+"""Tests for this action's ratchet baseline reporting and gate.
 
-Two properties are exercised here:
+Two things are exercised here:
 
-* The ``action.yml`` cache save/restore key contract. GitHub Actions cache
-  entries are immutable, so a constant save key freezes the ratchet baseline at
-  whatever the first post-eviction run measured. The save key must therefore
-  vary per run and match the restore step's run-id-suffixed primary key, and
-  the save step must not be gated on ``cache-hit`` (which would suppress the
-  write once a constant key existed). This is a regression guard for the
-  baseline-freeze bug that caused downstream repositories to false-trip
-  "Coverage decreased" on pull requests.
-* The split between the ``actions/cache/restore`` and ``actions/cache/save``
-  sub-actions. The full ``actions/cache`` action registers its own post-job
-  save, so using it for the restore step made two writers race for the same
-  run-id key and every run logged "Unable to reserve cache ... already exists".
-* The reader/writer invariant the split exists to satisfy, as a property over
-  every pairing of the three cache action variants, plus the bounded outcomes
-  the reporting step emits for each half, in the notice, the job summary, and
-  the two stable metric lines.
+* The reporting step's bounded outcomes, in the log notice, the job summary,
+  and the two stable metric lines, together with the manifest wiring that
+  feeds it: its position after the save, its ``always()`` condition, and the
+  step outputs each reported value comes from.
 * The ``ratchet_coverage.py`` script's baseline-advance semantics: the stored
   baseline rises when coverage improves, holds when coverage is unchanged, and
   the gate fails when coverage drops below the baseline.
+
+The cache lifecycle itself, the restore/save split, the run-scoped key, the
+shared prefix and the matching paths, is a contract shared with
+``ratchet-coverage`` and lives in
+``.github/actions/tests/test_ratchet_baseline_cache.py``.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -37,8 +29,6 @@ from pathlib import Path
 import pytest
 import typer
 import yaml
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
@@ -70,138 +60,6 @@ def _step_by_name(name: str) -> dict[str, typ.Any]:
     matches = [step for step in _steps() if step.get("name") == name]
     assert len(matches) == 1, f"expected exactly one {name!r} step, got {len(matches)}"
     return matches[0]
-
-
-def test_restore_baselines_uses_run_id_primary_key_and_prefix() -> None:
-    """The restore step keys on the run id with a shared prefix restore-key."""
-    restore = _step_by_name("Restore baselines")
-    key = restore["with"]["key"]
-    restore_keys = restore["with"]["restore-keys"]
-    assert "${{ github.run_id }}" in key
-    assert key.startswith("ratchet-baseline-${{ runner.os }}-")
-    # The restore-key prefix must match the per-run save key so the newest
-    # baseline is recovered on subsequent runs.
-    assert restore_keys.strip() == "ratchet-baseline-${{ runner.os }}-"
-
-
-def test_save_baselines_key_varies_per_run() -> None:
-    """The save key must include the run id so a fresh baseline is written.
-
-    A constant key such as ``ratchet-baseline-${{ runner.os }}`` is immutable
-    after its first write and freezes the ratchet. The save key must instead
-    match the restore step's run-id-suffixed primary key.
-    """
-    save = _step_by_name("Save baselines")
-    key = save["with"]["key"]
-    assert "${{ github.run_id }}" in key, (
-        "save key is constant; the baseline will freeze after the first write"
-    )
-    assert key == _step_by_name("Restore baselines")["with"]["key"]
-
-
-def test_save_baselines_not_gated_on_cache_hit() -> None:
-    """The save step must not be suppressed by a ``cache-hit`` guard.
-
-    The historical ``cache-hit != 'true'`` guard, combined with the constant
-    save key, meant the improved baseline was never persisted.
-    """
-    save = _step_by_name("Save baselines")
-    condition = save["if"]
-    assert "cache-hit" not in condition, (
-        "cache-hit guard reintroduced; the advanced baseline will not persist"
-    )
-    assert "inputs.with-ratchet == 'true'" in condition
-    assert "success()" in condition
-
-
-#: Sub-action references the two ratchet cache steps must use, mapped to the
-#: step that owns each half of the restore/save pair.
-RATCHET_CACHE_SUBACTIONS = {
-    "Restore baselines": "actions/cache/restore",
-    "Save baselines": "actions/cache/save",
-}
-
-_ACTION_SHA_PATTERN = re.compile(r"^(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})$")
-
-
-def _ratchet_cache_reference(step_name: str) -> re.Match[str]:
-    """Return the parsed ``uses`` reference for a ratchet cache step."""
-    uses = _step_by_name(step_name)["uses"]
-    match = _ACTION_SHA_PATTERN.fullmatch(uses)
-    assert match is not None, f"{step_name!r} must pin a full commit SHA, got: {uses}"
-    return match
-
-
-@pytest.mark.parametrize(
-    ("step_name", "expected_action"), sorted(RATCHET_CACHE_SUBACTIONS.items())
-)
-def test_ratchet_cache_steps_use_the_split_subactions(
-    step_name: str, expected_action: str
-) -> None:
-    """Let exactly one step write the ratchet key.
-
-    The full ``actions/cache`` action registers a post-job save of its own, so
-    pairing it with an explicit save step made both contend for the same
-    run-id key and fail the reservation on every run.
-    """
-    assert _ratchet_cache_reference(step_name)["action"] == expected_action
-
-
-def test_ratchet_cache_steps_share_one_pinned_revision() -> None:
-    """Both halves of the pair must come from the same pinned release."""
-    shas = {
-        _ratchet_cache_reference(step_name)["sha"]
-        for step_name in RATCHET_CACHE_SUBACTIONS
-    }
-    assert len(shas) == 1, f"ratchet cache steps pin differing revisions: {shas}"
-
-
-#: How each cache action variant participates in the baseline lifecycle.
-#: The full action both restores and registers a post-job save, which is why
-#: pairing it with an explicit save step gave the run-id key two writers.
-CACHE_VARIANT_ROLES = {
-    "actions/cache": (1, 1),
-    "actions/cache/restore": (1, 0),
-    "actions/cache/save": (0, 1),
-}
-
-
-def _lifecycle_is_sound(first_variant: str, second_variant: str) -> bool:
-    """Return whether a pairing reads once, then writes once, in that order.
-
-    The baseline cache has one legal shape: the earlier step restores and must
-    not write, and the later step writes and must not restore. Anything else
-    either gives the run-id key two writers, which loses the reservation, or
-    restores a second time after the ratchet has already advanced the file.
-    """
-    return CACHE_VARIANT_ROLES[first_variant] == (1, 0) and CACHE_VARIANT_ROLES[
-        second_variant
-    ] == (0, 1)
-
-
-@given(
-    first_variant=st.sampled_from(sorted(CACHE_VARIANT_ROLES)),
-    second_variant=st.sampled_from(sorted(CACHE_VARIANT_ROLES)),
-)
-@settings(max_examples=25, derandomize=True, deadline=None)
-def test_only_the_split_pairing_is_a_sound_lifecycle(
-    first_variant: str, second_variant: str
-) -> None:
-    """Single out the restore/save pair among every variant combination."""
-    is_split = (first_variant, second_variant) == (
-        "actions/cache/restore",
-        "actions/cache/save",
-    )
-
-    assert _lifecycle_is_sound(first_variant, second_variant) is is_split
-
-
-def test_manifest_satisfies_the_lifecycle_invariant() -> None:
-    """The shipped manifest must be the pairing the property singles out."""
-    assert _lifecycle_is_sound(
-        _ratchet_cache_reference("Restore baselines")["action"],
-        _ratchet_cache_reference("Save baselines")["action"],
-    )
 
 
 def _ratchet_report_script() -> str:
@@ -513,22 +371,6 @@ def test_ratchet_report_writes_the_job_summary(tmp_path: Path) -> None:
     assert "- baseline restore: miss" in written
     assert "- baseline save: saved" in written
     assert "ratchet-baseline-" not in written
-
-
-def test_restore_precedes_save_over_matching_paths() -> None:
-    """The pair must read before it writes, over exactly the same files.
-
-    Order and paths are the rest of the lifecycle contract: a save that ran
-    first would write a stale baseline, and differing path lists would save
-    something other than what was restored.
-    """
-    steps: list[dict[str, typ.Any]] = _steps()
-    names = [step.get("name") for step in steps]
-    assert names.index("Restore baselines") < names.index("Save baselines")
-
-    restore = _step_by_name("Restore baselines")
-    save = _step_by_name("Save baselines")
-    assert restore["with"]["path"] == save["with"]["path"]
 
 
 def test_tolerance_constant_is_one_percentage_point() -> None:

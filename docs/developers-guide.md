@@ -217,6 +217,15 @@ sweeps every manifest under `.github/actions`, requires each reference to be a
 full commit SHA, and requires all of them to share one revision, so bumping the
 cache action stays a single decision rather than a per-action drift.
 
+Two actions persist a ratchet baseline, `generate-coverage` and
+`ratchet-coverage`, and both must use the same cache shape. The contract in
+[`test_ratchet_baseline_cache.py`](../.github/actions/tests/test_ratchet_baseline_cache.py)
+is parametrized over both: the restore/save split, one pinned revision per
+pair, a run-scoped key shared by both halves, the prefix restore-key that
+recovers the newest entry, restore before save over identical paths, and no
+`cache-hit` guard on the save. Each action's own test directory keeps only what
+is specific to it.
+
 A separate reporting step emits bounded outcomes for both halves, because the
 save runs long after the archive-cache reporter. Keep the restore states closed
 to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to

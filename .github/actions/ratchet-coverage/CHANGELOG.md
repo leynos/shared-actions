@@ -7,6 +7,13 @@
   The tag breaks the repository's SHA-pinning policy, and the older releases it
   can resolve to are not intercepted by a transparent runner cache, so their
   saves became wasted upload.
+- Stop the ratchet baseline freezing after its first write. "Restore baseline"
+  and "Save baseline" both used the full `actions/cache` action against the
+  constant key `ratchet-baseline-<os>`, so the key had two writers and, being
+  immutable, could only ever be written once. The pair now uses the
+  `actions/cache/restore` and `actions/cache/save` sub-actions against a
+  run-scoped key, with a shared `ratchet-baseline-<os>-` prefix as the
+  restore-key, so every run persists a fresh baseline that later runs recover.
 
 ## v1.0.6
 

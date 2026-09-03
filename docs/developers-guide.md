@@ -195,6 +195,28 @@ continue to use `cache-provider: external`. The coverage action deliberately
 leaves ratchet-baseline paths under their separate GitHub cache because
 external mode does not mount them.
 
+Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
+sub-actions rather than the full `actions/cache` action. The full action
+registers a post-job save on its own primary key, so pairing it with an
+explicit save step gave the same run-id-suffixed key two writers, and the
+reservation lost the race on every run. Keep both halves on one pinned
+revision; the manifest test in
+[`test_ratchet_baseline.py`](../.github/actions/generate-coverage/tests/test_ratchet_baseline.py)
+enforces both properties. A Hypothesis property in the same file singles the
+pairing out among every combination of the three cache action variants: the
+earlier step must read and not write, and the later step must write and not
+read. Any other pairing either gives the run-id key two writers or restores the
+baseline again after the ratchet has advanced it.
+
+A separate reporting step emits bounded outcomes for both halves, because the
+save runs long after the archive-cache reporter. Keep the restore states closed
+to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to
+`saved`, `skipped`, `disabled`, and `error`. Keep `skipped` distinct from
+`disabled`: the steps carry an implicit `success()`, so an earlier failure
+skips them while the cache is still configured, and conflating the two would
+report a live cache as switched off. The notice must never carry the key, which
+embeds the run id, nor the baseline paths.
+
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the
 `target` tree, and sccache owns compiler output in both. Repositories across
@@ -337,6 +359,58 @@ After the installer runs, the action verifies the installed binary with
 `cargo-binstall -V` and fails with the actual version in the log if it does not
 match the pinned release. Keep that runtime check in sync with
 `BINSTALL_VERSION` whenever the pin changes.
+
+## `generate-coverage` whole-workspace test selection
+
+`all-features`, `all-targets`, and `doctests` exist so a repository can make
+the coverage job its only test execution instead of running the suite twice.
+All three default to off, so a caller that does not set them sees the previous
+behaviour exactly.
+
+`feature_selection_args` in
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
+single place feature flags are decided, and both the coverage command and the
+doc-test command call it. Keep it that way: the precedence rule only holds if
+one function owns it. That rule is that `all_features` wins outright. It
+supersedes `with_default`, so `--all-features --no-default-features` can never
+be emitted, and it is rejected outright alongside a non-empty feature list,
+because silently widening a caller's named selection would misreport what ran.
+
+Doc tests are a separate Cargo target kind, so `--all-targets` does not reach
+them and `--doc` cannot be combined with it. `run_doctests` therefore issues a
+plain `cargo test --doc --workspace` after the instrumented run, forwarding the
+feature selection but not `--all-targets`. That run is uninstrumented: it
+contributes no coverage and exists so a broken doc test fails the job.
+
+A caller's `RUSTFLAGS` survives into every Cargo invocation because
+`_build_cargo_env` starts from a copy of `os.environ` and neither the coverage
+overrides nor `_CARGO_COVERAGE_ENV_UNSETS` names that variable. Repositories
+running warnings-denied coverage depend on this; the guarantee is asserted in
+[`test_generate_coverage_feature_selection.py`](../.github/actions/generate-coverage/tests/test_generate_coverage_feature_selection.py),
+which also holds the manifest contract and the rendered cargo commands.
+
+### `run_rust.py` boundaries
+
+The script is arranged so that ambient state is read once and every other
+function is a function of its arguments.
+
+<!-- markdownlint-disable MD013 -->
+| Symbol | Role |
+| --- | --- |
+| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
+| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
+| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
+| `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
+| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
+| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
+| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
+<!-- markdownlint-enable MD013 -->
+
+Keep the split. The precedence rule holds only because one builder owns it and
+one boundary reports it, and the resolvers stay testable only while the
+environment arrives as an argument rather than through `os.environ`.
+`_required_env` and `_env_bool` in `common.py` accept the same optional mapping
+for that reason.
 
 ## `generate-coverage` cargo-binstall Pinning
 

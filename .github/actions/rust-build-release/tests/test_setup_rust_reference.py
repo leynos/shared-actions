@@ -23,7 +23,7 @@ SETUP_RUST_MANIFEST = ".github/actions/setup-rust/action.yml"
 
 #: Revision of this repository that the nested setup-rust step must reference.
 #: Keep in sync with the ``uses`` value in ``action.yml``; both change together.
-EXPECTED_SETUP_RUST_SHA = "bffacaf91d3f3515110679a30fbf6dc781ddc549"
+EXPECTED_SETUP_RUST_SHA = "7c9d66030879b504365202df90f439ea419e72bd"
 
 #: Inputs rust-build-release forwards, mapped to the default it declares for
 #: each. The referenced setup-rust revision must declare every name.
@@ -47,20 +47,40 @@ def _pinned_sha() -> str:
     return match.group(1)
 
 
-def _setup_rust_manifest_at(sha: str) -> dict[str, object]:
-    """Return the setup-rust manifest at *sha*, skipping when unavailable."""
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run git in the repository root and return the completed process."""
     git = shutil.which("git")
     if git is None:  # pragma: no cover - environment guard
         pytest.skip("git not found on PATH")
-    completed = subprocess.run(  # noqa: S603,TID251 - read a pinned blob.
-        [git, "show", f"{sha}:{SETUP_RUST_MANIFEST}"],
+    return subprocess.run(  # noqa: S603,TID251 - read a pinned blob.
+        [git, *args],
         capture_output=True,
         check=False,
         cwd=REPO_ROOT,
         text=True,
     )
-    if completed.returncode != 0:  # pragma: no cover - shallow clone guard
-        pytest.skip(f"revision {sha} unavailable in this checkout")
+
+
+def _is_shallow_checkout() -> bool:
+    """Return whether the working checkout lacks full history."""
+    completed = _git("rev-parse", "--is-shallow-repository")
+    return completed.returncode == 0 and completed.stdout.strip() == "true"
+
+
+def _setup_rust_manifest_at(sha: str) -> dict[str, object]:
+    """Return the setup-rust manifest at *sha*.
+
+    A shallow checkout genuinely cannot resolve an arbitrary revision, so that
+    case skips. Every other failure fails the test: a typo in the expected SHA,
+    or a revision that no longer exists, must not quietly disable the contract
+    these tests exist to hold.
+    """
+    completed = _git("show", f"{sha}:{SETUP_RUST_MANIFEST}")
+    if completed.returncode != 0:
+        if _is_shallow_checkout():  # pragma: no cover - shallow clone guard
+            pytest.skip(f"revision {sha} unavailable in a shallow checkout")
+        message = f"revision {sha} could not be read: {completed.stderr.strip()}"
+        raise AssertionError(message)
     return yaml.safe_load(completed.stdout)
 
 
@@ -86,6 +106,30 @@ def test_pinned_revision_declares_forwarded_cache_inputs() -> None:
     inputs = _setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA)["inputs"]
     missing = sorted(set(FORWARDED_CACHE_INPUTS) - set(inputs))
     assert not missing, f"setup-rust revision lacks inputs: {missing}"
+
+
+def _cargo_cache_paths(manifest: dict[str, object]) -> list[str]:
+    """Return the paths the setup-rust Cargo cache step archives."""
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    cache_step = find_step(steps, "Cache cargo registry")
+    paths = cache_step["with"]["path"]
+    assert isinstance(paths, str)
+    return [line.strip() for line in paths.splitlines() if line.strip()]
+
+
+def test_pinned_revision_does_not_archive_the_target_tree() -> None:
+    """The pin must be a revision that stopped archiving the build tree.
+
+    That archive is what the bump exists to shed: it captures one build shape,
+    invalidates on almost any change, and a caller owning its own target
+    directory pays for the upload regardless.
+    """
+    paths = _cargo_cache_paths(_setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA))
+
+    assert paths, "setup-rust revision declares no Cargo cache paths"
+    assert not [path for path in paths if path.startswith("target")], (
+        f"pinned setup-rust revision still archives a target tree: {paths}"
+    )
 
 
 def test_working_tree_setup_rust_declares_forwarded_cache_inputs() -> None:
@@ -128,3 +172,17 @@ def test_cache_provider_validated_before_toolchain_setup() -> None:
     run_script = validate_step.get("run")
     assert isinstance(run_script, str)
     assert "github|external" in run_script
+
+
+def test_unknown_revision_fails_rather_than_skipping() -> None:
+    """A bad expected SHA must fail loudly, not disable the contract.
+
+    Skipping on any git failure would let a typo in the pinned SHA silently
+    switch off both revision contracts, which is exactly the regression they
+    exist to catch.
+    """
+    if _is_shallow_checkout():  # pragma: no cover - shallow clone guard
+        pytest.skip("a shallow checkout cannot distinguish the two cases")
+
+    with pytest.raises(AssertionError, match="could not be read"):
+        _setup_rust_manifest_at("0" * 40)

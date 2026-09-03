@@ -102,6 +102,9 @@ def _load_module(
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    # Register before executing: dataclass field resolution looks the defining
+    # module up in ``sys.modules`` while the class body runs.
+    monkeypatch.setitem(sys.modules, name, module)
     spec.loader.exec_module(module)
     return module
 
@@ -1012,6 +1015,8 @@ def _make_cucumber_spy(
         use_nextest: bool,
         cucumber_rs_features: str,
         cucumber_rs_args: str,
+        all_features: bool = False,
+        all_targets: bool = False,
     ) -> None:
         calls.append(
             {
@@ -1024,6 +1029,8 @@ def _make_cucumber_spy(
                 "use_nextest": use_nextest,
                 "cucumber_rs_features": cucumber_rs_features,
                 "cucumber_rs_args": cucumber_rs_args,
+                "all_features": all_features,
+                "all_targets": all_targets,
             }
         )
 

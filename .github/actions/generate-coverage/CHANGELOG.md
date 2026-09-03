@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Add `all-features`, `all-targets`, and `doctests` inputs so one coverage job
+  can be a repository's only test execution. All three default to off.
+  `all-features` supersedes `with-default-features` and is rejected alongside a
+  non-empty `features` list. `all-targets` covers benches, examples, and every
+  test target; doc tests are a separate target kind, so `doctests` runs
+  `cargo test --doc --workspace` afterwards, uninstrumented, with the same
+  feature selection.
+- Stop every ratchet run failing its cache reservation. "Restore baselines"
+  used the full `actions/cache` action, which registers a post-job save of its
+  own, so it and the explicit "Save baselines" step both wrote the same
+  run-id-suffixed key and each run logged
+  `Failed to save: Unable to reserve cache ... already exists`. The two steps
+  now use the `actions/cache/restore` and `actions/cache/save` sub-actions at
+  one pinned revision, so exactly one step writes the key. The pair now reports
+  bounded restore and save outcomes in the log and job summary, naming neither
+  the key nor the baseline paths, and distinguishing a step skipped by an
+  earlier failure from a ratchet that is switched off.
+- Pin every `actions/cache` reference to the v6.1.0 commit
+  `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.
+  The Cargo artefact and Python dependency caches used the tag, which breaks
+  the repository's pinning policy and can resolve to releases a transparent
+  runner cache does not intercept.
 - Stop archiving the `target` tree. The Cargo cache now covers the Cargo
   binaries, registry, and Git index only; sccache carries compiler output.
 - Add a `cache-provider` input. The default preserves the existing GitHub

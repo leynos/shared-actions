@@ -1,8 +1,12 @@
 """Verify the install-whitaker action's contracts and installation paths.
 
-The suite exercises the composite action's shell fragment with deterministic
-Cargo stubs and validates its manifest and state-dependent behaviour. Run it
-with ``uv run pytest .github/actions/install-whitaker/tests/test_install_whitaker.py``.
+The suite drives the composite action's Bash fragments with deterministic
+release-download stubs, so no network access or real archive is required. It
+covers checksum-verified installer acquisition against the action's pinned
+digest manifest and the optional ``installer-sha256`` trust anchor, the
+built-in and caller-owned cache providers, and the action manifest and
+state-dependent behaviour of the install and run steps. Run it with ``uv run
+pytest .github/actions/install-whitaker/tests/test_install_whitaker.py``.
 """
 
 from __future__ import annotations
@@ -20,7 +24,19 @@ import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-ACTION_PATH = Path(__file__).resolve().parents[1] / "action.yml"
+ACTION_DIR = Path(__file__).resolve().parents[1]
+ACTION_PATH = ACTION_DIR / "action.yml"
+DIGEST_MANIFEST_PATH = ACTION_DIR / "installer-digests.sha256"
+_PAYLOAD_SHA256 = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
+_WRONG_SHA256 = "0" * 64
+_PINNED_TARGETS = (
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+)
+_PINNED_VERSIONS = ("0.2.6", "0.2.7")
 _PROPERTY_TEST_SETTINGS = settings(
     deadline=None,
     derandomize=True,
@@ -121,10 +137,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 if [[ "$url" == *.sha256 ]]; then
-  expected_sha='239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5'
-  printf '%s  archive\n' "$expected_sha" > "$output"
+  printf '%s  archive\n' "$SIDECAR_SHA256" > "$output"
 else
-  printf payload > "$output"
+  printf '%s' "$ARCHIVE_PAYLOAD" > "$output"
 fi
 """,
     )
@@ -169,12 +184,23 @@ class _InstallScenario:
     installer_present: bool = False
     fail_download: bool = False
     fail_installer: bool = False
-    installer_version: str = "0.2.6"
+    installer_version: str = "0.2.7"
     cargo_home_name: str = "cargo-home"
     cargo_home_value: str | None = None
     cache_hit: bool = False
     cache_provider: str = "github"
     conflicting_installer: bool = False
+    archive_payload: str = "payload"
+    sidecar_sha256: str = _PAYLOAD_SHA256
+    pinned_sha256: str | None = _PAYLOAD_SHA256
+    installer_sha256: str = ""
+
+    @property
+    def asset(self) -> str:
+        """Return the Linux x64 release asset the fragment resolves."""
+        return (
+            f"whitaker-installer-x86_64-unknown-linux-gnu-v{self.installer_version}.tgz"
+        )
 
 
 @dataclass(frozen=True)
@@ -189,6 +215,7 @@ class _InstallPaths:
     bash_home_dir: str
     bash_installer_log: str
     bash_summary_log: str
+    bash_digest_manifest: str
 
 
 @dataclass(frozen=True)
@@ -208,6 +235,7 @@ class _ValidationInputs:
     installer_version: str
     cache_provider: str = "github"
     runner_os: str = "Linux"
+    installer_sha256: str = ""
 
 
 def _execute_install_script(
@@ -251,6 +279,7 @@ def _run_input_validation(
                 f"{_bash_path(bash, output_path.parent)}/{output_path.name}"
             ),
             "HOME": _bash_path(bash, home_dir),
+            "INSTALLER_SHA256_INPUT": inputs.installer_sha256,
             "INSTALLER_VERSION_INPUT": inputs.installer_version,
             "RUNNER_OS": inputs.runner_os,
         },
@@ -289,6 +318,14 @@ def _create_install_paths(
     installer_log = tmp_path / "installer.log"
     conflict_log = tmp_path / "conflict.log"
     summary_log = tmp_path / "summary.md"
+    digest_manifest = tmp_path / "installer-digests.sha256"
+    if scenario.pinned_sha256 is not None:
+        digest_manifest.write_text(
+            f"{scenario.pinned_sha256}  {scenario.asset}\n",
+            encoding="utf-8",
+        )
+    else:
+        digest_manifest.write_text("# no pinned digests\n", encoding="utf-8")
     home_dir = tmp_path / "home"
     home_dir.mkdir(exist_ok=True)
     return _InstallPaths(
@@ -306,6 +343,9 @@ def _create_install_paths(
             f"{_bash_path(bash, installer_log.parent)}/{installer_log.name}"
         ),
         bash_summary_log=(f"{_bash_path(bash, summary_log.parent)}/{summary_log.name}"),
+        bash_digest_manifest=(
+            f"{_bash_path(bash, digest_manifest.parent)}/{digest_manifest.name}"
+        ),
     )
 
 
@@ -356,8 +396,10 @@ def _build_install_environment(
         "BASH_ENV": "",
         "CARGO_HOME": scenario.cargo_home_value or paths.bash_cargo_home,
         "HOME": paths.bash_home_dir,
+        "ARCHIVE_PAYLOAD": scenario.archive_payload,
         "DOWNLOAD_LOG": paths.bash_download_log,
         "CONFLICT_LOG": paths.bash_conflict_log,
+        "SIDECAR_SHA256": scenario.sidecar_sha256,
         "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "INSTALLER_LOG": paths.bash_installer_log,
@@ -366,7 +408,9 @@ def _build_install_environment(
         "RUNNER_OPERATING_SYSTEM": "Linux",
         "WHITAKER_CACHE_PROVIDER": scenario.cache_provider,
         "WHITAKER_INSTALLER_CACHE_HIT": str(scenario.cache_hit).lower(),
+        "WHITAKER_DIGEST_MANIFEST": paths.bash_digest_manifest,
         "WHITAKER_INSTALLER_PATH": f"{paths.bash_bin_dir}/whitaker-installer",
+        "WHITAKER_INSTALLER_SHA256": scenario.installer_sha256,
         "WHITAKER_INSTALLER_VERSION": scenario.installer_version,
     }
 
@@ -384,7 +428,17 @@ def _assert_manifest_inputs(manifest: dict[str, object]) -> None:
         "installer-version": {
             "description": "Version of whitaker-installer to install",
             "required": False,
-            "default": "0.2.6",
+            "default": "0.2.7",
+        },
+        "installer-sha256": {
+            "description": (
+                "SHA-256 digest of the whitaker-installer release archive for "
+                "this runner. Required only for a version absent from the "
+                "action's pinned digest manifest; the pinned digest is used "
+                "when this is empty."
+            ),
+            "required": False,
+            "default": "",
         },
         "cache-provider": {
             "description": (
@@ -405,6 +459,7 @@ def _assert_validate_step(validate_step: dict[str, object]) -> None:
     assert validate_env == {
         "CACHE_PROVIDER_INPUT": "${{ inputs.cache-provider }}",
         "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
+        "INSTALLER_SHA256_INPUT": "${{ inputs.installer-sha256 }}",
         "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
     }
     validate_script = typ.cast("str", validate_step["run"])
@@ -413,6 +468,7 @@ def _assert_validate_step(validate_step: dict[str, object]) -> None:
     assert "must not contain the runner PATH separator" in validate_script
     assert "without leading zeros" in validate_script
     assert "cache-provider must be github or external" in validate_script
+    assert "installer-sha256 must be 64 hexadecimal characters" in validate_script
 
 
 def _assert_cache_step(cache_step: dict[str, object]) -> None:
@@ -451,6 +507,12 @@ def _assert_cache_report_step(cache_report_step: dict[str, object]) -> None:
 def _assert_install_step(install_step: dict[str, object]) -> None:
     """Assert the prebuilt release installation step contract."""
     install_env = typ.cast("dict[str, str]", install_step["env"])
+    assert install_env["WHITAKER_DIGEST_MANIFEST"] == (
+        "${{ github.action_path }}/installer-digests.sha256"
+    )
+    assert install_env["WHITAKER_INSTALLER_SHA256"] == (
+        "${{ steps.validate-inputs.outputs.installer-sha256 }}"
+    )
     assert install_env["RUNNER_ARCHITECTURE"] == "${{ runner.arch }}"
     assert install_env["RUNNER_OPERATING_SYSTEM"] == "${{ runner.os }}"
     assert install_env["WHITAKER_INSTALLER_PATH"] == (
@@ -465,6 +527,8 @@ def _assert_install_step(install_step: dict[str, object]) -> None:
     assert "sha256sum" in install_script
     assert "cargo install" not in install_script
     assert "cargo binstall" not in install_script
+    assert "WHITAKER_DIGEST_MANIFEST" in install_script
+    assert "whitaker-installer.trust-anchor=" in install_script
 
 
 def _assert_run_step(run_step: dict[str, object]) -> None:
@@ -509,6 +573,7 @@ class TestManifest:
                 _bash_path(shutil.which('bash') or 'bash', tmp_path / 'home')
             }/.cargo/bin/whitaker-installer",
             "installer-version=1.2.3",
+            "installer-sha256=",
         ]
 
     def test_rejects_unknown_cache_provider(self, tmp_path: Path) -> None:
@@ -635,22 +700,24 @@ class TestInstallation:
 
         assert result.returncode == 0, result.stderr
         download_log = (tmp_path / "download.log").read_text(encoding="utf-8")
-        asset = "whitaker-installer-x86_64-unknown-linux-gnu-v0.2.6.tgz"
-        assert f"/v0.2.6/{asset} " in download_log
-        assert f"/v0.2.6/{asset}.sha256 " in download_log
+        asset = "whitaker-installer-x86_64-unknown-linux-gnu-v0.2.7.tgz"
+        assert f"/v0.2.7/{asset} " in download_log
+        assert f"/v0.2.7/{asset}.sha256 " in download_log
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
         assert (
-            "::notice title=Whitaker installer::path=official-release version=0.2.6"
+            "::notice title=Whitaker installer::path=official-release version=0.2.7"
             in result.stdout
         )
         assert (
-            "::notice title=Whitaker installer::status=complete version=0.2.6"
+            "::notice title=Whitaker installer::status=complete version=0.2.7"
             in result.stdout
         )
         assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
             "whitaker-installer.cache=miss",
+            "whitaker-installer.digest=verified",
+            "whitaker-installer.trust-anchor=pinned",
             "whitaker-installer.path=official-release",
             "whitaker-installer.result=success",
         ]
@@ -670,7 +737,7 @@ class TestInstallation:
         assert (tmp_path / "installer.log").read_text(encoding="utf-8") == (
             "suite installed\n"
         )
-        assert "::notice title=Whitaker installer::path=cache version=0.2.6" in (
+        assert "::notice title=Whitaker installer::path=cache version=0.2.7" in (
             result.stdout
         )
         assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
@@ -888,8 +955,171 @@ class TestFailures:
         assert expected_error in result.stderr
         assert (
             f"::error title=Whitaker installer failed::exit-code={result.returncode} "
-            "version=0.2.6"
+            "version=0.2.7"
         ) in result.stderr
         assert "whitaker-installer.failure=" in (tmp_path / "summary.md").read_text(
+            encoding="utf-8"
+        )
+
+
+class TestPinnedDigestManifest:
+    """Validate the checked-in trust anchor for installer archives."""
+
+    def test_manifest_pins_every_supported_target(self) -> None:
+        """Verify each supported version and target has a pinned digest."""
+        entries = {
+            asset: digest
+            for digest, asset in (
+                line.split()
+                for line in DIGEST_MANIFEST_PATH.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+                if line and not line.startswith("#")
+            )
+        }
+
+        expected = {
+            (
+                f"whitaker-installer-{target}-v{version}."
+                f"{'zip' if target.endswith('windows-msvc') else 'tgz'}"
+            )
+            for version in _PINNED_VERSIONS
+            for target in _PINNED_TARGETS
+        }
+        assert entries.keys() == expected
+        assert all(
+            len(digest) == 64 and set(digest) <= set(string.hexdigits.lower())
+            for digest in entries.values()
+        )
+
+
+class TestTrustAnchor:
+    """Check that installation depends on an independent pinned digest."""
+
+    def test_rejects_mismatched_archive_digest(self, tmp_path: Path) -> None:
+        """Verify a tampered archive leaves no installer and fails loudly."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(pinned_sha256=_WRONG_SHA256),
+        )
+
+        assert result.returncode != 0
+        assert "archive digest mismatch" in result.stderr
+        assert not (tmp_path / "cargo-home" / "bin" / "whitaker-installer").exists()
+        assert (tmp_path / "summary.md").read_text(encoding="utf-8").splitlines() == [
+            "whitaker-installer.cache=miss",
+            "whitaker-installer.digest=mismatch",
+            "whitaker-installer.failure=install",
+        ]
+        assert not (tmp_path / "installer.log").exists()
+
+    def test_rejects_release_sidecar_disagreement(self, tmp_path: Path) -> None:
+        """Verify the sidecar must agree with the verified archive digest."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(sidecar_sha256=_WRONG_SHA256),
+        )
+
+        assert result.returncode != 0
+        assert "disagrees with the verified archive digest" in result.stderr
+        assert not (tmp_path / "cargo-home" / "bin" / "whitaker-installer").exists()
+        assert "whitaker-installer.digest=sidecar-mismatch" in (
+            tmp_path / "summary.md"
+        ).read_text(encoding="utf-8")
+
+    def test_unknown_version_without_digest_fails_closed(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an unpinned version refuses to download or install."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(installer_version="9.9.9", pinned_sha256=None),
+        )
+
+        assert result.returncode != 0
+        assert "no pinned SHA-256 for" in result.stderr
+        assert not (tmp_path / "download.log").exists()
+        assert not (tmp_path / "cargo-home" / "bin" / "whitaker-installer").exists()
+        assert "whitaker-installer.digest=unpinned" in (
+            tmp_path / "summary.md"
+        ).read_text(encoding="utf-8")
+
+    def test_caller_supplied_digest_installs_unpinned_version(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify ``installer-sha256`` anchors a version absent from the table."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(
+                installer_version="9.9.9",
+                pinned_sha256=None,
+                installer_sha256=_PAYLOAD_SHA256,
+            ),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "cargo-home" / "bin" / "whitaker-installer").is_file()
+        assert "whitaker-installer.trust-anchor=input" in (
+            tmp_path / "summary.md"
+        ).read_text(encoding="utf-8")
+
+    def test_caller_supplied_digest_still_verifies_the_archive(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a caller digest is enforced, not merely recorded."""
+        result = _run_install_script(
+            tmp_path,
+            _InstallScenario(
+                installer_version="9.9.9",
+                pinned_sha256=None,
+                installer_sha256=_WRONG_SHA256,
+            ),
+        )
+
+        assert result.returncode != 0
+        assert "archive digest mismatch" in result.stderr
+        assert not (tmp_path / "cargo-home" / "bin" / "whitaker-installer").exists()
+
+    @pytest.mark.parametrize(
+        "installer_sha256",
+        ["not-a-digest", _PAYLOAD_SHA256[:-1], f"{_PAYLOAD_SHA256}0"],
+    )
+    def test_rejects_malformed_installer_digest_input(
+        self,
+        tmp_path: Path,
+        installer_sha256: str,
+    ) -> None:
+        """Verify a malformed digest input fails before any download."""
+        result = _run_input_validation(
+            tmp_path,
+            _ValidationInputs(
+                "~/.cargo",
+                "1.2.3",
+                installer_sha256=installer_sha256,
+            ),
+        )
+
+        assert result.returncode != 0
+        assert "installer-sha256 must be 64 hexadecimal characters" in result.stderr
+
+    def test_normalizes_uppercase_installer_digest_input(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an uppercase digest input is lowercased for comparison."""
+        result = _run_input_validation(
+            tmp_path,
+            _ValidationInputs(
+                "~/.cargo",
+                "1.2.3",
+                installer_sha256=_PAYLOAD_SHA256.upper(),
+            ),
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert f"installer-sha256={_PAYLOAD_SHA256}" in (tmp_path / "output").read_text(
             encoding="utf-8"
         )

@@ -547,29 +547,37 @@ make lint          # Ruff lint + action-validator + markdownlint
 
 ## `install-nixie` Action Maintenance
 
-The composite action boundary is
-`.github/actions/install-nixie/action.yml`. It requires `cargo` and `uv` on
-`PATH` and exposes three pins: `nixie-version` defaults to `1.1.0`,
-`merman-version` defaults to `0.7.0`, and `python-version` defaults to `3.14`.
-Keep those public inputs and their defaults synchronized with the action README
-and users' guide.
+The composite action boundary is `.github/actions/install-nixie/action.yml`. It
+requires `uv`, `curl`, and runner-provided archive and checksum tools, and
+exposes three pins: `nixie-version` defaults to `1.1.0`, `merman-version`
+defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
+inputs and their defaults synchronized with the action README and users' guide.
 
-The Merman policy is cargo-binstall first: use locked `cargo binstall` when its
-availability probe succeeds, then fall back to locked `cargo install` only when
-cargo-binstall is unavailable. The install step uses `set -euo pipefail` as its
-failure boundary. Missing prerequisites or a failed Merman or Nixie installer
-must stop the step before PATH export.
+Merman is a release-asset policy, not a package-manager policy. The action
+supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`,
+and `Windows/X64` to an official `Latias94/merman` archive and a literal
+SHA-256 digest. The Windows archive is verified with PowerShell's
+`Get-FileHash` and extracted by `Expand-Archive` through Git Bash's path
+conversion. It reuses `${CARGO_HOME:-~/.cargo}/bin/merman-cli` (`.exe` on
+Windows) when that cached executable exists. On a cache miss it downloads,
+checksums, extracts, and installs the release asset. Do not add Cargo,
+`cargo binstall`, or a source-build fallback. Adding a new Merman release or
+runner pair requires an official release asset, an independently reviewed
+digest, focused tests, and synchronized user-facing documentation; fail closed
+until all four exist.
 
-After both installers succeed, `uv tool dir --bin` supplies the directory
-appended to `GITHUB_PATH`. This makes `nixie` available to later workflow steps;
-do not run the lookup or write `GITHUB_PATH` after an installation failure.
+Nixie reconciles its exact package version with ordinary `uv tool install`.
+After obtaining the `uv tool dir --bin` directory, the action checks for the
+`nixie` executable shim and repeats the install with `--force` only when that
+shim is absent. Do not add a `nixie --version` probe. Both Merman and Nixie
+executable checks must succeed before their directories are written to
+`GITHUB_PATH`.
 
 `.github/actions/install-nixie/tests/test_action.py` is the behavioural test
-boundary. Changes to this action must retain coverage for both successful
-Merman selection paths, missing `cargo` and `uv`, failures from cargo-binstall,
-the cargo-install fallback, and `uv tool install`, plus bounded property-based
-coverage of shell-safe versions across both installer-selection states. Failure
-tests must prove later installers and PATH export were not reached.
+boundary. Changes must retain coverage for a warm Merman cache, the official
+download/checksum path, checksum and unsupported-version failures, normal and
+forced Nixie reconciliation, Nixie installer failure, and the no-PATH-export
+failure boundary.
 
 ## `rust-build-release` Action Architecture
 

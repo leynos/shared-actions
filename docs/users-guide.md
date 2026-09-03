@@ -209,9 +209,9 @@ Pass an extra flag required by the source tree:
 
 ## Install Nixie
 
-The `install-nixie` action installs pinned Nixie and Merman CLI releases for
-Mermaid validation. The runner must already provide `cargo` and `uv` on
-`PATH`.
+The `install-nixie` action installs pinned Nixie and a checksum-verified Merman
+CLI release for Mermaid validation. The runner must already provide `uv`,
+`curl`, `shasum`, and `tar` on `PATH`.
 
 To use the action from this repository, check out the repository before calling
 the local action:
@@ -236,29 +236,33 @@ The action accepts three optional version inputs:
 | Input            | Default | Purpose                            |
 | ---------------- | ------- | ---------------------------------- |
 | `nixie-version`  | `1.1.0` | Nixie CLI release                  |
-| `merman-version` | `0.7.0` | Merman CLI release                 |
+| `merman-version` | `0.7.0` | Verified Merman CLI release        |
 | `python-version` | `3.14`  | Python used by uv to install Nixie |
 
-Override the pins when validating another supported toolchain combination:
+Override the Nixie and Python pins when validating another supported toolchain
+combination:
 
 ```yaml
 - name: Install Nixie
   uses: leynos/shared-actions/.github/actions/install-nixie@a197301888920eb21fbbc7e7bb6cb0c6f3d81584
   with:
     nixie-version: "1.2.0"
-    merman-version: "0.8.0"
     python-version: "3.13"
 ```
 
-When `cargo binstall` is available, the action installs Merman with a locked
-binary package. If the availability probe fails, it falls back to a locked
-`cargo install` build. Missing `cargo` or `uv`, and failures from either
-installer, stop the action immediately. A failed installation does not export a
-PATH entry.
+Merman version `0.7.0` is the only supported `merman-version`: each supported
+runner pair (`Linux/X64`, `macOS/X64`, `macOS/ARM64`, and `Windows/X64`) has a
+named official release archive and a checksum embedded in the action. Other
+Merman versions and platforms fail closed before download. The action reuses a
+cached `${CARGO_HOME:-~/.cargo}/bin/merman-cli` executable (`.exe` on Windows);
+on a miss it verifies the official archive before installing it. It never
+invokes Cargo or builds Merman from source.
 
-After both installations succeed, the action appends the directory returned by
-`uv tool dir --bin` to `GITHUB_PATH`. Later workflow steps can therefore invoke
-`nixie` directly.
+Nixie uses ordinary `uv tool install` reconciliation. The action requests
+`--force` only when the expected executable shim is absent afterwards, and does
+not use `nixie --version` as a probe. After both executable checks succeed, the
+action appends the Merman and Nixie binary directories to `GITHUB_PATH`. Later
+workflow steps can therefore invoke `nixie` and `merman-cli` directly.
 
 ## CodeScene coverage checks
 

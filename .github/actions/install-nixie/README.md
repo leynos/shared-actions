@@ -1,17 +1,19 @@
 # Install Nixie
 
-Install pinned Nixie and Merman CLI releases for Mermaid validation.
+Install pinned Nixie and a checksum-verified Merman CLI release for Mermaid
+validation.
 
-The action installs Nixie through `uv` and its Merman rendering backend through
-Cargo. It uses `cargo binstall` when available and falls back to a locked
-`cargo install` build from crates.io.
+The action installs Nixie through `uv` and obtains Merman only from the
+official `Latias94/merman` v0.7.0 release assets. It verifies the downloaded
+archive against an embedded SHA-256 digest before installing the executable.
+It never uses Cargo, `cargo binstall`, or a source-build fallback.
 
 ## Inputs
 
 | Name             | Type     | Description                          | Required | Default |
 | ---------------- | -------- | ------------------------------------ | -------- | ------- |
 | `nixie-version`  | `string` | Nixie CLI version to install         | no       | `1.1.0` |
-| `merman-version` | `string` | Merman CLI version to install        | no       | `0.7.0` |
+| `merman-version` | `string` | Verified Merman CLI release to use   | no       | `0.7.0` |
 | `python-version` | `string` | Python version used to install Nixie | no       | `3.14`  |
 
 ## Outputs
@@ -49,29 +51,36 @@ For SHA-pinned references, use the action commit SHA:
 uses: leynos/shared-actions/.github/actions/install-nixie@<SHA>
 ```
 
-To override the pinned versions:
+To override the Nixie and Python pins:
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/install-nixie@v1
   with:
     nixie-version: "1.1.0"
-    merman-version: "0.7.0"
     python-version: "3.14"
 ```
 
 ## Behaviour
 
-- **Prerequisites**: `cargo` and `uv` must already be available on `PATH`.
-  The repository's `setup-rust` action provisions both tools and
-  `cargo-binstall`.
-- **Merman installation**: When `cargo binstall` is available, the action
-  installs the selected Merman release from a binary package with locked
-  metadata. Otherwise, it builds the exact selected release from crates.io with
-  `cargo install --locked`.
-- **Nixie installation**: The action uses `uv tool install` with the selected
-  Python and exact Nixie release.
-- **Failure behaviour**: Missing prerequisites and failed installations stop
-  the action immediately with a non-zero exit status.
+- **Prerequisites**: `uv`, `curl`, and runner-provided archive and checksum
+  tools must already be available. GitHub-hosted Linux and macOS runners use
+  `shasum` and `tar`; Windows uses Git Bash's `cygpath` and PowerShell.
+- **Merman installation**: `merman-version` currently supports only `0.7.0`.
+  The action recognizes `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
+  `Windows/X64`; every supported pair maps to one official release archive and
+  an embedded SHA-256 digest. Any other version or platform fails before a
+  download is attempted.
+  A cached `${CARGO_HOME:-~/.cargo}/bin/merman-cli` executable is reused
+  (`.exe` on Windows).
+- **Nixie installation**: The action reconciles the requested Nixie package
+  with `uv tool install`. It uses `--force` only when the expected `nixie`
+  executable shim is absent after normal reconciliation. It does not invoke
+  `nixie --version`, which is not a supported probe.
+- **PATH export**: After both executable checks succeed, the action appends the
+  Merman and Nixie binary directories to `GITHUB_PATH` for later steps.
+- **Failure behaviour**: Missing prerequisites, an unverified archive, an
+  unsupported version or platform, and failed installations stop the action
+  immediately without exporting a PATH entry.
 
 ## Release history
 

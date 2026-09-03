@@ -324,17 +324,31 @@ runs:
         if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
           exit 0
         fi
+        # Hash from standard input, never by file name. GNU coreutils
+        # sha256sum escapes its output line when the name contains a backslash
+        # or a newline: it prefixes the line with a backslash and escapes the
+        # offending characters. Windows paths contain backslashes, so passing
+        # the name yielded "\<digest>" and failed a correct archive. Reading
+        # the file on stdin keeps the name out of the output entirely, so no
+        # escaping can arise to be undone.
+        compute_sha256() {
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum < "$1" | awk '{print $1}'
+          else
+            shasum -a 256 < "$1" | awk '{print $1}'
+          fi
+        }
         archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
-        if command -v sha256sum >/dev/null 2>&1; then
-          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
-        else
-          actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
-        fi
+        actual_sha="$(compute_sha256 "$archive")"
         if [[ "$actual_sha" != "$WHITAKER_EXPECTED_SHA" ]]; then
           emit_metric "whitaker-installer.digest=mismatch"
           step_error "archive digest mismatch for ${WHITAKER_ASSET}: expected ${WHITAKER_EXPECTED_SHA} but computed ${actual_sha}"
         fi
-        sidecar_sha="$(awk 'NR == 1 { print $1 }' "${archive}.sha256")"
+        # The sidecar is produced by the release builder, whose sha256sum saw a
+        # plain asset name, so it should not be escaped. Strip a leading
+        # backslash anyway: a sidecar written on a host that did escape would
+        # otherwise fail this comparison for the same reason the archive did.
+        sidecar_sha="$(awk 'NR == 1 { sub(/^\\/, "", $1); print $1 }' "${archive}.sha256")"
         if [[ "$sidecar_sha" != "$actual_sha" ]]; then
           emit_metric "whitaker-installer.digest=sidecar-mismatch"
           step_error "release sidecar digest ${sidecar_sha} disagrees with the verified archive digest ${actual_sha} for ${WHITAKER_ASSET}"

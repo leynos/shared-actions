@@ -5,6 +5,13 @@ this file.
 
 ## v1.0.0 (Unreleased)
 
+- Fix digest verification on Windows runners. `sha256sum` escapes its output
+  line when the file name contains a backslash or a newline, prefixing the line
+  with a backslash, and Windows paths contain backslashes, so the verify step
+  read `\<digest>` and rejected a correct archive. Digests are now computed
+  from standard input, which keeps the file name out of the output entirely, and
+  a digest read from a release sidecar has any leading backslash stripped.
+
 - Add cached installation of the Whitaker Dylint suite
 - Download and verify official prebuilt installer releases without a source
   build fallback

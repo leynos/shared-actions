@@ -22,31 +22,76 @@ RUST_ACTION_MANIFESTS = (
     ACTIONS_ROOT / "setup-rust" / "action.yml",
     ACTIONS_ROOT / "generate-coverage" / "action.yml",
 )
-FORBIDDEN_PREFIXES = ("target/", "target${")
 
 
-def _cache_path_entries(
-    manifest_path: Path,
-) -> cabc.Iterator[tuple[str, str]]:
+def _cache_path_block(step: dict[str, object]) -> str | None:
+    """Return the ``with.path`` block of ``step``, or ``None`` if it has none."""
+    step_inputs = step.get("with")
+    if not isinstance(step_inputs, dict):
+        return None
+    paths = step_inputs.get("path")
+    return paths if isinstance(paths, str) else None
+
+
+def _path_entries(block: str) -> cabc.Iterator[str]:
+    """Yield the non-empty, stripped path entries of a cache ``path`` block."""
+    return (entry for entry in map(str.strip, block.splitlines()) if entry)
+
+
+def _cache_path_entries(manifest_path: Path) -> cabc.Iterator[tuple[str, str]]:
     """Yield ``(step name, path entry)`` pairs for every cache-like step."""
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     for step in manifest["runs"]["steps"]:
-        step_inputs = step.get("with")
-        if not isinstance(step_inputs, dict):
-            continue
-        paths = step_inputs.get("path")
-        if not isinstance(paths, str):
+        block = _cache_path_block(step)
+        if block is None:
             continue
         step_name = str(step.get("name", "<unnamed step>"))
-        for line in paths.splitlines():
-            entry = line.strip()
-            if entry:
-                yield step_name, entry
+        yield from ((step_name, entry) for entry in _path_entries(block))
 
 
 def _is_target_entry(entry: str) -> bool:
-    """Report whether ``entry`` archives the Cargo ``target`` tree."""
-    return entry == "target" or entry.startswith(FORBIDDEN_PREFIXES)
+    """Report whether ``entry`` archives the Cargo ``target`` tree.
+
+    Matching is by whole path segment, so ``./target`` and
+    ``${{ github.workspace }}/target`` are caught while unrelated names such as
+    ``target-manifests`` are not. A segment beginning ``target${`` catches a
+    reintroduced ``target/${{ ... }}`` placeholder.
+    """
+    return any(
+        segment == "target" or segment.startswith("target${")
+        for segment in entry.replace("\\", "/").split("/")
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "target",
+        "./target",
+        "target/debug",
+        "target/${{ env.BUILD_PROFILE }}",
+        "${{ github.workspace }}/target",
+        "workspace/target/llvm-cov-target",
+    ],
+)
+def test_is_target_entry_rejects_archived_target_trees(entry: str) -> None:
+    """Every form that archives a ``target`` tree is rejected."""
+    assert _is_target_entry(entry)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "~/.cargo/registry",
+        "~/.cargo/git",
+        "~/.cargo/bin/cargo-nextest",
+        "target-manifests",
+        "${{ env.NIGHTLY_SYSROOT }}/lib/rustlib/x86_64-unknown-openbsd",
+    ],
+)
+def test_is_target_entry_accepts_unrelated_paths(entry: str) -> None:
+    """Paths that merely resemble ``target`` remain cacheable."""
+    assert not _is_target_entry(entry)
 
 
 @pytest.mark.parametrize(

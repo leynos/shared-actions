@@ -212,7 +212,7 @@ coexist without conflict.
 Size `SCCACHE_CACHE_SIZE` for both shapes. sccache defaults to a 10 GiB store.
 Under the GitHub Actions backend (`SCCACHE_GHA_ENABLED=true`) GitHub's own
 per-repository limit applies instead, so neither manifest exposes a sizing
-input or exports the variable. Callers that self-manage a local sccache
+input nor exports the variable. Callers that self-manage a local sccache
 directory raise `SCCACHE_CACHE_SIZE` above the default so one store holds both
 shapes.
 

@@ -450,6 +450,12 @@ runs:
           esac
         fi
 
+        # One stable line per outcome, in a fixed `name=value` shape a log
+        # scraper can match without parsing the notice. The name is fixed and
+        # the value comes from the closed vocabularies above, so the pair stays
+        # low cardinality; no key, path, or run identifier appears.
+        printf 'metric ratchet-cache.restore=%s\n' "$restore_outcome"
+        printf 'metric ratchet-cache.save=%s\n' "$save_outcome"
         printf '::notice title=generate-coverage ratchet cache::restore=%s save=%s\n' \
           "$restore_outcome" "$save_outcome"
         if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

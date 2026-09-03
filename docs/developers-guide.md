@@ -217,6 +217,15 @@ skips them while the cache is still configured, and conflating the two would
 report a live cache as switched off. The notice must never carry the key, which
 embeds the run id, nor the baseline paths.
 
+The same states are emitted as two fixed metric lines,
+`metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
+for consumers that scrape rather than read. Keep the metric names fixed and the
+values drawn from those vocabularies: a name or value that varied with the run
+would give the series unbounded cardinality and make it useless to aggregate.
+A test enumerates every step-outcome combination and asserts the emitted values
+stay inside both sets, so widening a vocabulary in the manifest without
+widening it there fails.
+
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the
 `target` tree, and sccache owns compiler output in both. Repositories across

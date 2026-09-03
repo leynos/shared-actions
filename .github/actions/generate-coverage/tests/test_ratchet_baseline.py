@@ -18,7 +18,8 @@ Two properties are exercised here:
   a moving tag.
 * The reader/writer invariant the split exists to satisfy, as a property over
   every pairing of the three cache action variants, plus the bounded outcomes
-  the reporting step emits for each half.
+  the reporting step emits for each half, in the notice, the job summary, and
+  the two stable metric lines.
 * The ``ratchet_coverage.py`` script's baseline-advance semantics: the stored
   baseline rises when coverage improves, holds when coverage is unchanged, and
   the gate fails when coverage drops below the baseline.
@@ -335,6 +336,142 @@ def test_ratchet_report_uses_bounded_outcomes(
 
     assert result.returncode == 0, result.stderr
     assert expected_notice in result.stdout
+
+
+#: Metric names the reporter emits, mapped to the step each describes. The
+#: names are fixed and the values come from closed vocabularies, so a scraper
+#: sees bounded cardinality.
+RATCHET_METRIC_NAMES = {
+    "ratchet-cache.restore": "GC_RESTORE_STEP_OUTCOME",
+    "ratchet-cache.save": "GC_SAVE_STEP_OUTCOME",
+}
+
+#: Every value each metric may take. Adding a state here without adding it to
+#: the reporter, or the reverse, breaks the closed-vocabulary guarantee.
+RESTORE_STATES = frozenset({"hit", "miss", "skipped", "disabled", "error"})
+SAVE_STATES = frozenset({"saved", "skipped", "disabled", "error"})
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected_metrics"),
+    [
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "success",
+                "GC_RESTORE_CACHE_HIT": "true",
+                "GC_SAVE_STEP_OUTCOME": "success",
+            },
+            ("ratchet-cache.restore=hit", "ratchet-cache.save=saved"),
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "success",
+                "GC_RESTORE_CACHE_HIT": "false",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            ("ratchet-cache.restore=miss", "ratchet-cache.save=skipped"),
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "skipped",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            ("ratchet-cache.restore=skipped", "ratchet-cache.save=skipped"),
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "failure",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "failure",
+            },
+            ("ratchet-cache.restore=error", "ratchet-cache.save=error"),
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "false",
+                "GC_RESTORE_STEP_OUTCOME": "skipped",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            ("ratchet-cache.restore=disabled", "ratchet-cache.save=disabled"),
+        ),
+    ],
+)
+def test_ratchet_report_emits_one_metric_per_outcome(
+    environment: dict[str, str], expected_metrics: tuple[str, str]
+) -> None:
+    """Each half must produce one stable metric line a scraper can match.
+
+    The notice is written for a human reading the log; these lines are the
+    machine-readable form, so their shape must not drift with the prose.
+    """
+    result = _run_ratchet_report(**environment)
+
+    assert result.returncode == 0, result.stderr
+    for metric in expected_metrics:
+        assert f"metric {metric}" in result.stdout
+
+
+def test_metric_values_stay_inside_the_closed_vocabularies() -> None:
+    """No observation may produce a state outside the documented sets.
+
+    An unbounded value would make the metric useless to aggregate, which is
+    the whole reason the outcome vocabularies are closed.
+    """
+    observations = [
+        ("true", outcome, cache_hit, save)
+        for outcome, cache_hit in (
+            ("success", "true"),
+            ("success", "false"),
+            ("success", ""),
+            ("success", "unexpected"),
+            ("skipped", ""),
+            ("failure", ""),
+            ("cancelled", ""),
+        )
+        for save in ("success", "skipped", "failure", "cancelled")
+    ]
+    observations.append(("false", "skipped", "", "skipped"))
+
+    for with_ratchet, restore_outcome, cache_hit, save_outcome in observations:
+        result = _run_ratchet_report(
+            GC_WITH_RATCHET=with_ratchet,
+            GC_RESTORE_STEP_OUTCOME=restore_outcome,
+            GC_RESTORE_CACHE_HIT=cache_hit,
+            GC_SAVE_STEP_OUTCOME=save_outcome,
+        )
+        assert result.returncode == 0, result.stderr
+        emitted = dict(
+            line.removeprefix("metric ").split("=", 1)
+            for line in result.stdout.splitlines()
+            if line.startswith("metric ")
+        )
+        assert set(emitted) == set(RATCHET_METRIC_NAMES)
+        assert emitted["ratchet-cache.restore"] in RESTORE_STATES
+        assert emitted["ratchet-cache.save"] in SAVE_STATES
+
+
+def test_metric_lines_carry_no_cache_identifiers() -> None:
+    """The metric must be as redacted as the notice it accompanies."""
+    result = _run_ratchet_report(
+        GC_WITH_RATCHET="true",
+        GC_RESTORE_STEP_OUTCOME="success",
+        GC_RESTORE_CACHE_HIT="true",
+        GC_SAVE_STEP_OUTCOME="success",
+    )
+
+    metric_lines = [
+        line for line in result.stdout.splitlines() if line.startswith("metric ")
+    ]
+    assert metric_lines
+    for line in metric_lines:
+        assert "ratchet-baseline-" not in line
+        assert "coverage-baseline" not in line
 
 
 def test_ratchet_report_never_names_the_cache_key() -> None:

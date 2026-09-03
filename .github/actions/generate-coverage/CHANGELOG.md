@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Emit one stable metric line per ratchet cache outcome,
+  `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
+  alongside the existing notice and job summary. The names are fixed and the
+  values come from the closed outcome vocabularies, so a log scraper sees
+  bounded cardinality and no cache key, path, or run identifier.
+
 - Add `all-features`, `all-targets`, and `doctests` inputs so one coverage job
   can be a repository's only test execution. All three default to off.
   `all-features` supersedes `with-default-features` and is rejected alongside a

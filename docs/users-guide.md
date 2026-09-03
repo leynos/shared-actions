@@ -59,7 +59,10 @@ Its restore step uses `actions/cache/restore` and its save step uses
 Only the save step writes, so the two halves no longer contend for the key.
 That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 `error` restore state and `saved`, `skipped`, `disabled`, or `error` save
-state, naming neither the key nor the baseline paths. `disabled` means the
+state, naming neither the key nor the baseline paths. Each outcome is also
+written as a fixed `metric ratchet-cache.restore=<state>` or
+`metric ratchet-cache.save=<state>` line, so a log scraper can read the result
+without parsing the notice text. `disabled` means the
 ratchet is off; `skipped` means an earlier failure stopped the step running.
 
 ## Running coverage as the only test execution

@@ -259,6 +259,36 @@ runs:
     - name: Run sccache
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && !(runner.os == 'macOS' && runner.arch == 'X64') }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+    - name: Export sccache as the rustc wrapper
+      # sccache-action installs sccache and exports SCCACHE_PATH, but Cargo
+      # only routes compilation through it when RUSTC_WRAPPER names it. Without
+      # this the action reports sccache as enabled while every consumer that
+      # does not set the wrapper itself compiles without it, which is what
+      # Chutoro's zero compile requests showed.
+      #
+      # Must follow both sccache-action steps, since SCCACHE_PATH is their
+      # output.
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # A caller wrapping rustc for its own reasons must not be overridden
+        # silently. ${VAR+x} rather than -n: an inherited empty value is still
+        # a deliberate choice, and macOS runners ship bash 3.2, which cannot
+        # parse [[ -v VAR ]].
+        if [[ ${RUSTC_WRAPPER+x} ]]; then
+          echo "::notice title=setup-rust sccache::RUSTC_WRAPPER already set; leaving the caller's value in place"
+          exit 0
+        fi
+        if [[ -z "${SCCACHE_PATH:-}" ]]; then
+          echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
+          exit 1
+        fi
+        echo "RUSTC_WRAPPER=${SCCACHE_PATH}" >> "$GITHUB_ENV"
+        # Zero the counters so a caller's later --show-stats measures its own
+        # build rather than whatever this runner did before it.
+        "$SCCACHE_PATH" --zero-stats
+        echo "::notice title=setup-rust sccache::RUSTC_WRAPPER exported; sccache statistics zeroed"
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

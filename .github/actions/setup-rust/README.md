@@ -138,7 +138,19 @@ cache compiler output. The sccache action sets `SCCACHE_GHA_ENABLED=true` and
 `RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
 compiled objects are stored in `~/.cache/sccache` and cached with a **separate
 cache key** from the directories above. This directory holds the sccache cache
-space and does not share data with the Rust dependency cache. The revised
+space and does not share data with the Rust dependency cache. When
+`use-sccache` is enabled, the action also exports `RUSTC_WRAPPER` naming the
+installed sccache, because Cargo routes compilation through sccache only when
+that variable is set; the sccache action itself exports `SCCACHE_PATH` alone. A
+caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
+says so in a notice. Statistics are zeroed after the export, so a later
+`sccache --show-stats` measures the caller's own build.
+
+On Ubicloud, run the
+[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
+action **before** `setup-rust`. Without it the GitHub Actions backend cannot
+reach Ubicloud's store, and the compiler cache silently falls back to whatever
+the runner advertises. The revised
 Node.js-backed actions are pinned to specific commits for reproducibility:
 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
 `mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`

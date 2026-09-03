@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Export `RUSTC_WRAPPER` when `use-sccache` is enabled. `sccache-action`
+  installs sccache and exports `SCCACHE_PATH`, but Cargo routes compilation
+  through sccache only when `RUSTC_WRAPPER` names it, so consumers that did not
+  set the wrapper themselves compiled without it while the action reported
+  sccache as enabled. A caller's existing `RUSTC_WRAPPER` is left alone and
+  reported in a notice. Statistics are zeroed after the export so a later
+  `--show-stats` measures the caller's own build.
+
 - Stop archiving the `target` tree. The Cargo cache now covers the registry and
   Git index only, its key is profile-agnostic, and sccache is the sole
   compiler-output cache.

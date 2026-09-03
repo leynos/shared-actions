@@ -181,6 +181,38 @@ When updating these Node.js 24 action dependencies:
 The static manifest assertions must remain in place: runner execution proves
 that the action works, but cannot prove that a pin is the intended revision.
 
+
+## `setup-rust` and the rustc wrapper
+
+`mozilla-actions/sccache-action` installs sccache and exports `SCCACHE_PATH`.
+It does not export `RUSTC_WRAPPER`, and Cargo routes compilation through
+sccache only when that variable names it. So `setup-rust` exports the wrapper
+itself, in a step that must follow both sccache-action steps because
+`SCCACHE_PATH` is their output.
+
+The failure this fixes was silent, which is why it lasted: the action reported
+sccache as enabled, the binary was installed, and every consumer that did not
+set the wrapper itself compiled without it. Chutoro recorded zero compile
+requests, and the cost only became visible once the `target` archive that had
+been masking it was removed.
+
+Two rules to keep:
+
+- A caller's existing `RUSTC_WRAPPER` wins, including a deliberate empty value,
+  and the action says so in a notice. Someone wrapping rustc for their own
+  reasons must not be overridden silently. The guard uses `${RUSTC_WRAPPER+x}`
+  rather than `-v`, which needs Bash 4.2 that macOS runners do not have.
+- A missing `SCCACHE_PATH` fails the step rather than skipping the export.
+  Skipping would restore exactly the silent uncached build this exists to end.
+
+Statistics are zeroed straight after the export so a caller's later
+`sccache --show-stats` measures its own build.
+
+On Ubicloud, `export-ubicloud-cache-credentials` must run **before**
+`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
+server starts, so credentials published afterwards arrive too late and the
+compiler cache silently uses whatever the runner advertised.
+
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and
@@ -238,8 +270,8 @@ The same states are emitted as two fixed metric lines,
 `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
 for consumers that scrape rather than read. Keep the metric names fixed and the
 values drawn from those vocabularies: a name or value that varied with the run
-would give the series unbounded cardinality and make it useless to aggregate.
-A test enumerates every step-outcome combination and asserts the emitted values
+would give the series unbounded cardinality and make it useless to aggregate. A
+test enumerates every step-outcome combination and asserts the emitted values
 stay inside both sets, so widening a vocabulary in the manifest without
 widening it there fails.
 
@@ -683,10 +715,10 @@ All three default to off, so a caller that does not set them sees the previous
 behaviour exactly.
 
 `feature_selection_args` in
-[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
-single place feature flags are decided, and both the coverage command and the
-doc-test command call it. Keep it that way: the precedence rule only holds if
-one function owns it. That rule is that `all_features` wins outright. It
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is
+the single place feature flags are decided, and both the coverage command and
+the doc-test command call it. Keep it that way: the precedence rule only holds
+if one function owns it. That rule is that `all_features` wins outright. It
 supersedes `with_default`, so `--all-features --no-default-features` can never
 be emitted, and it is rejected outright alongside a non-empty feature list,
 because silently widening a caller's named selection would misreport what ran.
@@ -710,15 +742,15 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol | Role |
-| --- | --- |
-| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
-| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
-| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
+| Symbol                                                       | Role                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
+| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
+| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
-| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
-| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
+| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
+| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
+| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and

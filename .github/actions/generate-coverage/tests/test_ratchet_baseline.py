@@ -350,6 +350,49 @@ def test_ratchet_report_never_names_the_cache_key() -> None:
     assert "coverage-baseline" not in result.stdout
 
 
+#: Step outputs the reporter reads, mapped to the variable each must arrive in.
+#: The shell fragment is tested directly, so only this wiring stands between a
+#: correct script and a notice full of empty values.
+REPORT_ENVIRONMENT = {
+    "GC_WITH_RATCHET": "${{ inputs.with-ratchet }}",
+    "GC_RESTORE_STEP_OUTCOME": "${{ steps.restore-baselines.outcome }}",
+    "GC_RESTORE_CACHE_HIT": "${{ steps.restore-baselines.outputs.cache-hit }}",
+    "GC_SAVE_STEP_OUTCOME": "${{ steps.save-baselines.outcome }}",
+}
+
+
+def test_report_runs_after_the_save_whatever_happened() -> None:
+    """The reporter must observe the save, and must run on failure too.
+
+    Without ``always()`` the reporter would be skipped by the very failures it
+    exists to report, and running before the save would leave its outcome
+    permanently unobserved.
+    """
+    steps: list[dict[str, typ.Any]] = _steps()
+    names = [step.get("name") for step in steps]
+    assert names.index("Save baselines") < names.index(
+        "Report ratchet baseline cache decisions"
+    )
+
+    report = _step_by_name("Report ratchet baseline cache decisions")
+    assert "always()" in str(report["if"])
+
+
+@pytest.mark.parametrize(("variable", "expression"), sorted(REPORT_ENVIRONMENT.items()))
+def test_report_reads_the_step_outputs_it_describes(
+    variable: str, expression: str
+) -> None:
+    """Each reported value must come from the step it claims to describe."""
+    report = _step_by_name("Report ratchet baseline cache decisions")
+    assert report["env"].get(variable) == expression
+
+
+def test_reported_steps_carry_the_ids_the_report_references() -> None:
+    """The referenced step ids must exist, or every outcome reads empty."""
+    assert _step_by_name("Restore baselines").get("id") == "restore-baselines"
+    assert _step_by_name("Save baselines").get("id") == "save-baselines"
+
+
 def test_ratchet_report_writes_the_job_summary(tmp_path: Path) -> None:
     """The job summary must carry both outcomes, not just the log notice.
 

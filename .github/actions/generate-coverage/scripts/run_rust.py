@@ -34,6 +34,9 @@ from plumbum.cmd import cargo
 from plumbum.commands.processes import ProcessExecutionError
 from shared_utils import read_previous_coverage
 
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    import collections.abc as cabc
+
 logger = logging.getLogger(__name__)
 _cargo_runner_run_cargo = _run_cargo
 
@@ -500,11 +503,12 @@ def _resolve_bool_input(
     envvar: str,
     *,
     default: bool,
+    env: cabc.Mapping[str, str],
 ) -> bool:
-    """Return *value* directly when set; otherwise read *envvar* from the environment."""  # noqa: E501
+    """Return *value* directly when set; otherwise read *envvar* from *env*."""
     if value is not None:
         return value
-    return _env_bool(envvar, default=default)
+    return _env_bool(envvar, default=default, env=env)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -571,53 +575,60 @@ class CucumberSelection:
         return self.enabled and bool(self.features)
 
 
-def _resolve_targets(raw: _RawInputs) -> CoverageTargets:
-    """Resolve paths and formats, falling back to the action's environment."""
-    lang = raw.lang or _required_env("DETECTED_LANG")
-    output_path = raw.output_path or Path(_required_env("INPUT_OUTPUT_PATH"))
+def _resolve_targets(raw: _RawInputs, env: cabc.Mapping[str, str]) -> CoverageTargets:
+    """Resolve paths and formats, falling back to *env* for unset inputs.
+
+    ``env`` is passed in rather than read here, so the resolution is a function
+    of its arguments alone and a caller can supply an explicit mapping.
+    """
+    lang = raw.lang or _required_env("DETECTED_LANG", env)
+    output_path = raw.output_path or Path(_required_env("INPUT_OUTPUT_PATH", env))
     manifest_path = raw.manifest_path
     if manifest_path is None:
-        detected = os.getenv("DETECTED_CARGO_MANIFEST", "").strip()
+        detected = env.get("DETECTED_CARGO_MANIFEST", "").strip()
         manifest_path = Path(detected or "Cargo.toml")
     return CoverageTargets(
         out=_resolve_output_path(output_path, lang),
         lang=lang,
-        fmt=raw.fmt or _required_env("DETECTED_FMT"),
+        fmt=raw.fmt or _required_env("DETECTED_FMT", env),
         manifest_path=manifest_path,
-        github_output=raw.github_output or Path(_required_env("GITHUB_OUTPUT")),
+        github_output=raw.github_output or Path(_required_env("GITHUB_OUTPUT", env)),
         baseline_file=raw.baseline_file,
     )
 
 
-def _resolve_features(raw: _RawInputs) -> FeatureSelection:
-    """Resolve the feature and target selection from inputs and environment."""
+def _resolve_features(raw: _RawInputs, env: cabc.Mapping[str, str]) -> FeatureSelection:
+    """Resolve the feature and target selection from inputs and *env*."""
     return FeatureSelection(
-        features=raw.features or os.getenv("INPUT_FEATURES", ""),
+        features=raw.features or env.get("INPUT_FEATURES", ""),
         with_default=_resolve_bool_input(
-            raw.with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True
+            raw.with_default, "INPUT_WITH_DEFAULT_FEATURES", default=True, env=env
         ),
         use_nextest=_resolve_bool_input(
-            raw.use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True
+            raw.use_nextest, "INPUT_USE_CARGO_NEXTEST", default=True, env=env
         ),
         all_features=_resolve_bool_input(
-            raw.all_features, "INPUT_ALL_FEATURES", default=False
+            raw.all_features, "INPUT_ALL_FEATURES", default=False, env=env
         ),
         all_targets=_resolve_bool_input(
-            raw.all_targets, "INPUT_ALL_TARGETS", default=False
+            raw.all_targets, "INPUT_ALL_TARGETS", default=False, env=env
         ),
-        doctests=_resolve_bool_input(raw.doctests, "INPUT_DOCTESTS", default=False),
+        doctests=_resolve_bool_input(
+            raw.doctests, "INPUT_DOCTESTS", default=False, env=env
+        ),
     )
 
 
-def _resolve_cucumber(raw: _RawInputs) -> CucumberSelection:
-    """Resolve the cucumber.rs selection from inputs and environment."""
+def _resolve_cucumber(
+    raw: _RawInputs, env: cabc.Mapping[str, str]
+) -> CucumberSelection:
+    """Resolve the cucumber.rs selection from inputs and *env*."""
     return CucumberSelection(
         enabled=_resolve_bool_input(
-            raw.with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False
+            raw.with_cucumber_rs, "INPUT_WITH_CUCUMBER_RS", default=False, env=env
         ),
-        features=raw.cucumber_rs_features
-        or os.getenv("INPUT_CUCUMBER_RS_FEATURES", ""),
-        args=raw.cucumber_rs_args or os.getenv("INPUT_CUCUMBER_RS_ARGS", ""),
+        features=raw.cucumber_rs_features or env.get("INPUT_CUCUMBER_RS_FEATURES", ""),
+        args=raw.cucumber_rs_args or env.get("INPUT_CUCUMBER_RS_ARGS", ""),
     )
 
 
@@ -712,9 +723,12 @@ def main(
         doctests=doctests,
         baseline_file=baseline_file,
     )
-    targets = _resolve_targets(raw)
-    selection = _resolve_features(raw)
-    cucumber = _resolve_cucumber(raw)
+    # The one place ambient process state is read; the resolvers below are
+    # functions of their arguments.
+    env: cabc.Mapping[str, str] = os.environ
+    targets = _resolve_targets(raw, env)
+    selection = _resolve_features(raw, env)
+    cucumber = _resolve_cucumber(raw, env)
     check_feature_selection(
         selection.features,
         with_default=selection.with_default,

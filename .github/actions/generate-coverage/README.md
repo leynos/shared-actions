@@ -162,8 +162,8 @@ supported for Python projects. Mixed projects must use `cobertura`.
 Everything described in this section is additive within `v1`. `all-features`,
 `all-targets`, and `doctests` all default to off, and the ratchet baseline
 cache change is internal to the action, so a workflow already on `v1` needs no
-edit to keep its current behaviour. Opt in only where you want the coverage
-job to replace a separate test job.
+edit to keep its current behaviour. Opt in only when the coverage job must
+replace a separate test job.
 
 ### Running coverage as the only test execution
 
@@ -185,8 +185,8 @@ unaffected.
 supersedes `with-default-features`, so `--no-default-features` is not passed
 and a warning is logged if the two disagree. Setting it together with a
 non-empty `features` list fails the step: `--all-features` already enables
-everything the list could name, and accepting both would leave you believing a
-narrower set was measured than the one that ran.
+everything the list could name, and accepting both would misreport a narrower
+set as measured when a wider one ran.
 
 `all-targets` does not cover doc tests, which are a separate Cargo target
 kind. `doctests` runs them afterwards through `cargo test --doc --workspace`

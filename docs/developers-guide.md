@@ -389,6 +389,29 @@ running warnings-denied coverage depend on this; the guarantee is asserted in
 [`test_generate_coverage_feature_selection.py`](../.github/actions/generate-coverage/tests/test_generate_coverage_feature_selection.py),
 which also holds the manifest contract and the rendered cargo commands.
 
+### `run_rust.py` boundaries
+
+The script is arranged so that ambient state is read once and every other
+function is a function of its arguments.
+
+<!-- markdownlint-disable MD013 -->
+| Symbol | Role |
+| --- | --- |
+| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
+| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
+| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
+| `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
+| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
+| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
+| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
+<!-- markdownlint-enable MD013 -->
+
+Keep the split. The precedence rule holds only because one builder owns it and
+one boundary reports it, and the resolvers stay testable only while the
+environment arrives as an argument rather than through `os.environ`.
+`_required_env` and `_env_bool` in `common.py` accept the same optional mapping
+for that reason.
+
 ## `generate-coverage` cargo-binstall Pinning
 
 `generate-coverage` provisions its own `cargo-binstall` in the "Ensure

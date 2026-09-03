@@ -129,9 +129,15 @@ def _run_script(
       }})();
       process.stdout.write(JSON.stringify(calls));
     """
-    # A minimal environment: PATH so node runs, and only the variables under
-    # test, so an ambient ACTIONS_* value on the host cannot change the result.
-    environment = {"PATH": os.environ.get("PATH", "")}
+    # Start from the host environment with every ACTIONS_* name removed, then
+    # set only the variables under test, so an ambient value cannot change the
+    # result. Stripping to PATH alone is not an option: on Windows, Node needs
+    # SystemRoot and friends to seed its CSPRNG and aborts without them.
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith("ACTIONS_")
+    }
     if cache_url is not None:
         environment["ACTIONS_CACHE_URL"] = cache_url
     if runtime_token is not None:

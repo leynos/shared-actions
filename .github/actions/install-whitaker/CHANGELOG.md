@@ -30,6 +30,12 @@ this file.
   Bash 3.2, which has no `${var,,}` expansion
 - Report an unsupported runner as a resolution record rather than a non-zero
   return, which `errtrace` turned into a spurious internal failure
+- Reject an unsupported runner before considering a cached installer, so a
+  cached installer cannot report success for a platform this action cannot
+  install
+- Propagate a failed read of the digest manifest or the version marker instead
+  of treating it as an absent file, which would have fallen back to the
+  caller's digest or reused an installer of unknown version
 - Record the installed version beside the installer and reinstall when a cached
   installer was built for another version, which a caller-owned Cargo home
   would otherwise reuse indefinitely

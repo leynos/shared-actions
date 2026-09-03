@@ -8,6 +8,7 @@ inferring it from the step that adapts it.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import typing as typ
 
@@ -186,6 +187,82 @@ class TestResolution:
         assert result.returncode == 0, result.stderr
         record = _record(result)
         assert record["error-kind"] == "unpinned-digest"
+
+
+@pytest.mark.skipif(
+    hasattr(os, "geteuid") and os.geteuid() == 0,
+    reason="root ignores the permission bits these cases rely on",
+)
+class TestUnreadableInputs:
+    """Check that a read failure is a failure, not a degraded result."""
+
+    def test_an_unreadable_manifest_is_an_error_not_an_unpinned_asset(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a manifest that cannot be read never reports "unpinned"."""
+        manifest = tmp_path / "unreadable.sha256"
+        manifest.write_text(
+            f"{_PINNED}  {asset_name('Linux', 'X64', _VERSION)}\n",
+            encoding="utf-8",
+        )
+        manifest.chmod(0o000)
+
+        result = _run_resolution(tmp_path, WHITAKER_DIGEST_MANIFEST=str(manifest))
+
+        record = _record(result)
+        assert record["status"] == "error"
+        assert record["error-kind"] == "manifest-unreadable"
+        assert "unpinned" not in result.stdout
+
+    def test_an_unreadable_manifest_does_not_fall_back_to_the_input(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a supplied digest cannot stand in for an unreadable anchor."""
+        manifest = tmp_path / "unreadable.sha256"
+        manifest.write_text("# pinned\n", encoding="utf-8")
+        manifest.chmod(0o000)
+
+        result = _run_resolution(
+            tmp_path,
+            WHITAKER_DIGEST_MANIFEST=str(manifest),
+            WHITAKER_INSTALLER_SHA256=_SUPPLIED,
+        )
+
+        record = _record(result)
+        assert record["error-kind"] == "manifest-unreadable"
+        assert record.get("trust-anchor") is None
+        assert _SUPPLIED not in result.stdout
+
+    def test_an_unreadable_version_marker_is_an_error(self, tmp_path: Path) -> None:
+        """Verify an unreadable marker never reports a reusable cache."""
+        _seed_cached_installer(tmp_path, _VERSION)
+        (tmp_path / "bin" / ".whitaker-installer-version").chmod(0o000)
+
+        result = _run_resolution(tmp_path)
+
+        record = _record(result)
+        assert record["status"] == "error"
+        assert record["error-kind"] == "version-marker-unreadable"
+
+
+class TestUnsupportedRunnerPrecedence:
+    """Check that an unsupported runner is rejected before any cache reuse."""
+
+    def test_a_cached_installer_cannot_mask_an_unsupported_runner(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify a matching marker does not turn an unsupported pair into reuse."""
+        _seed_cached_installer(tmp_path, _VERSION)
+
+        result = _run_resolution(tmp_path, RUNNER_ARCHITECTURE="ARM32")
+
+        record = _record(result)
+        assert record["status"] == "error"
+        assert record["error-kind"] == "unsupported-runner"
+        assert "status=cached" not in result.stdout
 
 
 class TestCachedInstaller:

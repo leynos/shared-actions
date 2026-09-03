@@ -198,6 +198,8 @@ runs:
           case "$(field error-kind)" in
             digest-conflict) emit_metric "whitaker-installer.digest=conflict" ;;
             unpinned-digest) emit_metric "whitaker-installer.digest=unpinned" ;;
+            manifest-unreadable) emit_metric "whitaker-installer.digest=unreadable" ;;
+            version-marker-unreadable) emit_metric "whitaker-installer.cache-entry=unreadable" ;;
           esac
           echo "::error title=Whitaker installer failed::$(field error-message)" >&2
           emit_metric "whitaker-installer.failure=install"

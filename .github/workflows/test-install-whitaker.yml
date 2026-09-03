@@ -53,6 +53,10 @@ jobs:
           exit 33
           INSTALLER
           chmod +x "${cargo_home}/bin/whitaker-installer"
+          # Mark the fixture as the requested version so the action reuses it
+          # instead of replacing a seemingly stale installer.
+          printf '%s\n' "${WHITAKER_TEST_INSTALLER_VERSION}" \
+            > "${cargo_home}/bin/.whitaker-installer-version"
 
       - name: Install Whitaker
         id: install-whitaker

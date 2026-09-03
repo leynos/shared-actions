@@ -141,6 +141,42 @@ class TestNormalisation:
 class TestRejections:
     """Check that malformed inputs fail before any cache or download."""
 
+    def test_rejects_an_unset_runner_temp(self, tmp_path: Path) -> None:
+        """Verify a missing staging directory fails before any download."""
+        home = tmp_path / "home"
+        home.mkdir(exist_ok=True)
+        context = ActionContext(
+            inputs={
+                "cache-provider": "github",
+                "cargo-home": "~/.cargo",
+                "installer-sha256": "",
+                "installer-version": "1.2.3",
+            },
+            runner_os="Linux",
+            runner_arch="X64",
+            action_path=bash_path(tmp_path),
+        )
+        base_env = {
+            key: value for key, value in ambient_env().items() if key != "RUNNER_TEMP"
+        }
+        process = run_step(
+            step_by_id("validate-inputs"),
+            context,
+            FragmentEnvironment(
+                base_env={
+                    **base_env,
+                    "HOME": bash_path(home),
+                    "RUNNER_OS": "Linux",
+                },
+                cwd=tmp_path,
+                output_dir=tmp_path,
+            ),
+            "output",
+        )
+
+        assert process.returncode != 0
+        assert "RUNNER_TEMP must name a writable staging directory" in process.stderr
+
     def test_rejects_an_unknown_cache_provider(self, tmp_path: Path) -> None:
         """Verify cache ownership fails closed before cache evaluation."""
         run = run_validation(

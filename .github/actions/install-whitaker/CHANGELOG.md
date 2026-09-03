@@ -23,8 +23,13 @@ this file.
 - Retry each release download with bounded connect and transfer timeouts, and
   record each transfer's outcome, HTTP status, size, duration, and attempt
   count
-- Separate release resolution, which is now a pure query, from the publication
-  step that writes outputs, metrics, and annotations
+- Separate release resolution, which is now a pure query in
+  `scripts/resolve-release.sh`, from the adapter step that captures its record
+  and the publication step that writes outputs, metrics, and annotations
+- Lower-case a supplied `installer-sha256` with `tr`, since macOS runners ship
+  Bash 3.2, which has no `${var,,}` expansion
+- Report an unsupported runner as a resolution record rather than a non-zero
+  return, which `errtrace` turned into a spurious internal failure
 - Record the installed version beside the installer and reinstall when a cached
   installer was built for another version, which a caller-owned Cargo home
   would otherwise reuse indefinitely

@@ -15,6 +15,7 @@ import yaml
 ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
 DIGEST_MANIFEST_PATH = ACTION_DIR / "installer-digests.sha256"
+RESOLVE_SCRIPT_PATH = ACTION_DIR / "scripts" / "resolve-release.sh"
 DIGEST_MANIFEST_NAME = DIGEST_MANIFEST_PATH.name
 
 #: Lifecycle step names, in the order the action runs them.

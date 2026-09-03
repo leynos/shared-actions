@@ -16,12 +16,14 @@ import gzip
 import hashlib
 import io
 import shutil
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
 
 from _action_manifest import (
     DIGEST_MANIFEST_NAME,
+    RESOLVE_SCRIPT_PATH,
     SUPPORTED_PLATFORMS,
     asset_name,
     installer_filename,
@@ -87,7 +89,7 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
 """
 
 
-_TAR_SHIM = r'''#!/usr/bin/env python3
+_TAR_SHIM = r'''#!{interpreter}
 """Stand in for the runner's tar, delegating to it except for zip archives.
 
 GNU tar cannot read zip, so a Linux test host cannot exercise the Windows
@@ -331,6 +333,59 @@ class InstallRun:
         ]
 
 
+def _prepare_action_directory(root: Path, scenario: InstallScenario) -> Path:
+    """Create the action directory the fragments read at ``github.action_path``."""
+    action_path = root / "action"
+    (action_path / "scripts").mkdir(parents=True, exist_ok=True)
+    write_digest_manifest(action_path / DIGEST_MANIFEST_NAME, scenario)
+    destination = action_path / "scripts" / RESOLVE_SCRIPT_PATH.name
+    shutil.copy2(RESOLVE_SCRIPT_PATH, destination)
+    destination.chmod(0o755)
+    return action_path
+
+
+def _prepare_cargo_home(root: Path, scenario: InstallScenario) -> Path:
+    """Create the Cargo home, seeding any cached installer and its marker."""
+    cargo_home = root / scenario.cargo_home_name
+    cargo_home.mkdir(parents=True, exist_ok=True)
+    if not scenario.installer_present:
+        return cargo_home
+    _write_executable(cargo_home / "bin" / scenario.installer_name, _INSTALLER_STUB)
+    if scenario.version_marker:
+        marker_version = scenario.cached_version or scenario.installer_version
+        (cargo_home / "bin" / ".whitaker-installer-version").write_text(
+            f"{marker_version}\n",
+            encoding="utf-8",
+        )
+    return cargo_home
+
+
+def _build_context(
+    root: Path,
+    scenario: InstallScenario,
+    cargo_home: Path,
+    action_path: Path,
+) -> ActionContext:
+    """Build the expression context the lifecycle fragments resolve against."""
+    return ActionContext(
+        inputs={
+            "cache-provider": scenario.cache_provider,
+            "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
+            "installer-sha256": scenario.installer_sha256,
+            "installer-version": scenario.installer_version,
+        },
+        runner_os=scenario.runner_os,
+        runner_arch=scenario.runner_arch,
+        action_path=bash_path(action_path),
+        runner_temp=bash_path(root / "runner-temp"),
+        step_outputs={
+            "cache-whitaker-installer": {
+                "cache-hit": str(scenario.cache_hit).lower(),
+            },
+        },
+    )
+
+
 def _real_tar() -> str:
     """Return the ambient ``tar`` the shim delegates gzip extraction to."""
     resolved = shutil.which("tar")
@@ -369,7 +424,10 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
     """Create the command stubs and return the ``PATH`` for the fragments."""
     stub_bin = root / "stub-bin"
     _write_executable(stub_bin / "curl", _CURL_STUB)
-    _write_executable(stub_bin / "tar", _TAR_SHIM)
+    _write_executable(
+        stub_bin / "tar",
+        _TAR_SHIM.replace("{interpreter}", sys.executable),
+    )
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
     path = f"{bash_path(stub_bin)}:/usr/bin:/bin"
     if scenario.conflicting_installer:
@@ -431,44 +489,11 @@ def _run_scenario(
 ) -> InstallRun:
     """Run the validation fragment and then ``steps`` for ``scenario``."""
     root.mkdir(parents=True, exist_ok=True)
-    cargo_home = root / scenario.cargo_home_name
-    cargo_home.mkdir(parents=True, exist_ok=True)
-    action_path = root / "action"
-    action_path.mkdir(parents=True, exist_ok=True)
-    write_digest_manifest(action_path / DIGEST_MANIFEST_NAME, scenario)
+    cargo_home = _prepare_cargo_home(root, scenario)
+    action_path = _prepare_action_directory(root, scenario)
     (root / "fixture-archive").write_bytes(archive_fixture(scenario))
-
-    if scenario.installer_present:
-        _write_executable(
-            cargo_home / "bin" / scenario.installer_name,
-            _INSTALLER_STUB,
-        )
-        if scenario.version_marker:
-            marker_version = scenario.cached_version or scenario.installer_version
-            (cargo_home / "bin" / ".whitaker-installer-version").write_text(
-                f"{marker_version}\n",
-                encoding="utf-8",
-            )
-
-    path = _prepare_stubs(root, scenario)
-    base_env = _base_env(root, scenario, path)
-    context = ActionContext(
-        inputs={
-            "cache-provider": scenario.cache_provider,
-            "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
-            "installer-sha256": scenario.installer_sha256,
-            "installer-version": scenario.installer_version,
-        },
-        runner_os=scenario.runner_os,
-        runner_arch=scenario.runner_arch,
-        action_path=bash_path(action_path),
-        runner_temp=bash_path(root / "runner-temp"),
-        step_outputs={
-            "cache-whitaker-installer": {
-                "cache-hit": str(scenario.cache_hit).lower(),
-            },
-        },
-    )
+    base_env = _base_env(root, scenario, _prepare_stubs(root, scenario))
+    context = _build_context(root, scenario, cargo_home, action_path)
     environment = FragmentEnvironment(
         base_env=base_env,
         cwd=root,

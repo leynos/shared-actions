@@ -35,11 +35,15 @@ The action reports the anchor it used in the job summary as
 
 The action separates the release lifecycle into explicit steps.
 
-`Resolve Whitaker release` is a pure query. It selects the platform asset,
-looks up the pinned digest, applies the precedence rule, and decides whether
-the cache already holds an executable installer. It writes no step outputs, no
-job-summary metrics, and no workflow annotations; it records what it computed,
-including any failure, and always exits zero.
+`Resolve Whitaker release` is a thin adapter over
+`scripts/resolve-release.sh`, which holds the resolution itself. That script is
+a pure query: it selects the platform asset, looks up the pinned digest,
+applies the precedence rule, and decides whether the cache already holds an
+executable installer of the requested version, then prints what it computed.
+It writes no file, emits no metric, prints no annotation, and reports an
+expected resolution failure as a printed record rather than by exiting
+non-zero. The step captures that record and writes it to a step output, which
+is the only way to carry a value across a composite step boundary.
 
 `Publish Whitaker resolution` owns every externally visible effect of that
 resolution. It writes the step outputs, emits the metrics, prints the notices,
@@ -52,9 +56,10 @@ removed once the installer is in place.
 
 ## Transfer telemetry
 
-Each transfer, the archive and its `.sha256` sidecar, reports one bounded
-record through a `::notice` and a job-summary metric naming the outcome, the
-HTTP status, the byte count, the elapsed seconds, and the number of attempts:
+The archive transfer and the `.sha256` sidecar transfer each report one
+bounded record, through a `::notice` and a job-summary metric naming the
+outcome, the HTTP status, the byte count, the elapsed seconds, and the number
+of attempts:
 
 ```text
 whitaker-installer.transfer.archive=ok http=200 bytes=2469093 seconds=1.204 attempts=1
@@ -114,7 +119,7 @@ gzip, and `unzip` is not present on every runner image. Missing
 official release assets are hard failures; there is no Cargo or source-build
 fallback.
 
-The `cargo-home` input defaults to `~/.cargo`; it controls both the cached
+The `cargo-home` input defaults to `~/.cargo`; it controls the cached
 installer location. In `github` mode, the same cache also owns
 `~/.local/share/whitaker`, keyed by `dylint.toml`.
 

@@ -16,6 +16,7 @@ import typing as typ
 from _action_manifest import (
     DIGEST_MANIFEST_PATH,
     LIFECYCLE_STEP_NAMES,
+    RESOLVE_SCRIPT_PATH,
     load_manifest,
     manifest_steps,
     step_by_name,
@@ -37,11 +38,8 @@ def _step_env(name: str) -> dict[str, str]:
 
 
 def _resolution_query() -> str:
-    """Return the body of the pure ``resolve_release`` query function."""
-    script = _step_script("Resolve Whitaker release")
-    start = script.index("resolve_release() {")
-    end = script.index("\n}\n", start)
-    return script[start:end]
+    """Return the pure resolution script the adapter step runs."""
+    return RESOLVE_SCRIPT_PATH.read_text(encoding="utf-8")
 
 
 def _step_script(name: str) -> str:
@@ -226,13 +224,18 @@ class TestLifecycleSteps:
         ):
             assert effect not in query
 
-    def test_resolution_step_publishes_only_the_record(self) -> None:
-        """Verify the step's sole write is the record it carries forward."""
+    def test_resolution_step_is_a_thin_adapter(self) -> None:
+        """Verify the step only runs the query script and writes its record."""
         script = _step_script("Resolve Whitaker release")
 
         assert script.count("$GITHUB_OUTPUT") == 1
         assert "resolution<<WHITAKER_RESOLUTION_EOF" in script
-        assert 'resolution="$(resolve_release)"' in script
+        assert 'resolution="$(bash "$WHITAKER_RESOLVE_SCRIPT")"' in script
+        assert "resolve_target" not in script
+        assert "pinned_digest" not in script
+        assert _step_env("Resolve Whitaker release")["WHITAKER_RESOLVE_SCRIPT"] == (
+            "${{ github.action_path }}/scripts/resolve-release.sh"
+        )
 
     def test_resolution_reports_only_unexpected_internal_failure(self) -> None:
         """Verify the resolve step's only annotation is its ERR trap."""

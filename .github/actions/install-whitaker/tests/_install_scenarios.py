@@ -206,7 +206,9 @@ class InstallScenario:
     cache_hit: bool = False
     cache_provider: str = "github"
     conflicting_installer: bool = False
-    curl_version: str = "8.5.0"
+    curl_version: str = "8.15.0"
+    cached_version: str | None = None
+    version_marker: bool = True
     sidecar_sha256: str = AUTO
     pinned_sha256: str | None = AUTO
     installer_sha256: str = ""
@@ -272,9 +274,19 @@ class InstallRun:
         return self.root / "conflict.log"
 
     @property
-    def resolution_file(self) -> Path:
-        """Return the record the resolution step writes for publication."""
-        return self.root / "runner-temp" / "whitaker-resolution"
+    def version_marker(self) -> Path:
+        """Return the marker recording which version the cache holds."""
+        return self.installer_path.parent / ".whitaker-installer-version"
+
+    def resolution_record(self) -> list[str]:
+        """Return the record the resolution step published for publication."""
+        return [
+            line
+            for line in self.context.step_outputs.get("resolve-release", {})
+            .get("resolution", "")
+            .splitlines()
+            if line
+        ]
 
     @property
     def extract_log(self) -> Path:
@@ -431,6 +443,12 @@ def _run_scenario(
             cargo_home / "bin" / scenario.installer_name,
             _INSTALLER_STUB,
         )
+        if scenario.version_marker:
+            marker_version = scenario.cached_version or scenario.installer_version
+            (cargo_home / "bin" / ".whitaker-installer-version").write_text(
+                f"{marker_version}\n",
+                encoding="utf-8",
+            )
 
     path = _prepare_stubs(root, scenario)
     base_env = _base_env(root, scenario, path)

@@ -23,7 +23,10 @@ this file.
 - Retry each release download with bounded connect and transfer timeouts, and
   record each transfer's outcome, HTTP status, size, duration, and attempt
   count
-- Separate release resolution, which now only computes and records, from the
-  publication step that writes outputs, metrics, and annotations
+- Separate release resolution, which is now a pure query, from the publication
+  step that writes outputs, metrics, and annotations
+- Record the installed version beside the installer and reinstall when a cached
+  installer was built for another version, which a caller-owned Cargo home
+  would otherwise reuse indefinitely
 - Report the digest outcome and trust-anchor source in the job summary
 - Default `installer-version` to `0.2.7`

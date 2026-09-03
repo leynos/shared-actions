@@ -106,6 +106,9 @@ class TestNormalisation:
         assert run.outputs == {
             "cargo-home": f"{home}/.cargo",
             "installer-path": f"{home}/.cargo/bin/whitaker-installer",
+            "installer-version-path": (
+                f"{home}/.cargo/bin/.whitaker-installer-version"
+            ),
             "installer-version": "1.2.3",
             "installer-sha256": "",
         }

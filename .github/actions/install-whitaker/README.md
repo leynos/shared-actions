@@ -60,9 +60,20 @@ HTTP status, the byte count, the elapsed seconds, and the number of attempts:
 whitaker-installer.transfer.archive=ok http=200 bytes=2469093 seconds=1.204 attempts=1
 ```
 
-The attempt count comes from curl's `num_retries`, which needs curl 7.75 or
-newer. On an older curl the action reports `attempts=unknown` and still
-records the other fields.
+The attempt count comes from curl's `num_retries`, which was added in curl
+8.9.0. On an older curl the action reports `attempts=unknown` and still records
+the other fields.
+
+## Cached installer freshness
+
+The action writes `.whitaker-installer-version` beside the installer, recording
+which `installer-version` it installed, and caches that marker with the
+installer. A cached installer is reused only when the marker names the
+requested version. A marker naming another version, or no marker at all,
+reports `whitaker-installer.cache-entry=stale` and falls through to the
+verified download. This matters for `cache-provider: external`, where a
+persistent Cargo home would otherwise keep serving an installer built for an
+older version.
 
 ## Inputs
 

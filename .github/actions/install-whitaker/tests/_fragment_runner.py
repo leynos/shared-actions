@@ -93,10 +93,33 @@ class ActionContext:
         if not isinstance(identifier, str) or not output_file.exists():
             return
         outputs = self.step_outputs.setdefault(identifier, {})
-        for line in output_file.read_text(encoding="utf-8").splitlines():
-            if "=" in line:
-                name, _, value = line.partition("=")
-                outputs[name] = value
+        outputs.update(
+            _parse_outputs(output_file.read_text(encoding="utf-8").splitlines()),
+        )
+
+
+def _parse_outputs(lines: list[str]) -> dict[str, str]:
+    """Parse ``$GITHUB_OUTPUT`` lines, including delimited multiline values."""
+    outputs: dict[str, str] = {}
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        name, separator, value = line.partition("<<")
+        if separator:
+            delimiter = value
+            index += 1
+            collected: list[str] = []
+            while index < len(lines) and lines[index] != delimiter:
+                collected.append(lines[index])
+                index += 1
+            outputs[name] = "\n".join(collected)
+            index += 1
+            continue
+        if "=" in line:
+            name, _, value = line.partition("=")
+            outputs[name] = value
+        index += 1
+    return outputs
 
 
 @dc.dataclass(frozen=True)

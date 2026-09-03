@@ -186,12 +186,12 @@ class TestResolutionPurity:
         )
 
         assert run.result.returncode == 0, run.result.stderr
-        assert run.published_output_lines() == []
         assert run.summary_lines() == []
         assert "::notice" not in run.result.stdout
         assert "::error" not in run.result.stderr
         assert not run.download_log.exists()
-        recorded = run.resolution_file.read_text(encoding="utf-8").splitlines()
+        assert not run.version_marker.exists()
+        recorded = run.resolution_record()
         assert "status=install" in recorded
         assert f"asset={InstallScenario().asset}" in recorded
         assert "trust-anchor=pinned" in recorded
@@ -232,9 +232,64 @@ class TestResolutionPurity:
         assert run.result.returncode == 0, run.result.stderr
         assert run.summary_lines() == []
         assert "::error" not in run.result.stderr
-        recorded = run.resolution_file.read_text(encoding="utf-8").splitlines()
+        recorded = run.resolution_record()
         assert "status=error" in recorded
         assert f"error-kind={expected_kind}" in recorded
+
+
+class TestStaleCacheDetection:
+    """Check that a cached installer is reused only for the pinned version."""
+
+    def test_reuses_a_cached_installer_recorded_for_this_version(
+        self,
+        run_scenario: ScenarioRunner,
+    ) -> None:
+        """Verify a marker matching the request keeps the cached installer."""
+        run = run_scenario(
+            InstallScenario(installer_present=True, cache_hit=True),
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert not run.download_log.exists()
+        assert "whitaker-installer.path=cache" in run.summary_lines()
+
+    def test_replaces_a_cached_installer_from_another_version(
+        self,
+        run_scenario: ScenarioRunner,
+    ) -> None:
+        """Verify a marker naming an older version forces a fresh download."""
+        run = run_scenario(
+            InstallScenario(
+                installer_present=True,
+                cache_hit=True,
+                cached_version="0.2.6",
+            ),
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.download_log.exists()
+        assert "whitaker-installer.cache-entry=stale" in run.summary_lines()
+        assert "whitaker-installer.path=official-release" in run.summary_lines()
+        assert "cached-version=0.2.6" in run.result.stdout
+        assert run.version_marker.read_text(encoding="utf-8").strip() == "0.2.7"
+
+    def test_replaces_a_cached_installer_with_no_version_marker(
+        self,
+        run_scenario: ScenarioRunner,
+    ) -> None:
+        """Verify an installer left by an older action release is replaced."""
+        run = run_scenario(
+            InstallScenario(
+                installer_present=True,
+                cache_hit=True,
+                version_marker=False,
+            ),
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.download_log.exists()
+        assert "whitaker-installer.cache-entry=stale" in run.summary_lines()
+        assert "cached-version=unknown" in run.result.stdout
 
 
 class TestTransferTelemetry:
@@ -266,7 +321,7 @@ class TestTransferTelemetry:
         run_scenario: ScenarioRunner,
     ) -> None:
         """Verify a curl without ``num_retries`` still reports the transfer."""
-        run = run_scenario(InstallScenario(curl_version="7.68.0"))
+        run = run_scenario(InstallScenario(curl_version="8.5.0"))
 
         assert run.result.returncode == 0, run.result.stderr
         transfers = run.transfer_metrics()
@@ -346,8 +401,11 @@ class TestPlatformMatrix:
                 names = package.getnames()
 
         assert len(names) == 1
-        top_level = {PurePosixPath(name).parts[0] for name in names}
-        assert len(top_level) == 1
+        expected_parent = scenario.asset.rsplit(".", 1)[0]
+        for name in names:
+            parts = PurePosixPath(name).parts
+            assert len(parts) == 2, f"{name} is not nested one level deep"
+            assert parts[0] == expected_parent
         assert PurePosixPath(names[0]).name == scenario.installer_name
 
     def test_rejects_an_unsupported_runner(self, run_scenario: ScenarioRunner) -> None:

@@ -36,6 +36,14 @@ def _step_env(name: str) -> dict[str, str]:
     return typ.cast("dict[str, str]", step_by_name(name)["env"])
 
 
+def _resolution_query() -> str:
+    """Return the body of the pure ``resolve_release`` query function."""
+    script = _step_script("Resolve Whitaker release")
+    start = script.index("resolve_release() {")
+    end = script.index("\n}\n", start)
+    return script[start:end]
+
+
 def _step_script(name: str) -> str:
     """Return the Bash fragment a step declares."""
     script = step_by_name(name)["run"]
@@ -147,6 +155,7 @@ class TestCacheSteps:
         config = typ.cast("dict[str, str]", step["with"])
         assert config["path"].splitlines() == [
             "${{ steps.validate-inputs.outputs.installer-path }}",
+            "${{ steps.validate-inputs.outputs.installer-version-path }}",
             "~/.local/share/whitaker",
         ]
         assert config["key"] == (
@@ -186,23 +195,25 @@ class TestLifecycleSteps:
         )
 
     def test_resolution_records_the_lifecycle_contract(self) -> None:
-        """Verify the resolve step records every field publication needs."""
-        script = _step_script("Resolve Whitaker release")
+        """Verify the resolve query prints every field publication needs."""
+        query = _resolution_query()
 
         for field in (
-            "record status",
-            "record asset",
-            "record extension",
-            "record installer-name",
-            "record expected-sha",
-            "record trust-anchor",
-            "record staging-dir",
+            "status=install",
+            "status=cached",
+            "status=error",
+            "asset=%s",
+            "extension=%s",
+            "installer-name=%s",
+            "expected-sha=%s",
+            "trust-anchor=%s",
+            "staging-dir=%s",
         ):
-            assert field in script
+            assert field in query
 
-    def test_resolution_performs_no_externally_visible_write(self) -> None:
-        """Verify resolution neither publishes outputs nor annotates the run."""
-        script = _step_script("Resolve Whitaker release")
+    def test_resolution_query_performs_no_externally_visible_write(self) -> None:
+        """Verify the query itself writes nothing and annotates nothing."""
+        query = _resolution_query()
 
         for effect in (
             "GITHUB_OUTPUT",
@@ -210,8 +221,34 @@ class TestLifecycleSteps:
             "emit_metric",
             "::notice",
             "::error",
+            ">>",
+            '> "',
         ):
-            assert effect not in script
+            assert effect not in query
+
+    def test_resolution_step_publishes_only_the_record(self) -> None:
+        """Verify the step's sole write is the record it carries forward."""
+        script = _step_script("Resolve Whitaker release")
+
+        assert script.count("$GITHUB_OUTPUT") == 1
+        assert "resolution<<WHITAKER_RESOLUTION_EOF" in script
+        assert 'resolution="$(resolve_release)"' in script
+
+    def test_resolution_reports_only_unexpected_internal_failure(self) -> None:
+        """Verify the resolve step's only annotation is its ERR trap."""
+        script = _step_script("Resolve Whitaker release")
+
+        assert "set -Eeuo pipefail" in script
+        assert script.count("::error") == 1
+        assert "whitaker-installer.failure=resolve" in script
+
+    def test_resolution_rejects_a_stale_cached_installer(self) -> None:
+        """Verify a cached installer is reused only when its version matches."""
+        query = _resolution_query()
+
+        assert "cached_installer_version" in query
+        assert 'cached_version" == "$WHITAKER_INSTALLER_VERSION' in query
+        assert "stale-version=%s" in query
 
     def test_publication_writes_every_lifecycle_output(self) -> None:
         """Verify the publication step emits every output later steps consume."""
@@ -309,7 +346,10 @@ class TestLifecycleSteps:
         env = _step_env("Install Whitaker installer")
 
         assert env["WHITAKER_INSTALLER_NAME"] == (
-            "${{ steps.resolve-release.outputs.installer-name }}"
+            "${{ steps.publish-resolution.outputs.installer-name }}"
+        )
+        assert env["WHITAKER_INSTALLER_VERSION_PATH"] == (
+            "${{ steps.validate-inputs.outputs.installer-version-path }}"
         )
         assert env["WHITAKER_INSTALLER_PATH"] == (
             "${{ steps.validate-inputs.outputs.installer-path }}"

@@ -1,14 +1,14 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["plumbum", "typer"]
+# dependencies = ["typer"]
 # ///
-"""Install cargo-nextest via cargo-binstall and verify its checksum.
+"""Install cargo-nextest from its official release and verify its checksums.
 
-This script is executed by the ``generate-coverage`` action before Rust coverage
-steps. It is responsible for selecting the correct checksum key for the current
-runner platform, invoking ``cargo binstall`` when needed, and guarding against
-binary replacement by verifying the SHA-256 digest.
+This script selects the official archive for the runner, verifies both the
+archive and extracted binary, and installs it into ``CARGO_HOME/bin``. It never
+invokes Cargo, so a missing prebuilt binary is a hard error rather than a
+source-build fallback.
 """
 
 from __future__ import annotations
@@ -19,18 +19,26 @@ import logging
 import os
 import platform
 import shutil
+import tarfile
+import tempfile
+import time
 import typing as typ
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 
 import typer
-from cmd_utils_loader import run_cmd
-from plumbum.cmd import cargo
-from plumbum.commands.processes import ProcessExecutionError
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
 
-# Keep CARGO_NEXTEST_VERSION and CARGO_NEXTEST_SHA256 in sync; update together.
+# A cargo-nextest release archive is a few MB; 200 MB gives generous headroom
+# for future growth while still bounding the disk a compromised or redirected
+# endpoint could consume before the digest check ever gets to reject it. The
+# digest protects integrity, not disk space, so this cap is enforced first.
+_MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
+
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
@@ -52,43 +60,83 @@ CARGO_NEXTEST_SHA256 = {
 }
 
 
+class ReleaseAsset(typ.NamedTuple):
+    """Describe one pinned cargo-nextest release archive."""
+
+    target: str
+    extension: str
+    sha256: str
+
+    @property
+    def filename(self) -> str:
+        """Return the official archive filename."""
+        return f"cargo-nextest-{CARGO_NEXTEST_VERSION}-{self.target}.{self.extension}"
+
+
+CARGO_NEXTEST_RELEASE_ASSETS = {
+    "linux-x86_64-gnu": ReleaseAsset(
+        "x86_64-unknown-linux-gnu",
+        "tar.gz",
+        "a5b1c12500c47e27af4baf533c917bf1b38e9bf2e6ffb063dfa1de6e75aa8726",
+    ),
+    "linux-x86_64-musl": ReleaseAsset(
+        "x86_64-unknown-linux-musl",
+        "tar.gz",
+        "e00511fc23241ffd3ca1d95b23bde8a9cd0fb96bb691a9957a909ba74e7a5238",
+    ),
+    "linux-aarch64-gnu": ReleaseAsset(
+        "aarch64-unknown-linux-gnu",
+        "tar.gz",
+        "5e13751733a1fc4d26984ad5e1bce10d057d95299b02ed3ac96877b7288c8feb",
+    ),
+    "mac-universal": ReleaseAsset(
+        "universal-apple-darwin",
+        "tar.gz",
+        "e2aa5a27bfdac66c913346985a1ceff50ab9590b846798440464410bd5a309b9",
+    ),
+    "windows-x86_64": ReleaseAsset(
+        "x86_64-pc-windows-msvc",
+        "zip",
+        "ccb22cb26d6816eb39992f276c0f058ea9a5842ee35f70ee48a4ee84fd671538",
+    ),
+    "windows-aarch64": ReleaseAsset(
+        "aarch64-pc-windows-msvc",
+        "zip",
+        "8b6475c9d6fd6946a8a8cced8213c1e5b1f9df219cab999831905187887003f9",
+    ),
+}
+
+
+def emit_metric(line: str) -> None:
+    """Append one bounded metric line to the job summary, if one is set.
+
+    Does nothing when ``GITHUB_STEP_SUMMARY`` is unset, which is the case
+    outside a GitHub Actions job (for example, when running this script or
+    its tests locally).
+    """
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write(f"{line}\n")
+
+
 def _is_musl(
     *,
     library_name: str = "libc.so.6",
     ctypes_cdll: typ.Callable[[str], typ.Any] = ctypes.CDLL,
 ) -> bool:
-    """Return ``True`` when the libc runtime appears to be musl.
-
-    Parameters
-    ----------
-    library_name : str
-        The libc shared-object name to probe with ``ctypes.CDLL``.
-    ctypes_cdll : Callable[[str], object]
-        Injectable dependency used only for tests.
-
-    Returns
-    -------
-    bool
-        ``True`` when musl is detected, ``False`` for GNU libc.
-
-    Raises
-    ------
-    OSError
-        Propagated when the libc probe fails before symbol resolution.
-    """
+    """Return whether the libc runtime appears to be musl."""
     try:
         libc = ctypes_cdll(library_name)
     except OSError:
-        logger.exception(
-            "Failed to load libc for libc-family detection using %s",
-            library_name,
-        )
+        logger.exception("Failed to load libc for detection using %s", library_name)
         raise
 
     try:
         version_fn = libc.gnu_get_libc_version
     except AttributeError:
-        logger.info("Detected musl libc (missing gnu_get_libc_version symbol)")
+        logger.info("Detected musl libc")
         return True
 
     version = version_fn()
@@ -109,53 +157,30 @@ def _normalize_machine(machine: str) -> str:
 
 
 def _platform_key() -> str:
-    """Return the platform key used to resolve the expected checksum."""
+    """Return the platform key used to resolve the pinned release."""
     system = platform.system()
     machine = _normalize_machine(platform.machine())
     if system == "Linux":
         libc = "musl" if _is_musl() else "gnu"
         key = f"linux-{machine}-{libc}"
-        logger.info("Selecting libc-aware platform key: %s", key)
-        return key
-    if system == "Darwin":
+    elif system == "Darwin":
         key = "mac-universal"
     elif system == "Windows":
         key = f"windows-{machine}"
     else:
         key = f"{system.lower()}-{machine}"
-
-    logger.info("Selecting platform key: %s", key)
+    logger.info("Resolved cargo-nextest platform key: %s", key)
     return key
 
 
-def _report_platform_key(key: str) -> None:
-    """Log the normalized checksum lookup key."""
-    logger.info("Resolved cargo-nextest platform key: %s", key)
-
-
-def _binstall_target_for_key(key: str) -> str | None:
-    """Return the explicit binstall ``--targets`` triple for *key*, or None.
-
-    Returns a non-``None`` value only for Linux x86_64 variants where binstall
-    cannot reliably auto-select the correct binary, to ensure it downloads the
-    variant whose SHA is stored in :data:`CARGO_NEXTEST_SHA256`.
-    """
-    return {
-        "linux-x86_64-gnu": "x86_64-unknown-linux-gnu",
-        "linux-x86_64-musl": "x86_64-unknown-linux-musl",
-    }.get(key)
-
-
-def _expected_sha_for_platform() -> tuple[str, str | None]:
-    """Return the pinned SHA-256 and optional binstall target for this platform."""
+def _release_for_platform() -> tuple[str, ReleaseAsset]:
+    """Return the pinned binary digest and release archive for this platform."""
     key = _platform_key()
-    _report_platform_key(key)
     try:
-        sha = CARGO_NEXTEST_SHA256[key]
+        return CARGO_NEXTEST_SHA256[key], CARGO_NEXTEST_RELEASE_ASSETS[key]
     except KeyError as exc:
         typer.echo(f"Unsupported platform for cargo-nextest: {key}", err=True)
         raise typer.Exit(1) from exc
-    return sha, _binstall_target_for_key(key)
 
 
 def _sha256_path(path: Path) -> str:
@@ -167,91 +192,374 @@ def _sha256_path(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def _cargo_bin() -> Path:
+    """Return the Cargo binary directory honoured by the caller."""
+    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    return cargo_home / "bin"
+
+
 def _resolve_nextest_binary() -> Path | None:
     """Return a resolved ``cargo-nextest`` executable if one exists."""
     resolved = shutil.which("cargo-nextest")
     if resolved:
         return Path(resolved)
     suffix = ".exe" if os.name == "nt" else ""
-    candidate = Path.home() / ".cargo" / "bin" / f"cargo-nextest{suffix}"
+    candidate = _cargo_bin() / f"cargo-nextest{suffix}"
     return candidate if candidate.is_file() else None
 
 
 def _find_nextest_binary() -> Path:
-    """Resolve the installed ``cargo-nextest`` or exit with code 1."""
+    """Resolve the installed cargo-nextest executable or fail clearly."""
     resolved = _resolve_nextest_binary()
     if resolved is not None:
         return resolved
     typer.echo("cargo-nextest not found after installation", err=True)
-    logger.error("cargo-nextest binary could not be located after installation")
     raise typer.Exit(1)
 
 
-def install_cargo_nextest(target: str | None = None) -> None:
-    """Install cargo-nextest using cargo-binstall.
+class _ArchiveTooLargeError(Exception):
+    """Raised when a downloaded archive exceeds ``_MAX_ARCHIVE_BYTES``."""
 
-    When *target* is supplied the ``--targets`` flag is forwarded to
-    ``cargo binstall`` so it downloads the exact binary variant whose checksum
-    is stored in :data:`CARGO_NEXTEST_SHA256`, overriding binstall's own
-    platform heuristics.
+    def __init__(self, bytes_read: int) -> None:
+        super().__init__(
+            f"archive exceeded {_MAX_ARCHIVE_BYTES} bytes (read {bytes_read})"
+        )
+        self.bytes_read = bytes_read
+
+
+def _copy_bounded(
+    source: typ.IO[bytes],
+    destination: typ.IO[bytes],
+    max_bytes: int,
+    *,
+    chunk_size: int = 1024 * 1024,
+) -> int:
+    """Copy ``source`` to ``destination`` in chunks, up to ``max_bytes``.
+
+    Returns
+    -------
+    int
+        The total number of bytes copied.
+
+    Raises
+    ------
+    _ArchiveTooLargeError
+        If more than ``max_bytes`` are read from ``source`` before it is
+        exhausted.
     """
+    total = 0
+    while True:
+        chunk = source.read(chunk_size)
+        if not chunk:
+            return total
+        total += len(chunk)
+        if total > max_bytes:
+            raise _ArchiveTooLargeError(total)
+        destination.write(chunk)
+
+
+def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
+    """Download the pinned official release archive to ``destination``."""
+    url = (
+        "https://github.com/nextest-rs/nextest/releases/download/"
+        f"cargo-nextest-{CARGO_NEXTEST_VERSION}/{asset.filename}"
+    )
+    # The URL is composed solely from pinned constants and an allow-listed
+    # release asset, so non-HTTPS schemes cannot reach this boundary.
+    request = urllib.request.Request(  # noqa: S310
+        url,
+        headers={"User-Agent": "generate-coverage"},
+    )
+    logger.info("event=nextest.download.start archive=%s url=%s", asset.filename, url)
+    started = time.monotonic()
     try:
-        args: list[str] = [
-            "binstall",
-            "cargo-nextest",
-            "--version",
-            CARGO_NEXTEST_VERSION,
-            "--locked",
-            "--no-confirm",
-            "--force",
-        ]
-        if target is not None:
-            logger.info("Passing cargo-binstall target override: %s", target)
-            args += ["--targets", target]
-        run_cmd(cargo[args])
-        typer.echo("cargo-nextest installed successfully")
-    except ProcessExecutionError as exc:
+        with (
+            urllib.request.urlopen(request, timeout=60) as response,  # noqa: S310
+            destination.open("wb") as output,
+        ):
+            bytes_written = _copy_bounded(response, output, _MAX_ARCHIVE_BYTES)
+    except _ArchiveTooLargeError as exc:
+        destination.unlink(missing_ok=True)
+        duration = time.monotonic() - started
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.download.finish archive=%s outcome=too-large "
+            "duration_seconds=%.3f bytes=%d max_bytes=%d",
+            asset.filename,
+            duration,
+            exc.bytes_read,
+            _MAX_ARCHIVE_BYTES,
+        )
+        emit_metric(
+            f"cargo-nextest.download=failed duration_seconds={duration:.3f} bytes=0"
+        )
         typer.echo(
-            f"cargo binstall failed with code {exc.retcode}: {exc.stderr}",
+            f"cargo-nextest release archive exceeded {_MAX_ARCHIVE_BYTES} bytes "
+            "and was discarded",
             err=True,
         )
-        raise typer.Exit(code=exc.retcode or 1) from exc
+        raise typer.Exit(1) from exc
+    except (OSError, urllib.error.URLError) as exc:
+        duration = time.monotonic() - started
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.download.finish archive=%s outcome=failed "
+            "duration_seconds=%.3f error=%s",
+            asset.filename,
+            duration,
+            exc,
+        )
+        emit_metric(
+            f"cargo-nextest.download=failed duration_seconds={duration:.3f} bytes=0"
+        )
+        typer.echo(f"cargo-nextest release download failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    duration = time.monotonic() - started
+    logger.info(
+        "event=nextest.download.finish archive=%s outcome=ok "
+        "duration_seconds=%.3f bytes=%d",
+        asset.filename,
+        duration,
+        bytes_written,
+    )
+    emit_metric(
+        f"cargo-nextest.download=ok duration_seconds={duration:.3f} "
+        f"bytes={bytes_written}"
+    )
 
 
-def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
-    """Verify the cargo-nextest binary against the expected SHA-256."""
-    actual_sha = _sha256_path(path)
-    if actual_sha != expected_sha:
+def _copy_member(source: typ.IO[bytes], destination: Path) -> None:
+    """Copy one archive member stream to ``destination`` and close the stream."""
+    with source, destination.open("wb") as output:
+        shutil.copyfileobj(source, output)
+
+
+def _missing_member(executable: str, asset: ReleaseAsset) -> ValueError:
+    """Build the error raised when an archive lacks the expected executable."""
+    return ValueError(f"{executable} missing from {asset.filename}")
+
+
+def _extract_zip_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract ``cargo-nextest.exe`` from a Windows release archive."""
+    executable = "cargo-nextest.exe"
+    with zipfile.ZipFile(archive) as package:
+        member = next(
+            (name for name in package.namelist() if Path(name).name == executable),
+            None,
+        )
+        if member is None:
+            raise _missing_member(executable, asset)
+        _copy_member(package.open(member), destination)
+
+
+def _extract_tar_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract ``cargo-nextest`` from a Linux or macOS release archive."""
+    executable = "cargo-nextest"
+    with tarfile.open(archive, "r:gz") as package:
+        member = next(
+            (
+                item
+                for item in package.getmembers()
+                if Path(item.name).name == executable
+            ),
+            None,
+        )
+        if member is None:
+            raise _missing_member(executable, asset)
+        source = package.extractfile(member)
+        if source is None:
+            message = f"{executable} is not a file in {asset.filename}"
+            raise ValueError(message)
+        _copy_member(source, destination)
+
+
+def _extract_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> None:
+    """Extract only the cargo-nextest executable from a verified archive."""
+    if asset.extension == "zip":
+        _extract_zip_binary(archive, asset, destination)
+    else:
+        _extract_tar_binary(archive, asset, destination)
+
+
+def _verify_archive(archive: Path, asset: ReleaseAsset) -> None:
+    """Fail unless the downloaded archive matches its pinned SHA-256."""
+    actual_sha = _sha256_path(archive)
+    if actual_sha != asset.sha256:
         logger.error(
-            "cargo-nextest checksum mismatch for %s: expected %s, got %s",
-            path,
-            expected_sha,
+            "event=nextest.archive.verify archive=%s outcome=mismatch "
+            "expected=%s actual=%s",
+            asset.filename,
+            asset.sha256,
             actual_sha,
         )
-        typer.echo(
-            "cargo-nextest checksum mismatch: "
-            f"expected {expected_sha}, got {actual_sha}",
-            err=True,
+        emit_metric("cargo-nextest.archive-digest=mismatch")
+        typer.echo("cargo-nextest release archive checksum mismatch", err=True)
+        raise typer.Exit(1)
+    logger.info(
+        "event=nextest.archive.verify archive=%s outcome=ok",
+        asset.filename,
+    )
+    emit_metric("cargo-nextest.archive-digest=ok")
+
+
+class BinaryDigest(typ.NamedTuple):
+    """Report one executable digest comparison.
+
+    Purely a value: computing it writes no metric, logs nothing, and prints
+    nothing. The orchestration decides what to report and whether to fail.
+    """
+
+    path: Path
+    expected: str
+    actual: str
+
+    @property
+    def matches(self) -> bool:
+        """Return whether the executable carries the expected digest."""
+        return self.actual == self.expected
+
+
+def verify_nextest_binary(path: Path, expected_sha: str) -> BinaryDigest:
+    """Compare the cargo-nextest executable against its expected SHA-256."""
+    return BinaryDigest(path=path, expected=expected_sha, actual=_sha256_path(path))
+
+
+def _report_binary_digest(digest: BinaryDigest) -> None:
+    """Log, record, and echo the outcome of one executable digest check."""
+    if digest.matches:
+        logger.info("event=nextest.binary.verify path=%s outcome=ok", digest.path)
+        emit_metric("cargo-nextest.binary-digest=ok")
+        return
+    logger.error(
+        "event=nextest.binary.verify path=%s outcome=mismatch expected=%s actual=%s",
+        digest.path,
+        digest.expected,
+        digest.actual,
+    )
+    emit_metric("cargo-nextest.binary-digest=mismatch")
+    typer.echo(
+        f"cargo-nextest checksum mismatch: expected {digest.expected}, "
+        f"got {digest.actual}",
+        err=True,
+    )
+
+
+def _reject_mismatched_binary(
+    candidate: Path,
+    destination: Path,
+    expected_sha: str,
+) -> None:
+    """Fail unless the extracted executable matches its pinned digest."""
+    digest = verify_nextest_binary(candidate, expected_sha)
+    _report_binary_digest(digest)
+    if digest.matches:
+        return
+    logger.error(
+        "event=nextest.install destination=%s outcome=binary-mismatch",
+        destination,
+    )
+    raise typer.Exit(1)
+
+
+def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
+    """Install a verified cargo-nextest binary from its official release."""
+    suffix = ".exe" if asset.extension == "zip" else ""
+    destination = _cargo_bin() / f"cargo-nextest{suffix}"
+    temporary_binary = destination.with_suffix(f"{destination.suffix}.tmp")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="cargo-nextest-") as temp_dir:
+            archive = Path(temp_dir) / asset.filename
+            _download_archive(asset, archive)
+            _verify_archive(archive, asset)
+            _extract_binary(archive, asset, temporary_binary)
+        _reject_mismatched_binary(temporary_binary, destination, expected_sha)
+        temporary_binary.chmod(0o755)
+        temporary_binary.replace(destination)
+    except (OSError, tarfile.TarError, zipfile.BadZipFile, ValueError) as exc:
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.install destination=%s outcome=failed error=%s",
+            destination,
+            exc,
         )
-        return False
-    return True
+        emit_metric("cargo-nextest.install=failed")
+        typer.echo(f"cargo-nextest release installation failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except typer.Exit:
+        # Raised directly by ``_download_archive``, ``_verify_archive``, or the
+        # binary-mismatch check above; each already logged and echoed its own
+        # specific outcome, so only the aggregate install metric is added here.
+        emit_metric("cargo-nextest.install=failed")
+        raise
+    finally:
+        temporary_binary.unlink(missing_ok=True)
+    logger.info("event=nextest.install destination=%s outcome=ok", destination)
+    emit_metric("cargo-nextest.install=ok")
+    typer.echo("cargo-nextest official release installed and verified")
+    return destination
+
+
+def _prepend_to_path(directory: Path) -> None:
+    """Put ``directory`` ahead of the ambient PATH, for this run and the job."""
+    os.environ["PATH"] = os.pathsep.join(
+        [str(directory), os.environ.get("PATH", "")],
+    )
+    github_path = os.environ.get("GITHUB_PATH")
+    if github_path:
+        with Path(github_path).open("a", encoding="utf-8") as handle:
+            handle.write(f"{directory}\n")
+    logger.info("event=nextest.path.prepend directory=%s", directory)
+
+
+def _ensure_verified_binary_resolves(destination: Path, expected_sha: str) -> None:
+    """Fail unless the binary later steps will resolve is the verified one."""
+    resolved = _resolve_nextest_binary()
+    if resolved is not None and _sha256_path(resolved) == expected_sha:
+        logger.info(
+            "event=nextest.path.resolve outcome=ok path=%s",
+            resolved,
+        )
+        return
+    logger.error(
+        "event=nextest.path.resolve outcome=shadowed resolved=%s destination=%s",
+        resolved,
+        destination,
+    )
+    typer.echo(
+        "cargo-nextest on PATH is "
+        f"{resolved if resolved is not None else 'missing'}, "
+        f"not the verified binary installed at {destination}",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
+def _existing_binary_is_verified(existing: Path, expected_sha: str) -> bool:
+    """Report whether an already-present executable carries the pinned digest."""
+    digest = verify_nextest_binary(existing, expected_sha)
+    _report_binary_digest(digest)
+    return digest.matches
 
 
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
-    expected_sha, target = _expected_sha_for_platform()
+    expected_sha, asset = _release_for_platform()
     existing = _resolve_nextest_binary()
-    if existing is not None and verify_nextest_binary(existing, expected_sha):
+    if existing is not None and _existing_binary_is_verified(existing, expected_sha):
         logger.info("Using preinstalled cargo-nextest at %s", existing)
         typer.echo("cargo-nextest already installed and verified")
+        # ``existing`` may have resolved via CARGO_HOME/bin even when that
+        # directory is not on PATH, so later steps could not otherwise find
+        # it without this.
+        _prepend_to_path(existing.parent)
+        emit_metric("cargo-nextest.install=reused")
         return
 
-    install_cargo_nextest(target)
-    binary_path = _find_nextest_binary()
-    if not verify_nextest_binary(binary_path, expected_sha):
-        raise typer.Exit(1)
+    # An unverified binary earlier on PATH would otherwise shadow the one just
+    # installed, so later steps would run the very binary that failed
+    # verification.
+    destination = install_cargo_nextest(asset, expected_sha)
+    _prepend_to_path(destination.parent)
+    _ensure_verified_binary_resolves(destination, expected_sha)
     logger.info("cargo-nextest installation and verification succeeded")
-    typer.echo("cargo-nextest installed and verified")
 
 
 if __name__ == "__main__":

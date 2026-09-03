@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import hashlib
-import importlib.util
 import io
 import itertools
 import os
@@ -21,6 +19,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from _coverage_test_support import _exit_code, _load_module
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from plumbum import local
@@ -38,14 +37,6 @@ if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from test_support.cmd_mox_stub_adapter import StubManager
 else:
     RunResult = import_cmd_utils().RunResult
-
-
-def _exit_code(exc: BaseException) -> int | None:
-    """Extract an exit code from Typer or SystemExit exceptions."""
-    exit_code = getattr(exc, "exit_code", None)
-    if exit_code is None:
-        exit_code = getattr(exc, "code", None)
-    return exit_code
 
 
 def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
@@ -84,41 +75,10 @@ def run_script(script: Path, env: dict[str, str], *args: str) -> RunResult:
     return run_plumbum_command(command, method="run", env=merged)
 
 
-def _load_module(
-    monkeypatch: pytest.MonkeyPatch,
-    name: str,
-) -> ModuleType:
-    """Import ``name`` from the ``scripts`` directory with real dependencies."""
-    script_dir = Path(__file__).resolve().parents[1] / "scripts"
-    root_dir = Path(__file__).resolve().parents[4]
-    monkeypatch.syspath_prepend(script_dir)
-    monkeypatch.syspath_prepend(root_dir)
-    for module_name in (name, "coverage_parsers"):
-        monkeypatch.delitem(sys.modules, module_name, raising=False)
-    import importlib as _importlib  # ensure fresh module state for reloads
-
-    _importlib.invalidate_caches()
-    spec = importlib.util.spec_from_file_location(name, script_dir / f"{name}.py")
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    # Register before executing: dataclass field resolution looks the defining
-    # module up in ``sys.modules`` while the class body runs.
-    monkeypatch.setitem(sys.modules, name, module)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture
 def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Return a freshly loaded ``run_rust`` module for testing."""
     return _load_module(monkeypatch, "run_rust")
-
-
-@pytest.fixture
-def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Return a freshly loaded ``install_cargo_nextest`` module for testing."""
-    return _load_module(monkeypatch, "install_cargo_nextest")
 
 
 def _make_fake_cargo(
@@ -1500,323 +1460,6 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "failed with code 2" in stderr
 
 
-@pytest.mark.parametrize(
-    "case",
-    [
-        ("Linux", "x86_64", "linux-x86_64-gnu"),
-        ("Linux", "aarch64", "linux-aarch64-gnu"),
-        ("Darwin", "arm64", "mac-universal"),
-        ("Windows", "AMD64", "windows-x86_64"),
-        ("Windows", "ARM64", "windows-aarch64"),
-    ],
-)
-def test_platform_key_variants(
-    case: tuple[str, str, str],
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Platform key mapping normalizes common OS/arch combinations."""
-    system, machine, expected = case
-    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
-    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_is_musl",
-        lambda: False,
-    )
-    assert install_nextest_module._platform_key() == expected
-
-
-def test_platform_key_uses_musl_for_linux(
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Linux platform keys preserve musl vs GNU distinction."""
-    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_is_musl",
-        lambda: True,
-    )
-
-    assert install_nextest_module._platform_key() == "linux-x86_64-musl"
-
-
-def test_is_musl_detects_gnu(install_nextest_module: ModuleType) -> None:
-    """GNU libc is detected when ``gnu_get_libc_version`` exists."""
-    assert not install_nextest_module._is_musl(ctypes_cdll=_fake_libc())
-
-
-def test_is_musl_detects_musl(install_nextest_module: ModuleType) -> None:
-    """Musl libc is detected when the GNU version symbol is missing."""
-
-    class _FakeLibc:
-        def __getattr__(self, name: str) -> object:
-            raise AttributeError(name)
-
-    assert install_nextest_module._is_musl(ctypes_cdll=lambda _: _FakeLibc())
-
-
-def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> None:
-    """Load failures from the libc probe are propagated to callers."""
-
-    def raise_oserror(_library_name: str) -> object:
-        message = "boom"
-        raise OSError(message)
-
-    with pytest.raises(OSError, match="boom"):
-        install_nextest_module._is_musl(ctypes_cdll=raise_oserror)
-
-
-@pytest.mark.parametrize(
-    ("key", "expected_target"),
-    [
-        ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
-        ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
-        ("linux-aarch64-gnu", None),
-        ("mac-universal", None),
-        ("windows-x86_64", None),
-        ("windows-aarch64", None),
-    ],
-)
-def test_expected_sha_for_supported_platforms(
-    key: str,
-    expected_target: str | None,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Expected SHA lookup matches the platform mapping."""
-    monkeypatch.setattr(install_nextest_module, "_platform_key", lambda: key)
-    sha, target = install_nextest_module._expected_sha_for_platform()
-    assert sha == install_nextest_module.CARGO_NEXTEST_SHA256[key]
-    assert target == expected_target
-
-
-@pytest.mark.parametrize(
-    ("key", "expected_target"),
-    [
-        ("linux-x86_64-gnu", "x86_64-unknown-linux-gnu"),
-        ("linux-x86_64-musl", "x86_64-unknown-linux-musl"),
-        ("linux-aarch64-gnu", None),
-        ("mac-universal", None),
-    ],
-)
-def test_binstall_target_for_key(
-    key: str,
-    expected_target: str | None,
-    install_nextest_module: ModuleType,
-) -> None:
-    """Binstall targets are explicit only for Linux x86_64 libc variants."""
-    assert install_nextest_module._binstall_target_for_key(key) == expected_target
-
-
-def test_expected_sha_for_unsupported_platform(
-    monkeypatch: pytest.MonkeyPatch,
-    install_nextest_module: ModuleType,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Unsupported platforms raise a Typer exit."""
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_platform_key",
-        lambda: "unsupported-platform",
-    )
-
-    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module._expected_sha_for_platform()
-
-    assert _exit_code(excinfo.value) == 1
-    assert "Unsupported platform for cargo-nextest" in capsys.readouterr().err
-
-
-def test_find_nextest_binary_prefers_path(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Binary lookup prefers PATH via shutil.which."""
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: str(binary))
-    assert install_nextest_module._find_nextest_binary() == binary
-
-
-def test_find_nextest_binary_falls_back_to_home(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Binary lookup falls back to ~/.cargo/bin when PATH is empty."""
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-    cargo_bin = tmp_path / ".cargo" / "bin"
-    cargo_bin.mkdir(parents=True, exist_ok=True)
-    binary = cargo_bin / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    assert install_nextest_module._find_nextest_binary() == binary
-
-
-def test_find_nextest_binary_missing_exits(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Missing cargo-nextest after install raises a Typer exit."""
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-
-    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module._find_nextest_binary()
-
-    assert _exit_code(excinfo.value) == 1
-    assert "cargo-nextest not found after installation" in capsys.readouterr().err
-
-
-def test_resolve_nextest_binary_returns_none_when_missing(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Existing binary lookup returns None when not found."""
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-    assert install_nextest_module._resolve_nextest_binary() is None
-
-
-def test_install_nextest_skips_when_verified(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Installer skips binstall when an existing binary verifies."""
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    expected = hashlib.sha256(b"payload").hexdigest()
-    called: dict[str, bool] = {"verify": False}
-
-    def fake_verify(path: Path, sha: str) -> bool:
-        assert path == binary
-        assert sha == expected
-        called["verify"] = True
-        return True
-
-    def fail_install() -> None:
-        raise AssertionError
-
-    monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: (expected, None)
-    )
-    monkeypatch.setattr(
-        install_nextest_module, "_resolve_nextest_binary", lambda: binary
-    )
-    monkeypatch.setattr(install_nextest_module, "verify_nextest_binary", fake_verify)
-    monkeypatch.setattr(install_nextest_module, "install_cargo_nextest", fail_install)
-
-    install_nextest_module.main()
-    assert called["verify"] is True
-
-
-def test_install_nextest_invokes_binstall(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``install_cargo_nextest.py`` calls cargo binstall and verifies hash."""
-    recorded: dict[str, object] = {}
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    expected = hashlib.sha256(b"payload").hexdigest()
-
-    def fake_run_cmd(cmd: object, *_args: object, **_kwargs: object) -> None:
-        recorded["cmd"] = cmd
-
-    monkeypatch.setattr(install_nextest_module, "run_cmd", fake_run_cmd)
-    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
-    monkeypatch.setattr(install_nextest_module, "_find_nextest_binary", lambda: binary)
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_expected_sha_for_platform",
-        lambda: (expected, "x86_64-unknown-linux-gnu"),
-    )
-
-    install_nextest_module.main()
-
-    cmd = recorded.get("cmd")
-    assert cmd is not None
-    parts = list(cmd.formulate())
-    assert Path(parts[0]).name == "cargo"
-    assert parts[1:] == [
-        "binstall",
-        "cargo-nextest",
-        "--version",
-        install_nextest_module.CARGO_NEXTEST_VERSION,
-        "--locked",
-        "--no-confirm",
-        "--force",
-        "--targets",
-        "x86_64-unknown-linux-gnu",
-    ]
-
-
-def test_install_nextest_binstall_failure(
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Binstall failures cause a Typer exit with stderr content."""
-    retcode = 2
-    stderr_msg = "simulated cargo-binstall failure"
-
-    def fail_run_cmd(*_args: object, **_kwargs: object) -> None:
-        raise install_nextest_module.ProcessExecutionError(
-            ["cargo", "binstall", "cargo-nextest"],
-            retcode,
-            "",
-            stderr_msg,
-        )
-
-    monkeypatch.setattr(install_nextest_module, "run_cmd", fail_run_cmd)
-    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
-    monkeypatch.setattr(
-        install_nextest_module, "_expected_sha_for_platform", lambda: ("deadbeef", None)
-    )
-
-    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module.main()
-
-    assert _exit_code(excinfo.value) == retcode
-    captured = capsys.readouterr()
-    assert stderr_msg in captured.err
-
-
-def test_install_nextest_checksum_match(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """Matching checksums pass verification."""
-    binary = tmp_path / "cargo-nextest"
-    payload = b"payload"
-    binary.write_bytes(payload)
-    expected = hashlib.sha256(payload).hexdigest()
-
-    assert install_nextest_module.verify_nextest_binary(binary, expected)
-
-
-def test_install_nextest_checksum_mismatch(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Checksum mismatches raise a Typer exit."""
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-
-    assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
-    assert "cargo-nextest checksum mismatch" in capsys.readouterr().err
-
-
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
     """``merge_cobertura.py`` merges two files and removes them."""
     rust = tmp_path / "r.xml"
@@ -3114,7 +2757,16 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
-def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
+@dataclasses.dataclass(frozen=True)
+class _BinstallScriptResult:
+    """Capture the outcome of running the Ensure cargo-binstall shell body."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def _run_ensure_binstall_script(tmp_path: Path) -> _BinstallScriptResult:
     """Execute the Ensure cargo-binstall shell body in an isolated PATH."""
     env = {
         **os.environ,
@@ -3124,7 +2776,12 @@ def _run_ensure_binstall_script(tmp_path: Path) -> RunResult:
         "PATH": f"{tmp_path / 'bin'}{os.pathsep}/usr/bin{os.pathsep}/bin",
     }
     command = local["/bin/bash"]["-c", _ensure_binstall_script()]
-    return run_plumbum_command(command, method="run", env=env)
+    result = run_plumbum_command(command, method="run", env=env)
+    return _BinstallScriptResult(
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
 
 
 def _write_fake_binstall_installer(
@@ -3191,58 +2848,93 @@ printf '%s\\n' "cargo-binstall {version}"
     )
 
 
-def test_generate_coverage_binstall_fast_path_verifies_existing_version(
+@dataclasses.dataclass(frozen=True)
+class _BinstallVersionCase:
+    """Describe one existing-cargo-binstall version-comparison outcome."""
+
+    existing_version: str
+    arrange_pinned_installer: bool
+    ran_pinned_installer: bool
+    expected_message: str
+    expected_stream: str
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            _BinstallVersionCase(
+                "1.19.1",
+                arrange_pinned_installer=False,
+                ran_pinned_installer=False,
+                expected_message=(
+                    "cargo-binstall already installed: cargo-binstall 1.19.1"
+                ),
+                expected_stream="stdout",
+            ),
+            id="fast-path-verified-version",
+        ),
+        pytest.param(
+            _BinstallVersionCase(
+                "1.15.0",
+                arrange_pinned_installer=True,
+                ran_pinned_installer=True,
+                expected_message=(
+                    "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0"
+                ),
+                expected_stream="stderr",
+            ),
+            id="mismatch-installs-pinned-version",
+        ),
+        pytest.param(
+            _BinstallVersionCase(
+                "1.19.10",
+                arrange_pinned_installer=True,
+                ran_pinned_installer=True,
+                expected_message=(
+                    "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10"
+                ),
+                expected_stream="stderr",
+            ),
+            id="longer-version-look-alike-is-rejected",
+        ),
+    ],
+)
+def test_generate_coverage_binstall_version_comparison_outcomes(
+    case: _BinstallVersionCase,
     tmp_path: Path,
 ) -> None:
-    """An existing cargo-binstall is reused only after version verification."""
-    _write_existing_cargo_binstall(tmp_path, "1.19.1")
-    _write_executable(
-        tmp_path / "bin" / "curl",
-        """#!/bin/sh
+    """Existing cargo-binstall versions are compared exactly, not by substring.
+
+    A verified existing binary is reused without installing; anything else,
+    including a longer version string that merely starts with the pin (a
+    ``1.19.10`` look-alike for ``1.19.1``), falls through to the pinned
+    installer.
+    """
+    _write_existing_cargo_binstall(tmp_path, case.existing_version)
+    if case.arrange_pinned_installer:
+        _write_fake_binstall_installer(tmp_path)
+    else:
+        _write_executable(
+            tmp_path / "bin" / "curl",
+            """#!/bin/sh
 echo "curl should not run for a verified cargo-binstall" >&2
 exit 99
 """,
-    )
+        )
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    assert (tmp_path / "existing-binstall.log").read_text(encoding="utf-8") == "-V\n"
-    assert "cargo-binstall already installed: cargo-binstall 1.19.1" in stdout
-
-
-def test_generate_coverage_binstall_mismatch_installs_pinned_version(
-    tmp_path: Path,
-) -> None:
-    """A mismatched existing cargo-binstall falls through to pinned install."""
-    _write_existing_cargo_binstall(tmp_path, "1.15.0")
-    _write_fake_binstall_installer(tmp_path)
-
-    result = _run_ensure_binstall_script(tmp_path)
-
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0" in (stderr)
-    assert (tmp_path / "installer.log").read_text(encoding="utf-8")
-    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
-
-
-def test_generate_coverage_binstall_rejects_longer_version_look_alike(
-    tmp_path: Path,
-) -> None:
-    """A 1.19.10 binary must not satisfy the 1.19.1 pin via substring match."""
-    _write_existing_cargo_binstall(tmp_path, "1.19.10")
-    _write_fake_binstall_installer(tmp_path)
-
-    result = _run_ensure_binstall_script(tmp_path)
-
-    returncode, stdout, stderr = result
-    assert returncode == 0, stderr
-    # The look-alike is rejected and the pinned installer runs instead.
-    assert "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10" in stderr
-    assert (tmp_path / "installer.log").exists()
-    assert "cargo-binstall cargo-binstall 1.19.1 verified" in stdout
+    assert result.returncode == 0, result.stderr
+    haystack = result.stdout if case.expected_stream == "stdout" else result.stderr
+    assert case.expected_message in haystack
+    if case.ran_pinned_installer:
+        assert (tmp_path / "installer.log").read_text(encoding="utf-8")
+        assert "cargo-binstall cargo-binstall 1.19.1 verified" in result.stdout
+    else:
+        assert (tmp_path / "existing-binstall.log").read_text(
+            encoding="utf-8"
+        ) == "-V\n"
 
 
 def test_generate_coverage_binstall_install_verifies_installed_version(
@@ -3253,9 +2945,10 @@ def test_generate_coverage_binstall_install_verifies_installed_version(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 1
-    assert "cargo-binstall version verification failed: expected 1.19.1" in (stderr)
+    assert result.returncode == 1
+    assert "cargo-binstall version verification failed: expected 1.19.1" in (
+        result.stderr
+    )
 
 
 def test_generate_coverage_binstall_exports_pinned_version_to_installer(
@@ -3266,8 +2959,7 @@ def test_generate_coverage_binstall_exports_pinned_version_to_installer(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 0, stderr
+    assert result.returncode == 0, result.stderr
     version_seen = (tmp_path / "binstall-version.log").read_text(encoding="utf-8")
     # Without `export`, the installer subshell sees BINSTALL_VERSION unset and
     # would silently fall back to releases/latest.
@@ -3282,8 +2974,7 @@ def test_generate_coverage_binstall_appends_cargo_bin_to_github_path(
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 0, stderr
+    assert result.returncode == 0, result.stderr
     github_path = (tmp_path / "github-path").read_text(encoding="utf-8")
     expected_bin = str(tmp_path / "cargo-home" / "bin")
     assert expected_bin in github_path.splitlines()
@@ -3305,9 +2996,8 @@ printf '%s  %s\\n' "$z16$z16$z16$z16" "$1"
 
     result = _run_ensure_binstall_script(tmp_path)
 
-    returncode, _stdout, stderr = result
-    assert returncode == 1
-    assert "install script checksum mismatch" in stderr
+    assert result.returncode == 1
+    assert "install script checksum mismatch" in result.stderr
     # The installer script must not run when the checksum does not match.
     assert not (tmp_path / "installer.log").exists()
 

@@ -10,14 +10,12 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` and
-`cargo-nextest` are installed automatically via a pinned `cargo-binstall`. The
-action provisions a specific `cargo-binstall` version — reusing a cached build
-when its version matches exactly, otherwise installing it from a
-checksum-verified installer script — and verifies the resolved version before
-running the coverage tooling. If both configuration files are present, coverage
-is run for each language and the Cobertura reports are merged using
-`uvx merge-cobertura`.
+are required. When Rust coverage is required, `cargo-llvm-cov` is installed via
+a pinned `cargo-binstall`. `cargo-nextest` is downloaded directly from its
+pinned official release; both the archive and extracted binary have fixed
+SHA-256 digests, and no Cargo source-build fallback exists. If both
+configuration files are present, coverage is run for each language and the
+Cobertura reports are merged using `uvx merge-cobertura`.
 
 ## Flow
 
@@ -240,6 +238,33 @@ The action writes a bounded `hit`, `miss`, `disabled`, or `error` observation
 for each archive cache to the workflow log and job summary. External cache hit
 telemetry remains the caller's responsibility because this action does not
 mount that cache.
+
+### cargo-nextest installation
+
+`cargo-nextest` is downloaded directly from its pinned official release rather
+than through `cargo-binstall`, so a compromised or redirected download cannot
+substitute an arbitrary archive: both the archive and the extracted executable
+are verified against SHA-256 digests pinned in the installer script, and the
+download is capped at 200 MB so a redirected or compromised endpoint cannot
+fill the runner's disk before that digest check runs. When an already-verified
+binary is reused, or when a fresh one is installed, its directory is prepended
+to `PATH` and `GITHUB_PATH` so later steps resolve it even when `CARGO_HOME`
+points somewhere non-standard; installation fails loudly if an unverified
+binary would still shadow it afterwards.
+
+The installer reports each step to the job summary as a bounded
+`cargo-nextest.` metric, mirroring the Whitaker action:
+
+```text
+cargo-nextest.download=ok duration_seconds=1.204 bytes=2469093
+cargo-nextest.archive-digest=ok
+cargo-nextest.binary-digest=ok
+cargo-nextest.install=ok
+```
+
+A reused, already-verified binary instead reports
+`cargo-nextest.binary-digest=ok` and `cargo-nextest.install=reused`, without a
+download or a fresh archive-digest check.
 
 ### Selecting the coverage language
 

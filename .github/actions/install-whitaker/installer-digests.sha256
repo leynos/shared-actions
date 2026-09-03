@@ -1,0 +1,16 @@
+# Pinned SHA-256 digests for whitaker-installer release archives.
+# Format: sha256sum manifest (digest, two spaces, asset filename).
+# Each digest was computed locally from the archive downloaded via
+# https://github.com/leynos/whitaker/releases and cross-checked against
+# the release .sha256 sidecar. Regenerate only from an independent
+# download; never copy a digest from the sidecar alone.
+d26238923d6659cae036068836550342691c66345dc5d88654704e12e2e654ed  whitaker-installer-aarch64-apple-darwin-v0.2.6.tgz
+baea31d2d0dde807acff67d145d3dc86ff86d801c5273dab3f420f0e89bcaef5  whitaker-installer-aarch64-unknown-linux-gnu-v0.2.6.tgz
+efffea6128a0de916560664602d13ca021d3364a8550c1bd7020419445677b0e  whitaker-installer-x86_64-apple-darwin-v0.2.6.tgz
+ccaae1aa592ef1eac8ff27b67b94e535427cb767554d59c3cec3c4e40297c696  whitaker-installer-x86_64-pc-windows-msvc-v0.2.6.zip
+fb5ec5e966607c8c5dac4c7949d620be55ec9b19d3c4abda2440319c62e1e511  whitaker-installer-x86_64-unknown-linux-gnu-v0.2.6.tgz
+78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+9d359ce49946b23bcc87b00eaf81403590851de0b98261c4e37ec5326cadc1cc  whitaker-installer-aarch64-unknown-linux-gnu-v0.2.7.tgz
+f2df1341ffdca3b92ac2cdccb72e2bfd4c0b07ba234dc5e432b88954f3b923a5  whitaker-installer-x86_64-apple-darwin-v0.2.7.tgz
+93a18010f81fd5fd0d305f5276fd4ca137983421dcabc230cdd0d1a0d79f4a3d  whitaker-installer-x86_64-pc-windows-msvc-v0.2.7.zip
+743ecaf2ef445b43bf110039dac1938801533d7338e663ce40e0eafb4047c7e5  whitaker-installer-x86_64-unknown-linux-gnu-v0.2.7.tgz

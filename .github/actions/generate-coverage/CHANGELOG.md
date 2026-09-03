@@ -34,6 +34,29 @@
 - Preserve setup-uv's automatic GitHub-hosted versus self-hosted default and
   report bounded Cargo, Python, and uv cache outcomes in the log and job
   summary.
+- Download `cargo-nextest` directly from its pinned official release and verify
+  both the archive and executable SHA-256 digests. This removes
+  cargo-binstall's QuickInstall substitution and any source-build fallback.
+- Log bounded, structured events for the `cargo-nextest` download attempt and
+  duration, the archive digest outcome, the executable digest outcome, and the
+  install outcome.
+- Separate the executable digest comparison, which is now pure and returns a
+  `BinaryDigest`, from the reporting the orchestration performs
+- Prepend the Cargo bin directory to `PATH` and `GITHUB_PATH` after installing
+  a verified `cargo-nextest`, and fail when an unverified binary still shadows
+  it, so later steps cannot run the binary that failed verification. Do the
+  same when an already-installed binary is reused, so a custom `CARGO_HOME`
+  whose `bin` directory is absent from `PATH` still resolves afterwards.
+- Cap the `cargo-nextest` archive download at 200 MB and fail closed,
+  deleting the partial file, once a response exceeds it. The digest check
+  protects integrity, not disk space, and only runs after the whole response
+  has landed, so an unbounded or redirected response could otherwise fill the
+  runner's disk first.
+- Report the `cargo-nextest` installation in the job summary, mirroring the
+  Whitaker action, with a bounded set of `cargo-nextest.` metrics for the
+  download outcome (duration and byte count), the archive digest outcome, the
+  executable digest outcome, and the install outcome, including the reuse
+  path.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes
@@ -86,8 +109,7 @@
   Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
   existing binary against the pinned version and reuses it only on a match;
   otherwise it downloads the checksum-pinned installer script and verifies the
-  freshly installed version. This keeps the `cargo-llvm-cov` and
-  `cargo-nextest` installs — which shell out to `cargo binstall` — from
+  freshly installed version. This keeps the `cargo-llvm-cov` install from
   relying on an unpinned or stale binary already on the runner.
 - Run the Python coverage suite under `pytest-xdist` by default. The new
   `pytest-workers` input (default `auto`) is forwarded to slipcover's

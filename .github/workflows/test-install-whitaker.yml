@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  WHITAKER_TEST_INSTALLER_VERSION: 9.${{ github.run_id }}.${{ github.run_attempt }}
+  WHITAKER_TEST_INSTALLER_VERSION: 0.2.7
 
 jobs:
   install-whitaker:
@@ -17,29 +17,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Prepare Cargo stub
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
-          mkdir -p "${cargo_home}/bin"
-          cat > "${cargo_home}/bin/cargo" <<'CARGO'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          printf '%s\n' "$*" >> "${CARGO_HOME}/cargo.log"
-          if [[ "${1:-}" == "binstall" && "${2:-}" == "--version" ]]; then
-            exit 0
-          fi
-          cat > "${CARGO_HOME}/bin/whitaker-installer" <<INSTALLER
-          #!/usr/bin/env bash
-          set -euo pipefail
-          printf '%s\n' "suite installed" >> "${CARGO_HOME}/installer.log"
-          INSTALLER
-          chmod +x "${CARGO_HOME}/bin/whitaker-installer"
-          CARGO
-          chmod +x "${cargo_home}/bin/cargo"
-          echo "${cargo_home}/bin" >> "$GITHUB_PATH"
 
       - name: Install Whitaker
         uses: ./.github/actions/install-whitaker
@@ -53,10 +30,6 @@ jobs:
           set -euo pipefail
           cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
           test -x "${cargo_home}/bin/whitaker-installer"
-          grep -Fx "binstall --version" "${cargo_home}/cargo.log"
-          grep -Fx "binstall --no-confirm --locked whitaker-installer@${WHITAKER_TEST_INSTALLER_VERSION}" \
-            "${cargo_home}/cargo.log"
-          grep -Fx "suite installed" "${cargo_home}/installer.log"
           echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer"
           echo "whitaker_test_installation=complete"
 
@@ -80,6 +53,10 @@ jobs:
           exit 33
           INSTALLER
           chmod +x "${cargo_home}/bin/whitaker-installer"
+          # Mark the fixture as the requested version so the action reuses it
+          # instead of replacing a seemingly stale installer.
+          printf '%s\n' "${WHITAKER_TEST_INSTALLER_VERSION}" \
+            > "${cargo_home}/bin/.whitaker-installer-version"
 
       - name: Install Whitaker
         id: install-whitaker

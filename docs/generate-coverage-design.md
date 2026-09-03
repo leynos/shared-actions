@@ -335,3 +335,59 @@ requires no explicit synchronization.
 | `_ensure_coverage_venv() -> str`         | Create or recover the venv, install project/tool dependencies, and return Python path. |
 | `_coverage_python_cmd() -> BoundCommand` | Return the cached venv Python command.                                                 |
 <!-- markdownlint-enable MD013 MD060 -->
+
+## Addendum: prebuilt CI tool installation (2026-09-03)
+
+`cargo-llvm-cov` and `cargo-nextest` now follow separate installation
+strategies. `cargo-llvm-cov` continues to install via a pinned `cargo-binstall`.
+`cargo-nextest` instead downloads its pinned official release archive directly
+from `nextest-rs/nextest` and never invokes Cargo, so a missing prebuilt binary
+is a hard error rather than a source build.
+
+### Platform asset selection
+
+`install_cargo_nextest.py` pins the target release with `CARGO_NEXTEST_VERSION`
+and resolves a `ReleaseAsset` for the runner from
+`CARGO_NEXTEST_RELEASE_ASSETS`, keyed by `_platform_key()`. That key covers
+`linux-x86_64-gnu`, `linux-x86_64-musl`, `linux-aarch64-gnu`, `mac-universal`,
+`windows-x86_64`, and `windows-aarch64`. `_platform_key()` distinguishes the
+two Linux x86_64 and Linux aarch64 libc variants by delegating to `_is_musl()`,
+which loads the runner's libc through `ctypes.CDLL` and treats the absence of
+`gnu_get_libc_version` as musl. An unresolved key raises `typer.Exit(1)` from
+`_release_for_platform()`, so an unsupported platform fails the installer
+immediately.
+
+### Two-stage digest verification
+
+Each `ReleaseAsset` carries the expected archive SHA-256, and
+`CARGO_NEXTEST_SHA256` separately pins the expected digest of the extracted
+executable for each platform key. `install_cargo_nextest()` downloads the
+archive, hashes it with `_sha256_path()`, and compares that hash against
+`asset.sha256` before extraction proceeds. `_extract_binary()` then pulls only
+the `cargo-nextest` (or `cargo-nextest.exe`) member out of the archive, and
+`verify_nextest_binary()` hashes the extracted file and compares it against the
+platform's pinned executable digest. Either mismatch raises `typer.Exit(1)` and
+aborts installation.
+
+### Atomic replacement
+
+`install_cargo_nextest()` extracts the verified executable to a temporary path,
+`destination.with_suffix(f"{destination.suffix}.tmp")`, inside the Cargo `bin`
+directory rather than writing straight to `destination`. Only after both digest
+checks succeed does it `chmod` the temporary file and call
+`temporary_binary.replace(destination)`, which performs an atomic rename on the
+same filesystem. A `finally` block removes any leftover temporary file.
+Consequently, a failure at any earlier stage — download, archive digest,
+extraction, or binary digest — leaves a previously installed `cargo-nextest`
+binary at `destination` untouched.
+
+### No source-fallback policy
+
+The installer never calls `cargo install cargo-nextest` or any other
+source-building command, on success or on failure. This mirrors the
+`install-whitaker` action's approach and follows the Namespace runner adoption
+recipe, which forbids a CI tool installer that can silently fall back to
+compiling a tool from source: a source build on a Namespace runner would defeat
+the point of using prebuilt, digest-verified binaries and could introduce a
+much slower, non-reproducible installation path with a different provenance to
+the pinned release.

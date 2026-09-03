@@ -9,7 +9,21 @@ inputs:
   installer-version:
     description: Version of whitaker-installer to install
     required: false
-    default: "0.2.6"
+    default: "0.2.7"
+  installer-sha256:
+    description: >-
+      SHA-256 digest of the whitaker-installer release archive for this
+      runner. The action's pinned digest manifest takes precedence; supply
+      this only for an asset the manifest does not pin. A value that
+      disagrees with a pinned digest is rejected.
+    required: false
+    default: ""
+  cache-provider:
+    description: >-
+      Cache owner for the installer binary. Use "github" for the action's
+      built-in cache or "external" when the caller mounts the Cargo home.
+    required: false
+    default: "github"
 
 runs:
   using: composite
@@ -18,7 +32,9 @@ runs:
       id: validate-inputs
       shell: bash
       env:
+        CACHE_PROVIDER_INPUT: ${{ inputs.cache-provider }}
         CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
+        INSTALLER_SHA256_INPUT: ${{ inputs.installer-sha256 }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
       run: |
         set -euo pipefail
@@ -26,12 +42,19 @@ runs:
           echo "::error title=Invalid Whitaker input::$1" >&2
           exit 1
         }
+        if [[ -z "${RUNNER_TEMP:-}" ]]; then
+          input_error "RUNNER_TEMP must name a writable staging directory"
+        fi
         if [[ "$CARGO_HOME_INPUT" == *$'\r'* || "$CARGO_HOME_INPUT" == *$'\n'* ]]; then
           input_error "cargo-home must not contain a carriage return or newline"
         fi
         if [[ "$INSTALLER_VERSION_INPUT" == *$'\r'* || "$INSTALLER_VERSION_INPUT" == *$'\n'* ]]; then
           input_error "installer-version must not contain a carriage return or newline"
         fi
+        case "$CACHE_PROVIDER_INPUT" in
+          github|external) ;;
+          *) input_error "cache-provider must be github or external" ;;
+        esac
         if (( ${#CARGO_HOME_INPUT} > 240 )); then
           input_error "cargo-home must be at most 240 characters"
         fi
@@ -40,6 +63,13 @@ runs:
         fi
         if [[ ! "$INSTALLER_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
           input_error "installer-version must be one to three numeric components without leading zeros"
+        fi
+        installer_sha256=
+        if [[ -n "$INSTALLER_SHA256_INPUT" ]]; then
+          if [[ ! "$INSTALLER_SHA256_INPUT" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            input_error "installer-sha256 must be 64 hexadecimal characters"
+          fi
+          installer_sha256="$(printf '%s' "$INSTALLER_SHA256_INPUT" | tr 'A-F' 'a-f')"
         fi
         if [[ "$CARGO_HOME_INPUT" == "~" || "$CARGO_HOME_INPUT" == "~/"* ]]; then
           cargo_home="${HOME}${CARGO_HOME_INPUT:1}"
@@ -64,22 +94,31 @@ runs:
           input_error "cargo-home must not contain the runner PATH separator"
         fi
         printf 'cargo-home=%s\n' "$cargo_home" >> "$GITHUB_OUTPUT"
-        printf 'installer-path=%s\n' "${cargo_home}/bin/whitaker-installer" >> "$GITHUB_OUTPUT"
+        installer_suffix=
+        if [[ "${RUNNER_OS:-}" == Windows ]]; then
+          installer_suffix=.exe
+        fi
+        printf 'installer-path=%s\n' "${cargo_home}/bin/whitaker-installer${installer_suffix}" >> "$GITHUB_OUTPUT"
+        printf 'installer-version-path=%s\n' "${cargo_home}/bin/.whitaker-installer-version" >> "$GITHUB_OUTPUT"
         printf 'installer-version=%s\n' "$INSTALLER_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+        printf 'installer-sha256=%s\n' "$installer_sha256" >> "$GITHUB_OUTPUT"
 
     - name: Cache Whitaker installer
       id: cache-whitaker-installer
+      if: ${{ inputs.cache-provider == 'github' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ${{ steps.validate-inputs.outputs.installer-path }}
-          ~/.cache/cargo-binstall
+          ${{ steps.validate-inputs.outputs.installer-version-path }}
+          ~/.local/share/whitaker
         key: >-
-          whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-${{ steps.validate-inputs.outputs.cargo-home }}
+          whitaker-${{ runner.os }}-${{ runner.arch }}-${{ steps.validate-inputs.outputs.installer-version }}-${{ hashFiles('dylint.toml') }}-${{ steps.validate-inputs.outputs.cargo-home }}
 
     - name: Report Whitaker installer cache
       shell: bash
       env:
+        WHITAKER_CACHE_PROVIDER: ${{ inputs.cache-provider }}
         WHITAKER_INSTALLER_CACHE_HIT: ${{ steps.cache-whitaker-installer.outputs.cache-hit }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
@@ -89,19 +128,186 @@ runs:
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
           fi
         }
-        cache_state=miss
-        if [[ "$WHITAKER_INSTALLER_CACHE_HIT" == "true" ]]; then
+        cache_state=disabled
+        if [[ "$WHITAKER_CACHE_PROVIDER" == github && "$WHITAKER_INSTALLER_CACHE_HIT" == true ]]; then
           cache_state=hit
+        elif [[ "$WHITAKER_CACHE_PROVIDER" == github ]]; then
+          cache_state=miss
         fi
-        echo "::notice title=Whitaker installer cache::hit=${WHITAKER_INSTALLER_CACHE_HIT} version=${WHITAKER_INSTALLER_VERSION}"
+        echo "::notice title=Whitaker installer cache::provider=${WHITAKER_CACHE_PROVIDER} state=${cache_state} version=${WHITAKER_INSTALLER_VERSION}"
         emit_metric "whitaker-installer.cache=${cache_state}"
 
-    - name: Install Whitaker installer
-      id: install-whitaker-installer
+    - name: Resolve Whitaker release
+      id: resolve-release
       shell: bash
       env:
-        CARGO_HOME: ${{ steps.validate-inputs.outputs.cargo-home }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+        WHITAKER_DIGEST_MANIFEST: ${{ github.action_path }}/installer-digests.sha256
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+        WHITAKER_INSTALLER_SHA256: ${{ steps.validate-inputs.outputs.installer-sha256 }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_INSTALLER_VERSION_PATH: ${{ steps.validate-inputs.outputs.installer-version-path }}
+        WHITAKER_RESOLVE_SCRIPT: ${{ github.action_path }}/scripts/resolve-release.sh
+        WHITAKER_STAGING_DIR: ${{ runner.temp }}/whitaker-installer-release
+      run: |
+        # Thin command adapter. The resolution itself lives in
+        # scripts/resolve-release.sh, which only prints; this step captures
+        # that record and writes it to the step output, the one mechanism for
+        # carrying a value across a composite step boundary. The publication
+        # step turns the record into outputs, metrics, notices, and the job's
+        # fate.
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        # Reports only an unexpected internal failure, such as awk dying or the
+        # resolve script being unreadable. An expected resolution failure is a
+        # record printed by the script.
+        trap 'status=$?; echo "::error title=Whitaker installer failed::resolution failed with exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=resolve"; exit "${status}"' ERR
+        resolution="$(bash "$WHITAKER_RESOLVE_SCRIPT")"
+        {
+          printf 'resolution<<WHITAKER_RESOLUTION_EOF\n'
+          printf '%s\n' "$resolution"
+          printf 'WHITAKER_RESOLUTION_EOF\n'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Publish Whitaker resolution
+      id: publish-resolution
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_RESOLUTION: ${{ steps.resolve-release.outputs.resolution }}
+      run: |
+        # Publication. Every externally visible effect of resolution lives
+        # here: the step outputs, the job-summary metrics, the annotations,
+        # and the decision to fail the job.
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        field() {
+          printf '%s\n' "$WHITAKER_RESOLUTION" |
+            awk -v key="$1" -F= '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
+        }
+        publish_error() {
+          case "$(field error-kind)" in
+            digest-conflict) emit_metric "whitaker-installer.digest=conflict" ;;
+            unpinned-digest) emit_metric "whitaker-installer.digest=unpinned" ;;
+            manifest-unreadable) emit_metric "whitaker-installer.digest=unreadable" ;;
+            version-marker-unreadable) emit_metric "whitaker-installer.cache-entry=unreadable" ;;
+          esac
+          echo "::error title=Whitaker installer failed::$(field error-message)" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
+        }
+        if [[ -z "${WHITAKER_RESOLUTION//[[:space:]]/}" ]]; then
+          echo "::error title=Whitaker installer failed::resolution produced no record" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
+        fi
+        stale_version="$(field stale-version)"
+        if [[ -n "$stale_version" ]]; then
+          echo "::notice title=Whitaker installer::path=stale-cache cached-version=${stale_version} version=${WHITAKER_INSTALLER_VERSION}"
+          emit_metric "whitaker-installer.cache-entry=stale"
+        fi
+        case "$(field status)" in
+          cached)
+            echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
+            emit_metric "whitaker-installer.path=cache"
+            printf 'needs-install=false\n' >> "$GITHUB_OUTPUT"
+            ;;
+          install)
+            {
+              printf 'needs-install=true\n'
+              printf 'asset=%s\n' "$(field asset)"
+              printf 'extension=%s\n' "$(field extension)"
+              printf 'installer-name=%s\n' "$(field installer-name)"
+              printf 'expected-sha=%s\n' "$(field expected-sha)"
+              printf 'trust-anchor=%s\n' "$(field trust-anchor)"
+              printf 'staging-dir=%s\n' "$(field staging-dir)"
+            } >> "$GITHUB_OUTPUT"
+            ;;
+          error) publish_error ;;
+          *)
+            echo "::error title=Whitaker installer failed::unreadable resolution record" >&2
+            emit_metric "whitaker-installer.failure=install"
+            exit 1
+            ;;
+        esac
+
+    - name: Download Whitaker release
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.publish-resolution.outputs.asset }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.publish-resolution.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.publish-resolution.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
+        rm -rf -- "$WHITAKER_STAGING_DIR"
+        mkdir -p -- "$WHITAKER_STAGING_DIR"
+        # curl reports the transfer itself. `num_retries` was added in curl
+        # 8.9.0, so ask for it only when the runner's curl is new enough and
+        # report the attempt count as unknown otherwise.
+        write_out='%{http_code} %{size_download} %{time_total}'
+        attempts_reported=false
+        curl_version="$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+        if [[ -n "$curl_version" ]] &&
+          [[ "$(printf '%s\n%s\n' 8.9.0 "$curl_version" | sort -V | head -n 1)" == 8.9.0 ]]; then
+          write_out="${write_out} %{num_retries}"
+          attempts_reported=true
+        fi
+        fetch() {
+          local url="$1" target="$2" label="$3"
+          local stats status http_code bytes seconds attempts outcome
+          set +e
+          stats="$(curl -fsSL --proto '=https' --tlsv1.2 \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 20 --max-time 300 \
+            --write-out "$write_out" "$url" -o "$target")"
+          status=$?
+          set -e
+          http_code="$(printf '%s' "$stats" | awk '{ print ($1 == "" ? "none" : $1) }')"
+          bytes="$(printf '%s' "$stats" | awk '{ print ($2 == "" ? "0" : $2) }')"
+          seconds="$(printf '%s' "$stats" | awk '{ print ($3 == "" ? "0" : $3) }')"
+          attempts=unknown
+          if [[ "$attempts_reported" == true ]]; then
+            attempts="$(printf '%s' "$stats" | awk '{ print ($4 == "" ? "0" : $4 + 1) }')"
+          fi
+          outcome=ok
+          if (( status != 0 )); then
+            outcome=failed
+          fi
+          echo "::notice title=Whitaker installer transfer::part=${label} outcome=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          emit_metric "whitaker-installer.transfer.${label}=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          return "$status"
+        }
+        fetch "${release_url}/${WHITAKER_ASSET}" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}" archive
+        fetch "${release_url}/${WHITAKER_ASSET}.sha256" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256" sha256
+
+    - name: Verify Whitaker release
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.publish-resolution.outputs.asset }}
+        WHITAKER_EXPECTED_SHA: ${{ steps.publish-resolution.outputs.expected-sha }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.publish-resolution.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.publish-resolution.outputs.staging-dir }}
+        WHITAKER_TRUST_ANCHOR: ${{ steps.publish-resolution.outputs.trust-anchor }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
         set -euo pipefail
@@ -110,28 +316,87 @@ runs:
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
           fi
         }
-        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
-        if [[ ! -x "$WHITAKER_INSTALLER_PATH" ]]; then
-          cargo_path="$(command -v cargo || true)"
-          if [[ "$cargo_path" != /* || ! -x "$cargo_path" ]]; then
-            echo "::error title=Whitaker installer failed::cargo must resolve to an executable absolute path" >&2
-            exit 1
-          fi
-          cargo_path="$(cd -- "$(dirname -- "$cargo_path")" && pwd -P)/$(basename -- "$cargo_path")"
-          if "$cargo_path" binstall --version >/dev/null 2>&1; then
-            echo "::notice title=Whitaker installer::path=cargo-binstall version=${WHITAKER_INSTALLER_VERSION}"
-            emit_metric "whitaker-installer.path=cargo-binstall"
-            "$cargo_path" binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
-          else
-            echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
-            echo "::notice title=Whitaker installer::path=cargo-install version=${WHITAKER_INSTALLER_VERSION}"
-            emit_metric "whitaker-installer.path=cargo-install"
-            "$cargo_path" install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
-          fi
-        else
-          echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
-          emit_metric "whitaker-installer.path=cache"
+        step_error() {
+          echo "::error title=Whitaker installer failed::$1" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
+        }
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
         fi
+        archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual_sha="$(sha256sum "$archive" | awk '{print $1}')"
+        else
+          actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
+        fi
+        if [[ "$actual_sha" != "$WHITAKER_EXPECTED_SHA" ]]; then
+          emit_metric "whitaker-installer.digest=mismatch"
+          step_error "archive digest mismatch for ${WHITAKER_ASSET}: expected ${WHITAKER_EXPECTED_SHA} but computed ${actual_sha}"
+        fi
+        sidecar_sha="$(awk 'NR == 1 { print $1 }' "${archive}.sha256")"
+        if [[ "$sidecar_sha" != "$actual_sha" ]]; then
+          emit_metric "whitaker-installer.digest=sidecar-mismatch"
+          step_error "release sidecar digest ${sidecar_sha} disagrees with the verified archive digest ${actual_sha} for ${WHITAKER_ASSET}"
+        fi
+        echo "::notice title=Whitaker installer digest::asset=${WHITAKER_ASSET} outcome=verified anchor=${WHITAKER_TRUST_ANCHOR}"
+        emit_metric "whitaker-installer.digest=verified"
+        emit_metric "whitaker-installer.trust-anchor=${WHITAKER_TRUST_ANCHOR}"
+
+    - name: Extract Whitaker installer
+      shell: bash
+      env:
+        WHITAKER_ASSET: ${{ steps.publish-resolution.outputs.asset }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.publish-resolution.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.publish-resolution.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
+        extract_dir="${WHITAKER_STAGING_DIR}/extract"
+        mkdir -p -- "$extract_dir"
+        # Both release archives hold one top-level directory. bsdtar, which is
+        # the bundled tar on Windows and macOS runners, reads zip as well as
+        # gzip, and GNU tar detects gzip without an explicit flag. unzip is not
+        # guaranteed to be present on a Windows runner.
+        tar -xf "$archive" --strip-components=1 -C "$extract_dir"
+
+    - name: Install Whitaker installer
+      id: install-whitaker-installer
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_NAME: ${{ steps.publish-resolution.outputs.installer-name }}
+        WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
+        WHITAKER_INSTALLER_VERSION_PATH: ${{ steps.validate-inputs.outputs.installer-version-path }}
+        WHITAKER_NEEDS_INSTALL: ${{ steps.publish-resolution.outputs.needs-install }}
+        WHITAKER_STAGING_DIR: ${{ steps.publish-resolution.outputs.staging-dir }}
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+      run: |
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=install"; exit "${status}"' ERR
+        if [[ "$WHITAKER_NEEDS_INSTALL" != true ]]; then
+          exit 0
+        fi
+        mkdir -p -- "$(dirname -- "$WHITAKER_INSTALLER_PATH")"
+        install -m 0755 "${WHITAKER_STAGING_DIR}/extract/${WHITAKER_INSTALLER_NAME}" "$WHITAKER_INSTALLER_PATH"
+        printf '%s\n' "$WHITAKER_INSTALLER_VERSION" > "$WHITAKER_INSTALLER_VERSION_PATH"
+        rm -rf -- "$WHITAKER_STAGING_DIR"
+        echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
+        emit_metric "whitaker-installer.path=official-release"
 
     - name: Run Whitaker installer
       shell: bash
@@ -139,7 +404,7 @@ runs:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
       run: |
-        set -euo pipefail
+        set -Eeuo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"

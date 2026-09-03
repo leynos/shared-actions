@@ -149,13 +149,12 @@ workflow reference together, and run the normal action test gates before review.
 
 The `macos-package` action passes `version: latest-known`, so it requires a
 setup-uv revision that resolves that value from bundled checksum metadata. Its
-current compatible pin is
-`20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this avoids fetching Astral's
-mutable remote versions manifest during release packaging. Keep the action's
-manifest test synchronized with both this SHA and `latest-known`. The
-repository's `rust-toy-app.yml` workflow exercises the actual action on macOS;
-local `act` tests cannot cover that path because macOS packaging tools are not
-available in its Linux container runtime.
+current compatible pin is `20cfd1bf945f4377ade1205e4dbc17946fc9a30d`; this
+avoids fetching Astral's mutable remote versions manifest during release
+packaging. Keep the action's manifest test synchronized with both this SHA and
+`latest-known`. The repository's `rust-toy-app.yml` workflow exercises the
+actual action on macOS; local `act` tests cannot cover that path because macOS
+packaging tools are not available in its Linux container runtime.
 
 When changing the pin, include the target SHA in the change description and
 verify affected act workflow tests where the action runs under `nektos/act`. If
@@ -185,15 +184,15 @@ that the action works, but cannot prove that a pin is the intended revision.
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and
-[`generate-coverage`](../.github/actions/generate-coverage/action.yml) manifests
-share a `cache-provider` boundary. `github` is the backward-compatible default:
-the actions own their Cargo archive caches, while setup-uv retains its automatic
-GitHub-hosted versus self-hosted policy. `external` disables those Cargo and uv
-archive caches so the caller can mount the same paths through exactly one other
-provider. Consumers on Ubicloud, or on any other caller-owned cache setup,
-continue to use `cache-provider: external`. The coverage action deliberately
-leaves ratchet-baseline paths under their separate GitHub cache because
-external mode does not mount them.
+[`generate-coverage`](../.github/actions/generate-coverage/action.yml)
+manifests share a `cache-provider` boundary. `github` is the
+backward-compatible default: the actions own their Cargo archive caches, while
+setup-uv retains its automatic GitHub-hosted versus self-hosted policy.
+`external` disables those Cargo and uv archive caches so the caller can mount
+the same paths through exactly one other provider. Consumers on Ubicloud, or on
+any other caller-owned cache setup, continue to use `cache-provider: external`.
+The coverage action deliberately leaves ratchet-baseline paths under their
+separate GitHub cache because external mode does not mount them.
 
 Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
 sub-actions rather than the full `actions/cache` action. The full action
@@ -276,43 +275,235 @@ changelogs, the users' guide, that contract test, and these tests together.
 
 ## `install-whitaker` action contract
 
-The composite action's cache step restores these paths:
-
-- `${{ steps.validate-inputs.outputs.installer-path }}`
-- `~/.cache/cargo-binstall`
+The composite action's built-in cache restores
+`${{ steps.validate-inputs.outputs.installer-path }}` and
+`~/.local/share/whitaker`. The `cache-provider` input defaults to `github`;
+`external` skips the built-in cache when the caller mounts both states through
+another provider.
 
 Its key is the following expression:
 
 ```text
-whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{
+whitaker-${{ runner.os }}-${{ runner.arch }}-${{
   steps.validate-inputs.outputs.installer-version }}-${{
+  hashFiles('dylint.toml') }}-${{
   steps.validate-inputs.outputs.cargo-home }}
 ```
 
-The `cargo-home` input defaults to `~/.cargo` and controls both the cached
-installer location and the installation step's `CARGO_HOME`. The step expands a
-leading `~` against `HOME`, validates and exports `CARGO_HOME`, and records the
-expanded installer path for the cache and later execution. The installation
-step resolves Cargo from the existing `PATH` and invokes that validated
-installer path directly; it does not prepend the Cargo bin directory to `PATH`.
-The `installer-version` input defaults to `0.2.6`.
+The `cargo-home` input defaults to `~/.cargo` and controls the cached installer
+location. The step expands a leading `~` against `HOME`, validates the path,
+adds the Windows executable suffix when required, and records the installer
+path for the cache and later execution. The `installer-version` input defaults
+to `0.2.7`.
 
-Cargo must be available on `PATH` when the action needs to install or rebuild
-`whitaker-installer`. `cargo-binstall` is optional; the action uses it when
-available and falls back to `cargo install` otherwise. Different effective
-Cargo homes use separate cache keys; repeated writes for the same home share
-one key.
+On a miss, a `Resolve Whitaker release` step selects the runner's supported
+release target and resolves the expected digest, then dedicated
+`Download Whitaker release`, `Verify Whitaker release`,
+`Extract Whitaker installer`, and `Install Whitaker installer` steps each
+perform one part of the lifecycle. Unsupported platforms, missing assets, and
+checksum failures stop the action. There is deliberately no Cargo or
+source-build fallback. The contract is covered by the test suite in
+`.github/actions/install-whitaker/tests/`, including cache ownership, official
+release selection, cache reuse, digest precedence, and failure boundaries.
 
-If `whitaker-installer` is already available, the action skips Cargo
-installation and runs it. Otherwise it probes `cargo binstall --version`, uses
-`cargo binstall --no-confirm --locked` when that probe succeeds, and falls back
-to `cargo install --locked` when it does not. The fallback is limited to an
-unavailable cargo-binstall probe; an installation failure from either Cargo
-path, or a failure from `whitaker-installer` itself, stops the step and
-propagates the non-zero status. The contract is covered by
-`.github/actions/install-whitaker/tests/test_install_whitaker.py`, including
-the cache manifest, both installation paths, cache reuse, and failure
-boundaries.
+An external volume must mount the suite's parent (`~/.local/share`) rather than
+the terminal `~/.local/share/whitaker` path. Whitaker treats an absent child as
+a fresh install and an existing child as a Git checkout; a cache volume makes
+its mount point exist even when empty, so mounting the child causes the
+installer to attempt `git pull` in a non-repository.
+
+### Digest manifest and trust anchor
+
+The archive's SHA-256 digest is pinned in
+`.github/actions/install-whitaker/installer-digests.sha256`, a plain
+`sha256sum` manifest that sits beside `action.yml` and is reviewed with it.
+Each line pairs a digest with an asset filename, for example:
+
+```text
+78959394c6bbf77eb80ce7f6818d1dedabea68224a3603b3481ee927f8be9fa0  whitaker-installer-aarch64-apple-darwin-v0.2.7.tgz
+```
+
+This pinned manifest is the trust anchor, not the release's own `.sha256`
+sidecar. The `Verify Whitaker release` step still downloads the sidecar and
+compares it with the archive digest it just verified, but only as a consistency
+check: a compromised release could publish a matching sidecar for a tampered
+archive, whereas it cannot change a digest already committed to this repository.
+
+To extend the manifest, compute each new digest locally from an independently
+downloaded archive with `sha256sum`, then cross-check it against the release's
+own `.sha256` sidecar for that asset. A disagreement between the two blocks the
+change. Never copy a digest from the sidecar alone; the sidecar is a check on
+the locally computed digest, not a source for it.
+
+The optional `installer-sha256` input supplies a digest for an asset the
+manifest does not pin. The `Resolve Whitaker release` step applies a
+manifest-first precedence rule: when the manifest pins the resolved asset, that
+pinned digest is the anchor (`whitaker-installer.trust-anchor=pinned`), and a
+supplied `installer-sha256` that disagrees with it is rejected before any
+download (`whitaker-installer.digest=conflict`). Only when the manifest does
+not pin the asset does a supplied `installer-sha256` become the anchor
+(`whitaker-installer.trust-anchor=input`). An asset with neither anchor fails
+before any download (`whitaker-installer.digest=unpinned`).
+
+### Runner requirements
+
+The action targets the runner operating-system and architecture pairs the
+`Resolve Whitaker release` step's case statement maps to a release target:
+Linux X64, Linux ARM64, macOS X64, macOS ARM64, and Windows X64. Every step
+declares `shell: bash`, so the runner must provide Bash.
+
+Beyond Bash, the runner must provide:
+
+- `curl`, for downloading the release archive and its `.sha256` sidecar.
+- A SHA-256 utility: the `Verify Whitaker release` step uses `sha256sum` when
+  it is present and falls back to `shasum -a 256` otherwise, as it does on
+  macOS runners.
+- `tar`, which extracts both archive formats. bsdtar, the bundled `tar` on
+  Windows and macOS runner images, reads zip archives as well as gzip ones, and
+  GNU tar detects gzip without an explicit flag, so the same
+  `tar -xf ... --strip-components=1` invocation works across every supported
+  pair. `unzip` is deliberately not required, since it is absent from some
+  Windows runner images.
+- `RUNNER_TEMP` set to a writable directory. The `validate-inputs` step
+  rejects an unset `RUNNER_TEMP` alongside the action's other input
+  preconditions, so the action fails before any download, because the download
+  is staged beneath it.
+
+### Resolution and publication split
+
+`Resolve Whitaker release` and `Publish Whitaker resolution` divide the
+release-resolution lifecycle into a pure query and its one externally visible
+consumer:
+
+- `Resolve Whitaker release` is a thin adapter. It runs
+  `scripts/resolve-release.sh`, captures everything the script prints on
+  stdout, and writes that captured record to the step's `resolution` output. It
+  has no other effect, beyond an `ERR` trap that reports a genuine internal
+  failure (the script being unreadable, or a shell builtin such as `awk` dying)
+  rather than an expected resolution outcome.
+- `Publish Whitaker resolution` is the only step that turns the record into
+  anything a caller or reviewer can observe: it writes the step outputs later
+  steps consume (`needs-install`, `asset`, `extension`, `installer-name`,
+  `expected-sha`, `trust-anchor`, `staging-dir`), emits job-summary metrics,
+  prints `::notice` and `::error` annotations, and decides whether the job
+  fails.
+
+Keeping resolution pure and separate from publication lets the action's test
+suite exercise `resolve-release.sh` directly, without stubbing GitHub Actions
+outputs, annotations, or the job summary.
+
+### The `resolve-release.sh` contract
+
+`scripts/resolve-release.sh` reads named environment variables set by
+`Resolve Whitaker release` (`RUNNER_OPERATING_SYSTEM`, `RUNNER_ARCHITECTURE`,
+`WHITAKER_DIGEST_MANIFEST`, `WHITAKER_INSTALLER_PATH`,
+`WHITAKER_INSTALLER_SHA256`, `WHITAKER_INSTALLER_VERSION`,
+`WHITAKER_INSTALLER_VERSION_PATH`, and `WHITAKER_STAGING_DIR`) and prints a
+`key=value` record on stdout, one field per line. It writes no file, emits no
+job-summary metric, and prints no workflow annotation; every externally visible
+effect belongs to the publication step. An expected resolution failure — an
+unsupported runner, or a digest that cannot be resolved — is reported as an
+`error` record on stdout, not as a non-zero exit. A non-zero exit is reserved
+for a genuine internal failure, which is why the script omits `errexit` and
+lets its caller own the `ERR` trap.
+
+The record's `status` field takes one of three values:
+
+- `cached` — an executable installer is already present at
+  `WHITAKER_INSTALLER_PATH` and its version marker names the requested version.
+  No other field is printed.
+- `install` — the release must be downloaded. The record also carries
+  `asset`, `extension`, `installer-name`, `expected-sha`, `trust-anchor`, and
+  `staging-dir`. When a cached installer exists but names a different version,
+  the record also carries `stale-version`.
+- `error` — resolution could not proceed. The record also carries
+  `error-kind` and `error-message`.
+
+The `error-kind` field takes one of five values, each produced by a different
+check in the script:
+
+- `unsupported-runner` — the runner operating-system and architecture pair
+  has no mapped release target. This is checked before any cache reuse, so a
+  cached installer cannot mask an unsupported runner.
+- `digest-conflict` — the manifest pins a digest for the resolved asset and
+  the supplied `installer-sha256` disagrees with it.
+- `unpinned-digest` — the asset has neither a pinned digest nor a supplied
+  `installer-sha256`.
+- `manifest-unreadable` — the digest manifest exists but could not be read.
+- `version-marker-unreadable` — the installed-version marker exists but could
+  not be read.
+
+The two `unreadable` kinds matter more than they look. An absent manifest or
+marker is a result, meaning nothing is pinned or nothing is cached, but one
+that exists and cannot be read is a failure. Degrading it to the absent case
+would silently fall back to the caller's digest, report a pinned asset as
+unpinned, or reuse a cached installer of unknown version. The lookup helpers
+therefore return a distinct non-zero status for a read failure, and every
+caller propagates it.
+
+`Publish Whitaker resolution` maps `digest-conflict`, `unpinned-digest`,
+`manifest-unreadable`, and `version-marker-unreadable` to the
+`whitaker-installer.digest=conflict`, `whitaker-installer.digest=unpinned`,
+`whitaker-installer.digest=unreadable`, and
+`whitaker-installer.cache-entry=unreadable` metrics respectively;
+`unsupported-runner` has no dedicated metric and falls through to the generic
+`whitaker-installer.failure=install` metric.
+
+### Version marker and cache reuse
+
+Alongside the installer binary, the action writes a version marker file
+(`.whitaker-installer-version`, recorded in
+`steps.validate-inputs.outputs.installer-version-path`) and caches it beside
+the installer. `resolve-release.sh` reuses a cached installer only when this
+marker names the exact version requested by `installer-version`; any other
+content, including no file at all, is treated as a cache miss for reuse
+purposes.
+
+This check matters most for `cache-provider: external`. With the built-in
+`github` cache, a `installer-version` bump changes the cache key, so a stale
+installer is never restored in the first place. With an external, caller-
+mounted Cargo home, nothing rotates the mount when `installer-version` changes:
+without the marker check, a persistent Cargo home would keep serving an
+installer built for an older version indefinitely, regardless of what the
+caller now requests. The marker check makes version correctness independent of
+how the cache is provisioned.
+
+A stale or absent marker is reported as `whitaker-installer.cache-entry=stale`
+in the job summary, and the action falls through to a freshly verified download
+of the requested version.
+
+### Transfer and job-summary telemetry
+
+`Download Whitaker release` fetches the release archive and its `.sha256`
+sidecar in two separate `curl` invocations, and reports each transfer with both
+a `::notice title=Whitaker installer transfer::` annotation and a
+`whitaker-installer.transfer.<part>=...` job-summary metric, where `<part>` is
+`archive` or `sha256`. Each report names the outcome (`ok` or `failed`), the
+HTTP status code, the downloaded byte count, the elapsed time in seconds, and
+the retry attempt count.
+
+The attempt count depends on `curl`'s `num_retries` write-out variable, which
+was added in curl 8.9.0. The step compares the runner's `curl --version` against
+`8.9.0` before adding `%{num_retries}` to its `--write-out` format, and reports
+`attempts=unknown` when the runner's curl predates that version.
+
+The job summary carries these metric names, read from `action.yml`:
+
+- `whitaker-installer.cache=<state>`, where `<state>` is `disabled`, `hit`, or
+  `miss`.
+- `whitaker-installer.cache-entry=stale`.
+- `whitaker-installer.path=cache`, `whitaker-installer.path=official-release`.
+- `whitaker-installer.trust-anchor=<anchor>`, where `<anchor>` is `pinned` or
+  `input`.
+- `whitaker-installer.digest=conflict`, `whitaker-installer.digest=unpinned`,
+  `whitaker-installer.digest=mismatch`,
+  `whitaker-installer.digest=sidecar-mismatch`,
+  `whitaker-installer.digest=verified`.
+- `whitaker-installer.transfer.archive=...`,
+  `whitaker-installer.transfer.sha256=...`.
+- `whitaker-installer.failure=resolve`, `whitaker-installer.failure=install`,
+  `whitaker-installer.failure=execution`.
+- `whitaker-installer.result=success`.
 
 ## `upload-codescene-coverage` check-mode contract
 
@@ -324,22 +515,21 @@ not an analysed branch. An empty base does not trigger this skip, which keeps
 the applicability check usable outside a pull-request event.
 
 The applicability output is the boundary for the rest of the action. Every
-following step — coverage-path resolution, installer download, GitHub
-artefact upload, cache and CLI installation, PATH setup, and the upload/check
-commands — must require
-`steps.gate-applicability.outputs.skip != 'true'`. Do not add a check-mode
-step outside that guard unless it is deliberately meant to run for skipped
-pull requests.
+following step — coverage-path resolution, installer download, GitHub artefact
+upload, cache and CLI installation, PATH setup, and the upload/check commands —
+must require `steps.gate-applicability.outputs.skip != 'true'`. Do not add a
+check-mode step outside that guard unless it is deliberately meant to run for
+skipped pull requests.
 
 The check command is an observable diagnostic contract. After validating the
 CLI, coverage file, and LCOV suffix, run
 `cs-coverage check --verbose --coverage-files "$file"` directly so its native
-standard-output and standard-error streams remain intact. Put the invocation
-in an `if` condition; in the failure branch, capture `$?` as the first
-command, add the uploaded-base explanation when the status is `2`, then
-`exit "$status"`. This preserves every CLI failure status rather than
-masking it with diagnostic handling. The behavioural contract is covered by
-the [check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
+standard-output and standard-error streams remain intact. Put the invocation in
+an `if` condition; in the failure branch, capture `$?` as the first command,
+add the uploaded-base explanation when the status is `2`, then
+`exit "$status"`. This preserves every CLI failure status rather than masking
+it with diagnostic handling. The behavioural contract is covered by the
+[check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
 
 ## `setup-rust` cargo-binstall Pinning
 
@@ -415,9 +605,8 @@ for that reason.
 ## `generate-coverage` cargo-binstall Pinning
 
 `generate-coverage` provisions its own `cargo-binstall` in the "Ensure
-cargo-binstall" step before installing `cargo-llvm-cov` or `cargo-nextest`,
-both of which shell out to `cargo binstall`. It follows the same pinning
-discipline as `setup-rust`: `BINSTALL_VERSION` and the installer-script
+cargo-binstall" step before installing `cargo-llvm-cov`. It follows the same
+pinning discipline as `setup-rust`: `BINSTALL_VERSION` and the installer-script
 `BINSTALL_SHA256` are a pair and must be updated together.
 
 The step is idempotent and verifies the version on both paths:
@@ -435,21 +624,10 @@ Both paths are exercised by behavioural tests in
 extracted step body against fake `cargo-binstall` binaries and installers
 rather than asserting on the step's source text.
 
-## `generate-coverage` `cargo-nextest` Installation
-
-`install_cargo_nextest.py` resolves expected checksums using `_platform_key()`.
-On Linux, `_platform_key()` calls `_is_musl()` to choose between
-`linux-<arch>-gnu` and `linux-<arch>-musl` keys before looking up
-`CARGO_NEXTEST_SHA256`.
-
-`_is_musl()` wraps libc probing in one place via injectable `ctypes.CDLL`
-/symbol lookup and surfaces probe failures through the normal error path, so
-orchestrating code consumes a concrete `typer.Exit` from
-`_expected_sha_for_platform()` and keeps loader details local to the installer.
-
 ### CARGO_HOME resolution and PATH handling
 
-The install step derives the active Cargo bin directory at runtime:
+The "Ensure cargo-binstall" step derives the active Cargo bin directory at
+runtime:
 
 ```bash
 cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
@@ -472,13 +650,20 @@ Keep `cargo_home_bin` resolution and the `BINSTALL_VERSION` pin in sync: both
 must reflect the same intended installation location and version whenever the
 pin is updated.
 
-## `generate-coverage` nextest checksum strategy
+## `generate-coverage` cargo-nextest installation
 
-`generate-coverage` delegates Rust nextest installation to
-`.github/actions/generate-coverage/scripts/install_cargo_nextest.py`.
+`generate-coverage` installs `cargo-nextest` through
+`.github/actions/generate-coverage/scripts/install_cargo_nextest.py`, invoked
+by the "Install cargo-nextest" step for Rust or mixed-language runs when
+`use-cargo-nextest` is `true`. The script never invokes Cargo or
+`cargo-binstall`; a missing or unverifiable official archive is a hard failure
+with no fallback.
 
-The helper validates a pinned `cargo-nextest` version and picks the expected
-SHA-256 using a platform key. Linux x86_64 is split into two keys:
+The script pins the `cargo-nextest` release version in `CARGO_NEXTEST_VERSION`
+and resolves the official release target and expected archive and binary
+checksums using `_platform_key()`. On Linux, `_platform_key()` calls
+`_is_musl()` to choose between `linux-<arch>-gnu` and `linux-<arch>-musl` keys.
+Linux x86_64 is split into two keys for this reason:
 
 - `linux-x86_64-gnu` for the `-x86_64-unknown-linux-gnu` archive.
 - `linux-x86_64-musl` for the `-x86_64-unknown-linux-musl` archive.
@@ -486,6 +671,49 @@ SHA-256 using a platform key. Linux x86_64 is split into two keys:
 This distinction is intentional because the upstream artefacts are built
 against different libc ABIs, and validating against the wrong digest can block
 installs even when the same version number is used.
+
+`_is_musl()` wraps libc probing in one place via injectable `ctypes.CDLL`
+/symbol lookup and surfaces probe failures through the normal error path, so
+orchestrating code consumes a concrete `typer.Exit` from
+`_release_for_platform()` and keeps loader details local to the installer.
+
+If an already-resolvable `cargo-nextest` binary (found on `PATH` or in the
+Cargo bin directory) already matches the pinned executable digest in
+`CARGO_NEXTEST_SHA256`, the script reuses it without downloading anything.
+Otherwise it downloads the selected archive directly from the pinned
+`nextest-rs/nextest` GitHub release, verifies the archive's SHA-256 against the
+pinned digest in `CARGO_NEXTEST_RELEASE_ASSETS`, extracts only the expected
+executable into a temporary file, verifies that executable against the pinned
+digest in `CARGO_NEXTEST_SHA256`, then replaces the destination atomically.
+
+Keep `CARGO_NEXTEST_VERSION` and both checksum tables
+(`CARGO_NEXTEST_RELEASE_ASSETS` and `CARGO_NEXTEST_SHA256`) in sync: update the
+version and every pinned archive and binary digest together.
+
+### `ReleaseAsset` and `emit_metric` boundaries
+
+Two small constructs in `install_cargo_nextest.py` are worth understanding
+before changing it:
+
+- `ReleaseAsset` is a `typing.NamedTuple` that pins one release archive's
+  `target`, `extension`, and `sha256` digest. Its `filename` property derives
+  the official archive filename
+  (`cargo-nextest-{CARGO_NEXTEST_VERSION}-{target}.{extension}`) from those
+  fields and the module-level `CARGO_NEXTEST_VERSION`, so the filename can
+  never drift from the pinned target and extension it was built from.
+- `emit_metric()` is the single place that appends a bounded line to
+  `$GITHUB_STEP_SUMMARY`. Every metric in the script goes through this one
+  function, and it does nothing when `GITHUB_STEP_SUMMARY` is unset, which is
+  the case when running the script or its tests outside a GitHub Actions job.
+
+The script emits these `cargo-nextest.` metric names, read from
+`install_cargo_nextest.py`:
+
+- `cargo-nextest.download=ok`, `cargo-nextest.download=failed`.
+- `cargo-nextest.archive-digest=ok`, `cargo-nextest.archive-digest=mismatch`.
+- `cargo-nextest.binary-digest=ok`, `cargo-nextest.binary-digest=mismatch`.
+- `cargo-nextest.install=ok`, `cargo-nextest.install=failed`,
+  `cargo-nextest.install=reused`.
 
 ## `stage-release-artefacts` Action Architecture
 
@@ -672,25 +900,25 @@ defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
 inputs and their defaults synchronized with the action README and users' guide.
 
 Merman is a release-asset policy, not a package-manager policy. The action
-supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`,
-and `Windows/X64` to an official `Latias94/merman` archive and literal Secure
-Hash Algorithm 256-bit (SHA-256) archive and executable digests. The Windows
-archive is verified with PowerShell's `Get-FileHash` and extracted by
-`Expand-Archive` through Git Bash's path conversion. The action stores Merman
-at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
+supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
+`Windows/X64` to an official `Latias94/merman` archive and literal Secure Hash
+Algorithm 256-bit (SHA-256) archive and executable digests. The Windows archive
+is verified with PowerShell's `Get-FileHash` and extracted by `Expand-Archive`
+through Git Bash's path conversion. The action stores Merman at
+`${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
 and revalidates its pinned executable digest before every cache reuse. Callers
 that persist the action's cache must include `~/.cache/merman`. On a cache miss
-it downloads, checksums, extracts, and installs the release asset. Do not add Cargo,
-`cargo binstall`, or a source-build fallback. Adding a new Merman release or
-runner pair requires an official release asset, an independently reviewed
-digest, focused tests, and synchronized user-facing documentation; fail closed
-until all four exist.
+it downloads, checksums, extracts, and installs the release asset. Do not add
+Cargo, `cargo binstall`, or a source-build fallback. Adding a new Merman
+release or runner pair requires an official release asset, an independently
+reviewed digest, focused tests, and synchronized user-facing documentation;
+fail closed until all four exist.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the
-`nixie` executable shim and repeats the installation with `--force` only when that
-shim is absent. Do not add a `nixie --version` probe. Both Merman and Nixie
-executable checks must succeed before their directories are written to
+`nixie` executable shim and repeats the installation with `--force` only when
+that shim is absent. Do not add a `nixie --version` probe. Both Merman and
+Nixie executable checks must succeed before their directories are written to
 `GITHUB_PATH`. On Windows, convert the native `uv` directory to a Git Bash path
 for executable checks, while retaining the native directory for `GITHUB_PATH`.
 
@@ -775,13 +1003,13 @@ past the current pin.
 
 ### RUSTFLAGS Export
 
-Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but
-they wire it differently. `setup-rust` forwards the input straight through to
-each of its three `actions-rust-lang/setup-rust-toolchain` invocations, so
-what happens to an inherited `RUSTFLAGS` is that nested action's decision.
+Both `setup-rust` and `rust-build-release` expose a `rustflags` input, but they
+wire it differently. `setup-rust` forwards the input straight through to each
+of its three `actions-rust-lang/setup-rust-toolchain` invocations, so what
+happens to an inherited `RUSTFLAGS` is that nested action's decision.
 `rust-build-release` instead exports the value itself, in an "Export caller
-RUSTFLAGS" step that runs *before* its own pinned nested `setup-rust` step
-(see `.github/actions/rust-build-release/action.yml`), so that step's
+RUSTFLAGS" step that runs *before* its own pinned nested `setup-rust` step (see
+`.github/actions/rust-build-release/action.yml`), so that step's
 `setup-rust-toolchain` — which only applies its `-D warnings` default when
 `RUSTFLAGS` is unset — defers to the caller's value. The design rationale for
 this split lives in section 3.1.3, "Caller-Controlled `RUSTFLAGS`", of the
@@ -793,34 +1021,33 @@ safely.
 #### Precedence guard
 
 The export step is skipped entirely by `if: inputs.rustflags != ''`, but even
-when it runs it must not clobber a `RUSTFLAGS` the caller already exported.
-It guards with `[[ ${RUSTFLAGS+x} ]]`, which is true whenever `RUSTFLAGS` is
-set, including to the empty string, so an inherited value — empty or not —
-always wins over the input. `setup-rust` has no equivalent guard; forwarding
-the empty string to it leaves `RUSTFLAGS` alone only because
-`setup-rust-toolchain` treats an empty forwarded value as "unset".
+when it runs it must not clobber a `RUSTFLAGS` the caller already exported. It
+guards with `[[ ${RUSTFLAGS+x} ]]`, which is true whenever `RUSTFLAGS` is set,
+including to the empty string, so an inherited value — empty or not — always
+wins over the input. `setup-rust` has no equivalent guard; forwarding the empty
+string to it leaves `RUSTFLAGS` alone only because `setup-rust-toolchain`
+treats an empty forwarded value as "unset".
 
 #### Bash 3.2 compatibility
 
 `[[ ${RUSTFLAGS+x} ]]` is used rather than the more idiomatic
 `[[ -v RUSTFLAGS ]]` because `-v` needs Bash 4.2 and macOS runners ship Bash
-3.2, which cannot parse that conditional primary. Both forms treat an
-inherited empty value as set. Keep this constraint in mind for any future
-edit to this or similar shell fragments in the two actions: parameter
-expansion of the `${NAME+x}` form, not `-v`, is the portable way to test "is
-this variable set".
+3.2, which cannot parse that conditional primary. Both forms treat an inherited
+empty value as set. Keep this constraint in mind for any future edit to this or
+similar shell fragments in the two actions: parameter expansion of the
+`${NAME+x}` form, not `-v`, is the portable way to test "is this variable set".
 
 #### `GITHUB_ENV` heredoc safety
 
 The step writes `RUSTFLAGS` to `GITHUB_ENV` as a heredoc rather than a plain
 assignment because the value may contain newlines. The delimiter is derived
-from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against
-the value with `grep -qxF` before use. If a value contained the delimiter on
-a line of its own, that line would close the heredoc block early, and
-whatever followed would be read back by the runner as further
-environment-file commands — an injection route, not just a formatting bug.
-The step retries with a fresh candidate up to three times and fails the step,
-rather than writing an unsafe delimiter, if all three collide.
+from 16 random bytes (`od -An -N16 -tx1 /dev/urandom`) and checked against the
+value with `grep -qxF` before use. If a value contained the delimiter on a line
+of its own, that line would close the heredoc block early, and whatever
+followed would be read back by the runner as further environment-file commands
+— an injection route, not just a formatting bug. The step retries with a fresh
+candidate up to three times and fails the step, rather than writing an unsafe
+delimiter, if all three collide.
 
 #### RUSTFLAGS export observability
 
@@ -834,19 +1061,18 @@ The step logs three kinds of event, all to `stderr`:
   rustflags input on attempt `N` of 3").
 
 It deliberately never logs the `RUSTFLAGS` value itself or a colliding
-delimiter candidate: a candidate only collides because the value contains it
-as a substring, so echoing the candidate would leak a line of the caller's
+delimiter candidate: a candidate only collides because the value contains it as
+a substring, so echoing the candidate would leak a line of the caller's
 `RUSTFLAGS` into the CI log.
 
 #### RUSTFLAGS export testing
 
 `.github/actions/rust-build-release/tests/test_rustflags_export.py` extracts
-and runs the export step's shell fragment under bash. It covers the
-precedence guard (including an inherited empty value), the heredoc
-round-trip for adversarial payloads via Hypothesis properties, the
-delimiter-collision retry and give-up paths (using a stubbed `od` to make a
-collision reachable), and that neither the value nor a colliding candidate
-reaches the log.
+and runs the export step's shell fragment under bash. It covers the precedence
+guard (including an inherited empty value), the heredoc round-trip for
+adversarial payloads via Hypothesis properties, the delimiter-collision retry
+and give-up paths (using a stubbed `od` to make a collision reachable), and
+that neither the value nor a colliding candidate reaches the log.
 `.github/actions/rust-build-release/tests/test_manifest_input_step.py` checks
 the manifest's declared shape instead: the `rustflags` input's empty default,
 the export step's `if` condition and `RBR_RUSTFLAGS` wiring, the

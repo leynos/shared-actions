@@ -7,6 +7,9 @@
   alongside the existing notice and job summary. The names are fixed and the
   values come from the closed outcome vocabularies, so a log scraper sees
   bounded cardinality and no cache key, path, or run identifier.
+- Move the unpinned-cache-reference contract to a repository-wide test covering
+  every action under `.github/actions`, which also requires all of them to share
+  one pinned revision.
 
 - Add `all-features`, `all-targets`, and `doctests` inputs so one coverage job
   can be a repository's only test execution. All three default to off.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Pin every `actions/cache` reference to the v6.1.0 commit
+  `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.
+  The tag breaks the repository's SHA-pinning policy, and the older releases it
+  can resolve to are not intercepted by a transparent runner cache, so their
+  saves became wasted upload.
+
 ## v1.0.6
 
 - Overwrite existing `cargo-llvm-cov` installation using `--force` to avoid

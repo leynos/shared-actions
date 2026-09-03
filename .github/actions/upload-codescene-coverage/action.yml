@@ -138,7 +138,8 @@ runs:
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
         inputs.cli-version != 'latest'
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.local/bin/cs-coverage
         key: cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.version }}

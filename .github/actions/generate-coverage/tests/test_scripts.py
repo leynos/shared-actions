@@ -1495,36 +1495,70 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
     assert "failed with code 2" in stderr
 
 
+@dataclasses.dataclass(frozen=True)
+class _PlatformKeyCase:
+    """Describe one OS/architecture/libc combination and its platform key."""
+
+    system: str
+    machine: str
+    is_musl: bool
+    expected: str
+
+
 @pytest.mark.parametrize(
-    ("system", "machine", "is_musl", "expected"),
+    "case",
     [
-        pytest.param("Linux", "x86_64", False, "linux-x86_64-gnu", id="linux-gnu"),
-        pytest.param("Linux", "x86_64", True, "linux-x86_64-musl", id="linux-musl"),
         pytest.param(
-            "Linux", "aarch64", False, "linux-aarch64-gnu", id="linux-aarch64"
+            _PlatformKeyCase(
+                "Linux", "x86_64", is_musl=False, expected="linux-x86_64-gnu"
+            ),
+            id="linux-gnu",
         ),
-        pytest.param("Darwin", "arm64", False, "mac-universal", id="mac"),
-        pytest.param("Windows", "AMD64", False, "windows-x86_64", id="windows-x86_64"),
         pytest.param(
-            "Windows", "ARM64", False, "windows-aarch64", id="windows-aarch64"
+            _PlatformKeyCase(
+                "Linux", "x86_64", is_musl=True, expected="linux-x86_64-musl"
+            ),
+            id="linux-musl",
+        ),
+        pytest.param(
+            _PlatformKeyCase(
+                "Linux", "aarch64", is_musl=False, expected="linux-aarch64-gnu"
+            ),
+            id="linux-aarch64",
+        ),
+        pytest.param(
+            _PlatformKeyCase(
+                "Darwin", "arm64", is_musl=False, expected="mac-universal"
+            ),
+            id="mac",
+        ),
+        pytest.param(
+            _PlatformKeyCase(
+                "Windows", "AMD64", is_musl=False, expected="windows-x86_64"
+            ),
+            id="windows-x86_64",
+        ),
+        pytest.param(
+            _PlatformKeyCase(
+                "Windows", "ARM64", is_musl=False, expected="windows-aarch64"
+            ),
+            id="windows-aarch64",
         ),
     ],
 )
 def test_platform_key_variants(
+    case: _PlatformKeyCase,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    system: str,
-    machine: str,
-    expected: str,
-    *,
-    is_musl: bool,
 ) -> None:
     """Platform keys normalize OS and architecture and keep the libc split."""
-    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
-    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
-    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: is_musl)
+    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: case.system)
+    monkeypatch.setattr(
+        install_nextest_module.platform, "machine", lambda: case.machine
+    )
+    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: case.is_musl)
 
-    assert install_nextest_module._platform_key() == expected
+    assert install_nextest_module._platform_key() == case.expected
 
 
 def _fake_musl_libc(_library_name: str) -> object:
@@ -1753,34 +1787,45 @@ def test_install_nextest_download_failure(
     assert "cargo-nextest release download failed" in captured.err
 
 
+@dataclasses.dataclass(frozen=True)
+class _ChecksumVerificationCase:
+    """Describe one binary-checksum verification case."""
+
+    use_matching_digest: bool
+    expect_verified: bool
+
+
 @pytest.mark.parametrize(
-    ("use_matching_digest", "expect_verified"),
+    "case",
     [
-        (True, True),
-        (False, False),
+        pytest.param(
+            _ChecksumVerificationCase(use_matching_digest=True, expect_verified=True),
+            id="digest-matches",
+        ),
+        pytest.param(
+            _ChecksumVerificationCase(use_matching_digest=False, expect_verified=False),
+            id="digest-mismatches",
+        ),
     ],
-    ids=["digest-matches", "digest-mismatches"],
 )
 def test_install_nextest_checksum_verification(
+    case: _ChecksumVerificationCase,
     tmp_path: Path,
     install_nextest_module: ModuleType,
     capsys: pytest.CaptureFixture[str],
-    *,
-    use_matching_digest: bool,
-    expect_verified: bool,
 ) -> None:
     """Verification passes only when the digest matches the binary exactly."""
     binary = tmp_path / "cargo-nextest"
     payload = b"payload"
     binary.write_bytes(payload)
     expected = (
-        hashlib.sha256(payload).hexdigest() if use_matching_digest else "deadbeef"
+        hashlib.sha256(payload).hexdigest() if case.use_matching_digest else "deadbeef"
     )
 
     verified = install_nextest_module.verify_nextest_binary(binary, expected)
 
-    assert verified is expect_verified
-    if not expect_verified:
+    assert verified is case.expect_verified
+    if not case.expect_verified:
         assert "cargo-nextest checksum mismatch" in capsys.readouterr().err
 
 
@@ -1810,6 +1855,116 @@ def _nextest_asset(module: ModuleType, digest: str) -> object:
     return module.ReleaseAsset("x86_64-unknown-linux-gnu", "tar.gz", digest)
 
 
+@dataclasses.dataclass(frozen=True)
+class _NextestInstallFixture:
+    """Bundle the sentinel destination paths and the pinned fixture digests."""
+
+    destination: Path
+    temporary: Path
+    archive_digest: str
+    binary_digest: str
+
+
+def _seed_nextest_sentinel(cargo_home: Path) -> _NextestInstallFixture:
+    """Write the sentinel destination binary and compute the fixture digests."""
+    destination = cargo_home / "bin" / "cargo-nextest"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(_NEXTEST_SENTINEL)
+    temporary = destination.with_suffix(f"{destination.suffix}.tmp")
+    return _NextestInstallFixture(
+        destination=destination,
+        temporary=temporary,
+        archive_digest=hashlib.sha256(_NEXTEST_ARCHIVE_PAYLOAD).hexdigest(),
+        binary_digest=hashlib.sha256(_NEXTEST_BINARY_PAYLOAD).hexdigest(),
+    )
+
+
+class _NextestInstallStubs:
+    """Stub the download and extract steps for one failure mode."""
+
+    def __init__(self, module: ModuleType, failure: str | None) -> None:
+        self._module = module
+        self._failure = failure
+        self.extracted = False
+
+    def download(self, _asset: object, target: Path) -> None:
+        """Write the fixture archive, or raise if ``failure`` is ``download``."""
+        if self._failure == "download":
+            raise self._module.typer.Exit(1)
+        target.write_bytes(_NEXTEST_ARCHIVE_PAYLOAD)
+
+    def extract(self, _archive: Path, _asset: object, target: Path) -> None:
+        """Write the fixture binary, or raise if ``failure`` is ``extract``."""
+        self.extracted = True
+        if self._failure == "extract":
+            message = "cargo-nextest missing from archive"
+            raise ValueError(message)
+        payload = (
+            b"tampered" if self._failure == "binary-digest" else _NEXTEST_BINARY_PAYLOAD
+        )
+        target.write_bytes(payload)
+
+
+@dataclasses.dataclass(frozen=True)
+class _NextestAttemptPlan:
+    """Describe one install attempt: the release asset and how to run it."""
+
+    asset: object
+    binary_digest: str
+    entry_point: str
+    failure: str | None
+
+
+def _invoke_nextest_install(
+    module: ModuleType,
+    cargo_home: Path,
+    plan: _NextestAttemptPlan,
+    stubs: _NextestInstallStubs,
+) -> int | None:
+    """Run the chosen entry point under stubbed I/O and return its exit code.
+
+    ``plan.entry_point`` selects ``install_cargo_nextest`` directly or
+    ``main``, which first resolves the platform release. The resolution
+    stub reflects the destination file's real state, so ``main``'s
+    post-install re-resolution check sees the binary once it exists,
+    matching the sentinel-then-real-binary lifecycle the fixture drives.
+    """
+    destination = cargo_home / "bin" / "cargo-nextest"
+
+    def resolve_destination_if_present() -> Path | None:
+        """Return ``destination`` when it exists on disk, else ``None``."""
+        return destination if destination.exists() else None
+
+    exit_code: int | None = None
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setenv("CARGO_HOME", str(cargo_home))
+        patcher.setattr(module, "_download_archive", stubs.download)
+        patcher.setattr(module, "_extract_binary", stubs.extract)
+        if plan.entry_point == "main":
+            patcher.setattr(
+                module, "_resolve_nextest_binary", resolve_destination_if_present
+            )
+            patcher.setattr(
+                module,
+                "_release_for_platform",
+                lambda: (plan.binary_digest, plan.asset),
+            )
+            invoke = module.main
+        else:
+
+            def invoke() -> None:
+                module.install_cargo_nextest(plan.asset, plan.binary_digest)
+
+        if plan.failure is None:
+            invoke()
+        else:
+            with pytest.raises(module.typer.Exit) as excinfo:
+                invoke()
+            exit_code = _exit_code(excinfo.value)
+
+    return exit_code
+
+
 def _attempt_nextest_install(
     module: ModuleType,
     cargo_home: Path,
@@ -1819,65 +1974,30 @@ def _attempt_nextest_install(
     """Install cargo-nextest with stubbed I/O and report what changed on disk.
 
     ``entry_point`` selects ``install_cargo_nextest`` directly or ``main``,
-    which first resolves the platform release and finds no existing binary.
+    which first resolves the platform release and finds the sentinel binary
+    seeded below, so its version check fails and installation proceeds.
     """
-    destination = cargo_home / "bin" / "cargo-nextest"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(_NEXTEST_SENTINEL)
-    temporary = destination.with_suffix(f"{destination.suffix}.tmp")
-    archive_digest = hashlib.sha256(_NEXTEST_ARCHIVE_PAYLOAD).hexdigest()
-    binary_digest = hashlib.sha256(_NEXTEST_BINARY_PAYLOAD).hexdigest()
+    fixture = _seed_nextest_sentinel(cargo_home)
     asset = _nextest_asset(
         module,
-        "0" * 64 if failure == "archive-digest" else archive_digest,
+        "0" * 64 if failure == "archive-digest" else fixture.archive_digest,
     )
-    extracted = False
-
-    def fake_download(_asset: object, target: Path) -> None:
-        if failure == "download":
-            typer_exit = module.typer.Exit(1)
-            raise typer_exit
-        target.write_bytes(_NEXTEST_ARCHIVE_PAYLOAD)
-
-    def fake_extract(_archive: Path, _asset: object, target: Path) -> None:
-        nonlocal extracted
-        extracted = True
-        if failure == "extract":
-            message = "cargo-nextest missing from archive"
-            raise ValueError(message)
-        payload = b"tampered" if failure == "binary-digest" else _NEXTEST_BINARY_PAYLOAD
-        target.write_bytes(payload)
-
-    exit_code: int | None = None
-    with pytest.MonkeyPatch.context() as patcher:
-        patcher.setenv("CARGO_HOME", str(cargo_home))
-        patcher.setattr(module, "_download_archive", fake_download)
-        patcher.setattr(module, "_extract_binary", fake_extract)
-        if entry_point == "main":
-            patcher.setattr(module, "_resolve_nextest_binary", lambda: None)
-            patcher.setattr(
-                module,
-                "_release_for_platform",
-                lambda: (binary_digest, asset),
-            )
-            invoke = module.main
-        else:
-
-            def invoke() -> None:
-                module.install_cargo_nextest(asset, binary_digest)
-
-        if failure is None:
-            invoke()
-        else:
-            with pytest.raises(module.typer.Exit) as excinfo:
-                invoke()
-            exit_code = _exit_code(excinfo.value)
+    stubs = _NextestInstallStubs(module, failure)
+    plan = _NextestAttemptPlan(
+        asset=asset,
+        binary_digest=fixture.binary_digest,
+        entry_point=entry_point,
+        failure=failure,
+    )
+    exit_code = _invoke_nextest_install(module, cargo_home, plan, stubs)
 
     return _NextestInstallOutcome(
         exit_code=exit_code,
-        destination_bytes=destination.read_bytes() if destination.exists() else None,
-        temporary_exists=temporary.exists(),
-        extracted=extracted,
+        destination_bytes=(
+            fixture.destination.read_bytes() if fixture.destination.exists() else None
+        ),
+        temporary_exists=fixture.temporary.exists(),
+        extracted=stubs.extracted,
     )
 
 
@@ -1961,48 +2081,58 @@ def _windows_asset(module: ModuleType) -> object:
     return module.ReleaseAsset("x86_64-pc-windows-msvc", "zip", "0" * 64)
 
 
+@dataclasses.dataclass(frozen=True)
+class _ReadArchiveCase:
+    """Describe one real-archive extraction case that must succeed."""
+
+    archive_format: str
+    filename: str
+    executable: str
+    destination_name: str
+    windows: bool
+
+
 @pytest.mark.parametrize(
-    ("archive_format", "filename", "executable", "destination_name", "windows"),
+    "case",
     [
         pytest.param(
-            "tar",
-            "cargo-nextest.tar.gz",
-            "pkg/cargo-nextest",
-            "extracted",
-            False,
+            _ReadArchiveCase(
+                "tar",
+                "cargo-nextest.tar.gz",
+                "pkg/cargo-nextest",
+                "extracted",
+                windows=False,
+            ),
             id="tar",
         ),
         pytest.param(
-            "zip",
-            "cargo-nextest.zip",
-            "pkg/cargo-nextest.exe",
-            "extracted.exe",
-            True,
+            _ReadArchiveCase(
+                "zip",
+                "cargo-nextest.zip",
+                "pkg/cargo-nextest.exe",
+                "extracted.exe",
+                windows=True,
+            ),
             id="zip",
         ),
     ],
 )
 def test_extract_binary_reads_real_archive(
+    case: _ReadArchiveCase,
     tmp_path: Path,
     install_nextest_module: ModuleType,
-    archive_format: str,
-    filename: str,
-    executable: str,
-    destination_name: str,
-    *,
-    windows: bool,
 ) -> None:
     """A real archive of either format yields the cargo-nextest executable."""
-    archive = tmp_path / filename
+    archive = tmp_path / case.filename
     _write_archive(
         archive,
-        {"pkg/README": b"docs", executable: _NEXTEST_BINARY_PAYLOAD},
-        archive_format=archive_format,
+        {"pkg/README": b"docs", case.executable: _NEXTEST_BINARY_PAYLOAD},
+        archive_format=case.archive_format,
     )
-    destination = tmp_path / destination_name
+    destination = tmp_path / case.destination_name
     asset = (
         _windows_asset(install_nextest_module)
-        if windows
+        if case.windows
         else _nextest_asset(install_nextest_module, "0" * 64)
     )
 
@@ -2011,60 +2141,71 @@ def test_extract_binary_reads_real_archive(
     assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
 
 
+@dataclasses.dataclass(frozen=True)
+class _RejectArchiveCase:
+    """Describe one archive missing its expected executable member."""
+
+    archive_format: typ.Literal["tar", "zip"]
+    filename: str
+    members: dict[str, bytes | None]
+    destination_name: str
+    expected_match: str
+
+
 @pytest.mark.parametrize(
-    ("archive_format", "filename", "members", "destination_name", "expected_match"),
+    "case",
     [
-        (
-            "tar",
-            "cargo-nextest.tar.gz",
-            {"pkg/README": b"docs"},
-            "extracted",
-            "cargo-nextest missing from",
+        pytest.param(
+            _RejectArchiveCase(
+                "tar",
+                "cargo-nextest.tar.gz",
+                {"pkg/README": b"docs"},
+                "extracted",
+                "cargo-nextest missing from",
+            ),
+            id="tar-missing-executable",
         ),
-        (
-            "tar",
-            "cargo-nextest.tar.gz",
-            {"pkg/cargo-nextest": None},
-            "extracted",
-            "is not a file in",
+        pytest.param(
+            _RejectArchiveCase(
+                "tar",
+                "cargo-nextest.tar.gz",
+                {"pkg/cargo-nextest": None},
+                "extracted",
+                "is not a file in",
+            ),
+            id="tar-directory-member",
         ),
-        (
-            "zip",
-            "cargo-nextest.zip",
-            {"pkg/README": b"docs"},
-            "extracted.exe",
-            r"cargo-nextest\.exe missing from",
+        pytest.param(
+            _RejectArchiveCase(
+                "zip",
+                "cargo-nextest.zip",
+                {"pkg/README": b"docs"},
+                "extracted.exe",
+                r"cargo-nextest\.exe missing from",
+            ),
+            id="zip-missing-executable",
         ),
-    ],
-    ids=[
-        "tar-missing-executable",
-        "tar-directory-member",
-        "zip-missing-executable",
     ],
 )
 def test_extract_binary_rejects_archive_without_executable(
-    archive_format: typ.Literal["tar", "zip"],
-    filename: str,
-    members: dict[str, bytes | None],
-    destination_name: str,
-    expected_match: str,
+    case: _RejectArchiveCase,
     tmp_path: Path,
     install_nextest_module: ModuleType,
 ) -> None:
     """Archives lacking the expected executable raise a clear ``ValueError``."""
-    archive = tmp_path / filename
-    _write_archive(archive, members, archive_format=archive_format)
+    archive = tmp_path / case.filename
+    _write_archive(archive, case.members, archive_format=case.archive_format)
     asset = (
         _windows_asset(install_nextest_module)
-        if archive_format == "zip"
+        if case.archive_format == "zip"
         else _nextest_asset(install_nextest_module, "0" * 64)
     )
 
-    with pytest.raises(ValueError, match=expected_match):
+    with pytest.raises(ValueError, match=case.expected_match):
         install_nextest_module._extract_binary(
             archive,
             asset,
-            tmp_path / destination_name,
+            tmp_path / case.destination_name,
         )
 
 
@@ -2144,6 +2285,165 @@ def test_install_cargo_nextest_end_to_end_from_local_archive(
     assert destination.read_bytes() == binary_payload
     assert destination.stat().st_mode & 0o111
     assert not destination.with_suffix(f"{destination.suffix}.tmp").exists()
+
+
+@dataclasses.dataclass(frozen=True)
+class _PinnedRelease:
+    """Literal, checked-in expectations for one platform's pinned release.
+
+    These values are copied by hand from ``install_cargo_nextest.py``'s
+    ``CARGO_NEXTEST_VERSION``, ``CARGO_NEXTEST_RELEASE_ASSETS``, and
+    ``CARGO_NEXTEST_SHA256`` constants -- they are literals, not references
+    to those constants -- so that bumping a pin in the script makes this
+    test fail until a human deliberately updates this table too. Do not
+    "simplify" this back into a lookup against the script's own constants;
+    doing so would silently defeat the point of the test.
+    """
+
+    version: str
+    target: str
+    extension: str
+    archive_sha256: str
+    executable_sha256: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _PinnedPlatformDetection:
+    """The ``platform.system``/``platform.machine``/musl combination for a key."""
+
+    system: str
+    machine: str
+    is_musl: bool
+
+
+_NEXTEST_PINNED_RELEASES: dict[str, _PinnedRelease] = {
+    "linux-x86_64-gnu": _PinnedRelease(
+        "0.9.120",
+        "x86_64-unknown-linux-gnu",
+        "tar.gz",
+        "a5b1c12500c47e27af4baf533c917bf1b38e9bf2e6ffb063dfa1de6e75aa8726",
+        "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14",
+    ),
+    "linux-x86_64-musl": _PinnedRelease(
+        "0.9.120",
+        "x86_64-unknown-linux-musl",
+        "tar.gz",
+        "e00511fc23241ffd3ca1d95b23bde8a9cd0fb96bb691a9957a909ba74e7a5238",
+        "b05373ac79d5a1e200627ffd780c9cec96d7547311ac585d6c277d6394c2cd28",
+    ),
+    "linux-aarch64-gnu": _PinnedRelease(
+        "0.9.120",
+        "aarch64-unknown-linux-gnu",
+        "tar.gz",
+        "5e13751733a1fc4d26984ad5e1bce10d057d95299b02ed3ac96877b7288c8feb",
+        "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e",
+    ),
+    "mac-universal": _PinnedRelease(
+        "0.9.120",
+        "universal-apple-darwin",
+        "tar.gz",
+        "e2aa5a27bfdac66c913346985a1ceff50ab9590b846798440464410bd5a309b9",
+        "d9f8aa57f88ea948ee68629cfc22a0a86ccd0d0143139983753dcb5f167085b8",
+    ),
+    "windows-x86_64": _PinnedRelease(
+        "0.9.120",
+        "x86_64-pc-windows-msvc",
+        "zip",
+        "ccb22cb26d6816eb39992f276c0f058ea9a5842ee35f70ee48a4ee84fd671538",
+        "8e4160a8d710e753fd21a725e1771d20d948dbfa5d3472b57ee331f16c237af4",
+    ),
+    "windows-aarch64": _PinnedRelease(
+        "0.9.120",
+        "aarch64-pc-windows-msvc",
+        "zip",
+        "8b6475c9d6fd6946a8a8cced8213c1e5b1f9df219cab999831905187887003f9",
+        "9a1756ef23dff328f25ebf21c10be5dac7907e111782db63519474ec397f665c",
+    ),
+}
+
+_NEXTEST_PIN_PLATFORM_DETECTION: dict[str, _PinnedPlatformDetection] = {
+    "linux-x86_64-gnu": _PinnedPlatformDetection("Linux", "x86_64", is_musl=False),
+    "linux-x86_64-musl": _PinnedPlatformDetection("Linux", "x86_64", is_musl=True),
+    "linux-aarch64-gnu": _PinnedPlatformDetection("Linux", "aarch64", is_musl=False),
+    "mac-universal": _PinnedPlatformDetection("Darwin", "arm64", is_musl=False),
+    "windows-x86_64": _PinnedPlatformDetection("Windows", "AMD64", is_musl=False),
+    "windows-aarch64": _PinnedPlatformDetection("Windows", "ARM64", is_musl=False),
+}
+
+
+def test_nextest_pin_table_covers_every_supported_platform(
+    install_nextest_module: ModuleType,
+) -> None:
+    """The checked-in pin table must track every platform the script pins.
+
+    This guards against a newly supported platform being added to
+    ``CARGO_NEXTEST_RELEASE_ASSETS``/``CARGO_NEXTEST_SHA256`` without a
+    matching literal entry in ``_NEXTEST_PINNED_RELEASES`` above.
+    """
+    assert set(_NEXTEST_PIN_PLATFORM_DETECTION) == set(
+        install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS
+    )
+    assert set(_NEXTEST_PINNED_RELEASES) == set(
+        install_nextest_module.CARGO_NEXTEST_SHA256
+    )
+
+
+@pytest.mark.parametrize("key", sorted(_NEXTEST_PINNED_RELEASES))
+def test_install_cargo_nextest_pins_expected_release_per_platform(
+    key: str,
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``main`` resolves the exact pinned release for every supported platform.
+
+    ``main`` runs through the real ``_release_for_platform`` (only OS,
+    architecture, and musl detection are monkeypatched), so a pin change in
+    the script -- version, target triple, archive extension, archive
+    digest, or executable digest -- makes this test fail until the literal
+    ``_NEXTEST_PINNED_RELEASES`` table above is deliberately updated too.
+    The download and extraction steps are stubbed so no network request is
+    made; the stubbed archive bytes then deliberately fail the script's
+    real archive-digest check, so ``main`` always exits with an error after
+    the resolved asset has been captured.
+    """
+    detection = _NEXTEST_PIN_PLATFORM_DETECTION[key]
+    expected = _NEXTEST_PINNED_RELEASES[key]
+    captured: dict[str, object] = {}
+
+    def fake_download(asset: object, target: Path) -> None:
+        captured["asset"] = asset
+        target.write_bytes(b"stub-archive")
+
+    def fake_extract(_archive: Path, _asset: object, target: Path) -> None:
+        target.write_bytes(b"stub-binary")
+
+    monkeypatch.setattr(
+        install_nextest_module.platform, "system", lambda: detection.system
+    )
+    monkeypatch.setattr(
+        install_nextest_module.platform, "machine", lambda: detection.machine
+    )
+    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: detection.is_musl)
+    # A real cargo-nextest may already be on PATH or in CARGO_HOME in the
+    # ambient environment; force the platform-appropriate release resolution
+    # to run so this test does not depend on that.
+    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
+    monkeypatch.setattr(install_nextest_module, "_download_archive", fake_download)
+    monkeypatch.setattr(install_nextest_module, "_extract_binary", fake_extract)
+    monkeypatch.setenv("CARGO_HOME", str(tmp_path / "cargo-home"))
+
+    with pytest.raises(install_nextest_module.typer.Exit):
+        install_nextest_module.main()
+
+    asset = captured["asset"]
+    assert expected.version == install_nextest_module.CARGO_NEXTEST_VERSION
+    assert asset.target == expected.target
+    assert asset.extension == expected.extension
+    assert asset.sha256 == expected.archive_sha256
+    assert (
+        install_nextest_module.CARGO_NEXTEST_SHA256[key] == expected.executable_sha256
+    )
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:
@@ -3534,51 +3834,61 @@ printf '%s\\n' "cargo-binstall {version}"
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class _BinstallVersionCase:
+    """Describe one existing-cargo-binstall version-comparison outcome."""
+
+    existing_version: str
+    arrange_pinned_installer: bool
+    ran_pinned_installer: bool
+    expected_message: str
+    expected_stream: str
+
+
 @pytest.mark.parametrize(
-    (
-        "existing_version",
-        "arrange_pinned_installer",
-        "ran_pinned_installer",
-        "expected_message",
-        "expected_stream",
-    ),
+    "case",
     [
-        (
-            "1.19.1",
-            False,
-            False,
-            "cargo-binstall already installed: cargo-binstall 1.19.1",
-            "stdout",
+        pytest.param(
+            _BinstallVersionCase(
+                "1.19.1",
+                arrange_pinned_installer=False,
+                ran_pinned_installer=False,
+                expected_message=(
+                    "cargo-binstall already installed: cargo-binstall 1.19.1"
+                ),
+                expected_stream="stdout",
+            ),
+            id="fast-path-verified-version",
         ),
-        (
-            "1.15.0",
-            True,
-            True,
-            "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0",
-            "stderr",
+        pytest.param(
+            _BinstallVersionCase(
+                "1.15.0",
+                arrange_pinned_installer=True,
+                ran_pinned_installer=True,
+                expected_message=(
+                    "version mismatch: expected 1.19.1, found cargo-binstall 1.15.0"
+                ),
+                expected_stream="stderr",
+            ),
+            id="mismatch-installs-pinned-version",
         ),
-        (
-            "1.19.10",
-            True,
-            True,
-            "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10",
-            "stderr",
+        pytest.param(
+            _BinstallVersionCase(
+                "1.19.10",
+                arrange_pinned_installer=True,
+                ran_pinned_installer=True,
+                expected_message=(
+                    "version mismatch: expected 1.19.1, found cargo-binstall 1.19.10"
+                ),
+                expected_stream="stderr",
+            ),
+            id="longer-version-look-alike-is-rejected",
         ),
-    ],
-    ids=[
-        "fast-path-verified-version",
-        "mismatch-installs-pinned-version",
-        "longer-version-look-alike-is-rejected",
     ],
 )
 def test_generate_coverage_binstall_version_comparison_outcomes(
+    case: _BinstallVersionCase,
     tmp_path: Path,
-    existing_version: str,
-    expected_message: str,
-    expected_stream: str,
-    *,
-    arrange_pinned_installer: bool,
-    ran_pinned_installer: bool,
 ) -> None:
     """Existing cargo-binstall versions are compared exactly, not by substring.
 
@@ -3587,8 +3897,8 @@ def test_generate_coverage_binstall_version_comparison_outcomes(
     ``1.19.10`` look-alike for ``1.19.1``), falls through to the pinned
     installer.
     """
-    _write_existing_cargo_binstall(tmp_path, existing_version)
-    if arrange_pinned_installer:
+    _write_existing_cargo_binstall(tmp_path, case.existing_version)
+    if case.arrange_pinned_installer:
         _write_fake_binstall_installer(tmp_path)
     else:
         _write_executable(
@@ -3602,9 +3912,9 @@ exit 99
     result = _run_ensure_binstall_script(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    haystack = result.stdout if expected_stream == "stdout" else result.stderr
-    assert expected_message in haystack
-    if ran_pinned_installer:
+    haystack = result.stdout if case.expected_stream == "stdout" else result.stderr
+    assert case.expected_message in haystack
+    if case.ran_pinned_installer:
         assert (tmp_path / "installer.log").read_text(encoding="utf-8")
         assert "cargo-binstall cargo-binstall 1.19.1 verified" in result.stdout
     else:

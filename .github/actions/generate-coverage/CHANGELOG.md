@@ -18,6 +18,9 @@
 - Log bounded, structured events for the `cargo-nextest` download attempt and
   duration, the archive digest outcome, the executable digest outcome, and the
   install outcome.
+- Prepend the Cargo bin directory to `PATH` and `GITHUB_PATH` after installing
+  a verified `cargo-nextest`, and fail when an unverified binary still shadows
+  it, so later steps cannot run the binary that failed verification.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes

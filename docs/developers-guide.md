@@ -184,15 +184,15 @@ that the action works, but cannot prove that a pin is the intended revision.
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and
-[`generate-coverage`](../.github/actions/generate-coverage/action.yml) manifests
-share a `cache-provider` boundary. `github` is the backward-compatible default:
-the actions own their Cargo archive caches, while setup-uv retains its automatic
-GitHub-hosted versus self-hosted policy. `external` disables those Cargo and uv
-archive caches so the caller can mount the same paths through exactly one other
-provider. Consumers on Ubicloud, or on any other caller-owned cache setup,
-continue to use `cache-provider: external`. The coverage action deliberately
-leaves ratchet-baseline paths under their separate GitHub cache because
-external mode does not mount them.
+[`generate-coverage`](../.github/actions/generate-coverage/action.yml)
+manifests share a `cache-provider` boundary. `github` is the
+backward-compatible default: the actions own their Cargo archive caches, while
+setup-uv retains its automatic GitHub-hosted versus self-hosted policy.
+`external` disables those Cargo and uv archive caches so the caller can mount
+the same paths through exactly one other provider. Consumers on Ubicloud, or on
+any other caller-owned cache setup, continue to use `cache-provider: external`.
+The coverage action deliberately leaves ratchet-baseline paths under their
+separate GitHub cache because external mode does not mount them.
 
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the
@@ -323,7 +323,6 @@ not pin the asset does a supplied `installer-sha256` become the anchor
 (`whitaker-installer.trust-anchor=input`). An asset with neither anchor fails
 before any download (`whitaker-installer.digest=unpinned`).
 
-
 ### Runner requirements
 
 The action targets the runner operating-system and architecture pairs the
@@ -343,9 +342,10 @@ Beyond Bash, the runner must provide:
   `tar -xf ... --strip-components=1` invocation works across every supported
   pair. `unzip` is deliberately not required, since it is absent from some
   Windows runner images.
-- `RUNNER_TEMP` set to a writable directory. The `Resolve Whitaker release`
-  step fails before any download when it is unset, because the download is
-  staged beneath it.
+- `RUNNER_TEMP` set to a writable directory. The `validate-inputs` step
+  rejects an unset `RUNNER_TEMP` alongside the action's other input
+  preconditions, so the action fails before any download, because the download
+  is staged beneath it.
 
 ## `upload-codescene-coverage` check-mode contract
 
@@ -439,7 +439,6 @@ used for three purposes:
 Keep `cargo_home_bin` resolution and the `BINSTALL_VERSION` pin in sync: both
 must reflect the same intended installation location and version whenever the
 pin is updated.
-
 
 ## `generate-coverage` cargo-nextest installation
 
@@ -666,25 +665,25 @@ defaults to `0.7.0`, and `python-version` defaults to `3.14`. Keep those public
 inputs and their defaults synchronized with the action README and users' guide.
 
 Merman is a release-asset policy, not a package-manager policy. The action
-supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`,
-and `Windows/X64` to an official `Latias94/merman` archive and literal Secure
-Hash Algorithm 256-bit (SHA-256) archive and executable digests. The Windows
-archive is verified with PowerShell's `Get-FileHash` and extracted by
-`Expand-Archive` through Git Bash's path conversion. The action stores Merman
-at `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
+supports only Merman 0.7.0 and maps `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
+`Windows/X64` to an official `Latias94/merman` archive and literal Secure Hash
+Algorithm 256-bit (SHA-256) archive and executable digests. The Windows archive
+is verified with PowerShell's `Get-FileHash` and extracted by `Expand-Archive`
+through Git Bash's path conversion. The action stores Merman at
+`${XDG_CACHE_HOME:-${HOME}/.cache}/merman/<version>/bin` (`.exe` on Windows)
 and revalidates its pinned executable digest before every cache reuse. Callers
 that persist the action's cache must include `~/.cache/merman`. On a cache miss
-it downloads, checksums, extracts, and installs the release asset. Do not add Cargo,
-`cargo binstall`, or a source-build fallback. Adding a new Merman release or
-runner pair requires an official release asset, an independently reviewed
-digest, focused tests, and synchronized user-facing documentation; fail closed
-until all four exist.
+it downloads, checksums, extracts, and installs the release asset. Do not add
+Cargo, `cargo binstall`, or a source-build fallback. Adding a new Merman
+release or runner pair requires an official release asset, an independently
+reviewed digest, focused tests, and synchronized user-facing documentation;
+fail closed until all four exist.
 
 Nixie reconciles its exact package version with ordinary `uv tool install`.
 After obtaining the `uv tool dir --bin` directory, the action checks for the
-`nixie` executable shim and repeats the installation with `--force` only when that
-shim is absent. Do not add a `nixie --version` probe. Both Merman and Nixie
-executable checks must succeed before their directories are written to
+`nixie` executable shim and repeats the installation with `--force` only when
+that shim is absent. Do not add a `nixie --version` probe. Both Merman and
+Nixie executable checks must succeed before their directories are written to
 `GITHUB_PATH`. On Windows, convert the native `uv` directory to a Git Bash path
 for executable checks, while retaining the native directory for `GITHUB_PATH`.
 

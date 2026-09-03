@@ -362,6 +362,41 @@ def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
     return destination
 
 
+def _prepend_to_path(directory: Path) -> None:
+    """Put ``directory`` ahead of the ambient PATH, for this run and the job."""
+    os.environ["PATH"] = os.pathsep.join(
+        [str(directory), os.environ.get("PATH", "")],
+    )
+    github_path = os.environ.get("GITHUB_PATH")
+    if github_path:
+        with Path(github_path).open("a", encoding="utf-8") as handle:
+            handle.write(f"{directory}\n")
+    logger.info("event=nextest.path.prepend directory=%s", directory)
+
+
+def _ensure_verified_binary_resolves(destination: Path, expected_sha: str) -> None:
+    """Fail unless the binary later steps will resolve is the verified one."""
+    resolved = _resolve_nextest_binary()
+    if resolved is not None and _sha256_path(resolved) == expected_sha:
+        logger.info(
+            "event=nextest.path.resolve outcome=ok path=%s",
+            resolved,
+        )
+        return
+    logger.error(
+        "event=nextest.path.resolve outcome=shadowed resolved=%s destination=%s",
+        resolved,
+        destination,
+    )
+    typer.echo(
+        "cargo-nextest on PATH is "
+        f"{resolved if resolved is not None else 'missing'}, "
+        f"not the verified binary installed at {destination}",
+        err=True,
+    )
+    raise typer.Exit(1)
+
+
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
     expected_sha, asset = _release_for_platform()
@@ -371,7 +406,12 @@ def main() -> None:
         typer.echo("cargo-nextest already installed and verified")
         return
 
-    install_cargo_nextest(asset, expected_sha)
+    # An unverified binary earlier on PATH would otherwise shadow the one just
+    # installed, so later steps would run the very binary that failed
+    # verification.
+    destination = install_cargo_nextest(asset, expected_sha)
+    _prepend_to_path(destination.parent)
+    _ensure_verified_binary_resolves(destination, expected_sha)
     logger.info("cargo-nextest installation and verification succeeded")
 
 

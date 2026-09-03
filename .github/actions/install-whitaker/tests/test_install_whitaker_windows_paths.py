@@ -148,15 +148,101 @@ def test_a_posix_staging_path_is_unaffected(tmp_path: Path, *, gnu: bool) -> Non
     assert "--strip-components=1" in arguments
 
 
-def test_the_resolve_step_normalizes_the_staging_path() -> None:
-    """The path is normalized once, where it is first produced.
+def _run_resolve(
+    tmp_path: Path, *, staging_dir: str, with_cygpath: bool
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Run the resolve fragment and return the process and the recorded path.
 
-    Normalising in each consumer would leave the next one to remember; doing
-    it at the source means download, verify, extract, and install all receive
-    the POSIX form.
+    Both `cygpath` and the resolve script are stubbed, so what is measured is
+    the staging path the fragment hands downstream rather than its text.
     """
+    bash = shutil.which("bash")
+    if bash is None:  # pragma: no cover - environment guard
+        pytest.skip("bash not found on PATH")
+    stub_dir = tmp_path / "cygpath-stub"
+    stub_dir.mkdir(parents=True, exist_ok=True)
+    if with_cygpath:
+        # Stands in for the real cygpath: D:\a\_temp becomes /d/a/_temp.
+        stub = stub_dir / "cygpath"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            'python3 -c "import sys;p=sys.argv[1];'
+            "print('/'+p[0].lower()+p[2:].replace(chr(92),'/'))\" \"$2\"\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+
+    recorded = tmp_path / "staging-dir.txt"
+    resolve_script = tmp_path / "resolve-release.sh"
+    resolve_script.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf "%s" "$WHITAKER_STAGING_DIR" > "{recorded}"\n'
+        'printf "status=install\\n"\n'
+        'printf "staging-dir=%s\\n" "$WHITAKER_STAGING_DIR"\n',
+        encoding="utf-8",
+    )
+    resolve_script.chmod(0o755)
+
+    github_output = tmp_path / "github-output"
+    github_output.touch()
+    path = os.environ.get("PATH", "")
+    environment = {
+        **os.environ,
+        "PATH": f"{stub_dir}{os.pathsep}{path}" if with_cygpath else path,
+        "GITHUB_OUTPUT": str(github_output),
+        "WHITAKER_INSTALLER_VERSION": "0.2.7",
+        "WHITAKER_RESOLVE_SCRIPT": str(resolve_script),
+        "WHITAKER_STAGING_DIR": staging_dir,
+    }
+    environment.pop("GITHUB_STEP_SUMMARY", None)
     script = step_by_name("Resolve Whitaker release")["run"]
     assert isinstance(script, str)
+    completed = subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
+        [bash, "-c", script],
+        capture_output=True,
+        check=False,
+        cwd=tmp_path,
+        env=environment,
+        text=True,
+        timeout=30,
+    )
+    seen = recorded.read_text(encoding="utf-8") if recorded.is_file() else ""
+    return completed, seen
 
-    assert "cygpath -u" in script
-    assert "WHITAKER_STAGING_DIR" in script
+
+def test_the_resolve_step_hands_downstream_a_posix_path(tmp_path: Path) -> None:
+    """The conversion must reach the resolve script, not merely be written.
+
+    Asserting on the fragment's text would pass if `cygpath` ran without its
+    result being assigned, or after the resolve script; in both cases the
+    later steps would still receive the native path.
+    """
+    completed, seen = _run_resolve(
+        tmp_path, staging_dir=WINDOWS_STAGING_DIR, with_cygpath=True
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert ":" not in seen, f"the drive letter survived: {seen}"
+    assert seen.startswith("/d/")
+    assert seen.endswith("/whitaker-installer-release")
+
+
+def test_the_published_staging_path_is_the_converted_one(tmp_path: Path) -> None:
+    """The value carried across the step boundary must be the converted one."""
+    completed, seen = _run_resolve(
+        tmp_path, staging_dir=WINDOWS_STAGING_DIR, with_cygpath=True
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    published = (tmp_path / "github-output").read_text(encoding="utf-8")
+    assert f"staging-dir={seen}" in published
+
+
+def test_a_posix_host_without_cygpath_is_left_alone(tmp_path: Path) -> None:
+    """Linux and macOS runners have no `cygpath`, and need none."""
+    staging = str(tmp_path / "staging")
+
+    completed, seen = _run_resolve(tmp_path, staging_dir=staging, with_cygpath=False)
+
+    assert completed.returncode == 0, completed.stderr
+    assert seen == staging

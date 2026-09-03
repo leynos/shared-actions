@@ -193,6 +193,33 @@ for each archive cache to the workflow log and job summary. External cache hit
 telemetry remains the caller's responsibility because this action does not
 mount that cache.
 
+### cargo-nextest installation
+
+`cargo-nextest` is downloaded directly from its pinned official release rather
+than through `cargo-binstall`, so a compromised or redirected download cannot
+substitute an arbitrary archive: both the archive and the extracted executable
+are verified against SHA-256 digests pinned in the installer script, and the
+download is capped at 200 MB so a redirected or compromised endpoint cannot
+fill the runner's disk before that digest check runs. When an already-verified
+binary is reused, or when a fresh one is installed, its directory is prepended
+to `PATH` and `GITHUB_PATH` so later steps resolve it even when `CARGO_HOME`
+points somewhere non-standard; installation fails loudly if an unverified
+binary would still shadow it afterwards.
+
+The installer reports each step to the job summary as a bounded
+`cargo-nextest.` metric, mirroring the Whitaker action:
+
+```text
+cargo-nextest.download=ok duration_seconds=1.204 bytes=2469093
+cargo-nextest.archive-digest=ok
+cargo-nextest.binary-digest=ok
+cargo-nextest.install=ok
+```
+
+A reused, already-verified binary instead reports
+`cargo-nextest.binary-digest=ok` and `cargo-nextest.install=reused`, without a
+download or a fresh archive-digest check.
+
 ### Selecting the coverage language
 
 By default (`language: auto`) the action infers the scope from the manifests

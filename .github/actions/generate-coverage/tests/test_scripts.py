@@ -118,11 +118,14 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Return a freshly loaded ``install_cargo_nextest`` module for testing.
 
-    Clears ``GITHUB_STEP_SUMMARY`` so tests that do not explicitly point it
-    at a ``tmp_path`` file cannot leak bounded metric lines into a real job
-    summary when this suite itself runs inside a GitHub Actions job.
+    Clears ``GITHUB_STEP_SUMMARY`` and ``GITHUB_PATH`` so tests that do not
+    explicitly point them at a ``tmp_path`` file cannot leak bounded metric
+    lines or PATH exports into the real job when this suite itself runs
+    inside a GitHub Actions job -- ``main`` now prepends to both on its
+    install and its preinstalled-binary-reuse paths.
     """
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.delenv("GITHUB_PATH", raising=False)
     return _load_module(monkeypatch, "install_cargo_nextest")
 
 
@@ -2523,21 +2526,37 @@ def test_install_cargo_nextest_metrics_for_successful_install(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A successful install emits one bounded metric line per verified step."""
+    """A successful install emits one bounded metric line per verified step.
+
+    Drives the real ``_download_archive`` (redirected to a local fixture
+    archive, as in ``test_install_cargo_nextest_end_to_end_from_local_archive``)
+    rather than the stubbed helper used elsewhere in this module, so the
+    download metric -- the one metric that helper never exercises -- is
+    covered too.
+    """
     summary = tmp_path / "step-summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
-
-    outcome = _attempt_nextest_install(
-        install_nextest_module,
-        tmp_path / "cargo-home",
-        None,
+    binary_payload = b"#!/bin/sh\necho cargo-nextest-fixture\n"
+    archive = tmp_path / "cargo-nextest-fixture.tar.gz"
+    _write_tar_archive(archive, {"cargo-nextest": binary_payload})
+    archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    binary_sha = hashlib.sha256(binary_payload).hexdigest()
+    asset = install_nextest_module.ReleaseAsset(
+        "x86_64-unknown-linux-gnu", "tar.gz", archive_sha
     )
 
-    assert outcome.exit_code is None
+    def fake_urlopen(_request: object, timeout: float | None = None) -> typ.IO[bytes]:
+        return archive.open("rb")
+
+    monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("CARGO_HOME", str(tmp_path / "cargo-home"))
+
+    install_nextest_module.install_cargo_nextest(asset, binary_sha)
+
     lines = _read_step_summary(summary)
     assert len(lines) == 4
     assert lines[0].startswith("cargo-nextest.download=ok duration_seconds=")
-    assert lines[0].endswith(f"bytes={len(_NEXTEST_ARCHIVE_PAYLOAD)}")
+    assert lines[0].endswith(f"bytes={archive.stat().st_size}")
     assert lines[1] == "cargo-nextest.archive-digest=ok"
     assert lines[2] == "cargo-nextest.binary-digest=ok"
     assert lines[3] == "cargo-nextest.install=ok"
@@ -2548,7 +2567,12 @@ def test_install_cargo_nextest_metrics_for_binary_digest_mismatch(
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A binary-digest mismatch emits the failing step and the aggregate outcome."""
+    """A binary-digest mismatch emits the failing step and the aggregate outcome.
+
+    Uses the stubbed ``_attempt_nextest_install`` helper, whose ``download``
+    stub replaces ``_download_archive`` outright, so no download metric is
+    expected here; the real download path is covered separately above.
+    """
     summary = tmp_path / "step-summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
 
@@ -2559,12 +2583,11 @@ def test_install_cargo_nextest_metrics_for_binary_digest_mismatch(
     )
 
     assert outcome.exit_code == 1
-    lines = _read_step_summary(summary)
-    assert len(lines) == 4
-    assert lines[0].startswith("cargo-nextest.download=ok duration_seconds=")
-    assert lines[1] == "cargo-nextest.archive-digest=ok"
-    assert lines[2] == "cargo-nextest.binary-digest=mismatch"
-    assert lines[3] == "cargo-nextest.install=failed"
+    assert _read_step_summary(summary) == [
+        "cargo-nextest.archive-digest=ok",
+        "cargo-nextest.binary-digest=mismatch",
+        "cargo-nextest.install=failed",
+    ]
 
 
 def test_main_metrics_for_reused_binary(

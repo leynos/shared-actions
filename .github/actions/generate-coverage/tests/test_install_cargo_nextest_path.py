@@ -36,11 +36,13 @@ _SHADOWING_PAYLOAD = b"shadowing-cargo-nextest"
 def nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Return a freshly loaded ``install_cargo_nextest`` module.
 
-    Clears ``GITHUB_STEP_SUMMARY`` so these tests cannot leak bounded metric
-    lines into a real job summary when this suite itself runs inside a
-    GitHub Actions job.
+    Clears ``GITHUB_STEP_SUMMARY`` and ``GITHUB_PATH`` so these tests
+    cannot leak bounded metric lines or PATH exports into the real job when
+    this suite itself runs inside a GitHub Actions job. Tests that exercise
+    ``GITHUB_PATH`` explicitly point it at a ``tmp_path`` file below.
     """
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.delenv("GITHUB_PATH", raising=False)
     monkeypatch.delitem(sys.modules, "install_cargo_nextest", raising=False)
     spec = importlib.util.spec_from_file_location("install_cargo_nextest", _SCRIPT)
     if spec is None or spec.loader is None:  # pragma: no cover - import failure.

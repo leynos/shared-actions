@@ -226,6 +226,9 @@ path has exactly one cache owner. Ratchet baseline restore and save remain
 GitHub caches because their paths are outside the Namespace Rust and uv mounts.
 They use the `actions/cache/restore` and `actions/cache/save` sub-actions
 rather than the full action, so only the save step writes the baseline key.
+Both halves report a bounded outcome in the log and job summary, and each is
+also emitted as a fixed `metric ratchet-cache.restore=<state>` or
+`metric ratchet-cache.save=<state>` line for log scrapers.
 
 ```yaml
 - uses: ./.github/actions/generate-coverage

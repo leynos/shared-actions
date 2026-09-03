@@ -207,6 +207,24 @@ earlier step must read and not write, and the later step must write and not
 read. Any other pairing either gives the run-id key two writers or restores the
 baseline again after the ratchet has advanced it.
 
+Every action in this repository reaches `actions/cache`, and its `restore` and
+`save` sub-actions, through one pinned commit. A moving tag such as `@v4` can
+resolve to a release a transparent runner cache does not intercept, so its
+saves become wasted upload. The contract in
+[`test_cache_action_pinning.py`](../.github/actions/tests/test_cache_action_pinning.py)
+sweeps every manifest under `.github/actions`, requires each reference to be a
+full commit SHA, and requires all of them to share one revision, so bumping the
+cache action stays a single decision rather than a per-action drift.
+
+Two actions persist a ratchet baseline, `generate-coverage` and
+`ratchet-coverage`, and both must use the same cache shape. The contract in
+[`test_ratchet_baseline_cache.py`](../.github/actions/tests/test_ratchet_baseline_cache.py)
+is parametrized over both: the restore/save split, one pinned revision per
+pair, a run-scoped key shared by both halves, the prefix restore-key that
+recovers the newest entry, restore before save over identical paths, and no
+`cache-hit` guard on the save. Each action's own test directory keeps only what
+is specific to it.
+
 A separate reporting step emits bounded outcomes for both halves, because the
 save runs long after the archive-cache reporter. Keep the restore states closed
 to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to
@@ -215,6 +233,15 @@ to `hit`, `miss`, `skipped`, `disabled`, and `error`, and the save states to
 skips them while the cache is still configured, and conflating the two would
 report a live cache as switched off. The notice must never carry the key, which
 embeds the run id, nor the baseline paths.
+
+The same states are emitted as two fixed metric lines,
+`metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
+for consumers that scrape rather than read. Keep the metric names fixed and the
+values drawn from those vocabularies: a name or value that varied with the run
+would give the series unbounded cardinality and make it useless to aggregate.
+A test enumerates every step-outcome combination and asserts the emitted values
+stay inside both sets, so widening a vocabulary in the manifest without
+widening it there fails.
 
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the

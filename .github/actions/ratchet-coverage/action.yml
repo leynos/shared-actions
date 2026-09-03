@@ -25,12 +25,19 @@ runs:
           **/uv.lock
           **/scripts/*.py
     - name: Restore baseline
-      uses: actions/cache@v4
+      id: restore-baseline
+      # The restore sub-action, not the full `actions/cache` action: the full
+      # action also registers a post-job save on its primary key, which the
+      # "Save baseline" step below already writes.
+      # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ inputs.baseline-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: ratchet-baseline-${{ runner.os }}-
     - name: Cache cargo artefacts
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ~/.cargo/bin/cargo-llvm-cov
@@ -60,8 +67,18 @@ runs:
           --current "${{ steps.cov.outputs.percent }}"
       shell: bash
     - name: Save baseline
+      # Save under the same run-id-suffixed key the restore step uses as its
+      # primary key. GitHub Actions cache entries are immutable, so the former
+      # constant key could only ever be written once and then froze the
+      # baseline until eviction. A per-run key is unique, so every run persists
+      # a fresh baseline that later runs recover through the
+      # `ratchet-baseline-${{ runner.os }}-` restore-key prefix, newest match
+      # first.
       if: success()
-      uses: actions/cache@v4
+      # The save sub-action pairs with the restore sub-action above, so exactly
+      # one step writes this key.
+      # v6.1.0
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ${{ inputs.baseline-file }}
-        key: ratchet-baseline-${{ runner.os }}
+        key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}

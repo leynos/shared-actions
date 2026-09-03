@@ -64,8 +64,25 @@ Its restore step uses `actions/cache/restore` and its save step uses
 Only the save step writes, so the two halves no longer contend for the key.
 That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 `error` restore state and `saved`, `skipped`, `disabled`, or `error` save
-state, naming neither the key nor the baseline paths. `disabled` means the
+state, naming neither the key nor the baseline paths. Each outcome is also
+written as a fixed `metric ratchet-cache.restore=<state>` or
+`metric ratchet-cache.save=<state>` line, so a log scraper can read the result
+without parsing the notice text. `disabled` means the
 ratchet is off; `skipped` means an earlier failure stopped the step running.
+
+## `ratchet-coverage` baseline caching
+
+`ratchet-coverage` stores its coverage baseline in a GitHub cache between runs.
+That cache used one constant key, `ratchet-baseline-<os>`. Cache entries are
+immutable, so the key could only ever be written once and then held whatever
+the first run after an eviction measured, which made later runs report a
+decrease that had not happened.
+
+The baseline is now keyed per run, `ratchet-baseline-<os>-<run id>`, restored
+through the shared `ratchet-baseline-<os>-` prefix so each run recovers the
+newest stored baseline. Nothing changes in how the action is called, and no
+input moves. Existing entries under the old key are simply never read again;
+the first run after this change starts from no baseline and stores one.
 
 ## Running coverage as the only test execution
 

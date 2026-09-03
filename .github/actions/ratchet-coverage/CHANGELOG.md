@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Pin every `actions/cache` reference to the v6.1.0 commit
+  `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.
+  The tag breaks the repository's SHA-pinning policy, and the older releases it
+  can resolve to are not intercepted by a transparent runner cache, so their
+  saves became wasted upload.
+- Stop the ratchet baseline freezing after its first write. "Restore baseline"
+  and "Save baseline" both used the full `actions/cache` action against the
+  constant key `ratchet-baseline-<os>`, so the key had two writers and, being
+  immutable, could only ever be written once. The pair now uses the
+  `actions/cache/restore` and `actions/cache/save` sub-actions against a
+  run-scoped key, with a shared `ratchet-baseline-<os>-` prefix as the
+  restore-key, so every run persists a fresh baseline that later runs recover.
+
 ## v1.0.6
 
 - Overwrite existing `cargo-llvm-cov` installation using `--force` to avoid

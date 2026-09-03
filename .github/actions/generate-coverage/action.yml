@@ -150,7 +150,6 @@ runs:
           ~/.cargo/bin/cargo-nextest
           ~/.cargo/registry
           ~/.cargo/git
-          target
         key: ${{ runner.os }}-llvmcov-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-llvmcov-

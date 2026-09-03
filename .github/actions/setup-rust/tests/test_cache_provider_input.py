@@ -120,6 +120,36 @@ def test_external_cache_disables_nested_archive_caches() -> None:
     )
 
 
+def test_cargo_cache_archives_registry_and_git_index_only() -> None:
+    """Cache the Cargo registry and Git index; leave ``target`` to sccache."""
+    cargo_cache_inputs = get_step("Cache cargo registry").get("with")
+
+    assert isinstance(cargo_cache_inputs, dict)
+    paths = [
+        line.strip()
+        for line in str(cargo_cache_inputs["path"]).splitlines()
+        if line.strip()
+    ]
+    assert paths == ["~/.cargo/registry", "~/.cargo/git"]
+
+
+def test_cargo_cache_key_is_profile_agnostic() -> None:
+    """Drop the dead ``BUILD_PROFILE`` fragment from the cache key."""
+    cargo_cache_inputs = get_step("Cache cargo registry").get("with")
+
+    assert isinstance(cargo_cache_inputs, dict)
+    assert cargo_cache_inputs["key"] == (
+        "${{ runner.os }}-cargo-"
+        "${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}"
+    )
+    restore_keys = [
+        line.strip()
+        for line in str(cargo_cache_inputs["restore-keys"]).splitlines()
+        if line.strip()
+    ]
+    assert restore_keys == ["${{ runner.os }}-cargo-"]
+
+
 @pytest.mark.parametrize(
     ("environment", "expected_notice"),
     [

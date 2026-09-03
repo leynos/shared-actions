@@ -198,10 +198,9 @@ runs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          target/${{ env.BUILD_PROFILE }}
-        key: ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}
         restore-keys: |
-          ${{ runner.os }}-cargo-${{ env.BUILD_PROFILE }}-
+          ${{ runner.os }}-cargo-
     - name: Report archive cache decisions
       if: ${{ always() }}
       shell: bash

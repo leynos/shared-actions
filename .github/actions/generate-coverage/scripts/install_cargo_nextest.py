@@ -400,25 +400,46 @@ def _verify_archive(archive: Path, asset: ReleaseAsset) -> None:
     emit_metric("cargo-nextest.archive-digest=ok")
 
 
-def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
-    """Verify the cargo-nextest binary against the expected SHA-256."""
-    actual_sha = _sha256_path(path)
-    if actual_sha == expected_sha:
-        logger.info("event=nextest.binary.verify path=%s outcome=ok", path)
+class BinaryDigest(typ.NamedTuple):
+    """Report one executable digest comparison.
+
+    Purely a value: computing it writes no metric, logs nothing, and prints
+    nothing. The orchestration decides what to report and whether to fail.
+    """
+
+    path: Path
+    expected: str
+    actual: str
+
+    @property
+    def matches(self) -> bool:
+        """Return whether the executable carries the expected digest."""
+        return self.actual == self.expected
+
+
+def verify_nextest_binary(path: Path, expected_sha: str) -> BinaryDigest:
+    """Compare the cargo-nextest executable against its expected SHA-256."""
+    return BinaryDigest(path=path, expected=expected_sha, actual=_sha256_path(path))
+
+
+def _report_binary_digest(digest: BinaryDigest) -> None:
+    """Log, record, and echo the outcome of one executable digest check."""
+    if digest.matches:
+        logger.info("event=nextest.binary.verify path=%s outcome=ok", digest.path)
         emit_metric("cargo-nextest.binary-digest=ok")
-        return True
+        return
     logger.error(
         "event=nextest.binary.verify path=%s outcome=mismatch expected=%s actual=%s",
-        path,
-        expected_sha,
-        actual_sha,
+        digest.path,
+        digest.expected,
+        digest.actual,
     )
     emit_metric("cargo-nextest.binary-digest=mismatch")
     typer.echo(
-        f"cargo-nextest checksum mismatch: expected {expected_sha}, got {actual_sha}",
+        f"cargo-nextest checksum mismatch: expected {digest.expected}, "
+        f"got {digest.actual}",
         err=True,
     )
-    return False
 
 
 def _reject_mismatched_binary(
@@ -427,7 +448,9 @@ def _reject_mismatched_binary(
     expected_sha: str,
 ) -> None:
     """Fail unless the extracted executable matches its pinned digest."""
-    if verify_nextest_binary(candidate, expected_sha):
+    digest = verify_nextest_binary(candidate, expected_sha)
+    _report_binary_digest(digest)
+    if digest.matches:
         return
     logger.error(
         "event=nextest.install destination=%s outcome=binary-mismatch",
@@ -509,11 +532,18 @@ def _ensure_verified_binary_resolves(destination: Path, expected_sha: str) -> No
     raise typer.Exit(1)
 
 
+def _existing_binary_is_verified(existing: Path, expected_sha: str) -> bool:
+    """Report whether an already-present executable carries the pinned digest."""
+    digest = verify_nextest_binary(existing, expected_sha)
+    _report_binary_digest(digest)
+    return digest.matches
+
+
 def main() -> None:
     """Install cargo-nextest and verify the binary checksum."""
     expected_sha, asset = _release_for_platform()
     existing = _resolve_nextest_binary()
-    if existing is not None and verify_nextest_binary(existing, expected_sha):
+    if existing is not None and _existing_binary_is_verified(existing, expected_sha):
         logger.info("Using preinstalled cargo-nextest at %s", existing)
         typer.echo("cargo-nextest already installed and verified")
         # ``existing`` may have resolved via CARGO_HOME/bin even when that

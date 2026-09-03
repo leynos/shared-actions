@@ -257,11 +257,15 @@ def test_install_nextest_skips_when_verified(
     expected = hashlib.sha256(b"payload").hexdigest()
     called: dict[str, bool] = {"verify": False}
 
-    def fake_verify(path: Path, sha: str) -> bool:
+    def fake_verify(path: Path, sha: str) -> object:
         assert path == binary
         assert sha == expected
         called["verify"] = True
-        return True
+        return install_nextest_module.BinaryDigest(
+            path=path,
+            expected=sha,
+            actual=sha,
+        )
 
     def fail_install(*_args: object) -> None:
         raise AssertionError
@@ -278,6 +282,85 @@ def test_install_nextest_skips_when_verified(
 
     install_nextest_module.main()
     assert called["verify"] is True
+
+
+def test_verify_nextest_binary_writes_nothing(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Comparing a digest emits no metric, no log line, and no message."""
+    summary = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    binary = tmp_path / "cargo-nextest"
+    binary.write_bytes(b"payload")
+
+    matched = install_nextest_module.verify_nextest_binary(
+        binary,
+        hashlib.sha256(b"payload").hexdigest(),
+    )
+    mismatched = install_nextest_module.verify_nextest_binary(binary, "deadbeef")
+
+    assert matched.matches
+    assert not mismatched.matches
+    assert not summary.exists()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+_EXPECTED_RELEASE_DIRECTORY = (
+    "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.120"
+)
+
+
+@pytest.mark.parametrize(
+    ("target", "extension"),
+    [
+        pytest.param("x86_64-unknown-linux-gnu", "tar.gz", id="linux-x86_64-gnu"),
+        pytest.param("x86_64-unknown-linux-musl", "tar.gz", id="linux-x86_64-musl"),
+        pytest.param("aarch64-unknown-linux-gnu", "tar.gz", id="linux-aarch64-gnu"),
+        pytest.param("universal-apple-darwin", "tar.gz", id="mac-universal"),
+        pytest.param("x86_64-pc-windows-msvc", "zip", id="windows-x86_64"),
+        pytest.param("aarch64-pc-windows-msvc", "zip", id="windows-aarch64"),
+    ],
+)
+def test_download_requests_the_expected_release_url(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    extension: str,
+) -> None:
+    """The download asks for the pinned HTTPS release archive and nothing else.
+
+    The expected directory and filename are written out here rather than
+    derived from the script, so a change to either has to be made deliberately
+    in two places.
+    """
+    captured: dict[str, object] = {}
+
+    def capture_urlopen(request: object, timeout: float | None = None) -> typ.IO[bytes]:
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        return io.BytesIO(b"archive")
+
+    monkeypatch.setattr(
+        install_nextest_module.urllib.request,
+        "urlopen",
+        capture_urlopen,
+    )
+    asset = install_nextest_module.ReleaseAsset(target, extension, "0" * 64)
+
+    install_nextest_module._download_archive(asset, tmp_path / "archive")
+
+    expected_filename = f"cargo-nextest-0.9.120-{target}.{extension}"
+    assert asset.filename == expected_filename
+    assert captured["url"] == f"{_EXPECTED_RELEASE_DIRECTORY}/{expected_filename}"
+    assert str(captured["url"]).startswith("https://")
+    assert captured["timeout"] == 60
+    assert (tmp_path / "archive").read_bytes() == b"archive"
 
 
 def test_install_nextest_download_failure(
@@ -368,8 +451,15 @@ def test_install_nextest_checksum_verification(
         hashlib.sha256(payload).hexdigest() if case.use_matching_digest else "deadbeef"
     )
 
-    verified = install_nextest_module.verify_nextest_binary(binary, expected)
+    digest = install_nextest_module.verify_nextest_binary(binary, expected)
 
-    assert verified is case.expect_verified
+    assert digest.matches is case.expect_verified
+    assert digest.path == binary
+    assert digest.expected == expected
+    # Comparing is pure: nothing is echoed until the orchestration reports it.
+    assert capsys.readouterr().err == ""
+
+    install_nextest_module._report_binary_digest(digest)
+
     if not case.expect_verified:
         assert "cargo-nextest checksum mismatch" in capsys.readouterr().err

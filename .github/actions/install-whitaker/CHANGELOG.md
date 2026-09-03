@@ -20,6 +20,10 @@ this file.
   and install steps
 - Extract both archive formats with `tar` rather than `unzip`, which is not
   present on every runner image
-- Retry each release download with bounded connect and transfer timeouts
+- Retry each release download with bounded connect and transfer timeouts, and
+  record each transfer's outcome, HTTP status, size, duration, and attempt
+  count
+- Separate release resolution, which now only computes and records, from the
+  publication step that writes outputs, metrics, and annotations
 - Report the digest outcome and trust-anchor source in the job summary
 - Default `installer-version` to `0.2.7`

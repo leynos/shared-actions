@@ -79,6 +79,7 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
                 **ambient_env(),
                 "HOME": bash_path(home),
                 "RUNNER_OS": inputs.runner_os,
+                "RUNNER_TEMP": bash_path(tmp_path),
             },
             cwd=tmp_path,
             output_dir=tmp_path,

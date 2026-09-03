@@ -42,6 +42,9 @@ runs:
           echo "::error title=Invalid Whitaker input::$1" >&2
           exit 1
         }
+        if [[ -z "${RUNNER_TEMP:-}" ]]; then
+          input_error "RUNNER_TEMP must name a writable staging directory"
+        fi
         if [[ "$CARGO_HOME_INPUT" == *$'\r'* || "$CARGO_HOME_INPUT" == *$'\n'* ]]; then
           input_error "cargo-home must not contain a carriage return or newline"
         fi
@@ -133,7 +136,6 @@ runs:
         emit_metric "whitaker-installer.cache=${cache_state}"
 
     - name: Resolve Whitaker release
-      id: resolve-release
       shell: bash
       env:
         RUNNER_ARCHITECTURE: ${{ runner.arch }}
@@ -142,18 +144,14 @@ runs:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_SHA256: ${{ steps.validate-inputs.outputs.installer-sha256 }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_RESOLUTION_FILE: ${{ runner.temp }}/whitaker-resolution
+        WHITAKER_STAGING_DIR: ${{ runner.temp }}/whitaker-installer-release
       run: |
+        # Pure resolution. This step reads runner state and the pinned digest
+        # manifest and records what it computed. It writes no step outputs, no
+        # job-summary metrics, and no workflow annotations; the publication
+        # step below turns this record into those effects.
         set -euo pipefail
-        emit_metric() {
-          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
-          fi
-        }
-        step_error() {
-          echo "::error title=Whitaker installer failed::$1" >&2
-          emit_metric "whitaker-installer.failure=install"
-          exit 1
-        }
         resolve_target() {
           case "${RUNNER_OPERATING_SYSTEM}:${RUNNER_ARCHITECTURE}" in
             Linux:X64) echo 'x86_64-unknown-linux-gnu tgz whitaker-installer' ;;
@@ -170,14 +168,23 @@ runs:
           fi
           awk -v asset="$1" '$2 == asset { print $1; exit }' "$WHITAKER_DIGEST_MANIFEST"
         }
+        record() {
+          printf '%s=%s\n' "$1" "$2" >> "$WHITAKER_RESOLUTION_FILE"
+        }
+        record_error() {
+          record status error
+          record error-kind "$1"
+          record error-message "$2"
+          exit 0
+        }
+        : > "$WHITAKER_RESOLUTION_FILE"
         if [[ -x "$WHITAKER_INSTALLER_PATH" ]]; then
-          echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
-          emit_metric "whitaker-installer.path=cache"
-          printf 'needs-install=false\n' >> "$GITHUB_OUTPUT"
+          record status cached
           exit 0
         fi
         if ! target_spec="$(resolve_target)"; then
-          step_error "unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}"
+          record_error unsupported-runner \
+            "unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}"
         fi
         read -r target extension installer_name <<< "$target_spec"
         asset="whitaker-installer-${target}-v${WHITAKER_INSTALLER_VERSION}.${extension}"
@@ -185,8 +192,8 @@ runs:
         supplied_sha="${WHITAKER_INSTALLER_SHA256:-}"
         if [[ -n "$pinned_sha" ]]; then
           if [[ -n "$supplied_sha" && "$supplied_sha" != "$pinned_sha" ]]; then
-            emit_metric "whitaker-installer.digest=conflict"
-            step_error "installer-sha256 ${supplied_sha} conflicts with the digest pinned for ${asset} (${pinned_sha}); remove the input or correct it"
+            record_error digest-conflict \
+              "installer-sha256 ${supplied_sha} conflicts with the digest pinned for ${asset} (${pinned_sha}); remove the input or correct it"
           fi
           expected_sha="$pinned_sha"
           trust_anchor=pinned
@@ -194,21 +201,75 @@ runs:
           expected_sha="$supplied_sha"
           trust_anchor=input
         else
-          emit_metric "whitaker-installer.digest=unpinned"
-          step_error "no pinned SHA-256 for ${asset}; supply the installer-sha256 input to install version ${WHITAKER_INSTALLER_VERSION}"
+          record_error unpinned-digest \
+            "no pinned SHA-256 for ${asset}; supply the installer-sha256 input to install version ${WHITAKER_INSTALLER_VERSION}"
         fi
-        if [[ -z "${RUNNER_TEMP:-}" ]]; then
-          step_error "RUNNER_TEMP must name a writable staging directory"
+        record status install
+        record asset "$asset"
+        record extension "$extension"
+        record installer-name "$installer_name"
+        record expected-sha "$expected_sha"
+        record trust-anchor "$trust_anchor"
+        record staging-dir "$WHITAKER_STAGING_DIR"
+
+    - name: Publish Whitaker resolution
+      id: resolve-release
+      shell: bash
+      env:
+        WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_RESOLUTION_FILE: ${{ runner.temp }}/whitaker-resolution
+      run: |
+        # Publication. Every externally visible effect of resolution lives
+        # here: the step outputs, the job-summary metrics, the annotations,
+        # and the decision to fail the job.
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        field() {
+          awk -v key="$1" -F= '$1 == key { sub(/^[^=]*=/, ""); print; exit }' \
+            "$WHITAKER_RESOLUTION_FILE"
+        }
+        publish_error() {
+          case "$(field error-kind)" in
+            digest-conflict) emit_metric "whitaker-installer.digest=conflict" ;;
+            unpinned-digest) emit_metric "whitaker-installer.digest=unpinned" ;;
+          esac
+          echo "::error title=Whitaker installer failed::$(field error-message)" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
+        }
+        if [[ ! -f "$WHITAKER_RESOLUTION_FILE" ]]; then
+          echo "::error title=Whitaker installer failed::resolution produced no record" >&2
+          emit_metric "whitaker-installer.failure=install"
+          exit 1
         fi
-        {
-          printf 'needs-install=true\n'
-          printf 'asset=%s\n' "$asset"
-          printf 'extension=%s\n' "$extension"
-          printf 'installer-name=%s\n' "$installer_name"
-          printf 'expected-sha=%s\n' "$expected_sha"
-          printf 'trust-anchor=%s\n' "$trust_anchor"
-          printf 'staging-dir=%s\n' "${RUNNER_TEMP}/whitaker-installer-release"
-        } >> "$GITHUB_OUTPUT"
+        case "$(field status)" in
+          cached)
+            echo "::notice title=Whitaker installer::path=cache version=${WHITAKER_INSTALLER_VERSION}"
+            emit_metric "whitaker-installer.path=cache"
+            printf 'needs-install=false\n' >> "$GITHUB_OUTPUT"
+            ;;
+          install)
+            {
+              printf 'needs-install=true\n'
+              printf 'asset=%s\n' "$(field asset)"
+              printf 'extension=%s\n' "$(field extension)"
+              printf 'installer-name=%s\n' "$(field installer-name)"
+              printf 'expected-sha=%s\n' "$(field expected-sha)"
+              printf 'trust-anchor=%s\n' "$(field trust-anchor)"
+              printf 'staging-dir=%s\n' "$(field staging-dir)"
+            } >> "$GITHUB_OUTPUT"
+            ;;
+          error) publish_error ;;
+          *)
+            echo "::error title=Whitaker installer failed::unreadable resolution record" >&2
+            emit_metric "whitaker-installer.failure=install"
+            exit 1
+            ;;
+        esac
 
     - name: Download Whitaker release
       shell: bash
@@ -231,16 +292,44 @@ runs:
         release_url="https://github.com/leynos/whitaker/releases/download/v${WHITAKER_INSTALLER_VERSION}"
         rm -rf -- "$WHITAKER_STAGING_DIR"
         mkdir -p -- "$WHITAKER_STAGING_DIR"
-        started="$SECONDS"
+        # curl reports the transfer itself. `num_retries` needs curl 7.75, so
+        # ask for it only when the runner's curl is new enough and report the
+        # attempt count as unknown otherwise.
+        write_out='%{http_code} %{size_download} %{time_total}'
+        attempts_reported=false
+        curl_version="$(curl --version 2>/dev/null | awk 'NR == 1 { print $2 }')"
+        if [[ -n "$curl_version" ]] &&
+          [[ "$(printf '%s\n%s\n' 7.75.0 "$curl_version" | sort -V | head -n 1)" == 7.75.0 ]]; then
+          write_out="${write_out} %{num_retries}"
+          attempts_reported=true
+        fi
         fetch() {
-          curl -fsSL --proto '=https' --tlsv1.2 \
+          local url="$1" target="$2" label="$3"
+          local stats status http_code bytes seconds attempts outcome
+          set +e
+          stats="$(curl -fsSL --proto '=https' --tlsv1.2 \
             --retry 3 --retry-delay 2 --retry-all-errors \
             --connect-timeout 20 --max-time 300 \
-            "$1" -o "$2"
+            --write-out "$write_out" "$url" -o "$target")"
+          status=$?
+          set -e
+          http_code="$(printf '%s' "$stats" | awk '{ print ($1 == "" ? "none" : $1) }')"
+          bytes="$(printf '%s' "$stats" | awk '{ print ($2 == "" ? "0" : $2) }')"
+          seconds="$(printf '%s' "$stats" | awk '{ print ($3 == "" ? "0" : $3) }')"
+          attempts=unknown
+          if [[ "$attempts_reported" == true ]]; then
+            attempts="$(printf '%s' "$stats" | awk '{ print ($4 == "" ? "0" : $4 + 1) }')"
+          fi
+          outcome=ok
+          if (( status != 0 )); then
+            outcome=failed
+          fi
+          echo "::notice title=Whitaker installer transfer::part=${label} outcome=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          emit_metric "whitaker-installer.transfer.${label}=${outcome} http=${http_code} bytes=${bytes} seconds=${seconds} attempts=${attempts}"
+          return "$status"
         }
-        fetch "${release_url}/${WHITAKER_ASSET}" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
-        fetch "${release_url}/${WHITAKER_ASSET}.sha256" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256"
-        echo "::notice title=Whitaker installer download::asset=${WHITAKER_ASSET} outcome=ok seconds=$(( SECONDS - started ))"
+        fetch "${release_url}/${WHITAKER_ASSET}" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}" archive
+        fetch "${release_url}/${WHITAKER_ASSET}.sha256" "${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}.sha256" sha256
 
     - name: Verify Whitaker release
       shell: bash

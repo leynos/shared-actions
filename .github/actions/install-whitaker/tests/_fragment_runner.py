@@ -58,6 +58,7 @@ class ActionContext:
     runner_os: str
     runner_arch: str
     action_path: str
+    runner_temp: str = ""
     step_outputs: dict[str, dict[str, str]] = dc.field(default_factory=dict)
 
     def resolve(self, body: str) -> str:
@@ -66,6 +67,8 @@ class ActionContext:
             return self.runner_os
         if body == "runner.arch":
             return self.runner_arch
+        if body == "runner.temp":
+            return self.runner_temp
         if body == "github.action_path":
             return self.action_path
         if (match := _INPUT.match(body)) is not None:

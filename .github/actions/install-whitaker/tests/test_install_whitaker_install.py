@@ -10,12 +10,22 @@ without any network access.
 from __future__ import annotations
 
 import collections.abc as cabc
+import io
 import string
+import tarfile
 import typing as typ
+import zipfile
+from pathlib import PurePosixPath
 
 import pytest
 from _action_manifest import SUPPORTED_PLATFORMS
-from _install_scenarios import InstallRun, InstallScenario, run_install_scenario
+from _install_scenarios import (
+    InstallRun,
+    InstallScenario,
+    archive_fixture,
+    run_install_scenario,
+    run_named_steps,
+)
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -74,7 +84,7 @@ class TestInstallation:
         assert f"/v0.2.7/{scenario.asset}.sha256 " in download_log
         assert run.installer_path.is_file()
         assert run.installer_log.read_text(encoding="utf-8") == "suite installed\n"
-        assert run.summary_lines() == [
+        assert run.lifecycle_metrics() == [
             "whitaker-installer.cache=miss",
             "whitaker-installer.digest=verified",
             "whitaker-installer.trust-anchor=pinned",
@@ -100,6 +110,7 @@ class TestInstallation:
             "whitaker-installer.path=cache",
             "whitaker-installer.result=success",
         ]
+        assert run.transfer_metrics() == []
 
     def test_reports_caller_owned_cache_ownership(
         self, run_scenario: ScenarioRunner
@@ -160,6 +171,110 @@ class TestInstallation:
         assert not run.staging_dir.exists()
 
 
+class TestResolutionPurity:
+    """Check that resolution computes without externally visible effects."""
+
+    def test_resolution_writes_no_outputs_metrics_or_annotations(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the resolve fragment only records what it computed."""
+        run = run_named_steps(
+            tmp_path / "case",
+            InstallScenario(),
+            ["Resolve Whitaker release"],
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.published_output_lines() == []
+        assert run.summary_lines() == []
+        assert "::notice" not in run.result.stdout
+        assert "::error" not in run.result.stderr
+        assert not run.download_log.exists()
+        recorded = run.resolution_file.read_text(encoding="utf-8").splitlines()
+        assert "status=install" in recorded
+        assert f"asset={InstallScenario().asset}" in recorded
+        assert "trust-anchor=pinned" in recorded
+
+    @pytest.mark.parametrize(
+        ("scenario", "expected_kind"),
+        [
+            pytest.param(
+                InstallScenario(pinned_sha256=None),
+                "unpinned-digest",
+                id="unpinned",
+            ),
+            pytest.param(
+                InstallScenario(installer_sha256="0" * 64),
+                "digest-conflict",
+                id="conflict",
+            ),
+            pytest.param(
+                InstallScenario(runner_os="Linux", runner_arch="ARM32"),
+                "unsupported-runner",
+                id="unsupported-runner",
+            ),
+        ],
+    )
+    def test_resolution_records_failures_without_reporting_them(
+        self,
+        tmp_path: Path,
+        scenario: InstallScenario,
+        expected_kind: str,
+    ) -> None:
+        """Verify resolution reports a failure to publication, not to the run."""
+        run = run_named_steps(
+            tmp_path / "case",
+            scenario,
+            ["Resolve Whitaker release"],
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.summary_lines() == []
+        assert "::error" not in run.result.stderr
+        recorded = run.resolution_file.read_text(encoding="utf-8").splitlines()
+        assert "status=error" in recorded
+        assert f"error-kind={expected_kind}" in recorded
+
+
+class TestTransferTelemetry:
+    """Check the per-transfer telemetry the download step records."""
+
+    def test_reports_each_transfer_once(self, run_scenario: ScenarioRunner) -> None:
+        """Verify the archive and its sidecar each report one bounded record."""
+        run = run_scenario(InstallScenario())
+
+        assert run.result.returncode == 0, run.result.stderr
+        transfers = run.transfer_metrics()
+        assert len(transfers) == 2
+        assert transfers[0].startswith("whitaker-installer.transfer.archive=ok ")
+        assert transfers[1].startswith("whitaker-installer.transfer.sha256=ok ")
+        for line in transfers:
+            assert "http=200" in line
+            assert "attempts=1" in line
+            assert "seconds=" in line
+            assert "bytes=" in line
+        assert (
+            run.result.stdout.count(
+                "::notice title=Whitaker installer transfer::",
+            )
+            == 2
+        )
+
+    def test_reports_an_unknown_attempt_count_on_older_curl(
+        self,
+        run_scenario: ScenarioRunner,
+    ) -> None:
+        """Verify a curl without ``num_retries`` still reports the transfer."""
+        run = run_scenario(InstallScenario(curl_version="7.68.0"))
+
+        assert run.result.returncode == 0, run.result.stderr
+        transfers = run.transfer_metrics()
+        assert len(transfers) == 2
+        for line in transfers:
+            assert "attempts=unknown" in line
+
+
 class TestPlatformMatrix:
     """Check asset selection and extraction for every supported runner."""
 
@@ -210,6 +325,31 @@ class TestPlatformMatrix:
             "whitaker-installer.exe" if runner_os == "Windows" else "whitaker-installer"
         )
 
+    @pytest.mark.parametrize(
+        ("runner_os", "runner_arch"),
+        [tuple(pair.split(":")) for pair in SUPPORTED_PLATFORMS],
+    )
+    def test_fixture_archives_nest_under_one_directory(
+        self,
+        runner_os: str,
+        runner_arch: str,
+    ) -> None:
+        """Verify the served fixture has the layout ``--strip-components=1`` needs."""
+        scenario = InstallScenario(runner_os=runner_os, runner_arch=runner_arch)
+        archive = archive_fixture(scenario)
+
+        if scenario.asset.endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(archive)) as package:
+                names = package.namelist()
+        else:
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
+                names = package.getnames()
+
+        assert len(names) == 1
+        top_level = {PurePosixPath(name).parts[0] for name in names}
+        assert len(top_level) == 1
+        assert PurePosixPath(names[0]).name == scenario.installer_name
+
     def test_rejects_an_unsupported_runner(self, run_scenario: ScenarioRunner) -> None:
         """Verify an unsupported runner pair fails before any download."""
         run = run_scenario(
@@ -235,7 +375,7 @@ class TestTrustAnchor:
         assert "archive digest mismatch" in run.result.stderr
         assert not run.installer_path.exists()
         assert not run.installer_log.exists()
-        assert run.summary_lines() == [
+        assert run.lifecycle_metrics() == [
             "whitaker-installer.cache=miss",
             "whitaker-installer.digest=mismatch",
             "whitaker-installer.failure=install",

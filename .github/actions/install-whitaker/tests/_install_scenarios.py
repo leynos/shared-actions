@@ -2,14 +2,22 @@
 
 A scenario describes one runner, one cache state, and one trust-anchor
 configuration. Running it executes the real input-validation and lifecycle
-fragments against stubbed ``curl``, ``tar``, and ``unzip`` commands, so no
-network access or real release archive is required.
+fragments against a stubbed ``curl`` that serves a real release archive built
+for that runner, so no network access is needed but extraction is genuine: the
+runner's own ``tar`` unpacks the gzip fixtures, and the zip fixture is unpacked
+with real zip semantics including ``--strip-components``. A failure to strip the
+archive's top-level directory therefore fails the suite.
 """
 
 from __future__ import annotations
 
 import dataclasses as dc
+import gzip
 import hashlib
+import io
+import shutil
+import tarfile
+import zipfile
 from pathlib import Path
 
 from _action_manifest import (
@@ -19,6 +27,7 @@ from _action_manifest import (
     installer_filename,
     lifecycle_steps,
     step_by_id,
+    step_by_name,
 )
 from _fragment_runner import (
     ActionContext,
@@ -37,6 +46,10 @@ AUTO = "auto"
 
 _CURL_STUB = """#!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = --version ]; then
+  printf 'curl %s (x86_64-test) libcurl/%s\\n' "$STUB_CURL_VERSION" "$STUB_CURL_VERSION"
+  exit 0
+fi
 printf '%s\\n' "$*" >> "$DOWNLOAD_LOG"
 if [ "$FAIL_DOWNLOAD" = "true" ]; then
   echo "Whitaker release download failed" >&2
@@ -54,8 +67,9 @@ done
 if [[ "$url" == *.sha256 ]]; then
   printf '%s  archive\\n' "$SIDECAR_SHA256" > "$output"
 else
-  printf '%s' "$ARCHIVE_PAYLOAD" > "$output"
+  cp -- "$ARCHIVE_FIXTURE" "$output"
 fi
+printf '200 %s 0.123 0' "$(wc -c < "$output" | tr -d ' ')"
 """
 
 _INSTALLER_STUB = """#!/usr/bin/env bash
@@ -73,20 +87,61 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
 """
 
 
-_TAR_STUB = f"""#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\\n' "$*" >> "$EXTRACT_LOG"
-extract_dir=
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -C) extract_dir="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-cat > "$extract_dir/$EXPECTED_INSTALLER_NAME" <<'INSTALLER'
-{_INSTALLER_STUB}INSTALLER
-chmod +x "$extract_dir/$EXPECTED_INSTALLER_NAME"
+_TAR_SHIM = r'''#!/usr/bin/env python3
+"""Stand in for the runner's tar, delegating to it except for zip archives.
+
+GNU tar cannot read zip, so a Linux test host cannot exercise the Windows
+archive through the ambient tar. This shim unpacks a zip with real zip
+semantics, honouring ``--strip-components``, and execs the real tar for every
+other archive, so gzip extraction stays genuine.
 """
+
+from __future__ import annotations
+
+import os
+import pathlib
+import sys
+import zipfile
+
+argv = sys.argv[1:]
+with pathlib.Path(os.environ["EXTRACT_LOG"]).open("a", encoding="utf-8") as log:
+    log.write(" ".join(argv) + "\n")
+
+archive: pathlib.Path | None = None
+destination = pathlib.Path()
+strip = 0
+index = 0
+while index < len(argv):
+    token = argv[index]
+    if token == "-C":
+        destination = pathlib.Path(argv[index + 1])
+        index += 2
+    elif token.startswith("--strip-components="):
+        strip = int(token.split("=", 1)[1])
+        index += 1
+    elif token == "-xf":
+        archive = pathlib.Path(argv[index + 1])
+        index += 2
+    else:
+        index += 1
+
+if archive is not None and zipfile.is_zipfile(archive):
+    with zipfile.ZipFile(archive) as package:
+        for info in package.infolist():
+            if info.is_dir():
+                continue
+            parts = pathlib.PurePosixPath(info.filename).parts[strip:]
+            if not parts:
+                continue
+            target = destination.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(package.read(info))
+            target.chmod(0o755)
+    sys.exit(0)
+
+real_tar = os.environ["REAL_TAR"]
+os.execv(real_tar, [real_tar, *argv])
+'''
 
 _FORBIDDEN_STUB = """#!/usr/bin/env bash
 set -euo pipefail
@@ -94,6 +149,46 @@ printf '%s\\n' "$0 $*" >> "$FORBIDDEN_LOG"
 echo "$0 is not available on every supported runner" >&2
 exit 127
 """
+
+
+def _archive_member(scenario: InstallScenario) -> str:
+    """Return the single member path the release archive carries."""
+    stem = scenario.asset.rsplit(".", 1)[0]
+    return f"{stem}/{scenario.installer_name}"
+
+
+def _tar_fixture(member: str, payload: bytes) -> bytes:
+    """Build a byte-stable gzip tar archive holding one executable member."""
+    buffer = io.BytesIO()
+    with (
+        gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode="w") as package,
+    ):
+        info = tarfile.TarInfo(member)
+        info.size = len(payload)
+        info.mode = 0o755
+        info.mtime = 0
+        package.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def _zip_fixture(member: str, payload: bytes) -> bytes:
+    """Build a byte-stable zip archive holding one executable member."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as package:
+        info = zipfile.ZipInfo(member, date_time=(1980, 1, 1, 0, 0, 0))
+        info.external_attr = 0o755 << 16
+        package.writestr(info, payload)
+    return buffer.getvalue()
+
+
+def archive_fixture(scenario: InstallScenario) -> bytes:
+    """Return the release archive the stubbed download serves for ``scenario``."""
+    member = _archive_member(scenario)
+    payload = _INSTALLER_STUB.encode()
+    if scenario.asset.endswith(".zip"):
+        return _zip_fixture(member, payload)
+    return _tar_fixture(member, payload)
 
 
 @dc.dataclass(frozen=True)
@@ -111,7 +206,7 @@ class InstallScenario:
     cache_hit: bool = False
     cache_provider: str = "github"
     conflicting_installer: bool = False
-    archive_payload: str = "payload"
+    curl_version: str = "8.5.0"
     sidecar_sha256: str = AUTO
     pinned_sha256: str | None = AUTO
     installer_sha256: str = ""
@@ -119,7 +214,7 @@ class InstallScenario:
     @property
     def payload_sha256(self) -> str:
         """Return the digest of the archive the ``curl`` stub serves."""
-        return hashlib.sha256(self.archive_payload.encode()).hexdigest()
+        return hashlib.sha256(archive_fixture(self)).hexdigest()
 
     @property
     def expected_sidecar(self) -> str:
@@ -177,6 +272,11 @@ class InstallRun:
         return self.root / "conflict.log"
 
     @property
+    def resolution_file(self) -> Path:
+        """Return the record the resolution step writes for publication."""
+        return self.root / "runner-temp" / "whitaker-resolution"
+
+    @property
     def extract_log(self) -> Path:
         """Return the log of stubbed ``tar`` invocations."""
         return self.root / "extract.log"
@@ -196,6 +296,36 @@ class InstallRun:
         if not self.summary.exists():
             return []
         return self.summary.read_text(encoding="utf-8").splitlines()
+
+    def lifecycle_metrics(self) -> list[str]:
+        """Return the job-summary metrics excluding per-transfer telemetry."""
+        return [line for line in self.summary_lines() if ".transfer." not in line]
+
+    def transfer_metrics(self) -> list[str]:
+        """Return the per-transfer telemetry metrics."""
+        return [line for line in self.summary_lines() if ".transfer." in line]
+
+    def published_output_lines(self) -> list[str]:
+        """Return every ``$GITHUB_OUTPUT`` line written after validation."""
+        outputs = self.root / "outputs"
+        if not outputs.is_dir():
+            return []
+        return [
+            line
+            for path in sorted(outputs.iterdir())
+            if path.name != "validate-output"
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+
+
+def _real_tar() -> str:
+    """Return the ambient ``tar`` the shim delegates gzip extraction to."""
+    resolved = shutil.which("tar")
+    if resolved is None:  # pragma: no cover - every supported host ships tar.
+        message = "tar is required to exercise the extraction fragment"
+        raise RuntimeError(message)
+    return resolved
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -227,7 +357,7 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
     """Create the command stubs and return the ``PATH`` for the fragments."""
     stub_bin = root / "stub-bin"
     _write_executable(stub_bin / "curl", _CURL_STUB)
-    _write_executable(stub_bin / "tar", _TAR_STUB)
+    _write_executable(stub_bin / "tar", _TAR_SHIM)
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
     path = f"{bash_path(stub_bin)}:/usr/bin:/bin"
     if scenario.conflicting_installer:
@@ -249,12 +379,13 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
     return {
         **ambient_env(),
         "PATH": path,
-        "ARCHIVE_PAYLOAD": scenario.archive_payload,
+        "ARCHIVE_FIXTURE": bash_file_path(root / "fixture-archive"),
         "CONFLICT_LOG": bash_file_path(root / "conflict.log"),
         "DOWNLOAD_LOG": bash_file_path(root / "download.log"),
         "EXPECTED_INSTALLER_NAME": scenario.installer_name,
         "EXTRACT_LOG": bash_file_path(root / "extract.log"),
         "FORBIDDEN_LOG": bash_file_path(root / "forbidden.log"),
+        "REAL_TAR": _real_tar(),
         "FAIL_DOWNLOAD": str(scenario.fail_download).lower(),
         "FAIL_INSTALLER": str(scenario.fail_installer).lower(),
         "GITHUB_STEP_SUMMARY": bash_file_path(root / "summary.md"),
@@ -263,17 +394,37 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "RUNNER_OS": scenario.runner_os,
         "RUNNER_TEMP": bash_path(runner_temp),
         "SIDECAR_SHA256": scenario.expected_sidecar,
+        "STUB_CURL_VERSION": scenario.curl_version,
     }
 
 
+def run_named_steps(
+    root: Path,
+    scenario: InstallScenario,
+    step_names: list[str],
+) -> InstallRun:
+    """Run validation and only the named lifecycle fragments for ``scenario``."""
+    return _run_scenario(root, scenario, [step_by_name(name) for name in step_names])
+
+
 def run_install_scenario(root: Path, scenario: InstallScenario) -> InstallRun:
-    """Run the validation and lifecycle fragments for ``scenario``."""
+    """Run the validation and every lifecycle fragment for ``scenario``."""
+    return _run_scenario(root, scenario, lifecycle_steps())
+
+
+def _run_scenario(
+    root: Path,
+    scenario: InstallScenario,
+    steps: list[dict[str, object]],
+) -> InstallRun:
+    """Run the validation fragment and then ``steps`` for ``scenario``."""
     root.mkdir(parents=True, exist_ok=True)
     cargo_home = root / scenario.cargo_home_name
     cargo_home.mkdir(parents=True, exist_ok=True)
     action_path = root / "action"
     action_path.mkdir(parents=True, exist_ok=True)
     write_digest_manifest(action_path / DIGEST_MANIFEST_NAME, scenario)
+    (root / "fixture-archive").write_bytes(archive_fixture(scenario))
 
     if scenario.installer_present:
         _write_executable(
@@ -293,6 +444,7 @@ def run_install_scenario(root: Path, scenario: InstallScenario) -> InstallRun:
         runner_os=scenario.runner_os,
         runner_arch=scenario.runner_arch,
         action_path=bash_path(action_path),
+        runner_temp=bash_path(root / "runner-temp"),
         step_outputs={
             "cache-whitaker-installer": {
                 "cache-hit": str(scenario.cache_hit).lower(),
@@ -321,7 +473,7 @@ def run_install_scenario(root: Path, scenario: InstallScenario) -> InstallRun:
             cargo_home=cargo_home,
             staging_dir=root / "runner-temp" / "whitaker-installer-release",
         )
-    result = run_lifecycle(lifecycle_steps(), context, environment)
+    result = run_lifecycle(steps, context, environment)
     return InstallRun(
         result=result,
         context=context,

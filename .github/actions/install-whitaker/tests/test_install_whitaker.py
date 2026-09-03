@@ -185,20 +185,75 @@ class TestLifecycleSteps:
             "${{ steps.validate-inputs.outputs.installer-sha256 }}"
         )
 
-    def test_resolution_publishes_the_lifecycle_contract(self) -> None:
-        """Verify the resolve step emits every output later steps consume."""
+    def test_resolution_records_the_lifecycle_contract(self) -> None:
+        """Verify the resolve step records every field publication needs."""
         script = _step_script("Resolve Whitaker release")
+
+        for field in (
+            "record status",
+            "record asset",
+            "record extension",
+            "record installer-name",
+            "record expected-sha",
+            "record trust-anchor",
+            "record staging-dir",
+        ):
+            assert field in script
+
+    def test_resolution_performs_no_externally_visible_write(self) -> None:
+        """Verify resolution neither publishes outputs nor annotates the run."""
+        script = _step_script("Resolve Whitaker release")
+
+        for effect in (
+            "GITHUB_OUTPUT",
+            "GITHUB_STEP_SUMMARY",
+            "emit_metric",
+            "::notice",
+            "::error",
+        ):
+            assert effect not in script
+
+    def test_publication_writes_every_lifecycle_output(self) -> None:
+        """Verify the publication step emits every output later steps consume."""
+        script = _step_script("Publish Whitaker resolution")
 
         for output in (
             "needs-install=",
-            "asset=",
-            "extension=",
-            "installer-name=",
-            "expected-sha=",
-            "trust-anchor=",
-            "staging-dir=",
+            "asset=%s",
+            "extension=%s",
+            "installer-name=%s",
+            "expected-sha=%s",
+            "trust-anchor=%s",
+            "staging-dir=%s",
         ):
             assert output in script
+
+    def test_publication_owns_the_resolution_annotations(self) -> None:
+        """Verify the publication step reports the cache and failure outcomes."""
+        script = _step_script("Publish Whitaker resolution")
+
+        assert "whitaker-installer.path=cache" in script
+        assert "whitaker-installer.digest=conflict" in script
+        assert "whitaker-installer.digest=unpinned" in script
+        assert "whitaker-installer.failure=install" in script
+        assert "::error title=Whitaker installer failed::" in script
+
+    def test_download_records_transfer_telemetry(self) -> None:
+        """Verify each transfer reports its outcome, size, time, and attempts."""
+        script = _step_script("Download Whitaker release")
+
+        assert "--write-out" in script
+        for placeholder in (
+            "%{http_code}",
+            "%{size_download}",
+            "%{time_total}",
+            "%{num_retries}",
+        ):
+            assert placeholder in script
+        assert "whitaker-installer.transfer." in script
+        assert "::notice title=Whitaker installer transfer::" in script
+        assert 'fetch "${release_url}/${WHITAKER_ASSET}"' in script
+        assert 'fetch "${release_url}/${WHITAKER_ASSET}.sha256"' in script
 
     def test_download_uses_the_pinned_release_over_https(self) -> None:
         """Verify the download step's URL and transport constraints."""

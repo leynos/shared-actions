@@ -21,6 +21,7 @@ DIGEST_MANIFEST_NAME = DIGEST_MANIFEST_PATH.name
 LIFECYCLE_STEP_NAMES = (
     "Report Whitaker installer cache",
     "Resolve Whitaker release",
+    "Publish Whitaker resolution",
     "Download Whitaker release",
     "Verify Whitaker release",
     "Extract Whitaker installer",
@@ -76,9 +77,21 @@ def lifecycle_steps() -> list[dict[str, object]]:
     return [step_by_name(name) for name in LIFECYCLE_STEP_NAMES]
 
 
+#: Layout assumed for an unsupported pair, so a fixture can still be built.
+_FALLBACK_PLATFORM = SUPPORTED_PLATFORMS["Linux:X64"]
+
+
 def asset_name(runner_os: str, runner_arch: str, version: str) -> str:
-    """Return the release asset the action selects for a runner pair."""
-    target, extension, _ = SUPPORTED_PLATFORMS[f"{runner_os}:{runner_arch}"]
+    """Return the release asset the action selects for a runner pair.
+
+    An unsupported pair falls back to the Linux x86_64 layout so a fixture can
+    be built for it; the action rejects such a pair before it downloads
+    anything.
+    """
+    target, extension, _ = SUPPORTED_PLATFORMS.get(
+        f"{runner_os}:{runner_arch}",
+        _FALLBACK_PLATFORM,
+    )
     return f"whitaker-installer-{target}-v{version}.{extension}"
 
 
@@ -88,5 +101,8 @@ def installer_filename(runner_os: str, runner_arch: str) -> str:
     An unsupported pair falls back to the POSIX filename so a fixture can be
     built for it; the action rejects such a pair before it extracts anything.
     """
-    platform = SUPPORTED_PLATFORMS.get(f"{runner_os}:{runner_arch}")
-    return platform[2] if platform is not None else "whitaker-installer"
+    platform = SUPPORTED_PLATFORMS.get(
+        f"{runner_os}:{runner_arch}",
+        _FALLBACK_PLATFORM,
+    )
+    return platform[2]

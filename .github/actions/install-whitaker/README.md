@@ -33,16 +33,36 @@ The action reports the anchor it used in the job summary as
 
 ## Lifecycle
 
-The action separates the release lifecycle into explicit steps. `Resolve
-Whitaker release` is a read-only query: it selects the platform asset, looks up
-the pinned digest, applies the precedence rule, and publishes the resolved
-asset, extension, installer filename, expected digest, trust anchor, and
-staging directory as step outputs. It also short-circuits the remaining steps
-when the cache already holds an executable installer. `Download Whitaker
-release`, `Verify Whitaker release`, `Extract Whitaker installer`, and `Install
-Whitaker installer` each perform one of those actions and nothing else. The
-staging directory lives under `RUNNER_TEMP` and is removed once the installer
-is in place.
+The action separates the release lifecycle into explicit steps.
+
+`Resolve Whitaker release` is a pure query. It selects the platform asset,
+looks up the pinned digest, applies the precedence rule, and decides whether
+the cache already holds an executable installer. It writes no step outputs, no
+job-summary metrics, and no workflow annotations; it records what it computed,
+including any failure, and always exits zero.
+
+`Publish Whitaker resolution` owns every externally visible effect of that
+resolution. It writes the step outputs, emits the metrics, prints the notices,
+and fails the job when resolution recorded an error.
+
+`Download Whitaker release`, `Verify Whitaker release`, `Extract Whitaker
+installer`, and `Install Whitaker installer` each perform one of those actions
+and nothing else. The staging directory lives under `RUNNER_TEMP` and is
+removed once the installer is in place.
+
+## Transfer telemetry
+
+Each transfer, the archive and its `.sha256` sidecar, reports one bounded
+record through a `::notice` and a job-summary metric naming the outcome, the
+HTTP status, the byte count, the elapsed seconds, and the number of attempts:
+
+```text
+whitaker-installer.transfer.archive=ok http=200 bytes=2469093 seconds=1.204 attempts=1
+```
+
+The attempt count comes from curl's `num_retries`, which needs curl 7.75 or
+newer. On an older curl the action reports `attempts=unknown` and still
+records the other fields.
 
 ## Inputs
 

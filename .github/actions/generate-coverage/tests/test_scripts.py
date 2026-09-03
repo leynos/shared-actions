@@ -1496,61 +1496,62 @@ def test_run_rust_failure(tmp_path: Path, shell_stubs: StubManager) -> None:
 
 
 @pytest.mark.parametrize(
-    "case",
+    ("system", "machine", "is_musl", "expected"),
     [
-        ("Linux", "x86_64", "linux-x86_64-gnu"),
-        ("Linux", "aarch64", "linux-aarch64-gnu"),
-        ("Darwin", "arm64", "mac-universal"),
-        ("Windows", "AMD64", "windows-x86_64"),
-        ("Windows", "ARM64", "windows-aarch64"),
+        pytest.param("Linux", "x86_64", False, "linux-x86_64-gnu", id="linux-gnu"),
+        pytest.param("Linux", "x86_64", True, "linux-x86_64-musl", id="linux-musl"),
+        pytest.param(
+            "Linux", "aarch64", False, "linux-aarch64-gnu", id="linux-aarch64"
+        ),
+        pytest.param("Darwin", "arm64", False, "mac-universal", id="mac"),
+        pytest.param("Windows", "AMD64", False, "windows-x86_64", id="windows-x86_64"),
+        pytest.param(
+            "Windows", "ARM64", False, "windows-aarch64", id="windows-aarch64"
+        ),
     ],
 )
 def test_platform_key_variants(
-    case: tuple[str, str, str],
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    system: str,
+    machine: str,
+    expected: str,
+    *,
+    is_musl: bool,
 ) -> None:
-    """Platform key mapping normalizes common OS/arch combinations."""
-    system, machine, expected = case
+    """Platform keys normalize OS and architecture and keep the libc split."""
     monkeypatch.setattr(install_nextest_module.platform, "system", lambda: system)
     monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: machine)
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_is_musl",
-        lambda: False,
-    )
+    monkeypatch.setattr(install_nextest_module, "_is_musl", lambda: is_musl)
+
     assert install_nextest_module._platform_key() == expected
 
 
-def test_platform_key_uses_musl_for_linux(
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Linux platform keys preserve musl vs GNU distinction."""
-    monkeypatch.setattr(install_nextest_module.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(install_nextest_module.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(
-        install_nextest_module,
-        "_is_musl",
-        lambda: True,
-    )
-
-    assert install_nextest_module._platform_key() == "linux-x86_64-musl"
-
-
-def test_is_musl_detects_gnu(install_nextest_module: ModuleType) -> None:
-    """GNU libc is detected when ``gnu_get_libc_version`` exists."""
-    assert not install_nextest_module._is_musl(ctypes_cdll=_fake_libc())
-
-
-def test_is_musl_detects_musl(install_nextest_module: ModuleType) -> None:
-    """Musl libc is detected when the GNU version symbol is missing."""
+def _fake_musl_libc(_library_name: str) -> object:
+    """Create a libc stub that lacks the GNU version symbol."""
 
     class _FakeLibc:
         def __getattr__(self, name: str) -> object:
             raise AttributeError(name)
 
-    assert install_nextest_module._is_musl(ctypes_cdll=lambda _: _FakeLibc())
+    return _FakeLibc()
+
+
+@pytest.mark.parametrize(
+    ("ctypes_cdll", "expected_musl"),
+    [
+        pytest.param(_fake_libc(), False, id="gnu"),
+        pytest.param(_fake_musl_libc, True, id="musl"),
+    ],
+)
+def test_is_musl_detects_libc_flavour(
+    install_nextest_module: ModuleType,
+    ctypes_cdll: typ.Callable[[str], object],
+    *,
+    expected_musl: bool,
+) -> None:
+    """The probe reports musl exactly when ``gnu_get_libc_version`` is absent."""
+    assert install_nextest_module._is_musl(ctypes_cdll=ctypes_cdll) is expected_musl
 
 
 def test_is_musl_propagates_cdll_errors(install_nextest_module: ModuleType) -> None:
@@ -1711,38 +1712,21 @@ def test_install_nextest_skips_when_verified(
 def test_install_nextest_installs_official_release(
     tmp_path: Path,
     install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The official archive is verified before its binary is installed."""
-    archive_payload = b"archive"
-    binary_payload = b"binary"
-    asset = install_nextest_module.ReleaseAsset(
-        "x86_64-unknown-linux-gnu",
-        "tar.gz",
-        hashlib.sha256(archive_payload).hexdigest(),
-    )
-    expected = hashlib.sha256(binary_payload).hexdigest()
+    """``main`` verifies the official archive before installing its binary."""
+    cargo_home = tmp_path / "cargo-home"
 
-    def fake_download(_asset: object, destination: Path) -> None:
-        destination.write_bytes(archive_payload)
-
-    def fake_extract(_archive: Path, _asset: object, destination: Path) -> None:
-        destination.write_bytes(binary_payload)
-
-    monkeypatch.setenv("CARGO_HOME", str(tmp_path / "cargo-home"))
-    monkeypatch.setattr(install_nextest_module, "_download_archive", fake_download)
-    monkeypatch.setattr(install_nextest_module, "_extract_binary", fake_extract)
-    monkeypatch.setattr(install_nextest_module, "_resolve_nextest_binary", lambda: None)
-    monkeypatch.setattr(
+    outcome = _attempt_nextest_install(
         install_nextest_module,
-        "_release_for_platform",
-        lambda: (expected, asset),
+        cargo_home,
+        None,
+        entry_point="main",
     )
 
-    install_nextest_module.main()
-
-    binary = tmp_path / "cargo-home" / "bin" / "cargo-nextest"
-    assert binary.read_bytes() == binary_payload
+    assert outcome.exit_code is None
+    assert outcome.destination_bytes == _NEXTEST_BINARY_PAYLOAD
+    assert not outcome.temporary_exists
+    binary = cargo_home / "bin" / "cargo-nextest"
     assert binary.stat().st_mode & 0o111
 
 
@@ -1830,8 +1814,13 @@ def _attempt_nextest_install(
     module: ModuleType,
     cargo_home: Path,
     failure: str | None,
+    entry_point: str = "install",
 ) -> _NextestInstallOutcome:
-    """Install cargo-nextest with stubbed I/O and report what changed on disk."""
+    """Install cargo-nextest with stubbed I/O and report what changed on disk.
+
+    ``entry_point`` selects ``install_cargo_nextest`` directly or ``main``,
+    which first resolves the platform release and finds no existing binary.
+    """
     destination = cargo_home / "bin" / "cargo-nextest"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(_NEXTEST_SENTINEL)
@@ -1864,11 +1853,24 @@ def _attempt_nextest_install(
         patcher.setenv("CARGO_HOME", str(cargo_home))
         patcher.setattr(module, "_download_archive", fake_download)
         patcher.setattr(module, "_extract_binary", fake_extract)
+        if entry_point == "main":
+            patcher.setattr(module, "_resolve_nextest_binary", lambda: None)
+            patcher.setattr(
+                module,
+                "_release_for_platform",
+                lambda: (binary_digest, asset),
+            )
+            invoke = module.main
+        else:
+
+            def invoke() -> None:
+                module.install_cargo_nextest(asset, binary_digest)
+
         if failure is None:
-            module.install_cargo_nextest(asset, binary_digest)
+            invoke()
         else:
             with pytest.raises(module.typer.Exit) as excinfo:
-                module.install_cargo_nextest(asset, binary_digest)
+                invoke()
             exit_code = _exit_code(excinfo.value)
 
     return _NextestInstallOutcome(
@@ -1888,13 +1890,25 @@ def _assert_install_failed_preserving_sentinel(
     assert not outcome.temporary_exists
 
 
-@pytest.mark.parametrize("failure", ["archive-digest", "binary-digest"])
+@pytest.mark.parametrize(
+    ("failure", "expect_extracted"),
+    [
+        pytest.param("archive-digest", False, id="archive-digest"),
+        pytest.param("binary-digest", True, id="binary-digest"),
+    ],
+)
 def test_install_nextest_digest_mismatch_preserves_destination(
     tmp_path: Path,
     install_nextest_module: ModuleType,
     failure: str,
+    *,
+    expect_extracted: bool,
 ) -> None:
-    """A mismatched archive or binary digest leaves the installed binary intact."""
+    """A mismatched digest leaves the installed binary intact.
+
+    The archive digest gates extraction, so a bad archive is never opened,
+    whereas a bad executable digest is only detectable after extraction.
+    """
     outcome = _attempt_nextest_install(
         install_nextest_module,
         tmp_path / "cargo-home",
@@ -1902,20 +1916,7 @@ def test_install_nextest_digest_mismatch_preserves_destination(
     )
 
     _assert_install_failed_preserving_sentinel(outcome)
-
-
-def test_install_nextest_archive_mismatch_skips_extraction(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """The archive digest gates extraction, so a bad archive is never opened."""
-    outcome = _attempt_nextest_install(
-        install_nextest_module,
-        tmp_path / "cargo-home",
-        "archive-digest",
-    )
-
-    assert not outcome.extracted
+    assert outcome.extracted is expect_extracted
 
 
 def _write_tar_archive(
@@ -1960,46 +1961,52 @@ def _windows_asset(module: ModuleType) -> object:
     return module.ReleaseAsset("x86_64-pc-windows-msvc", "zip", "0" * 64)
 
 
-def test_extract_binary_reads_real_tar_archive(
+@pytest.mark.parametrize(
+    ("archive_format", "filename", "executable", "destination_name", "windows"),
+    [
+        pytest.param(
+            "tar",
+            "cargo-nextest.tar.gz",
+            "pkg/cargo-nextest",
+            "extracted",
+            False,
+            id="tar",
+        ),
+        pytest.param(
+            "zip",
+            "cargo-nextest.zip",
+            "pkg/cargo-nextest.exe",
+            "extracted.exe",
+            True,
+            id="zip",
+        ),
+    ],
+)
+def test_extract_binary_reads_real_archive(
     tmp_path: Path,
     install_nextest_module: ModuleType,
+    archive_format: str,
+    filename: str,
+    executable: str,
+    destination_name: str,
+    *,
+    windows: bool,
 ) -> None:
-    """A real tar.gz archive yields the cargo-nextest executable."""
-    archive = tmp_path / "cargo-nextest.tar.gz"
+    """A real archive of either format yields the cargo-nextest executable."""
+    archive = tmp_path / filename
     _write_archive(
         archive,
-        {"pkg/README": b"docs", "pkg/cargo-nextest": _NEXTEST_BINARY_PAYLOAD},
-        archive_format="tar",
+        {"pkg/README": b"docs", executable: _NEXTEST_BINARY_PAYLOAD},
+        archive_format=archive_format,
     )
-    destination = tmp_path / "extracted"
-
-    install_nextest_module._extract_binary(
-        archive,
-        _nextest_asset(install_nextest_module, "0" * 64),
-        destination,
+    destination = tmp_path / destination_name
+    asset = (
+        _windows_asset(install_nextest_module)
+        if windows
+        else _nextest_asset(install_nextest_module, "0" * 64)
     )
 
-    assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
-
-
-def test_extract_binary_reads_real_zip_archive(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """A real zip archive yields the cargo-nextest executable."""
-    archive = tmp_path / "cargo-nextest.zip"
-    _write_archive(
-        archive,
-        {"pkg/README": b"docs", "pkg/cargo-nextest.exe": _NEXTEST_BINARY_PAYLOAD},
-        archive_format="zip",
-    )
-    destination = tmp_path / "extracted.exe"
-
-    install_nextest_module._extract_binary(
-        archive,
-        _windows_asset(install_nextest_module),
-        destination,
-    )
+    install_nextest_module._extract_binary(archive, asset, destination)
 
     assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
 

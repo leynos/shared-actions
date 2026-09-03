@@ -315,23 +315,48 @@ _EXPECTED_RELEASE_DIRECTORY = (
 )
 
 
+@dataclasses.dataclass(frozen=True)
+class _ReleaseUrlCase:
+    """Describe the archive one platform key is expected to request."""
+
+    target: str
+    extension: str
+
+
 @pytest.mark.parametrize(
-    ("target", "extension"),
+    "case",
     [
-        pytest.param("x86_64-unknown-linux-gnu", "tar.gz", id="linux-x86_64-gnu"),
-        pytest.param("x86_64-unknown-linux-musl", "tar.gz", id="linux-x86_64-musl"),
-        pytest.param("aarch64-unknown-linux-gnu", "tar.gz", id="linux-aarch64-gnu"),
-        pytest.param("universal-apple-darwin", "tar.gz", id="mac-universal"),
-        pytest.param("x86_64-pc-windows-msvc", "zip", id="windows-x86_64"),
-        pytest.param("aarch64-pc-windows-msvc", "zip", id="windows-aarch64"),
+        pytest.param(
+            _ReleaseUrlCase("x86_64-unknown-linux-gnu", "tar.gz"),
+            id="linux-x86_64-gnu",
+        ),
+        pytest.param(
+            _ReleaseUrlCase("x86_64-unknown-linux-musl", "tar.gz"),
+            id="linux-x86_64-musl",
+        ),
+        pytest.param(
+            _ReleaseUrlCase("aarch64-unknown-linux-gnu", "tar.gz"),
+            id="linux-aarch64-gnu",
+        ),
+        pytest.param(
+            _ReleaseUrlCase("universal-apple-darwin", "tar.gz"),
+            id="mac-universal",
+        ),
+        pytest.param(
+            _ReleaseUrlCase("x86_64-pc-windows-msvc", "zip"),
+            id="windows-x86_64",
+        ),
+        pytest.param(
+            _ReleaseUrlCase("aarch64-pc-windows-msvc", "zip"),
+            id="windows-aarch64",
+        ),
     ],
 )
 def test_download_requests_the_expected_release_url(
+    case: _ReleaseUrlCase,
     tmp_path: Path,
     install_nextest_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
-    target: str,
-    extension: str,
 ) -> None:
     """The download asks for the pinned HTTPS release archive and nothing else.
 
@@ -351,11 +376,15 @@ def test_download_requests_the_expected_release_url(
         "urlopen",
         capture_urlopen,
     )
-    asset = install_nextest_module.ReleaseAsset(target, extension, "0" * 64)
+    asset = install_nextest_module.ReleaseAsset(
+        case.target,
+        case.extension,
+        "0" * 64,
+    )
 
     install_nextest_module._download_archive(asset, tmp_path / "archive")
 
-    expected_filename = f"cargo-nextest-0.9.120-{target}.{extension}"
+    expected_filename = f"cargo-nextest-0.9.120-{case.target}.{case.extension}"
     assert asset.filename == expected_filename
     assert captured["url"] == f"{_EXPECTED_RELEASE_DIRECTORY}/{expected_filename}"
     assert str(captured["url"]).startswith("https://")

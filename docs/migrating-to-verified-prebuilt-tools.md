@@ -14,13 +14,20 @@ against a digest pinned inside this repository, and refuse to proceed when that
 digest is absent or wrong. Neither action builds its tool from source, and
 neither falls back to an unverified installation path.
 
-The pinned digest, not the release's own checksum sidecar, is the trust anchor.
-A compromised release could publish a matching `.sha256` sidecar for a tampered
-archive, so trusting the sidecar alone would not catch that tampering. Pinning
-the digest in this repository means an attacker who compromises the upstream
-release cannot also rewrite the digest already committed here. Both actions
-still download the sidecar and compare it with the digest they verified, but
-only as a consistency check.
+The pinned digest, not a release's own checksum sidecar, is the trust anchor
+for both actions. A compromised release could publish a matching `.sha256`
+sidecar for a tampered archive, so trusting a sidecar alone would not catch
+that tampering. Pinning the digest in this repository means an attacker who
+compromises the upstream release cannot also rewrite the digest already
+committed here.
+
+The two actions differ in how they treat the sidecar. `install-whitaker` still
+downloads the release's `.sha256` sidecar and compares it with the archive
+digest it just verified, but only as a consistency check; the pinned manifest
+remains the anchor regardless of the outcome. `generate-coverage`'s
+`install_cargo_nextest.py` does not fetch or compare a sidecar at all — it
+verifies the downloaded archive directly against the digest pinned in the script
+(`ReleaseAsset.sha256`).
 
 ## Behaviour that is no longer available
 

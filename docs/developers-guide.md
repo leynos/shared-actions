@@ -323,6 +323,30 @@ not pin the asset does a supplied `installer-sha256` become the anchor
 (`whitaker-installer.trust-anchor=input`). An asset with neither anchor fails
 before any download (`whitaker-installer.digest=unpinned`).
 
+
+### Runner requirements
+
+The action targets the runner operating-system and architecture pairs the
+`Resolve Whitaker release` step's case statement maps to a release target:
+Linux X64, Linux ARM64, macOS X64, macOS ARM64, and Windows X64. Every step
+declares `shell: bash`, so the runner must provide Bash.
+
+Beyond Bash, the runner must provide:
+
+- `curl`, for downloading the release archive and its `.sha256` sidecar.
+- A SHA-256 utility: the `Verify Whitaker release` step uses `sha256sum` when
+  it is present and falls back to `shasum -a 256` otherwise, as it does on
+  macOS runners.
+- `tar`, which extracts both archive formats. bsdtar, the bundled `tar` on
+  Windows and macOS runner images, reads zip archives as well as gzip ones, and
+  GNU tar detects gzip without an explicit flag, so the same
+  `tar -xf ... --strip-components=1` invocation works across every supported
+  pair. `unzip` is deliberately not required, since it is absent from some
+  Windows runner images.
+- `RUNNER_TEMP` set to a writable directory. The `Resolve Whitaker release`
+  step fails before any download when it is unset, because the download is
+  staged beneath it.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It

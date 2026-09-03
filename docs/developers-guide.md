@@ -344,11 +344,25 @@ Every terminal path reports one bounded
 `metric ubicloud-cache-credentials.result=<state>` line over a closed set:
 `exported`, `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and
 `public-host`. Keep the name fixed and the values inside that set, and keep
-tokens, URLs, hosts, and error text out of both. A runner-backed workflow,
-`.github/workflows/test-export-ubicloud-cache-credentials.yml`, drives the
-action with fabricated private credentials and asserts a later shell step sees
-all three exports, then asserts it fails closed on a public host and on a
-missing cache URL.
+tokens, URLs, hosts, and error text out of both.
+
+The runner-backed workflow,
+`.github/workflows/test-export-ubicloud-cache-credentials.yml`, asserts one
+thing only: that the action refuses a GitHub-hosted runner. The success path
+cannot be simulated there. The runner supplies its own `ACTIONS_CACHE_URL` and
+`ACTIONS_RUNTIME_TOKEN` to every action step and **overrides workflow-level
+values of the same names**, so a job that sets a private URL still sees
+GitHub's public one inside the action. That was established by observation: an
+earlier version of this workflow set a `10.0.0.0/8` URL at job level, the step
+log showed it in the declared environment, and the action still read
+`artifactcache.actions.githubusercontent.com`.
+
+So the success path belongs to the Node tests, which run the shipped script
+directly, and the refusal belongs to the runner, which is the only place a
+real GitHub cache endpoint can be put in front of the guard. Do not try to
+recover the success path by adding an input that overrides the environment:
+that would put a way to bypass the private-host check into the action's public
+surface.
 
 Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
 before any step that starts an sccache server, because sccache reads the cache

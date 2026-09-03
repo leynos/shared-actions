@@ -66,7 +66,10 @@ ratchet is off; `skipped` means an earlier failure stopped the step running.
 
 `generate-coverage` accepts `all-features`, `all-targets`, and `doctests` so a
 repository can make the coverage job its entire test run rather than executing
-the suite twice. All three default to off.
+the suite twice. All three default to off, and the ratchet cache change above
+is internal to the action, so a workflow already pinned to `v1` needs no edit
+to keep its current behaviour. Opt in only where you want the coverage job to
+replace a separate test job.
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1

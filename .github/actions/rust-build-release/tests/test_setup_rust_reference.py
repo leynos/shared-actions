@@ -88,6 +88,30 @@ def test_pinned_revision_declares_forwarded_cache_inputs() -> None:
     assert not missing, f"setup-rust revision lacks inputs: {missing}"
 
 
+def _cargo_cache_paths(manifest: dict[str, object]) -> list[str]:
+    """Return the paths the setup-rust Cargo cache step archives."""
+    steps: list[dict[str, object]] = manifest["runs"]["steps"]
+    cache_step = find_step(steps, "Cache cargo registry")
+    paths = cache_step["with"]["path"]
+    assert isinstance(paths, str)
+    return [line.strip() for line in paths.splitlines() if line.strip()]
+
+
+def test_pinned_revision_does_not_archive_the_target_tree() -> None:
+    """The pin must be a revision that stopped archiving the build tree.
+
+    That archive is what the bump exists to shed: it captures one build shape,
+    invalidates on almost any change, and a caller owning its own target
+    directory pays for the upload regardless.
+    """
+    paths = _cargo_cache_paths(_setup_rust_manifest_at(EXPECTED_SETUP_RUST_SHA))
+
+    assert paths, "setup-rust revision declares no Cargo cache paths"
+    assert not [path for path in paths if path.startswith("target")], (
+        f"pinned setup-rust revision still archives a target tree: {paths}"
+    )
+
+
 def test_working_tree_setup_rust_declares_forwarded_cache_inputs() -> None:
     """The checked-in setup-rust manifest must keep those inputs too."""
     manifest = yaml.safe_load(

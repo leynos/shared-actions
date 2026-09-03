@@ -250,13 +250,22 @@ def _ratchet_report_script() -> str:
     return script
 
 
-def _run_ratchet_report(**environment: str) -> subprocess.CompletedProcess[str]:
-    """Run the ratchet cache reporter with explicit step observations."""
+def _run_ratchet_report(
+    *, summary_path: Path | None = None, **environment: str
+) -> subprocess.CompletedProcess[str]:
+    """Run the ratchet cache reporter with explicit step observations.
+
+    ``summary_path`` supplies a ``GITHUB_STEP_SUMMARY`` destination; when it is
+    omitted the variable is removed, so the notice path is exercised alone.
+    """
     bash = shutil.which("bash")
     if bash is None:  # pragma: no cover - environment guard
         pytest.skip("bash not found on PATH")
     process_env = {**os.environ, **environment}
-    process_env.pop("GITHUB_STEP_SUMMARY", None)
+    if summary_path is None:
+        process_env.pop("GITHUB_STEP_SUMMARY", None)
+    else:
+        process_env["GITHUB_STEP_SUMMARY"] = str(summary_path)
     return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [bash, "-c", _ratchet_report_script()],
         env=process_env,
@@ -339,6 +348,47 @@ def test_ratchet_report_never_names_the_cache_key() -> None:
 
     assert "ratchet-baseline-" not in result.stdout
     assert "coverage-baseline" not in result.stdout
+
+
+def test_ratchet_report_writes_the_job_summary(tmp_path: Path) -> None:
+    """The job summary must carry both outcomes, not just the log notice.
+
+    The summary is where a maintainer looks after the fact, so losing it would
+    be a silent regression the notice assertions could not catch.
+    """
+    summary = tmp_path / "summary.md"
+    summary.touch()
+
+    result = _run_ratchet_report(
+        summary_path=summary,
+        GC_WITH_RATCHET="true",
+        GC_RESTORE_STEP_OUTCOME="success",
+        GC_RESTORE_CACHE_HIT="false",
+        GC_SAVE_STEP_OUTCOME="success",
+    )
+
+    assert result.returncode == 0, result.stderr
+    written = summary.read_text(encoding="utf-8")
+    assert "### generate-coverage ratchet cache" in written
+    assert "- baseline restore: miss" in written
+    assert "- baseline save: saved" in written
+    assert "ratchet-baseline-" not in written
+
+
+def test_restore_precedes_save_over_matching_paths() -> None:
+    """The pair must read before it writes, over exactly the same files.
+
+    Order and paths are the rest of the lifecycle contract: a save that ran
+    first would write a stale baseline, and differing path lists would save
+    something other than what was restored.
+    """
+    steps: list[dict[str, typ.Any]] = _steps()
+    names = [step.get("name") for step in steps]
+    assert names.index("Restore baselines") < names.index("Save baselines")
+
+    restore = _step_by_name("Restore baselines")
+    save = _step_by_name("Save baselines")
+    assert restore["with"]["path"] == save["with"]["path"]
 
 
 def test_tolerance_constant_is_one_percentage_point() -> None:

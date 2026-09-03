@@ -603,3 +603,101 @@ def test_run_rust_script_honours_the_input_environment(
     ]
     assert coverage_call.env["RUSTFLAGS"] == "-D warnings"
     assert doctest_call.env["RUSTFLAGS"] == "-D warnings"
+
+
+def test_cucumber_command_carries_the_whole_workspace_flags(
+    run_rust: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cucumber run must measure the same code as the main run.
+
+    ``main`` forwards the selection to ``run_cucumber_rs_coverage`` so the two
+    reports can be merged. If the cucumber command built a narrower feature
+    set, the merged report would mix two different builds of the workspace.
+    """
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\nend_of_record\n")
+    cucumber_output = output.with_name(f"{output.stem}.cucumber{output.suffix}")
+    calls: list[list[str]] = []
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        calls.append(args)
+        if str(cucumber_output) in args:
+            cucumber_output.write_text("LF:4\nLH:4\nend_of_record\n")
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+
+    run_rust.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=True,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=Path("Cargo.toml"),
+        github_output=tmp_path / "gh.txt",
+        cucumber_rs_features="tests/features",
+        cucumber_rs_args="",
+        with_cucumber_rs=True,
+        all_features=True,
+        all_targets=True,
+        doctests=False,
+        baseline_file=None,
+    )
+
+    _coverage_args, cucumber_args = calls
+    assert str(cucumber_output) in cucumber_args
+    assert "--all-features" in cucumber_args
+    assert "--all-targets" in cucumber_args
+
+
+def test_cucumber_command_omits_the_flags_when_not_requested(
+    run_rust: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller that asked for neither flag must not get them via cucumber."""
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "cov.lcov"
+    output.write_text("LF:10\nLH:10\nend_of_record\n")
+    cucumber_output = output.with_name(f"{output.stem}.cucumber{output.suffix}")
+    calls: list[list[str]] = []
+
+    def fake_run_cargo(
+        args: list[str],
+        *,
+        env_overrides: typ.Mapping[str, str] | None = None,
+        env_unsets: typ.Iterable[str] = (),
+    ) -> str:
+        calls.append(args)
+        if str(cucumber_output) in args:
+            cucumber_output.write_text("LF:4\nLH:4\nend_of_record\n")
+        return "Coverage: 100%"
+
+    monkeypatch.setattr(run_rust, "_run_cargo", fake_run_cargo)
+
+    run_rust.main(
+        output,
+        "",
+        with_default=True,
+        use_nextest=True,
+        lang="rust",
+        fmt="lcov",
+        manifest_path=Path("Cargo.toml"),
+        github_output=tmp_path / "gh.txt",
+        cucumber_rs_features="tests/features",
+        cucumber_rs_args="",
+        with_cucumber_rs=True,
+        all_features=False,
+        all_targets=False,
+        doctests=False,
+        baseline_file=None,
+    )
+
+    _coverage_args, cucumber_args = calls
+    assert "--all-features" not in cucumber_args
+    assert "--all-targets" not in cucumber_args

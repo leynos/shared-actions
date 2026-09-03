@@ -157,6 +157,14 @@ Known limitations:
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
 supported for Python projects. Mixed projects must use `cobertura`.
 
+### Upgrading
+
+Everything described in this section is additive within `v1`. `all-features`,
+`all-targets`, and `doctests` all default to off, and the ratchet baseline
+cache change is internal to the action, so a workflow already on `v1` needs no
+edit to keep its current behaviour. Opt in only where you want the coverage
+job to replace a separate test job.
+
 ### Running coverage as the only test execution
 
 `all-features`, `all-targets` and `doctests` exist so one coverage job can be a

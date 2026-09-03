@@ -16,12 +16,14 @@ import io
 import itertools
 import os
 import sys
+import tarfile
 import typing as typ
+import zipfile
 from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 from plumbum import local
 
@@ -1791,6 +1793,266 @@ def test_install_nextest_checksum_mismatch(
 
     assert not install_nextest_module.verify_nextest_binary(binary, "deadbeef")
     assert "cargo-nextest checksum mismatch" in capsys.readouterr().err
+
+
+_NEXTEST_ARCHIVE_PAYLOAD = b"nextest-archive"
+_NEXTEST_BINARY_PAYLOAD = b"nextest-binary"
+_NEXTEST_SENTINEL = b"previously installed cargo-nextest"
+_NEXTEST_FAILURE_MODES = (
+    "download",
+    "archive-digest",
+    "extract",
+    "binary-digest",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class _NextestInstallOutcome:
+    """Capture the observable result of one install attempt."""
+
+    exit_code: int | None
+    destination_bytes: bytes | None
+    temporary_exists: bool
+    extracted: bool
+
+
+def _nextest_asset(module: ModuleType, digest: str) -> object:
+    """Return a Linux release asset pinned to ``digest``."""
+    return module.ReleaseAsset("x86_64-unknown-linux-gnu", "tar.gz", digest)
+
+
+def _attempt_nextest_install(
+    module: ModuleType,
+    cargo_home: Path,
+    failure: str | None,
+) -> _NextestInstallOutcome:
+    """Install cargo-nextest with stubbed I/O and report what changed on disk."""
+    destination = cargo_home / "bin" / "cargo-nextest"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(_NEXTEST_SENTINEL)
+    temporary = destination.with_suffix(f"{destination.suffix}.tmp")
+    archive_digest = hashlib.sha256(_NEXTEST_ARCHIVE_PAYLOAD).hexdigest()
+    binary_digest = hashlib.sha256(_NEXTEST_BINARY_PAYLOAD).hexdigest()
+    asset = _nextest_asset(
+        module,
+        "0" * 64 if failure == "archive-digest" else archive_digest,
+    )
+    extracted = False
+
+    def fake_download(_asset: object, target: Path) -> None:
+        if failure == "download":
+            typer_exit = module.typer.Exit(1)
+            raise typer_exit
+        target.write_bytes(_NEXTEST_ARCHIVE_PAYLOAD)
+
+    def fake_extract(_archive: Path, _asset: object, target: Path) -> None:
+        nonlocal extracted
+        extracted = True
+        if failure == "extract":
+            message = "cargo-nextest missing from archive"
+            raise ValueError(message)
+        payload = b"tampered" if failure == "binary-digest" else _NEXTEST_BINARY_PAYLOAD
+        target.write_bytes(payload)
+
+    exit_code: int | None = None
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setenv("CARGO_HOME", str(cargo_home))
+        patcher.setattr(module, "_download_archive", fake_download)
+        patcher.setattr(module, "_extract_binary", fake_extract)
+        if failure is None:
+            module.install_cargo_nextest(asset, binary_digest)
+        else:
+            with pytest.raises(module.typer.Exit) as excinfo:
+                module.install_cargo_nextest(asset, binary_digest)
+            exit_code = _exit_code(excinfo.value)
+
+    return _NextestInstallOutcome(
+        exit_code=exit_code,
+        destination_bytes=destination.read_bytes() if destination.exists() else None,
+        temporary_exists=temporary.exists(),
+        extracted=extracted,
+    )
+
+
+@pytest.mark.parametrize("failure", ["archive-digest", "binary-digest"])
+def test_install_nextest_digest_mismatch_preserves_destination(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    failure: str,
+) -> None:
+    """A mismatched archive or binary digest leaves the installed binary intact."""
+    outcome = _attempt_nextest_install(
+        install_nextest_module,
+        tmp_path / "cargo-home",
+        failure,
+    )
+
+    assert outcome.exit_code == 1
+    assert outcome.destination_bytes == _NEXTEST_SENTINEL
+    assert not outcome.temporary_exists
+
+
+def test_install_nextest_archive_mismatch_skips_extraction(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """The archive digest gates extraction, so a bad archive is never opened."""
+    outcome = _attempt_nextest_install(
+        install_nextest_module,
+        tmp_path / "cargo-home",
+        "archive-digest",
+    )
+
+    assert not outcome.extracted
+
+
+def _write_tar_archive(
+    path: Path,
+    members: dict[str, bytes | None],
+) -> None:
+    """Write a gzip tar archive; a ``None`` payload records a directory member."""
+    with tarfile.open(path, "w:gz") as package:
+        for name, payload in members.items():
+            info = tarfile.TarInfo(name)
+            if payload is None:
+                info.type = tarfile.DIRTYPE
+                package.addfile(info)
+                continue
+            info.size = len(payload)
+            package.addfile(info, io.BytesIO(payload))
+
+
+def test_extract_binary_reads_real_tar_archive(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """A real tar.gz archive yields the cargo-nextest executable."""
+    archive = tmp_path / "cargo-nextest.tar.gz"
+    _write_tar_archive(
+        archive,
+        {"pkg/README": b"docs", "pkg/cargo-nextest": _NEXTEST_BINARY_PAYLOAD},
+    )
+    destination = tmp_path / "extracted"
+
+    install_nextest_module._extract_binary(
+        archive,
+        _nextest_asset(install_nextest_module, "0" * 64),
+        destination,
+    )
+
+    assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
+
+
+def test_extract_binary_rejects_tar_archive_without_executable(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """A tar.gz archive lacking the executable raises a clear error."""
+    archive = tmp_path / "cargo-nextest.tar.gz"
+    _write_tar_archive(archive, {"pkg/README": b"docs"})
+
+    with pytest.raises(ValueError, match="cargo-nextest missing from"):
+        install_nextest_module._extract_binary(
+            archive,
+            _nextest_asset(install_nextest_module, "0" * 64),
+            tmp_path / "extracted",
+        )
+
+
+def test_extract_binary_rejects_non_file_tar_member(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """A directory named cargo-nextest is not accepted as the executable."""
+    archive = tmp_path / "cargo-nextest.tar.gz"
+    _write_tar_archive(archive, {"pkg/cargo-nextest": None})
+
+    with pytest.raises(ValueError, match="is not a file in"):
+        install_nextest_module._extract_binary(
+            archive,
+            _nextest_asset(install_nextest_module, "0" * 64),
+            tmp_path / "extracted",
+        )
+
+
+def _windows_asset(module: ModuleType) -> object:
+    """Return a Windows release asset that selects the zip extraction path."""
+    return module.ReleaseAsset("x86_64-pc-windows-msvc", "zip", "0" * 64)
+
+
+def test_extract_binary_reads_real_zip_archive(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """A real zip archive yields the cargo-nextest executable."""
+    archive = tmp_path / "cargo-nextest.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("pkg/README", "docs")
+        package.writestr("pkg/cargo-nextest.exe", _NEXTEST_BINARY_PAYLOAD)
+    destination = tmp_path / "extracted.exe"
+
+    install_nextest_module._extract_binary(
+        archive,
+        _windows_asset(install_nextest_module),
+        destination,
+    )
+
+    assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
+
+
+def test_extract_binary_rejects_zip_archive_without_executable(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+) -> None:
+    """A zip archive lacking the executable raises a clear error."""
+    archive = tmp_path / "cargo-nextest.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        package.writestr("pkg/README", "docs")
+
+    with pytest.raises(ValueError, match=r"cargo-nextest\.exe missing from"):
+        install_nextest_module._extract_binary(
+            archive,
+            _windows_asset(install_nextest_module),
+            tmp_path / "extracted.exe",
+        )
+
+
+_NEXTEST_INSTALL_SETTINGS = settings(
+    max_examples=25,
+    deadline=None,
+    derandomize=True,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+
+
+@_NEXTEST_INSTALL_SETTINGS
+@example(failure=None)
+@example(failure="download")
+@example(failure="archive-digest")
+@example(failure="extract")
+@example(failure="binary-digest")
+@given(failure=st.sampled_from((None, *_NEXTEST_FAILURE_MODES)))
+def test_install_nextest_install_order_invariants(
+    tmp_path_factory: pytest.TempPathFactory,
+    install_nextest_module: ModuleType,
+    failure: str | None,
+) -> None:
+    """Installation replaces the destination only when both digests verify."""
+    cargo_home = tmp_path_factory.mktemp("nextest-install-") / "cargo-home"
+    outcome = _attempt_nextest_install(
+        install_nextest_module,
+        cargo_home,
+        failure,
+    )
+
+    assert not outcome.temporary_exists
+    if failure is None:
+        assert outcome.exit_code is None
+        assert outcome.destination_bytes == _NEXTEST_BINARY_PAYLOAD
+    else:
+        assert outcome.exit_code == 1
+        assert outcome.destination_bytes == _NEXTEST_SENTINEL
+    assert outcome.extracted is (failure not in {"download", "archive-digest"})
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

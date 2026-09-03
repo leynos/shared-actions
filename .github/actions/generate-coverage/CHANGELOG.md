@@ -15,6 +15,9 @@
 - Download `cargo-nextest` directly from its pinned official release and verify
   both the archive and executable SHA-256 digests. This removes
   cargo-binstall's QuickInstall substitution and any source-build fallback.
+- Log bounded, structured events for the `cargo-nextest` download attempt and
+  duration, the archive digest outcome, the executable digest outcome, and the
+  install outcome.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes

@@ -21,6 +21,7 @@ import platform
 import shutil
 import tarfile
 import tempfile
+import time
 import typing as typ
 import urllib.error
 import urllib.request
@@ -208,6 +209,8 @@ def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
         url,
         headers={"User-Agent": "generate-coverage"},
     )
+    logger.info("event=nextest.download.start archive=%s url=%s", asset.filename, url)
+    started = time.monotonic()
     try:
         with (
             urllib.request.urlopen(request, timeout=60) as response,  # noqa: S310
@@ -215,8 +218,22 @@ def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
         ):
             shutil.copyfileobj(response, output)
     except (OSError, urllib.error.URLError) as exc:
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.download.finish archive=%s outcome=failed "
+            "duration_seconds=%.3f error=%s",
+            asset.filename,
+            time.monotonic() - started,
+            exc,
+        )
         typer.echo(f"cargo-nextest release download failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    logger.info(
+        "event=nextest.download.finish archive=%s outcome=ok "
+        "duration_seconds=%.3f bytes=%d",
+        asset.filename,
+        time.monotonic() - started,
+        destination.stat().st_size,
+    )
 
 
 def _copy_member(source: typ.IO[bytes], destination: Path) -> None:
@@ -272,13 +289,33 @@ def _extract_binary(archive: Path, asset: ReleaseAsset, destination: Path) -> No
         _extract_tar_binary(archive, asset, destination)
 
 
+def _verify_archive(archive: Path, asset: ReleaseAsset) -> None:
+    """Fail unless the downloaded archive matches its pinned SHA-256."""
+    actual_sha = _sha256_path(archive)
+    if actual_sha != asset.sha256:
+        logger.error(
+            "event=nextest.archive.verify archive=%s outcome=mismatch "
+            "expected=%s actual=%s",
+            asset.filename,
+            asset.sha256,
+            actual_sha,
+        )
+        typer.echo("cargo-nextest release archive checksum mismatch", err=True)
+        raise typer.Exit(1)
+    logger.info(
+        "event=nextest.archive.verify archive=%s outcome=ok",
+        asset.filename,
+    )
+
+
 def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
     """Verify the cargo-nextest binary against the expected SHA-256."""
     actual_sha = _sha256_path(path)
     if actual_sha == expected_sha:
+        logger.info("event=nextest.binary.verify path=%s outcome=ok", path)
         return True
     logger.error(
-        "cargo-nextest checksum mismatch for %s: expected %s, got %s",
+        "event=nextest.binary.verify path=%s outcome=mismatch expected=%s actual=%s",
         path,
         expected_sha,
         actual_sha,
@@ -300,19 +337,27 @@ def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
         with tempfile.TemporaryDirectory(prefix="cargo-nextest-") as temp_dir:
             archive = Path(temp_dir) / asset.filename
             _download_archive(asset, archive)
-            if _sha256_path(archive) != asset.sha256:
-                typer.echo("cargo-nextest release archive checksum mismatch", err=True)
-                raise typer.Exit(1)
+            _verify_archive(archive, asset)
             _extract_binary(archive, asset, temporary_binary)
         if not verify_nextest_binary(temporary_binary, expected_sha):
+            logger.error(
+                "event=nextest.install destination=%s outcome=binary-mismatch",
+                destination,
+            )
             raise typer.Exit(1)
         temporary_binary.chmod(0o755)
         temporary_binary.replace(destination)
     except (OSError, tarfile.TarError, zipfile.BadZipFile, ValueError) as exc:
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.install destination=%s outcome=failed error=%s",
+            destination,
+            exc,
+        )
         typer.echo(f"cargo-nextest release installation failed: {exc}", err=True)
         raise typer.Exit(1) from exc
     finally:
         temporary_binary.unlink(missing_ok=True)
+    logger.info("event=nextest.install destination=%s outcome=ok", destination)
     typer.echo("cargo-nextest official release installed and verified")
     return destination
 

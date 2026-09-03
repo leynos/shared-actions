@@ -453,7 +453,10 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
         _TAR_SHIM_WRAPPER.format(script=_posix_path(str(shim_body))),
     )
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
-    interpreter_dir = _posix_path(str(Path(sys.executable).parent))
+    # `bash_path` yields the form Bash understands. A Windows drive path such
+    # as `C:/Program Files/...` cannot go into a colon-separated PATH, because
+    # the drive colon splits the entry in two.
+    interpreter_dir = bash_path(Path(sys.executable).parent)
     path = f"{bash_path(stub_bin)}:{interpreter_dir}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         ambient_bin = root / "ambient-bin"

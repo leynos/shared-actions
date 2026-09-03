@@ -280,21 +280,21 @@ sequenceDiagram
 The nested `actions-rust-lang/setup-rust-toolchain` step exports
 `RUSTFLAGS="-D warnings"` whenever `RUSTFLAGS` is unset, and an ambient
 `RUSTFLAGS` overrides Cargo's `build.rustflags`. Projects that need specific
-flags — for example a required `-Z` flag such as `-Zpolonius=next` — could not
-get them honoured. The `rust-build-release` action's `rustflags` input exists
-to solve this: an "Export caller RUSTFLAGS" step runs before toolchain setup
-and is skipped entirely when the input is empty.
+flags — for example a required `-Z` flag such as `-Zpolonius=next` — could
+not get them honoured. The `rust-build-release` action's `rustflags` input
+exists to solve this: an "Export caller RUSTFLAGS" step runs before toolchain
+setup and is skipped entirely when the input is empty.
 
 Precedence favours a pre-existing `RUSTFLAGS`, including one deliberately set
 to the empty string, which always wins over the input. The guard uses
-`[[ ${RUSTFLAGS+x} ]]` rather than `[[ -v RUSTFLAGS ]]`, because macOS runners
-ship Bash 3.2, which cannot parse the `-v` conditional primary.
+`[[ ${RUSTFLAGS+x} ]]` rather than `[[ -v RUSTFLAGS ]]`, because macOS
+runners ship Bash 3.2, which cannot parse the `-v` conditional primary.
 
 The value is passed to the step via an environment variable and written to
-`GITHUB_ENV` with a randomly generated heredoc delimiter, verified absent from
-the value. This prevents a caller-supplied value that happens to contain the
-delimiter from terminating the block early and having its remainder parsed as
-further environment-file commands.
+`GITHUB_ENV` with a randomly generated heredoc delimiter, verified absent
+from the value. This prevents a caller-supplied value that happens to
+contain the delimiter from terminating the block early and having its
+remainder parsed as further environment-file commands.
 
 ### 3.2 Release Stage: Declarative Packaging with GoReleaser
 

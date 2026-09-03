@@ -67,8 +67,8 @@ That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 state, naming neither the key nor the baseline paths. Each outcome is also
 written as a fixed `metric ratchet-cache.restore=<state>` or
 `metric ratchet-cache.save=<state>` line, so a log scraper can read the result
-without parsing the notice text. `disabled` means the ratchet is off; `skipped`
-means an earlier failure stopped the step running.
+without parsing the notice text. `disabled` means the
+ratchet is off; `skipped` means an earlier failure stopped the step running.
 
 ## `ratchet-coverage` baseline caching
 
@@ -90,8 +90,8 @@ the first run after this change starts from no baseline and stores one.
 repository can make the coverage job its entire test run rather than executing
 the suite twice. All three default to off, and the ratchet cache change above
 is internal to the action, so a workflow already pinned to `v1` needs no edit
-to keep its current behaviour. Opt in only when the coverage job must replace a
-separate test job.
+to keep its current behaviour. Opt in only when the coverage job must replace
+a separate test job.
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1

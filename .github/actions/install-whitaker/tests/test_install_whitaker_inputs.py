@@ -127,7 +127,7 @@ class TestNormalisation:
         assert run.outputs["installer-path"].endswith("/whitaker-installer.exe")
 
     def test_lowercases_a_supplied_digest(self, tmp_path: Path) -> None:
-        """Verify an uppercase digest input is normalized for comparison."""
+        """Verify an uppercase digest input is normalised for comparison."""
         run = run_validation(
             tmp_path,
             ValidationInputs(

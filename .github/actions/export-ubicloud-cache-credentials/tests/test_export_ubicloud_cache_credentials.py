@@ -181,6 +181,27 @@ class TestBehaviour:
             ("http://172.15.0.1:51123/token/", False),
             ("http://172.32.0.1:51123/token/", False),
             ("http://8.8.8.8:51123/token/", False),
+            # A DNS name that merely begins with a private-range octet. A
+            # prefix match would classify these as private and hand the
+            # runtime token to whoever controls them.
+            ("http://10.attacker.example/token/", False),
+            ("http://127.0.0.1.attacker.example/token/", False),
+            ("http://192.168.attacker.example/token/", False),
+            ("http://172.16.attacker.example/token/", False),
+            # A name that may resolve to a private address is still refused:
+            # resolution is not ours to trust, and the proxy URL is a literal.
+            ("http://proxy.internal:51123/token/", False),
+            # The URL parser normalizes legacy IPv4 forms before the host is
+            # ever examined: 2130706433 becomes 127.0.0.1 and 10.1.2 becomes
+            # 10.1.0.2. Those are the addresses the caller really named, so
+            # accepting them is right.
+            ("http://2130706433:51123/token/", True),
+            ("http://10.1.2:51123/token/", True),
+            # IPv6 outside the unique-local range.
+            ("http://[2001:db8::1]:51123/token/", False),
+            ("http://[f00d::1]:51123/token/", False),
+            ("http://[fc00::1]:51123/token/", True),
+            ("http://[fd12:3456::1]:51123/token/", True),
         ],
     )
     def test_accepts_only_private_network_proxies(
@@ -189,7 +210,10 @@ class TestBehaviour:
         """A public endpoint is not an Ubicloud proxy, so refuse it.
 
         Exporting a GitHub-hosted cache endpoint under this action's name would
-        point sccache at the wrong service while claiming otherwise.
+        point sccache at the wrong service while claiming otherwise. A host is
+        private only when it is a complete address literal inside a private
+        range: a name beginning with a private octet, such as
+        ``10.attacker.example``, would otherwise be handed the runtime token.
         """
         calls = _run_script(cache_url=host)
 
@@ -214,9 +238,20 @@ class TestBehaviour:
         assert "ACTIONS_RUNTIME_TOKEN is not set" in calls.failure
         assert calls.exported == {}
 
-    def test_fails_on_a_malformed_url(self) -> None:
+    @pytest.mark.parametrize(
+        "cache_url",
+        [
+            "not-a-url",
+            "",
+            # Five octets, and an octet above 255: the URL parser rejects both
+            # outright, so they never reach the private-network check.
+            "http://10.1.2.3.4:51123/token/",
+            "http://10.1.2.999:51123/token/",
+        ],
+    )
+    def test_fails_on_a_malformed_url(self, cache_url: str) -> None:
         """A value that is not a URL cannot be checked, so it is refused."""
-        calls = _run_script(cache_url="not-a-url")
+        calls = _run_script(cache_url=cache_url)
 
         assert calls.failure is not None
         assert calls.exported == {}

@@ -190,8 +190,40 @@ share a `cache-provider` boundary. `github` is the backward-compatible default:
 the actions own their Cargo archive caches, while setup-uv retains its automatic
 GitHub-hosted versus self-hosted policy. `external` disables those Cargo and uv
 archive caches so the caller can mount the same paths through exactly one other
-provider. The coverage action deliberately leaves ratchet-baseline paths under
-their separate GitHub cache because external mode does not mount them.
+provider. Consumers on Ubicloud, or on any other caller-owned cache setup,
+continue to use `cache-provider: external`. The coverage action deliberately
+leaves ratchet-baseline paths under their separate GitHub cache because
+external mode does not mount them.
+
+Those archive caches cover the Cargo registry and Git index only, plus the
+installed Cargo binaries in the coverage action. Neither action archives the
+`target` tree, and sccache owns compiler output in both. Repositories across
+this estate build in two shapes: a debug or dev-fast tree built with Cranelift
+and linked with mold for lint and test, and an instrumented
+`target/llvm-cov-target` tree for coverage. A `target` archive captures one
+shape, is invalidated on almost every change, and overlaps with sccache; the
+rstest-bdd pilot measured 3.65 GB moved in about 121 s for one such archive.
+sccache instead holds both shapes in a single store keyed by compiler flags.
+Whitaker run 33744418209 (coverage under `-C instrument-coverage`) and Cuprum
+run 33677926269 (Cranelift-built Whitaker lints) each report
+`Non-cacheable compilations 0`, which is the evidence that the two shapes
+coexist without conflict.
+
+Size `SCCACHE_CACHE_SIZE` for both shapes. sccache defaults to a 10 GiB store.
+Under the GitHub Actions backend (`SCCACHE_GHA_ENABLED=true`) GitHub's own
+per-repository limit applies instead, so neither manifest exposes a sizing
+input nor exports the variable. Callers that self-manage a local sccache
+directory raise `SCCACHE_CACHE_SIZE` above the default so one store holds both
+shapes.
+
+Coverage keeps the LLVM codegen backend. Cranelift has no
+`-C instrument-coverage` equivalent and cannot emit coverage instrumentation,
+so an instrumented build must use LLVM. mold remains usable as the linker for
+those builds.
+
+[ADR 0003](adr/0003-sccache-owns-rust-compiler-output.md) records this decision
+for both actions, including the measurements behind it and the consequence of a
+cold sccache store.
 
 Do not couple this input to `use-sccache`. The setup action's compiler-cache
 backend is independent of its Cargo and uv archive caches. A caller mounting
@@ -204,9 +236,12 @@ and archive-cache outcomes. Keep the allowed states closed to `hit`, `miss`,
 `disabled`, and `error`; never include cache keys, paths, tokens, or raw errors
 in the notice. The property tests in the setup-rust and generate-coverage test
 directories prove that only the two exact provider names are accepted. Their
-reporter tests exercise success, disabled, and failure observations. When this
-boundary changes, update both manifests, their action READMEs and changelogs,
-the users' guide, and these tests together.
+reporter tests exercise success, disabled, and failure observations. The
+cross-action contract test in
+[`.github/actions/tests/test_no_target_cache.py`](../.github/actions/tests/test_no_target_cache.py)
+fails if a `target` path reappears in either manifest's cache inputs. When
+this boundary changes, update both manifests, their action READMEs and
+changelogs, the users' guide, that contract test, and these tests together.
 
 ## `install-whitaker` action contract
 

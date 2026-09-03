@@ -6,7 +6,9 @@ schema = 1
 stems = []
 
 [words]
-accepted = []
+# "mold" is the proper name of the LLVM-era linker (github.com/rui314/mold),
+# not the en-GB "mould".
+accepted = ["mold"]
 
 [words.corrections]
 

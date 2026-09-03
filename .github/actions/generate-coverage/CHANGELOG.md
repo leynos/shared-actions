@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Stop archiving the `target` tree. The Cargo cache now covers the Cargo
+  binaries, registry, and Git index only; sccache carries compiler output.
 - Add a `cache-provider` input. The default preserves the existing GitHub
   caches for uv, Cargo artefacts, and Python dependencies. Set it to `external`
   when the caller mounts those paths through one external cache owner, such as

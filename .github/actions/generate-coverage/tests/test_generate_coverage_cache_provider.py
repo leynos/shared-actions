@@ -126,6 +126,23 @@ def test_cache_provider_defaults_to_github() -> None:
     assert cache_provider["default"] == "github"
 
 
+def test_cargo_cache_archives_binaries_registry_and_git_index_only() -> None:
+    """Cache Cargo binaries and indexes; leave ``target`` to sccache."""
+    paths = [
+        line.strip()
+        for line in str(_step("Cache cargo artefacts")["with"]["path"]).splitlines()
+        if line.strip()
+    ]
+
+    assert paths == [
+        "~/.cargo/bin/cargo-binstall",
+        "~/.cargo/bin/cargo-llvm-cov",
+        "~/.cargo/bin/cargo-nextest",
+        "~/.cargo/registry",
+        "~/.cargo/git",
+    ]
+
+
 def test_external_cache_disables_overlapping_archive_caches() -> None:
     """Make the caller the sole owner of Rust and uv cache paths."""
     setup_uv = _step("Setup uv")

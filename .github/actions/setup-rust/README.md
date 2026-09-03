@@ -105,11 +105,11 @@ readily available on later runs.
 ## Caching
 
 With the default `cache-provider: github`, this action uses `actions/cache` for
-the Cargo registry, Cargo Git dependencies, and the configured build-profile
-target directory. `setup-uv` retains its historical automatic policy: its
-GitHub cache is enabled on GitHub-hosted runners and disabled on self-hosted
-runners. These archive caches are restored during setup and saved after the
-job.
+the Cargo registry and Cargo Git dependencies only. The `target` directory is
+deliberately uncached: sccache is the sole owner of compiler output. `setup-uv`
+retains its historical automatic policy: its GitHub cache is enabled on
+GitHub-hosted runners and disabled on self-hosted runners. These archive caches
+are restored during setup and saved after the job.
 
 Set `cache-provider: external` when the caller mounts those paths through one
 other cache service, such as a Namespace cache volume. External mode disables
@@ -143,6 +143,24 @@ Node.js-backed actions are pinned to specific commits for reproducibility:
 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
 `mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`
 and `msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884`.
+
+### Sizing `SCCACHE_CACHE_SIZE`
+
+Repositories across this estate build in two shapes: a debug or dev-fast tree
+built with Cranelift and linked with mold for lint and test, and an
+instrumented `target/llvm-cov-target` tree built with the LLVM backend for
+coverage. Both shapes coexist in one sccache store because sccache keys entries
+by compiler flags, so objects from the two shapes never collide. Measured runs
+confirm this: Whitaker run 33744418209 (coverage under `-C instrument-coverage`)
+and Cuprum run 33677926269 (Cranelift-built Whitaker lints) each report
+`Non-cacheable compilations 0`.
+
+sccache defaults to a 10 GiB store. Under this action's GitHub Actions backend
+(`SCCACHE_GHA_ENABLED=true`) GitHub's own per-repository cache limit applies
+instead, so no sizing input is exposed here. Callers who self-manage a local
+sccache directory should raise `SCCACHE_CACHE_SIZE` above the default so one
+store holds both build shapes rather than evicting one to make room for the
+other.
 
 An external cache does not replace this compiler-cache backend automatically.
 Callers that use a local cache volume for sccache must pass

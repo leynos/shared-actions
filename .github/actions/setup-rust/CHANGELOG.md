@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Stop archiving the `target` tree. The Cargo cache now covers the registry and
+  Git index only, its key is profile-agnostic, and sccache is the sole
+  compiler-output cache.
 - Add a `cache-provider` input. The default preserves the existing GitHub
   Cargo and uv archive caches; `external` disables them so callers can mount a
   single external cache owner without overlapping writes.

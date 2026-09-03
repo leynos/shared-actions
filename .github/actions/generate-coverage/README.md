@@ -182,6 +182,8 @@ dependency cache steps; it does not mount a replacement. The caller must mount
 the external cache before dependencies are installed or coverage runs, so each
 path has exactly one cache owner. Ratchet baseline restore and save remain
 GitHub caches because their paths are outside the Namespace Rust and uv mounts.
+They use the `actions/cache/restore` and `actions/cache/save` sub-actions
+rather than the full action, so only the save step writes the baseline key.
 
 ```yaml
 - uses: ./.github/actions/generate-coverage

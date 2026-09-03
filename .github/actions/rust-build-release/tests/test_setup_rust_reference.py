@@ -23,7 +23,7 @@ SETUP_RUST_MANIFEST = ".github/actions/setup-rust/action.yml"
 
 #: Revision of this repository that the nested setup-rust step must reference.
 #: Keep in sync with the ``uses`` value in ``action.yml``; both change together.
-EXPECTED_SETUP_RUST_SHA = "bffacaf91d3f3515110679a30fbf6dc781ddc549"
+EXPECTED_SETUP_RUST_SHA = "7c9d66030879b504365202df90f439ea419e72bd"
 
 #: Inputs rust-build-release forwards, mapped to the default it declares for
 #: each. The referenced setup-rust revision must declare every name.

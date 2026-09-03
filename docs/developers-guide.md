@@ -195,6 +195,15 @@ continue to use `cache-provider: external`. The coverage action deliberately
 leaves ratchet-baseline paths under their separate GitHub cache because
 external mode does not mount them.
 
+Those baseline steps use the `actions/cache/restore` and `actions/cache/save`
+sub-actions rather than the full `actions/cache` action. The full action
+registers a post-job save on its own primary key, so pairing it with an
+explicit save step gave the same run-id-suffixed key two writers, and the
+reservation lost the race on every run. Keep both halves on one pinned
+revision; the manifest test in
+[`test_ratchet_baseline.py`](../.github/actions/generate-coverage/tests/test_ratchet_baseline.py)
+enforces both properties.
+
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the
 `target` tree, and sccache owns compiler output in both. Repositories across

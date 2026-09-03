@@ -120,7 +120,13 @@ runs:
     - name: Restore baselines
       id: restore-baselines
       if: inputs.with-ratchet == 'true'
-      uses: actions/cache@v4
+      # The restore sub-action, not the full `actions/cache` action: the full
+      # action also registers a post-job save on its primary key, which the
+      # "Save baselines" step below already writes. Both firing on the same
+      # run-id key made every run log
+      # "Failed to save: Unable to reserve cache ... already exists".
+      # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ${{ inputs.baseline-rust-file }}
@@ -364,8 +370,11 @@ runs:
       # dropped: the restore primary key never matches within the same run, so
       # `cache-hit` is always false here and the guard only ever suppressed the
       # save on the constant key.
+      # The save sub-action pairs with the restore sub-action above, so exactly
+      # one step writes this key.
       if: success() && inputs.with-ratchet == 'true'
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ${{ inputs.baseline-rust-file }}

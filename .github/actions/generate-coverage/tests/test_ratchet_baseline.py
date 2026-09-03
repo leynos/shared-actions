@@ -10,6 +10,10 @@ Two properties are exercised here:
   write once a constant key existed). This is a regression guard for the
   baseline-freeze bug that caused downstream repositories to false-trip
   "Coverage decreased" on pull requests.
+* The split between the ``actions/cache/restore`` and ``actions/cache/save``
+  sub-actions. The full ``actions/cache`` action registers its own post-job
+  save, so using it for the restore step made two writers race for the same
+  run-id key and every run logged "Unable to reserve cache ... already exists".
 * The ``ratchet_coverage.py`` script's baseline-advance semantics: the stored
   baseline rises when coverage improves, holds when coverage is unchanged, and
   the gate fails when coverage drops below the baseline.
@@ -18,6 +22,7 @@ Two properties are exercised here:
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import typing as typ
 from pathlib import Path
@@ -98,6 +103,48 @@ def test_save_baselines_not_gated_on_cache_hit() -> None:
     )
     assert "inputs.with-ratchet == 'true'" in condition
     assert "success()" in condition
+
+
+#: Sub-action references the two ratchet cache steps must use, mapped to the
+#: step that owns each half of the restore/save pair.
+RATCHET_CACHE_SUBACTIONS = {
+    "Restore baselines": "actions/cache/restore",
+    "Save baselines": "actions/cache/save",
+}
+
+_ACTION_SHA_PATTERN = re.compile(r"^(?P<action>[^@]+)@(?P<sha>[0-9a-f]{40})$")
+
+
+def _ratchet_cache_reference(step_name: str) -> re.Match[str]:
+    """Return the parsed ``uses`` reference for a ratchet cache step."""
+    uses = _step_by_name(step_name)["uses"]
+    match = _ACTION_SHA_PATTERN.fullmatch(uses)
+    assert match is not None, f"{step_name!r} must pin a full commit SHA, got: {uses}"
+    return match
+
+
+@pytest.mark.parametrize(
+    ("step_name", "expected_action"), sorted(RATCHET_CACHE_SUBACTIONS.items())
+)
+def test_ratchet_cache_steps_use_the_split_subactions(
+    step_name: str, expected_action: str
+) -> None:
+    """Let exactly one step write the ratchet key.
+
+    The full ``actions/cache`` action registers a post-job save of its own, so
+    pairing it with an explicit save step made both contend for the same
+    run-id key and fail the reservation on every run.
+    """
+    assert _ratchet_cache_reference(step_name)["action"] == expected_action
+
+
+def test_ratchet_cache_steps_share_one_pinned_revision() -> None:
+    """Both halves of the pair must come from the same pinned release."""
+    shas = {
+        _ratchet_cache_reference(step_name)["sha"]
+        for step_name in RATCHET_CACHE_SUBACTIONS
+    }
+    assert len(shas) == 1, f"ratchet cache steps pin differing revisions: {shas}"
 
 
 def test_tolerance_constant_is_one_percentage_point() -> None:

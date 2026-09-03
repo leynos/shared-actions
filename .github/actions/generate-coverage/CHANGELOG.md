@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Stop every ratchet run failing its cache reservation. "Restore baselines"
+  used the full `actions/cache` action, which registers a post-job save of its
+  own, so it and the explicit "Save baselines" step both wrote the same
+  run-id-suffixed key and each run logged
+  `Failed to save: Unable to reserve cache ... already exists`. The two steps
+  now use the `actions/cache/restore` and `actions/cache/save` sub-actions at
+  one pinned revision, so exactly one step writes the key.
 - Stop archiving the `target` tree. The Cargo cache now covers the Cargo
   binaries, registry, and Git index only; sccache carries compiler output.
 - Add a `cache-provider` input. The default preserves the existing GitHub

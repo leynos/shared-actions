@@ -151,9 +151,11 @@ runs:
       # this commit, resolve the tag with
       # `git ls-remote https://github.com/leynos/shared-actions.git refs/tags/setup-rust-v1`
       # and prefer the tagged commit (verify compatibility and run CI).
+      # This revision also stopped archiving the target tree, so a caller that
+      # owns its own build directory no longer pays for a duplicate upload.
       # tests/test_setup_rust_reference.py pins the expected SHA; update it in
       # the same change.
-      uses: leynos/shared-actions/.github/actions/setup-rust@bffacaf91d3f3515110679a30fbf6dc781ddc549
+      uses: leynos/shared-actions/.github/actions/setup-rust@7c9d66030879b504365202df90f439ea419e72bd
       with:
         toolchain: ${{ env.RBR_TOOLCHAIN }}
         cache-provider: ${{ inputs.cache-provider }}

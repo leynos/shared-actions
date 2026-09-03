@@ -148,7 +148,8 @@ runs:
     - name: Cache cargo artefacts
       id: cargo-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed')
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
           ~/.cargo/bin/cargo-binstall
@@ -260,7 +261,8 @@ runs:
     - name: Cache Python deps
       id: python-cache
       if: inputs.cache-provider == 'github' && (steps.detect.outputs.lang == 'python' || steps.detect.outputs.lang == 'mixed')
-      uses: actions/cache@v4
+      # v6.1.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.cache/uv
         key: ${{ runner.os }}-py-deps-${{ hashfiles('pyproject.toml') }}

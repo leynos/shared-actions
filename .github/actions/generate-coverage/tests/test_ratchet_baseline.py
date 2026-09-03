@@ -14,6 +14,8 @@ Two properties are exercised here:
   sub-actions. The full ``actions/cache`` action registers its own post-job
   save, so using it for the restore step made two writers race for the same
   run-id key and every run logged "Unable to reserve cache ... already exists".
+* That every ``actions/cache`` reference is pinned to a commit SHA rather than
+  a moving tag.
 * The ``ratchet_coverage.py`` script's baseline-advance semantics: the stored
   baseline rises when coverage improves, holds when coverage is unchanged, and
   the gate fails when coverage drops below the baseline.
@@ -105,6 +107,13 @@ def test_save_baselines_not_gated_on_cache_hit() -> None:
     assert "success()" in condition
 
 
+#: Composite manifests whose ``actions/cache`` references this test guards.
+#: Both are edited together whenever the pinned cache revision moves.
+CACHE_PINNED_MANIFESTS = (
+    ACTION_YML,
+    ACTION_DIR.parent / "rust-build-release" / "action.yml",
+)
+
 #: Sub-action references the two ratchet cache steps must use, mapped to the
 #: step that owns each half of the restore/save pair.
 RATCHET_CACHE_SUBACTIONS = {
@@ -145,6 +154,37 @@ def test_ratchet_cache_steps_share_one_pinned_revision() -> None:
         for step_name in RATCHET_CACHE_SUBACTIONS
     }
     assert len(shas) == 1, f"ratchet cache steps pin differing revisions: {shas}"
+
+
+def _cache_references(manifest: Path) -> list[str]:
+    """Return every ``actions/cache`` reference declared in *manifest*."""
+    steps = yaml.safe_load(manifest.read_text())["runs"]["steps"]
+    return [
+        uses
+        for step in steps
+        if isinstance(uses := step.get("uses"), str)
+        and uses.split("@", 1)[0].split("/")[:2] == ["actions", "cache"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    sorted(CACHE_PINNED_MANIFESTS),
+    ids=lambda manifest: manifest.parent.name,
+)
+def test_cache_references_are_sha_pinned(manifest: Path) -> None:
+    """No manifest may reach `actions/cache` through a floating tag.
+
+    A moving tag such as ``@v4`` breaks the repository's pinning policy, and
+    the older releases it can resolve to are not intercepted by a transparent
+    runner cache, so their saves are wasted upload.
+    """
+    unpinned = [
+        uses
+        for uses in _cache_references(manifest)
+        if not _ACTION_SHA_PATTERN.fullmatch(uses)
+    ]
+    assert not unpinned, f"{manifest.name} has unpinned cache references: {unpinned}"
 
 
 def test_tolerance_constant_is_one_percentage_point() -> None:

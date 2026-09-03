@@ -82,7 +82,7 @@ The repository must be checked out before invoking this local action.
 
 The optional `installer-version` input selects the `whitaker-installer` version
 and defaults to `0.2.7`. The optional `cargo-home` input defaults to
-`~/.cargo`; it controls both the cached `whitaker-installer` location
+`~/.cargo`; it controls the cached `whitaker-installer` location
 (`${{ steps.validate-inputs.outputs.installer-path }}`). The optional
 `cache-provider` input defaults to `github`; use `external` when the caller
 mounts this path and the installed suite through a Namespace cache volume.

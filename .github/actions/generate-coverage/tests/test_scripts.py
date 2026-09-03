@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import HealthCheck, example, given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from plumbum import local
 
@@ -116,7 +116,13 @@ def run_rust_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
 
 @pytest.fixture
 def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Return a freshly loaded ``install_cargo_nextest`` module for testing."""
+    """Return a freshly loaded ``install_cargo_nextest`` module for testing.
+
+    Clears ``GITHUB_STEP_SUMMARY`` so tests that do not explicitly point it
+    at a ``tmp_path`` file cannot leak bounded metric lines into a real job
+    summary when this suite itself runs inside a GitHub Actions job.
+    """
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     return _load_module(monkeypatch, "install_cargo_nextest")
 
 
@@ -1787,6 +1793,36 @@ def test_install_nextest_download_failure(
     assert "cargo-nextest release download failed" in captured.err
 
 
+def test_install_nextest_download_rejects_oversized_archive(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A response larger than the configured cap fails and deletes the partial file.
+
+    The digest check only runs after the whole archive has landed on disk,
+    so a redirected or compromised endpoint streaming an unbounded response
+    must be rejected before that point, not after.
+    """
+    asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
+    monkeypatch.setattr(install_nextest_module, "_MAX_ARCHIVE_BYTES", 1024)
+    oversized_payload = b"x" * 4096
+
+    def fake_urlopen(*_args: object, **_kwargs: object) -> io.BytesIO:
+        return io.BytesIO(oversized_payload)
+
+    monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)
+    destination = tmp_path / asset.filename
+
+    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
+        install_nextest_module._download_archive(asset, destination)
+
+    assert _exit_code(excinfo.value) == 1
+    assert "exceeded 1024 bytes" in capsys.readouterr().err
+    assert not destination.exists()
+
+
 @dataclasses.dataclass(frozen=True)
 class _ChecksumVerificationCase:
     """Describe one binary-checksum verification case."""
@@ -2209,28 +2245,26 @@ def test_extract_binary_rejects_archive_without_executable(
         )
 
 
-_NEXTEST_INSTALL_SETTINGS = settings(
-    max_examples=25,
-    deadline=None,
-    derandomize=True,
-    suppress_health_check=[HealthCheck.function_scoped_fixture],
+@pytest.mark.parametrize(
+    "failure",
+    [None, *_NEXTEST_FAILURE_MODES],
+    ids=["none", *_NEXTEST_FAILURE_MODES],
 )
-
-
-@_NEXTEST_INSTALL_SETTINGS
-@example(failure=None)
-@example(failure="download")
-@example(failure="archive-digest")
-@example(failure="extract")
-@example(failure="binary-digest")
-@given(failure=st.sampled_from((None, *_NEXTEST_FAILURE_MODES)))
 def test_install_nextest_install_order_invariants(
-    tmp_path_factory: pytest.TempPathFactory,
+    tmp_path: Path,
     install_nextest_module: ModuleType,
     failure: str | None,
 ) -> None:
-    """Installation replaces the destination only when both digests verify."""
-    cargo_home = tmp_path_factory.mktemp("nextest-install-") / "cargo-home"
+    """Installation replaces the destination only when both digests verify.
+
+    The five possible ``failure`` values (``None`` plus each entry in
+    ``_NEXTEST_FAILURE_MODES``) are an exhaustive, fixed set, so this is a
+    plain parametrization rather than a Hypothesis search: there is no
+    larger input space to explore, and repeating whole install attempts --
+    each with real filesystem work -- across many random draws added no
+    extra coverage over enumerating the five cases once.
+    """
+    cargo_home = tmp_path / "cargo-home"
     outcome = _attempt_nextest_install(
         install_nextest_module,
         cargo_home,
@@ -2444,6 +2478,121 @@ def test_install_cargo_nextest_pins_expected_release_per_platform(
     assert (
         install_nextest_module.CARGO_NEXTEST_SHA256[key] == expected.executable_sha256
     )
+
+
+def _read_step_summary(path: Path) -> list[str]:
+    """Return the lines written to a job summary file, or an empty list."""
+    if not path.exists():
+        return []
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def test_emit_metric_appends_to_step_summary(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``emit_metric`` appends one line per call to the job summary file."""
+    summary = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    install_nextest_module.emit_metric("cargo-nextest.example=ok")
+    install_nextest_module.emit_metric("cargo-nextest.example=again")
+
+    assert summary.read_text(encoding="utf-8") == (
+        "cargo-nextest.example=ok\ncargo-nextest.example=again\n"
+    )
+
+
+def test_emit_metric_does_nothing_without_step_summary(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``emit_metric`` is a no-op when ``GITHUB_STEP_SUMMARY`` is unset."""
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    summary = tmp_path / "step-summary.md"
+
+    install_nextest_module.emit_metric("cargo-nextest.example=ok")
+
+    assert not summary.exists()
+
+
+def test_install_cargo_nextest_metrics_for_successful_install(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A successful install emits one bounded metric line per verified step."""
+    summary = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    outcome = _attempt_nextest_install(
+        install_nextest_module,
+        tmp_path / "cargo-home",
+        None,
+    )
+
+    assert outcome.exit_code is None
+    lines = _read_step_summary(summary)
+    assert len(lines) == 4
+    assert lines[0].startswith("cargo-nextest.download=ok duration_seconds=")
+    assert lines[0].endswith(f"bytes={len(_NEXTEST_ARCHIVE_PAYLOAD)}")
+    assert lines[1] == "cargo-nextest.archive-digest=ok"
+    assert lines[2] == "cargo-nextest.binary-digest=ok"
+    assert lines[3] == "cargo-nextest.install=ok"
+
+
+def test_install_cargo_nextest_metrics_for_binary_digest_mismatch(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A binary-digest mismatch emits the failing step and the aggregate outcome."""
+    summary = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    outcome = _attempt_nextest_install(
+        install_nextest_module,
+        tmp_path / "cargo-home",
+        "binary-digest",
+    )
+
+    assert outcome.exit_code == 1
+    lines = _read_step_summary(summary)
+    assert len(lines) == 4
+    assert lines[0].startswith("cargo-nextest.download=ok duration_seconds=")
+    assert lines[1] == "cargo-nextest.archive-digest=ok"
+    assert lines[2] == "cargo-nextest.binary-digest=mismatch"
+    assert lines[3] == "cargo-nextest.install=failed"
+
+
+def test_main_metrics_for_reused_binary(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reusing an already-verified binary emits its own bounded metrics."""
+    summary = tmp_path / "step-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    binary = tmp_path / "cargo-nextest"
+    payload = b"already-verified"
+    binary.write_bytes(payload)
+    expected = hashlib.sha256(payload).hexdigest()
+    asset = install_nextest_module.CARGO_NEXTEST_RELEASE_ASSETS["linux-x86_64-gnu"]
+    monkeypatch.setattr(
+        install_nextest_module, "_release_for_platform", lambda: (expected, asset)
+    )
+    monkeypatch.setattr(
+        install_nextest_module, "_resolve_nextest_binary", lambda: binary
+    )
+
+    install_nextest_module.main()
+
+    assert _read_step_summary(summary) == [
+        "cargo-nextest.binary-digest=ok",
+        "cargo-nextest.install=reused",
+    ]
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

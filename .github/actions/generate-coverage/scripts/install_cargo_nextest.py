@@ -33,6 +33,12 @@ import typer
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
 
+# A cargo-nextest release archive is a few MB; 200 MB gives generous headroom
+# for future growth while still bounding the disk a compromised or redirected
+# endpoint could consume before the digest check ever gets to reject it. The
+# digest protects integrity, not disk space, so this cap is enforced first.
+_MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
+
 CARGO_NEXTEST_VERSION = "0.9.120"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
@@ -99,6 +105,20 @@ CARGO_NEXTEST_RELEASE_ASSETS = {
         "8b6475c9d6fd6946a8a8cced8213c1e5b1f9df219cab999831905187887003f9",
     ),
 }
+
+
+def emit_metric(line: str) -> None:
+    """Append one bounded metric line to the job summary, if one is set.
+
+    Does nothing when ``GITHUB_STEP_SUMMARY`` is unset, which is the case
+    outside a GitHub Actions job (for example, when running this script or
+    its tests locally).
+    """
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with Path(summary_path).open("a", encoding="utf-8") as handle:
+        handle.write(f"{line}\n")
 
 
 def _is_musl(
@@ -197,6 +217,47 @@ def _find_nextest_binary() -> Path:
     raise typer.Exit(1)
 
 
+class _ArchiveTooLargeError(Exception):
+    """Raised when a downloaded archive exceeds ``_MAX_ARCHIVE_BYTES``."""
+
+    def __init__(self, bytes_read: int) -> None:
+        super().__init__(
+            f"archive exceeded {_MAX_ARCHIVE_BYTES} bytes (read {bytes_read})"
+        )
+        self.bytes_read = bytes_read
+
+
+def _copy_bounded(
+    source: typ.IO[bytes],
+    destination: typ.IO[bytes],
+    max_bytes: int,
+    *,
+    chunk_size: int = 1024 * 1024,
+) -> int:
+    """Copy ``source`` to ``destination`` in chunks, up to ``max_bytes``.
+
+    Returns
+    -------
+    int
+        The total number of bytes copied.
+
+    Raises
+    ------
+    _ArchiveTooLargeError
+        If more than ``max_bytes`` are read from ``source`` before it is
+        exhausted.
+    """
+    total = 0
+    while True:
+        chunk = source.read(chunk_size)
+        if not chunk:
+            return total
+        total += len(chunk)
+        if total > max_bytes:
+            raise _ArchiveTooLargeError(total)
+        destination.write(chunk)
+
+
 def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
     """Download the pinned official release archive to ``destination``."""
     url = (
@@ -216,23 +277,52 @@ def _download_archive(asset: ReleaseAsset, destination: Path) -> None:
             urllib.request.urlopen(request, timeout=60) as response,  # noqa: S310
             destination.open("wb") as output,
         ):
-            shutil.copyfileobj(response, output)
+            bytes_written = _copy_bounded(response, output, _MAX_ARCHIVE_BYTES)
+    except _ArchiveTooLargeError as exc:
+        destination.unlink(missing_ok=True)
+        duration = time.monotonic() - started
+        logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
+            "event=nextest.download.finish archive=%s outcome=too-large "
+            "duration_seconds=%.3f bytes=%d max_bytes=%d",
+            asset.filename,
+            duration,
+            exc.bytes_read,
+            _MAX_ARCHIVE_BYTES,
+        )
+        emit_metric(
+            f"cargo-nextest.download=failed duration_seconds={duration:.3f} bytes=0"
+        )
+        typer.echo(
+            f"cargo-nextest release archive exceeded {_MAX_ARCHIVE_BYTES} bytes "
+            "and was discarded",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
     except (OSError, urllib.error.URLError) as exc:
+        duration = time.monotonic() - started
         logger.error(  # noqa: TRY400 - the caller converts this to an exit code.
             "event=nextest.download.finish archive=%s outcome=failed "
             "duration_seconds=%.3f error=%s",
             asset.filename,
-            time.monotonic() - started,
+            duration,
             exc,
+        )
+        emit_metric(
+            f"cargo-nextest.download=failed duration_seconds={duration:.3f} bytes=0"
         )
         typer.echo(f"cargo-nextest release download failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    duration = time.monotonic() - started
     logger.info(
         "event=nextest.download.finish archive=%s outcome=ok "
         "duration_seconds=%.3f bytes=%d",
         asset.filename,
-        time.monotonic() - started,
-        destination.stat().st_size,
+        duration,
+        bytes_written,
+    )
+    emit_metric(
+        f"cargo-nextest.download=ok duration_seconds={duration:.3f} "
+        f"bytes={bytes_written}"
     )
 
 
@@ -300,12 +390,14 @@ def _verify_archive(archive: Path, asset: ReleaseAsset) -> None:
             asset.sha256,
             actual_sha,
         )
+        emit_metric("cargo-nextest.archive-digest=mismatch")
         typer.echo("cargo-nextest release archive checksum mismatch", err=True)
         raise typer.Exit(1)
     logger.info(
         "event=nextest.archive.verify archive=%s outcome=ok",
         asset.filename,
     )
+    emit_metric("cargo-nextest.archive-digest=ok")
 
 
 def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
@@ -313,6 +405,7 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
     actual_sha = _sha256_path(path)
     if actual_sha == expected_sha:
         logger.info("event=nextest.binary.verify path=%s outcome=ok", path)
+        emit_metric("cargo-nextest.binary-digest=ok")
         return True
     logger.error(
         "event=nextest.binary.verify path=%s outcome=mismatch expected=%s actual=%s",
@@ -320,11 +413,27 @@ def verify_nextest_binary(path: Path, expected_sha: str) -> bool:
         expected_sha,
         actual_sha,
     )
+    emit_metric("cargo-nextest.binary-digest=mismatch")
     typer.echo(
         f"cargo-nextest checksum mismatch: expected {expected_sha}, got {actual_sha}",
         err=True,
     )
     return False
+
+
+def _reject_mismatched_binary(
+    candidate: Path,
+    destination: Path,
+    expected_sha: str,
+) -> None:
+    """Fail unless the extracted executable matches its pinned digest."""
+    if verify_nextest_binary(candidate, expected_sha):
+        return
+    logger.error(
+        "event=nextest.install destination=%s outcome=binary-mismatch",
+        destination,
+    )
+    raise typer.Exit(1)
 
 
 def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
@@ -339,12 +448,7 @@ def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
             _download_archive(asset, archive)
             _verify_archive(archive, asset)
             _extract_binary(archive, asset, temporary_binary)
-        if not verify_nextest_binary(temporary_binary, expected_sha):
-            logger.error(
-                "event=nextest.install destination=%s outcome=binary-mismatch",
-                destination,
-            )
-            raise typer.Exit(1)
+        _reject_mismatched_binary(temporary_binary, destination, expected_sha)
         temporary_binary.chmod(0o755)
         temporary_binary.replace(destination)
     except (OSError, tarfile.TarError, zipfile.BadZipFile, ValueError) as exc:
@@ -353,11 +457,19 @@ def install_cargo_nextest(asset: ReleaseAsset, expected_sha: str) -> Path:
             destination,
             exc,
         )
+        emit_metric("cargo-nextest.install=failed")
         typer.echo(f"cargo-nextest release installation failed: {exc}", err=True)
         raise typer.Exit(1) from exc
+    except typer.Exit:
+        # Raised directly by ``_download_archive``, ``_verify_archive``, or the
+        # binary-mismatch check above; each already logged and echoed its own
+        # specific outcome, so only the aggregate install metric is added here.
+        emit_metric("cargo-nextest.install=failed")
+        raise
     finally:
         temporary_binary.unlink(missing_ok=True)
     logger.info("event=nextest.install destination=%s outcome=ok", destination)
+    emit_metric("cargo-nextest.install=ok")
     typer.echo("cargo-nextest official release installed and verified")
     return destination
 
@@ -404,6 +516,11 @@ def main() -> None:
     if existing is not None and verify_nextest_binary(existing, expected_sha):
         logger.info("Using preinstalled cargo-nextest at %s", existing)
         typer.echo("cargo-nextest already installed and verified")
+        # ``existing`` may have resolved via CARGO_HOME/bin even when that
+        # directory is not on PATH, so later steps could not otherwise find
+        # it without this.
+        _prepend_to_path(existing.parent)
+        emit_metric("cargo-nextest.install=reused")
         return
 
     # An unverified binary earlier on PATH would otherwise shadow the one just

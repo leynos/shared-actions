@@ -90,10 +90,19 @@ printf '%s\\n' "ambient installer ran" >> "$CONFLICT_LOG"
 
 
 _TAR_SHIM_WRAPPER = """#!/usr/bin/env bash
-# Runs the shim body with an explicitly quoted interpreter. A shebang cannot
-# name an interpreter whose path contains a space, and `sys.executable` does
-# on the Windows runner.
-exec "{interpreter}" "{script}" "$@"
+# Runs the shim body through whichever Python is first on PATH. Naming the
+# interpreter by absolute path does not survive a Git Bash host, where
+# `sys.executable` lives under a directory containing a space; the harness
+# instead puts the interpreter's directory on the PATH it builds, so the
+# command word here is a bare name.
+set -euo pipefail
+for candidate in python3 python; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    exec "$candidate" "{script}" "$@"
+  fi
+done
+echo "the tar shim found no Python interpreter on PATH" >&2
+exit 127
 """
 
 _TAR_SHIM = r'''
@@ -441,13 +450,11 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
     shim_body.write_text(_TAR_SHIM, encoding="utf-8")
     _write_executable(
         stub_bin / "tar",
-        _TAR_SHIM_WRAPPER.format(
-            interpreter=_posix_path(sys.executable),
-            script=_posix_path(str(shim_body)),
-        ),
+        _TAR_SHIM_WRAPPER.format(script=_posix_path(str(shim_body))),
     )
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
-    path = f"{bash_path(stub_bin)}:/usr/bin:/bin"
+    interpreter_dir = _posix_path(str(Path(sys.executable).parent))
+    path = f"{bash_path(stub_bin)}:{interpreter_dir}:/usr/bin:/bin"
     if scenario.conflicting_installer:
         ambient_bin = root / "ambient-bin"
         _write_executable(

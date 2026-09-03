@@ -202,7 +202,17 @@ explicit save step gave the same run-id-suffixed key two writers, and the
 reservation lost the race on every run. Keep both halves on one pinned
 revision; the manifest test in
 [`test_ratchet_baseline.py`](../.github/actions/generate-coverage/tests/test_ratchet_baseline.py)
-enforces both properties.
+enforces both properties. A Hypothesis property in the same file singles the
+pairing out among every combination of the three cache action variants: the
+earlier step must read and not write, and the later step must write and not
+read. Any other pairing either gives the run-id key two writers or restores the
+baseline again after the ratchet has advanced it.
+
+A separate reporting step emits bounded outcomes for both halves, because the
+save runs long after the archive-cache reporter. Keep the restore states closed
+to `hit`, `miss`, `disabled`, and `error`, and the save states to `saved`,
+`skipped`, `disabled`, and `error`. The notice must never carry the key, which
+embeds the run id, nor the baseline paths.
 
 Those archive caches cover the Cargo registry and Git index only, plus the
 installed Cargo binaries in the coverage action. Neither action archives the

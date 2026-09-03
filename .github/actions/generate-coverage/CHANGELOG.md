@@ -15,7 +15,9 @@
   run-id-suffixed key and each run logged
   `Failed to save: Unable to reserve cache ... already exists`. The two steps
   now use the `actions/cache/restore` and `actions/cache/save` sub-actions at
-  one pinned revision, so exactly one step writes the key.
+  one pinned revision, so exactly one step writes the key. The pair now reports
+  bounded restore and save outcomes in the log and job summary, naming neither
+  the key nor the baseline paths.
 - Pin every `actions/cache` reference to the v6.1.0 commit
   `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.
   The Cargo artefact and Python dependency caches used the tag, which breaks

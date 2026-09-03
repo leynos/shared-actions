@@ -16,6 +16,9 @@ Two properties are exercised here:
   run-id key and every run logged "Unable to reserve cache ... already exists".
 * That every ``actions/cache`` reference is pinned to a commit SHA rather than
   a moving tag.
+* The reader/writer invariant the split exists to satisfy, as a property over
+  every pairing of the three cache action variants, plus the bounded outcomes
+  the reporting step emits for each half.
 * The ``ratchet_coverage.py`` script's baseline-advance semantics: the stored
   baseline rises when coverage improves, holds when coverage is unchanged, and
   the gate fails when coverage drops below the baseline.
@@ -24,7 +27,10 @@ Two properties are exercised here:
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
+import shutil
+import subprocess
 import sys
 import typing as typ
 from pathlib import Path
@@ -32,6 +38,8 @@ from pathlib import Path
 import pytest
 import typer
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:  # pragma: no cover - type hints only
     from types import ModuleType
@@ -185,6 +193,141 @@ def test_cache_references_are_sha_pinned(manifest: Path) -> None:
         if not _ACTION_SHA_PATTERN.fullmatch(uses)
     ]
     assert not unpinned, f"{manifest.name} has unpinned cache references: {unpinned}"
+
+
+#: How each cache action variant participates in the baseline lifecycle.
+#: The full action both restores and registers a post-job save, which is why
+#: pairing it with an explicit save step gave the run-id key two writers.
+CACHE_VARIANT_ROLES = {
+    "actions/cache": (1, 1),
+    "actions/cache/restore": (1, 0),
+    "actions/cache/save": (0, 1),
+}
+
+
+def _lifecycle_is_sound(first_variant: str, second_variant: str) -> bool:
+    """Return whether a pairing reads once, then writes once, in that order.
+
+    The baseline cache has one legal shape: the earlier step restores and must
+    not write, and the later step writes and must not restore. Anything else
+    either gives the run-id key two writers, which loses the reservation, or
+    restores a second time after the ratchet has already advanced the file.
+    """
+    return CACHE_VARIANT_ROLES[first_variant] == (1, 0) and CACHE_VARIANT_ROLES[
+        second_variant
+    ] == (0, 1)
+
+
+@given(
+    first_variant=st.sampled_from(sorted(CACHE_VARIANT_ROLES)),
+    second_variant=st.sampled_from(sorted(CACHE_VARIANT_ROLES)),
+)
+@settings(max_examples=25, derandomize=True, deadline=None)
+def test_only_the_split_pairing_is_a_sound_lifecycle(
+    first_variant: str, second_variant: str
+) -> None:
+    """Single out the restore/save pair among every variant combination."""
+    is_split = (first_variant, second_variant) == (
+        "actions/cache/restore",
+        "actions/cache/save",
+    )
+
+    assert _lifecycle_is_sound(first_variant, second_variant) is is_split
+
+
+def test_manifest_satisfies_the_lifecycle_invariant() -> None:
+    """The shipped manifest must be the pairing the property singles out."""
+    assert _lifecycle_is_sound(
+        _ratchet_cache_reference("Restore baselines")["action"],
+        _ratchet_cache_reference("Save baselines")["action"],
+    )
+
+
+def _ratchet_report_script() -> str:
+    """Return the ratchet cache reporting shell fragment."""
+    script = _step_by_name("Report ratchet baseline cache decisions").get("run")
+    assert isinstance(script, str), "ratchet cache reporter must be a script"
+    return script
+
+
+def _run_ratchet_report(**environment: str) -> subprocess.CompletedProcess[str]:
+    """Run the ratchet cache reporter with explicit step observations."""
+    bash = shutil.which("bash")
+    if bash is None:  # pragma: no cover - environment guard
+        pytest.skip("bash not found on PATH")
+    process_env = {**os.environ, **environment}
+    process_env.pop("GITHUB_STEP_SUMMARY", None)
+    return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
+        [bash, "-c", _ratchet_report_script()],
+        env=process_env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected_notice"),
+    [
+        (
+            {
+                "GC_WITH_RATCHET": "false",
+                "GC_RESTORE_STEP_OUTCOME": "skipped",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            "restore=disabled save=disabled",
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "success",
+                "GC_RESTORE_CACHE_HIT": "true",
+                "GC_SAVE_STEP_OUTCOME": "success",
+            },
+            "restore=hit save=saved",
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "success",
+                "GC_RESTORE_CACHE_HIT": "false",
+                "GC_SAVE_STEP_OUTCOME": "skipped",
+            },
+            "restore=miss save=skipped",
+        ),
+        (
+            {
+                "GC_WITH_RATCHET": "true",
+                "GC_RESTORE_STEP_OUTCOME": "failure",
+                "GC_RESTORE_CACHE_HIT": "",
+                "GC_SAVE_STEP_OUTCOME": "failure",
+            },
+            "restore=error save=error",
+        ),
+    ],
+)
+def test_ratchet_report_uses_bounded_outcomes(
+    environment: dict[str, str], expected_notice: str
+) -> None:
+    """Report each half of the split with a closed set of outcomes."""
+    result = _run_ratchet_report(**environment)
+
+    assert result.returncode == 0, result.stderr
+    assert expected_notice in result.stdout
+
+
+def test_ratchet_report_never_names_the_cache_key() -> None:
+    """The notice must stay free of keys, paths, and run identifiers."""
+    result = _run_ratchet_report(
+        GC_WITH_RATCHET="true",
+        GC_RESTORE_STEP_OUTCOME="success",
+        GC_RESTORE_CACHE_HIT="true",
+        GC_SAVE_STEP_OUTCOME="success",
+    )
+
+    assert "ratchet-baseline-" not in result.stdout
+    assert "coverage-baseline" not in result.stdout
 
 
 def test_tolerance_constant_is_one_percentage_point() -> None:

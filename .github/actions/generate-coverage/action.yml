@@ -389,6 +389,7 @@ runs:
         fi
       shell: bash
     - name: Save baselines
+      id: save-baselines
       # Save under the same run-id-suffixed key the restore step uses as its
       # primary key. GitHub Actions cache entries are immutable, so a constant
       # key (`ratchet-baseline-${{ runner.os }}`) can only ever be written once
@@ -409,6 +410,50 @@ runs:
           ${{ inputs.baseline-rust-file }}
           ${{ inputs.baseline-python-file }}
         key: ratchet-baseline-${{ runner.os }}-${{ github.run_id }}
+    - name: Report ratchet baseline cache decisions
+      # Reported here rather than in the archive-cache step above because the
+      # save half runs later; both halves of the split are observable in one
+      # place. The notice names only the operation and a bounded outcome:
+      # cache keys carry the run id, and neither key nor path belongs in a log
+      # line consumers parse.
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GC_WITH_RATCHET: ${{ inputs.with-ratchet }}
+        GC_RESTORE_STEP_OUTCOME: ${{ steps.restore-baselines.outcome }}
+        GC_RESTORE_CACHE_HIT: ${{ steps.restore-baselines.outputs.cache-hit }}
+        GC_SAVE_STEP_OUTCOME: ${{ steps.save-baselines.outcome }}
+      run: |
+        set -euo pipefail
+        restore_outcome='disabled'
+        save_outcome='disabled'
+        if [[ "$GC_WITH_RATCHET" == 'true' ]]; then
+          case "$GC_RESTORE_STEP_OUTCOME" in
+            success)
+              case "$GC_RESTORE_CACHE_HIT" in
+                true) restore_outcome='hit' ;;
+                false|'') restore_outcome='miss' ;;
+                *) restore_outcome='error' ;;
+              esac
+              ;;
+            skipped) restore_outcome='disabled' ;;
+            *) restore_outcome='error' ;;
+          esac
+          case "$GC_SAVE_STEP_OUTCOME" in
+            success) save_outcome='saved' ;;
+            skipped) save_outcome='skipped' ;;
+            *) save_outcome='error' ;;
+          esac
+        fi
+
+        printf '::notice title=generate-coverage ratchet cache::restore=%s save=%s\n' \
+          "$restore_outcome" "$save_outcome"
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' \
+            '### generate-coverage ratchet cache' \
+            "- baseline restore: $restore_outcome" \
+            "- baseline save: $save_outcome" >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - id: out
       # Run even after a *later* failure (for example a ratchet gate that

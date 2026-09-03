@@ -16,25 +16,11 @@ import typing as typ
 import zipfile
 
 import pytest
-from _coverage_test_support import _exit_code, _load_module
+from _coverage_test_support import _exit_code
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
-
-
-@pytest.fixture
-def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Return a freshly loaded ``install_cargo_nextest`` module for testing.
-
-    Clears ``GITHUB_STEP_SUMMARY`` and ``GITHUB_PATH`` so tests that do not
-    explicitly point them at a ``tmp_path`` file cannot leak bounded metric
-    lines or PATH exports into the real job when this suite itself runs
-    inside a GitHub Actions job.
-    """
-    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
-    monkeypatch.delenv("GITHUB_PATH", raising=False)
-    return _load_module(monkeypatch, "install_cargo_nextest")
 
 
 _NEXTEST_ARCHIVE_PAYLOAD = b"nextest-archive"

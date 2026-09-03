@@ -1,13 +1,13 @@
 """Helpers shared by the coverage-script test modules.
 
-``test_scripts.py``, ``test_run_rust.py``, and ``test_install_cargo_nextest.py``
-each load one of the action's scripts from disk under a fresh module identity
-and inspect Typer exits, so those two helpers live here rather than being
-duplicated across the modules. ``run_script`` runs a script end to end as a
-subprocess, which both ``test_scripts.py`` and ``test_run_rust.py`` need for
-their integration-style tests. Each module still owns its own
-``pytest.fixture`` that wraps ``_load_module`` for the specific script it
-tests, since no such fixture is used by more than one module.
+``test_scripts.py``, ``test_install_cargo_nextest.py``, and
+``test_install_cargo_nextest_install.py`` each load one of the action's scripts
+from disk under a fresh module identity and inspect Typer exits, so those
+helpers live here rather than being duplicated across the modules. Fixtures
+that wrap ``_load_module`` for a specific script, such as
+``install_nextest_module``, live in ``conftest.py`` instead when more than one
+module needs them, so importing the fixture by name does not read as an unused
+import shadowed by same-named test parameters.
 """
 
 from __future__ import annotations

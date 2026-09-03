@@ -1874,6 +1874,15 @@ def _attempt_nextest_install(
     )
 
 
+def _assert_install_failed_preserving_sentinel(
+    outcome: _NextestInstallOutcome,
+) -> None:
+    """Assert a failed install left the sentinel destination untouched."""
+    assert outcome.exit_code == 1
+    assert outcome.destination_bytes == _NEXTEST_SENTINEL
+    assert not outcome.temporary_exists
+
+
 @pytest.mark.parametrize("failure", ["archive-digest", "binary-digest"])
 def test_install_nextest_digest_mismatch_preserves_destination(
     tmp_path: Path,
@@ -1887,9 +1896,7 @@ def test_install_nextest_digest_mismatch_preserves_destination(
         failure,
     )
 
-    assert outcome.exit_code == 1
-    assert outcome.destination_bytes == _NEXTEST_SENTINEL
-    assert not outcome.temporary_exists
+    _assert_install_failed_preserving_sentinel(outcome)
 
 
 def test_install_nextest_archive_mismatch_skips_extraction(
@@ -1922,15 +1929,42 @@ def _write_tar_archive(
             package.addfile(info, io.BytesIO(payload))
 
 
+def _write_zip_archive(path: Path, members: dict[str, bytes]) -> None:
+    """Write a zip archive containing each member's bytes payload."""
+    with zipfile.ZipFile(path, "w") as package:
+        for name, payload in members.items():
+            package.writestr(name, payload)
+
+
+def _write_archive(
+    path: Path,
+    members: dict[str, bytes | None],
+    *,
+    archive_format: typ.Literal["tar", "zip"],
+) -> None:
+    """Write a tar.gz or zip archive with ``members``, dispatching by format."""
+    if archive_format == "zip":
+        assert all(payload is not None for payload in members.values())
+        _write_zip_archive(path, typ.cast("dict[str, bytes]", members))
+    else:
+        _write_tar_archive(path, members)
+
+
+def _windows_asset(module: ModuleType) -> object:
+    """Return a Windows release asset that selects the zip extraction path."""
+    return module.ReleaseAsset("x86_64-pc-windows-msvc", "zip", "0" * 64)
+
+
 def test_extract_binary_reads_real_tar_archive(
     tmp_path: Path,
     install_nextest_module: ModuleType,
 ) -> None:
     """A real tar.gz archive yields the cargo-nextest executable."""
     archive = tmp_path / "cargo-nextest.tar.gz"
-    _write_tar_archive(
+    _write_archive(
         archive,
         {"pkg/README": b"docs", "pkg/cargo-nextest": _NEXTEST_BINARY_PAYLOAD},
+        archive_format="tar",
     )
     destination = tmp_path / "extracted"
 
@@ -1943,52 +1977,17 @@ def test_extract_binary_reads_real_tar_archive(
     assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
 
 
-def test_extract_binary_rejects_tar_archive_without_executable(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """A tar.gz archive lacking the executable raises a clear error."""
-    archive = tmp_path / "cargo-nextest.tar.gz"
-    _write_tar_archive(archive, {"pkg/README": b"docs"})
-
-    with pytest.raises(ValueError, match="cargo-nextest missing from"):
-        install_nextest_module._extract_binary(
-            archive,
-            _nextest_asset(install_nextest_module, "0" * 64),
-            tmp_path / "extracted",
-        )
-
-
-def test_extract_binary_rejects_non_file_tar_member(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-) -> None:
-    """A directory named cargo-nextest is not accepted as the executable."""
-    archive = tmp_path / "cargo-nextest.tar.gz"
-    _write_tar_archive(archive, {"pkg/cargo-nextest": None})
-
-    with pytest.raises(ValueError, match="is not a file in"):
-        install_nextest_module._extract_binary(
-            archive,
-            _nextest_asset(install_nextest_module, "0" * 64),
-            tmp_path / "extracted",
-        )
-
-
-def _windows_asset(module: ModuleType) -> object:
-    """Return a Windows release asset that selects the zip extraction path."""
-    return module.ReleaseAsset("x86_64-pc-windows-msvc", "zip", "0" * 64)
-
-
 def test_extract_binary_reads_real_zip_archive(
     tmp_path: Path,
     install_nextest_module: ModuleType,
 ) -> None:
     """A real zip archive yields the cargo-nextest executable."""
     archive = tmp_path / "cargo-nextest.zip"
-    with zipfile.ZipFile(archive, "w") as package:
-        package.writestr("pkg/README", "docs")
-        package.writestr("pkg/cargo-nextest.exe", _NEXTEST_BINARY_PAYLOAD)
+    _write_archive(
+        archive,
+        {"pkg/README": b"docs", "pkg/cargo-nextest.exe": _NEXTEST_BINARY_PAYLOAD},
+        archive_format="zip",
+    )
     destination = tmp_path / "extracted.exe"
 
     install_nextest_module._extract_binary(
@@ -2000,20 +1999,60 @@ def test_extract_binary_reads_real_zip_archive(
     assert destination.read_bytes() == _NEXTEST_BINARY_PAYLOAD
 
 
-def test_extract_binary_rejects_zip_archive_without_executable(
+@pytest.mark.parametrize(
+    ("archive_format", "filename", "members", "destination_name", "expected_match"),
+    [
+        (
+            "tar",
+            "cargo-nextest.tar.gz",
+            {"pkg/README": b"docs"},
+            "extracted",
+            "cargo-nextest missing from",
+        ),
+        (
+            "tar",
+            "cargo-nextest.tar.gz",
+            {"pkg/cargo-nextest": None},
+            "extracted",
+            "is not a file in",
+        ),
+        (
+            "zip",
+            "cargo-nextest.zip",
+            {"pkg/README": b"docs"},
+            "extracted.exe",
+            r"cargo-nextest\.exe missing from",
+        ),
+    ],
+    ids=[
+        "tar-missing-executable",
+        "tar-directory-member",
+        "zip-missing-executable",
+    ],
+)
+def test_extract_binary_rejects_archive_without_executable(
+    archive_format: typ.Literal["tar", "zip"],
+    filename: str,
+    members: dict[str, bytes | None],
+    destination_name: str,
+    expected_match: str,
     tmp_path: Path,
     install_nextest_module: ModuleType,
 ) -> None:
-    """A zip archive lacking the executable raises a clear error."""
-    archive = tmp_path / "cargo-nextest.zip"
-    with zipfile.ZipFile(archive, "w") as package:
-        package.writestr("pkg/README", "docs")
+    """Archives lacking the expected executable raise a clear ``ValueError``."""
+    archive = tmp_path / filename
+    _write_archive(archive, members, archive_format=archive_format)
+    asset = (
+        _windows_asset(install_nextest_module)
+        if archive_format == "zip"
+        else _nextest_asset(install_nextest_module, "0" * 64)
+    )
 
-    with pytest.raises(ValueError, match=r"cargo-nextest\.exe missing from"):
+    with pytest.raises(ValueError, match=expected_match):
         install_nextest_module._extract_binary(
             archive,
-            _windows_asset(install_nextest_module),
-            tmp_path / "extracted.exe",
+            asset,
+            tmp_path / destination_name,
         )
 
 
@@ -2045,14 +2084,54 @@ def test_install_nextest_install_order_invariants(
         failure,
     )
 
-    assert not outcome.temporary_exists
     if failure is None:
+        assert not outcome.temporary_exists
         assert outcome.exit_code is None
         assert outcome.destination_bytes == _NEXTEST_BINARY_PAYLOAD
     else:
-        assert outcome.exit_code == 1
-        assert outcome.destination_bytes == _NEXTEST_SENTINEL
+        _assert_install_failed_preserving_sentinel(outcome)
     assert outcome.extracted is (failure not in {"download", "archive-digest"})
+
+
+def test_install_cargo_nextest_end_to_end_from_local_archive(
+    tmp_path: Path,
+    install_nextest_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``install_cargo_nextest`` downloads, verifies, extracts, and installs.
+
+    A real gzip tar archive built in ``tmp_path`` stands in for the official
+    release. The download step is redirected to read that local file, so the
+    full digest-verification and atomic-install path runs without any
+    network request.
+    """
+    binary_payload = b"#!/bin/sh\necho cargo-nextest-fixture\n"
+    archive = tmp_path / "cargo-nextest-fixture.tar.gz"
+    _write_tar_archive(archive, {"cargo-nextest": binary_payload})
+    archive_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    binary_sha = hashlib.sha256(binary_payload).hexdigest()
+    asset = install_nextest_module.ReleaseAsset(
+        "x86_64-unknown-linux-gnu",
+        "tar.gz",
+        archive_sha,
+    )
+
+    def fake_urlopen(
+        _request: object,
+        timeout: float | None = None,
+    ) -> typ.IO[bytes]:
+        return archive.open("rb")
+
+    monkeypatch.setattr(install_nextest_module.urllib.request, "urlopen", fake_urlopen)
+    cargo_home = tmp_path / "cargo-home"
+    monkeypatch.setenv("CARGO_HOME", str(cargo_home))
+
+    destination = install_nextest_module.install_cargo_nextest(asset, binary_sha)
+
+    assert destination == cargo_home / "bin" / "cargo-nextest"
+    assert destination.read_bytes() == binary_payload
+    assert destination.stat().st_mode & 0o111
+    assert not destination.with_suffix(f"{destination.suffix}.tmp").exists()
 
 
 def test_merge_cobertura(tmp_path: Path, shell_stubs: StubManager) -> None:

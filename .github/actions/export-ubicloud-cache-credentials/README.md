@@ -54,7 +54,8 @@ The action fails the step, with an `::error` annotation, when:
 Private means an RFC 1918 IPv4 range, IPv4 loopback, `localhost`, or an IPv6
 unique-local or loopback address.
 
-The host must be a complete address literal, not merely start like one. A DNS
+`localhost` is the one name accepted; every other host must be a complete
+address literal, not merely start like one. A DNS
 name such as `10.attacker.example` is refused: matching a private-range prefix
 against the host would classify it as private and hand it the runtime token. A
 name that happens to resolve to a private address is refused as well, because

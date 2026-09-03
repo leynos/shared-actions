@@ -328,8 +328,9 @@ Two consequences the action encodes:
   GitHub-hosted runner the variable points at GitHub's endpoint, and exporting
   that under this action's name would send sccache somewhere other than where
   the job believes. Private means an RFC 1918 range, IPv4 loopback,
-  `localhost`, or an IPv6 unique-local or loopback address, and the host must
-  be a complete address literal. Checking a prefix would accept the DNS name
+  `localhost`, or an IPv6 unique-local or loopback address. `localhost` is the
+  one name accepted; every other host must be a complete address literal.
+  Checking a prefix would accept the DNS name
   `10.attacker.example` and hand it the runtime token, so the address is parsed
   as a dotted quad, or as an IPv6 hextet for the unique-local range, before any
   range is considered.

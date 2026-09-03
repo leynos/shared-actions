@@ -149,8 +149,11 @@ sccache reads the cache configuration once at server start and keeps it for
 that server's life.
 
 The action fails the step when the cache URL or runtime token is absent, when
-the URL does not parse, or when its host is not a private-network address
-literal. A public host means the variable points at GitHub's own endpoint, so
+the URL does not parse, or when its host is neither `localhost` nor a
+private-network address literal. `localhost` is the one name accepted; any
+other host must be a complete IPv4 or IPv6 literal, so a DNS name that merely
+begins with a private octet, or that would resolve to a private address, is
+refused. A public host means the variable points at GitHub's own endpoint, so
 this is not an Ubicloud runner and the action must not be used there. Both the
 token and the URL are masked before anything is logged, because the URL's path
 segment is bearer-like, and the single notice names the proxy's host and port

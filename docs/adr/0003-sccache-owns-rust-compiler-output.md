@@ -47,10 +47,13 @@ actions' own archive caches so a caller such as an Ubicloud or Namespace cache
 volume owns those paths, and the coverage action still leaves ratchet-baseline
 paths under their separate GitHub cache.
 
-No sccache wiring changed. `SCCACHE_CACHE_SIZE` remains documentation rather
-than a manifest input, because the actions use the GitHub Actions sccache
-backend (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
-per-repository limit rather than by the local-disk value.
+That decision changed no sccache wiring; the addendum below records what had to
+change afterwards. `SCCACHE_CACHE_SIZE` remains documentation rather than a
+manifest input, because the actions select the GitHub Actions sccache backend by
+default (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
+per-repository limit rather than by the local-disk value. A caller who sets that
+variable, or who points `SCCACHE_DIR` at their own storage, keeps their choice
+and with it the local-disk limit.
 
 ## Consequences
 

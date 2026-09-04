@@ -159,11 +159,14 @@ says so in a notice. Statistics are zeroed after the export, so a later
 
 Where the compiled objects go follows from the backend. On the GitHub Actions
 backend, the `ghac` arm, sccache stores them through the cache service; there is
-no local directory and no cache key of this action's own. On the local backend,
-which is reached only by an explicit `SCCACHE_GHA_ENABLED=false` or a
-caller-selected `SCCACHE_DIR`, they go to that directory, defaulting to
-`~/.cache/sccache`. This action does not archive that directory; a lane that
-wants it to survive between jobs owns the cache step and its key, which must be
+no local directory and no cache key of this action's own. The local backend is
+everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like, which
+includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`. sccache
+reads that variable as a boolean and treats empty as false, so a caller who
+clears it gets local disk exactly as one who wrote `false` does. Objects then go
+to that directory, defaulting to `~/.cache/sccache`. This action does not
+archive that directory; a lane that wants it to survive between jobs owns the
+cache step and its key, which must be
 separate from the Rust dependency cache above, because the two hold unrelated
 data.
 

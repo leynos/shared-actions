@@ -224,7 +224,7 @@ sides of the sccache steps, each for its own reason, and neither can move. A
 manifest test holds both orderings.
 
 The sccache-action steps do not start a server themselves, which is worth
-knowing before reasoning about this ordering. What they do do is write
+knowing before reasoning about this ordering. What they do is write
 `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, forcing GitHub's v2 cache
 service on every step after them. On a GitHub-hosted runner that is what a
 caller wants. On Ubicloud it overrides the cleared value that

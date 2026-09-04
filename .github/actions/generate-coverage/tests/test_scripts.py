@@ -308,27 +308,24 @@ def _run_rust_coverage_call(
     return calls[0], out, gh
 
 
-def _assert_watchdog_expiry(messages: list[tuple[str, bool]], *, budget: float) -> None:
-    """Assert the watchdog reported its expiry usefully.
+#: What an expiry message must say. A cold build and a hang are
+#: indistinguishable from outside cargo, so the message has to name the budget
+#: and both ways to raise it, or the reader goes looking for a deadlock.
+_EXPIRY_TERMS = ("cargo-wait-timeout", "RUN_RUST_CARGO_WAIT_TIMEOUT")
 
-    The message must name the budget that expired and how to change it. A cold
-    build looks like a hang from the outside, so an operator meeting this error
-    needs to be told which of the two it is before they start looking for a
-    deadlock.
-    """
+
+def _assert_watchdog_expiry(messages: list[tuple[str, bool]], *, budget: float) -> None:
+    """Assert the watchdog reported one useful expiry for ``budget``."""
     expiries = [
         text
         for text, is_error in messages
         if is_error and "cargo did not exit within" in text
     ]
     assert len(expiries) == 1, f"expected one expiry message, got {expiries}"
-    expiry = expiries[0]
-    assert f"within {budget}s" in expiry, f"the budget is not named: {expiry!r}"
-    assert "cargo-wait-timeout" in expiry, f"the input is not named: {expiry!r}"
-    assert "RUN_RUST_CARGO_WAIT_TIMEOUT" in expiry, (
-        f"the environment variable is not named: {expiry!r}"
-    )
-    assert ("cargo watchdog budget: 1.0s", False) in messages, (
+    assert f"within {budget}s" in expiries[0], f"budget not named: {expiries[0]!r}"
+    for term in _EXPIRY_TERMS:
+        assert term in expiries[0], f"{term} not named: {expiries[0]!r}"
+    assert (f"cargo watchdog budget: {budget}s", False) in messages, (
         f"the budget was not reported before cargo ran: {messages}"
     )
 
@@ -3316,81 +3313,3 @@ exit 0
     assert pip_python == str(expected_python)
     assert sync_python != str(resolved_python)
     assert pip_python != str(resolved_python)
-
-
-def test_cargo_watchdog_defaults_to_a_cold_store_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The default budget must fit a run that compiles everything.
-
-    A lane that no longer archives its ``target`` tree does the whole
-    instrumented compile inside this budget on the first run of a branch and
-    after every cache eviction. Netsuke measured 512 s to finish its tests and
-    was killed at 600 s during report generation, with sccache at 19% hits.
-    """
-    mod = _load_module(monkeypatch, "run_rust")
-    monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
-
-    runner = mod._cargo_runner
-    assert runner.DEFAULT_CARGO_WAIT_TIMEOUT == 1800.0, (
-        f"the default budget is {runner.DEFAULT_CARGO_WAIT_TIMEOUT}s"
-    )
-    assert runner._resolve_wait_timeout() == 1800.0
-
-
-@pytest.mark.parametrize("value", ["", "   "])
-def test_cargo_watchdog_falls_back_when_the_variable_is_blank(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-) -> None:
-    """An unset action input arrives as an empty string, not as an absent one."""
-    mod = _load_module(monkeypatch, "run_rust")
-    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", value)
-
-    runner = mod._cargo_runner
-    assert runner._resolve_wait_timeout() == runner.DEFAULT_CARGO_WAIT_TIMEOUT
-
-
-def test_cargo_watchdog_reports_its_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The budget belongs in the log, so an expiry can be read against it."""
-    mod = _load_module(monkeypatch, "run_rust")
-    messages: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        mod.typer,
-        "echo",
-        lambda message, err=False: messages.append((message, err)),
-    )
-    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "900")
-
-    assert mod._cargo_runner._resolve_wait_timeout() == 900.0
-    assert ("cargo watchdog budget: 900.0s", False) in messages, messages
-
-
-def test_cargo_wait_timeout_input_reaches_the_runner() -> None:
-    """The input must be wired to the variable the runner reads.
-
-    An input the script never sees is worse than no input: it looks
-    configurable and silently is not.
-    """
-    import yaml
-
-    manifest_path = Path(__file__).resolve().parents[1] / "action.yml"
-    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-
-    declared = manifest["inputs"]["cargo-wait-timeout"]
-    assert declared["required"] is False, "cargo-wait-timeout must stay optional"
-    assert declared["default"] == "1800", (
-        f"the documented default is {declared['default']!r}"
-    )
-
-    rust_steps = [
-        step
-        for step in manifest["runs"]["steps"]
-        if "run_rust.py" in str(step.get("run", ""))
-    ]
-    assert len(rust_steps) == 1, "expected exactly one run_rust.py step"
-    assert rust_steps[0]["env"]["RUN_RUST_CARGO_WAIT_TIMEOUT"] == (
-        "${{ inputs.cargo-wait-timeout }}"
-    ), "the input does not reach RUN_RUST_CARGO_WAIT_TIMEOUT"

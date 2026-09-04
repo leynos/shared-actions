@@ -153,9 +153,15 @@ A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice. Statistics are zeroed after the export, so a later
 `sccache --show-stats` measures the caller's own build.
 
-The compiled objects are stored in `~/.cache/sccache` and cached with a
-**separate cache key** from the directories above. This directory holds the
-sccache cache space and does not share data with the Rust dependency cache.
+Where the compiled objects go follows from the backend. On the GitHub Actions
+backend, the `ghac` arm, sccache stores them through the cache service; there is
+no local directory and no cache key of this action's own. On the local backend,
+which is reached only by an explicit `SCCACHE_GHA_ENABLED=false` or a
+caller-selected `SCCACHE_DIR`, they go to that directory, defaulting to
+`~/.cache/sccache`. This action does not archive that directory; a lane that
+wants it to survive between jobs owns the cache step and its key, which must be
+separate from the Rust dependency cache above, because the two hold unrelated
+data.
 
 On Ubicloud, run the
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)

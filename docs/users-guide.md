@@ -74,19 +74,14 @@ with v2 still on.
 
 Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, an
 Ubicloud lane should start sccache from a `run:` step of its own, which the
-runner does not re-inject into, ordered after the credentials export:
+runner does not re-inject into, ordered after the credentials export.
 
-```yaml
-- uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
-- uses: leynos/shared-actions/.github/actions/setup-rust@v1
-  with:
-    use-sccache: 'false'
-- name: Start sccache
-  shell: bash
-  run: |
-    echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-    echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-```
+`use-sccache: 'false'` also turns off the action's sccache **installation**, so
+the lane owns that too. Nothing on the Ubicloud image provides the binary, and
+`RUSTC_WRAPPER=sccache` naming a binary that is not on `PATH` fails every
+`cargo` invocation rather than falling back to an uncached build. Install a
+pinned, checksum-verified release archive first, as in
+[the full example below](#export-ubicloud-cache-credentials-action).
 
 On a GitHub-hosted runner none of that applies: run
 `export-ubicloud-cache-credentials` nowhere, and `setup-rust` alone is enough.
@@ -211,12 +206,38 @@ the server from a `run:` step, which the runner does not re-inject into:
 - uses: leynos/shared-actions/.github/actions/setup-rust@v1
   with:
     use-sccache: 'false'
+- name: Install sccache
+  shell: bash
+  env:
+    SCCACHE_VERSION: v0.12.0
+    SCCACHE_SHA256: >-
+      b0e89ead6899224a4ba2b90e9073bf1ce036d95bab30f3dc33c1e1468bc4ad44
+  run: |
+    set -euo pipefail
+    archive="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    url="https://github.com/mozilla/sccache/releases/download"
+    curl -fsSL -o "$archive" "${url}/${SCCACHE_VERSION}/${archive}"
+    echo "${SCCACHE_SHA256}  ${archive}" | sha256sum -c -
+    tar -xzf "$archive"
+    install -Dm755 "${archive%.tar.gz}/sccache" "${HOME}/.local/bin/sccache"
+    echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 - name: Configure sccache
   shell: bash
   run: |
     echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
     echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+- name: Start sccache
+  shell: bash
+  run: sccache --zero-stats
 ```
+
+The install step is the lane's own, because `use-sccache: 'false'` disables the
+action's sccache installation along with its server. The version and checksum
+are pinned for the same reason every other tool here is: nothing in CI is built
+from source or fetched unverified. The start step is separate from the
+configuration step because `GITHUB_ENV` reaches the *next* step, so a server
+started in the same step would bind the backend the runner advertises rather
+than the proxy.
 
 `setup-rust`'s own sccache support, including its `RUSTC_WRAPPER` and
 `SCCACHE_GHA_ENABLED` exports, is the right path on GitHub-hosted runners,

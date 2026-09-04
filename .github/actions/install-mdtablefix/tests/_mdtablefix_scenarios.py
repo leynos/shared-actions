@@ -130,7 +130,7 @@ class ScenarioResult:
 
     @property
     def returncode(self) -> int:
-        """Return the exit code of the last fragment that ran."""
+        """Return the exit code that decided the run, or zero when it passed."""
         return self.lifecycle.returncode
 
     @property
@@ -261,21 +261,28 @@ def _build_environment(
     )
 
 
-def _provision_binstall(
-    scenario: Scenario,
-    context: ActionContext,
-    sandbox: _Sandbox,
-) -> StepResult | None:
+@dc.dataclass(frozen=True)
+class _Run:
+    """Bundle the state one scenario's steps are executed against."""
+
+    scenario: Scenario
+    context: ActionContext
+    environment: FragmentEnvironment
+    sandbox: _Sandbox
+
+
+def _provision_binstall(run: _Run) -> StepResult | None:
     """Emulate the upstream cargo-binstall step, which cannot run off a runner.
 
-    On success the runner gains a usable ``cargo binstall``. On failure the
+    On success the runner gains a usable ``cargo binstall`` and nothing is
+    recorded, because the step produces no fragment output. On failure the
     step's non-zero result is recorded so the manifest's ``failure()``-guarded
     reporting step is selected, exactly as it would be on a runner.
     """
-    if not scenario.binstall_install_fails:
-        sandbox.binstall_marker.write_text("true", encoding="utf-8")
+    if not run.scenario.binstall_install_fails:
+        run.sandbox.binstall_marker.write_text("true", encoding="utf-8")
         return None
-    context.succeeded = False
+    run.context.succeeded = False
     return StepResult(
         name=BINSTALL_STEP_NAME,
         process=subprocess.CompletedProcess(
@@ -287,27 +294,32 @@ def _provision_binstall(
     )
 
 
-def _execute_steps(
-    scenario: Scenario,
-    context: ActionContext,
-    environment: FragmentEnvironment,
-    sandbox: _Sandbox,
-) -> tuple[StepResult, ...]:
-    """Run the selected fragments in manifest order."""
+def _run_manifest_step(
+    index: int, step: dict[str, object], run: _Run
+) -> StepResult | None:
+    """Execute one selected manifest step and return what it produced."""
+    name = typ.cast("str", step["name"])
+    if name == BINSTALL_STEP_NAME:
+        return _provision_binstall(run)
+    process = run_step(step, run.context, run.environment, f"{index:02d}-output")
+    if process.returncode != 0:
+        run.context.succeeded = False
+    return StepResult(name=name, process=process)
+
+
+def _execute_steps(run: _Run) -> tuple[StepResult, ...]:
+    """Run the selected fragments in manifest order.
+
+    Each step's condition is evaluated only once its predecessors have run,
+    because a condition reads their outputs and whether they succeeded.
+    """
     results: list[StepResult] = []
     for index, step in enumerate(manifest_steps()):
-        if not context.evaluate_condition(step):
+        if not run.context.evaluate_condition(step):
             continue
-        name = typ.cast("str", step["name"])
-        if name == BINSTALL_STEP_NAME:
-            provisioning = _provision_binstall(scenario, context, sandbox)
-            if provisioning is not None:
-                results.append(provisioning)
-            continue
-        process = run_step(step, context, environment, f"{index:02d}-output")
-        results.append(StepResult(name=name, process=process))
-        if process.returncode != 0:
-            context.succeeded = False
+        result = _run_manifest_step(index, step, run)
+        if result is not None:
+            results.append(result)
     return tuple(results)
 
 
@@ -325,8 +337,14 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
         action_path=bash_path(Path(__file__).resolve().parents[1]),
         runner_temp=bash_path(sandbox.root),
     )
-    environment = _build_environment(scenario, sandbox)
-    steps = _execute_steps(scenario, context, environment, sandbox)
+    steps = _execute_steps(
+        _Run(
+            scenario=scenario,
+            context=context,
+            environment=_build_environment(scenario, sandbox),
+            sandbox=sandbox,
+        ),
+    )
 
     return ScenarioResult(
         lifecycle=LifecycleResult(steps=steps),

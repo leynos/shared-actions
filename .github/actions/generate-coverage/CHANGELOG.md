@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Refuse a `publish-baseline` that is neither `auto` nor `always`, before the
+  action does anything, rather than treating an unrecognized value as `auto`.
+
 - Publish the ratchet baseline only on a push to `refs/heads/main`. The save
   step had no event guard, so a `workflow_dispatch` gathering warm-cache
   evidence published a new baseline instead of reading the generation it was

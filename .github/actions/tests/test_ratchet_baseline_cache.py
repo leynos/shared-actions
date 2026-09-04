@@ -224,3 +224,32 @@ def test_publish_baseline_defaults_to_the_guarded_behaviour(action: str) -> None
     assert inputs["publish-baseline"]["required"] is False, (
         f"{action}: publish-baseline must stay optional"
     )
+
+
+@pytest.mark.parametrize("action", ACTION_IDS)
+def test_publish_baseline_is_validated_before_anything_runs(action: str) -> None:
+    """An unrecognized mode must fail, not quietly behave like ``auto``.
+
+    A condition can only decide whether a step runs, so a typo such as
+    ``alway`` reads as "not always": the run would succeed, publish nothing,
+    and leave later runs comparing against a baseline that had silently
+    stopped advancing.
+    """
+    steps = _steps(action)
+    names = [step.get("name") for step in steps]
+    assert "Validate baseline publication mode" in names, (
+        f"{action}: no validation step for publish-baseline"
+    )
+
+    restore_step, _save_step = BASELINE_CACHE_STEPS[action]
+    assert names.index("Validate baseline publication mode") < names.index(
+        restore_step
+    ), f"{action}: validation must precede the restore"
+
+    script = _step(action, "Validate baseline publication mode")["run"]
+    assert "auto|always" in script, (
+        f"{action}: validation does not accept exactly auto and always"
+    )
+    assert "::error title=Invalid publish-baseline::" in script, (
+        f"{action}: an invalid mode is not annotated"
+    )

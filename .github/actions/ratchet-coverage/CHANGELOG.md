@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Refuse a `publish-baseline` that is neither `auto` nor `always`, before the
+  action does anything. A condition can only decide whether a step runs, so a
+  typo would otherwise read as `auto` and stop publication silently.
+
 - Publish the baseline only on a push to `refs/heads/main`, with the same
   `publish-baseline` input and default as `generate-coverage`. The save step
   had no event guard, so any run that reached it published, including a

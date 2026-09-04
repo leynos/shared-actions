@@ -160,6 +160,23 @@ runs:
         INPUT_CARGO_MANIFEST: ${{ inputs.cargo-manifest }}
         INPUT_LANGUAGE: ${{ inputs.language }}
       shell: bash
+    - name: Validate baseline publication mode
+      shell: bash
+      env:
+        GC_PUBLISH_BASELINE: ${{ inputs.publish-baseline }}
+      run: |
+        # Refused here rather than in the save step's condition. An expression
+        # can only decide whether to run; a typo such as "alway" would read as
+        # "not always", publish nothing, and leave later runs comparing against
+        # a baseline that silently stopped advancing.
+        set -euo pipefail
+        case "$GC_PUBLISH_BASELINE" in
+          auto|always) ;;
+          *)
+            echo "::error title=Invalid publish-baseline::expected auto or always, got '"'"'${GC_PUBLISH_BASELINE}'"'"'" >&2
+            exit 1
+            ;;
+        esac
     - name: Restore baselines
       id: restore-baselines
       if: inputs.with-ratchet == 'true'

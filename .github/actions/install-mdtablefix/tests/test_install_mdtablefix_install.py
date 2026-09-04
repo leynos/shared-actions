@@ -15,7 +15,7 @@ from _mdtablefix_manifest import (
     SUPPORTED_PLATFORMS,
     UNSUPPORTED_PLATFORMS,
 )
-from _mdtablefix_scenarios import Scenario, run_scenario
+from _mdtablefix_scenarios import Scenario, ScenarioResult, run_scenario
 
 from composite_fragments import require_posix_host
 
@@ -23,6 +23,46 @@ if typ.TYPE_CHECKING:
     from pathlib import Path
 
 require_posix_host()
+
+
+_FAILURE_ANNOTATION = "::error title=Install mdtablefix failed::"
+
+
+def _assert_metric(result: ScenarioResult, expected: str) -> None:
+    """Assert ``expected`` is among the metrics the run emitted."""
+    assert expected in result.metrics(), (
+        f"expected {expected!r} among the metrics, got {result.metrics()}"
+    )
+
+
+def _assert_only_metric(result: ScenarioResult, expected: str) -> None:
+    """Assert the run emitted ``expected`` and nothing else."""
+    assert result.metrics() == (expected,), (
+        f"expected only {expected!r}, got {result.metrics()}"
+    )
+
+
+def _assert_annotated(result: ScenarioResult) -> None:
+    """Assert the run annotated its failure for the runner's log."""
+    assert _FAILURE_ANNOTATION in result.stderr, (
+        f"expected a failure annotation, got {result.stderr!r}"
+    )
+
+
+def _assert_installed(result: ScenarioResult, version: str) -> None:
+    """Assert the run installed and verified ``version``."""
+    assert result.returncode == 0, f"the install failed: {result.stderr}"
+    _assert_metric(result, "install-mdtablefix.result=installed")
+    assert result.installed_version == version, (
+        f"expected mdtablefix {version}, got {result.installed_version}"
+    )
+
+
+def _assert_nothing_installed(result: ScenarioResult) -> None:
+    """Assert the run left no executable behind."""
+    assert result.installed_output is None, (
+        f"an executable was left behind reporting {result.installed_output!r}"
+    )
 
 
 class TestCachedOutcome:
@@ -33,9 +73,7 @@ class TestCachedOutcome:
         result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.0"))
 
         assert result.returncode == 0, f"a cache hit must succeed: {result.stderr}"
-        assert result.metrics() == ("install-mdtablefix.result=cached",), (
-            f"expected only the cached metric, got {result.metrics()}"
-        )
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
         assert result.cargo_log == "", (
             f"a cache hit must not call cargo: {result.cargo_log!r}"
         )
@@ -55,13 +93,7 @@ class TestCachedOutcome:
         """Verify a stale executable is reinstalled rather than trusted."""
         result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.4.0"))
 
-        assert result.returncode == 0, f"a stale cache must reinstall: {result.stderr}"
-        assert "install-mdtablefix.result=installed" in result.metrics(), (
-            f"expected an installed metric, got {result.metrics()}"
-        )
-        assert result.installed_version == "0.5.0", (
-            f"the stale executable survived: {result.installed_version}"
-        )
+        _assert_installed(result, "0.5.0")
 
 
 class TestBinstallProvisioning:
@@ -71,16 +103,11 @@ class TestBinstallProvisioning:
         """Verify a usable cargo-binstall is not reinstalled."""
         result = run_scenario(Scenario(tmp_path=tmp_path, binstall_present=True))
 
-        assert result.returncode == 0, f"the install failed: {result.stderr}"
+        _assert_installed(result, "0.5.0")
         assert "Install cargo-binstall" not in result.executed(), (
             f"a usable cargo-binstall was reinstalled: {result.executed()}"
         )
-        assert "install-mdtablefix.binstall=present" in result.metrics(), (
-            f"expected a present metric, got {result.metrics()}"
-        )
-        assert result.installed_version == "0.5.0", (
-            f"nothing usable was installed: {result.installed_version}"
-        )
+        _assert_metric(result, "install-mdtablefix.binstall=present")
 
     def test_installs_binstall_when_the_probe_cannot_run_it(
         self,
@@ -89,13 +116,8 @@ class TestBinstallProvisioning:
         """Verify a missing cargo-binstall is provisioned before the install."""
         result = run_scenario(Scenario(tmp_path=tmp_path, binstall_present=False))
 
-        assert result.returncode == 0, f"the install failed: {result.stderr}"
-        assert "install-mdtablefix.binstall=installed" in result.metrics(), (
-            f"expected an installed-binstall metric, got {result.metrics()}"
-        )
-        assert result.installed_version == "0.5.0", (
-            f"nothing usable was installed: {result.installed_version}"
-        )
+        _assert_installed(result, "0.5.0")
+        _assert_metric(result, "install-mdtablefix.binstall=installed")
 
     def test_reports_a_failed_provisioning(self, tmp_path: Path) -> None:
         """Verify a failed upstream installer still names one outcome."""
@@ -108,15 +130,9 @@ class TestBinstallProvisioning:
         )
 
         assert result.returncode != 0, "a failed provisioning must fail the job"
-        assert result.metrics() == (
-            "install-mdtablefix.result=binstall-unavailable",
-        ), f"expected one provisioning metric, got {result.metrics()}"
-        assert "::error title=Install mdtablefix failed::" in result.stderr, (
-            f"expected a failure annotation, got {result.stderr!r}"
-        )
-        assert result.installed_version is None, (
-            "nothing may be installed when cargo-binstall is unavailable"
-        )
+        _assert_only_metric(result, "install-mdtablefix.result=binstall-unavailable")
+        _assert_annotated(result)
+        _assert_nothing_installed(result)
 
     def test_does_not_provision_binstall_for_a_cached_executable(
         self,
@@ -127,9 +143,7 @@ class TestBinstallProvisioning:
             Scenario(tmp_path=tmp_path, binstall_present=False, cached_version="0.5.0"),
         )
 
-        assert result.metrics() == ("install-mdtablefix.result=cached",), (
-            f"a cache hit must not touch cargo-binstall: {result.metrics()}"
-        )
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
 
 
 class TestHardenedInstall:
@@ -158,15 +172,9 @@ class TestHardenedInstall:
         assert result.returncode == 94, (
             f"binstall's exit code must propagate: {result.returncode}"
         )
-        assert "install-mdtablefix.result=install-failed" in result.metrics(), (
-            f"expected an install-failed metric, got {result.metrics()}"
-        )
-        assert "::error title=Install mdtablefix failed::" in result.stderr, (
-            f"expected a failure annotation, got {result.stderr!r}"
-        )
-        assert result.installed_version is None, (
-            "a failed install must leave no executable behind"
-        )
+        _assert_metric(result, "install-mdtablefix.result=install-failed")
+        _assert_annotated(result)
+        _assert_nothing_installed(result)
 
     def test_reports_a_version_mismatch(self, tmp_path: Path) -> None:
         """Verify an executable of the wrong version fails the job."""
@@ -175,9 +183,7 @@ class TestHardenedInstall:
         assert result.returncode == 1, (
             f"a version mismatch must fail the job: {result.returncode}"
         )
-        assert "install-mdtablefix.result=version-mismatch" in result.metrics(), (
-            f"expected a version-mismatch metric, got {result.metrics()}"
-        )
+        _assert_metric(result, "install-mdtablefix.result=version-mismatch")
         assert "but it reported mdtablefix 0.4.0" in result.stderr, (
             f"the annotation must name both versions: {result.stderr!r}"
         )
@@ -191,9 +197,7 @@ class TestHardenedInstall:
         assert result.returncode == 1, (
             f"an empty install must fail the job: {result.returncode}"
         )
-        assert "install-mdtablefix.result=version-mismatch" in result.metrics(), (
-            f"expected a version-mismatch metric, got {result.metrics()}"
-        )
+        _assert_metric(result, "install-mdtablefix.result=version-mismatch")
         assert "no executable was installed at" in result.stderr, (
             f"the annotation must say nothing was installed: {result.stderr!r}"
         )
@@ -211,12 +215,7 @@ class TestHardenedInstall:
             ),
         )
 
-        assert result.returncode == 0, (
-            f"trailing output must not fail the install: {result.stderr}"
-        )
-        assert "install-mdtablefix.result=installed" in result.metrics(), (
-            f"expected an installed metric, got {result.metrics()}"
-        )
+        _assert_installed(result, "0.5.0")
 
     def test_bounds_the_reported_version_in_the_annotation(
         self,
@@ -233,9 +232,7 @@ class TestHardenedInstall:
         assert result.returncode == 1, (
             "an executable reporting an unexpected version must fail the job"
         )
-        assert "install-mdtablefix.result=version-mismatch" in result.metrics(), (
-            f"expected a version-mismatch metric, got {result.metrics()}"
-        )
+        _assert_metric(result, "install-mdtablefix.result=version-mismatch")
         assert overlong not in result.stderr, (
             "the whole reported line reached the annotation unbounded"
         )
@@ -255,10 +252,7 @@ class TestHardenedInstall:
             ),
         )
 
-        assert result.returncode == 0, f"the reinstall failed: {result.stderr}"
-        assert "install-mdtablefix.result=installed" in result.metrics(), (
-            f"an overlong cached report was believed: {result.metrics()}"
-        )
+        _assert_installed(result, "0.5.0")
 
     def test_a_cached_executable_may_print_more_than_one_line(
         self,
@@ -272,9 +266,7 @@ class TestHardenedInstall:
             ),
         )
 
-        assert result.metrics() == ("install-mdtablefix.result=cached",), (
-            f"expected a cache hit, got {result.metrics()}"
-        )
+        _assert_only_metric(result, "install-mdtablefix.result=cached")
         assert result.cargo_log == "", (
             f"a cache hit must not call cargo: {result.cargo_log!r}"
         )
@@ -301,10 +293,7 @@ def test_supported_platform_installs(tmp_path: Path, platform: str) -> None:
         Scenario(tmp_path=tmp_path, runner_os=runner_os, runner_arch=runner_arch),
     )
 
-    assert result.returncode == 0, f"{platform} failed to install: {result.stderr}"
-    assert result.installed_version == "0.5.0", (
-        f"{platform} installed {result.installed_version}"
-    )
+    _assert_installed(result, "0.5.0")
 
 
 @pytest.mark.parametrize("platform", UNSUPPORTED_PLATFORMS)
@@ -321,9 +310,7 @@ def test_unsupported_platform_fails_closed(tmp_path: Path, platform: str) -> Non
     )
 
     assert result.returncode == 1, f"{platform} did not fail closed: {result.stderr}"
-    assert result.metrics() == ("install-mdtablefix.result=no-prebuilt",), (
-        f"{platform} reported {result.metrics()}"
-    )
+    _assert_only_metric(result, "install-mdtablefix.result=no-prebuilt")
     assert "publishes no prebuilt release" in result.stderr, (
         f"{platform} was rejected without a reason: {result.stderr!r}"
     )
@@ -344,6 +331,4 @@ def test_unsupported_platform_ignores_a_cached_executable(tmp_path: Path) -> Non
     assert result.returncode == 1, (
         f"a cached executable rescued an unsupported platform: {result.stderr}"
     )
-    assert result.metrics() == ("install-mdtablefix.result=no-prebuilt",), (
-        f"expected only the no-prebuilt metric, got {result.metrics()}"
-    )
+    _assert_only_metric(result, "install-mdtablefix.result=no-prebuilt")

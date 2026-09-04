@@ -163,6 +163,20 @@ def _strip_failure_guard(body: str) -> tuple[str, bool]:
     return remainder, True
 
 
+def _opens_heredoc(line: str, name: str, separator: str) -> bool:
+    """Return whether ``line`` opens a delimited multiline value.
+
+    A runner reads ``name<<DELIMITER`` as an opener only when the ``<<`` comes
+    before any ``=``. A single-line value may legitimately contain ``<<``, and
+    treating ``key=a<<b`` as an opener would swallow every following line until
+    one happened to equal ``b``.
+    """
+    if not separator:
+        return False
+    assignment = line.find("=")
+    return assignment < 0 or assignment > len(name)
+
+
 def parse_outputs(lines: list[str]) -> dict[str, str]:
     """Parse ``$GITHUB_OUTPUT`` lines, including delimited multiline values."""
     outputs: dict[str, str] = {}
@@ -170,12 +184,7 @@ def parse_outputs(lines: list[str]) -> dict[str, str]:
     while index < len(lines):
         line = lines[index]
         name, separator, value = line.partition("<<")
-        # A runner reads `name<<DELIMITER` as a heredoc opener only when the
-        # `<<` comes before any `=`. A single-line value may legitimately
-        # contain `<<`, and treating `key=a<<b` as an opener would swallow
-        # every following line until one happened to equal `b`.
-        assignment = line.find("=")
-        if separator and (assignment < 0 or assignment > len(name)):
+        if _opens_heredoc(line, name, separator):
             delimiter = value
             index += 1
             collected: list[str] = []

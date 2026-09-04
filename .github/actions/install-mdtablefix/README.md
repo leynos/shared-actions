@@ -70,20 +70,27 @@ pinned by commit SHA. A composite action cannot make a `uses:` step conditional
 on a shell result directly, so the probe publishes a step output and the
 `uses:` step carries an `if:` over it.
 
+That upstream step is the one step whose failure this action cannot annotate
+from inside, so a `failure()`-guarded step immediately after it reports
+`install-mdtablefix.result=binstall-unavailable`. Without it a bad
+`binstall-version`, or a failed download, would stop the action with no result
+metric at all.
+
 ## Metrics
 
 Each run emits exactly one `install-mdtablefix.result` line to the job summary,
 over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
 
-| Metric                                       | Meaning                                      |
-| -------------------------------------------- | -------------------------------------------- |
-| `install-mdtablefix.result=cached`           | `bin-dir` already held the pinned version    |
-| `install-mdtablefix.result=installed`        | Installed and verified                       |
-| `install-mdtablefix.result=no-prebuilt`      | No prebuilt release for this runner          |
-| `install-mdtablefix.result=install-failed`   | `cargo binstall` failed                      |
-| `install-mdtablefix.result=version-mismatch` | The installed version was not the pinned one |
-| `install-mdtablefix.binstall=present`        | The runner already had a usable binstall     |
-| `install-mdtablefix.binstall=installed`      | The pinned upstream action provided it       |
+| Metric                                           | Meaning                                      |
+| ------------------------------------------------ | -------------------------------------------- |
+| `install-mdtablefix.result=cached`               | `bin-dir` already held the pinned version    |
+| `install-mdtablefix.result=installed`            | Installed and verified                       |
+| `install-mdtablefix.result=no-prebuilt`          | No prebuilt release for this runner          |
+| `install-mdtablefix.result=install-failed`       | `cargo binstall` failed                      |
+| `install-mdtablefix.result=binstall-unavailable` | cargo-binstall could not be installed        |
+| `install-mdtablefix.result=version-mismatch`     | The installed version was not the pinned one |
+| `install-mdtablefix.binstall=present`            | The runner already had a usable binstall     |
+| `install-mdtablefix.binstall=installed`          | The pinned upstream action provided it       |
 
 ## Inputs
 

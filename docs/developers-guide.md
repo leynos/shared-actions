@@ -1168,11 +1168,11 @@ failure boundary.
 ## `install-mdtablefix` action contract
 
 The composite action boundary is
-`.github/actions/install-mdtablefix/action.yml`. It declares six steps whose
+`.github/actions/install-mdtablefix/action.yml`. It declares seven steps whose
 order is itself part of the contract: validate the inputs, reject an
 unsupported platform, probe the cache and `cargo-binstall`, install
-`cargo-binstall` when the probe asked for it, run the hardened
-`cargo binstall`, and verify the installed version.
+`cargo-binstall` when the probe asked for it, report a failure of that
+installer, run the hardened `cargo binstall`, and verify the installed version.
 
 The platform gate precedes the cache probe deliberately. A cached executable
 must not be able to report success on a runner for which no prebuilt release
@@ -1188,6 +1188,13 @@ The upstream installer is pinned by commit SHA
 with the release named in a trailing comment, and receives the validated
 `binstall-version` input.
 
+That upstream step is the only one whose failure the action cannot annotate
+from inside, so a step guarded by `failure()` and the probe's
+`install-binstall` output follows it and reports
+`install-mdtablefix.result=binstall-unavailable`. The guard is narrow because
+the probe publishes that output only when it succeeded, so the upstream step is
+the only thing that can have failed between the two.
+
 The install passes `--disable-strategies compile`, so a missing prebuilt asset
 fails closed rather than compiling in CI, and
 `--bin-dir '{ bin }{ binary-ext }'`, which overrides `mdtablefix` 0.5.0's
@@ -1202,7 +1209,6 @@ published prebuilt asset, an updated platform gate, updated tests, an updated
 runner-backed workflow, and synchronized user-facing documentation; fail closed
 until all five exist.
 
-
 ### Test boundary
 
 `.github/actions/install-mdtablefix/tests/` holds three modules. The manifest
@@ -1210,7 +1216,8 @@ tests read `action.yml` only and pin the step order, the input table, the
 upstream SHA, and the hardening flags. The input tests run the real validation
 fragment. The install tests drive every fragment in manifest order against a
 stubbed `cargo`, covering the cached, binstall-present, binstall-installed,
-version-mismatch, install-failed, and no-prebuilt outcomes.
+version-mismatch, install-failed, binstall-unavailable, and no-prebuilt
+outcomes.
 
 The stub refuses to install unless it receives the `--bin-dir` override, so
 dropping that override fails the suite rather than passing silently and failing
@@ -1223,7 +1230,6 @@ executable reports, then puts a failing `cargo` stub on `PATH` and invokes the
 action again: a second run that reaches `cargo-binstall` fails the job, so the
 cached outcome is proved rather than read out of a log. Its `macos-15` job
 asserts the fail-closed contract and that no executable was left behind.
-
 
 ### Composite fragment harness
 

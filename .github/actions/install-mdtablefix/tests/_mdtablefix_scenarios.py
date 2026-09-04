@@ -19,6 +19,7 @@ import dataclasses as dc
 import os
 import re
 import stat
+import subprocess
 import typing as typ
 from pathlib import Path
 
@@ -113,6 +114,8 @@ class Scenario:
     installs_version: str | None = None
     #: Whether the stubbed binstall reports a missing prebuilt asset.
     binstall_fails: bool = False
+    #: Whether the upstream cargo-binstall installer step itself fails.
+    binstall_install_fails: bool = False
 
 
 @dc.dataclass(frozen=True)
@@ -258,26 +261,53 @@ def _build_environment(
     )
 
 
+def _provision_binstall(
+    scenario: Scenario,
+    context: ActionContext,
+    sandbox: _Sandbox,
+) -> StepResult | None:
+    """Emulate the upstream cargo-binstall step, which cannot run off a runner.
+
+    On success the runner gains a usable ``cargo binstall``. On failure the
+    step's non-zero result is recorded so the manifest's ``failure()``-guarded
+    reporting step is selected, exactly as it would be on a runner.
+    """
+    if not scenario.binstall_install_fails:
+        sandbox.binstall_marker.write_text("true", encoding="utf-8")
+        return None
+    context.succeeded = False
+    return StepResult(
+        name=BINSTALL_STEP_NAME,
+        process=subprocess.CompletedProcess(
+            args=[BINSTALL_STEP_NAME],
+            returncode=1,
+            stdout="",
+            stderr="the upstream cargo-binstall installer failed\n",
+        ),
+    )
+
+
 def _execute_steps(
+    scenario: Scenario,
     context: ActionContext,
     environment: FragmentEnvironment,
     sandbox: _Sandbox,
 ) -> tuple[StepResult, ...]:
-    """Run the selected fragments in manifest order, stopping at a failure."""
+    """Run the selected fragments in manifest order."""
     results: list[StepResult] = []
     for index, step in enumerate(manifest_steps()):
         if not context.evaluate_condition(step):
             continue
         name = typ.cast("str", step["name"])
         if name == BINSTALL_STEP_NAME:
-            # Emulate the upstream composite action: after it runs, the
-            # runner has a usable `cargo binstall`.
-            sandbox.binstall_marker.write_text("true", encoding="utf-8")
+            provisioning = _provision_binstall(scenario, context, sandbox)
+            if provisioning is not None:
+                results.append(provisioning)
             continue
         process = run_step(step, context, environment, f"{index:02d}-output")
         results.append(StepResult(name=name, process=process))
         if process.returncode != 0:
-            break
+            context.succeeded = False
     return tuple(results)
 
 
@@ -296,7 +326,7 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
         runner_temp=bash_path(sandbox.root),
     )
     environment = _build_environment(scenario, sandbox)
-    steps = _execute_steps(context, environment, sandbox)
+    steps = _execute_steps(scenario, context, environment, sandbox)
 
     return ScenarioResult(
         lifecycle=LifecycleResult(steps=steps),

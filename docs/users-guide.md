@@ -460,9 +460,10 @@ platform.
 ### Reported outcomes
 
 Each run writes exactly one `install-mdtablefix.result` line to the job
-summary, over `cached`, `installed`, `no-prebuilt`, `install-failed`, and
-`version-mismatch`, plus at most one `install-mdtablefix.binstall` line over
-`present` and `installed`. A failure is also annotated with `::error`.
+summary, over `cached`, `installed`, `no-prebuilt`, `binstall-unavailable`,
+`install-failed`, and `version-mismatch`, plus at most one
+`install-mdtablefix.binstall` line over `present` and `installed`. A failure is
+also annotated with `::error`.
 
 ## `generate-coverage` action
 

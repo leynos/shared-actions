@@ -164,6 +164,25 @@ runs:
       with:
         version: ${{ steps.validate-inputs.outputs.binstall-version }}
 
+    - name: Report cargo-binstall provisioning failure
+      # The upstream installer is the one step whose failure this action cannot
+      # annotate from inside. Without this step a bad `binstall-version`, or a
+      # failed download, would stop the composite with no
+      # `install-mdtablefix.result` line at all, breaking the guarantee that
+      # every run reports exactly one outcome. The condition is narrow: the
+      # probe publishes `install-binstall` only when it succeeded, and the
+      # upstream step is the only thing that can have failed between the two.
+      if: ${{ failure() && steps.probe.outputs.install-binstall == 'true' }}
+      shell: bash
+      env:
+        MDTABLEFIX_BINSTALL_VERSION: ${{ steps.validate-inputs.outputs.binstall-version }}
+      run: |
+        set -euo pipefail
+        echo "::error title=Install mdtablefix failed::cargo-binstall ${MDTABLEFIX_BINSTALL_VERSION} could not be installed, so mdtablefix cannot be obtained without building from source" >&2
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' "install-mdtablefix.result=binstall-unavailable" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
     - name: Install mdtablefix
       if: ${{ steps.probe.outputs.needs-install == 'true' }}
       shell: bash

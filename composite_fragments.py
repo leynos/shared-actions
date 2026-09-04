@@ -82,6 +82,9 @@ class ActionContext:
     action_path: str
     runner_temp: str = ""
     step_outputs: dict[str, dict[str, str]] = dc.field(default_factory=dict)
+    #: Whether every step so far succeeded, which is what an ``if:`` without a
+    #: status function implicitly requires.
+    succeeded: bool = True
 
     def resolve(self, body: str) -> str:
         """Return the value of one action expression."""
@@ -112,18 +115,25 @@ class ActionContext:
     def evaluate_condition(self, step: dict[str, object]) -> bool:
         """Return whether ``step``'s ``if:`` expression selects it.
 
-        Only the equality comparison the installer manifests use is supported;
-        anything else is a test-harness error rather than a silent skip.
+        Supports an omitted condition, a leading ``failure()``, and the
+        equality comparison the installer manifests use. Anything else is a
+        test-harness error rather than a silent skip. A condition without a
+        status function carries an implicit ``success()``, as on a runner.
         """
         condition = step.get("if")
         if condition is None:
-            return True
+            return self.succeeded
         if not isinstance(condition, str):
             message = f"step {step.get('name')!r} declares a non-string condition"
             raise TypeError(message)
         body = condition.strip()
         if (match := _EXPRESSION.fullmatch(body)) is not None:
             body = match["body"]
+        body, requires_failure = _strip_failure_guard(body)
+        if requires_failure == self.succeeded:
+            return False
+        if not body:
+            return True
         left, separator, right = body.partition("==")
         if not separator:
             message = f"unsupported step condition: {condition}"
@@ -139,6 +149,16 @@ class ActionContext:
         outputs.update(
             _parse_outputs(output_file.read_text(encoding="utf-8").splitlines()),
         )
+
+
+def _strip_failure_guard(body: str) -> tuple[str, bool]:
+    """Split a leading ``failure()`` guard off a condition body."""
+    if not body.startswith("failure()"):
+        return body, False
+    remainder = body[len("failure()") :].lstrip()
+    if remainder.startswith("&&"):
+        remainder = remainder[2:].strip()
+    return remainder, True
 
 
 def _parse_outputs(lines: list[str]) -> dict[str, str]:
@@ -195,8 +215,16 @@ class LifecycleResult:
 
     @property
     def returncode(self) -> int:
-        """Return the exit code of the last fragment that ran."""
-        return self.steps[-1].process.returncode if self.steps else 0
+        """Return the first non-zero exit code, or zero when all succeeded.
+
+        A step guarded by ``failure()`` runs after the failure it reports and
+        exits zero itself, so the last exit code is not the one that decided
+        the job.
+        """
+        for step in self.steps:
+            if step.process.returncode != 0:
+                return step.process.returncode
+        return 0
 
     @property
     def stdout(self) -> str:
@@ -241,24 +269,6 @@ def run_step(
     )
     context.record(step, output_file)
     return process
-
-
-def run_lifecycle(
-    steps: list[dict[str, object]],
-    context: ActionContext,
-    environment: FragmentEnvironment,
-) -> LifecycleResult:
-    """Run selected fragments in order, stopping at the first failing one."""
-    results: list[StepResult] = []
-    for index, step in enumerate(steps):
-        if not context.evaluate_condition(step):
-            continue
-        name = typ.cast("str", step["name"])
-        process = run_step(step, context, environment, f"{index:02d}-output")
-        results.append(StepResult(name=name, process=process))
-        if process.returncode != 0:
-            break
-    return LifecycleResult(steps=tuple(results))
 
 
 def ambient_env() -> dict[str, str]:

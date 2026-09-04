@@ -21,12 +21,16 @@ STEP_NAMES = (
     "Check mdtablefix platform support",
     "Probe mdtablefix and cargo-binstall",
     "Install cargo-binstall",
+    "Report cargo-binstall provisioning failure",
     "Install mdtablefix",
     "Verify mdtablefix",
 )
 
 #: The step that delegates to the upstream cargo-binstall installer.
 BINSTALL_STEP_NAME = "Install cargo-binstall"
+
+#: The step that annotates a failure of that upstream installer.
+BINSTALL_FAILURE_STEP_NAME = "Report cargo-binstall provisioning failure"
 
 #: The pinned upstream reference, commit SHA and all.
 BINSTALL_ACTION_REF = (

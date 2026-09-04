@@ -73,18 +73,26 @@ class TestAcceptedInputs:
         """Verify the resolved bin directory and executable path."""
         process, context = _validate(tmp_path, {})
 
-        assert process.returncode == 0, process.stderr
+        assert process.returncode == 0, (
+            f"validation rejected a well-formed call: {process.stderr}"
+        )
         outputs = _outputs(context)
-        assert outputs["version"] == "0.5.0"
-        assert outputs["binstall-version"] == "1.22.0"
-        assert outputs["bin-dir"].endswith("/.local/bin")
-        assert outputs["executable-path"] == f"{outputs['bin-dir']}/mdtablefix"
+        assert outputs["version"] == "0.5.0", f"unexpected outputs: {outputs}"
+        assert outputs["binstall-version"] == "1.22.0", f"unexpected outputs: {outputs}"
+        assert outputs["bin-dir"].endswith("/.local/bin"), (
+            f"the default bin-dir was not expanded against HOME: {outputs}"
+        )
+        assert outputs["executable-path"] == f"{outputs['bin-dir']}/mdtablefix", (
+            f"the executable path must sit inside bin-dir: {outputs}"
+        )
 
     def test_creates_the_bin_directory(self, tmp_path: Path) -> None:
         """Verify the directory exists so the caller's cache can own it."""
-        _validate(tmp_path, {})
+        process, _ = _validate(tmp_path, {})
 
-        assert (tmp_path / "home" / ".local" / "bin").is_dir()
+        assert (tmp_path / "home" / ".local" / "bin").is_dir(), (
+            f"bin-dir was not created: {process.stderr}"
+        )
 
     def test_adds_the_windows_executable_suffix(self, tmp_path: Path) -> None:
         """Verify a Windows runner's executable path carries ``.exe``.
@@ -94,7 +102,10 @@ class TestAcceptedInputs:
         """
         _, context = _validate(tmp_path, {}, runner_os="Windows")
 
-        assert _outputs(context)["executable-path"].endswith("/mdtablefix.exe")
+        outputs = _outputs(context)
+        assert outputs["executable-path"].endswith("/mdtablefix.exe"), (
+            f"a Windows runner needs the .exe suffix: {outputs}"
+        )
 
     def test_accepts_an_absolute_bin_directory(self, tmp_path: Path) -> None:
         """Verify an absolute path is taken as given."""
@@ -102,8 +113,12 @@ class TestAcceptedInputs:
         target.mkdir()
         process, context = _validate(tmp_path, {"bin-dir": bash_path(target)})
 
-        assert process.returncode == 0, process.stderr
-        assert _outputs(context)["bin-dir"] == bash_path(target)
+        assert process.returncode == 0, (
+            f"validation rejected an absolute bin-dir: {process.stderr}"
+        )
+        assert _outputs(context)["bin-dir"] == bash_path(target), (
+            f"an absolute bin-dir must be taken as given: {_outputs(context)}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -162,6 +177,12 @@ def test_rejects_malformed_input(
     """Verify each malformed input is refused with a named reason."""
     process, _ = _validate(tmp_path, inputs)
 
-    assert process.returncode == 1
-    assert "::error title=Invalid mdtablefix input::" in process.stderr
-    assert expected in process.stderr
+    assert process.returncode == 1, (
+        f"{inputs} was accepted; stderr was {process.stderr!r}"
+    )
+    assert "::error title=Invalid mdtablefix input::" in process.stderr, (
+        f"a rejection must be annotated; stderr was {process.stderr!r}"
+    )
+    assert expected in process.stderr, (
+        f"expected {expected!r} in the rejection; stderr was {process.stderr!r}"
+    )

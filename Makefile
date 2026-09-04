@@ -71,6 +71,7 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/windows-package \
 		--extra-search-path .github/actions/windows-package/scripts \
 		--extra-search-path .github/actions/setup-rust/scripts \
+		--extra-search-path .github/actions/install-mdtablefix/tests \
 		cmd_utils.py \
 		composite_fragments.py \
 		.github/actions/generate-coverage/scripts \
@@ -78,6 +79,7 @@ typecheck: .venv ## Run static type checking with Ty
 		.github/actions/linux-packages/scripts \
 		.github/actions/rust-build-release/src \
 		.github/actions/setup-rust/scripts \
+		.github/actions/install-mdtablefix/tests \
 		.github/actions/windows-package/scripts
 	./.venv/bin/ty check --python .venv \
 		--extra-search-path . \

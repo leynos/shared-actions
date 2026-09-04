@@ -303,11 +303,48 @@ def run_lifecycle(
 ) -> LifecycleResult:
     """Run the selected fragments in order and collect what they produced.
 
-    A step whose condition does not select it is skipped, and a failure marks
-    the run failed rather than ending the walk. Since a condition without a
-    status function carries an implicit ``success()``, a plain sequence of
-    steps still stops at its first failure; only a step that asked for
-    ``failure()`` runs after one.
+    A step whose ``if:`` does not select it is skipped. A step that fails marks
+    the run failed but does not end the walk, so a step guarded by
+    ``failure()`` still gets to report it. Because an ``if:`` without a status
+    function carries an implicit ``success()``, a plain sequence of steps
+    nonetheless stops at its first failure: everything after it is skipped.
+
+    Parameters
+    ----------
+    steps : list[dict[str, object]]
+        Run-bearing composite steps, in manifest order. Each must declare a
+        ``name`` and a ``run``. A ``uses:`` step has no fragment to execute and
+        is the caller's to emulate.
+    context : ActionContext
+        Resolves the steps' expressions. Mutated as the walk proceeds: each
+        step's ``$GITHUB_OUTPUT`` is recorded against its ``id``, and
+        ``succeeded`` is cleared by the first failure, which is what the
+        remaining conditions read.
+    environment : FragmentEnvironment
+        Where the fragments run and what ambient state they observe.
+
+    Returns
+    -------
+    LifecycleResult
+        The steps that ran, in the order they ran, each with its process
+        result. A step its condition skipped does not appear.
+
+    Examples
+    --------
+    >>> steps = [
+    ...     {"name": "probe", "run": "true"},
+    ...     {"name": "install", "run": "false"},
+    ...     {"name": "verify", "run": "true"},
+    ...     {"name": "report", "if": "${{ failure() }}", "run": "echo failed"},
+    ... ]
+    >>> result = run_lifecycle(steps, context, environment)
+    >>> result.executed()
+    ('probe', 'install', 'report')
+    >>> result.returncode
+    1
+
+    ``verify`` is skipped because its absent condition implies ``success()``,
+    and ``report`` runs because it asked for the opposite.
     """
     results: list[StepResult] = []
     for index, step in enumerate(steps):

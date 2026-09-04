@@ -53,11 +53,13 @@ over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
 The action also selects the cache backend, exporting `SCCACHE_GHA_ENABLED`
 before sccache starts. Without it sccache writes to local disk, which nothing
 persists between jobs, so the wrapper would cost time and return an empty cache
-on every run. A value the caller already set is respected, `false` included,
-and a caller-set `SCCACHE_DIR` leaves sccache on that directory. This choice is
-reported as `metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm
-it took effect, `sccache --show-stats` reports a `ghac` cache location rather
-than `Local disk`.
+on every run. A value the caller already set is respected, `false` included, so
+a workflow that sets `SCCACHE_GHA_ENABLED` at job level keeps its own value and
+needs no change. A caller-set `SCCACHE_DIR` leaves sccache on that directory.
+This choice is reported as
+`metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm it took
+effect, `sccache --show-stats` reports a `ghac` cache location rather than
+`Local disk`.
 
 On Ubicloud, run the `export-ubicloud-cache-credentials` action **before**
 `setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
@@ -103,8 +105,8 @@ That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 state, naming neither the key nor the baseline paths. Each outcome is also
 written as a fixed `metric ratchet-cache.restore=<state>` or
 `metric ratchet-cache.save=<state>` line, so a log scraper can read the result
-without parsing the notice text. `disabled` means the
-ratchet is off; `skipped` means an earlier failure stopped the step running.
+without parsing the notice text. `disabled` means the ratchet is off; `skipped`
+means an earlier failure stopped the step running.
 
 ## `ratchet-coverage` baseline caching
 
@@ -126,8 +128,8 @@ the first run after this change starts from no baseline and stores one.
 repository can make the coverage job its entire test run rather than executing
 the suite twice. All three default to off, and the ratchet cache change above
 is internal to the action, so a workflow already pinned to `v1` needs no edit
-to keep its current behaviour. Opt in only when the coverage job must replace
-a separate test job.
+to keep its current behaviour. Opt in only when the coverage job must replace a
+separate test job.
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1
@@ -169,8 +171,21 @@ It also exports `ACTIONS_CACHE_SERVICE_V2` empty. sccache's GitHub Actions
 backend selects the v2 cache service whenever that variable is set, and the
 proxy serves v1.
 
+With `setup-rust`, which sets both variables itself, the action only has to
+come first:
+
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
+- uses: leynos/shared-actions/.github/actions/setup-rust@v1
+  with:
+    use-sccache: 'true'
+```
+
+A workflow that configures sccache itself, without `setup-rust`, sets the two
+variables after this action instead:
+
+```yaml
 - uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
 - name: Configure sccache
   shell: bash
@@ -179,10 +194,10 @@ proxy serves v1.
     echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 ```
 
-Order matters. Set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action
-and before any step that starts an sccache server or runs a build, because
-sccache reads the cache configuration once at server start and keeps it for
-that server's life.
+Order matters either way, and for one reason: sccache reads its cache
+configuration once when the server starts and keeps it for that server's life.
+So the credentials must be published before anything starts a server, which
+includes `setup-rust`.
 
 The action fails the step when the cache URL or runtime token is absent, when
 the URL does not parse, or when its host is neither `localhost` nor a

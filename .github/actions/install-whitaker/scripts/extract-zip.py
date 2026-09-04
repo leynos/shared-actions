@@ -24,6 +24,67 @@ import zipfile
 STRIP_COMPONENTS = 1
 
 
+def _reject_unsafe_name(name: str) -> pathlib.PurePosixPath:
+    """Parse a member name, refusing one that is absolute or parent-relative.
+
+    Parameters
+    ----------
+    name
+        The member's archive path, which zip always spells with forward
+        slashes regardless of the platform that wrote it.
+
+    Returns
+    -------
+    pathlib.PurePosixPath
+        The parsed member path.
+
+    Raises
+    ------
+    ValueError
+        If the name is absolute or begins with a parent reference.
+    """
+    pure = pathlib.PurePosixPath(name)
+    leads_upward = bool(pure.parts) and pure.parts[0] == ".."
+    if pure.is_absolute() or leads_upward:
+        message = f"refusing to extract absolute or parent-relative member {name!r}"
+        raise ValueError(message)
+    return pure
+
+
+def _resolve_within(
+    target: pathlib.Path,
+    destination: pathlib.Path,
+    name: str,
+) -> pathlib.Path:
+    """Resolve a member's output path, refusing one outside ``destination``.
+
+    Parameters
+    ----------
+    target
+        The unresolved output path.
+    destination
+        Directory the archive is being unpacked into.
+    name
+        The member's archive path, for the error message.
+
+    Returns
+    -------
+    pathlib.Path
+        The resolved output path.
+
+    Raises
+    ------
+    ValueError
+        If the resolved path lies outside ``destination``.
+    """
+    resolved = target.resolve()
+    root = destination.resolve()
+    if resolved != root and root not in resolved.parents:
+        message = f"refusing to extract {name!r} outside the destination"
+        raise ValueError(message)
+    return resolved
+
+
 def stripped_target(
     name: str,
     destination: pathlib.Path,
@@ -33,8 +94,7 @@ def stripped_target(
     Parameters
     ----------
     name
-        The member's archive path, which zip always spells with forward
-        slashes regardless of the platform that wrote it.
+        The member's archive path.
     destination
         Directory the archive is being unpacked into.
 
@@ -52,20 +112,11 @@ def stripped_target(
         action expects, so extraction stops rather than writing outside the
         staging directory.
     """
-    pure = pathlib.PurePosixPath(name)
-    if pure.is_absolute() or (pure.parts and pure.parts[0] == ".."):
-        message = f"refusing to extract absolute or parent-relative member {name!r}"
-        raise ValueError(message)
+    pure = _reject_unsafe_name(name)
     parts = pure.parts[STRIP_COMPONENTS:]
     if not parts:
         return None
-    target = destination.joinpath(*parts)
-    resolved = target.resolve()
-    root = destination.resolve()
-    if resolved != root and root not in resolved.parents:
-        message = f"refusing to extract {name!r} outside the destination"
-        raise ValueError(message)
-    return resolved
+    return _resolve_within(destination.joinpath(*parts), destination, name)
 
 
 def extract(archive: pathlib.Path, destination: pathlib.Path) -> int:

@@ -62,19 +62,31 @@ jobs:
             echo "system tar absent"
           fi
 
+      - name: Resolve a POSIX cargo home
+        id: paths
+        # `runner.temp` is a native path on Windows, and the action requires an
+        # absolute POSIX path or a `~/` prefix, so the other legs'
+        # `${{ runner.temp }}/...` cannot be reused verbatim here.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="$(cygpath -u "$RUNNER_TEMP")/whitaker-test-cargo"
+          printf 'cargo-home=%s\n' "$cargo_home" >> "$GITHUB_OUTPUT"
+
       - name: Install Whitaker
         uses: ./.github/actions/install-whitaker
         with:
-          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          cargo-home: ${{ steps.paths.outputs['cargo-home'] }}
           installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
 
       - name: Verify installation contract
         shell: bash
+        env:
+          CARGO_HOME_UNDER_TEST: ${{ steps.paths.outputs['cargo-home'] }}
         run: |
           set -euo pipefail
-          cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
-          test -x "${cargo_home}/bin/whitaker-installer.exe"
-          echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer.exe"
+          test -x "${CARGO_HOME_UNDER_TEST}/bin/whitaker-installer.exe"
+          echo "whitaker_test_installer_path=${CARGO_HOME_UNDER_TEST}/bin/whitaker-installer.exe"
           echo "whitaker_test_installation=complete"
 
   install-whitaker-failure:

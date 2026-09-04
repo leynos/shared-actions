@@ -42,12 +42,23 @@ ZIP_SCRIPT = pl.Path(__file__).resolve().parents[1] / "scripts" / "extract-zip.p
 
 #: A staging directory in the shape Git Bash hands the action on Windows.
 WINDOWS_STAGING_DIR = r"D:\a\_temp/whitaker-installer-release"
+
+
+class Asset(typ.NamedTuple):
+    """A release asset and the extension the extract step branches on."""
+
+    name: str
+    extension: str
+
+
 #: A tarball asset, because the tarball arm is the one that reaches `tar` and
 #: so the one the colon defence applies to.
-ASSET = "whitaker-installer-x86_64-unknown-linux-gnu-v0.2.7.tar.gz"
-EXTENSION = "tar.gz"
+TARBALL = Asset("whitaker-installer-x86_64-unknown-linux-gnu-v0.2.7.tar.gz", "tar.gz")
 #: The Windows asset, whose arm must never reach `tar`.
-ZIP_ASSET = "whitaker-installer-x86_64-pc-windows-msvc-v0.2.7.zip"
+ZIP = Asset("whitaker-installer-x86_64-pc-windows-msvc-v0.2.7.zip", "zip")
+#: An asset whose format the step does not know, which must fail closed.
+UNKNOWN = Asset("whitaker-installer-v0.2.7.rar", "rar")
+ASSET = TARBALL.name
 
 
 def _extract_script() -> str:
@@ -94,8 +105,7 @@ def _run_extract(
     *,
     staging_dir: str,
     gnu: bool,
-    asset: str = ASSET,
-    extension: str = EXTENSION,
+    asset: Asset = TARBALL,
 ) -> subprocess.CompletedProcess[str]:
     """Run the extract fragment with `tar` stubbed."""
     bash = shutil.which("bash")
@@ -106,8 +116,8 @@ def _run_extract(
     environment = {
         **os.environ,
         "PATH": f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}",
-        "WHITAKER_ASSET": asset,
-        "WHITAKER_EXTENSION": extension,
+        "WHITAKER_ASSET": asset.name,
+        "WHITAKER_EXTENSION": asset.extension,
         "WHITAKER_NEEDS_INSTALL": "true",
         "WHITAKER_STAGING_DIR": staging_dir,
         "WHITAKER_INSTALLER_VERSION": "0.2.7",
@@ -347,15 +357,9 @@ def test_the_zip_arm_never_invokes_tar(tmp_path: Path) -> None:
     that runner, and it must never be called.
     """
     staging = tmp_path / "staging"
-    _write_zip_asset(staging, ZIP_ASSET)
+    _write_zip_asset(staging, ZIP.name)
 
-    result = _run_extract(
-        tmp_path,
-        staging_dir=str(staging),
-        gnu=True,
-        asset=ZIP_ASSET,
-        extension="zip",
-    )
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=ZIP)
 
     assert result.returncode == 0, result.stderr
     assert not (tmp_path / "stubs" / "tar-args.log").exists(), (
@@ -373,15 +377,9 @@ def test_the_zip_arm_strips_the_top_level_directory(tmp_path: Path) -> None:
     would extract successfully and then fail to find what it extracted.
     """
     staging = tmp_path / "staging"
-    _write_zip_asset(staging, ZIP_ASSET)
+    _write_zip_asset(staging, ZIP.name)
 
-    result = _run_extract(
-        tmp_path,
-        staging_dir=str(staging),
-        gnu=True,
-        asset=ZIP_ASSET,
-        extension="zip",
-    )
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=ZIP)
 
     assert result.returncode == 0, result.stderr
     installer = staging / "extract" / "whitaker-installer.exe"
@@ -396,15 +394,9 @@ def test_an_unknown_extension_is_refused(tmp_path: Path) -> None:
     stops instead of guessing at the format.
     """
     staging = tmp_path / "staging"
-    _write_zip_asset(staging, "whitaker-installer-v0.2.7.rar")
+    _write_zip_asset(staging, UNKNOWN.name)
 
-    result = _run_extract(
-        tmp_path,
-        staging_dir=str(staging),
-        gnu=True,
-        asset="whitaker-installer-v0.2.7.rar",
-        extension="rar",
-    )
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=UNKNOWN)
 
     assert result.returncode != 0
     assert "unsupported archive extension" in result.stderr

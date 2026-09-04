@@ -79,8 +79,35 @@ loads both manifests, selects the steps that invoke `actions/cache` or its
 registry to remain cached, so the contract cannot pass by the cache steps
 disappearing.
 
+## Addendum, 2026-09-04: what sccache needs to own anything
+
+This decision made sccache the owner of compiler output and removed the
+`target` archive that had been standing in for it. It assumed sccache was
+working. It was not, for two reasons that surfaced only once the archive was
+gone and the cost became visible.
+
+`mozilla-actions/sccache-action` installs sccache and exports `SCCACHE_PATH`.
+It exports neither `RUSTC_WRAPPER`, without which Cargo never routes
+compilation through sccache, nor `SCCACHE_GHA_ENABLED`, without which sccache
+writes to a local disk directory that nothing persists between jobs. A consumer
+relying on `setup-rust` therefore had an installed binary, no wrapper, and no
+durable cache, while every log line reported sccache as enabled. Chutoro
+measured zero compile requests, then 3,836 requests at a 0.18 % hit rate once
+the wrapper landed.
+
+`setup-rust` now exports both. The positions are load-bearing:
+`SCCACHE_GHA_ENABLED` before the sccache-action steps, because sccache binds
+its backend when the server starts and that server starts inside them, and
+`RUSTC_WRAPPER` after them, because it needs `SCCACHE_PATH`, which they
+produce. Neither can move. A caller's own values win in both cases.
+
+The decision itself stands: sccache owns compiler output, and no `target`
+archive returns. This records that owning it requires the two exports, which
+the original decision took for granted.
+
 ## References
 
 - Issue `#424`, PR `#425`
+- Issues `#437` and `#439`, PRs `#438` and `#440`
 - `docs/developers-guide.md`, "Rust action cache ownership"
 - `docs/users-guide.md`, "Rust cache ownership"

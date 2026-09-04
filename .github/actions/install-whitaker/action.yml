@@ -371,9 +371,11 @@ runs:
       shell: bash
       env:
         WHITAKER_ASSET: ${{ steps.publish-resolution.outputs.asset }}
+        WHITAKER_EXTENSION: ${{ steps.publish-resolution.outputs.extension }}
         WHITAKER_NEEDS_INSTALL: ${{ steps.publish-resolution.outputs.needs-install }}
         WHITAKER_STAGING_DIR: ${{ steps.publish-resolution.outputs.staging-dir }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_ZIP_SCRIPT: ${{ github.action_path }}/scripts/extract-zip.py
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -388,24 +390,92 @@ runs:
         archive="${WHITAKER_STAGING_DIR}/${WHITAKER_ASSET}"
         extract_dir="${WHITAKER_STAGING_DIR}/extract"
         mkdir -p -- "$extract_dir"
-        # Both release archives hold one top-level directory. bsdtar, which is
-        # the bundled tar on Windows and macOS runners, reads zip as well as
-        # gzip, and GNU tar detects gzip without an explicit flag. unzip is not
-        # guaranteed to be present on a Windows runner.
+        # Both release archives hold one top-level directory, but they are not
+        # the same format: a gzip tarball everywhere except Windows, where the
+        # asset is a zip. The extractor is therefore chosen by what the archive
+        # IS, taken from the resolver's `extension` field, rather than by what
+        # `tar` happens to be.
         #
-        # --force-local tells GNU tar to read a colon in the archive path as
-        # part of the name rather than as rmt's host:path syntax. The staging
-        # path is normalized upstream, so this is a second line of defence for
-        # any other colon; bsdtar rejects the flag outright, hence the probe.
+        # Probing `tar --version` for GNU was the previous approach and it was
+        # wrong on a GitHub-hosted Windows runner. This step's `shell: bash` is
+        # Git Bash, whose PATH puts MSYS2's tar ahead of the Windows system
+        # directory, so the probe selected GNU tar and GNU tar cannot read a
+        # zip. On the Namespace Windows image `tar` did resolve to bsdtar,
+        # which reads both, which is why this only surfaced when a consumer
+        # moved its Windows lanes to `windows-latest`. See issue #446.
         #
-        # Two calls rather than an options array: macOS runners ship bash 3.2,
-        # where expanding an empty array under `set -u` is an unbound variable
-        # error.
-        if tar --version 2>/dev/null | grep -q GNU; then
-          tar --force-local -xf "$archive" --strip-components=1 -C "$extract_dir"
-        else
-          tar -xf "$archive" --strip-components=1 -C "$extract_dir"
-        fi
+        # Separate calls rather than an options array throughout: macOS runners
+        # ship bash 3.2, where expanding an empty array under `set -u` is an
+        # unbound variable error.
+        extract_tarball() {
+          # --force-local tells GNU tar to read a colon in the archive path as
+          # part of the name rather than as rmt's host:path syntax. The staging
+          # path is normalized upstream, so this is a second line of defence
+          # for any other colon; bsdtar rejects the flag outright, hence the
+          # probe is kept here, where it is about a flag rather than about
+          # which formats the tool can read. GNU tar detects gzip unaided.
+          if tar --version 2>/dev/null | grep -q GNU; then
+            tar --force-local -xf "$1" --strip-components=1 -C "$2"
+          else
+            tar -xf "$1" --strip-components=1 -C "$2"
+          fi
+        }
+        system_bsdtar() {
+          # The Windows system tar is bsdtar and reads zip. Name it by path
+          # rather than reordering PATH: PATH order is what broke this, and
+          # putting the system directory first would shadow the GNU find, sort
+          # and friends that later steps and actions expect. cygpath converts
+          # the native path to the form this Bash understands.
+          local native='C:\Windows\System32\tar.exe' candidate
+          candidate="$native"
+          if command -v cygpath >/dev/null 2>&1; then
+            candidate="$(cygpath -u "$native" 2>/dev/null || printf '%s' "$native")"
+          fi
+          if [[ -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+          fi
+          return 1
+        }
+        extract_zip() {
+          # Two extractors, and a hard failure rather than a silent empty
+          # directory if neither is present. The `unzip` command is
+          # deliberately not one of them: it is absent from some Windows
+          # runner images, and this action's tests already forbid depending on
+          # it, so reaching for it here would trade one unstated environment
+          # assumption for another.
+          #
+          # bsdtar is the Windows system tar and honours --strip-components,
+          # so on the platform that actually ships zip assets the behaviour is
+          # identical to the tarball arm. Python is the fallback for a runner
+          # that somehow has neither, and every GitHub-hosted and Ubicloud
+          # image ships it.
+          local archive_path="$1" destination="$2" bsdtar
+          if bsdtar="$(system_bsdtar)"; then
+            "$bsdtar" -xf "$archive_path" --strip-components=1 -C "$destination"
+            return 0
+          fi
+          if command -v python3 >/dev/null 2>&1; then
+            python3 "${WHITAKER_ZIP_SCRIPT}" "$archive_path" "$destination"
+            return 0
+          fi
+          echo "::error title=Whitaker installer failed::no zip extractor available: neither the Windows system tar nor python3 is present" >&2
+          return 1
+        }
+        case "$WHITAKER_EXTENSION" in
+          zip)
+            extract_zip "$archive" "$extract_dir"
+            ;;
+          tar.gz|tgz|tar.xz|tar.bz2|tar)
+            extract_tarball "$archive" "$extract_dir"
+            ;;
+          *)
+            # Fail closed. Falling through to tar is how a zip reached GNU tar
+            # in the first place.
+            echo "::error title=Whitaker installer failed::unsupported archive extension ${WHITAKER_EXTENSION:-<empty>} for asset ${WHITAKER_ASSET}" >&2
+            exit 1
+            ;;
+        esac
 
     - name: Install Whitaker installer
       id: install-whitaker-installer

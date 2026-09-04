@@ -25,6 +25,7 @@ from _action_manifest import (
     DIGEST_MANIFEST_NAME,
     RESOLVE_SCRIPT_PATH,
     SUPPORTED_PLATFORMS,
+    ZIP_SCRIPT_PATH,
     asset_name,
     installer_filename,
     lifecycle_steps,
@@ -106,12 +107,19 @@ exit 127
 """
 
 _TAR_SHIM = r'''
-"""Stand in for the runner's tar, delegating to it except for zip archives.
+"""Stand in for the runner's tar, recording arguments and refusing zip.
 
-GNU tar cannot read zip, so a Linux test host cannot exercise the Windows
-archive through the ambient tar. This shim unpacks a zip with real zip
-semantics, honouring ``--strip-components``, and execs the real tar for every
-other archive, so gzip extraction stays genuine.
+Faithful to the tool the action actually meets. On every runner this action
+supports, the `tar` first on PATH is GNU tar: that is true of the Linux and
+macOS images, and it is true of a GitHub-hosted Windows runner too, because the
+extract step's `shell: bash` is Git Bash and Git Bash puts MSYS2's tar ahead of
+the Windows system directory. GNU tar cannot read a zip.
+
+An earlier version of this shim unpacked zip archives itself, which made the
+harness's `tar` zip-capable and hid issue #446 for as long as it existed. The
+shim now refuses a zip exactly as GNU tar does, so the action has to reach its
+zip arm to succeed, and delegates everything else to the real tar so gzip
+extraction stays genuine.
 """
 
 from __future__ import annotations
@@ -126,36 +134,18 @@ with pathlib.Path(os.environ["EXTRACT_LOG"]).open("a", encoding="utf-8") as log:
     log.write(" ".join(argv) + "\n")
 
 archive: pathlib.Path | None = None
-destination = pathlib.Path()
-strip = 0
 index = 0
 while index < len(argv):
-    token = argv[index]
-    if token == "-C":
-        destination = pathlib.Path(argv[index + 1])
-        index += 2
-    elif token.startswith("--strip-components="):
-        strip = int(token.split("=", 1)[1])
-        index += 1
-    elif token == "-xf":
+    if argv[index] == "-xf":
         archive = pathlib.Path(argv[index + 1])
         index += 2
     else:
         index += 1
 
 if archive is not None and zipfile.is_zipfile(archive):
-    with zipfile.ZipFile(archive) as package:
-        for info in package.infolist():
-            if info.is_dir():
-                continue
-            parts = pathlib.PurePosixPath(info.filename).parts[strip:]
-            if not parts:
-                continue
-            target = destination.joinpath(*parts)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(package.read(info))
-            target.chmod(0o755)
-    sys.exit(0)
+    sys.stderr.write("tar: This does not look like a tar archive\n")
+    sys.stderr.write("tar: Exiting with failure status due to previous errors\n")
+    sys.exit(2)
 
 real_tar = os.environ["REAL_TAR"]
 os.execv(real_tar, [real_tar, *argv])
@@ -354,9 +344,10 @@ def _prepare_action_directory(root: Path, scenario: InstallScenario) -> Path:
     action_path = root / "action"
     (action_path / "scripts").mkdir(parents=True, exist_ok=True)
     write_digest_manifest(action_path / DIGEST_MANIFEST_NAME, scenario)
-    destination = action_path / "scripts" / RESOLVE_SCRIPT_PATH.name
-    shutil.copy2(RESOLVE_SCRIPT_PATH, destination)
-    destination.chmod(0o755)
+    for source in (RESOLVE_SCRIPT_PATH, ZIP_SCRIPT_PATH):
+        destination = action_path / "scripts" / source.name
+        shutil.copy2(source, destination)
+        destination.chmod(0o755)
     return action_path
 
 
@@ -452,6 +443,9 @@ def _prepare_stubs(root: Path, scenario: InstallScenario) -> str:
         stub_bin / "tar",
         _TAR_SHIM_WRAPPER.format(script=_posix_path(str(shim_body))),
     )
+    # `unzip` stays forbidden: the action must never require it. The zip arm
+    # reaches the Windows system tar on a real Windows runner and the action's
+    # own Python extractor everywhere else, and neither is `unzip`.
     _write_executable(stub_bin / "unzip", _FORBIDDEN_STUB)
     # `bash_path` yields the form Bash understands. A Windows drive path such
     # as `C:/Program Files/...` cannot go into a colon-separated PATH, because

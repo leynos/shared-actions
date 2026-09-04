@@ -33,6 +33,50 @@ jobs:
           echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer"
           echo "whitaker_test_installation=complete"
 
+  install-whitaker-windows:
+    # The zip arm's only real exercise. Windows is the one platform whose
+    # release asset is a zip, and issue #446 was invisible to every other leg
+    # and to the unit tests: the extract step's `shell: bash` is Git Bash,
+    # whose PATH puts MSYS2's GNU tar ahead of the Windows system tar, so a
+    # probe for "what is tar" chose a tool that cannot read a zip. Nothing
+    # short of a real `windows-latest` runner reproduces that PATH.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Record which tar wins PATH
+        # Evidence rather than assertion. If a future image reorders PATH so
+        # that the system bsdtar wins, this leg would still pass while no
+        # longer testing what it was added to test, and the log is what says
+        # which of those happened.
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "tar resolves to: $(command -v tar)"
+          tar --version | head -n 1
+          if [ -x /c/Windows/System32/tar.exe ]; then
+            echo "system tar present: $(/c/Windows/System32/tar.exe --version | head -n 1)"
+          else
+            echo "system tar absent"
+          fi
+
+      - name: Install Whitaker
+        uses: ./.github/actions/install-whitaker
+        with:
+          cargo-home: ${{ runner.temp }}/whitaker-test-cargo
+          installer-version: ${{ env.WHITAKER_TEST_INSTALLER_VERSION }}
+
+      - name: Verify installation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_home="${RUNNER_TEMP}/whitaker-test-cargo"
+          test -x "${cargo_home}/bin/whitaker-installer.exe"
+          echo "whitaker_test_installer_path=${cargo_home}/bin/whitaker-installer.exe"
+          echo "whitaker_test_installation=complete"
+
   install-whitaker-failure:
     runs-on: ubuntu-latest
     steps:

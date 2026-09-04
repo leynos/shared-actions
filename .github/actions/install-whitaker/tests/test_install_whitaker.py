@@ -315,20 +315,53 @@ class TestLifecycleSteps:
         ):
             assert flag in script
 
-    def test_extraction_uses_tar_for_every_archive_format(self) -> None:
-        """Verify extraction never depends on unzip being installed."""
+    def test_extraction_chooses_its_tool_by_the_asset_extension(self) -> None:
+        """Verify the extractor follows the archive format, not PATH order.
+
+        Probing what `tar` is chose GNU tar on a GitHub-hosted Windows runner,
+        because the step's Git Bash puts MSYS2's tar ahead of the Windows
+        system directory, and GNU tar cannot read the `.zip` asset (#446). The
+        step must branch on the resolved extension instead.
+        """
         script = _step_script("Extract Whitaker installer")
 
-        assert (
-            'tar --force-local -xf "$archive" --strip-components=1 -C "$extract_dir"'
-        ) in script
-        assert 'tar -xf "$archive" --strip-components=1 -C "$extract_dir"' in script
+        assert 'case "$WHITAKER_EXTENSION" in' in script
+        assert "zip)" in script
+        assert "tar.gz|tgz" in script
+        # The tarball arm keeps the GNU probe, which is about a flag bsdtar
+        # rejects rather than about which formats each tool can read.
+        assert ('tar --force-local -xf "$1" --strip-components=1 -C "$2"') in script
+        assert 'tar -xf "$1" --strip-components=1 -C "$2"' in script
+
+    def test_an_unknown_archive_extension_fails_closed(self) -> None:
+        """Verify an unrecognized extension is refused, not handed to tar.
+
+        Falling through to `tar` is how a zip reached GNU tar in the first
+        place, so the default arm must exit rather than guess.
+        """
+        script = _step_script("Extract Whitaker installer")
+
+        default_arm = script.split("*)", 1)[1]
+        assert "unsupported archive extension" in default_arm
+        assert "exit 1" in default_arm
+
+    def test_extraction_never_depends_on_unzip(self) -> None:
+        """Verify no extraction arm invokes `unzip`.
+
+        Some Windows runner images do not ship it, so the zip arm uses the
+        Windows system tar, which is bsdtar, and falls back to a Python
+        extractor this action ships.
+        """
+        script = _step_script("Extract Whitaker installer")
+
         commands = [
             line.strip()
             for line in script.splitlines()
             if line.strip() and not line.strip().startswith("#")
         ]
         assert not any("unzip" in command for command in commands)
+        assert "C:\\Windows\\System32\\tar.exe" in script
+        assert "WHITAKER_ZIP_SCRIPT" in script
 
     def test_verification_compares_the_anchor_then_the_sidecar(self) -> None:
         """Verify the verify step's digest comparisons and metrics."""

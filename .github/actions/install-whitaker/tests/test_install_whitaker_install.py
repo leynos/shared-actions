@@ -362,22 +362,35 @@ class TestPlatformMatrix:
         ("runner_os", "runner_arch"),
         [tuple(pair.split(":")) for pair in SUPPORTED_PLATFORMS],
     )
-    def test_extracts_every_archive_format_with_tar(
+    def test_extracts_every_archive_format_without_unzip(
         self,
         run_scenario: ScenarioRunner,
         runner_os: str,
         runner_arch: str,
     ) -> None:
-        """Verify every runner extracts with tar and never calls unzip."""
+        """Verify each platform uses the extractor its asset format needs.
+
+        The tarball platforms go through `tar`, and the assertion on the
+        recorded arguments is what holds `--strip-components=1` in place.
+        Windows ships a zip, and since #446 must not reach `tar` at all: the
+        stub tar refuses a zip exactly as the GNU tar that wins PATH under Git
+        Bash does, so an arm that called it would fail here. No platform may
+        call `unzip`, which some Windows images lack.
+        """
         scenario = InstallScenario(runner_os=runner_os, runner_arch=runner_arch)
         run = run_scenario(scenario)
 
         assert run.result.returncode == 0, run.result.stderr
         expected_suffix = ".zip" if runner_os == "Windows" else ".tgz"
         assert scenario.asset.endswith(expected_suffix)
-        extract_log = run.extract_log.read_text(encoding="utf-8")
-        assert "--strip-components=1" in extract_log
-        assert scenario.asset in extract_log
+        if runner_os == "Windows":
+            assert not run.extract_log.exists(), (
+                "the zip asset was handed to tar, which cannot read it"
+            )
+        else:
+            extract_log = run.extract_log.read_text(encoding="utf-8")
+            assert "--strip-components=1" in extract_log
+            assert scenario.asset in extract_log
         assert not run.forbidden_log.exists()
         assert run.installer_path.name == (
             "whitaker-installer.exe" if runner_os == "Windows" else "whitaker-installer"

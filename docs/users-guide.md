@@ -194,28 +194,33 @@ It also exports `ACTIONS_CACHE_SERVICE_V2` empty. sccache's GitHub Actions
 backend selects the v2 cache service whenever that variable is set, and the
 proxy serves v1.
 
-With `setup-rust`, which sets both variables itself, the action only has to
-come first:
+Ordering this action before `setup-rust` is **not** enough on Ubicloud, and
+`use-sccache: 'true'` must not be used there yet. The runner re-injects
+`ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, and `ACTIONS_CACHE_SERVICE_V2=on`
+into every *action* step, overriding whatever this action wrote to `GITHUB_ENV`.
+`setup-rust` starts the sccache server inside an action step, so the server
+binds GitHub's v2 service regardless and writes to Ubicloud's store fail.
+Chutoro and Wildside both landed zero objects in Ubicloud's store that way.
+
+Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, start
+the server from a `run:` step, which the runner does not re-inject into:
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 - uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
 - uses: leynos/shared-actions/.github/actions/setup-rust@v1
   with:
-    use-sccache: 'true'
-```
-
-A workflow that configures sccache itself, without `setup-rust`, sets the two
-variables after this action instead:
-
-```yaml
-- uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
+    use-sccache: 'false'
 - name: Configure sccache
   shell: bash
   run: |
     echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
     echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
 ```
+
+`setup-rust`'s own sccache support, including its `RUSTC_WRAPPER` and
+`SCCACHE_GHA_ENABLED` exports, is the right path on GitHub-hosted runners,
+where none of this re-injection happens.
 
 Order matters either way, and for one reason: sccache reads its cache
 configuration once when the server starts and keeps it for that server's life.

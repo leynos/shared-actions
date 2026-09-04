@@ -318,7 +318,9 @@ Two defences, at different levels, and both are deliberate:
 - GNU tar is passed `--force-local`, which covers a colon arriving from
   anywhere the conversion does not reach. bsdtar, the bundled tar on Windows
   and macOS runners, exits non-zero on that flag, so it is passed only after a
-  version probe identifies GNU tar.
+  version probe identifies GNU tar. The two cases are written as two `tar`
+  calls rather than an options array, because macOS runners ship Bash 3.2,
+  where expanding an empty array under `set -u` is an unbound-variable error.
 
 Test the conversion by executing the resolve fragment, not by reading it. An
 assertion on the fragment's text passes when `cygpath` runs without its result

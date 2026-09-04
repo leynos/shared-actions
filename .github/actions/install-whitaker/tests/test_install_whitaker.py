@@ -320,9 +320,9 @@ class TestLifecycleSteps:
         script = _step_script("Extract Whitaker installer")
 
         assert (
-            'tar "${tar_options[@]}" -xf "$archive" '
-            '--strip-components=1 -C "$extract_dir"'
+            'tar --force-local -xf "$archive" --strip-components=1 -C "$extract_dir"'
         ) in script
+        assert 'tar -xf "$archive" --strip-components=1 -C "$extract_dir"' in script
         commands = [
             line.strip()
             for line in script.splitlines()

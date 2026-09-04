@@ -397,11 +397,15 @@ runs:
         # part of the name rather than as rmt's host:path syntax. The staging
         # path is normalized upstream, so this is a second line of defence for
         # any other colon; bsdtar rejects the flag outright, hence the probe.
-        tar_options=()
+        #
+        # Two calls rather than an options array: macOS runners ship bash 3.2,
+        # where expanding an empty array under `set -u` is an unbound variable
+        # error.
         if tar --version 2>/dev/null | grep -q GNU; then
-          tar_options+=(--force-local)
+          tar --force-local -xf "$archive" --strip-components=1 -C "$extract_dir"
+        else
+          tar -xf "$archive" --strip-components=1 -C "$extract_dir"
         fi
-        tar "${tar_options[@]}" -xf "$archive" --strip-components=1 -C "$extract_dir"
 
     - name: Install Whitaker installer
       id: install-whitaker-installer

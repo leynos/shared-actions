@@ -327,11 +327,16 @@ setting one budget at job level across several steps. The action passes the
 input to the script under its own name rather than as that variable, so a step
 does not clobber a job-level budget with this input's default.
 
-Either source must name a finite number of seconds greater than zero. A
-watchdog that cannot expire is not a watchdog: a `nan` budget never fires, an
-infinite one falls through to the platform's own timeout, and a non-positive
-one kills a healthy build at once. Anything else is refused before cargo is
-spawned, naming the source that supplied it.
+A source that is empty, or contains only whitespace, counts as unset and falls
+through to the next one, then to the default. An action input a caller does not
+set arrives as an empty string rather than an absent variable, so this is the
+ordinary case, not an edge one.
+
+A source that does name a value must name a finite number of seconds greater
+than zero. A watchdog that cannot expire is not a watchdog: a `nan` budget
+never fires, an infinite one falls through to the platform's own timeout, and a
+non-positive one kills a healthy build at once. Anything else is refused before
+cargo is spawned, naming the source that supplied it.
 
 ## Outputs
 

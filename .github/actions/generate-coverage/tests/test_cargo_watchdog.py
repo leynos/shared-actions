@@ -27,7 +27,10 @@ def test_cargo_watchdog_defaults_to_a_cold_store_budget(
     was killed at 600 s during report generation, with sccache at 19% hits.
     """
     mod = _load_module(monkeypatch, "run_rust")
+    # Both sources, not just the variable: an inherited input would make this
+    # assert the ambient environment rather than the default.
     monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.delenv("INPUT_CARGO_WAIT_TIMEOUT", raising=False)
 
     runner = mod._cargo_runner
     assert runner.DEFAULT_CARGO_WAIT_TIMEOUT == 1800.0, (
@@ -154,6 +157,7 @@ def test_cargo_watchdog_reports_its_budget(
         "echo",
         lambda message, err=False: messages.append((message, err)),
     )
+    monkeypatch.delenv("INPUT_CARGO_WAIT_TIMEOUT", raising=False)
     monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "900")
 
     assert mod._cargo_runner._resolve_wait_timeout() == 900.0

@@ -316,17 +316,22 @@ _EXPIRY_TERMS = ("cargo-wait-timeout", "RUN_RUST_CARGO_WAIT_TIMEOUT")
 
 def _assert_watchdog_expiry(messages: list[tuple[str, bool]], *, budget: float) -> None:
     """Assert the watchdog reported one useful expiry for ``budget``."""
-    expiries = [
-        text
-        for text, is_error in messages
+    expiry_positions = [
+        index
+        for index, (text, is_error) in enumerate(messages)
         if is_error and "cargo did not exit within" in text
     ]
-    assert len(expiries) == 1, f"expected one expiry message, got {expiries}"
-    assert f"within {budget}s" in expiries[0], f"budget not named: {expiries[0]!r}"
+    assert len(expiry_positions) == 1, f"expected one expiry, got {expiry_positions}"
+    expiry_at = expiry_positions[0]
+    expiry = messages[expiry_at][0]
+    assert f"within {budget}s" in expiry, f"budget not named: {expiry!r}"
     for term in _EXPIRY_TERMS:
-        assert term in expiries[0], f"{term} not named: {expiries[0]!r}"
-    assert (f"cargo watchdog budget: {budget}s", False) in messages, (
-        f"the budget was not reported before cargo ran: {messages}"
+        assert term in expiry, f"{term} not named: {expiry!r}"
+    # Before, not merely present: a budget reported after the kill tells an
+    # operator nothing at the moment they need it.
+    report = (f"cargo watchdog budget: {budget}s", False)
+    assert report in messages[:expiry_at], (
+        f"the budget was not reported before the expiry: {messages}"
     )
 
 

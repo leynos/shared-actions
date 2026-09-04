@@ -70,11 +70,20 @@ def test_nested_members_keep_their_remaining_structure(tmp_path: Path) -> None:
     assert (destination / "lib" / "support.dll").read_bytes() == b"library"
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("win"),
+    reason="Windows decides executability by extension, not by a mode bit",
+)
 def test_the_extracted_file_is_executable(tmp_path: Path) -> None:
     """The installer must be runnable, whatever permissions the zip recorded.
 
     Zip carries Unix permissions only when the writer chose to record them, so
     the mode is set rather than read back out of the archive.
+
+    Skipped on Windows, where `chmod` cannot grant an execute bit and none is
+    needed: the file system has no such bit and the shell decides by
+    extension. The extractor still calls `chmod`, which is a harmless no-op
+    there, because the same code runs on both.
     """
     archive = tmp_path / "release.zip"
     _write_archive(archive, {"top/installer": b"payload"})

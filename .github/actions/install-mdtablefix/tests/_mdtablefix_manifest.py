@@ -36,7 +36,7 @@ BINSTALL_ACTION_REF = (
 #: The cargo-binstall release the pinned SHA tags.
 BINSTALL_ACTION_VERSION = "1.22.0"
 
-#: The CLI override that neutralises mdtablefix 0.5.0's ``bin-dir = "."``.
+#: The CLI override that neutralizes mdtablefix 0.5.0's ``bin-dir = "."``.
 BIN_DIR_OVERRIDE = "{ bin }{ binary-ext }"
 
 #: Every runner pair for which mdtablefix publishes a prebuilt archive.

@@ -19,7 +19,7 @@ this file.
 - Harden the install: `--no-confirm --locked --disable-strategies compile
   --disable-telemetry`, so a missing prebuilt asset fails closed instead of
   compiling in CI.
-- Pass `--bin-dir '{ bin }{ binary-ext }'` to neutralise `mdtablefix` 0.5.0's
+- Pass `--bin-dir '{ bin }{ binary-ext }'` to neutralize `mdtablefix` 0.5.0's
   `bin-dir = "."` metadata, which cargo-binstall 1.22 rejects with "bin-dir
   configuration provided generates empty source path"
   (leynos/mdtablefix#458). Remove the override, and the test that pins it, once

@@ -161,60 +161,129 @@ def _installed_version(executable: Path) -> str | None:
     return match["version"] if match is not None else None
 
 
-def run_scenario(scenario: Scenario) -> ScenarioResult:
-    """Execute the action's fragments for ``scenario`` and collect its record."""
+@dc.dataclass(frozen=True)
+class _Sandbox:
+    """Hold the on-disk state one scenario runs against."""
+
+    root: Path
+    home: Path
+    stub_dir: Path
+    state_dir: Path
+    workspace: Path
+    cargo_log: Path
+    summary_file: Path
+    path_file: Path
+    bin_dir: Path
+
+    @property
+    def binstall_marker(self) -> Path:
+        """Return the file the stubbed cargo consults for its availability."""
+        return self.state_dir / "binstall-present"
+
+    @property
+    def executable(self) -> Path:
+        """Return where mdtablefix is expected to land."""
+        return self.bin_dir / "mdtablefix"
+
+
+def _build_sandbox(scenario: Scenario) -> _Sandbox:
+    """Lay out the directories, stubs, and fixtures ``scenario`` describes."""
     root = scenario.tmp_path
-    home = root / "home"
-    stub_dir = root / "stub-bin"
-    state_dir = root / "stub-state"
-    workspace = root / "workspace"
-    for directory in (home, stub_dir, state_dir, workspace):
-        directory.mkdir(parents=True, exist_ok=True)
-
-    cargo_log = root / "cargo.log"
-    cargo_log.touch()
-    summary_file = root / "step-summary"
-    summary_file.touch()
-    path_file = root / "github-path"
-    path_file.touch()
-    (state_dir / "binstall-present").write_text(
-        "true" if scenario.binstall_present else "false",
-        encoding="utf-8",
-    )
-    _write_executable(stub_dir / "cargo", _CARGO_STUB)
-
-    resolved_bin_dir = (
-        home / scenario.bin_dir[2:]
+    bin_dir = (
+        root / "home" / scenario.bin_dir[2:]
         if scenario.bin_dir.startswith("~/")
         else Path(scenario.bin_dir)
     )
+    sandbox = _Sandbox(
+        root=root,
+        home=root / "home",
+        stub_dir=root / "stub-bin",
+        state_dir=root / "stub-state",
+        workspace=root / "workspace",
+        cargo_log=root / "cargo.log",
+        summary_file=root / "step-summary",
+        path_file=root / "github-path",
+        bin_dir=bin_dir,
+    )
+    for directory in (
+        sandbox.home,
+        sandbox.stub_dir,
+        sandbox.state_dir,
+        sandbox.workspace,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+    for artefact in (sandbox.cargo_log, sandbox.summary_file, sandbox.path_file):
+        artefact.touch()
+    sandbox.binstall_marker.write_text(
+        "true" if scenario.binstall_present else "false",
+        encoding="utf-8",
+    )
+    _write_executable(sandbox.stub_dir / "cargo", _CARGO_STUB)
     if scenario.cached_version is not None:
         _write_executable(
-            resolved_bin_dir / "mdtablefix",
+            sandbox.executable,
             _MDTABLEFIX_STUB.format(version=scenario.cached_version),
         )
+    return sandbox
 
-    base_env = {
-        **ambient_env(),
-        "HOME": bash_path(home),
-        # A deliberately narrow PATH: the stubbed cargo plus the system
-        # utilities the fragments call. Any mdtablefix installed on the test
-        # host must not be visible to the probe.
-        "PATH": f"{bash_path(stub_dir)}{os.pathsep}{os.defpath}",
-        "RUNNER_OS": scenario.runner_os,
-        "RUNNER_ARCH": scenario.runner_arch,
-        "RUNNER_TEMP": bash_path(root),
-        "GITHUB_ENV": bash_file_path(root / "github-env"),
-        "GITHUB_PATH": bash_file_path(path_file),
-        "GITHUB_STEP_SUMMARY": bash_file_path(summary_file),
-        "STUB_BINSTALL_FAILS": "true" if scenario.binstall_fails else "false",
-        "STUB_BINSTALL_VERSION": scenario.binstall_version,
-        "STUB_CARGO_LOG": bash_file_path(cargo_log),
-        "STUB_INSTALL_VERSION": scenario.installs_version or scenario.version,
-        "STUB_REQUIRED_BIN_DIR": BIN_DIR_OVERRIDE,
-        "STUB_STATE_DIR": bash_path(state_dir),
-    }
 
+def _build_environment(
+    scenario: Scenario,
+    sandbox: _Sandbox,
+) -> FragmentEnvironment:
+    """Return the environment every fragment observes."""
+    return FragmentEnvironment(
+        base_env={
+            **ambient_env(),
+            "HOME": bash_path(sandbox.home),
+            # A deliberately narrow PATH: the stubbed cargo plus the system
+            # utilities the fragments call. Any mdtablefix installed on the
+            # test host must not be visible to the probe.
+            "PATH": f"{bash_path(sandbox.stub_dir)}{os.pathsep}{os.defpath}",
+            "RUNNER_OS": scenario.runner_os,
+            "RUNNER_ARCH": scenario.runner_arch,
+            "RUNNER_TEMP": bash_path(sandbox.root),
+            "GITHUB_ENV": bash_file_path(sandbox.root / "github-env"),
+            "GITHUB_PATH": bash_file_path(sandbox.path_file),
+            "GITHUB_STEP_SUMMARY": bash_file_path(sandbox.summary_file),
+            "STUB_BINSTALL_FAILS": "true" if scenario.binstall_fails else "false",
+            "STUB_BINSTALL_VERSION": scenario.binstall_version,
+            "STUB_CARGO_LOG": bash_file_path(sandbox.cargo_log),
+            "STUB_INSTALL_VERSION": scenario.installs_version or scenario.version,
+            "STUB_REQUIRED_BIN_DIR": BIN_DIR_OVERRIDE,
+            "STUB_STATE_DIR": bash_path(sandbox.state_dir),
+        },
+        cwd=sandbox.workspace,
+        output_dir=sandbox.root / "outputs",
+    )
+
+
+def _execute_steps(
+    context: ActionContext,
+    environment: FragmentEnvironment,
+    sandbox: _Sandbox,
+) -> tuple[StepResult, ...]:
+    """Run the selected fragments in manifest order, stopping at a failure."""
+    results: list[StepResult] = []
+    for index, step in enumerate(manifest_steps()):
+        if not context.evaluate_condition(step):
+            continue
+        name = typ.cast("str", step["name"])
+        if name == BINSTALL_STEP_NAME:
+            # Emulate the upstream composite action: after it runs, the
+            # runner has a usable `cargo binstall`.
+            sandbox.binstall_marker.write_text("true", encoding="utf-8")
+            continue
+        process = run_step(step, context, environment, f"{index:02d}-output")
+        results.append(StepResult(name=name, process=process))
+        if process.returncode != 0:
+            break
+    return tuple(results)
+
+
+def run_scenario(scenario: Scenario) -> ScenarioResult:
+    """Execute the action's fragments for ``scenario`` and collect its record."""
+    sandbox = _build_sandbox(scenario)
     context = ActionContext(
         inputs={
             "version": scenario.version,
@@ -224,33 +293,15 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
         runner_os=scenario.runner_os,
         runner_arch=scenario.runner_arch,
         action_path=bash_path(Path(__file__).resolve().parents[1]),
-        runner_temp=bash_path(root),
+        runner_temp=bash_path(sandbox.root),
     )
-    environment = FragmentEnvironment(
-        base_env=base_env,
-        cwd=workspace,
-        output_dir=root / "outputs",
-    )
-
-    results: list[StepResult] = []
-    for index, step in enumerate(manifest_steps()):
-        if not context.evaluate_condition(step):
-            continue
-        name = typ.cast("str", step["name"])
-        if name == BINSTALL_STEP_NAME:
-            # Emulate the upstream composite action: after it runs, the
-            # runner has a usable `cargo binstall`.
-            (state_dir / "binstall-present").write_text("true", encoding="utf-8")
-            continue
-        process = run_step(step, context, environment, f"{index:02d}-output")
-        results.append(StepResult(name=name, process=process))
-        if process.returncode != 0:
-            break
+    environment = _build_environment(scenario, sandbox)
+    steps = _execute_steps(context, environment, sandbox)
 
     return ScenarioResult(
-        lifecycle=LifecycleResult(steps=tuple(results)),
-        summary=summary_file.read_text(encoding="utf-8"),
-        github_path=path_file.read_text(encoding="utf-8"),
-        cargo_log=cargo_log.read_text(encoding="utf-8"),
-        installed_version=_installed_version(resolved_bin_dir / "mdtablefix"),
+        lifecycle=LifecycleResult(steps=steps),
+        summary=sandbox.summary_file.read_text(encoding="utf-8"),
+        github_path=sandbox.path_file.read_text(encoding="utf-8"),
+        cargo_log=sandbox.cargo_log.read_text(encoding="utf-8"),
+        installed_version=_installed_version(sandbox.executable),
     )

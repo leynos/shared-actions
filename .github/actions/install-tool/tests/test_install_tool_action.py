@@ -38,7 +38,24 @@ class TestInputs:
 
     def test_the_outputs_are_exactly_these(self) -> None:
         """Callers depend on these names; the set is part of the interface."""
-        assert set(load_action()["outputs"]) == {"path", "version", "cache-hit"}
+        assert set(load_action()["outputs"]) == {
+            "path",
+            "posix-path",
+            "version",
+            "cache-hit",
+        }
+
+    def test_the_path_outputs_carry_both_forms(self) -> None:
+        """A Windows `bash` step and a `pwsh` step want different strings.
+
+        `/c/tools/bin` is what a Bash step needs and what the runner and other
+        shells cannot resolve, so both forms are published rather than one
+        being left for a caller to convert.
+        """
+        outputs = load_action()["outputs"]
+
+        assert outputs["path"]["value"] == "${{ steps.probe.outputs.path }}"
+        assert outputs["posix-path"]["value"] == "${{ steps.probe.outputs.posix-path }}"
 
 
 class TestOrdering:

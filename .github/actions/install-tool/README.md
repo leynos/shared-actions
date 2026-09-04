@@ -5,7 +5,18 @@ Install a pinned, digest-verified tool from this repository's tool manifest.
 ## Usage
 
 ```yaml
-- uses: leynos/shared-actions/.github/actions/install-tool@v1
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: ./.github/actions/install-tool
+  with:
+    tool: cargo-nextest
+    version: 0.9.143
+```
+
+From another repository, reference it by commit SHA rather than by a moving
+tag, so the action code cannot change without the reference changing:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/install-tool@<commit-sha>
   with:
     tool: cargo-nextest
     version: 0.9.143
@@ -23,7 +34,8 @@ Install a pinned, digest-verified tool from this repository's tool manifest.
 
 | Name | Description |
 | --- | --- |
-| path | Absolute path of the installed binary |
+| path | Absolute path of the installed binary, in the runner's native form |
+| posix-path | The same path in POSIX form, for `bash` steps on Windows |
 | version | Version installed, as named in the manifest |
 | cache-hit | `true` when the requested version was already installed |
 
@@ -120,3 +132,18 @@ archive, compute its SHA-256, compare against the upstream sidecar where one
 exists, and record the result in `sidecar`. Never copy a digest out of a
 sidecar without downloading the archive, because that records only that the
 sidecar agrees with itself.
+
+## bin-dir
+
+`bin-dir` must be absolute. A relative directory would make the `path` output
+relative despite its name, and would resolve differently in a later step with
+another working directory, so it is refused rather than resolved against a base
+this action would have to choose.
+
+On Windows the directory is added to `PATH` and published as `path` in native
+form, because the runner and `pwsh` and `cmd` callers do not understand
+`/c/...`. `posix-path` carries the POSIX form that a `bash` step wants.
+
+## Release history
+
+See [CHANGELOG.md](CHANGELOG.md).

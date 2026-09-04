@@ -271,6 +271,45 @@ class TestProbe:
         assert result.metrics["install-tool.cache"] == "hit-unverified"
         assert result.outputs["needs-install"] == "false"
 
+    def test_refuses_a_relative_bin_dir(self, tmp_path: Path) -> None:
+        """`path` promises to be absolute, so a relative input cannot stand.
+
+        Resolving it against a base would mean choosing one, and which base is
+        the caller's decision; a later step with another working directory
+        would otherwise find a different directory under the same name.
+        """
+        context = _context(tmp_path, inputs={"bin-dir": "tools/bin"})
+        context.steps["resolve"] = _resolved(
+            tmp_path / "unused.tar.gz", "widget", "tar.gz"
+        )
+
+        result = run_step(
+            step_by_name("Probe for an installed tool"), context, tmp_path / "s"
+        )
+
+        assert result.returncode != 0
+        assert result.metrics["install-tool.bin-dir"] == "relative"
+        assert "must be an absolute path" in result.stderr
+
+    def test_publishes_both_path_forms(self, tmp_path: Path) -> None:
+        """A Bash step and a `pwsh` step want different strings on Windows.
+
+        On a POSIX host the two coincide, which is what this asserts; the
+        Windows conversion is exercised by the runner-backed workflow, since
+        `cygpath` exists nowhere else.
+        """
+        context = _context(tmp_path)
+        context.steps["resolve"] = _resolved(
+            tmp_path / "unused.tar.gz", "widget", "tar.gz"
+        )
+
+        result = run_step(
+            step_by_name("Probe for an installed tool"), context, tmp_path / "s"
+        )
+
+        assert result.outputs["path"] == str(tmp_path / "bin" / "widget")
+        assert result.outputs["posix-path"] == str(tmp_path / "bin" / "widget")
+
     def test_adds_the_directory_to_the_path(self, tmp_path: Path) -> None:
         """A tool nobody can find is not installed for practical purposes."""
         context = _context(tmp_path)
@@ -377,6 +416,9 @@ class TestVerification:
         )
         context.steps["resolve"] = resolved
         context.steps["probe"] = {
+            # Internal steps take the POSIX form; `path` is the native one the
+            # runner and non-Bash callers read.
+            "posix-path": str(bin_dir / "widget"),
             "path": str(bin_dir / "widget"),
             "cache-hit": overrides.pop("cache-hit", "false"),
         }

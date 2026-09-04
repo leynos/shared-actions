@@ -18,8 +18,15 @@ inputs:
     default: ''
 outputs:
   path:
-    description: Absolute path of the installed binary
+    description: >
+      Absolute path of the installed binary, in the runner's native form, so
+      `pwsh` and `cmd` callers can use it as well as `bash` ones.
     value: ${{ steps.probe.outputs.path }}
+  posix-path:
+    description: >
+      The same path in POSIX form. On Windows `bash` steps want `/c/...`,
+      which the runner and other shells do not understand.
+    value: ${{ steps.probe.outputs.posix-path }}
   version:
     description: Version installed, as named in the manifest
     value: ${{ inputs.version }}
@@ -125,18 +132,40 @@ runs:
         if [[ -z "$bin_dir" ]]; then
           bin_dir="${HOME}/.cargo/bin"
         fi
-        # Windows runners hand bash a native path; every later step joins it
-        # with `/`, so it is converted once, here, at the point of production.
+        # A relative directory would make the advertised absolute path a lie,
+        # and would resolve differently in a later step with another working
+        # directory. Refused rather than guessed at, since which base to
+        # resolve against is the caller's decision and not this action's.
+        case "$bin_dir" in
+          /*|[A-Za-z]:[\\/]*) ;;
+          *)
+            emit_metric "install-tool.bin-dir=relative"
+            echo "::error title=install-tool::bin-dir must be an absolute path, got ${bin_dir}" >&2
+            exit 1
+            ;;
+        esac
+        # Windows runners hand bash a native path; every later step in this
+        # action joins it with `/`, so a POSIX form is produced once, here.
+        # The native form is kept as well, because GITHUB_PATH and the public
+        # `path` output are read by the runner and by pwsh and cmd callers,
+        # none of which understand `/c/...`.
+        native_dir="$bin_dir"
         if command -v cygpath >/dev/null 2>&1; then
           bin_dir="$(cygpath -u "$bin_dir")"
+          native_dir="$(cygpath -w "$bin_dir")"
         fi
         mkdir -p "$bin_dir"
         target="${bin_dir}/${TOOL_BINARY}"
+        native_target="$target"
+        if command -v cygpath >/dev/null 2>&1; then
+          native_target="$(cygpath -w "$target")"
+        fi
         {
           echo "bin-dir=${bin_dir}"
-          echo "path=${target}"
+          echo "posix-path=${target}"
+          echo "path=${native_target}"
         } >> "$GITHUB_OUTPUT"
-        echo "$bin_dir" >> "$GITHUB_PATH"
+        echo "$native_dir" >> "$GITHUB_PATH"
         cache=miss
         if [[ -x "$target" ]]; then
           if [[ "$VERSION_CHECK" != true ]]; then
@@ -221,7 +250,7 @@ runs:
         STAGING: ${{ steps.download.outputs.staging }}
         EXTENSION: ${{ steps.resolve.outputs.extension }}
         MEMBER: ${{ steps.resolve.outputs.member }}
-        TARGET_PATH: ${{ steps.probe.outputs.path }}
+        TARGET_PATH: ${{ steps.probe.outputs.posix-path }}
         UNZIP_SCRIPT: ${{ github.action_path }}/scripts/extract_zip.py
       run: |
         set -euo pipefail
@@ -267,9 +296,24 @@ runs:
         # By extension, never by probing what `tar` happens to be. An
         # unsupported one exits explicitly and emits its own metric, because
         # an explicit exit fires no ERR trap and this action declares none.
+        # Each arm is guarded rather than left to `set -e`, which would abort
+        # the step before any metric was emitted and leave a scraper seeing a
+        # verified digest followed by silence.
         case "$EXTENSION" in
-          tar.gz|tgz) extract_tarball "$ARCHIVE" "$extract_dir" ;;
-          zip) extract_zip "$ARCHIVE" "$extract_dir" ;;
+          tar.gz|tgz)
+            if ! extract_tarball "$ARCHIVE" "$extract_dir"; then
+              emit_metric "install-tool.install=failed"
+              echo "::error title=install-tool::could not extract ${ARCHIVE}" >&2
+              exit 1
+            fi
+            ;;
+          zip)
+            if ! extract_zip "$ARCHIVE" "$extract_dir"; then
+              emit_metric "install-tool.install=failed"
+              echo "::error title=install-tool::could not extract ${ARCHIVE}" >&2
+              exit 1
+            fi
+            ;;
           *)
             emit_metric "install-tool.install=unsupported-extension"
             echo "::error title=install-tool::cannot extract .${EXTENSION}" >&2
@@ -296,7 +340,7 @@ runs:
     - name: Verify the installed tool
       shell: bash
       env:
-        TARGET_PATH: ${{ steps.probe.outputs.path }}
+        TARGET_PATH: ${{ steps.probe.outputs.posix-path }}
         VERSION_ARGS: ${{ steps.resolve.outputs.version-args }}
         VERSION_CHECK: ${{ steps.resolve.outputs.version-check }}
         EXPECTED_VERSION: ${{ steps.resolve.outputs.expected-version }}

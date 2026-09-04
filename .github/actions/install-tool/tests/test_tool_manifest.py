@@ -214,25 +214,26 @@ class TestTargets:
         assert linux_only == {"cargo-dylint", "dylint-link"}
 
 
-#: Drawn from the manifest itself: properties below must hold for every entry,
-#: and Hypothesis is what stops them holding only for the one an author had in
-#: mind when writing the assertion.
-TARGET_PAIRS = st.sampled_from(manifest_targets())
+#: Every (tool, target) pair, exercised exhaustively. Sampling would draw 40
+#: times from 24 pairs and repeat some while missing others, so a malformed
+#: member or URL could pass untested. Hypothesis earns its place below, on
+#: input nobody wrote down.
+TARGET_PAIRS = manifest_targets()
+TARGET_IDS = [f"{entry['name']}-{target['triple']}" for entry, target in TARGET_PAIRS]
 
 _SETTINGS = settings(max_examples=40, derandomize=True, deadline=None)
 
 
-@given(pair=TARGET_PAIRS)
-@_SETTINGS
+@pytest.mark.parametrize(("entry", "target"), TARGET_PAIRS, ids=TARGET_IDS)
 def test_a_member_path_never_escapes_its_archive(
-    pair: tuple[dict[str, typ.Any], dict[str, typ.Any]],
+    entry: dict[str, typ.Any], target: dict[str, typ.Any]
 ) -> None:
     """The member is joined onto an extraction directory and then read.
 
     A path that starts at the root or climbs out of it would install
     something from elsewhere on the runner, so no entry may contain one.
     """
-    _entry, target = pair
+    del entry
     member = target["member"]
 
     assert not member.startswith("/")
@@ -241,10 +242,9 @@ def test_a_member_path_never_escapes_its_archive(
     assert ":" not in member
 
 
-@given(pair=TARGET_PAIRS)
-@_SETTINGS
+@pytest.mark.parametrize(("entry", "target"), TARGET_PAIRS, ids=TARGET_IDS)
 def test_the_member_ends_with_the_binary_name(
-    pair: tuple[dict[str, typ.Any], dict[str, typ.Any]],
+    entry: dict[str, typ.Any], target: dict[str, typ.Any]
 ) -> None:
     """The installed file is the tool, whatever the archive wraps it in.
 
@@ -252,7 +252,6 @@ def test_the_member_ends_with_the_binary_name(
     directory; either is fine, but the last component has to be the binary
     the entry claims, or the probe will look for a name nothing installed.
     """
-    entry, target = pair
     expected = entry["binary"]
     if "windows" in target["triple"]:
         expected += ".exe"
@@ -260,10 +259,9 @@ def test_the_member_ends_with_the_binary_name(
     assert target["member"].rsplit("/", 1)[-1] == expected
 
 
-@given(pair=TARGET_PAIRS)
-@_SETTINGS
+@pytest.mark.parametrize(("entry", "target"), TARGET_PAIRS, ids=TARGET_IDS)
 def test_the_url_names_the_version_it_is_pinned_at(
-    pair: tuple[dict[str, typ.Any], dict[str, typ.Any]],
+    entry: dict[str, typ.Any], target: dict[str, typ.Any]
 ) -> None:
     """A URL from a different release is the mistake nobody sees.
 
@@ -271,6 +269,33 @@ def test_the_url_names_the_version_it_is_pinned_at(
     URL served, so the only thing standing between a mistyped tag and a
     silently wrong tool is this.
     """
-    entry, target = pair
-
     assert entry["version"] in target["url"], f"{entry['name']}: {target['url']}"
+
+
+#: Members a hostile or careless archive could name. Hypothesis is used here
+#: rather than on the manifest, because these are the paths nobody would think
+#: to write down, and the guard has to hold for all of them rather than for the
+#: six the manifest happens to contain.
+ESCAPING_MEMBERS = st.one_of(
+    st.just("/etc/passwd"),
+    st.text(min_size=1, max_size=8).map(lambda name: f"../{name}"),
+    st.text(min_size=1, max_size=8).map(lambda name: f"a/../../{name}"),
+    st.text(min_size=1, max_size=8).map(lambda name: f"/{name}"),
+    st.text(min_size=1, max_size=8).map(lambda name: f"C:\\{name}"),
+)
+
+
+@given(member=ESCAPING_MEMBERS)
+@_SETTINGS
+def test_the_escape_check_rejects_paths_no_entry_contains(member: str) -> None:
+    """The rule the manifest entries are held to, stated as a rule.
+
+    Asserting only that today's entries are safe says nothing about the one
+    added next, so the predicate itself is exercised against paths designed
+    to defeat it.
+    """
+    escapes = (
+        member.startswith(("/", "\\")) or ".." in member.split("/") or ":" in member
+    )
+
+    assert escapes, member

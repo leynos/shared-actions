@@ -56,6 +56,12 @@ UNSUPPORTED_RUNNER = "unsupported-runner"
 UNSUPPORTED_TARGET = "unsupported-target"
 UNSUPPORTED_EXTENSION = "unsupported-extension"
 MANIFEST_UNREADABLE = "manifest-unreadable"
+UNSUPPORTED_SCHEMA = "unsupported-schema"
+
+#: The manifest layout this resolver understands. A later one may move or
+#: rename fields, and reading it with these rules would resolve something
+#: plausible and wrong rather than failing.
+SCHEMA = 1
 
 
 def emit(**fields: object) -> None:
@@ -217,6 +223,18 @@ def main(argv: list[str] | None = None) -> int:
             error_message=f"could not read {arguments.manifest}: {error}",
         )
         return 2
+
+    schema = manifest.get("schema")
+    if schema != SCHEMA:
+        emit(
+            status="error",
+            error_kind=UNSUPPORTED_SCHEMA,
+            error_message=(
+                f"{arguments.manifest} declares schema {schema!r}; this action "
+                f"reads schema {SCHEMA}"
+            ),
+        )
+        return 0
 
     runner = Runner(arguments.runner_os, arguments.runner_arch)
     emit(**resolve(manifest, arguments.tool, arguments.version, runner))

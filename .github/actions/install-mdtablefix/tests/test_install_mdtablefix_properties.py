@@ -87,9 +87,23 @@ def _compose_bin_dir(shape: tuple[str, list[str]], sandbox: str) -> str:
     return tail
 
 
+#: The earliest mdtablefix this action supports. Earlier releases publish
+#: Linux archives only and declare binstall metadata cargo-binstall rejects,
+#: so the platform list and the absent `--bin-dir` override are both true only
+#: from here.
+MINIMUM_VERSION = (0, 5, 1)
+
+
 def _accepts_version(candidate: str) -> bool:
-    """Return whether the documented grammar admits ``candidate``."""
-    return _VERSION.fullmatch(candidate) is not None
+    """Return whether the documented grammar and floor admit ``candidate``.
+
+    Two rules, not one. The grammar fixes the shape, three numeric components
+    without leading zeros, and the floor fixes the range. A candidate has to
+    satisfy both, which is what the validator does.
+    """
+    if _VERSION.fullmatch(candidate) is None:
+        return False
+    return tuple(int(part) for part in candidate.split(".")) >= MINIMUM_VERSION
 
 
 def _expand_bin_dir(candidate: str, home: str) -> str | None:
@@ -182,7 +196,7 @@ def test_bin_dir_rules_are_exactly_the_documented_ones(
     status, _ = _run_validation(
         home,
         root / "workspace",
-        {"version": "0.5.0", "binstall-version": "1.22.0", "bin-dir": candidate},
+        {"version": "0.5.1", "binstall-version": "1.22.0", "bin-dir": candidate},
     )
 
     assert (status == 0) is admitted, (

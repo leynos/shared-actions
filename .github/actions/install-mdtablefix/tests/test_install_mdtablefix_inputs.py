@@ -27,7 +27,7 @@ if typ.TYPE_CHECKING:
 
 require_posix_host()
 
-_VALID = {"version": "0.5.0", "binstall-version": "1.22.0", "bin-dir": "~/.local/bin"}
+_VALID = {"version": "0.5.1", "binstall-version": "1.22.0", "bin-dir": "~/.local/bin"}
 
 
 def _validate(
@@ -77,7 +77,7 @@ class TestAcceptedInputs:
             f"validation rejected a well-formed call: {process.stderr}"
         )
         outputs = _outputs(context)
-        assert outputs["version"] == "0.5.0", f"unexpected outputs: {outputs}"
+        assert outputs["version"] == "0.5.1", f"unexpected outputs: {outputs}"
         assert outputs["binstall-version"] == "1.22.0", f"unexpected outputs: {outputs}"
         assert outputs["bin-dir"].endswith("/.local/bin"), (
             f"the default bin-dir was not expanded against HOME: {outputs}"
@@ -127,7 +127,7 @@ class TestAcceptedInputs:
         pytest.param({"version": ""}, "version must be three", id="empty-version"),
         pytest.param({"version": "0.5"}, "version must be three", id="short-version"),
         pytest.param(
-            {"version": "0.5.0-rc1"},
+            {"version": "0.5.1-rc1"},
             "version must be three",
             id="prerelease-version",
         ),

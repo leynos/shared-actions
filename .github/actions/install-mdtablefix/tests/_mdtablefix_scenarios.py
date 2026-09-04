@@ -5,9 +5,10 @@ A scenario describes one runner pair, one cache state, and one stubbed
 declaration order, honouring each step's ``if:`` condition, so the assertions
 below are about the shipped manifest rather than a paraphrase of it.
 
-The stub refuses to install unless it is given the ``--bin-dir`` override the
-action passes, mirroring cargo-binstall 1.22's rejection of mdtablefix 0.5.0's
-``bin-dir = "."`` metadata. Dropping that override therefore fails the suite.
+The stub refuses any ``--bin-dir`` override, mirroring mdtablefix 0.5.1's
+correct metadata: the crate names its own executable, so a caller that
+overrode it would be second-guessing a manifest that is right. The suite
+therefore fails if the override the action once needed for 0.5.0 comes back.
 The upstream ``cargo-bins/cargo-binstall`` step cannot run outside a runner, so
 the harness emulates it by making the stub's ``binstall`` subcommand available;
 whether it runs at all is decided by the manifest's own condition.
@@ -22,7 +23,6 @@ import subprocess
 from pathlib import Path
 
 from _mdtablefix_manifest import (
-    BIN_DIR_OVERRIDE,
     BINSTALL_STEP_NAME,
     manifest_steps,
 )
@@ -69,8 +69,11 @@ if [ "$STUB_BINSTALL_FAILS" = true ]; then
   echo "ERROR Fatal error: Fallback to cargo-install is disabled" >&2
   exit 94
 fi
-if [ "$bin_dir_override" != "$STUB_REQUIRED_BIN_DIR" ]; then
-  echo "bin-dir configuration provided generates empty source path" >&2
+if [ -n "$bin_dir_override" ]; then
+  # 0.5.1's metadata is correct, so an override is not merely unnecessary; it
+  # would silence a manifest the crate is responsible for. Refuse it, so the
+  # override cannot creep back in unnoticed once the reason for it has gone.
+  echo "unexpected --bin-dir override: ${bin_dir_override}" >&2
   exit 94
 fi
 if [ "$STUB_INSTALL_CREATES" != true ]; then
@@ -79,8 +82,12 @@ if [ "$STUB_INSTALL_CREATES" != true ]; then
   exit 0
 fi
 mkdir -p -- "$install_path"
-cp -- "$STUB_STATE_DIR/installed-body" "${install_path}/mdtablefix"
-chmod +x "${install_path}/mdtablefix"
+# The action looks for `mdtablefix.exe` on Windows, so the stub writes what a
+# real cargo-binstall would put there rather than a name that only happens to
+# work on POSIX.
+installed="${install_path}/mdtablefix${STUB_EXECUTABLE_SUFFIX}"
+cp -- "$STUB_STATE_DIR/installed-body" "$installed"
+chmod +x "$installed"
 """
 
 
@@ -108,7 +115,7 @@ class Scenario:
     tmp_path: Path
     runner_os: str = "Linux"
     runner_arch: str = "X64"
-    version: str = "0.5.0"
+    version: str = "0.5.1"
     binstall_version: str = "1.22.0"
     bin_dir: str = "~/.local/bin"
     #: Version a pre-existing executable in ``bin-dir`` reports, if any.
@@ -208,6 +215,9 @@ class _Sandbox:
     summary_file: Path
     path_file: Path
     bin_dir: Path
+    #: `.exe` on a Windows runner, matching what the action looks for and what
+    #: a real cargo-binstall would write.
+    executable_suffix: str = ""
 
     @property
     def binstall_marker(self) -> Path:
@@ -217,7 +227,7 @@ class _Sandbox:
     @property
     def executable(self) -> Path:
         """Return where mdtablefix is expected to land."""
-        return self.bin_dir / "mdtablefix"
+        return self.bin_dir / f"mdtablefix{self.executable_suffix}"
 
 
 def _build_sandbox(scenario: Scenario) -> _Sandbox:
@@ -240,6 +250,7 @@ def _build_sandbox(scenario: Scenario) -> _Sandbox:
         summary_file=root / "step-summary",
         path_file=root / "github-path",
         bin_dir=bin_dir,
+        executable_suffix=".exe" if scenario.runner_os == "Windows" else "",
     )
     for directory in (
         sandbox.home,
@@ -306,7 +317,9 @@ def _build_environment(
             "STUB_INSTALL_CREATES": (
                 "true" if scenario.install_creates_executable else "false"
             ),
-            "STUB_REQUIRED_BIN_DIR": BIN_DIR_OVERRIDE,
+            "STUB_EXECUTABLE_SUFFIX": (
+                ".exe" if scenario.runner_os == "Windows" else ""
+            ),
             "STUB_STATE_DIR": bash_path(sandbox.state_dir),
         },
         cwd=sandbox.workspace,

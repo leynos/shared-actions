@@ -39,9 +39,14 @@ class TestInputs:
         assert list(inputs) == ["version", "binstall-version", "bin-dir"], (
             f"the input table changed: {list(inputs)}"
         )
-        assert inputs["version"]["required"] is True, "version must be required"
-        assert "default" not in inputs["version"], (
-            "a required version must have no default to fall back to"
+        # Optional with a default from 0.5.1: the action supports exactly one
+        # metadata shape and one platform list, so there is a single sensible
+        # value and requiring every caller to restate it invites drift.
+        assert inputs["version"]["required"] is False, (
+            "version should default rather than force every caller to restate it"
+        )
+        assert inputs["version"]["default"] == "0.5.1", (
+            "the default must be the earliest version this action supports"
         )
         assert inputs["binstall-version"]["required"] is False, (
             "binstall-version must stay optional"
@@ -206,20 +211,32 @@ class TestInstallStep:
         for flag in ("--no-confirm", "--locked", "--disable-telemetry"):
             assert flag in script, f"the install step no longer passes {flag}"
 
-    def test_overrides_the_broken_bin_dir_metadata(self) -> None:
-        """Verify the mdtablefix 0.5.0 workaround is present and explained.
+    def test_does_not_override_the_crates_bin_dir_metadata(self) -> None:
+        """Verify the retired 0.5.0 workaround has not come back.
 
-        mdtablefix 0.5.0 declares ``bin-dir = "."``, which cargo-binstall 1.22
-        rejects. Remove this assertion together with the override once a pinned
-        release carries fixed metadata (leynos/mdtablefix#458).
+        0.5.0 declared ``bin-dir = "."``, which cargo-binstall rejects, so this
+        action passed an override naming the executable itself
+        (leynos/mdtablefix#458). 0.5.1 carries correct metadata and the input
+        floor refuses anything earlier, so an override would now second-guess a
+        manifest the crate is responsible for.
         """
         script = step_script("Install mdtablefix")
+        # Comments stripped: the step explains at length why the override is
+        # gone, and that explanation is worth keeping. What must not return is
+        # the flag itself.
+        commands = "\n".join(
+            line for line in script.splitlines() if not line.strip().startswith("#")
+        )
 
-        assert f"--bin-dir '{BIN_DIR_OVERRIDE}'" in script, (
-            "the bin-dir override is required while mdtablefix 0.5.0 is pinned"
+        assert "--bin-dir" not in commands, (
+            "the bin-dir override is redundant from 0.5.1 and must not return"
+        )
+        assert BIN_DIR_OVERRIDE not in commands, (
+            "the retired override's value must not reappear under another flag"
         )
         assert "leynos/mdtablefix#458" in script, (
-            "the override must cite the upstream issue that justifies it"
+            "the step should still cite the issue that explains the override's "
+            "absence, so a future reader does not reinstate it"
         )
 
     def test_installs_into_the_validated_bin_dir(self) -> None:

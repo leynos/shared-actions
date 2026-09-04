@@ -57,6 +57,49 @@ jobs:
             exit 1
           fi
           echo "sccache recorded ${requests} compile request(s)"
+          # The requests above prove the wrapper is in Cargo's path. This
+          # proves they went somewhere that outlives the job: without the
+          # GitHub Actions backend sccache writes to local disk, which nothing
+          # persists, so the cache would be empty on every run.
+          location="$("$RUSTC_WRAPPER" --show-stats | awk -F'  +' '/Cache location/ {print $2; exit}')"
+          echo "sccache cache location: ${location}"
+          if [[ "$location" != *ghac* ]]; then
+            echo "::error::sccache is not using the GitHub Actions backend: ${location}" >&2
+            exit 1
+          fi
+
+  respects_a_caller_backend_choice:
+    # A caller who turned the backend off must stay off, so the action cannot
+    # quietly re-enable a cache they declined.
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify the caller's choice survived
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${SCCACHE_GHA_ENABLED:-}" != false ]]; then
+            echo "::error::the action overrode SCCACHE_GHA_ENABLED=false" >&2
+            exit 1
+          fi
+          location="$("$RUSTC_WRAPPER" --show-stats | awk -F'  +' '/Cache location/ {print $2; exit}')"
+          if [[ "$location" == *ghac* ]]; then
+            echo "::error::the GitHub Actions backend was used against the caller's wishes" >&2
+            exit 1
+          fi
+          echo "the caller's backend choice was left in place"
 
   respects_a_caller_wrapper:
     runs-on: ubuntu-latest

@@ -134,11 +134,19 @@ Example using an external cache owner:
 
 When the workflow is not triggered by a `release` event and `use-sccache` is
 enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
-cache compiler output. The sccache action sets `SCCACHE_GHA_ENABLED=true` and
-exports `SCCACHE_PATH`, naming the binary it installed. It does **not** export
-`RUSTC_WRAPPER`, and Cargo routes compilation through sccache only when that
-variable is set, so this action exports it, naming the same binary. Without
-that step sccache is installed and never used.
+cache compiler output. The sccache action exports `SCCACHE_PATH`, naming the
+binary it installed. It sets neither `RUSTC_WRAPPER` nor
+`SCCACHE_GHA_ENABLED`, so this action sets both:
+
+- `RUSTC_WRAPPER`, naming the installed binary, because Cargo routes
+  compilation through sccache only when that variable is set. Without it
+  sccache is installed and never used.
+- `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
+  nothing persists between jobs. It is exported **before** the sccache steps,
+  since sccache binds its backend when the server starts and that server starts
+  inside them. A caller's own value is respected, `false` included, and a
+  caller-set `SCCACHE_DIR` leaves sccache on their directory. Each run reports
+  `metric setup-rust.sccache.backend=<gha|local|caller>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice. Statistics are zeroed after the export, so a later

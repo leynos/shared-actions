@@ -50,10 +50,21 @@ Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
 over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
 `missing-sccache-path`.
 
+The action also selects the cache backend, exporting `SCCACHE_GHA_ENABLED`
+before sccache starts. Without it sccache writes to local disk, which nothing
+persists between jobs, so the wrapper would cost time and return an empty cache
+on every run. A value the caller already set is respected, `false` included,
+and a caller-set `SCCACHE_DIR` leaves sccache on that directory. This choice is
+reported as `metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm
+it took effect, `sccache --show-stats` reports a `ghac` cache location rather
+than `Local disk`.
+
 On Ubicloud, run the `export-ubicloud-cache-credentials` action **before**
 `setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
-server starts, so credentials published afterwards arrive too late and the
-compiler cache silently uses whatever the runner advertised.
+server starts, and `setup-rust` starts that server, so credentials published
+afterwards arrive too late and the compiler cache silently uses whatever the
+runner advertised. Ordering is the whole contract: credentials, then
+`setup-rust`, then the build.
 
 ## Rust cache ownership
 

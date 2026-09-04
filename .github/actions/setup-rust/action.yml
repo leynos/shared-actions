@@ -250,6 +250,41 @@ runs:
             "- cargo archive: $cargo_outcome" \
             "- uv archive: $uv_outcome" >> "$GITHUB_STEP_SUMMARY"
         fi
+    - name: Select the sccache backend
+      # Must precede the sccache-action steps. sccache binds its backend when
+      # the server starts, and that server is started inside those steps, so a
+      # value exported afterwards would be read by nobody: the job would keep
+      # a local-disk cache while every log line claimed otherwise. Writing it
+      # to GITHUB_ENV here puts it in their environment.
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Bounded outcome over a closed set, so a job that fell back to local
+        # disk is visible in the log rather than only in a slow build.
+        report() {
+          echo "metric setup-rust.sccache.backend=$1"
+        }
+        # ${VAR+x} rather than -n: a caller who set the variable to false or
+        # to an empty string has made a choice, and macOS runners ship bash
+        # 3.2, which cannot parse [[ -v VAR ]].
+        if [[ ${SCCACHE_GHA_ENABLED+x} ]]; then
+          report caller
+          echo "::notice title=setup-rust sccache::SCCACHE_GHA_ENABLED already set; leaving the caller's value in place"
+          exit 0
+        fi
+        # A caller pointing sccache at their own directory wants that disk,
+        # not GitHub's cache service; forcing the GHA backend would ignore the
+        # storage they mounted.
+        if [[ -n "${SCCACHE_DIR:-}" ]]; then
+          report local
+          echo "::notice title=setup-rust sccache::SCCACHE_DIR is set; leaving sccache on the caller's directory"
+          exit 0
+        fi
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        report gha
+        echo "::notice title=setup-rust sccache::selected the GitHub Actions cache backend"
+
     # x86_64-apple-darwin binaries were dropped after sccache v0.12.0
     - name: Run sccache (x86_64 macOS)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && runner.os == 'macOS' && runner.arch == 'X64' }}

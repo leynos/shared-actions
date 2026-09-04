@@ -37,16 +37,110 @@ def test_cargo_watchdog_defaults_to_a_cold_store_budget(
 
 
 @pytest.mark.parametrize("value", ["", "   "])
-def test_cargo_watchdog_falls_back_when_the_variable_is_blank(
+@pytest.mark.parametrize(
+    "name", ["RUN_RUST_CARGO_WAIT_TIMEOUT", "INPUT_CARGO_WAIT_TIMEOUT"]
+)
+def test_cargo_watchdog_falls_back_when_a_variable_is_blank(
     monkeypatch: pytest.MonkeyPatch,
+    name: str,
     value: str,
 ) -> None:
     """An unset action input arrives as an empty string, not as an absent one."""
     mod = _load_module(monkeypatch, "run_rust")
-    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", value)
+    monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.delenv("INPUT_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.setenv(name, value)
 
     runner = mod._cargo_runner
     assert runner._resolve_wait_timeout() == runner.DEFAULT_CARGO_WAIT_TIMEOUT
+
+
+def test_a_job_level_budget_beats_the_step_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller's job-level budget must survive a step passing the input.
+
+    The variable is how a caller sets one budget across several steps, and it
+    is what consumers already use. A step-level input default that quietly
+    replaced it would cut such a caller back without saying so.
+    """
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.setenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "3600")
+    monkeypatch.setenv("INPUT_CARGO_WAIT_TIMEOUT", "1800")
+
+    assert mod._cargo_runner._resolve_wait_timeout() == 3600.0
+
+
+def test_the_input_is_used_when_no_variable_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no job-level budget, the step's input decides."""
+    mod = _load_module(monkeypatch, "run_rust")
+    monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.setenv("INPUT_CARGO_WAIT_TIMEOUT", "900")
+
+    assert mod._cargo_runner._resolve_wait_timeout() == 900.0
+
+
+@pytest.mark.parametrize(
+    "name", ["RUN_RUST_CARGO_WAIT_TIMEOUT", "INPUT_CARGO_WAIT_TIMEOUT"]
+)
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "0", "-1", "-0.5"])
+def test_cargo_watchdog_rejects_a_budget_that_cannot_expire_usefully(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+) -> None:
+    """A budget must be finite and positive, whichever source names it.
+
+    Now that this is a public input, `float()` accepting a value is not enough.
+    A NaN deadline never compares greater than the clock, so the watchdog never
+    fires and the pump loop spins; an infinite one reaches the platform's own
+    timeout handling; a non-positive one kills a healthy build immediately.
+    """
+    mod = _load_module(monkeypatch, "run_rust")
+    messages: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        mod.typer,
+        "echo",
+        lambda message, err=False: messages.append((message, err)),
+    )
+    monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.delenv("INPUT_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(mod.typer.Exit):
+        mod._cargo_runner._resolve_wait_timeout()
+
+    errors = [text for text, is_error in messages if is_error]
+    assert len(errors) == 1, f"expected one error, got {errors}"
+    assert name in errors[0], f"the rejection does not name {name}: {errors[0]!r}"
+    assert "greater than zero" in errors[0], errors[0]
+
+
+@pytest.mark.parametrize(
+    "name", ["RUN_RUST_CARGO_WAIT_TIMEOUT", "INPUT_CARGO_WAIT_TIMEOUT"]
+)
+def test_cargo_watchdog_rejects_a_budget_that_is_not_a_number(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+) -> None:
+    """A non-numeric budget is refused, naming the source that supplied it."""
+    mod = _load_module(monkeypatch, "run_rust")
+    messages: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        mod.typer,
+        "echo",
+        lambda message, err=False: messages.append((message, err)),
+    )
+    monkeypatch.delenv("RUN_RUST_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.delenv("INPUT_CARGO_WAIT_TIMEOUT", raising=False)
+    monkeypatch.setenv(name, "not-a-float")
+
+    with pytest.raises(mod.typer.Exit):
+        mod._cargo_runner._resolve_wait_timeout()
+
+    assert (f"::error::{name} must be a number", True) in messages, messages
 
 
 def test_cargo_watchdog_reports_its_budget(
@@ -87,6 +181,11 @@ def test_cargo_wait_timeout_input_reaches_the_runner() -> None:
         if "run_rust.py" in str(step.get("run", ""))
     ]
     assert len(rust_steps) == 1, "expected exactly one run_rust.py step"
-    assert rust_steps[0]["env"]["RUN_RUST_CARGO_WAIT_TIMEOUT"] == (
-        "${{ inputs.cargo-wait-timeout }}"
-    ), "the input does not reach RUN_RUST_CARGO_WAIT_TIMEOUT"
+    env = rust_steps[0]["env"]
+    assert env["INPUT_CARGO_WAIT_TIMEOUT"] == "${{ inputs.cargo-wait-timeout }}", (
+        "the input does not reach the script"
+    )
+    assert "RUN_RUST_CARGO_WAIT_TIMEOUT" not in env, (
+        "assigning RUN_RUST_CARGO_WAIT_TIMEOUT here would clobber a caller's "
+        "job-level budget with this step's input default"
+    )

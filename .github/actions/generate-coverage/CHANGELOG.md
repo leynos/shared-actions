@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Keep `RUN_RUST_CARGO_WAIT_TIMEOUT` ahead of the new input. The input reaches
+  the script under its own name, so a step no longer replaces a caller's
+  job-level budget with this input's default.
+- Refuse a watchdog budget that is not finite and greater than zero. Now
+  that it is a public input, anything `float()` accepts could reach it: a `nan`
+  budget never expires, an infinite one defers to the platform, and a
+  non-positive one kills a healthy build immediately.
+
 - Raise the cargo watchdog default from 600 to 1800 seconds and expose it as
   the `cargo-wait-timeout` input. The old figure suited a lane that restored a
   `target` archive; a lane that lets sccache own compiler output has the whole

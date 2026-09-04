@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import math
 import os
 import selectors
 import shlex
@@ -321,20 +322,42 @@ def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
 DEFAULT_CARGO_WAIT_TIMEOUT = 1800.0
 
 
+def _read_wait_timeout(name: str, raw: str) -> float:
+    """Return the budget ``raw`` names, or exit reporting why it cannot."""
+    try:
+        wait_timeout = float(raw)
+    except ValueError as exc:
+        typer.echo(f"::error::{name} must be a number", err=True)
+        raise typer.Exit(1) from exc
+    # A public input can now carry anything float() accepts. A NaN deadline
+    # never compares greater than the clock, so the watchdog never fires and
+    # the selector loop spins; an infinite one reaches the platform's own
+    # timeout handling; a non-positive one kills a healthy build at once.
+    if not math.isfinite(wait_timeout) or wait_timeout <= 0:
+        typer.echo(
+            f"::error::{name} must be a finite number of seconds greater than "
+            f"zero; got {raw!r}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return wait_timeout
+
+
 def _resolve_wait_timeout() -> float:
-    """Return the watchdog budget, and report it before cargo starts."""
-    raw = os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT")
-    if raw is None or not raw.strip():
-        wait_timeout = DEFAULT_CARGO_WAIT_TIMEOUT
+    """Return the watchdog budget, and report it before cargo starts.
+
+    ``RUN_RUST_CARGO_WAIT_TIMEOUT`` wins over the action input, so a caller
+    setting one budget across several steps at job level keeps it when a step
+    also passes the input. An unset input reaches the script as an empty
+    string rather than an absent variable, so blank means "not set" for both.
+    """
+    for name in ("RUN_RUST_CARGO_WAIT_TIMEOUT", "INPUT_CARGO_WAIT_TIMEOUT"):
+        raw = os.getenv(name)
+        if raw is not None and raw.strip():
+            wait_timeout = _read_wait_timeout(name, raw.strip())
+            break
     else:
-        try:
-            wait_timeout = float(raw)
-        except ValueError as exc:
-            typer.echo(
-                "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number",
-                err=True,
-            )
-            raise typer.Exit(1) from exc
+        wait_timeout = DEFAULT_CARGO_WAIT_TIMEOUT
     typer.echo(f"cargo watchdog budget: {wait_timeout}s")
     return wait_timeout
 

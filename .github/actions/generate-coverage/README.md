@@ -322,8 +322,16 @@ how to raise it. Raise the input for a slower suite. Lower it only when a hang
 must be caught sooner than the build can legitimately finish, and know that you
 are trading a false failure for a faster one.
 
-`RUN_RUST_CARGO_WAIT_TIMEOUT` still overrides it, for a caller setting the
-budget at job level across several steps.
+`RUN_RUST_CARGO_WAIT_TIMEOUT` takes precedence over the input, for a caller
+setting one budget at job level across several steps. The action passes the
+input to the script under its own name rather than as that variable, so a step
+does not clobber a job-level budget with this input's default.
+
+Either source must name a finite number of seconds greater than zero. A
+watchdog that cannot expire is not a watchdog: a `nan` budget never fires, an
+infinite one falls through to the platform's own timeout, and a non-positive
+one kills a healthy build at once. Anything else is refused before cargo is
+spawned, naming the source that supplied it.
 
 ## Outputs
 

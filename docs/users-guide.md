@@ -334,7 +334,6 @@ only. Each run reports one bounded
 `metric ubicloud-cache-credentials.result=<state>` line, over `exported`,
 `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and `public-host`.
 
-
 ## `install-tool` action
 
 Installs one pinned, digest-verified tool from

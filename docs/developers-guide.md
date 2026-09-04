@@ -404,7 +404,6 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
-
 ## `install-tool` and the tool manifest
 
 The manifest is `.github/tool-manifest.toml`, one entry per tool, version and

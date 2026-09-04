@@ -19,7 +19,6 @@ import dataclasses as dc
 import os
 import stat
 import subprocess
-import typing as typ
 from pathlib import Path
 
 from _mdtablefix_manifest import (
@@ -30,6 +29,7 @@ from _mdtablefix_manifest import (
 
 from composite_fragments import (
     ActionContext,
+    CompositeStep,
     FragmentEnvironment,
     LifecycleResult,
     StepResult,
@@ -347,11 +347,9 @@ def _provision_binstall(run: _Run) -> StepResult | None:
     )
 
 
-def _run_manifest_step(
-    index: int, step: dict[str, object], run: _Run
-) -> StepResult | None:
+def _run_manifest_step(index: int, step: CompositeStep, run: _Run) -> StepResult | None:
     """Execute one selected manifest step and return what it produced."""
-    name = typ.cast("str", step["name"])
+    name = step["name"]
     if name == BINSTALL_STEP_NAME:
         return _provision_binstall(run)
     process = run_step(step, run.context, run.environment, f"{index:02d}-output")

@@ -33,6 +33,27 @@ _STEP_OUTPUT = re.compile(r"^steps\.(?P<step>[\w-]+)\.outputs\.(?P<name>[\w-]+)$
 _INPUT = re.compile(r"^inputs\.(?P<name>[\w-]+)$")
 
 
+#: One composite step, as a manifest declares it.
+#:
+#: The functional form is required: ``if`` is a Python keyword. Every key but
+#: the name is optional, because a `uses:` step has no ``run`` and most steps
+#: have no ``id`` or condition. A manifest is untyped YAML, so a reader casts
+#: to this type once, where it parses, rather than at every use.
+CompositeStep = typ.TypedDict(
+    "CompositeStep",
+    {
+        "name": str,
+        "run": typ.NotRequired[str],
+        "if": typ.NotRequired[str],
+        "env": typ.NotRequired[dict[str, str]],
+        "id": typ.NotRequired[str],
+        "shell": typ.NotRequired[str],
+        "uses": typ.NotRequired[str],
+        "with": typ.NotRequired[dict[str, str]],
+    },
+)
+
+
 def require_posix_host() -> None:
     """Skip a module that drives an action's Bash fragments on a Windows host.
 
@@ -110,12 +131,12 @@ class ActionContext:
         """Substitute every action expression in ``value``."""
         return _EXPRESSION.sub(lambda match: self.resolve(match["body"]), value)
 
-    def step_env(self, step: dict[str, object]) -> dict[str, str]:
+    def step_env(self, step: CompositeStep) -> dict[str, str]:
         """Return the rendered ``env`` mapping declared by ``step``."""
-        declared = typ.cast("dict[str, str]", step.get("env") or {})
+        declared = step.get("env") or {}
         return {name: self.render(str(value)) for name, value in declared.items()}
 
-    def evaluate_condition(self, step: dict[str, object]) -> bool:
+    def evaluate_condition(self, step: CompositeStep) -> bool:
         """Return whether ``step``'s ``if:`` expression selects it.
 
         Supports an omitted condition, a leading ``failure()``, and the
@@ -126,9 +147,6 @@ class ActionContext:
         condition = step.get("if")
         if condition is None:
             return self.succeeded
-        if not isinstance(condition, str):
-            message = f"step {step.get('name')!r} declares a non-string condition"
-            raise TypeError(message)
         body = condition.strip()
         if (match := _EXPRESSION.fullmatch(body)) is not None:
             body = match["body"]
@@ -143,10 +161,10 @@ class ActionContext:
             raise AssertionError(message)
         return self.resolve(left.strip()) == right.strip().strip("'\"")
 
-    def record(self, step: dict[str, object], output_file: Path) -> None:
+    def record(self, step: CompositeStep, output_file: Path) -> None:
         """Record a step's ``$GITHUB_OUTPUT`` lines against its identifier."""
         identifier = step.get("id")
-        if not isinstance(identifier, str) or not output_file.exists():
+        if identifier is None or not output_file.exists():
             return
         outputs = self.step_outputs.setdefault(identifier, {})
         outputs.update(
@@ -262,15 +280,15 @@ class LifecycleResult:
 
 
 def run_step(
-    step: dict[str, object],
+    step: CompositeStep,
     context: ActionContext,
     environment: FragmentEnvironment,
     output_name: str,
 ) -> subprocess.CompletedProcess[str]:
     """Run one fragment and record its outputs against ``context``."""
-    script = step["run"]
-    if not isinstance(script, str):
-        message = f"step {step.get('name')!r} declares no Bash fragment"
+    script = step.get("run")
+    if script is None:
+        message = f"step {step['name']!r} declares no Bash fragment"
         raise TypeError(message)
     output_file = environment.output_file(output_name)
     env = {
@@ -297,7 +315,7 @@ def run_step(
 
 
 def run_lifecycle(
-    steps: list[dict[str, object]],
+    steps: list[CompositeStep],
     context: ActionContext,
     environment: FragmentEnvironment,
 ) -> LifecycleResult:
@@ -311,7 +329,7 @@ def run_lifecycle(
 
     Parameters
     ----------
-    steps : list[dict[str, object]]
+    steps : list[CompositeStep]
         Run-bearing composite steps, in manifest order. Each must declare a
         ``name`` and a ``run``. A ``uses:`` step has no fragment to execute and
         is the caller's to emulate.
@@ -350,7 +368,7 @@ def run_lifecycle(
     for index, step in enumerate(steps):
         if not context.evaluate_condition(step):
             continue
-        name = typ.cast("str", step["name"])
+        name = step["name"]
         process = run_step(step, context, environment, f"{index:02d}-output")
         results.append(StepResult(name=name, process=process))
         if process.returncode != 0:

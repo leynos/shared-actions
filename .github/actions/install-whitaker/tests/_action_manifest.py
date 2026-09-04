@@ -12,6 +12,9 @@ from pathlib import Path
 
 import yaml
 
+if typ.TYPE_CHECKING:
+    from composite_fragments import CompositeStep
+
 ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
 DIGEST_MANIFEST_PATH = ACTION_DIR / "installer-digests.sha256"
@@ -51,13 +54,17 @@ def load_manifest() -> dict[str, object]:
     )
 
 
-def manifest_steps() -> list[dict[str, object]]:
-    """Return the composite steps in declaration order."""
+def manifest_steps() -> list[CompositeStep]:
+    """Return the composite steps in declaration order.
+
+    This is where untyped YAML becomes a typed step, so it is where the cast
+    belongs.
+    """
     runs = typ.cast("dict[str, object]", load_manifest()["runs"])
-    return typ.cast("list[dict[str, object]]", runs["steps"])
+    return typ.cast("list[CompositeStep]", runs["steps"])
 
 
-def _only_step(field: str, value: str) -> dict[str, object]:
+def _only_step(field: str, value: str) -> CompositeStep:
     """Return the single step whose ``field`` equals ``value``."""
     step = next((item for item in manifest_steps() if item.get(field) == value), None)
     if step is None:
@@ -66,17 +73,17 @@ def _only_step(field: str, value: str) -> dict[str, object]:
     return step
 
 
-def step_by_name(name: str) -> dict[str, object]:
+def step_by_name(name: str) -> CompositeStep:
     """Return the single step declaring ``name``."""
     return _only_step("name", name)
 
 
-def step_by_id(identifier: str) -> dict[str, object]:
+def step_by_id(identifier: str) -> CompositeStep:
     """Return the single step declaring ``identifier``."""
     return _only_step("id", identifier)
 
 
-def lifecycle_steps() -> list[dict[str, object]]:
+def lifecycle_steps() -> list[CompositeStep]:
     """Return the run-bearing lifecycle steps in execution order."""
     return [step_by_name(name) for name in LIFECYCLE_STEP_NAMES]
 

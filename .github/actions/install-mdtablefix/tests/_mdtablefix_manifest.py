@@ -13,6 +13,9 @@ from pathlib import Path
 
 import yaml
 
+if typ.TYPE_CHECKING:
+    from composite_fragments import CompositeStep
+
 ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
 
@@ -65,13 +68,18 @@ def load_manifest() -> dict[str, object]:
     )
 
 
-def manifest_steps() -> list[dict[str, object]]:
-    """Return the composite steps in declaration order."""
+def manifest_steps() -> list[CompositeStep]:
+    """Return the composite steps in declaration order.
+
+    This is where untyped YAML becomes a typed step, so it is where the cast
+    belongs; every reader downstream then has a contract rather than a mapping
+    of unknowns.
+    """
     runs = typ.cast("dict[str, object]", load_manifest()["runs"])
-    return typ.cast("list[dict[str, object]]", runs["steps"])
+    return typ.cast("list[CompositeStep]", runs["steps"])
 
 
-def step_by_name(name: str) -> dict[str, object]:
+def step_by_name(name: str) -> CompositeStep:
     """Return the single step declaring ``name``."""
     step = next((item for item in manifest_steps() if item.get("name") == name), None)
     if step is None:
@@ -82,8 +90,8 @@ def step_by_name(name: str) -> dict[str, object]:
 
 def step_script(name: str) -> str:
     """Return the Bash fragment a step declares."""
-    script = step_by_name(name)["run"]
-    if not isinstance(script, str):
+    script = step_by_name(name).get("run")
+    if script is None:
         message = f"step {name!r} declares no Bash fragment"
         raise TypeError(message)
     return script
@@ -91,4 +99,4 @@ def step_script(name: str) -> str:
 
 def step_env(name: str) -> dict[str, str]:
     """Return the environment mapping a step declares."""
-    return typ.cast("dict[str, str]", step_by_name(name).get("env") or {})
+    return step_by_name(name).get("env") or {}

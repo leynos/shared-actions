@@ -1332,9 +1332,14 @@ asserts the fail-closed contract and that no executable was left behind.
 fragments outside GitHub Actions. It resolves the expression subset the
 installer manifests use, evaluates each step's `if:`, and threads
 `$GITHUB_OUTPUT` between steps, so a test exercises the real step boundaries.
-`install-whitaker` uses this module too. It carried a private copy until
-issue #449 folded it in; that copy invoked fragments with `bash -c`, and so
+`install-whitaker` uses this module too. It carried a private copy until it was
+folded in by issue 449; that copy invoked fragments with `bash -c`, and so
 lacked the guarantee below.
+
+A step crosses that boundary as a `CompositeStep`, a `TypedDict` naming the
+keys a manifest may declare. A manifest is untyped YAML, so each action's test
+helper casts to it once where it parses, and every reader downstream has a
+contract instead of a mapping of unknowns.
 
 The harness has its own tests in
 `.github/actions/tests/test_composite_fragments.py`, because a defect there

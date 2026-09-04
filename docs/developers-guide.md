@@ -342,8 +342,8 @@ The same states are emitted as two fixed metric lines,
 `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
 for consumers that scrape rather than read. Keep the metric names fixed and the
 values drawn from those vocabularies: a name or value that varied with the run
-would give the series unbounded cardinality and make it useless to aggregate.
-A test enumerates every step-outcome combination and asserts the emitted values
+would give the series unbounded cardinality and make it useless to aggregate. A
+test enumerates every step-outcome combination and asserts the emitted values
 stay inside both sets, so widening a vocabulary in the manifest without
 widening it there fails.
 
@@ -455,18 +455,16 @@ Two consequences the action encodes:
 
 - `ACTIONS_CACHE_SERVICE_V2` is exported empty. sccache's GitHub Actions
   backend selects the v2 service whenever that variable is set, and the proxy
-  serves v1, so the runner's value has to be cleared rather than passed
-  through.
+  serves v1, so the runner's value has to be cleared rather than passed through.
 - A public cache host fails the step. This is an Ubicloud-only action; on a
   GitHub-hosted runner the variable points at GitHub's endpoint, and exporting
   that under this action's name would send sccache somewhere other than where
   the job believes. Private means an RFC 1918 range, IPv4 loopback,
   `localhost`, or an IPv6 unique-local or loopback address. `localhost` is the
   one name accepted; every other host must be a complete address literal.
-  Checking a prefix would accept the DNS name
-  `10.attacker.example` and hand it the runtime token, so the address is parsed
-  as a dotted quad, or as an IPv6 hextet for the unique-local range, before any
-  range is considered.
+  Checking a prefix would accept the DNS name `10.attacker.example` and hand it
+  the runtime token, so the address is parsed as a dotted quad, or as an IPv6
+  hextet for the unique-local range, before any range is considered.
 
 The proxy URL's path segment is bearer-like, so the action masks the URL as
 well as the token, and its single notice names only the host and port. Keep it
@@ -492,11 +490,10 @@ log showed it in the declared environment, and the action still read
 `artifactcache.actions.githubusercontent.com`.
 
 So the success path belongs to the Node tests, which run the shipped script
-directly, and the refusal belongs to the runner, which is the only place a
-real GitHub cache endpoint can be put in front of the guard. Do not try to
-recover the success path by adding an input that overrides the environment:
-that would put a way to bypass the private-host check into the action's public
-surface.
+directly, and the refusal belongs to the runner, which is the only place a real
+GitHub cache endpoint can be put in front of the guard. Do not try to recover
+the success path by adding an input that overrides the environment: that would
+put a way to bypass the private-host check into the action's public surface.
 
 One thing no hosted runner can prove is that sccache actually writes to
 Ubicloud's store rather than GitHub's, so
@@ -797,10 +794,10 @@ All three default to off, so a caller that does not set them sees the previous
 behaviour exactly.
 
 `feature_selection_args` in
-[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
-single place feature flags are decided, and both the coverage command and the
-doc-test command call it. Keep it that way: the precedence rule only holds if
-one function owns it. That rule is that `all_features` wins outright. It
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is
+the single place feature flags are decided, and both the coverage command and
+the doc-test command call it. Keep it that way: the precedence rule only holds
+if one function owns it. That rule is that `all_features` wins outright. It
 supersedes `with_default`, so `--all-features --no-default-features` can never
 be emitted, and it is rejected outright alongside a non-empty feature list,
 because silently widening a caller's named selection would misreport what ran.
@@ -824,15 +821,15 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol | Role |
-| --- | --- |
-| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
-| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
-| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
+| Symbol                                                       | Role                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
+| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
+| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
-| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
-| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
+| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
+| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
+| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and
@@ -1251,6 +1248,14 @@ installer manifests use, evaluates each step's `if:`, and threads
 `$GITHUB_OUTPUT` between steps, so a test exercises the real step boundaries.
 `install-whitaker` still carries a private copy of the same harness in its own
 test directory; folding that copy into this module is a separate change.
+
+The harness has its own tests in
+`.github/actions/tests/test_composite_fragments.py`, because a defect there
+makes every suite built on it report an outcome no runner would produce. They
+cover reading `$GITHUB_OUTPUT` back, including a single-line value that
+contains `<<` and must not be read as a heredoc opener, the expression subset,
+the implicit `success()` an `if:` without a status function carries, and which
+exit code a run is judged by.
 
 ## `rust-build-release` Action Architecture
 

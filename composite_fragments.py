@@ -88,20 +88,22 @@ class ActionContext:
 
     def resolve(self, body: str) -> str:
         """Return the value of one action expression."""
-        if body == "runner.os":
-            return self.runner_os
-        if body == "runner.arch":
-            return self.runner_arch
-        if body == "runner.temp":
-            return self.runner_temp
-        if body == "github.action_path":
-            return self.action_path
-        if (match := _INPUT.match(body)) is not None:
-            return self.inputs.get(match["name"], "")
-        if (match := _STEP_OUTPUT.match(body)) is not None:
-            return self.step_outputs.get(match["step"], {}).get(match["name"], "")
-        message = f"unsupported action expression: {body}"
-        raise AssertionError(message)
+        match body:
+            case "runner.os":
+                return self.runner_os
+            case "runner.arch":
+                return self.runner_arch
+            case "runner.temp":
+                return self.runner_temp
+            case "github.action_path":
+                return self.action_path
+            case _ if (match := _INPUT.match(body)) is not None:
+                return self.inputs.get(match["name"], "")
+            case _ if (match := _STEP_OUTPUT.match(body)) is not None:
+                return self.step_outputs.get(match["step"], {}).get(match["name"], "")
+            case _:
+                message = f"unsupported action expression: {body}"
+                raise AssertionError(message)
 
     def render(self, value: str) -> str:
         """Substitute every action expression in ``value``."""
@@ -147,7 +149,7 @@ class ActionContext:
             return
         outputs = self.step_outputs.setdefault(identifier, {})
         outputs.update(
-            _parse_outputs(output_file.read_text(encoding="utf-8").splitlines()),
+            parse_outputs(output_file.read_text(encoding="utf-8").splitlines()),
         )
 
 
@@ -161,14 +163,19 @@ def _strip_failure_guard(body: str) -> tuple[str, bool]:
     return remainder, True
 
 
-def _parse_outputs(lines: list[str]) -> dict[str, str]:
+def parse_outputs(lines: list[str]) -> dict[str, str]:
     """Parse ``$GITHUB_OUTPUT`` lines, including delimited multiline values."""
     outputs: dict[str, str] = {}
     index = 0
     while index < len(lines):
         line = lines[index]
         name, separator, value = line.partition("<<")
-        if separator:
+        # A runner reads `name<<DELIMITER` as a heredoc opener only when the
+        # `<<` comes before any `=`. A single-line value may legitimately
+        # contain `<<`, and treating `key=a<<b` as an opener would swallow
+        # every following line until one happened to equal `b`.
+        assignment = line.find("=")
+        if separator and (assignment < 0 or assignment > len(name)):
             delimiter = value
             index += 1
             collected: list[str] = []
@@ -193,9 +200,12 @@ class FragmentEnvironment:
     cwd: Path
     output_dir: Path
 
+    def __post_init__(self) -> None:
+        """Create the output directory once, so the query below stays a query."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
     def output_file(self, name: str) -> Path:
         """Return the ``$GITHUB_OUTPUT`` file backing one fragment."""
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         return self.output_dir / name
 
 

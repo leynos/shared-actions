@@ -192,14 +192,16 @@ class _Sandbox:
 def _build_sandbox(scenario: Scenario) -> _Sandbox:
     """Lay out the directories, stubs, and fixtures ``scenario`` describes."""
     root = scenario.tmp_path
-    bin_dir = (
-        root / "home" / scenario.bin_dir[2:]
-        if scenario.bin_dir.startswith("~/")
-        else Path(scenario.bin_dir)
-    )
+    home = root / "home"
+    if scenario.bin_dir == "~":
+        bin_dir = home
+    elif scenario.bin_dir.startswith("~/"):
+        bin_dir = home / scenario.bin_dir[2:]
+    else:
+        bin_dir = Path(scenario.bin_dir)
     sandbox = _Sandbox(
         root=root,
-        home=root / "home",
+        home=home,
         stub_dir=root / "stub-bin",
         state_dir=root / "stub-state",
         workspace=root / "workspace",

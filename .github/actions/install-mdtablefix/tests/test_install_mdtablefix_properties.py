@@ -120,8 +120,8 @@ def _run_validation(
     home: Path,
     workspace: Path,
     inputs: dict[str, str],
-) -> int:
-    """Run the validation fragment and return its exit status."""
+) -> tuple[int, str]:
+    """Run the validation fragment and return its exit status and diagnostics."""
     home.mkdir(parents=True, exist_ok=True)
     workspace.mkdir(parents=True, exist_ok=True)
     context = ActionContext(
@@ -143,7 +143,8 @@ def _run_validation(
         output_dir=workspace / "outputs",
     )
     step = step_by_name("Validate mdtablefix inputs")
-    return run_step(step, context, environment, "validate-output").returncode
+    process = run_step(step, context, environment, "validate-output")
+    return process.returncode, process.stderr
 
 
 @given(candidate=st.one_of(_well_formed_version, _version_like))
@@ -154,7 +155,7 @@ def test_version_grammar_is_exactly_the_documented_one(
 ) -> None:
     """Verify the validator admits a version string iff the grammar does."""
     root = tmp_path_factory.mktemp("version")
-    status = _run_validation(
+    status, _ = _run_validation(
         root / "home",
         root / "workspace",
         {"version": candidate, "binstall-version": "1.22.0", "bin-dir": "~/.local/bin"},
@@ -178,7 +179,7 @@ def test_bin_dir_rules_are_exactly_the_documented_ones(
     home.mkdir(parents=True, exist_ok=True)
     candidate = _compose_bin_dir(shape, bash_path(root))
     admitted = _accepts_bin_dir(candidate, bash_path(home))
-    status = _run_validation(
+    status, _ = _run_validation(
         home,
         root / "workspace",
         {"version": "0.5.0", "binstall-version": "1.22.0", "bin-dir": candidate},
@@ -203,7 +204,7 @@ def test_a_rejection_is_always_annotated_and_measured(
     home.mkdir(parents=True, exist_ok=True)
     workspace = root / "workspace"
     candidate = _compose_bin_dir(shape, bash_path(root))
-    status = _run_validation(
+    status, stderr = _run_validation(
         home,
         workspace,
         {
@@ -213,12 +214,24 @@ def test_a_rejection_is_always_annotated_and_measured(
         },
     )
     summary = workspace / "step-summary"
-    emitted = summary.read_text(encoding="utf-8") if summary.exists() else ""
+    emitted = (
+        summary.read_text(encoding="utf-8").splitlines() if summary.exists() else []
+    )
+    context = f"version {version!r} with bin-dir {candidate!r}"
 
     if status == 0:
-        assert emitted == "", f"an accepted input emitted {emitted!r}"
+        assert emitted == [], f"an accepted input, {context}, emitted {emitted}"
         return
-    assert "install-mdtablefix.result=invalid-input" in emitted, (
-        f"version {version!r} with bin-dir {candidate!r} was rejected without a "
-        f"metric; summary was {emitted!r}"
+    assert emitted.count("install-mdtablefix.result=invalid-input") == 1, (
+        f"{context} was rejected; expected exactly one invalid-input metric but "
+        f"the summary held {emitted}"
+    )
+    annotations = [
+        line
+        for line in stderr.splitlines()
+        if line.startswith("::error title=Invalid mdtablefix input::")
+    ]
+    assert len(annotations) == 1, (
+        f"{context} was rejected; expected exactly one annotation but stderr held "
+        f"{stderr!r}"
     )

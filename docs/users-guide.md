@@ -422,9 +422,9 @@ appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
 
 ### The two-step cache pattern
 
-The action caches nothing itself, so one key keeps one owner. Restore `bin-dir`
-yourself, then invoke the action; a directory that already holds the pinned
-version short-circuits the install and reports
+The action caches nothing itself, so one key keeps one owner. The workflow
+restores `bin-dir` and then invokes the action. A directory that already holds
+the pinned version short-circuits the install and reports
 `install-mdtablefix.result=cached`.
 
 ```yaml

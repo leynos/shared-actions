@@ -65,9 +65,29 @@ jobs:
             esac
             echo "mdtablefix_test_err_trap.${name}=${verdict}"
           }
+          # The same three again, but read from a command string rather than a
+          # file. A runner writes a composite fragment to a file and runs it;
+          # the Python harness passed it to `bash -c`. If those differ here,
+          # the harness was the thing that differed, not the platform.
+          probe_dash_c() {
+            local name="$1" tail="$2" verdict=not-run observed script
+            script="$(
+              printf '%s\n' 'set -Eeuo pipefail'
+              printf '%s\n' "trap 'echo err-trap=fired' ERR"
+              printf '%s\n' "${tail}"
+            )"
+            observed="$(bash -c "${script}" 2>&1 || true)"
+            case "${observed}" in
+              *err-trap=fired*) verdict=fired ;;
+            esac
+            echo "mdtablefix_test_err_trap.dash-c-${name}=${verdict}"
+          }
           probe builtin-last 'false'
           probe external-last "${dir}/failing-tool"
           probe external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
+          probe_dash_c builtin-last 'false'
+          probe_dash_c external-last "${dir}/failing-tool"
+          probe_dash_c external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
 
       - name: Poison cargo before the second invocation
         shell: bash
@@ -140,9 +160,29 @@ jobs:
             esac
             echo "mdtablefix_test_err_trap.${name}=${verdict}"
           }
+          # The same three again, but read from a command string rather than a
+          # file. A runner writes a composite fragment to a file and runs it;
+          # the Python harness passed it to `bash -c`. If those differ here,
+          # the harness was the thing that differed, not the platform.
+          probe_dash_c() {
+            local name="$1" tail="$2" verdict=not-run observed script
+            script="$(
+              printf '%s\n' 'set -Eeuo pipefail'
+              printf '%s\n' "trap 'echo err-trap=fired' ERR"
+              printf '%s\n' "${tail}"
+            )"
+            observed="$(bash -c "${script}" 2>&1 || true)"
+            case "${observed}" in
+              *err-trap=fired*) verdict=fired ;;
+            esac
+            echo "mdtablefix_test_err_trap.dash-c-${name}=${verdict}"
+          }
           probe builtin-last 'false'
           probe external-last "${dir}/failing-tool"
           probe external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
+          probe_dash_c builtin-last 'false'
+          probe_dash_c external-last "${dir}/failing-tool"
+          probe_dash_c external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
 
       - name: Install mdtablefix
         id: install-mdtablefix

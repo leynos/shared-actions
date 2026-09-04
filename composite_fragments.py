@@ -277,8 +277,13 @@ def run_step(
         **context.step_env(step),
         "GITHUB_OUTPUT": bash_file_path(output_file),
     }
+    # A runner writes a composite fragment to a file and runs that file. Passing
+    # the same text to `bash -c` is not the same shell invocation, so the
+    # fragment is written out here too and run the way it will be run.
+    script_file = environment.output_dir / f"{output_name}.sh"
+    script_file.write_text(script, encoding="utf-8")
     process = subprocess.run(  # noqa: S603,TID251 - exercise the Bash fragment.
-        [bash_executable(), "-c", script],
+        [bash_executable(), bash_file_path(script_file)],
         cwd=environment.cwd,
         env=env,
         capture_output=True,

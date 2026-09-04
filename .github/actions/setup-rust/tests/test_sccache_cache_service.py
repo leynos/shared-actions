@@ -275,6 +275,79 @@ class TestRecord:
         assert masked == ["a-token"]
 
 
+class TestInjection:
+    """A value carrying a newline must not become a second assignment.
+
+    `GITHUB_ENV` and `GITHUB_OUTPUT` are line-oriented files. A plain
+    `name=value` write turns everything after a newline in the value into
+    further assignments, so a caller who can influence one of these variables
+    could set any environment variable in every later step. The delimiter form
+    prevents that, and the delimiter is fresh per write so that a value
+    containing one cannot close the block early either.
+    """
+
+    HOSTILE = "on\nPATH=/tmp/evil\nGITHUB_TOKEN=stolen"
+
+    def test_the_record_keeps_a_newline_inside_one_value(self, tmp_path: Path) -> None:
+        """Parsed as the runner parses it, the payload is one value."""
+        _completed, _env, output = _run(
+            _script(RECORD_STEP),
+            tmp_path,
+            environment={"ACTIONS_CACHE_SERVICE_V2": self.HOSTILE},
+        )
+        parsed = _parse_outputs(output)
+
+        assert parsed["cache_service_value"] == self.HOSTILE
+        assert "PATH" not in parsed
+        assert "GITHUB_TOKEN" not in parsed
+
+    def test_the_restore_keeps_a_newline_inside_one_value(self, tmp_path: Path) -> None:
+        """The same, on the file that reaches every later step."""
+        completed, written, _output = _run(
+            _script(RESTORE_STEP),
+            tmp_path,
+            environment=_restore_environment(
+                **{
+                    "CALLER_CACHE_SERVICE_STATE": "set",
+                    "CALLER_CACHE_SERVICE_VALUE": self.HOSTILE,
+                    "ACTIONS_CACHE_SERVICE_V2": "on",
+                }
+            ),
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        lines = written.splitlines()
+        assert "PATH=/tmp/evil" in lines
+        # ...but only inside the block, never as an assignment the runner
+        # would act on: the first line opens a delimiter and the last closes
+        # it, so everything between is one value.
+        assert lines[0].startswith("ACTIONS_CACHE_SERVICE_V2<<")
+        delimiter = lines[0].split("<<", 1)[1]
+        assert lines[-1] == delimiter
+        assert delimiter not in lines[1:-1]
+
+    def test_the_delimiter_differs_between_writes(self, tmp_path: Path) -> None:
+        """A fixed delimiter is one a hostile value could contain."""
+        seen = set()
+        for index in range(3):
+            root = tmp_path / str(index)
+            root.mkdir()
+            _completed, written, _output = _run(
+                _script(RESTORE_STEP),
+                root,
+                environment=_restore_environment(
+                    **{
+                        "CALLER_CACHE_SERVICE_STATE": "set",
+                        "CALLER_CACHE_SERVICE_VALUE": "",
+                        "ACTIONS_CACHE_SERVICE_V2": "on",
+                    }
+                ),
+            )
+            seen.add(written.splitlines()[0].split("<<", 1)[1])
+
+        assert len(seen) == 3
+
+
 class TestRestore:
     """Run the shipped restoring fragment."""
 

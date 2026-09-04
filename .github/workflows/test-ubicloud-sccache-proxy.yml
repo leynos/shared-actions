@@ -25,8 +25,14 @@ permissions:
 
 jobs:
   reaches-the-proxy:
-    # A fork has no Ubicloud runners and would queue until it timed out.
-    if: github.repository == 'leynos/shared-actions'
+    # `github.repository` is the base repository, so it matches a fork's pull
+    # request too, and this job would then ask for an Ubicloud runner a fork
+    # cannot have and queue until it timed out. The head repository is what
+    # says whether the branch is ours. A dispatch has no pull request, so the
+    # first clause carries it.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubicloud-standard-2
     timeout-minutes: 10
     env:
@@ -72,6 +78,7 @@ jobs:
           .github/scripts/start-and-report-sccache.sh after-export-run-step
 
       - name: Read the cache variables from a composite action step
+        id: action-step
         uses: ./.github/actions/probe-ubicloud-action-step-env
         env:
           SCCACHE_GHA_ENABLED: 'true'
@@ -81,22 +88,44 @@ jobs:
 
       - name: Assert both positions bound the proxy
         shell: bash
+        env:
+          # What the action step saw, rather than what this step sees. Reading
+          # only the workflow's own environment would leave a regression that
+          # affected action steps alone entirely invisible here.
+          ACTION_STEP_HOST: ${{ steps.action-step.outputs.cache-url-host }}
+          ACTION_STEP_SERVICE_V2: ${{ steps.action-step.outputs.cache-service-v2 }}
+          ACTION_STEP_LOCATION: ${{ steps.action-step.outputs.cache-location }}
         run: |
           set -euo pipefail
-          # A run step that saw GitHub's public endpoint, or a v2 flag the
-          # export had cleared, means the runner's behaviour changed.
-          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
-            echo "::error::the cleared v2 flag did not survive the export" >&2
+          fail() {
+            echo "::error::$1" >&2
             exit 1
+          }
+          # A private literal, and nothing else. A public host means the runner
+          # stopped handing action steps the proxy; a DNS name means something
+          # is resolving on our behalf, which is not ours to trust.
+          assert_private() {
+            local where="$1" host="${2%%:*}"
+            case "$host" in
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|localhost) ;;
+              *) fail "${where} did not name a private proxy: ${host}" ;;
+            esac
+            echo "${where} named the proxy on the private network"
+          }
+          workflow_host="${ACTIONS_CACHE_URL#*://}"
+          workflow_host="${workflow_host%%[/?#]*}"
+          workflow_host="${workflow_host##*@}"
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            fail "the cleared v2 flag did not survive into a workflow run step"
           fi
-          host="${ACTIONS_CACHE_URL#*://}"
-          host="${host%%/*}"
-          case "$host" in
-            10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|localhost*)
-              echo "the cache URL names the proxy on the private network" ;;
-            *)
-              echo "::error::the cache URL is not a private proxy: ${host}" >&2
-              exit 1 ;;
+          if [[ -n "${ACTION_STEP_SERVICE_V2:-}" ]]; then
+            fail "the cleared v2 flag did not survive into an action run step"
+          fi
+          assert_private "the workflow run step" "$workflow_host"
+          assert_private "the action run step" "$ACTION_STEP_HOST"
+          case "$ACTION_STEP_LOCATION" in
+            *ghac*) echo "the action run step's server bound ghac" ;;
+            *) fail "the action run step's server bound ${ACTION_STEP_LOCATION}" ;;
           esac
 
       # The end-to-end path a consumer actually takes.
@@ -115,32 +144,4 @@ jobs:
             echo "::error::the sccache steps' v2 flag survived the restore" >&2
             exit 1
           fi
-          mkdir -p sccache-probe/src
-          cat > sccache-probe/Cargo.toml <<'TOML'
-          [package]
-          name = "sccache-probe"
-          version = "0.0.0"
-          edition = "2021"
-          TOML
-          echo 'fn main() {}' > sccache-probe/src/main.rs
-          cargo build --manifest-path sccache-probe/Cargo.toml
-          "$RUSTC_WRAPPER" --show-stats
-          requests="$("$RUSTC_WRAPPER" --show-stats | awk '/Compile requests/ {print $NF; exit}')"
-          if [[ "${requests:-0}" -lt 1 ]]; then
-            echo "::error::sccache recorded no compile requests" >&2
-            exit 1
-          fi
-          location="$("$RUSTC_WRAPPER" --show-stats | awk -F'  +' '/Cache location/ {print $2; exit}')"
-          echo "sccache cache location: ${location}"
-          if [[ "$location" != *ghac* ]]; then
-            echo "::error::sccache is not on the GitHub Actions backend: ${location}" >&2
-            exit 1
-          fi
-          errors="$("$RUSTC_WRAPPER" --show-stats | awk '/Cache write errors/ {print $NF; exit}')"
-          # The failure this workflow exists to catch is writes going to a
-          # service that rejects them, which shows here and nowhere else.
-          if [[ "${errors:-0}" -gt 0 ]]; then
-            echo "::error::sccache reported ${errors} cache write error(s)" >&2
-            exit 1
-          fi
-          echo "sccache recorded ${requests} compile request(s) with no write errors"
+          .github/scripts/assert-sccache-cached-a-build.sh "$RUSTC_WRAPPER" ghac

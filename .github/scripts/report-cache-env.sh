@@ -28,6 +28,9 @@ state_of() {
   fi
 }
 
+# Host and port only. The proxy URL's path segment is bearer-like, and a
+# query, fragment or userinfo component can carry credential material just as
+# readily, so every one of them is cut before anything is printed.
 host_of() {
   local name="$1"
   local value
@@ -37,7 +40,8 @@ host_of() {
     return
   fi
   value="${value#*://}"
-  printf '%s' "${value%%/*}"
+  value="${value%%[/?#]*}"
+  printf '%s' "${value##*@}"
 }
 
 echo "=== ${position} ==="
@@ -48,3 +52,13 @@ done
 echo "metric probe.${position}.ACTIONS_CACHE_SERVICE_V2.value=${ACTIONS_CACHE_SERVICE_V2-<unset>}"
 echo "metric probe.${position}.ACTIONS_CACHE_URL.host=$(host_of ACTIONS_CACHE_URL)"
 echo "metric probe.${position}.ACTIONS_RESULTS_URL.host=$(host_of ACTIONS_RESULTS_URL)"
+
+# A caller that only reads its own environment cannot tell what this position
+# saw, so the readings are published rather than merely logged.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  {
+    echo "cache-url-host=$(host_of ACTIONS_CACHE_URL)"
+    echo "results-url-host=$(host_of ACTIONS_RESULTS_URL)"
+    echo "cache-service-v2=${ACTIONS_CACHE_SERVICE_V2-}"
+  } >> "$GITHUB_OUTPUT"
+fi

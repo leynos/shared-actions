@@ -310,6 +310,14 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # A fresh delimiter per write. A fixed one lets a value that happens
+        # to contain that line close the block early and turn the rest of
+        # itself into further assignments, which is how a cache flag becomes
+        # arbitrary environment.
+        new_delimiter() {
+          printf 'SETUP_RUST_%s' \
+            "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        }
         # $1 the variable, $2 the output key, $3 non-empty when the value is a
         # credential. Bash 3.2 on macOS runners has no nameref, so the
         # indirect read is eval.
@@ -331,12 +339,20 @@ runs:
             echo "::add-mask::$value"
           fi
           # The delimiter form carries an empty value, which the plain
-          # name=value form cannot round-trip.
+          # name=value form cannot round-trip. It also refuses a value
+          # containing a newline the chance to become a second assignment,
+          # which a plain name=value line would grant it.
+          local delimiter
+          delimiter="$(new_delimiter)"
+          if printf '%s' "$value" | grep -qxF "$delimiter"; then
+            echo "::error title=setup-rust sccache::${name} contains this step's delimiter" >&2
+            exit 1
+          fi
           {
             echo "${key}_state=set"
-            echo "${key}_value<<SETUP_RUST_RECORDED"
+            echo "${key}_value<<${delimiter}"
             printf '%s\n' "$value"
-            echo "SETUP_RUST_RECORDED"
+            echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
         }
         record ACTIONS_CACHE_SERVICE_V2 cache_service ''
@@ -383,6 +399,13 @@ runs:
         CALLER_RUNTIME_TOKEN_VALUE: ${{ steps.cache-service.outputs.runtime_token_value }}
       run: |
         set -euo pipefail
+        # A fresh delimiter per write, for the reason the record step gives:
+        # a fixed one lets a value containing that line close the block early
+        # and turn the rest of itself into further assignments.
+        new_delimiter() {
+          printf 'SETUP_RUST_%s' \
+            "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        }
         # One bounded outcome per variable, over a closed set: a lane whose
         # proxy selection was silently overridden is visible in the log rather
         # than only in a cache that never fills.
@@ -408,11 +431,18 @@ runs:
             return
           fi
           # The delimiter form carries an empty value, which the plain
-          # name=value form cannot round-trip.
+          # name=value form cannot round-trip, and denies a value containing a
+          # newline the second assignment that form would grant it.
+          local delimiter
+          delimiter="$(new_delimiter)"
+          if printf '%s' "$recorded" | grep -qxF "$delimiter"; then
+            echo "::error title=setup-rust sccache::${name} contains this step's delimiter" >&2
+            exit 1
+          fi
           {
-            printf '%s<<SETUP_RUST_RESTORED\n' "$name"
+            printf '%s<<%s\n' "$name" "$delimiter"
             printf '%s\n' "$recorded"
-            echo "SETUP_RUST_RESTORED"
+            echo "$delimiter"
           } >> "$GITHUB_ENV"
           report "$metric" restored
           # The variable, never its value: one of the three is a credential.

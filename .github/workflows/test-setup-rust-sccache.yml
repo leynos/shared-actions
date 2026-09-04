@@ -38,35 +38,10 @@ jobs:
             echo "::error::RUSTC_WRAPPER is not an executable: $RUSTC_WRAPPER" >&2
             exit 1
           fi
-          # The action started a fresh server, whose counters begin at zero,
-          # so any request recorded here came from this build and proves the
-          # wrapper is in the path Cargo actually takes.
-          mkdir -p sccache-probe/src
-          cat > sccache-probe/Cargo.toml <<'TOML'
-          [package]
-          name = "sccache-probe"
-          version = "0.0.0"
-          edition = "2021"
-          TOML
-          echo 'fn main() {}' > sccache-probe/src/main.rs
-          cargo build --manifest-path sccache-probe/Cargo.toml
-          "$RUSTC_WRAPPER" --show-stats
-          requests="$("$RUSTC_WRAPPER" --show-stats | awk '/Compile requests/ {print $NF; exit}')"
-          if [[ "${requests:-0}" -lt 1 ]]; then
-            echo "::error::sccache recorded no compile requests; the wrapper is not in use" >&2
-            exit 1
-          fi
-          echo "sccache recorded ${requests} compile request(s)"
-          # The requests above prove the wrapper is in Cargo's path. This
-          # proves they went somewhere that outlives the job: without the
-          # GitHub Actions backend sccache writes to local disk, which nothing
-          # persists, so the cache would be empty on every run.
-          location="$("$RUSTC_WRAPPER" --show-stats | awk -F'  +' '/Cache location/ {print $2; exit}')"
-          echo "sccache cache location: ${location}"
-          if [[ "$location" != *ghac* ]]; then
-            echo "::error::sccache is not using the GitHub Actions backend: ${location}" >&2
-            exit 1
-          fi
+          # Asserts a cacheable compilation actually reached the backend, not
+          # merely that requests were counted. See the script for why a
+          # hello-world binary proves neither.
+          .github/scripts/assert-sccache-cached-a-build.sh "$RUSTC_WRAPPER" ghac
 
   respects_a_caller_backend_choice:
     # A caller who turned the backend off must stay off, so the action cannot

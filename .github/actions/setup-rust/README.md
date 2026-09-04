@@ -222,10 +222,15 @@ Actions backend measured 0.28 s per cache hit against 0.42 s per compile on
 Chutoro, which is most of the benefit gone, and Whitaker's Windows lane had
 every one of 643 writes rejected. The same lane on a local directory under
 `actions/cache` had no read errors, no write errors and a 78 % warm hit rate.
-So set `use-sccache: 'false'`, install a pinned sccache, point `SCCACHE_DIR` at
-a directory inside the workspace, restore it with
+So set `use-sccache: 'false'`, install a pinned sccache, **export
+`RUSTC_WRAPPER` naming it**, point `SCCACHE_DIR` at a directory inside the
+workspace, restore it with
 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull requests, and
-let one designated job save it on a push to `main`. Ubicloud is the opposite
+let one designated job save it on a push to `main`. The wrapper is the step
+that is easy to leave out and impossible to notice: `use-sccache: 'false'`
+turns off this action's export along with its installation, so without it Cargo
+never routes through the sccache the lane just installed and cached. That is
+the failure #437 was. Ubicloud is the opposite
 case: its proxy is on the runner's own network, so the GitHub Actions arm is
 the fast one there.
 

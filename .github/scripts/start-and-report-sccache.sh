@@ -12,7 +12,12 @@ sccache --stop-server >/dev/null 2>&1 || true
 rm -f "${SCCACHE_ERROR_LOG:-/dev/null}" 2>/dev/null || true
 sccache --start-server
 echo "--- sccache --show-stats after starting from ${position} ---"
-sccache --show-stats
+stats="$(sccache --show-stats)"
+printf '%s\n' "$stats"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  location="$(printf '%s\n' "$stats" | awk -F'  +' '/^Cache location/ {print $2; exit}')"
+  echo "cache-location=${location}" >> "$GITHUB_OUTPUT"
+fi
 if [[ -n "${SCCACHE_ERROR_LOG:-}" && -f "${SCCACHE_ERROR_LOG}" ]]; then
   echo "--- sccache server log (${position}) ---"
   sed -n '1,60p' "${SCCACHE_ERROR_LOG}"

@@ -169,7 +169,13 @@ rate. So on those runners:
   writer do not contend for the key.
 
 The install is the lane's own, and pinned by version and digest, because
-nothing here is built from source or fetched unverified:
+nothing here is built from source or fetched unverified. This one is for
+**Linux x86_64 runners**, and only those: it names the
+`x86_64-unknown-linux-musl` archive, and `sha256sum` is a GNU coreutils tool
+that macOS does not ship. A macOS lane takes the `aarch64-apple-darwin` or
+`x86_64-apple-darwin` archive and `shasum -a 256 -c`, and a Windows lane the
+`x86_64-pc-windows-msvc` zip. Each has its own digest, published beside the
+archive as a `.sha256` file.
 
 ```yaml
 - name: Install sccache
@@ -189,9 +195,8 @@ nothing here is built from source or fetched unverified:
     echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 ```
 
-That digest is the x86_64 musl archive's; a lane on another platform takes the
-digest for its own. This pin is the lane's, and independent of the one
-`setup-rust` uses for `mozilla-actions/sccache-action`. Across this estate the
+This pin is the lane's, and independent of the one `setup-rust` uses for
+`mozilla-actions/sccache-action`. Across this estate the
 two do not currently agree: Whitaker and Axinite pin 0.16.0, Chutoro and
 Wildside 0.17.0.
 

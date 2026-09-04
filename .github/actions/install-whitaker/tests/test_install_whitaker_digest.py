@@ -21,9 +21,10 @@ import typing as typ
 
 import pytest
 from _action_manifest import step_by_name
-from _fragment_runner import require_posix_host
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+from composite_fragments import require_posix_host
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from pathlib import Path

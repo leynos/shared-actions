@@ -1,29 +1,39 @@
 # Changelog
 
-All notable changes to the `install-whitaker` action will be documented in
-this file.
+All notable changes to the `install-whitaker` action will be documented in this
+file.
 
 ## v1.0.0 (Unreleased)
 
+- Run the action's Bash fragments from a file in the test harness, as a
+  runner does, instead of passing them to `bash -c`. The two are not the same
+  shell invocation: Bash 3.2, which macOS runners ship, replaces itself with
+  the last command of a `bash -c` string when that command is external,
+  discarding any `ERR` trap along with the shell. No fragment here ends in a
+  bare external command today, so no assertion was wrong, but nothing kept it
+  that way. The action's own behaviour is unchanged.
+- Drop this action's private copy of the fragment harness in favour of the
+  shared `composite_fragments` module, which carries that fix and two tests for
+  it.
+
 - Fix extraction of the Windows release asset on GitHub-hosted runners
-  (#446). The extract step chose its extractor by probing what `tar` is, and
-  on `windows-latest` the answer is GNU tar, which cannot read the `.zip`
-  asset: the step's `shell: bash` is Git Bash, whose PATH puts MSYS2's tar
-  ahead of the Windows system directory. The probe held only on runner images
-  where `tar` happened to resolve to bsdtar. The extractor is now chosen by
-  the resolved asset extension instead. A tarball still goes through `tar`,
-  with the `--force-local` probe unchanged; a zip goes through the Windows
-  system `tar.exe`, which is bsdtar and honours `--strip-components`, falling
-  back to a Python extractor the action ships for a runner that has neither.
-  An unrecognized extension now fails closed rather than falling through to
-  `tar`. The action still never requires `unzip`, which some Windows images
-  lack.
+  (#446). The extract step chose its extractor by probing what `tar` is, and on
+  `windows-latest` the answer is GNU tar, which cannot read the `.zip` asset:
+  the step's `shell: bash` is Git Bash, whose PATH puts MSYS2's tar ahead of
+  the Windows system directory. The probe held only on runner images where
+  `tar` happened to resolve to bsdtar. The extractor is now chosen by the
+  resolved asset extension instead. A tarball still goes through `tar`, with the
+  `--force-local` probe unchanged; a zip goes through the Windows system
+  `tar.exe`, which is bsdtar and honours `--strip-components`, falling back to
+  a Python extractor the action ships for a runner that has neither. An
+  unrecognized extension now fails closed rather than falling through to `tar`.
+  The action still never requires `unzip`, which some Windows images lack.
 
   The unit tests' `tar` shim previously unpacked zip archives itself, which
-  made the harness's tar zip-capable and hid this for as long as it existed.
-  It now refuses a zip exactly as GNU tar does, so the zip arm has to work for
-  the Windows scenario to pass, and the `Test install-whitaker` workflow gained
-  a `windows-latest` leg, which is the only place the real PATH ordering can be
+  made the harness's tar zip-capable and hid this for as long as it existed. It
+  now refuses a zip exactly as GNU tar does, so the zip arm has to work for the
+  Windows scenario to pass, and the `Test install-whitaker` workflow gained a
+  `windows-latest` leg, which is the only place the real PATH ordering can be
   observed.
 
 - Fix extraction on Windows runners. `RUNNER_TEMP` is a native path, so under
@@ -39,8 +49,8 @@ this file.
   line when the file name contains a backslash or a newline, prefixing the line
   with a backslash, and Windows paths contain backslashes, so the verify step
   read `\<digest>` and rejected a correct archive. Digests are now computed
-  from standard input, which keeps the file name out of the output entirely, and
-  a digest read from a release sidecar has any leading backslash stripped.
+  from standard input, which keeps the file name out of the output entirely,
+  and a digest read from a release sidecar has any leading backslash stripped.
 
 - Add cached installation of the Whitaker Dylint suite
 - Download and verify official prebuilt installer releases without a source
@@ -58,8 +68,7 @@ this file.
 - Extract both archive formats with `tar` rather than `unzip`, which is not
   present on every runner image
 - Retry each release download with bounded connect and transfer timeouts, and
-  record each transfer's outcome, HTTP status, size, duration, and attempt
-  count
+  record each transfer's outcome, HTTP status, size, duration, and attempt count
 - Separate release resolution, which is now a pure query in
   `scripts/resolve-release.sh`, from the adapter step that captures its record
   and the publication step that writes outputs, metrics, and annotations

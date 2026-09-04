@@ -6,10 +6,11 @@ environment of later steps, and runs every fragment in its own Bash process.
 That keeps a test faithful to the action's real step boundaries instead of
 hand-building the environment each fragment expects.
 
-Nothing here knows about a particular action. ``install-whitaker`` still
-carries a private copy of this harness in its own test directory; folding that
-copy into this module is a separate change, so that action's in-flight test
-work is not disturbed.
+Nothing here knows about a particular action. Each fragment is written to a
+file and that file is run, because a runner does the same and the difference is
+observable: Bash 3.2, which macOS runners ship, replaces itself with the last
+command of a ``bash -c`` string when that command is external, discarding any
+``ERR`` trap along with the shell.
 """
 
 from __future__ import annotations
@@ -293,6 +294,31 @@ def run_step(
     )
     context.record(step, output_file)
     return process
+
+
+def run_lifecycle(
+    steps: list[dict[str, object]],
+    context: ActionContext,
+    environment: FragmentEnvironment,
+) -> LifecycleResult:
+    """Run the selected fragments in order and collect what they produced.
+
+    A step whose condition does not select it is skipped, and a failure marks
+    the run failed rather than ending the walk. Since a condition without a
+    status function carries an implicit ``success()``, a plain sequence of
+    steps still stops at its first failure; only a step that asked for
+    ``failure()`` runs after one.
+    """
+    results: list[StepResult] = []
+    for index, step in enumerate(steps):
+        if not context.evaluate_condition(step):
+            continue
+        name = typ.cast("str", step["name"])
+        process = run_step(step, context, environment, f"{index:02d}-output")
+        results.append(StepResult(name=name, process=process))
+        if process.returncode != 0:
+            context.succeeded = False
+    return LifecycleResult(steps=tuple(results))
 
 
 def ambient_env() -> dict[str, str]:

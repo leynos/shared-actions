@@ -2,15 +2,27 @@
 
 ## Unreleased
 
+- Raise the cargo watchdog default from 600 to 1800 seconds and expose it as
+  the `cargo-wait-timeout` input. The old figure suited a lane that restored a
+  `target` archive; a lane that lets sccache own compiler output has the whole
+  instrumented compile to do inside the budget on a cold store, and netsuke's
+  first trunk run after that change was killed at 600 s having finished all
+  2,790 tests at about 512 s.
+- Report the budget as `cargo watchdog budget: <seconds>s` before cargo
+  starts, and name both the budget and how to raise it when it expires. A cold
+  build and a hang look identical from outside, and the message used to send
+  the reader looking for a deadlock.
+
 - Emit one stable metric line per ratchet cache outcome,
-  `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
-  alongside the existing notice and job summary. The names are fixed and the
-  values come from the closed outcome vocabularies, so a log scraper sees
-  bounded cardinality and no cache key, path, or run identifier.
+  `metric ratchet-cache.restore=<state>` and
+  `metric ratchet-cache.save=<state>`, alongside the existing notice and job
+  summary. The names are fixed and the values come from the closed outcome
+  vocabularies, so a log scraper sees bounded cardinality and no cache key,
+  path, or run identifier.
 - Move the unpinned-cache-reference contract to a repository-wide test covering
-  every action under `.github/actions`, which also requires all of them to share
-  one pinned revision. The baseline cache lifecycle contract moves alongside it,
-  parametrized over both actions that persist a ratchet baseline.
+  every action under `.github/actions`, which also requires all of them to
+  share one pinned revision. The baseline cache lifecycle contract moves
+  alongside it, parametrized over both actions that persist a ratchet baseline.
 
 - Add `all-features`, `all-targets`, and `doctests` inputs so one coverage job
   can be a repository's only test execution. All three default to off.
@@ -65,8 +77,7 @@
 - Report the `cargo-nextest` installation in the job summary, mirroring the
   Whitaker action, with a bounded set of `cargo-nextest.` metrics for the
   download outcome (duration and byte count), the archive digest outcome, the
-  executable digest outcome, and the install outcome, including the reuse
-  path.
+  executable digest outcome, and the install outcome, including the reuse path.
 
 - Stop masking coverage failures with an empty-artefact-name error. The
   "Archive coverage" step runs with `if: always()`, but the step that computes
@@ -83,10 +94,11 @@
   `rust` requires a resolved Cargo manifest and ignores a configuration-only
   `pyproject.toml` (no `[project]` table); `python` requires a syncable
   `pyproject.toml` with a `[project]` table, matching the action's `uv sync`
-  contract; `mixed` requires both. This lets a Rust-only repository that keeps a
-  tooling-only `pyproject.toml` (for Ruff, Pylint, ty, etc.) set `language: rust`
-  and keep generating `lcov`, which `auto` would otherwise reject by classifying
-  the repository as mixed. Callers that omit `language` are unaffected.
+  contract; `mixed` requires both. This lets a Rust-only repository that keeps
+  a tooling-only `pyproject.toml` (for Ruff, Pylint, ty, etc.) set
+  `language: rust` and keep generating `lcov`, which `auto` would otherwise
+  reject by classifying the repository as mixed. Callers that omit `language`
+  are unaffected.
 
 - Fix the coverage ratchet baseline freeze. The "Save baselines" step wrote a
   constant, run-id-less cache key (`ratchet-baseline-<os>`) guarded by
@@ -110,11 +122,11 @@
   from inflating the baseline so the next normal run fails. The tolerance is a
   single named constant (`RATCHET_TOLERANCE_PP = 1.0`).
 - Omit `--summary-only` from `cargo llvm-cov` for the file formats
-  (`lcov`, `cobertura`). With the flag, cargo-llvm-cov exports only
-  summary information, so reports lacked per-line execution records
-  (LCOV `DA` lines, Cobertura `<line>` elements) and changed-line
-  coverage gates (e.g. CodeScene) had nothing to evaluate. Streamed
-  formats keep the flag so stdout remains parseable.
+  (`lcov`, `cobertura`). With the flag, cargo-llvm-cov exports only summary
+  information, so reports lacked per-line execution records (LCOV `DA` lines,
+  Cobertura `<line>` elements) and changed-line coverage gates (e.g. CodeScene)
+  had nothing to evaluate. Streamed formats keep the flag so stdout remains
+  parseable.
 - Ensure a pinned `cargo-binstall` (`v1.19.1`) is present before installing
   Rust coverage tooling. The new "Ensure cargo-binstall" step verifies any
   existing binary against the pinned version and reuses it only on a match;
@@ -143,8 +155,7 @@
   automatically when the Python executable is missing.
 - Project dependencies are synced into the venv via
   `uv sync --inexact --python`; `slipcover`, `pytest`, and `coverage` are
-  installed via
-  `uv pip install --python` without `--system`.
+  installed via `uv pip install --python` without `--system`.
 - Broken-venv recovery: if `.venv-coverage` exists but its Python executable
   is absent or a non-directory placeholder occupies its path, the directory is
   removed and recreated before proceeding.

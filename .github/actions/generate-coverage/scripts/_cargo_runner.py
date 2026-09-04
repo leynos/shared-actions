@@ -309,12 +309,51 @@ def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
     raise typer.Exit(1) from None
 
 
+#: How long cargo may run before the watchdog kills it, in seconds.
+#:
+#: Sized for a cold sccache store rather than a warm one. A lane that no longer
+#: archives its `target` tree has the whole instrumented compile to do on the
+#: first run of a branch and after every cache eviction, inside this budget;
+#: netsuke measured a run that finished its 2,790 tests at about 512 s and was
+#: killed 88 s later at 600 s, during report generation, with sccache at 19%
+#: hits. A watchdog is there to catch a hang, and a build that is merely cold
+#: must not look like one.
+DEFAULT_CARGO_WAIT_TIMEOUT = 1800.0
+
+
+def _resolve_wait_timeout() -> float:
+    """Return the watchdog budget, and report it before cargo starts."""
+    raw = os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT")
+    if raw is None or not raw.strip():
+        wait_timeout = DEFAULT_CARGO_WAIT_TIMEOUT
+    else:
+        try:
+            wait_timeout = float(raw)
+        except ValueError as exc:
+            typer.echo(
+                "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number",
+                err=True,
+            )
+            raise typer.Exit(1) from exc
+    typer.echo(f"cargo watchdog budget: {wait_timeout}s")
+    return wait_timeout
+
+
 def _raise_cargo_timeout(
     proc: subprocess.Popen[str], *, wait_timeout: float
 ) -> typ.Never:
-    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout."""
+    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout.
+
+    The message names the budget and how to change it. A build that is merely
+    cold looks exactly like a hang from the outside, and the first reaction to
+    this error should be to check the budget rather than to hunt a deadlock.
+    """
     typer.echo(
-        f"::error::cargo did not exit within {wait_timeout}s; killing",
+        f"::error::cargo did not exit within {wait_timeout}s; killing. "
+        "This is a budget, not a detected hang: raise the cargo-wait-timeout "
+        "input, or RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately "
+        "slower. A cold sccache store makes the first run on a branch compile "
+        "everything inside this budget.",
         err=True,
     )
     with contextlib.suppress(Exception):
@@ -330,7 +369,7 @@ def _wait_for_cargo(
     """Wait for cargo to exit and return its return code.
 
     Kills the process and raises ``typer.Exit(1)`` if it does not exit
-    within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
+    within the watchdog budget; see ``DEFAULT_CARGO_WAIT_TIMEOUT``.
     """
     try:
         return proc.wait(timeout=max(0.0, deadline - time.monotonic()))
@@ -400,14 +439,7 @@ def _run_cargo(
     """
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
-    try:
-        wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-    except ValueError as exc:
-        typer.echo(
-            "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number",
-            err=True,
-        )
-        raise typer.Exit(1) from exc
+    wait_timeout = _resolve_wait_timeout()
     deadline = time.monotonic() + wait_timeout
     proc = _spawn_cargo(cargo[args], env)
     try:

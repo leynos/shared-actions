@@ -129,27 +129,28 @@ Known limitations:
 ## Inputs
 
 <!-- markdownlint-disable MD013 -->
-| Name | Description | Required | Default |
-| --- | --- | --- | --- |
-| features | Enable Cargo (Rust) features; space- or comma-separated. | no | |
-| with-default-features | Enable default Cargo features (Rust) | no | `true` |
-| all-features | Pass `--all-features`. Supersedes `with-default-features`; rejected alongside a non-empty `features` list. | no | `false` |
-| all-targets | Pass `--all-targets` so benches, examples, and every test target run under coverage. | no | `false` |
-| doctests | Run `cargo test --doc --workspace` after the instrumented run, uninstrumented. | no | `false` |
-| language | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below. | no | `auto` |
-| cargo-manifest | Optional path to Cargo.toml if root Cargo.toml is missing | no | |
-| use-cargo-nextest | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly | no | `true` |
-| output-path | Output file path | yes | |
-| format | Formats: `lcov`*, `cobertura`, `coveragepy`* | no | `cobertura` |
-| with-ratchet | Fail if coverage drops more than 1pp below baseline | no | `false` |
-| artefact-name-suffix | Additional suffix appended to the uploaded coverage artefact | no | |
-| baseline-rust-file | Rust baseline path | no | `.coverage-baseline.rust` |
-| baseline-python-file | Python baseline path | no | `.coverage-baseline.python` |
-| with-cucumber-rs | Run cucumber-rs scenarios under coverage | no | `false` |
-| cucumber-rs-features | Path to cucumber feature files | no | |
-| cucumber-rs-args | Extra arguments for cucumber | no | |
-| pytest-workers | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism. | no | `auto` |
-| cache-provider | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner. | no | `github` |
+| Name                  | Description                                                                                                                                                                                        | Required | Default                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------- |
+| features              | Enable Cargo (Rust) features; space- or comma-separated.                                                                                                                                           | no       |                             |
+| with-default-features | Enable default Cargo features (Rust)                                                                                                                                                               | no       | `true`                      |
+| all-features          | Pass `--all-features`. Supersedes `with-default-features`; rejected alongside a non-empty `features` list.                                                                                         | no       | `false`                     |
+| all-targets           | Pass `--all-targets` so benches, examples, and every test target run under coverage.                                                                                                               | no       | `false`                     |
+| doctests              | Run `cargo test --doc --workspace` after the instrumented run, uninstrumented.                                                                                                                     | no       | `false`                     |
+| language              | Coverage language scope: `auto`, `rust`, `python`, or `mixed`. `auto` keeps manifest-based detection; explicit values force the scope and fail fast when its prerequisites are missing. See below. | no       | `auto`                      |
+| cargo-manifest        | Optional path to Cargo.toml if root Cargo.toml is missing                                                                                                                                          | no       |                             |
+| use-cargo-nextest     | Use cargo-nextest for Rust coverage runs (default); set to `false` to use `cargo llvm-cov` directly                                                                                                | no       | `true`                      |
+| output-path           | Output file path                                                                                                                                                                                   | yes      |                             |
+| format                | Formats: `lcov`*, `cobertura`, `coveragepy`*                                                                                                                                                       | no       | `cobertura`                 |
+| with-ratchet          | Fail if coverage drops more than 1pp below baseline                                                                                                                                                | no       | `false`                     |
+| cargo-wait-timeout    | Seconds cargo may run before the watchdog kills it                                                                                                                                                 | no       | `1800`                      |
+| artefact-name-suffix  | Additional suffix appended to the uploaded coverage artefact                                                                                                                                       | no       |                             |
+| baseline-rust-file    | Rust baseline path                                                                                                                                                                                 | no       | `.coverage-baseline.rust`   |
+| baseline-python-file  | Python baseline path                                                                                                                                                                               | no       | `.coverage-baseline.python` |
+| with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                           | no       | `false`                     |
+| cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                     | no       |                             |
+| cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                       | no       |                             |
+| pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                   | no       | `auto`                      |
+| cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                               | no       | `github`                    |
 <!-- markdownlint-enable MD013 -->
 
 \* `lcov` is only supported for Rust projects, while `coveragepy` is only
@@ -167,8 +168,7 @@ replace a separate test job.
 
 `all-features`, `all-targets` and `doctests` exist so one coverage job can be a
 repository's entire test run, rather than a second execution alongside a
-separate test job. All three default to off, so existing callers are
-unaffected.
+separate test job. All three default to off, so existing callers are unaffected.
 
 ```yaml
 - uses: ./.github/actions/generate-coverage
@@ -179,18 +179,18 @@ unaffected.
     doctests: 'true'
 ```
 
-`all-features` takes precedence over the narrower feature inputs. It
-supersedes `with-default-features`, so `--no-default-features` is not passed
-and a warning is logged if the two disagree. Setting it together with a
-non-empty `features` list fails the step: `--all-features` already enables
-everything the list could name, and accepting both would misreport a narrower
-set as measured when a wider one ran.
+`all-features` takes precedence over the narrower feature inputs. It supersedes
+`with-default-features`, so `--no-default-features` is not passed and a warning
+is logged if the two disagree. Setting it together with a non-empty `features`
+list fails the step: `--all-features` already enables everything the list could
+name, and accepting both would misreport a narrower set as measured when a
+wider one ran.
 
-`all-targets` does not cover doc tests, which are a separate Cargo target
-kind. `doctests` runs them afterwards through `cargo test --doc --workspace`
-with the same feature selection. That run is uninstrumented and contributes no
-coverage, because `cargo llvm-cov`'s nextest path cannot execute doc tests; it
-is there to make the doc tests fail the job when they break.
+`all-targets` does not cover doc tests, which are a separate Cargo target kind.
+`doctests` runs them afterwards through `cargo test --doc --workspace` with the
+same feature selection. That run is uninstrumented and contributes no coverage,
+because `cargo llvm-cov`'s nextest path cannot execute doc tests; it is there
+to make the doc tests fail the job when they break.
 
 `RUSTFLAGS` from the calling workflow is inherited by every Cargo invocation
 the action makes, so a job that exports `-D warnings` gets warnings denied
@@ -299,6 +299,31 @@ Use `language: rust` for a Rust repository that keeps a tooling-only
     output-path: lcov.info
     format: lcov
 ```
+
+## The cargo watchdog
+
+`cargo` is run under a watchdog that kills it after `cargo-wait-timeout`
+seconds, defaulting to 1800. The watchdog is there to catch a hang, and its
+budget is sized so that a build which is merely cold does not look like one.
+
+That distinction is the whole reason for the number. A lane that archives its
+`target` tree runs a mostly incremental instrumented build, and a few hundred
+seconds covers little more than test execution. A lane that has stopped
+archiving `target` and let sccache own compiler output, which is the direction
+this estate has moved, does the entire instrumented compile inside this budget
+on the first run of a branch and after every cache eviction. Netsuke's first
+trunk run after that change finished all 2,790 of its tests at about 512
+seconds and was killed at 600, during report generation, with sccache serving
+333 of 2,336 requests. Nothing was wrong with the build; it was cold.
+
+The budget is reported before cargo starts, as
+`cargo watchdog budget: <seconds>s`, and an expiry names both the budget and
+how to raise it. Raise the input for a slower suite. Lower it only when a hang
+must be caught sooner than the build can legitimately finish, and know that you
+are trading a false failure for a faster one.
+
+`RUN_RUST_CARGO_WAIT_TIMEOUT` still overrides it, for a caller setting the
+budget at job level across several steps.
 
 ## Outputs
 

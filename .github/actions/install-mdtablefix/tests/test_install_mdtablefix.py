@@ -10,6 +10,7 @@ input and install modules. Run the suite with ``uv run pytest
 
 from __future__ import annotations
 
+import re
 import string
 import typing as typ
 
@@ -186,3 +187,19 @@ class TestBashCompatibility:
                 assert token not in script, (
                     f"{step['name']!r} uses the Bash 4 construct {token!r}"
                 )
+
+    def test_reports_failures_without_an_err_trap(self) -> None:
+        """Verify no fragment reports a failure through an ``ERR`` trap.
+
+        Bash 3.2 did not run the trap when cargo-binstall exited non-zero on a
+        macOS runner: the step failed with no annotation and no metric. Every
+        failure path checks an exit status explicitly instead.
+        """
+        declares_err_trap = re.compile(r"^\s*trap\b.*\bERR\b", re.MULTILINE)
+        for step in manifest_steps():
+            script = step.get("run")
+            if not isinstance(script, str):
+                continue
+            assert declares_err_trap.search(script) is None, (
+                f"{step['name']!r} declares an ERR trap"
+            )

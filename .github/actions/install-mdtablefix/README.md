@@ -122,6 +122,10 @@ relative path without a version suffix. The runner must provide Bash 3.2 or
 later; the fragments avoid every Bash 4 construct so macOS runners behave the
 same way.
 
+Failures are reported by an explicit exit-status check rather than an `ERR`
+trap. Bash 3.2 did not run the trap when cargo-binstall failed on a macOS
+runner, which left the step failing silently, with no annotation and no metric.
+
 ## Release history
 
 See the [changelog](CHANGELOG.md).

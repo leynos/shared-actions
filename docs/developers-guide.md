@@ -441,9 +441,15 @@ Rules to keep:
   download.** A sidecar is a cross-check on the pin's provenance, never the
   source of it. Copying a digest out of a sidecar records only that the sidecar
   agrees with itself.
-- **Record the sidecar state.** `match`, `absent` or `unchecked`. cargo-audit
-  and cargo-llvm-cov publish none, and that gap is data rather than something
-  to infer from silence.
+- **Record the cross-check in `sidecar-verified`.** `true` when upstream
+  publishes a sidecar and it agreed, `absent` when it publishes none, `false`
+  when one exists and could not be read. cargo-audit and cargo-llvm-cov publish
+  none, and that gap is data rather than something to infer from silence. A
+  test asserts those two are the only entries without one, so the day either
+  starts publishing digests it fails and someone records the cross-check.
+- **Dylint is Linux only**, asked for upstream in
+  [trailofbits/dylint#2068](https://github.com/trailofbits/dylint/issues/2068).
+  A test asserts it is the only Linux-only tool, for the same reason.
 - **The resolver is pure.** `scripts/resolve_tool.py` reads the manifest,
   prints `key=value` lines, and performs no side effect. Every failure is a
   `status` line rather than an exception, so one step decides what a failed

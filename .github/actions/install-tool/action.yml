@@ -94,12 +94,12 @@ runs:
         # contain into step outputs would make it one.
         printf '%s\n' "$resolution" | awk -F= '
           $1 == "triple" || $1 == "url" || $1 == "sha256" || $1 == "member" ||
-          $1 == "sidecar" || $1 == "extension" || $1 == "binary" ||
+          $1 == "sidecar-verified" || $1 == "extension" || $1 == "binary" ||
           $1 == "version-args" || $1 == "version-check" ||
           $1 == "expected-version" { print }
         ' >> "$GITHUB_OUTPUT"
         emit_metric "install-tool.resolve=ok"
-        emit_metric "install-tool.sidecar=$(field sidecar)"
+        emit_metric "install-tool.sidecar-verified=$(field sidecar-verified)"
 
     # Probing before downloading is what makes a second call cheap, and it
     # probes for the exact version rather than for the file, because a binary

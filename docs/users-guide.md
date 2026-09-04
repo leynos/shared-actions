@@ -356,13 +356,30 @@ dependency that changes underneath you, which is how a job on
 `Unable to locate executable file: undefined`.
 
 The manifest currently carries cargo-audit, cargo-nextest, cargo-llvm-cov,
-cargo-dylint, dylint-link and sccache. Two limits are worth knowing before you
-plan around it. Dylint publishes Linux archives only, so `cargo-dylint` and
-`dylint-link` fail closed on macOS and Windows and those lanes still have no
-prebuilt option. And cargo-audit and cargo-llvm-cov publish no digest sidecars
-at all, so their pins rest on a digest computed here from an independent
-download with nothing upstream to corroborate it; the manifest records that as
-`sidecar = "absent"` rather than leaving you to infer it.
+cargo-dylint, dylint-link and sccache.
+
+**Every pinned digest was computed here from an independent download of the
+archive it describes. That is the trust anchor.** Where upstream publishes a
+`.sha256` sidecar it was fetched and compared, and the entry records the result
+in `sidecar-verified`, over `true`, `absent` when upstream publishes none, and
+`false` when one exists and could not be read. The sidecar is a cross-check on
+the pin's provenance and never the source of it: copying a digest out of one
+records only that the sidecar agrees with itself.
+
+Two limits are worth knowing before you plan around it.
+
+**Dylint publishes Linux archives only**, so `cargo-dylint` and `dylint-link`
+fail closed on macOS and Windows, and a lane running Dylint there still has no
+prebuilt option and builds from source. Asked for upstream in
+[trailofbits/dylint#2068](https://github.com/trailofbits/dylint/issues/2068).
+Every Tier 2b repository runs Dylint on `ubuntu-latest` today, so nothing is
+blocked; this is here so that a lane moving off Linux discovers it now rather
+than in a red gate.
+
+**cargo-audit and cargo-llvm-cov publish no digest sidecars at all**, for any
+target, so their entries carry `sidecar-verified = "absent"`. What is missing
+is the corroboration of the pin, not any check CI performs: the digest is still
+verified on every download.
 
 By default the binary goes to `~/.cargo/bin`, and `bin-dir` moves it. Either
 way the directory is added to `PATH`, so the next step calls the tool by name.

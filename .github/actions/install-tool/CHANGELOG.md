@@ -12,8 +12,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Install a pinned, digest-verified tool from `.github/tool-manifest.toml`.
   The manifest carries one entry per tool, version and target triple, with the
-  archive URL, its SHA-256, the path of the binary inside it, and whether an
-  upstream sidecar corroborated the digest. Seeded with cargo-audit 0.22.2,
+  archive URL, its SHA-256, the path of the binary inside it, and
+  `sidecar-verified`, recording whether an upstream sidecar corroborated the
+  digest: `true` when it agreed, `absent` when upstream publishes none, `false`
+  when one exists and could not be read. The pinned digest, computed from an
+  independent download, is the trust anchor either way.
+
+  Seeded with cargo-audit 0.22.2,
   cargo-nextest 0.9.143, cargo-llvm-cov 0.9.0, cargo-dylint and dylint-link
   6.0.4, and sccache 0.17.0, across five targets.
 
@@ -38,9 +43,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Two limits are recorded in the manifest rather than left to be discovered.
   cargo-audit and cargo-llvm-cov publish no digest sidecars at all, so those
-  pins carry `sidecar = "absent"` and have no upstream cross-check. Dylint
-  6.0.4 ships Linux archives only, so macOS and Windows fail closed with the
-  targets it does offer. Both are tracked in issue #450.
+  pins carry `sidecar-verified = "absent"` and have no upstream cross-check.
+  Dylint 6.0.4 ships Linux archives only, so macOS and Windows fail closed with
+  the targets it does offer, asked for upstream in trailofbits/dylint#2068.
+  Both are tracked in issue #450, and each has a test asserting it is still the
+  case, so the day upstream changes, someone is told.
 
   The archive is hashed from stdin rather than by file name, because GNU
   `sha256sum` escapes its output line for a name containing a backslash and a

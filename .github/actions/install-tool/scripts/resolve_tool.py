@@ -169,7 +169,7 @@ def describe(
         "url": target["url"],
         "sha256": target["sha256"],
         "member": target["member"],
-        "sidecar": target.get("sidecar", "unchecked"),
+        "sidecar_verified": target.get("sidecar-verified", "false"),
         "extension": extension,
         "binary": binary + (".exe" if runner.os == "Windows" else ""),
         # Space-separated because a shell step reads this back, and no argument

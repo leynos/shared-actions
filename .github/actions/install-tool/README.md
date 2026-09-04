@@ -44,7 +44,8 @@ making it float is not.
 A target the tool publishes no archive for also fails closed, naming the
 targets it does offer. Dylint is the live example: version 6.0.4 ships Linux
 archives only, so a macOS or Windows lane gets a refusal here rather than a
-confusing failure several steps later.
+confusing failure several steps later. Asked for upstream in
+[trailofbits/dylint#2068](https://github.com/trailofbits/dylint/issues/2068).
 
 ## How a tool is verified
 
@@ -52,8 +53,12 @@ Three checks, in this order, each catching something the others cannot.
 
 The **pinned digest** is the trust anchor. It was computed from an independent
 download of the archive when the entry was written, not copied from an upstream
-sidecar; where a sidecar exists it was fetched and compared, and the manifest
-records which. The archive is hashed by feeding it to `sha256sum` on **stdin**,
+sidecar. Where a sidecar exists it was fetched and compared, and the entry
+records the result in `sidecar-verified`: `true` when it agreed, `absent` when
+upstream publishes none, `false` when one exists and could not be read. The
+sidecar corroborates the pin's provenance and is never its source.
+
+The archive is hashed by feeding it to `sha256sum` on **stdin**,
 never by file name, because GNU `sha256sum` escapes its output line when the
 name contains a backslash and a Windows path therefore produced a leading
 backslash that rejected a correct archive.
@@ -96,7 +101,7 @@ summary for a reader:
 | Metric | Values |
 | --- | --- |
 | `install-tool.resolve` | `ok`, `no-python`, `manifest-unreadable`, `unknown-tool`, `unknown-version`, `unsupported-runner`, `unsupported-target`, `unsupported-extension` |
-| `install-tool.sidecar` | `match`, `absent`, `unchecked` |
+| `install-tool.sidecar-verified` | `true`, `false`, `absent` |
 | `install-tool.cache` | `hit`, `hit-unverified`, `miss`, `stale` |
 | `install-tool.download` | `ok`, `failed` |
 | `install-tool.digest` | `verified`, `mismatch` |

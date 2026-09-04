@@ -48,7 +48,7 @@ METRICS = {
         "unsupported-target",
         "unsupported-extension",
     },
-    "install-tool.sidecar": {"match", "absent", "unchecked"},
+    "install-tool.sidecar-verified": {"true", "false", "absent"},
     "install-tool.cache": {"hit", "hit-unverified", "miss", "stale"},
     "install-tool.download": {"ok", "failed"},
     "install-tool.digest": {"verified", "mismatch"},

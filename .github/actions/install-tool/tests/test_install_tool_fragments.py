@@ -136,7 +136,7 @@ def _resolved(
         "url": archive.as_uri(),
         "sha256": _digest(archive),
         "member": member,
-        "sidecar": "match",
+        "sidecar-verified": "true",
         "extension": extension,
         "binary": "widget",
         "version-args": "--version",

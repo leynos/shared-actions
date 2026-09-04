@@ -34,8 +34,10 @@ EXTENSIONS = (".tar.gz", ".tgz", ".zip")
 #: nobody owns or a host that can change what it serves.
 RELEASE_HOSTS = frozenset({"github.com"})
 
-#: Recorded provenance of each pinned digest.
-SIDECAR_STATES = frozenset({"match", "absent", "unchecked"})
+#: What the cross-check on a pinned digest found. "true" means upstream
+#: publishes a sidecar and it agreed; "absent" means it publishes none; "false"
+#: means one exists and could not be read.
+SIDECAR_STATES = frozenset({"true", "false", "absent"})
 
 TRIPLES = frozenset(SUPPORTED_RUNNERS.values())
 
@@ -70,7 +72,7 @@ class TestSchema:
                 "url",
                 "sha256",
                 "member",
-                "sidecar",
+                "sidecar-verified",
             }, f"{entry['name']} {target.get('triple')}"
 
     @pytest.mark.parametrize("entry", manifest_entries(), ids=_identifiers())
@@ -100,9 +102,31 @@ class TestDigests:
             assert DIGEST.match(digest), f"{entry['name']} {target['triple']}: {digest}"
 
     def test_every_sidecar_state_is_recorded(self) -> None:
-        """Whether a pin has a second opinion is data, not an inference."""
+        """Whether a pin has a second opinion is data, not an inference.
+
+        The pinned digest is the trust anchor either way, computed here from
+        an independent download; the sidecar only corroborates the pin's
+        provenance. Recording `absent` says the corroboration is missing,
+        rather than leaving a reader to infer it from silence.
+        """
         for entry, target in manifest_targets():
-            assert target["sidecar"] in SIDECAR_STATES, entry["name"]
+            assert target["sidecar-verified"] in SIDECAR_STATES, entry["name"]
+
+    def test_the_tools_without_upstream_sidecars_are_the_expected_ones(self) -> None:
+        """cargo-audit and cargo-llvm-cov publish none, for any target.
+
+        Asserted so that the day either starts publishing them, this fails and
+        someone records the cross-check, rather than the gap persisting
+        because nobody looked.
+        """
+        unverified = {
+            entry["name"]
+            for entry in manifest_entries()
+            for target in entry["target"]
+            if target["sidecar-verified"] != "true"
+        }
+
+        assert unverified == {"cargo-audit", "cargo-llvm-cov"}
 
     def test_identical_urls_carry_identical_digests(self) -> None:
         """One archive serves both Apple targets, and must hash the same.

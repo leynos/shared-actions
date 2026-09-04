@@ -32,14 +32,14 @@ version-args = ["--version"]
   url = "https://github.com/example/widget/releases/download/v1.2.3/widget.tar.gz"
   sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   member = "widget-1.2.3/widget"
-  sidecar = "match"
+  sidecar-verified = "true"
 
   [[tool.target]]
   triple = "x86_64-pc-windows-msvc"
   url = "https://github.com/example/widget/releases/download/v1.2.3/widget.zip"
   sha256 = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
   member = "widget.exe"
-  sidecar = "absent"
+  sidecar-verified = "absent"
 
 [[tool]]
 name = "quiet"
@@ -52,7 +52,7 @@ version-args = []
   url = "https://github.com/example/quiet/releases/download/v0.1.0/quiet.tgz"
   sha256 = "aaaabbbbccccddddeeeeffff00001111aaaabbbbccccddddeeeeffff00001111"
   member = "quiet"
-  sidecar = "unchecked"
+  sidecar-verified = "false"
 """
 
 
@@ -153,7 +153,7 @@ class TestResolution:
         """Whether a pin has upstream corroboration reaches the log."""
         _completed, fields = resolve(manifest, "widget", "1.2.3")
 
-        assert fields["sidecar"] == "match"
+        assert fields["sidecar-verified"] == "true"
 
 
 class TestFailures:

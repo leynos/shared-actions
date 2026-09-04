@@ -16,7 +16,20 @@ from __future__ import annotations
 import argparse
 import sys
 import tomllib
+import typing as typ
 from pathlib import Path
+
+
+class Runner(typ.NamedTuple):
+    """The runner description that decides which archive an entry offers.
+
+    A pair rather than two arguments, because neither half means anything
+    without the other and every function taking them takes both.
+    """
+
+    os: str
+    arch: str
+
 
 #: Runner OS and architecture to Rust target triple. GitHub reports these as
 #: `runner.os` and `runner.arch`; the pair is what decides which archive an
@@ -106,11 +119,11 @@ def select_version(entries: list[dict], tool: str, version: str) -> dict:
     return matching[0]
 
 
-def select_triple(runner_os: str, runner_arch: str) -> str:
+def select_triple(runner: Runner) -> str:
     """Return the target triple for a runner, refusing to guess at an unknown."""
-    triple = TARGETS.get((runner_os, runner_arch))
+    triple = TARGETS.get((runner.os, runner.arch))
     if triple is None:
-        message = f"unsupported runner {runner_os}/{runner_arch}"
+        message = f"unsupported runner {runner.os}/{runner.arch}"
         raise _UnresolvedError(UNSUPPORTED_RUNNER, message)
     return triple
 
@@ -145,7 +158,7 @@ def select_extension(entry: dict, triple: str, url: str) -> str:
 
 
 def describe(
-    entry: dict, target: dict, extension: str, runner_os: str
+    entry: dict, target: dict, extension: str, runner: Runner
 ) -> dict[str, object]:
     """Return the fields a resolved entry publishes to the calling step."""
     binary = str(entry.get("binary", entry["name"]))
@@ -158,7 +171,7 @@ def describe(
         "member": target["member"],
         "sidecar": target.get("sidecar", "unchecked"),
         "extension": extension,
-        "binary": binary + (".exe" if runner_os == "Windows" else ""),
+        "binary": binary + (".exe" if runner.os == "Windows" else ""),
         # Space-separated because a shell step reads this back, and no argument
         # any of these tools takes contains a space.
         "version_args": " ".join(str(argument) for argument in version_args),
@@ -171,17 +184,17 @@ def describe(
 
 
 def resolve(
-    manifest: dict, tool: str, version: str, runner_os: str, runner_arch: str
+    manifest: dict, tool: str, version: str, runner: Runner
 ) -> dict[str, object]:
     """Return the fields describing one entry, or the reason there is none."""
     try:
         entry = select_version(select_tool(manifest, tool), tool, version)
-        triple = select_triple(runner_os, runner_arch)
+        triple = select_triple(runner)
         target = select_target(entry, triple)
         extension = select_extension(entry, triple, str(target.get("url", "")))
     except _UnresolvedError as unresolved:
         return unresolved.as_fields()
-    return describe(entry, target, extension, runner_os)
+    return describe(entry, target, extension, runner)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,15 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    emit(
-        **resolve(
-            manifest,
-            arguments.tool,
-            arguments.version,
-            arguments.runner_os,
-            arguments.runner_arch,
-        )
-    )
+    runner = Runner(arguments.runner_os, arguments.runner_arch)
+    emit(**resolve(manifest, arguments.tool, arguments.version, runner))
     return 0
 
 

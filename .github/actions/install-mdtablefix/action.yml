@@ -109,12 +109,13 @@ runs:
         # x86_64 and aarch64; its binstall metadata override is gated on the
         # same cfg. macOS and Windows have no asset at all, so binstall can
         # only satisfy them by compiling, which this action never permits.
-        # Widen this list, and the runner-backed workflow with it, when
-        # mdtablefix publishes assets for another platform.
+        # leynos/mdtablefix#459 asks for those assets and for the metadata to
+        # be ungated. Widen this list, and the runner-backed workflow with it,
+        # once that lands.
         case "${RUNNER_OPERATING_SYSTEM:-}/${RUNNER_ARCHITECTURE:-}" in
           Linux/X64|Linux/ARM64) ;;
           *)
-            echo "::error title=Install mdtablefix failed::mdtablefix ${MDTABLEFIX_VERSION} publishes no prebuilt release for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}; this action never builds from source" >&2
+            echo "::error title=Install mdtablefix failed::mdtablefix ${MDTABLEFIX_VERSION} publishes no prebuilt release for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}; this action never builds from source. Assets for this platform are tracked by https://github.com/leynos/mdtablefix/issues/459" >&2
             emit_metric "install-mdtablefix.result=no-prebuilt"
             exit 1
             ;;

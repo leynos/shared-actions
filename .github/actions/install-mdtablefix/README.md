@@ -21,8 +21,11 @@ target configuration. macOS and Windows have no asset at all.
 
 The action never compiles `mdtablefix`. A consumer with a Windows or macOS
 formatter lane keeps its own documented exception until `mdtablefix` publishes
-assets for that platform; widen the platform gate here, and the runner-backed
-workflow with it, when it does.
+assets for that platform. What unblocks them is
+[leynos/mdtablefix#459](https://github.com/leynos/mdtablefix/issues/459), which
+asks for macOS and Windows release assets and for the `binstall` metadata to be
+ungated from `linux-gnu`; widen the platform gate here, and the runner-backed
+workflow with it, once that lands.
 
 The platform is rejected before the cache is consulted, so a cached executable
 cannot report success on a runner this action could not have installed.

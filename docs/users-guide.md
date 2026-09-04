@@ -451,7 +451,11 @@ exactly as for every other tool cache in the estate.
 closed there with `install-mdtablefix.result=no-prebuilt` rather than
 compiling. A workflow with a macOS or Windows formatter lane keeps its own
 documented source-build exception until `mdtablefix` publishes assets for that
-platform.
+platform. What unblocks those platforms is
+[leynos/mdtablefix#459](https://github.com/leynos/mdtablefix/issues/459), which
+asks for macOS and Windows release assets and for the `binstall` metadata to be
+ungated from `linux-gnu`. The action's `no-prebuilt` annotation names that
+issue, so a failing run says what would fix it.
 
 ### Reported outcomes
 

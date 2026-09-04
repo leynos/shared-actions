@@ -46,6 +46,8 @@ this file.
 - Read at most the first line, truncated, of whatever `--version` prints. What
   sits in `bin-dir` came from the caller's cache, so its output is neither
   trusted nor copied into an annotation unbounded.
+- Name leynos/mdtablefix#459 in the `no-prebuilt` annotation and in the
+  guides, so a run that fails closed says what would unblock its platform.
 - Keep every fragment within Bash 3.2, which is what macOS runners ship.
 - Report a failed install by checking `cargo binstall`'s exit status rather
   than from an `ERR` trap. Bash 3.2, which macOS runners ship, did not run the

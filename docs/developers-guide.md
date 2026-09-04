@@ -300,7 +300,6 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
-
 ## `install-whitaker` staging paths on Windows
 
 `RUNNER_TEMP` is a native path, so under Git Bash the staging directory arrives

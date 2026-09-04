@@ -12,7 +12,8 @@ import typing as typ
 
 import pytest
 from _action_manifest import step_by_id
-from _fragment_runner import (
+
+from composite_fragments import (
     ActionContext,
     FragmentEnvironment,
     ambient_env,

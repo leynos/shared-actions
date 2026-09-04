@@ -6,10 +6,11 @@ environment of later steps, and runs every fragment in its own Bash process.
 That keeps a test faithful to the action's real step boundaries instead of
 hand-building the environment each fragment expects.
 
-Nothing here knows about a particular action. ``install-whitaker`` still
-carries a private copy of this harness in its own test directory; folding that
-copy into this module is a separate change, so that action's in-flight test
-work is not disturbed.
+Nothing here knows about a particular action. Each fragment is written to a
+file and that file is run, because a runner does the same and the difference is
+observable: Bash 3.2, which macOS runners ship, replaces itself with the last
+command of a ``bash -c`` string when that command is external, discarding any
+``ERR`` trap along with the shell.
 """
 
 from __future__ import annotations
@@ -30,6 +31,27 @@ if typ.TYPE_CHECKING:
 _EXPRESSION = re.compile(r"\$\{\{\s*(?P<body>[^}]+?)\s*\}\}")
 _STEP_OUTPUT = re.compile(r"^steps\.(?P<step>[\w-]+)\.outputs\.(?P<name>[\w-]+)$")
 _INPUT = re.compile(r"^inputs\.(?P<name>[\w-]+)$")
+
+
+#: One composite step, as a manifest declares it.
+#:
+#: The functional form is required: ``if`` is a Python keyword. Every key but
+#: the name is optional, because a `uses:` step has no ``run`` and most steps
+#: have no ``id`` or condition. A manifest is untyped YAML, so a reader casts
+#: to this type once, where it parses, rather than at every use.
+CompositeStep = typ.TypedDict(
+    "CompositeStep",
+    {
+        "name": str,
+        "run": typ.NotRequired[str],
+        "if": typ.NotRequired[str],
+        "env": typ.NotRequired[dict[str, str]],
+        "id": typ.NotRequired[str],
+        "shell": typ.NotRequired[str],
+        "uses": typ.NotRequired[str],
+        "with": typ.NotRequired[dict[str, str]],
+    },
+)
 
 
 def require_posix_host() -> None:
@@ -109,12 +131,12 @@ class ActionContext:
         """Substitute every action expression in ``value``."""
         return _EXPRESSION.sub(lambda match: self.resolve(match["body"]), value)
 
-    def step_env(self, step: dict[str, object]) -> dict[str, str]:
+    def step_env(self, step: CompositeStep) -> dict[str, str]:
         """Return the rendered ``env`` mapping declared by ``step``."""
-        declared = typ.cast("dict[str, str]", step.get("env") or {})
+        declared = step.get("env") or {}
         return {name: self.render(str(value)) for name, value in declared.items()}
 
-    def evaluate_condition(self, step: dict[str, object]) -> bool:
+    def evaluate_condition(self, step: CompositeStep) -> bool:
         """Return whether ``step``'s ``if:`` expression selects it.
 
         Supports an omitted condition, a leading ``failure()``, and the
@@ -125,9 +147,6 @@ class ActionContext:
         condition = step.get("if")
         if condition is None:
             return self.succeeded
-        if not isinstance(condition, str):
-            message = f"step {step.get('name')!r} declares a non-string condition"
-            raise TypeError(message)
         body = condition.strip()
         if (match := _EXPRESSION.fullmatch(body)) is not None:
             body = match["body"]
@@ -142,10 +161,10 @@ class ActionContext:
             raise AssertionError(message)
         return self.resolve(left.strip()) == right.strip().strip("'\"")
 
-    def record(self, step: dict[str, object], output_file: Path) -> None:
+    def record(self, step: CompositeStep, output_file: Path) -> None:
         """Record a step's ``$GITHUB_OUTPUT`` lines against its identifier."""
         identifier = step.get("id")
-        if not isinstance(identifier, str) or not output_file.exists():
+        if identifier is None or not output_file.exists():
             return
         outputs = self.step_outputs.setdefault(identifier, {})
         outputs.update(
@@ -261,15 +280,15 @@ class LifecycleResult:
 
 
 def run_step(
-    step: dict[str, object],
+    step: CompositeStep,
     context: ActionContext,
     environment: FragmentEnvironment,
     output_name: str,
 ) -> subprocess.CompletedProcess[str]:
     """Run one fragment and record its outputs against ``context``."""
-    script = step["run"]
-    if not isinstance(script, str):
-        message = f"step {step.get('name')!r} declares no Bash fragment"
+    script = step.get("run")
+    if script is None:
+        message = f"step {step['name']!r} declares no Bash fragment"
         raise TypeError(message)
     output_file = environment.output_file(output_name)
     env = {
@@ -293,6 +312,68 @@ def run_step(
     )
     context.record(step, output_file)
     return process
+
+
+def run_lifecycle(
+    steps: list[CompositeStep],
+    context: ActionContext,
+    environment: FragmentEnvironment,
+) -> LifecycleResult:
+    """Run the selected fragments in order and collect what they produced.
+
+    A step whose ``if:`` does not select it is skipped. A step that fails marks
+    the run failed but does not end the walk, so a step guarded by
+    ``failure()`` still gets to report it. Because an ``if:`` without a status
+    function carries an implicit ``success()``, a plain sequence of steps
+    nonetheless stops at its first failure: everything after it is skipped.
+
+    Parameters
+    ----------
+    steps : list[CompositeStep]
+        Run-bearing composite steps, in manifest order. Each must declare a
+        ``name`` and a ``run``. A ``uses:`` step has no fragment to execute and
+        is the caller's to emulate.
+    context : ActionContext
+        Resolves the steps' expressions. Mutated as the walk proceeds: each
+        step's ``$GITHUB_OUTPUT`` is recorded against its ``id``, and
+        ``succeeded`` is cleared by the first failure, which is what the
+        remaining conditions read.
+    environment : FragmentEnvironment
+        Where the fragments run and what ambient state they observe.
+
+    Returns
+    -------
+    LifecycleResult
+        The steps that ran, in the order they ran, each with its process
+        result. A step its condition skipped does not appear.
+
+    Examples
+    --------
+    >>> steps = [
+    ...     {"name": "probe", "run": "true"},
+    ...     {"name": "install", "run": "false"},
+    ...     {"name": "verify", "run": "true"},
+    ...     {"name": "report", "if": "${{ failure() }}", "run": "echo failed"},
+    ... ]
+    >>> result = run_lifecycle(steps, context, environment)
+    >>> result.executed()
+    ('probe', 'install', 'report')
+    >>> result.returncode
+    1
+
+    ``verify`` is skipped because its absent condition implies ``success()``,
+    and ``report`` runs because it asked for the opposite.
+    """
+    results: list[StepResult] = []
+    for index, step in enumerate(steps):
+        if not context.evaluate_condition(step):
+            continue
+        name = step["name"]
+        process = run_step(step, context, environment, f"{index:02d}-output")
+        results.append(StepResult(name=name, process=process))
+        if process.returncode != 0:
+            context.succeeded = False
+    return LifecycleResult(steps=tuple(results))
 
 
 def ambient_env() -> dict[str, str]:

@@ -15,6 +15,7 @@ import pytest
 
 from composite_fragments import (
     ActionContext,
+    CompositeStep,
     FragmentEnvironment,
     LifecycleResult,
     StepResult,
@@ -116,7 +117,7 @@ class TestEvaluateCondition:
 
     def test_an_absent_condition_carries_an_implicit_success(self) -> None:
         """Verify a step with no condition is skipped after a failure."""
-        step: dict[str, object] = {"name": "step"}
+        step: CompositeStep = {"name": "step"}
 
         assert _context().evaluate_condition(step) is True, (
             "an unconditional step must run while the job is passing"
@@ -127,7 +128,7 @@ class TestEvaluateCondition:
 
     def test_an_equality_condition_reads_a_step_output(self) -> None:
         """Verify the comparison the installer manifests use."""
-        step: dict[str, object] = {
+        step: CompositeStep = {
             "name": "step",
             "if": "${{ steps.probe.outputs.ready == 'true' }}",
         }
@@ -143,7 +144,7 @@ class TestEvaluateCondition:
 
     def test_a_failure_guard_inverts_the_implicit_success(self) -> None:
         """Verify a ``failure()`` step runs only after something has failed."""
-        step: dict[str, object] = {"name": "step", "if": "${{ failure() }}"}
+        step: CompositeStep = {"name": "step", "if": "${{ failure() }}"}
 
         assert _context().evaluate_condition(step) is False, (
             "a failure-guarded step must not run while the job is passing"
@@ -154,7 +155,7 @@ class TestEvaluateCondition:
 
     def test_a_failure_guard_still_honours_its_conjunct(self) -> None:
         """Verify both halves of ``failure() && <comparison>`` are required."""
-        step: dict[str, object] = {
+        step: CompositeStep = {
             "name": "step",
             "if": "${{ failure() && steps.probe.outputs.ready == 'true' }}",
         }
@@ -170,7 +171,7 @@ class TestEvaluateCondition:
 
     def test_refuses_an_unsupported_condition(self) -> None:
         """Verify an unknown condition is a harness error, not a silent skip."""
-        step: dict[str, object] = {"name": "step", "if": "${{ always() }}"}
+        step: CompositeStep = {"name": "step", "if": "${{ always() }}"}
 
         with pytest.raises(AssertionError, match="unsupported step condition"):
             _context().evaluate_condition(step)
@@ -251,7 +252,7 @@ def _run_fragment(tmp_path: Path, script: str) -> subprocess.CompletedProcess[st
         cwd=tmp_path,
         output_dir=tmp_path / "outputs",
     )
-    step: dict[str, object] = {"name": "fragment", "shell": "bash", "run": script}
+    step: CompositeStep = {"name": "fragment", "shell": "bash", "run": script}
     return run_step(step, _context(), environment, "00-output")
 
 

@@ -15,6 +15,12 @@ arm is where `tar` is reached and where the colon defence lives. These tests
 therefore drive the fragment with a tarball asset. The zip arm never invokes
 `tar` at all, which is the point of the fix, and it is covered separately at
 the foot of this module.
+
+These run from POSIX hosts only; `require_posix_host` skips the module on a
+Windows one, because simulating a runner's Bash from Git Bash tests the
+simulation. The Windows runner pair is still driven here through the platform
+matrix, and the action's real Windows behaviour is covered by the
+`Test install-whitaker` workflow.
 """
 
 from __future__ import annotations
@@ -28,9 +34,10 @@ import zipfile
 
 import pytest
 from _action_manifest import step_by_name
-from _fragment_runner import require_posix_host
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+from composite_fragments import require_posix_host
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from pathlib import Path

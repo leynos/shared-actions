@@ -14,7 +14,8 @@ import typing as typ
 
 import pytest
 from _action_manifest import RESOLVE_SCRIPT_PATH, asset_name
-from _fragment_runner import (
+
+from composite_fragments import (
     ambient_env,
     bash_executable,
     require_posix_host,

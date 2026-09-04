@@ -32,7 +32,8 @@ from _action_manifest import (
     step_by_id,
     step_by_name,
 )
-from _fragment_runner import (
+
+from composite_fragments import (
     ActionContext,
     FragmentEnvironment,
     LifecycleResult,

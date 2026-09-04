@@ -615,6 +615,10 @@ checksum failures stop the action. There is deliberately no Cargo or
 source-build fallback. The contract is covered by the test suite in
 `.github/actions/install-whitaker/tests/`, including cache ownership, official
 release selection, cache reuse, digest precedence, and failure boundaries.
+Those tests drive the shipped fragments through the shared harness described
+under `install-mdtablefix`, which runs each fragment from a file the way a
+runner does. This action reports its failures from `ERR` traps, and that
+reporting is only observable when the fragment is invoked that way.
 
 An external volume must mount the suite's parent (`~/.local/share`) rather than
 the terminal `~/.local/share/whitaker` path. Whitaker treats an absent child as
@@ -1328,9 +1332,14 @@ asserts the fail-closed contract and that no executable was left behind.
 fragments outside GitHub Actions. It resolves the expression subset the
 installer manifests use, evaluates each step's `if:`, and threads
 `$GITHUB_OUTPUT` between steps, so a test exercises the real step boundaries.
-`install-whitaker` still carries a private copy of the same harness in its own
-test directory, and that copy still uses `bash -c`; folding it into this module
-is tracked by issue #449.
+`install-whitaker` uses this module too. It carried a private copy until it was
+folded in by issue 449; that copy invoked fragments with `bash -c`, and so
+lacked the guarantee below.
+
+A step crosses that boundary as a `CompositeStep`, a `TypedDict` naming the
+keys a manifest may declare. A manifest is untyped YAML, so each action's test
+helper casts to it once where it parses, and every reader downstream has a
+contract instead of a mapping of unknowns.
 
 The harness has its own tests in
 `.github/actions/tests/test_composite_fragments.py`, because a defect there

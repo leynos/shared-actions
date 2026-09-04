@@ -19,7 +19,6 @@ from pathlib import PurePosixPath
 
 import pytest
 from _action_manifest import SUPPORTED_PLATFORMS
-from _fragment_runner import require_posix_host
 from _install_scenarios import (
     InstallRun,
     InstallScenario,
@@ -29,6 +28,8 @@ from _install_scenarios import (
 )
 from hypothesis import given, settings
 from hypothesis import strategies as st
+
+from composite_fragments import require_posix_host
 
 if typ.TYPE_CHECKING:
     from pathlib import Path

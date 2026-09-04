@@ -7,6 +7,7 @@ parts that decide what a fragment sees and what it is recorded as producing.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import typing as typ
 
@@ -18,6 +19,7 @@ from composite_fragments import (
     LifecycleResult,
     StepResult,
     parse_outputs,
+    run_step,
 )
 
 if typ.TYPE_CHECKING:
@@ -239,4 +241,52 @@ def test_asking_for_an_output_file_changes_nothing(tmp_path: Path) -> None:
     assert not requested.exists(), "the query created the file it named"
     assert sorted(path.name for path in output_dir.iterdir()) == before, (
         "the query changed the output directory's contents"
+    )
+
+
+def _run_fragment(tmp_path: Path, script: str) -> subprocess.CompletedProcess[str]:
+    """Run ``script`` through the harness and return its process result."""
+    environment = FragmentEnvironment(
+        base_env=dict(os.environ),
+        cwd=tmp_path,
+        output_dir=tmp_path / "outputs",
+    )
+    step: dict[str, object] = {"name": "fragment", "shell": "bash", "run": script}
+    return run_step(step, _context(), environment, "00-output")
+
+
+def test_a_fragment_runs_from_a_file(tmp_path: Path) -> None:
+    """Verify the harness runs a fragment the way a runner runs it.
+
+    A runner writes a composite ``run:`` fragment to a file and executes that
+    file. Passing the same text to ``bash -c`` is a different invocation, and
+    the difference is observable: see the sibling test below.
+    """
+    process = _run_fragment(tmp_path, 'printf "%s\n" "$0"')
+
+    assert process.returncode == 0, process.stderr
+    assert process.stdout.strip().endswith(".sh"), (
+        f"the fragment was not run from a file; $0 was {process.stdout.strip()!r}"
+    )
+
+
+def test_an_err_trap_in_a_fragment_still_fires(tmp_path: Path) -> None:
+    """Verify a fragment's ``ERR`` trap runs when its last command fails.
+
+    This is a regression guard for a harness defect, not for a shell feature.
+    Bash 3.2, which macOS runners ship, replaces itself with the last command
+    of a ``bash -c`` string when that command is external, which discards the
+    trap along with the shell. Bash 5 suppresses that optimisation when a trap
+    is set, so the harness ran green on Linux and reported a failure with no
+    annotation and no metric on macOS. Running the fragment from a file, as a
+    runner does, is not subject to it.
+    """
+    process = _run_fragment(
+        tmp_path,
+        "set -Eeuo pipefail\ntrap 'echo trap-fired' ERR\n/usr/bin/false\n",
+    )
+
+    assert process.returncode != 0, "the failing fragment reported success"
+    assert "trap-fired" in process.stdout, (
+        f"the fragment's ERR trap did not run; stdout was {process.stdout!r}"
     )

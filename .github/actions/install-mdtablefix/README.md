@@ -134,8 +134,8 @@ later; the fragments avoid every Bash 4 construct so macOS runners behave the
 same way.
 
 Failures are reported by an explicit exit-status check rather than an `ERR`
-trap. Bash 3.2 did not run the trap when cargo-binstall failed on a macOS
-runner, which left the step failing silently, with no annotation and no metric.
+trap, which is what the sibling installers use. Both work on a runner; a
+checked status is additionally invariant to how the fragment is invoked.
 
 ## Release history
 

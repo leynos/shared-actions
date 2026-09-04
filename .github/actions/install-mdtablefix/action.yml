@@ -205,11 +205,12 @@ runs:
         MDTABLEFIX_INSTALL_BINSTALL: ${{ steps.probe.outputs.install-binstall }}
         MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
       run: |
-        # The failure is reported by an explicit status check, not by an ERR
-        # trap. Bash 3.2, which is what macOS runners ship, did not run the
-        # trap when cargo-binstall exited non-zero here: the step still failed,
-        # but with no annotation and no metric. A checked exit status behaves
-        # the same on every Bash the estate runs on.
+        # The failure is reported by an explicit status check rather than by an
+        # ERR trap, which is what the sibling installers use. Both work on a
+        # runner; a checked status additionally works when the fragment is run
+        # from a command string, where Bash 3.2 drops the trap for an external
+        # last command. Nothing here depends on that, but the check is no more
+        # code than the trap and is invariant to how the fragment is invoked.
         set -euo pipefail
         emit_metric() {
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

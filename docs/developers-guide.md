@@ -1226,6 +1226,12 @@ dropping that override fails the suite rather than passing silently and failing
 on a runner. A Bash 3.2 guard rejects `${var,,}`, `mapfile`, `readarray`, and
 associative arrays in any fragment, because macOS runners ship Bash 3.2.
 
+The action reports each failure by checking an exit status rather than from an
+`ERR` trap, which is what `install-whitaker` and `install-nixie` use. Both work
+on a runner. A checked status is additionally invariant to how the fragment is
+invoked, which is worth having but is not a reason to change the sibling
+actions.
+
 The property tests state the grammar from the documentation rather than from
 the fragment, so a fragment that drifts from what is documented fails them.
 They generate version strings and `bin-dir` values, assert the fragment admits
@@ -1254,10 +1260,23 @@ test directory; folding that copy into this module is a separate change.
 The harness has its own tests in
 `.github/actions/tests/test_composite_fragments.py`, because a defect there
 makes every suite built on it report an outcome no runner would produce. They
-cover reading `$GITHUB_OUTPUT` back, including a single-line value that
-contains `<<` and must not be read as a heredoc opener, the expression subset,
-the implicit `success()` an `if:` without a status function carries, and which
-exit code a run is judged by.
+cover reading `$GITHUB_OUTPUT` back, including a single-line value that contains
+`<<` and must not be read as a heredoc opener, the expression subset, the
+implicit `success()` an `if:` without a status function carries, which exit
+code a run is judged by, and how a fragment is invoked.
+
+That last one is not a formality. A runner writes a composite `run:` fragment
+to a file and executes that file. The harness originally passed the same text to
+`bash -c`, and the two are not equivalent: Bash 3.2, which macOS runners ship,
+replaces itself with the last command of a `bash -c` string when that command
+is external, discarding any `ERR` trap along with the shell. Bash 5 suppresses
+that optimization when a trap is set. So a fragment that reported its failure
+from a trap passed on Linux and, on macOS, failed with no annotation and no
+metric, and the harness was the only thing that differed. Measured on
+`macos-15` across six cases: every combination fires except `bash -c` with an
+external last command on Bash 3.2. Two tests hold the line, one asserting a
+fragment's `$0` names a file and one asserting a fragment's `ERR` trap fires
+when its last command fails.
 
 ## `rust-build-release` Action Architecture
 

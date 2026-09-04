@@ -48,10 +48,21 @@ BINSTALL_ACTION_VERSION = "1.22.0"
 BIN_DIR_OVERRIDE = "{ bin }{ binary-ext }"
 
 #: Every runner pair for which mdtablefix publishes a prebuilt archive.
-SUPPORTED_PLATFORMS = ("Linux:X64", "Linux:ARM64")
+SUPPORTED_PLATFORMS = (
+    "Linux:X64",
+    "Linux:ARM64",
+    "macOS:X64",
+    "macOS:ARM64",
+    "Windows:X64",
+)
 
 #: Runner pairs the action must reject rather than build from source.
-UNSUPPORTED_PLATFORMS = ("macOS:ARM64", "macOS:X64", "Windows:X64", "Linux:ARM")
+#:
+#: `Windows:ARM64` is the interesting one: 0.5.1 publishes
+#: `x86_64-pc-windows-msvc` and no aarch64 Windows archive, so a
+#: `windows-11-arm` runner must still fail closed. `Linux:ARM` is 32-bit and
+#: has no archive either.
+UNSUPPORTED_PLATFORMS = ("Windows:ARM64", "Linux:ARM")
 
 
 @functools.cache

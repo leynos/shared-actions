@@ -3,10 +3,18 @@ description: >-
   Install a pinned mdtablefix from its prebuilt release through a hardened
   cargo-binstall, never from source.
 
+  Requires mdtablefix 0.5.1 or later. 0.5.0 published archives for Linux only
+  and declared `bin-dir = "."`, which cargo-binstall rejects; 0.5.1 publishes
+  five platforms and carries correct metadata (leynos/mdtablefix#458,
+  leynos/mdtablefix#459), so supporting both would mean carrying two
+  platform lists and a conditional metadata override for a version nothing
+  pins.
+
 inputs:
   version:
-    description: Exact mdtablefix version to install
-    required: true
+    description: Exact mdtablefix version to install; 0.5.1 or later
+    required: false
+    default: "0.5.1"
   binstall-version:
     description: >-
       Version of cargo-binstall to install when the runner has none. Ignored
@@ -42,6 +50,21 @@ runs:
         if [[ ! "$VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
           input_error "version must be three numeric components without leading zeros"
         fi
+        # A floor rather than a range. The platform list below and the absence
+        # of a `--bin-dir` override are both true only from 0.5.1; accepting an
+        # earlier pin would pass the gate on macOS or Windows and then fail
+        # inside cargo-binstall with an error naming neither cause.
+        # Compared component by component in Bash rather than with `sort -V`.
+        # Version sorting is a GNU extension, and while the macOS runners this
+        # action now supports do happen to accept it, an installer's own input
+        # validation is a poor place to depend on which `sort` is first on
+        # PATH. The grammar above has already fixed the shape, so the split is
+        # total and each component is a plain integer.
+        IFS=. read -r major minor patch <<< "$VERSION_INPUT"
+        if (( major < 1 )) &&
+          (( major < 0 || minor < 5 || (minor == 5 && patch < 1) )); then
+          input_error "version must be 0.5.1 or later; earlier releases publish Linux archives only and carry binstall metadata cargo-binstall rejects"
+        fi
         if [[ ! "$BINSTALL_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
           input_error "binstall-version must be three numeric components without leading zeros"
         fi
@@ -50,6 +73,18 @@ runs:
         fi
         if (( ${#BIN_DIR_INPUT} > 240 )); then
           input_error "bin-dir must be at most 240 characters"
+        fi
+        # A Windows caller's natural value is `${{ runner.temp }}/...`, which
+        # arrives as a native path such as `D:\a\_temp\bin`. This fragment
+        # runs under Git Bash, where that is not an absolute path, so the check
+        # below would reject the one expression a Windows caller would reach
+        # for. Convert it here rather than making every caller wrap it in
+        # `cygpath`, which is the sort of papercut an action exists to absorb.
+        if [[ "${RUNNER_OS:-}" == Windows && "$BIN_DIR_INPUT" =~ ^[A-Za-z]:[\\/] ]]; then
+          if ! command -v cygpath >/dev/null 2>&1; then
+            input_error "bin-dir ${BIN_DIR_INPUT} is a native Windows path and this runner has no cygpath to convert it"
+          fi
+          BIN_DIR_INPUT="$(cygpath -u "$BIN_DIR_INPUT")"
         fi
         if [[ "$BIN_DIR_INPUT" == "~" || "$BIN_DIR_INPUT" == "~/"* ]]; then
           bin_dir="${HOME}${BIN_DIR_INPUT:1}"
@@ -105,15 +140,20 @@ runs:
             printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
           fi
         }
-        # mdtablefix 0.5.0 publishes prebuilt archives only for Linux gnu on
-        # x86_64 and aarch64; its binstall metadata override is gated on the
-        # same cfg. macOS and Windows have no asset at all, so binstall can
-        # only satisfy them by compiling, which this action never permits.
-        # leynos/mdtablefix#459 asks for those assets and for the metadata to
-        # be ungated. Widen this list, and the runner-backed workflow with it,
-        # once that lands.
+        # The platforms mdtablefix 0.5.1 actually publishes
+        # (leynos/mdtablefix#459 landed): Linux and macOS on both x86_64 and
+        # aarch64, and Windows on x86_64 only. Windows aarch64 has no asset, so
+        # a `windows-11-arm` runner still fails closed here rather than being
+        # offered a compile.
+        #
+        # FreeBSD has an asset too, and no entry, because GitHub publishes no
+        # FreeBSD runner label for `runner.os` to report. Add it when one
+        # exists; until then an entry would be untestable.
+        #
+        # Checked before the cache is consulted, so a cached executable cannot
+        # report success for a platform this action could not install.
         case "${RUNNER_OPERATING_SYSTEM:-}/${RUNNER_ARCHITECTURE:-}" in
-          Linux/X64|Linux/ARM64) ;;
+          Linux/X64|Linux/ARM64|macOS/X64|macOS/ARM64|Windows/X64) ;;
           *)
             echo "::error title=Install mdtablefix failed::mdtablefix ${MDTABLEFIX_VERSION} publishes no prebuilt release for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}; this action never builds from source. Assets for this platform are tracked by https://github.com/leynos/mdtablefix/issues/459" >&2
             emit_metric "install-mdtablefix.result=no-prebuilt"
@@ -204,6 +244,13 @@ runs:
         MDTABLEFIX_BIN_DIR: ${{ steps.validate-inputs.outputs.bin-dir }}
         MDTABLEFIX_INSTALL_BINSTALL: ${{ steps.probe.outputs.install-binstall }}
         MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+        # Resolving the release asset costs one `api.github.com` call, and
+        # unauthenticated calls are rate-limited per source address. The macOS
+        # runners share addresses widely enough to return `403 Forbidden`, and
+        # binstall then retries for two minutes before failing. The caller's
+        # job token lifts the limit to a per-repository budget; a job with no
+        # token falls back to unauthenticated requests, exactly as before.
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         # The failure is reported by an explicit status check rather than by an
         # ERR trap, which is what the sibling installers use. Both work on a
@@ -225,14 +272,12 @@ runs:
         # --disable-strategies compile is the "nothing built from source" rule:
         # a missing prebuilt asset fails closed instead of compiling.
         #
-        # --bin-dir overrides the crate's own binstall metadata. mdtablefix
-        # 0.5.0 declares `bin-dir = "."`, which cargo-binstall 1.22 rejects with
-        # "bin-dir configuration provided generates empty source path"; with the
-        # compile strategy disabled the install then fails outright
-        # (leynos/mdtablefix#458). The archive holds the executable at its root,
-        # so `{ bin }{ binary-ext }` names it correctly. Drop this override, and
-        # the test that pins it, once a pinned mdtablefix release carries fixed
-        # metadata.
+        # No `--bin-dir` override. 0.5.0 declared `bin-dir = "."`, which
+        # cargo-binstall rejects with "bin-dir configuration provided generates
+        # empty source path", so this action carried an override naming the
+        # executable itself (leynos/mdtablefix#458). 0.5.1 carries correct
+        # metadata and the input floor above refuses anything earlier, so the
+        # override now overrides nothing and is gone rather than left to rot.
         install_status=0
         cargo binstall \
           --no-confirm \
@@ -240,7 +285,6 @@ runs:
           --disable-strategies compile \
           --disable-telemetry \
           --install-path "$MDTABLEFIX_BIN_DIR" \
-          --bin-dir '{ bin }{ binary-ext }' \
           "mdtablefix@${MDTABLEFIX_VERSION}" || install_status=$?
         if (( install_status != 0 )); then
           echo "::error title=Install mdtablefix failed::cargo binstall exited with exit-code=${install_status} for mdtablefix ${MDTABLEFIX_VERSION}" >&2

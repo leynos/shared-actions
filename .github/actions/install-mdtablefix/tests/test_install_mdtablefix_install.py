@@ -11,7 +11,6 @@ import typing as typ
 
 import pytest
 from _mdtablefix_manifest import (
-    BIN_DIR_OVERRIDE,
     SUPPORTED_PLATFORMS,
     UNSUPPORTED_PLATFORMS,
 )
@@ -70,7 +69,7 @@ class TestCachedOutcome:
 
     def test_reports_cached_and_installs_nothing(self, tmp_path: Path) -> None:
         """Verify a matching executable short-circuits the install."""
-        result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.0"))
+        result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.1"))
 
         assert result.returncode == 0, f"a cache hit must succeed: {result.stderr}"
         _assert_only_metric(result, "install-mdtablefix.result=cached")
@@ -83,7 +82,7 @@ class TestCachedOutcome:
 
     def test_still_exports_the_bin_directory(self, tmp_path: Path) -> None:
         """Verify a cached run leaves the executable on the job's PATH."""
-        result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.0"))
+        result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.5.1"))
 
         assert result.github_path.strip().endswith("/.local/bin"), (
             f"bin-dir was not added to GITHUB_PATH: {result.github_path!r}"
@@ -93,7 +92,7 @@ class TestCachedOutcome:
         """Verify a stale executable is reinstalled rather than trusted."""
         result = run_scenario(Scenario(tmp_path=tmp_path, cached_version="0.4.0"))
 
-        _assert_installed(result, "0.5.0")
+        _assert_installed(result, "0.5.1")
 
 
 class TestBinstallProvisioning:
@@ -103,7 +102,7 @@ class TestBinstallProvisioning:
         """Verify a usable cargo-binstall is not reinstalled."""
         result = run_scenario(Scenario(tmp_path=tmp_path, binstall_present=True))
 
-        _assert_installed(result, "0.5.0")
+        _assert_installed(result, "0.5.1")
         assert "Install cargo-binstall" not in result.executed(), (
             f"a usable cargo-binstall was reinstalled: {result.executed()}"
         )
@@ -116,7 +115,7 @@ class TestBinstallProvisioning:
         """Verify a missing cargo-binstall is provisioned before the install."""
         result = run_scenario(Scenario(tmp_path=tmp_path, binstall_present=False))
 
-        _assert_installed(result, "0.5.0")
+        _assert_installed(result, "0.5.1")
         _assert_metric(result, "install-mdtablefix.binstall=installed")
 
     def test_reports_a_failed_provisioning(self, tmp_path: Path) -> None:
@@ -140,7 +139,7 @@ class TestBinstallProvisioning:
     ) -> None:
         """Verify a cache hit skips cargo-binstall entirely."""
         result = run_scenario(
-            Scenario(tmp_path=tmp_path, binstall_present=False, cached_version="0.5.0"),
+            Scenario(tmp_path=tmp_path, binstall_present=False, cached_version="0.5.1"),
         )
 
         _assert_only_metric(result, "install-mdtablefix.result=cached")
@@ -160,10 +159,12 @@ class TestHardenedInstall:
             "--locked",
             "--disable-strategies compile",
             "--disable-telemetry",
-            f"--bin-dir {BIN_DIR_OVERRIDE}",
-            "mdtablefix@0.5.0",
+            "mdtablefix@0.5.1",
         ):
             assert flag in invocation, f"{flag!r} missing from {invocation!r}"
+        assert "--bin-dir" not in invocation, (
+            f"the retired 0.5.0 bin-dir override reappeared in {invocation!r}"
+        )
 
     def test_fails_closed_when_no_prebuilt_asset_exists(self, tmp_path: Path) -> None:
         """Verify a binstall failure stops the job rather than compiling."""
@@ -211,11 +212,11 @@ class TestHardenedInstall:
         result = run_scenario(
             Scenario(
                 tmp_path=tmp_path,
-                installs_output="mdtablefix 0.5.0\nbuilt from deadbeef\n",
+                installs_output="mdtablefix 0.5.1\nbuilt from deadbeef\n",
             ),
         )
 
-        _assert_installed(result, "0.5.0")
+        _assert_installed(result, "0.5.1")
 
     def test_bounds_the_reported_version_in_the_annotation(
         self,
@@ -226,7 +227,7 @@ class TestHardenedInstall:
         What sits in `bin-dir` came out of the caller's cache, so its output is
         not this action's to copy into an annotation whole.
         """
-        overlong = "mdtablefix 0.5.0" + "z" * 200
+        overlong = "mdtablefix 0.5.1" + "z" * 200
         result = run_scenario(Scenario(tmp_path=tmp_path, installs_output=overlong))
 
         assert result.returncode == 1, (
@@ -248,11 +249,11 @@ class TestHardenedInstall:
         result = run_scenario(
             Scenario(
                 tmp_path=tmp_path,
-                cached_output="mdtablefix 0.5.0" + "z" * 200,
+                cached_output="mdtablefix 0.5.1" + "z" * 200,
             ),
         )
 
-        _assert_installed(result, "0.5.0")
+        _assert_installed(result, "0.5.1")
 
     def test_a_cached_executable_may_print_more_than_one_line(
         self,
@@ -262,7 +263,7 @@ class TestHardenedInstall:
         result = run_scenario(
             Scenario(
                 tmp_path=tmp_path,
-                cached_output="mdtablefix 0.5.0\nbuilt from deadbeef\n",
+                cached_output="mdtablefix 0.5.1\nbuilt from deadbeef\n",
             ),
         )
 
@@ -293,16 +294,17 @@ def test_supported_platform_installs(tmp_path: Path, platform: str) -> None:
         Scenario(tmp_path=tmp_path, runner_os=runner_os, runner_arch=runner_arch),
     )
 
-    _assert_installed(result, "0.5.0")
+    _assert_installed(result, "0.5.1")
 
 
 @pytest.mark.parametrize("platform", UNSUPPORTED_PLATFORMS)
 def test_unsupported_platform_fails_closed(tmp_path: Path, platform: str) -> None:
     """Verify a platform with no prebuilt release never reaches Cargo.
 
-    mdtablefix 0.5.0 publishes archives only for Linux gnu on x86_64 and
-    aarch64. macOS and Windows have no asset at all, so the only way to satisfy
-    them is a source build, which this action never performs.
+    mdtablefix 0.5.1 publishes archives for Linux and macOS on x86_64 and
+    aarch64, and for Windows on x86_64 only. A 32-bit Linux or an aarch64
+    Windows runner has no asset, so the only way to satisfy it is a source
+    build, which this action never performs.
     """
     runner_os, _, runner_arch = platform.partition(":")
     result = run_scenario(
@@ -318,13 +320,17 @@ def test_unsupported_platform_fails_closed(tmp_path: Path, platform: str) -> Non
 
 
 def test_unsupported_platform_ignores_a_cached_executable(tmp_path: Path) -> None:
-    """Verify a cached executable cannot rescue an unsupported platform."""
+    """Verify a cached executable cannot rescue an unsupported platform.
+
+    Windows aarch64 rather than macOS: 0.5.1 publishes macOS archives, so the
+    platform that used to make this point is now a supported one.
+    """
     result = run_scenario(
         Scenario(
             tmp_path=tmp_path,
-            runner_os="macOS",
+            runner_os="Windows",
             runner_arch="ARM64",
-            cached_version="0.5.0",
+            cached_version="0.5.1",
         ),
     )
 

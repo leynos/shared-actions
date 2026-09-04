@@ -8,24 +8,37 @@ fall back to a compile. A runner with no prebuilt asset fails closed.
 
 ## Platforms
 
-`mdtablefix` 0.5.0 publishes prebuilt archives for Linux gnu on `x86_64` and
-`aarch64` only, and its `binstall` metadata override is gated on the same
-target configuration. macOS and Windows have no asset at all.
+This action requires `mdtablefix` 0.5.1 or later and refuses anything earlier.
+0.5.0 published Linux archives only and declared `binstall` metadata that
+cargo-binstall rejects, so supporting both would mean carrying two platform
+lists and a conditional metadata override for a version nothing pins.
 
-| Runner            | Outcome                             |
-| ----------------- | ----------------------------------- |
-| `Linux` / `X64`   | Installed from the prebuilt archive |
-| `Linux` / `ARM64` | Installed from the prebuilt archive |
-| `macOS` / any     | Fails closed, `result=no-prebuilt`  |
-| `Windows` / any   | Fails closed, `result=no-prebuilt`  |
+0.5.1 publishes archives for Linux and macOS on `x86_64` and `aarch64`, and for
+Windows on `x86_64`
+([leynos/mdtablefix#459](https://github.com/leynos/mdtablefix/issues/459)).
 
-The action never compiles `mdtablefix`. A consumer with a Windows or macOS
-formatter lane keeps its own documented exception until `mdtablefix` publishes
-assets for that platform. What unblocks them is
-[leynos/mdtablefix#459](https://github.com/leynos/mdtablefix/issues/459), which
-asks for macOS and Windows release assets and for the `binstall` metadata to be
-ungated from `linux-gnu`; widen the platform gate here, and the runner-backed
-workflow with it, once that lands.
+| Runner              | Outcome                             |
+| ------------------- | ----------------------------------- |
+| `Linux` / `X64`     | Installed from the prebuilt archive |
+| `Linux` / `ARM64`   | Installed from the prebuilt archive |
+| `macOS` / `X64`     | Installed from the prebuilt archive |
+| `macOS` / `ARM64`   | Installed from the prebuilt archive |
+| `Windows` / `X64`   | Installed from the prebuilt archive |
+| `Windows` / `ARM64` | Fails closed, `result=no-prebuilt`  |
+| anything else       | Fails closed, `result=no-prebuilt`  |
+
+The action never compiles `mdtablefix`. Windows on `aarch64` fails closed
+because 0.5.1 publishes no aarch64 Windows archive, not because the action has
+not been taught the platform.
+
+A FreeBSD archive is published as well and has no entry, because GitHub
+publishes no FreeBSD runner label for `runner.os` to report. Add one when a
+label exists; until then the entry would be untestable.
+
+A Windows caller may pass `${{ runner.temp }}/...` directly. That arrives as a
+native path such as `D:\a\_temp\bin`, which Git Bash does not treat as
+absolute, so the action converts it with `cygpath` rather than making every
+caller wrap it.
 
 The platform is rejected before the cache is consulted, so a cached executable
 cannot report success on a runner this action could not have installed.
@@ -42,26 +55,28 @@ reports the pinned version.
   uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
   with:
     path: ${{ runner.temp }}/mdtablefix-bin
-    key: mdtablefix-0.5.0-${{ runner.os }}-${{ runner.arch }}
+    key: mdtablefix-0.5.1-${{ runner.os }}-${{ runner.arch }}
 
 - name: Install mdtablefix
   uses: ./.github/actions/install-mdtablefix
   with:
-    version: 0.5.0
+    version: 0.5.1
     bin-dir: ${{ runner.temp }}/mdtablefix-bin
 ```
 
-## The `bin-dir` override
+## No `bin-dir` override
 
-`cargo binstall` is invoked with `--bin-dir '{ bin }{ binary-ext }'`. The
-`mdtablefix` 0.5.0 crate declares `bin-dir = "."` in its `binstall` metadata,
-which cargo-binstall 1.22 rejects with
-`bin-dir configuration provided generates empty source path`; with the compile
-strategy correctly disabled the install then fails outright. The published
-archive holds the executable at its root, so the override names it correctly.
-Remove the override, and the test that pins it, once a pinned release carries
-fixed metadata
-([leynos/mdtablefix#458](https://github.com/leynos/mdtablefix/issues/458)).
+`cargo binstall` is invoked without `--bin-dir`, so the crate's own `binstall`
+metadata decides where the executable lives in the archive.
+
+That was not always so. 0.5.0 declared `bin-dir = "."`, which cargo-binstall
+rejects with `bin-dir configuration provided generates empty source path`, and
+with the compile strategy correctly disabled the install then failed outright
+([leynos/mdtablefix#458](https://github.com/leynos/mdtablefix/issues/458)), so
+this action passed an override naming the executable itself. 0.5.1 carries
+correct metadata and the version floor refuses anything earlier, so an override
+would now second-guess a manifest the crate is responsible for. A test asserts
+the flag has not returned.
 
 ## Obtaining cargo-binstall
 
@@ -100,7 +115,7 @@ over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
 
 | Name               | Type   | Description                                         | Required | Default        |
 | ------------------ | ------ | --------------------------------------------------- | -------- | -------------- |
-| `version`          | string | Exact `mdtablefix` version to install               | yes      | none           |
+| `version`          | string | Exact version to install; 0.5.1 or later            | no       | `0.5.1`        |
 | `binstall-version` | string | `cargo-binstall` version to install when absent     | no       | `1.22.0`       |
 | `bin-dir`          | string | Directory receiving the executable, added to `PATH` | no       | `~/.local/bin` |
 
@@ -122,7 +137,7 @@ job can call `mdtablefix` by name.
 - name: Install mdtablefix
   uses: ./.github/actions/install-mdtablefix
   with:
-    version: 0.5.0
+    version: 0.5.1
 
 - name: Check formatting
   run: make check-fmt

@@ -8,12 +8,20 @@ permissions:
   contents: read
 
 env:
-  MDTABLEFIX_TEST_VERSION: 0.5.0
+  MDTABLEFIX_TEST_VERSION: 0.5.1
 
 jobs:
   install-mdtablefix:
-    name: Install and reuse mdtablefix
-    runs-on: ubuntu-latest
+    # One matrix across every platform 0.5.1 publishes for, because a runner is
+    # the only place the real archive layout, the executable's name, and the
+    # release API's rate limits are all exercised at once. The unit suite drives
+    # the same fragments against a stubbed cargo and cannot see any of those.
+    name: Install and reuse mdtablefix (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,9 +37,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # `.exe` on Windows, which is the whole reason this leg exists: the
+          # action derives the suffix from `runner.os`, and only a real Windows
+          # runner proves it derived the right one.
+          suffix=''
+          if [ "${RUNNER_OS}" = 'Windows' ]; then
+            suffix='.exe'
+          fi
           bin_dir="${RUNNER_TEMP}/mdtablefix-bin"
-          test -x "${bin_dir}/mdtablefix"
-          reported="$(mdtablefix --version)"
+          test -x "${bin_dir}/mdtablefix${suffix}"
+          reported="$(mdtablefix --version | tr -d '\r')"
           expected="mdtablefix ${MDTABLEFIX_TEST_VERSION}"
           test "${reported}" = "${expected}"
           echo "mdtablefix_test_version=${reported}"
@@ -63,13 +78,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          reported="$(mdtablefix --version)"
+          reported="$(mdtablefix --version | tr -d '\r')"
           test "${reported}" = "mdtablefix ${MDTABLEFIX_TEST_VERSION}"
           echo "mdtablefix_test_cached=true"
 
   install-mdtablefix-no-prebuilt:
+    # macOS used to make this point and no longer can: 0.5.1 publishes both
+    # macOS arches. Windows on aarch64 is the honest replacement, because 0.5.1
+    # publishes `x86_64-pc-windows-msvc` and no aarch64 Windows archive at all,
+    # so the refusal here is about a genuinely absent asset rather than a
+    # platform the action has simply not been taught.
     name: Fail closed where no prebuilt release exists
-    runs-on: macos-15
+    runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -86,10 +106,10 @@ jobs:
       - name: Verify the fail-closed contract
         shell: bash
         run: |
-          # mdtablefix publishes no macOS asset, so the only way to satisfy
-          # this runner is a source build. The action must refuse, and must
-          # leave no executable behind.
+          # The only way to satisfy this runner is a source build. The action
+          # must refuse, and must leave no executable behind.
           set -euo pipefail
           test "${{ steps.install-mdtablefix.outcome }}" = failure
+          test ! -e "${RUNNER_TEMP}/mdtablefix-bin/mdtablefix.exe"
           test ! -e "${RUNNER_TEMP}/mdtablefix-bin/mdtablefix"
           echo "mdtablefix_test_no_prebuilt=true"

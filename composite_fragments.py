@@ -103,6 +103,11 @@ class ActionContext:
     runner_arch: str
     action_path: str
     runner_temp: str = ""
+    #: Stands in for ``github.token``. Empty by default, which is what a
+    #: fragment sees when the caller passes no token, and is the case worth
+    #: exercising: an installer that reaches a rate-limited API unauthenticated
+    #: must still behave, just more slowly.
+    github_token: str = ""
     step_outputs: dict[str, dict[str, str]] = dc.field(default_factory=dict)
     #: Whether every step so far succeeded, which is what an ``if:`` without a
     #: status function implicitly requires.
@@ -119,6 +124,8 @@ class ActionContext:
                 return self.runner_temp
             case "github.action_path":
                 return self.action_path
+            case "github.token":
+                return self.github_token
             case _ if (match := _INPUT.match(body)) is not None:
                 return self.inputs.get(match["name"], "")
             case _ if (match := _STEP_OUTPUT.match(body)) is not None:

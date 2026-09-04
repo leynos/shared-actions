@@ -5,6 +5,43 @@ this file.
 
 ## Unreleased
 
+- Support every platform mdtablefix 0.5.1 publishes, and require 0.5.1 or
+  later. The platform gate admitted Linux `x86_64` and `aarch64` only, which
+  was correct for 0.5.0 and left consumers with a macOS or Windows formatter
+  lane carrying their own source-build exception. 0.5.1 publishes Linux and
+  macOS on both architectures and Windows on `x86_64`
+  (leynos/mdtablefix#459), so those consumers can now retire the exception.
+  Windows on `aarch64` still fails closed, because no such archive exists; a
+  FreeBSD archive is published but has no entry, because GitHub offers no
+  FreeBSD runner label to gate on.
+
+- Accept a native Windows `bin-dir`. `${{ runner.temp }}/...` is the natural
+  value for a Windows caller and arrives as `D:\a\_temp\bin`, which Git Bash
+  does not treat as absolute; the validator converts it with `cygpath` instead
+  of rejecting the one expression such a caller would reach for.
+
+- Drop the `--bin-dir` override. 0.5.0 declared `bin-dir = "."`, which
+  cargo-binstall rejects, so the install passed an override naming the
+  executable itself (leynos/mdtablefix#458). 0.5.1 carries correct metadata and
+  the new version floor refuses anything earlier, so the override would now
+  second-guess a manifest the crate owns. A test asserts it has not returned.
+
+- Default `version` to 0.5.1 rather than requiring it. The action supports one
+  metadata shape and one platform list, so there is a single sensible value and
+  making every caller restate it only invites drift.
+
+- Pass the caller's `github.token` to the install step. Resolving the release
+  asset costs one `api.github.com` call, and unauthenticated calls are
+  rate-limited per source address; the macOS runners share addresses widely
+  enough to return `403 Forbidden`. A job with no token still works, just
+  unauthenticated, exactly as before.
+
+- Widen the runner-backed workflow to a matrix of `ubuntu-latest`, `macos-15`
+  and `windows-latest`, each asserting the installed version and the cached
+  second call. The macOS job that asserted a fail-closed refusal now asserts a
+  successful install, and `windows-11-arm` takes over the fail-closed case,
+  which is the only platform where the refusal is still about a genuinely
+  absent asset.
 - Add a composite action that installs a pinned `mdtablefix` from its prebuilt
   release, replacing the per-repository installer steps that had diverged.
 - Probe `bin-dir` and `PATH` first and exit early with

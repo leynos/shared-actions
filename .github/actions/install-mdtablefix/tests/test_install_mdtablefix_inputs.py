@@ -27,7 +27,7 @@ if typ.TYPE_CHECKING:
 
 require_posix_host()
 
-_VALID = {"version": "0.5.0", "binstall-version": "1.22.0", "bin-dir": "~/.local/bin"}
+_VALID = {"version": "0.5.1", "binstall-version": "1.22.0", "bin-dir": "~/.local/bin"}
 
 
 def _validate(
@@ -77,7 +77,7 @@ class TestAcceptedInputs:
             f"validation rejected a well-formed call: {process.stderr}"
         )
         outputs = _outputs(context)
-        assert outputs["version"] == "0.5.0", f"unexpected outputs: {outputs}"
+        assert outputs["version"] == "0.5.1", f"unexpected outputs: {outputs}"
         assert outputs["binstall-version"] == "1.22.0", f"unexpected outputs: {outputs}"
         assert outputs["bin-dir"].endswith("/.local/bin"), (
             f"the default bin-dir was not expanded against HOME: {outputs}"
@@ -95,11 +95,7 @@ class TestAcceptedInputs:
         )
 
     def test_adds_the_windows_executable_suffix(self, tmp_path: Path) -> None:
-        """Verify a Windows runner's executable path carries ``.exe``.
-
-        The action rejects Windows a step later, but the path it publishes must
-        still be the one that runner would use.
-        """
+        """Verify a Windows runner's executable path carries ``.exe``."""
         _, context = _validate(tmp_path, {}, runner_os="Windows")
 
         outputs = _outputs(context)
@@ -120,6 +116,33 @@ class TestAcceptedInputs:
             f"an absolute bin-dir must be taken as given: {_outputs(context)}"
         )
 
+    def test_rejects_a_native_windows_path_without_cygpath(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify a native Windows path is refused when it cannot be converted.
+
+        `${{ runner.temp }}` is the natural value for a Windows caller and
+        arrives as a drive-letter path, which Git Bash does not consider
+        absolute. The action converts it with `cygpath`, and this host has no
+        `cygpath`, so the conversion is refused with a message naming the cause
+        rather than the generic "must be an absolute path", which would send a
+        reader looking for the wrong problem.
+
+        The successful conversion is exercised on a real Windows runner by the
+        `Test install-mdtablefix` workflow; nothing on a POSIX host can stand
+        in for `cygpath` without testing the stand-in.
+        """
+        process, _ = _validate(
+            tmp_path, {"bin-dir": r"D:\a\_temp\bin"}, runner_os="Windows"
+        )
+
+        assert process.returncode == 1, (
+            f"a native Windows path should not validate here: {process.stderr}"
+        )
+        assert "cygpath" in process.stderr, (
+            f"the failure should name the missing converter: {process.stderr}"
+        )
+
 
 @pytest.mark.parametrize(
     ("inputs", "expected"),
@@ -127,7 +150,7 @@ class TestAcceptedInputs:
         pytest.param({"version": ""}, "version must be three", id="empty-version"),
         pytest.param({"version": "0.5"}, "version must be three", id="short-version"),
         pytest.param(
-            {"version": "0.5.0-rc1"},
+            {"version": "0.5.1-rc1"},
             "version must be three",
             id="prerelease-version",
         ),

@@ -222,10 +222,14 @@ therefore sit on opposite sides of the sccache steps, each for its own reason,
 and neither can move. A manifest test holds both orderings.
 
 Without that variable sccache writes to local disk, which nothing persists, so
-`RUSTC_WRAPPER` alone buys a wrapper and an empty cache. A caller's value is
-respected, `false` included, and a caller-set `SCCACHE_DIR` means they mounted
-storage of their own. The outcome is reported as
-`metric setup-rust.sccache.backend=<gha|local|caller>`.
+`RUSTC_WRAPPER` alone buys a wrapper and an empty cache.
+
+The selection order matters and the tests hold it. An explicit
+`SCCACHE_GHA_ENABLED` wins, `false` and empty included, and reports `caller`:
+someone who turned the cache off did so deliberately, and a `SCCACHE_DIR` set
+alongside it does not override that. Failing an explicit value, a caller-set
+`SCCACHE_DIR` means they mounted storage of their own, and reports `local`.
+Otherwise the GitHub Actions backend is chosen and reports `gha`.
 
 `.github/workflows/test-setup-rust-sccache.yml` proves the part the unit tests
 cannot: on a real runner it builds a trivial crate after the action and asserts

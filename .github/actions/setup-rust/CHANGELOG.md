@@ -7,9 +7,11 @@
   consumer that set only `RUSTC_WRAPPER` paid for the wrapper and started every
   run with an empty cache. The variable is exported before the sccache-action
   steps, because sccache binds its backend when the server starts and that
-  server starts inside them. A caller's own value is respected, `false`
-  included, and a caller-set `SCCACHE_DIR` leaves sccache on their directory.
-  Each run reports `metric setup-rust.sccache.backend=<gha|local|caller>`.
+  server starts inside them. The selection order is: an explicit
+  `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
+  caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
+  GitHub Actions backend is chosen. Each run reports
+  `metric setup-rust.sccache.backend=<gha|local|caller>`.
 
 - Export `RUSTC_WRAPPER` when `use-sccache` is enabled. `sccache-action`
   installs sccache and exports `SCCACHE_PATH`, but Cargo routes compilation

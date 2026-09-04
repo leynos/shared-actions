@@ -144,9 +144,10 @@ binary it installed. It sets neither `RUSTC_WRAPPER` nor
 - `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
   nothing persists between jobs. It is exported **before** the sccache steps,
   since sccache binds its backend when the server starts and that server starts
-  inside them. A caller's own value is respected, `false` included, and a
-  caller-set `SCCACHE_DIR` leaves sccache on their directory. Each run reports
-  `metric setup-rust.sccache.backend=<gha|local|caller>`.
+  inside them. The selection order is: an explicit `SCCACHE_GHA_ENABLED` wins,
+  `false` and empty included; failing that, a caller-set `SCCACHE_DIR` leaves
+  sccache on their directory; otherwise the GitHub Actions backend is chosen.
+  Each run reports `metric setup-rust.sccache.backend=<gha|local|caller>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice. Statistics are zeroed after the export, so a later

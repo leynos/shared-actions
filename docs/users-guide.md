@@ -53,10 +53,12 @@ over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
 The action also selects the cache backend, exporting `SCCACHE_GHA_ENABLED`
 before sccache starts. Without it sccache writes to local disk, which nothing
 persists between jobs, so the wrapper would cost time and return an empty cache
-on every run. A value the caller already set is respected, `false` included, so
-a workflow that sets `SCCACHE_GHA_ENABLED` at job level keeps its own value and
-needs no change. A caller-set `SCCACHE_DIR` leaves sccache on that directory.
-This choice is reported as
+on every run. The selection order is: an explicit `SCCACHE_GHA_ENABLED` wins,
+`false` and an empty value included, so a workflow that sets it at job level
+keeps its own value and needs no change; failing that, a caller-set
+`SCCACHE_DIR` leaves sccache on that directory; otherwise the GitHub Actions
+backend is chosen. `SCCACHE_DIR` therefore selects local disk only when
+`SCCACHE_GHA_ENABLED` is unset. This choice is reported as
 `metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm it took
 effect, `sccache --show-stats` reports a `ghac` cache location rather than
 `Local disk`.

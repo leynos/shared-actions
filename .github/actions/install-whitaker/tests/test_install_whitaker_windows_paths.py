@@ -9,14 +9,22 @@ Two defences, and these tests hold both: the path is normalized to POSIX form
 where it is first produced, and GNU tar is additionally told to treat a colon
 as part of the name. The extract fragment is executed under Bash against a stub
 `tar` that records its arguments, so what is measured is the shipped step.
+
+Since #446 the extractor is chosen by the asset's extension, so the tarball
+arm is where `tar` is reached and where the colon defence lives. These tests
+therefore drive the fragment with a tarball asset. The zip arm never invokes
+`tar` at all, which is the point of the fix, and it is covered separately at
+the foot of this module.
 """
 
 from __future__ import annotations
 
 import os
+import pathlib as pl
 import shutil
 import subprocess
 import typing as typ
+import zipfile
 
 import pytest
 from _action_manifest import step_by_name
@@ -29,9 +37,28 @@ if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
 
 require_posix_host()
 
+#: The action's own zip extractor, used when no system bsdtar is available.
+ZIP_SCRIPT = pl.Path(__file__).resolve().parents[1] / "scripts" / "extract-zip.py"
+
 #: A staging directory in the shape Git Bash hands the action on Windows.
 WINDOWS_STAGING_DIR = r"D:\a\_temp/whitaker-installer-release"
-ASSET = "whitaker-installer-x86_64-pc-windows-msvc-v0.2.7.zip"
+
+
+class Asset(typ.NamedTuple):
+    """A release asset and the extension the extract step branches on."""
+
+    name: str
+    extension: str
+
+
+#: A tarball asset, because the tarball arm is the one that reaches `tar` and
+#: so the one the colon defence applies to.
+TARBALL = Asset("whitaker-installer-x86_64-unknown-linux-gnu-v0.2.7.tar.gz", "tar.gz")
+#: The Windows asset, whose arm must never reach `tar`.
+ZIP = Asset("whitaker-installer-x86_64-pc-windows-msvc-v0.2.7.zip", "zip")
+#: An asset whose format the step does not know, which must fail closed.
+UNKNOWN = Asset("whitaker-installer-v0.2.7.rar", "rar")
+ASSET = TARBALL.name
 
 
 def _extract_script() -> str:
@@ -74,7 +101,11 @@ def _stub_tar(directory: Path, *, gnu: bool) -> Path:
 
 
 def _run_extract(
-    tmp_path: Path, *, staging_dir: str, gnu: bool
+    tmp_path: Path,
+    *,
+    staging_dir: str,
+    gnu: bool,
+    asset: Asset = TARBALL,
 ) -> subprocess.CompletedProcess[str]:
     """Run the extract fragment with `tar` stubbed."""
     bash = shutil.which("bash")
@@ -85,12 +116,18 @@ def _run_extract(
     environment = {
         **os.environ,
         "PATH": f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}",
-        "WHITAKER_ASSET": ASSET,
+        "WHITAKER_ASSET": asset.name,
+        "WHITAKER_EXTENSION": asset.extension,
         "WHITAKER_NEEDS_INSTALL": "true",
         "WHITAKER_STAGING_DIR": staging_dir,
         "WHITAKER_INSTALLER_VERSION": "0.2.7",
+        "WHITAKER_ZIP_SCRIPT": str(ZIP_SCRIPT),
+        # Pointed at a file rather than removed, so the job-summary metrics the
+        # step reports are observable. Several failure paths emit one, and the
+        # explicit `exit` arms have to emit it themselves, because an explicit
+        # exit does not fire the step's ERR trap.
+        "GITHUB_STEP_SUMMARY": str(_summary_path(tmp_path)),
     }
-    environment.pop("GITHUB_STEP_SUMMARY", None)
     return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [bash, "-c", _extract_script()],
         capture_output=True,
@@ -100,6 +137,17 @@ def _run_extract(
         text=True,
         timeout=30,
     )
+
+
+def _summary_path(tmp_path: Path) -> Path:
+    """Return the file standing in for `$GITHUB_STEP_SUMMARY`."""
+    return tmp_path / "step-summary.md"
+
+
+def _summary(tmp_path: Path) -> str:
+    """Return what the fragment wrote to the job summary."""
+    path = _summary_path(tmp_path)
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
 def _tar_arguments(tmp_path: Path) -> list[str]:
@@ -304,3 +352,71 @@ def test_extraction_never_hands_tar_a_remote_looking_path(
         assert "--force-local" in arguments or ":" not in archive
     else:
         assert "--force-local" not in arguments
+
+
+def _write_zip_asset(staging: pl.Path, asset: str) -> None:
+    """Write a release-shaped zip: one top-level directory, one executable."""
+    staging.mkdir(parents=True, exist_ok=True)
+    stem = asset.rsplit(".", 1)[0]
+    with zipfile.ZipFile(staging / asset, "w") as package:
+        package.writestr(f"{stem}/whitaker-installer.exe", b"installer")
+
+
+def test_the_zip_arm_never_invokes_tar(tmp_path: Path) -> None:
+    """The Windows asset must not be handed to tar at all.
+
+    This is the regression for #446. Git Bash on a GitHub-hosted Windows
+    runner puts MSYS2's GNU tar first on PATH, and GNU tar cannot read a zip,
+    so any arm that reaches `tar` for a zip asset fails after the archive has
+    already been downloaded and verified. The stub here is GNU tar, matching
+    that runner, and it must never be called.
+    """
+    staging = tmp_path / "staging"
+    _write_zip_asset(staging, ZIP.name)
+
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=ZIP)
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "stubs" / "tar-args.log").exists(), (
+        "the zip asset was handed to tar"
+    )
+    extracted = sorted(path.name for path in (staging / "extract").iterdir())
+    assert extracted == ["whitaker-installer.exe"]
+
+
+def test_the_zip_arm_strips_the_top_level_directory(tmp_path: Path) -> None:
+    """The zip arm must match `tar --strip-components=1`.
+
+    The install step looks for the executable directly under the extract
+    directory, so an arm that preserved the archive's top-level directory
+    would extract successfully and then fail to find what it extracted.
+    """
+    staging = tmp_path / "staging"
+    _write_zip_asset(staging, ZIP.name)
+
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=ZIP)
+
+    assert result.returncode == 0, result.stderr
+    installer = staging / "extract" / "whitaker-installer.exe"
+    assert installer.is_file()
+    assert installer.read_bytes() == b"installer"
+
+
+def test_an_unknown_extension_is_refused(tmp_path: Path) -> None:
+    """An unrecognized extension must fail rather than fall through to tar.
+
+    Falling through is precisely how a zip reached GNU tar, so the default arm
+    stops instead of guessing at the format.
+    """
+    staging = tmp_path / "staging"
+    _write_zip_asset(staging, UNKNOWN.name)
+
+    result = _run_extract(tmp_path, staging_dir=str(staging), gnu=True, asset=UNKNOWN)
+
+    assert result.returncode != 0
+    assert "unsupported archive extension" in result.stderr
+    assert not (tmp_path / "stubs" / "tar-args.log").exists()
+    # The arm exits explicitly, which does not fire the step's ERR trap, so it
+    # has to report the metric itself or the job summary would disagree with
+    # the annotation.
+    assert "whitaker-installer.failure=install" in _summary(tmp_path)

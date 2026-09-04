@@ -16,6 +16,9 @@ ACTION_DIR = Path(__file__).resolve().parents[1]
 ACTION_PATH = ACTION_DIR / "action.yml"
 DIGEST_MANIFEST_PATH = ACTION_DIR / "installer-digests.sha256"
 RESOLVE_SCRIPT_PATH = ACTION_DIR / "scripts" / "resolve-release.sh"
+#: The zip extractor the action falls back to when the runner has no
+#: system bsdtar, which is every POSIX host the tests run on.
+ZIP_SCRIPT_PATH = ACTION_DIR / "scripts" / "extract-zip.py"
 DIGEST_MANIFEST_NAME = DIGEST_MANIFEST_PATH.name
 
 #: Lifecycle step names, in the order the action runs them.

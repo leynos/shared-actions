@@ -5,6 +5,27 @@ this file.
 
 ## v1.0.0 (Unreleased)
 
+- Fix extraction of the Windows release asset on GitHub-hosted runners
+  (#446). The extract step chose its extractor by probing what `tar` is, and
+  on `windows-latest` the answer is GNU tar, which cannot read the `.zip`
+  asset: the step's `shell: bash` is Git Bash, whose PATH puts MSYS2's tar
+  ahead of the Windows system directory. The probe held only on runner images
+  where `tar` happened to resolve to bsdtar. The extractor is now chosen by
+  the resolved asset extension instead. A tarball still goes through `tar`,
+  with the `--force-local` probe unchanged; a zip goes through the Windows
+  system `tar.exe`, which is bsdtar and honours `--strip-components`, falling
+  back to a Python extractor the action ships for a runner that has neither.
+  An unrecognized extension now fails closed rather than falling through to
+  `tar`. The action still never requires `unzip`, which some Windows images
+  lack.
+
+  The unit tests' `tar` shim previously unpacked zip archives itself, which
+  made the harness's tar zip-capable and hid this for as long as it existed.
+  It now refuses a zip exactly as GNU tar does, so the zip arm has to work for
+  the Windows scenario to pass, and the `Test install-whitaker` workflow gained
+  a `windows-latest` leg, which is the only place the real PATH ordering can be
+  observed.
+
 - Fix extraction on Windows runners. `RUNNER_TEMP` is a native path, so under
   Git Bash the staging directory arrives as `D:\a\_temp/...`, and GNU tar reads
   the colon as rmt's `host:path` syntax and tries to resolve the drive letter

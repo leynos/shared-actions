@@ -213,11 +213,42 @@ Every terminal path reports one bounded
 name fixed and the values inside that set, with no path or wrapper value in the
 line.
 
+The backend is chosen in a separate step **before** the sccache-action steps,
+and that position is the whole point. sccache binds its backend once, when the
+server starts, and the first thing here to start one is the `--zero-stats` in
+the wrapper step that follows those sccache steps. `GITHUB_ENV` reaches only
+the next step, so `SCCACHE_GHA_ENABLED` exported alongside the wrapper would be
+read by nobody: the job would keep a local-disk cache while every log line
+claimed the backend was selected. The two exports therefore sit on opposite
+sides of the sccache steps, each for its own reason, and neither can move. A
+manifest test holds both orderings.
+
+The sccache-action steps do not start a server themselves, which is worth
+knowing before reasoning about this ordering. What they do is write
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, forcing GitHub's v2 cache
+service on every step after them. On a GitHub-hosted runner that is what a
+caller wants. On Ubicloud it overrides the cleared value that
+`export-ubicloud-cache-credentials` published, and the proxy serves v1. That is
+issue `#441`, not this ordering.
+
+Without that variable sccache writes to local disk, which nothing persists, so
+`RUSTC_WRAPPER` alone buys a wrapper and an empty cache.
+
+The selection order matters and the tests hold it. An explicit
+`SCCACHE_GHA_ENABLED` wins, `false` and empty included, and reports `caller`:
+someone who turned the cache off did so deliberately, and a `SCCACHE_DIR` set
+alongside it does not override that. Failing an explicit value, a caller-set
+`SCCACHE_DIR` means they mounted storage of their own, and reports `local`.
+Otherwise the GitHub Actions backend is chosen and reports `gha`.
+
 `.github/workflows/test-setup-rust-sccache.yml` proves the part the unit tests
 cannot: on a real runner it builds a trivial crate after the action and asserts
 sccache recorded at least one compile request, which is exactly the measurement
-that was zero before this change. A second job asserts a caller's wrapper
-survives.
+that was zero before this change, and that its cache location reads `ghac`
+rather than `Local disk`. Assert both: the request count alone passed while the
+cache was still local, which is how that gap survived the first change. Further
+jobs assert a caller's wrapper and a caller's `SCCACHE_GHA_ENABLED=false` both
+survive.
 
 On Ubicloud, `export-ubicloud-cache-credentials` must run **before**
 `setup-rust`. The GitHub Actions backend reads its endpoint when the sccache

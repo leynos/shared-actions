@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Select the GitHub Actions cache backend. Without `SCCACHE_GHA_ENABLED`
+  sccache writes to local disk, which nothing persists between jobs, so a
+  consumer that set only `RUSTC_WRAPPER` paid for the wrapper and started every
+  run with an empty cache. The variable is exported before the sccache-action
+  steps, because sccache binds its backend once at server start, the
+  `--zero-stats` in the wrapper step is what starts it, and `GITHUB_ENV`
+  reaches only the next step. The selection order is: an explicit
+  `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
+  caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
+  GitHub Actions backend is chosen. Each run reports
+  `metric setup-rust.sccache.backend=<gha|local|caller>`.
+
 - Export `RUSTC_WRAPPER` when `use-sccache` is enabled. `sccache-action`
   installs sccache and exports `SCCACHE_PATH`, but Cargo routes compilation
   through sccache only when `RUSTC_WRAPPER` names it, so consumers that did not

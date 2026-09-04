@@ -50,10 +50,43 @@ Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
 over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
 `missing-sccache-path`.
 
-On Ubicloud, run the `export-ubicloud-cache-credentials` action **before**
-`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
-server starts, so credentials published afterwards arrive too late and the
-compiler cache silently uses whatever the runner advertised.
+The action also selects the cache backend, exporting `SCCACHE_GHA_ENABLED`
+before sccache starts. Without it sccache writes to local disk, which nothing
+persists between jobs, so the wrapper would cost time and return an empty cache
+on every run. The selection order is: an explicit `SCCACHE_GHA_ENABLED` wins,
+`false` and an empty value included, so a workflow that sets it at job level
+keeps its own value and needs no change; failing that, a caller-set
+`SCCACHE_DIR` leaves sccache on that directory; otherwise the GitHub Actions
+backend is chosen. `SCCACHE_DIR` therefore selects local disk only when
+`SCCACHE_GHA_ENABLED` is unset. This choice is reported as
+`metric setup-rust.sccache.backend=<gha|local|caller>`. To confirm it took
+effect, `sccache --show-stats` reports a `ghac` cache location rather than
+`Local disk`.
+
+This export fixes GitHub-hosted runners. **On Ubicloud it is not sufficient
+yet**, and the reason is `mozilla-actions/sccache-action` rather than the
+runner. That action starts no server. It installs sccache, exports
+`SCCACHE_PATH`, and then writes `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`,
+along with `ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN`. The v2 flag
+overrides the empty value `export-ubicloud-cache-credentials` published, so
+every step after `setup-rust`'s sccache steps selects GitHub's v2 results
+service, and the first of them to start a server binds it. Ubicloud's proxy
+serves v1, so the writes fail: Chutoro's Ubicloud lane recorded 164 write
+errors out of 301 requests with v2 back on.
+
+Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, an
+Ubicloud lane should keep that action out of the job with
+`use-sccache: 'false'` and start sccache itself, after the credentials export.
+
+`use-sccache: 'false'` also turns off the action's sccache **installation**, so
+the lane owns that too. Nothing on the Ubicloud image provides the binary, and
+`RUSTC_WRAPPER=sccache` naming a binary that is not on `PATH` fails every
+`cargo` invocation rather than falling back to an uncached build. Install a
+pinned, checksum-verified release archive first, as in
+[the full example below](#export-ubicloud-cache-credentials-action).
+
+On a GitHub-hosted runner none of that applies: run
+`export-ubicloud-cache-credentials` nowhere, and `setup-rust` alone is enough.
 
 ## Rust cache ownership
 
@@ -92,8 +125,8 @@ That pair reports its own bounded `hit`, `miss`, `skipped`, `disabled`, or
 state, naming neither the key nor the baseline paths. Each outcome is also
 written as a fixed `metric ratchet-cache.restore=<state>` or
 `metric ratchet-cache.save=<state>` line, so a log scraper can read the result
-without parsing the notice text. `disabled` means the
-ratchet is off; `skipped` means an earlier failure stopped the step running.
+without parsing the notice text. `disabled` means the ratchet is off; `skipped`
+means an earlier failure stopped the step running.
 
 ## `ratchet-coverage` baseline caching
 
@@ -115,8 +148,8 @@ the first run after this change starts from no baseline and stores one.
 repository can make the coverage job its entire test run rather than executing
 the suite twice. All three default to off, and the ratchet cache change above
 is internal to the action, so a workflow already pinned to `v1` needs no edit
-to keep its current behaviour. Opt in only when the coverage job must replace
-a separate test job.
+to keep its current behaviour. Opt in only when the coverage job must replace a
+separate test job.
 
 ```yaml
 - uses: leynos/shared-actions/.github/actions/generate-coverage@v1
@@ -158,20 +191,79 @@ It also exports `ACTIONS_CACHE_SERVICE_V2` empty. sccache's GitHub Actions
 backend selects the v2 cache service whenever that variable is set, and the
 proxy serves v1.
 
+Ordering this action before `setup-rust` is **not** enough on Ubicloud, and
+`use-sccache: 'true'` must not be used there yet. `setup-rust` runs
+`mozilla-actions/sccache-action`, whose last act is to write
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, together with
+`ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN`. That undoes the empty value
+this action publishes, so every later step selects GitHub's v2 results service
+and the first one to start a server binds it. Chutoro and Wildside both landed
+zero objects in Ubicloud's store that way.
+
+The other two of those three exports are harmless here. On Ubicloud the runner
+already gives action steps the proxy's own `ACTIONS_CACHE_URL` and
+`ACTIONS_RUNTIME_TOKEN`, which is how this action reads them, and
+`ACTIONS_RESULTS_URL` is unset throughout. Only the v2 flag does damage.
+
+Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, keep
+that action out of the job and own sccache in the lane:
+
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 - uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
+- uses: leynos/shared-actions/.github/actions/setup-rust@v1
+  with:
+    use-sccache: 'false'
+- name: Install sccache
+  shell: bash
+  env:
+    SCCACHE_VERSION: v0.12.0
+    SCCACHE_SHA256: >-
+      b0e89ead6899224a4ba2b90e9073bf1ce036d95bab30f3dc33c1e1468bc4ad44
+  run: |
+    set -euo pipefail
+    archive="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    url="https://github.com/mozilla/sccache/releases/download"
+    curl -fsSL -o "$archive" "${url}/${SCCACHE_VERSION}/${archive}"
+    echo "${SCCACHE_SHA256}  ${archive}" | sha256sum -c -
+    tar -xzf "$archive"
+    install -Dm755 "${archive%.tar.gz}/sccache" "${HOME}/.local/bin/sccache"
+    echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 - name: Configure sccache
   shell: bash
   run: |
     echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
     echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+- name: Start sccache
+  shell: bash
+  run: sccache --zero-stats
 ```
 
-Order matters. Set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action
-and before any step that starts an sccache server or runs a build, because
-sccache reads the cache configuration once at server start and keeps it for
-that server's life.
+The install step is the lane's own, because `use-sccache: 'false'` disables the
+action's sccache installation along with its server. The version and checksum
+are pinned for the same reason every other tool here is: nothing in CI is built
+from source or fetched unverified. The start step is separate from the
+configuration step because `GITHUB_ENV` reaches the *next* step, so a server
+started in the same step would bind the backend the runner advertises rather
+than the proxy.
+
+`setup-rust`'s own sccache support, including its `RUSTC_WRAPPER` and
+`SCCACHE_GHA_ENABLED` exports, is the right path on GitHub-hosted runners,
+where forcing the v2 cache service is what a caller wants anyway.
+
+A `run:` step is the safe position for the server for a plainer reason than it
+first appeared. Measured on `ubicloud-standard-2`, the runner exposes
+`ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN` to *JavaScript* action steps
+only. Neither a workflow `run:` step nor a composite action's `run:` step sees
+them, and neither is overridden once `GITHUB_ENV` carries them: both read the
+proxy host and the cleared v2 flag, and a server started from either reports
+`Cache location  ghac`. So the distinction that matters is between a step that
+rewrites `GITHUB_ENV` and one that does not, not between step kinds.
+
+Order matters either way, and for one reason: sccache reads its cache
+configuration once when the server starts and keeps it for that server's life.
+So the credentials must be published before anything starts a server, which
+includes `setup-rust`.
 
 The action fails the step when the cache URL or runtime token is absent, when
 the URL does not parse, or when its host is neither `localhost` nor a

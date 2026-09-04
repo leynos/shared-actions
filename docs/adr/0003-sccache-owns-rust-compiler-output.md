@@ -47,10 +47,13 @@ actions' own archive caches so a caller such as an Ubicloud or Namespace cache
 volume owns those paths, and the coverage action still leaves ratchet-baseline
 paths under their separate GitHub cache.
 
-No sccache wiring changed. `SCCACHE_CACHE_SIZE` remains documentation rather
-than a manifest input, because the actions use the GitHub Actions sccache
-backend (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
-per-repository limit rather than by the local-disk value.
+That decision changed no sccache wiring; the addendum below records what had to
+change afterwards. `SCCACHE_CACHE_SIZE` remains documentation rather than a
+manifest input, because the actions select the GitHub Actions sccache backend by
+default (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
+per-repository limit rather than by the local-disk value. A caller who sets that
+variable, or who points `SCCACHE_DIR` at their own storage, keeps their choice
+and with it the local-disk limit.
 
 ## Consequences
 
@@ -79,8 +82,43 @@ loads both manifests, selects the steps that invoke `actions/cache` or its
 registry to remain cached, so the contract cannot pass by the cache steps
 disappearing.
 
+## Addendum, 2026-09-04: what sccache needs to own anything
+
+This decision made sccache the owner of compiler output and removed the
+`target` archive that had been standing in for it. It assumed sccache was
+working. It was not, for two reasons that surfaced only once the archive was
+gone and the cost became visible.
+
+`mozilla-actions/sccache-action` installs sccache and exports `SCCACHE_PATH`.
+It exports neither `RUSTC_WRAPPER`, without which Cargo never routes
+compilation through sccache, nor `SCCACHE_GHA_ENABLED`, without which sccache
+writes to a local disk directory that nothing persists between jobs. A consumer
+relying on `setup-rust` therefore had an installed binary, no wrapper, and no
+durable cache, while every log line reported sccache as enabled. Chutoro
+measured zero compile requests, then 3,836 requests at a 0.18 % hit rate once
+the wrapper landed.
+
+`setup-rust` now exports both. The positions are load-bearing:
+`SCCACHE_GHA_ENABLED` before the sccache-action steps and `RUSTC_WRAPPER`
+after them, because it needs `SCCACHE_PATH`, which they produce. Neither can
+move. A caller's own values win in both cases.
+
+The backend export sits first because `GITHUB_ENV` reaches only the next step,
+and the first thing in this action to start a server is the `--zero-stats` in
+the wrapper step immediately after the sccache steps. sccache binds its backend
+once, at server start, so an export written in that same step would be read by
+nobody. The sccache-action steps themselves start no server; measurement on
+Ubicloud (runs 33854048777 and 33854213968) showed that what they do instead is
+write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is a separate
+problem, recorded in `#441`.
+
+The decision itself stands: sccache owns compiler output, and no `target`
+archive returns. This records that owning it requires the two exports, which
+the original decision took for granted.
+
 ## References
 
 - Issue `#424`, PR `#425`
+- Issues `#437` and `#439`, PRs `#438` and `#440`
 - `docs/developers-guide.md`, "Rust action cache ownership"
 - `docs/users-guide.md`, "Rust cache ownership"

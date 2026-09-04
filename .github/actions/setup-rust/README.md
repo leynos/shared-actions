@@ -134,19 +134,41 @@ Example using an external cache owner:
 
 When the workflow is not triggered by a `release` event and `use-sccache` is
 enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
-cache compiler output. The sccache action sets `SCCACHE_GHA_ENABLED=true` and
-exports `SCCACHE_PATH`, naming the binary it installed. It does **not** export
-`RUSTC_WRAPPER`, and Cargo routes compilation through sccache only when that
-variable is set, so this action exports it, naming the same binary. Without
-that step sccache is installed and never used.
+cache compiler output. The sccache action exports `SCCACHE_PATH`, naming the
+binary it installed. It sets neither `RUSTC_WRAPPER` nor
+`SCCACHE_GHA_ENABLED`, so this action sets both:
+
+- `RUSTC_WRAPPER`, naming the installed binary, because Cargo routes
+  compilation through sccache only when that variable is set. Without it
+  sccache is installed and never used.
+- `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
+  nothing persists between jobs. It is exported **before** the sccache steps.
+  sccache binds its backend once, at server start, and `GITHUB_ENV` reaches
+  only the next step, so an export written alongside the wrapper would come too
+  late for the `--zero-stats` in that same step. Those sccache steps start no
+  server themselves; what they do is force `ACTIONS_CACHE_SERVICE_V2=on`, which
+  is issue `#441` and not this ordering. The selection order is: an explicit
+  `SCCACHE_GHA_ENABLED` wins,
+  `false` and empty included; failing that, a caller-set `SCCACHE_DIR` leaves
+  sccache on their directory; otherwise the GitHub Actions backend is chosen.
+  Each run reports `metric setup-rust.sccache.backend=<gha|local|caller>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice. Statistics are zeroed after the export, so a later
 `sccache --show-stats` measures the caller's own build.
 
-The compiled objects are stored in `~/.cache/sccache` and cached with a
-**separate cache key** from the directories above. This directory holds the
-sccache cache space and does not share data with the Rust dependency cache.
+Where the compiled objects go follows from the backend. On the GitHub Actions
+backend, the `ghac` arm, sccache stores them through the cache service; there is
+no local directory and no cache key of this action's own. The local backend is
+everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like, which
+includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`. sccache
+reads that variable as a boolean and treats empty as false, so a caller who
+clears it gets local disk exactly as one who wrote `false` does. Objects then go
+to that directory, defaulting to `~/.cache/sccache`. This action does not
+archive that directory; a lane that wants it to survive between jobs owns the
+cache step and its key, which must be
+separate from the Rust dependency cache above, because the two hold unrelated
+data.
 
 On Ubicloud, run the
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)

@@ -39,21 +39,35 @@ jobs:
       - name: Record the shell for contrast
         shell: bash
         run: |
-          # The same probe as the macOS job runs, so the two logs can be read
-          # against each other.
+          # The same three probes the macOS job runs, so the two logs can
+          # be read against each other.
           set -euo pipefail
           echo "mdtablefix_test_bash_version=${BASH_VERSION}"
-          cat > "${RUNNER_TEMP}/err-trap-probe.sh" <<'ERR_TRAP_PROBE'
-          set -Eeuo pipefail
-          trap 'echo "err-trap=fired"' ERR
-          false
-          ERR_TRAP_PROBE
-          verdict=not-run
-          observed="$(bash "${RUNNER_TEMP}/err-trap-probe.sh" 2>&1 || true)"
-          case "$observed" in
-            *err-trap=fired*) verdict=fired ;;
-          esac
-          echo "mdtablefix_test_err_trap=${verdict}"
+          bash --version | head -n 1
+          echo "mdtablefix_test_bash_path=$(command -v bash)"
+          dir="${RUNNER_TEMP}/err-trap"
+          mkdir -p "${dir}"
+          printf '%s\n' '#!/usr/bin/env bash' 'exit 94' > "${dir}/failing-tool"
+          chmod +x "${dir}/failing-tool"
+          # Three cases, differing only in what fails and where. The action's
+          # own fragment was the second: an external command, last in the
+          # script, exactly where `cargo binstall` sat.
+          probe() {
+            local name="$1" tail="$2" verdict=not-run observed
+            {
+              printf '%s\n' 'set -Eeuo pipefail'
+              printf '%s\n' "trap 'echo err-trap=fired' ERR"
+              printf '%s\n' "${tail}"
+            } > "${dir}/probe.sh"
+            observed="$(bash "${dir}/probe.sh" 2>&1 || true)"
+            case "${observed}" in
+              *err-trap=fired*) verdict=fired ;;
+            esac
+            echo "mdtablefix_test_err_trap.${name}=${verdict}"
+          }
+          probe builtin-last 'false'
+          probe external-last "${dir}/failing-tool"
+          probe external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
 
       - name: Poison cargo before the second invocation
         shell: bash
@@ -106,21 +120,29 @@ jobs:
           echo "mdtablefix_test_bash_version=${BASH_VERSION}"
           bash --version | head -n 1
           echo "mdtablefix_test_bash_path=$(command -v bash)"
-          # The failing command must sit at the top level of its own script,
-          # exactly as `cargo binstall` sat in the action's fragment. Putting it
-          # in an `if` condition would suppress errexit, and with it the trap,
-          # on every Bash, which would prove nothing about this one.
-          cat > "${RUNNER_TEMP}/err-trap-probe.sh" <<'ERR_TRAP_PROBE'
-          set -Eeuo pipefail
-          trap 'echo "err-trap=fired"' ERR
-          false
-          ERR_TRAP_PROBE
-          verdict=not-run
-          observed="$(bash "${RUNNER_TEMP}/err-trap-probe.sh" 2>&1 || true)"
-          case "$observed" in
-            *err-trap=fired*) verdict=fired ;;
-          esac
-          echo "mdtablefix_test_err_trap=${verdict}"
+          dir="${RUNNER_TEMP}/err-trap"
+          mkdir -p "${dir}"
+          printf '%s\n' '#!/usr/bin/env bash' 'exit 94' > "${dir}/failing-tool"
+          chmod +x "${dir}/failing-tool"
+          # Three cases, differing only in what fails and where. The action's
+          # own fragment was the second: an external command, last in the
+          # script, exactly where `cargo binstall` sat.
+          probe() {
+            local name="$1" tail="$2" verdict=not-run observed
+            {
+              printf '%s\n' 'set -Eeuo pipefail'
+              printf '%s\n' "trap 'echo err-trap=fired' ERR"
+              printf '%s\n' "${tail}"
+            } > "${dir}/probe.sh"
+            observed="$(bash "${dir}/probe.sh" 2>&1 || true)"
+            case "${observed}" in
+              *err-trap=fired*) verdict=fired ;;
+            esac
+            echo "mdtablefix_test_err_trap.${name}=${verdict}"
+          }
+          probe builtin-last 'false'
+          probe external-last "${dir}/failing-tool"
+          probe external-then-noop "$(printf '%s\n:' "${dir}/failing-tool")"
 
       - name: Install mdtablefix
         id: install-mdtablefix

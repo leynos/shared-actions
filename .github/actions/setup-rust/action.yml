@@ -259,6 +259,53 @@ runs:
     - name: Run sccache
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && !(runner.os == 'macOS' && runner.arch == 'X64') }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+    - name: Export sccache as the rustc wrapper
+      # sccache-action installs sccache and exports SCCACHE_PATH, but Cargo
+      # only routes compilation through it when RUSTC_WRAPPER names it. Without
+      # this the action reports sccache as enabled while every consumer that
+      # does not set the wrapper itself compiles without it, which is what
+      # Chutoro's zero compile requests showed.
+      #
+      # Must follow both sccache-action steps, since SCCACHE_PATH is their
+      # output.
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # One bounded outcome per terminal path, over a closed set, with no
+        # path or value in the line so a scraper sees a series it can
+        # aggregate.
+        report() {
+          echo "metric setup-rust.sccache.wrapper=$1"
+        }
+        # A caller wrapping rustc for its own reasons must not be overridden
+        # silently. ${VAR+x} rather than -n: an inherited empty value is still
+        # a deliberate choice, and macOS runners ship bash 3.2, which cannot
+        # parse [[ -v VAR ]].
+        if [[ ${RUSTC_WRAPPER+x} ]]; then
+          report caller-set
+          echo "::notice title=setup-rust sccache::RUSTC_WRAPPER already set; leaving the caller's value in place"
+          exit 0
+        fi
+        if [[ -z "${SCCACHE_PATH:-}" ]]; then
+          report missing-sccache-path
+          echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
+          exit 1
+        fi
+        # Written before the counters are zeroed, so the wrapper is in place
+        # for every step that follows even if zeroing fails.
+        echo "RUSTC_WRAPPER=${SCCACHE_PATH}" >> "$GITHUB_ENV"
+        # Zero the counters so a caller's later --show-stats measures its own
+        # build rather than whatever this runner did before it. A failure here
+        # costs a clean baseline, not the cache, so it warns rather than
+        # failing the job.
+        if "$SCCACHE_PATH" --zero-stats; then
+          report exported
+        else
+          report exported-stats-not-zeroed
+          echo "::warning title=setup-rust sccache::could not zero sccache statistics; a later --show-stats will include earlier work"
+        fi
+        echo "::notice title=setup-rust sccache::RUSTC_WRAPPER exported"
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

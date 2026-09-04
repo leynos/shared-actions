@@ -1,0 +1,85 @@
+name: Test setup-rust sccache wrapper
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exports-the-wrapper:
+    # Unlike the cache credentials, this one is provable on a hosted runner:
+    # sccache-action really installs sccache and exports SCCACHE_PATH, and the
+    # export step really writes GITHUB_ENV, so a later shell step can see the
+    # result. That end-to-end path is what the unit tests cannot show.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify a later step compiles through sccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
+            echo "::error::RUSTC_WRAPPER did not reach this step" >&2
+            exit 1
+          fi
+          if [[ ! -x "$RUSTC_WRAPPER" ]]; then
+            echo "::error::RUSTC_WRAPPER is not an executable: $RUSTC_WRAPPER" >&2
+            exit 1
+          fi
+          # The counters were zeroed by the action, so any request recorded
+          # here came from this build and proves the wrapper is in the path
+          # Cargo actually takes.
+          mkdir -p sccache-probe/src
+          cat > sccache-probe/Cargo.toml <<'TOML'
+          [package]
+          name = "sccache-probe"
+          version = "0.0.0"
+          edition = "2021"
+          TOML
+          echo 'fn main() {}' > sccache-probe/src/main.rs
+          cargo build --manifest-path sccache-probe/Cargo.toml
+          "$RUSTC_WRAPPER" --show-stats
+          requests="$("$RUSTC_WRAPPER" --show-stats | awk '/Compile requests/ {print $NF; exit}')"
+          if [[ "${requests:-0}" -lt 1 ]]; then
+            echo "::error::sccache recorded no compile requests; the wrapper is not in use" >&2
+            exit 1
+          fi
+          echo "sccache recorded ${requests} compile request(s)"
+
+  respects_a_caller_wrapper:
+    runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: /usr/bin/env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify the caller's wrapper survived
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${RUSTC_WRAPPER:-}" != /usr/bin/env ]]; then
+            echo "::error::the action replaced the caller's RUSTC_WRAPPER" >&2
+            exit 1
+          fi
+          echo "the caller's wrapper was left in place"

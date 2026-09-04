@@ -181,6 +181,49 @@ When updating these Node.js 24 action dependencies:
 The static manifest assertions must remain in place: runner execution proves
 that the action works, but cannot prove that a pin is the intended revision.
 
+## `setup-rust` and the rustc wrapper
+
+`mozilla-actions/sccache-action` installs sccache and exports `SCCACHE_PATH`.
+It does not export `RUSTC_WRAPPER`, and Cargo routes compilation through
+sccache only when that variable names it. So `setup-rust` exports the wrapper
+itself, in a step that must follow both sccache-action steps because
+`SCCACHE_PATH` is their output.
+
+The failure this fixes was silent, which is why it lasted: the action reported
+sccache as enabled, the binary was installed, and every consumer that did not
+set the wrapper itself compiled without it. Chutoro recorded zero compile
+requests, and the cost only became visible once the `target` archive that had
+been masking it was removed.
+
+Rules to keep:
+
+- A caller's existing `RUSTC_WRAPPER` wins, including a deliberate empty value,
+  and the action says so in a notice. Someone wrapping rustc for their own
+  reasons must not be overridden silently. The guard uses `${RUSTC_WRAPPER+x}`
+  rather than `-v`, which needs Bash 4.2 that macOS runners do not have.
+- A missing `SCCACHE_PATH` fails the step rather than skipping the export.
+  Skipping would restore exactly the silent uncached build this exists to end.
+- The wrapper is written to `GITHUB_ENV` **before** the counters are zeroed. A
+  failure while zeroing costs a clean statistics baseline; writing second would
+  cost the cache itself, so that path warns and keeps the wrapper.
+
+Every terminal path reports one bounded
+`metric setup-rust.sccache.wrapper=<state>` line over `exported`,
+`exported-stats-not-zeroed`, `caller-set`, and `missing-sccache-path`. Keep the
+name fixed and the values inside that set, with no path or wrapper value in the
+line.
+
+`.github/workflows/test-setup-rust-sccache.yml` proves the part the unit tests
+cannot: on a real runner it builds a trivial crate after the action and asserts
+sccache recorded at least one compile request, which is exactly the measurement
+that was zero before this change. A second job asserts a caller's wrapper
+survives.
+
+On Ubicloud, `export-ubicloud-cache-credentials` must run **before**
+`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
+server starts, so credentials published afterwards arrive too late and the
+compiler cache silently uses whatever the runner advertised.
+
 ## Rust action cache ownership
 
 The [`setup-rust`](../.github/actions/setup-rust/action.yml) and

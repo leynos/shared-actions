@@ -5,6 +5,15 @@ this file.
 
 ## v1.0.0 (Unreleased)
 
+- Fix extraction on Windows runners. `RUNNER_TEMP` is a native path, so under
+  Git Bash the staging directory arrives as `D:\a\_temp/...`, and GNU tar reads
+  the colon as rmt's `host:path` syntax and tries to resolve the drive letter
+  as a hostname. The staging path is now normalized to POSIX form with
+  `cygpath -u` where it is first produced, so every later step receives it, and
+  GNU tar is additionally passed `--force-local`. bsdtar, the bundled tar on
+  Windows and macOS runners, rejects that flag, so it is only passed after a
+  version probe identifies GNU tar.
+
 - Fix digest verification on Windows runners. `sha256sum` escapes its output
   line when the file name contains a backslash or a newline, prefixing the line
   with a backslash, and Windows paths contain backslashes, so the verify step

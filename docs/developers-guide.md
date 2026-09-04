@@ -300,6 +300,35 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
+## `install-whitaker` staging paths on Windows
+
+`RUNNER_TEMP` is a native path, so under Git Bash the staging directory arrives
+as `D:\a\_temp/whitaker-installer-release`. GNU tar reads a colon in an archive
+path as rmt's `host:path` syntax, so it treated the drive letter as a hostname
+and failed with `Cannot connect to D: resolve failed`, after the archive had
+already been downloaded and verified.
+
+Two defences, at different levels, and both are deliberate:
+
+- The path is converted with `cygpath -u` in the resolve step, where it is
+  first produced, so download, verify, extract, and install all receive the
+  POSIX form. Converting in each consumer would leave the next one to remember.
+  `cygpath` exists under Git Bash and nowhere else, hence the probe.
+- GNU tar is passed `--force-local`, which covers a colon arriving from
+  anywhere the conversion does not reach. bsdtar, the bundled tar on Windows
+  and macOS runners, exits non-zero on that flag, so it is passed only after a
+  version probe identifies GNU tar. The two cases are written as two `tar`
+  calls rather than an options array, because macOS runners ship Bash 3.2,
+  where expanding an empty array under `set -u` is an unbound-variable error.
+
+Test the conversion by executing the resolve fragment, not by reading it. An
+assertion on the fragment's text passes when `cygpath` runs without its result
+being assigned, or when it runs after the resolve script, and in both cases
+every later step still receives the native path. The tests in
+[`test_install_whitaker_windows_paths.py`](../.github/actions/install-whitaker/tests/test_install_whitaker_windows_paths.py)
+stub `cygpath` and the resolve script and assert on the value the script
+received.
+
 ## `export-ubicloud-cache-credentials` action contract
 
 A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`

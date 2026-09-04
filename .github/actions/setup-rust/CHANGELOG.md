@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Start the sccache server from a `run:` step of the action's own, last of the
+  sccache steps, and restore the caller's `ACTIONS_CACHE_SERVICE_V2` after
+  `mozilla-actions/sccache-action` overwrites it. That action's final act is to
+  write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is right on a
+  GitHub-hosted runner and wrong on Ubicloud, where it overrode the empty value
+  `export-ubicloud-cache-credentials` published and sent every cache write to a
+  service the proxy does not serve. The caller's value is now read before those
+  steps and written back after them. `use-sccache: 'true'` therefore works on
+  Ubicloud, where callers previously had to set it to `false` and own sccache
+  themselves. Each run reports
+  `metric setup-rust.sccache.cache-service=<restored|unchanged|absent>` and
+  `metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+  Zeroing the counters is gone from the wrapper export: the server the action
+  starts is a fresh one, whose counters begin at zero, so
+  `setup-rust.sccache.wrapper` no longer reports
+  `exported-stats-not-zeroed`.
+
 - Select the GitHub Actions cache backend. Without `SCCACHE_GHA_ENABLED`
   sccache writes to local disk, which nothing persists between jobs, so a
   consumer that set only `RUSTC_WRAPPER` paid for the wrapper and started every

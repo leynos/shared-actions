@@ -38,9 +38,9 @@ jobs:
             echo "::error::RUSTC_WRAPPER is not an executable: $RUSTC_WRAPPER" >&2
             exit 1
           fi
-          # The counters were zeroed by the action, so any request recorded
-          # here came from this build and proves the wrapper is in the path
-          # Cargo actually takes.
+          # The action started a fresh server, whose counters begin at zero,
+          # so any request recorded here came from this build and proves the
+          # wrapper is in the path Cargo actually takes.
           mkdir -p sccache-probe/src
           cat > sccache-probe/Cargo.toml <<'TOML'
           [package]
@@ -126,3 +126,44 @@ jobs:
             exit 1
           fi
           echo "the caller's wrapper was left in place"
+
+  restores_a_caller_cache_service_choice:
+    # The failure this proves against is silent and expensive: a caller who
+    # cleared ACTIONS_CACHE_SERVICE_V2, as an Ubicloud lane does, had it set
+    # back to `on` by mozilla-actions/sccache-action writing GITHUB_ENV, and
+    # every cache write then went to the wrong service.
+    #
+    # The proxy path itself is not provable on a hosted runner; that is covered
+    # by the manifest ordering tests and by the measurement recorded in #441.
+    # What is provable here is the part that broke: whether the caller's value
+    # survives the action. SCCACHE_GHA_ENABLED is off so the assertion is about
+    # the variable alone, not about reaching any cache service.
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_CACHE_SERVICE_V2: ''
+      SCCACHE_GHA_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify the caller's cache service choice survived
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z ${ACTIONS_CACHE_SERVICE_V2+x} ]]; then
+            echo "::error::ACTIONS_CACHE_SERVICE_V2 was unset entirely" >&2
+            exit 1
+          fi
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2}" ]]; then
+            echo "::error::the sccache steps' value survived: ${ACTIONS_CACHE_SERVICE_V2}" >&2
+            exit 1
+          fi
+          echo "the caller's cleared cache service selection was restored"

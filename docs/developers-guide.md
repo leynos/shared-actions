@@ -223,13 +223,40 @@ claimed the backend was selected. The two exports therefore sit on opposite
 sides of the sccache steps, each for its own reason, and neither can move. A
 manifest test holds both orderings.
 
-The sccache-action steps do not start a server themselves, which is worth
-knowing before reasoning about this ordering. What they do is write
+The sccache-action steps do not start a server themselves. What they do is write
 `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, forcing GitHub's v2 cache
 service on every step after them. On a GitHub-hosted runner that is what a
-caller wants. On Ubicloud it overrides the cleared value that
-`export-ubicloud-cache-credentials` published, and the proxy serves v1. That is
-issue `#441`, not this ordering.
+caller wants. On Ubicloud it overrides the cleared value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1.
+
+So the action records the caller's `ACTIONS_CACHE_SERVICE_V2` before those
+steps and restores it after them, reporting
+`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>`. Rules to
+keep:
+
+- The record uses `${VAR+x}` and the heredoc delimiter form in `GITHUB_OUTPUT`.
+  Clearing the variable, which is what the credentials action does, is a
+  choice, and a `name=value` line cannot carry an empty value back.
+- A caller who never set it gets `absent` and keeps the action's `on`.
+  Restoring an absence would clear the variable and send sccache at a v1
+  service GitHub no longer runs.
+- Record and restore share one `if:` predicate. Gating one and not the other
+  would strand a value.
+
+Then a final `run:` step starts the server, reporting
+`metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+It stops any server first, because sccache binds its backend at start and
+never rebinds, so one started before the restore would hold exactly the
+configuration being replaced. A fresh server also begins with zero counters,
+which is why the wrapper step no longer zeroes them and no longer reports
+`exported-stats-not-zeroed`. Whether the restart may happen is read from the
+wrapper step's `state` output, not from `RUSTC_WRAPPER`: an inherited wrapper
+may name this very binary, and stopping the server behind it would discard the
+statistics of everything compiled so far in the job.
+
+The manifest tests hold the whole chain: selection, record, sccache steps,
+restore, wrapper export, start. `GITHUB_ENV` reaches only the next step, so no
+two of these can be merged.
 
 Without that variable sccache writes to local disk, which nothing persists, so
 `RUSTC_WRAPPER` alone buys a wrapper and an empty cache.

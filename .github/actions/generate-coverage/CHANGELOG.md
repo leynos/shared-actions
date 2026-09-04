@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Publish the ratchet baseline only on a push to `refs/heads/main`. The save
+  step had no event guard, so a `workflow_dispatch` gathering warm-cache
+  evidence published a new baseline instead of reading the generation it was
+  measuring, and a push to any branch could advance the baseline that later
+  pull requests are measured against. The new `publish-baseline` input takes
+  `auto`, the guarded default, or `always` for a repository whose merges fire
+  no push event or whose trunk is not called `main`.
+
 - Keep `RUN_RUST_CARGO_WAIT_TIMEOUT` ahead of the new input. The input reaches
   the script under its own name, so a step no longer replaces a caller's
   job-level budget with this input's default.

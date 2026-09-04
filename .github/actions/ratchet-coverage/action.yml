@@ -9,6 +9,16 @@ inputs:
     description: Additional arguments passed to cargo llvm-cov
     required: false
     default: ''
+  publish-baseline:
+    description: >-
+      When the ratchet may publish a new baseline. "auto" saves only on a push
+      to refs/heads/main, so a workflow_dispatch measuring warm caches, and a
+      push to any other branch, read the baseline without advancing it. Use
+      "always" when a repository's merges fire no push event, or when its trunk
+      is not called main; the calling workflow is then responsible for
+      restricting the job to its trunk.
+    required: false
+    default: auto
 outputs:
   percent:
     description: Coverage percentage reported by cargo llvm-cov
@@ -74,7 +84,17 @@ runs:
       # a fresh baseline that later runs recover through the
       # `ratchet-baseline-${{ runner.os }}-` restore-key prefix, newest match
       # first.
-      if: success()
+      # Publish only from a trunk push. A workflow_dispatch is how warm-cache
+      # evidence is gathered: the same workflow is re-run over an unchanged
+      # tree, and such a run must read the generation it is measuring rather
+      # than advance it. A push to another branch would advance the trunk
+      # baseline that later pull requests are compared against, which is a
+      # correctness question rather than housekeeping. A caller whose merges
+      # fire no push event, or whose trunk is not main, sets
+      # publish-baseline: always and restricts the job itself.
+      if: >-
+        success() && (inputs.publish-baseline == 'always' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
       # The save sub-action pairs with the restore sub-action above, so exactly
       # one step writes this key.
       # v6.1.0

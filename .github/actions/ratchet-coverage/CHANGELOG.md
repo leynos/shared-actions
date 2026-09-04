@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Publish the baseline only on a push to `refs/heads/main`, with the same
+  `publish-baseline` input and default as `generate-coverage`. The save step
+  had no event guard, so any run that reached it published, including a
+  `workflow_dispatch` measuring warm caches and a push to a branch other than
+  the trunk.
+
 - Pin every `actions/cache` reference to the v6.1.0 commit
   `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.
   The tag breaks the repository's SHA-pinning policy, and the older releases it

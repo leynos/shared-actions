@@ -11,6 +11,12 @@ The shape that avoids both: restore through ``actions/cache/restore`` on a
 run-scoped primary key with a shared prefix as its restore-key, then save
 through ``actions/cache/save`` under that same run-scoped key.
 
+The save is additionally guarded on the event and the ref. A cache family has
+one writer, and that writer publishes only on a push to the trunk: a
+``workflow_dispatch`` is how warm-cache evidence is gathered, over a tree that
+must not be disturbed, and a push to another branch would advance the trunk
+baseline that later pull requests are measured against.
+
 Action-specific behaviour, such as the reporting step ``generate-coverage``
 emits, is covered in that action's own test directory.
 """
@@ -171,3 +177,50 @@ def test_baseline_save_is_not_gated_on_cache_hit(action: str) -> None:
     condition = str(_step(action, save_step).get("if", ""))
 
     assert "cache-hit" not in condition
+
+
+#: The guard every baseline writer must carry, reduced to the terms it asserts.
+PUBLISH_GUARD_TERMS = (
+    "inputs.publish-baseline == 'always'",
+    "github.event_name == 'push'",
+    "github.ref == 'refs/heads/main'",
+)
+
+
+def _save_condition(action: str) -> str:
+    """Return the save step's condition with its whitespace normalized."""
+    _restore_step, save_step = BASELINE_CACHE_STEPS[action]
+    return " ".join(str(_step(action, save_step).get("if", "")).split())
+
+
+@pytest.mark.parametrize("action", ACTION_IDS)
+def test_baseline_save_is_guarded_on_a_trunk_push(action: str) -> None:
+    """A dispatch must read the baseline it measures, never replace it."""
+    condition = _save_condition(action)
+
+    for term in PUBLISH_GUARD_TERMS:
+        assert term in condition, f"{action}: save condition omits {term!r}"
+
+
+@pytest.mark.parametrize("action", ACTION_IDS)
+def test_baseline_save_still_requires_success(action: str) -> None:
+    """A failed run must not publish whatever the baseline file holds."""
+    assert "success()" in _save_condition(action), (
+        f"{action}: save condition no longer requires success"
+    )
+
+
+@pytest.mark.parametrize("action", ACTION_IDS)
+def test_publish_baseline_defaults_to_the_guarded_behaviour(action: str) -> None:
+    """The escape hatch must be opt-in, so a caller cannot inherit it."""
+    manifest = ACTIONS_ROOT / action / "action.yml"
+    inputs = yaml.safe_load(manifest.read_text(encoding="utf-8"))["inputs"]
+
+    assert "publish-baseline" in inputs, f"{action}: no publish-baseline input"
+    assert inputs["publish-baseline"]["default"] == "auto", (
+        f"{action}: publish-baseline defaults to "
+        f"{inputs['publish-baseline'].get('default')!r}, not 'auto'"
+    )
+    assert inputs["publish-baseline"]["required"] is False, (
+        f"{action}: publish-baseline must stay optional"
+    )

@@ -171,16 +171,31 @@ through `rust-build-release`, and stopping that server would discard the
 statistics of everything compiled so far. Each run reports
 `metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
 
-One export has to be put back rather than made. The last thing
+Some exports have to be put back rather than made. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to
-`GITHUB_ENV`, which forces GitHub's v2 cache service on every step after it. On
-a GitHub-hosted runner that is what a caller wants. On Ubicloud it overrides the
-empty value `export-ubicloud-cache-credentials` published, and the proxy serves
-v1, so every write goes to a service that is not the one holding the cache. The
-action therefore reads the caller's value before those steps and writes it back
-after them, reporting
-`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>`. A caller
-who never set the variable keeps the action's `on`.
+`GITHUB_ENV`, along with the runner's own `ACTIONS_RESULTS_URL` and
+`ACTIONS_RUNTIME_TOKEN`. On a GitHub-hosted runner that is what a caller wants.
+On Ubicloud the v2 flag overrides the empty value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1, so every
+write goes to a service that is not the one holding the cache.
+
+The action therefore reads all three before those steps and writes back any that
+changed, reporting
+`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>` and the
+same over `results-url` and `runtime-token`. Only the v2 flag does harm today;
+the other two are recorded because they belong to the sccache-action, and a
+version that started exporting a different results URL or token would break the
+proxy the same way and just as quietly. The token is masked before it is
+recorded, and the notices name variables rather than values.
+
+**A caller who never set a variable keeps the action's value**, including the
+`on` that suits a GitHub-hosted runner. Restoring an absence would clear it and
+point sccache at a v1 service GitHub no longer runs. On Ubicloud the caller is
+expected to run
+[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
+first, which sets the flag empty, and this restore is what carries that choice
+past the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy
+at all.
 
 Where the compiled objects go follows from the backend. On the GitHub Actions
 backend, the `ghac` arm, sccache stores them through the cache service; there is

@@ -71,19 +71,25 @@ zero, and a later `sccache --show-stats` measures your build alone. If you set
 `RUSTC_WRAPPER` yourself, or ran `setup-rust` earlier in the same job, the step
 leaves your server running rather than restarting it and losing its counters.
 The outcome is reported as
-`metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+`metric setup-rust.sccache.server=<started|started-stats-not-zeroed|start-failed|caller-set|missing-sccache-path>`.
 
-One export has to be put back rather than made, and it is the reason
+Some exports have to be put back rather than made, and that is the reason
 `use-sccache: 'true'` used to be unusable on Ubicloud. The last thing
 `mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to
-`GITHUB_ENV`, forcing GitHub's v2 cache service on every step after it. On a
-GitHub-hosted runner that is what you want. On Ubicloud it overrode the empty
-value `export-ubicloud-cache-credentials` published, and the proxy serves v1,
-so every write went to a service that was not holding the cache: Chutoro's
-Ubicloud lane recorded 164 write errors out of 301 requests. `setup-rust` now
-reads your value before those steps and writes it back after them, reporting
-`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>`. If you
-never set the variable, the action's `on` stays.
+`GITHUB_ENV`, along with the runner's own `ACTIONS_RESULTS_URL` and
+`ACTIONS_RUNTIME_TOKEN`. On a GitHub-hosted runner that is what you want. On
+Ubicloud the v2 flag overrode the empty value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1, so
+every write went to a service that was not holding the cache: Chutoro's
+Ubicloud lane recorded 164 write errors out of 301 requests.
+
+`setup-rust` now reads all three before those steps and writes back any that
+changed, reporting
+`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>` and the
+same over `results-url` and `runtime-token`. Only the flag does harm today; the
+other two are tracked because they are the sccache-action's to change. **If you
+never set a variable, the action's value stays**, including the `on` that suits
+a GitHub-hosted runner.
 
 So on Ubicloud, run `export-ubicloud-cache-credentials` before `setup-rust` and
 leave `use-sccache: 'true'`. On a GitHub-hosted runner, run the credentials
@@ -161,6 +167,33 @@ rate. So on those runners:
   `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`, the v6.1.0 pin;
 - let one designated job save it on a push to `main`, so the readers and the
   writer do not contend for the key.
+
+The install is the lane's own, and pinned by version and digest, because
+nothing here is built from source or fetched unverified:
+
+```yaml
+- name: Install sccache
+  shell: bash
+  env:
+    SCCACHE_VERSION: v0.17.0
+    SCCACHE_SHA256: >-
+      67c4a96dd237c1f518f6b36083f270f9976d516f1e57fce891755ea782e50006
+  run: |
+    set -euo pipefail
+    archive="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+    url="https://github.com/mozilla/sccache/releases/download"
+    curl -fsSL -o "$archive" "${url}/${SCCACHE_VERSION}/${archive}"
+    echo "${SCCACHE_SHA256}  ${archive}" | sha256sum -c -
+    tar -xzf "$archive"
+    install -Dm755 "${archive%.tar.gz}/sccache" "${HOME}/.local/bin/sccache"
+    echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+```
+
+That digest is the x86_64 musl archive's; a lane on another platform takes the
+digest for its own. This pin is the lane's, and independent of the one
+`setup-rust` uses for `mozilla-actions/sccache-action`. Across this estate the
+two do not currently agree: Whitaker and Axinite pin 0.16.0, Chutoro and
+Wildside 0.17.0.
 
 `rust-build-release` accepts both inputs too and forwards them to the
 `setup-rust` step it runs internally, so a workflow that only calls the build

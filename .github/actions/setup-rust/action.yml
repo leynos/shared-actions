@@ -294,33 +294,54 @@ runs:
 
     - name: Record the caller's cache service selection
       id: cache-service
-      # Read BEFORE the sccache-action steps, because they overwrite it. The
-      # last thing mozilla-actions/sccache-action does is write
-      # ACTIONS_CACHE_SERVICE_V2=on to GITHUB_ENV, which forces GitHub's v2
-      # cache service on every step after it. On a GitHub-hosted runner that
-      # is what a caller wants. On Ubicloud it overrides the empty value
-      # export-ubicloud-cache-credentials published, and the proxy serves v1,
-      # so every write goes to the wrong endpoint and fails. This step keeps
-      # the caller's value so the restore step can put it back (#441).
+      # Read BEFORE the sccache-action steps, because they overwrite these.
+      # The last thing mozilla-actions/sccache-action does is write
+      # ACTIONS_CACHE_SERVICE_V2=on to GITHUB_ENV, along with the runner's own
+      # ACTIONS_RESULTS_URL and ACTIONS_RUNTIME_TOKEN. On a GitHub-hosted
+      # runner that is what a caller wants. On Ubicloud the v2 flag overrides
+      # the empty value export-ubicloud-cache-credentials published, the proxy
+      # serves v1, and every write goes to the wrong endpoint.
+      #
+      # All three are recorded, not just the one that does harm today. They
+      # are the sccache-action's to change, and a version that started
+      # exporting a different results URL or token would break the proxy the
+      # same way, silently. (#441)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       shell: bash
       run: |
         set -euo pipefail
-        # ${VAR+x} rather than -n: clearing the variable, which is exactly
-        # what export-ubicloud-cache-credentials does, is a choice. macOS
-        # runners ship bash 3.2, which cannot parse [[ -v VAR ]].
-        if [[ ${ACTIONS_CACHE_SERVICE_V2+x} ]]; then
+        # $1 the variable, $2 the output key, $3 non-empty when the value is a
+        # credential. Bash 3.2 on macOS runners has no nameref, so the
+        # indirect read is eval.
+        record() {
+          local name="$1" key="$2" secret="$3" value
+          # ${VAR+x} rather than -n: clearing the variable, which is exactly
+          # what export-ubicloud-cache-credentials does, is a choice, and
+          # bash 3.2 cannot parse [[ -v VAR ]].
+          if ! eval "[[ \${$name+x} ]]"; then
+            echo "${key}_state=unset" >> "$GITHUB_OUTPUT"
+            return
+          fi
+          eval "value=\${$name}"
+          # A caller who exported a token without marking it secret would
+          # otherwise have it appear here first. Masking is per value, never
+          # blanket: masking a flag whose value is "on" would redact that
+          # word everywhere in the log.
+          if [[ -n "$secret" && -n "$value" ]]; then
+            echo "::add-mask::$value"
+          fi
           # The delimiter form carries an empty value, which the plain
           # name=value form cannot round-trip.
           {
-            echo "state=set"
-            echo "value<<SETUP_RUST_CACHE_SERVICE"
-            printf '%s\n' "$ACTIONS_CACHE_SERVICE_V2"
-            echo "SETUP_RUST_CACHE_SERVICE"
+            echo "${key}_state=set"
+            echo "${key}_value<<SETUP_RUST_RECORDED"
+            printf '%s\n' "$value"
+            echo "SETUP_RUST_RECORDED"
           } >> "$GITHUB_OUTPUT"
-        else
-          echo "state=unset" >> "$GITHUB_OUTPUT"
-        fi
+        }
+        record ACTIONS_CACHE_SERVICE_V2 cache_service ''
+        record ACTIONS_RESULTS_URL results_url ''
+        record ACTIONS_RUNTIME_TOKEN runtime_token secret
 
     # x86_64-apple-darwin binaries were dropped after sccache v0.12.0
     - name: Run sccache (x86_64 macOS)
@@ -329,13 +350,24 @@ runs:
       with:
         version: v0.12.0
     - name: Run sccache
+      # Pinned, like its x86_64 macOS sibling. Left unset, the action asks the
+      # GitHub API for the latest release on every job: a floating dependency
+      # and a network call in the critical path. That call timed out on #440
+      # and failed the job with "Unable to locate executable file: undefined",
+      # a red check with no step log to explain it.
+      #
+      # This pin is the action's own. Consumers pinning a prebuilt sccache
+      # binary of their own choose independently, and today do not agree:
+      # 0.16.0 on Whitaker and Axinite, 0.17.0 on Chutoro and Wildside.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && !(runner.os == 'macOS' && runner.arch == 'X64') }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+      with:
+        version: v0.17.0
     - name: Restore the caller's cache service selection
       # AFTER both sccache-action steps and BEFORE anything starts a server,
-      # deliberately. Undoes the ACTIONS_CACHE_SERVICE_V2=on those steps write
-      # to GITHUB_ENV, so a caller who cleared it, as an Ubicloud lane does,
-      # keeps their choice. A caller who never set it keeps the action's
+      # deliberately. Undoes what those steps wrote to GITHUB_ENV, so a caller
+      # who cleared ACTIONS_CACHE_SERVICE_V2, as an Ubicloud lane does, keeps
+      # their choice. A caller who never set a variable keeps the action's
       # value, which is right on a GitHub-hosted runner.
       #
       # GITHUB_ENV reaches only the next step, so this cannot be merged into
@@ -343,28 +375,55 @@ runs:
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       shell: bash
       env:
-        CALLER_CACHE_SERVICE_STATE: ${{ steps.cache-service.outputs.state }}
-        CALLER_CACHE_SERVICE_VALUE: ${{ steps.cache-service.outputs.value }}
+        CALLER_CACHE_SERVICE_STATE: ${{ steps.cache-service.outputs.cache_service_state }}
+        CALLER_CACHE_SERVICE_VALUE: ${{ steps.cache-service.outputs.cache_service_value }}
+        CALLER_RESULTS_URL_STATE: ${{ steps.cache-service.outputs.results_url_state }}
+        CALLER_RESULTS_URL_VALUE: ${{ steps.cache-service.outputs.results_url_value }}
+        CALLER_RUNTIME_TOKEN_STATE: ${{ steps.cache-service.outputs.runtime_token_state }}
+        CALLER_RUNTIME_TOKEN_VALUE: ${{ steps.cache-service.outputs.runtime_token_value }}
       run: |
         set -euo pipefail
-        # Bounded outcome over a closed set: a lane whose proxy selection was
-        # silently overridden is visible in the log rather than only in a
-        # cache that never fills.
+        # One bounded outcome per variable, over a closed set: a lane whose
+        # proxy selection was silently overridden is visible in the log rather
+        # than only in a cache that never fills.
         report() {
-          echo "metric setup-rust.sccache.cache-service=$1"
+          echo "metric setup-rust.sccache.$1=$2"
         }
-        if [[ "${CALLER_CACHE_SERVICE_STATE:-unset}" != set ]]; then
-          report absent
-          exit 0
-        fi
-        value="${CALLER_CACHE_SERVICE_VALUE-}"
-        if [[ ${ACTIONS_CACHE_SERVICE_V2+x} && "${ACTIONS_CACHE_SERVICE_V2-}" == "$value" ]]; then
-          report unchanged
-          exit 0
-        fi
-        echo "ACTIONS_CACHE_SERVICE_V2=${value}" >> "$GITHUB_ENV"
-        report restored
-        echo "::notice title=setup-rust sccache::restored the caller's ACTIONS_CACHE_SERVICE_V2, which the sccache steps had overwritten"
+        # $1 the variable, $2 its metric, $3 the recorded state, $4 the
+        # recorded value. Bash 3.2 on macOS runners has no nameref, so the
+        # indirect read is eval.
+        restore() {
+          local name="$1" metric="$2" state="$3" recorded="$4"
+          local is_set=no current=''
+          if [[ "$state" != set ]]; then
+            report "$metric" absent
+            return
+          fi
+          if eval "[[ \${$name+x} ]]"; then
+            is_set=yes
+            eval "current=\${$name}"
+          fi
+          if [[ "$is_set" == yes && "$current" == "$recorded" ]]; then
+            report "$metric" unchanged
+            return
+          fi
+          # The delimiter form carries an empty value, which the plain
+          # name=value form cannot round-trip.
+          {
+            printf '%s<<SETUP_RUST_RESTORED\n' "$name"
+            printf '%s\n' "$recorded"
+            echo "SETUP_RUST_RESTORED"
+          } >> "$GITHUB_ENV"
+          report "$metric" restored
+          # The variable, never its value: one of the three is a credential.
+          echo "::notice title=setup-rust sccache::restored the caller's ${name}, which the sccache steps had overwritten"
+        }
+        restore ACTIONS_CACHE_SERVICE_V2 cache-service \
+          "${CALLER_CACHE_SERVICE_STATE:-unset}" "${CALLER_CACHE_SERVICE_VALUE-}"
+        restore ACTIONS_RESULTS_URL results-url \
+          "${CALLER_RESULTS_URL_STATE:-unset}" "${CALLER_RESULTS_URL_VALUE-}"
+        restore ACTIONS_RUNTIME_TOKEN runtime-token \
+          "${CALLER_RUNTIME_TOKEN_STATE:-unset}" "${CALLER_RUNTIME_TOKEN_VALUE-}"
     - name: Export sccache as the rustc wrapper
       id: rustc-wrapper
       # sccache-action installs sccache and exports SCCACHE_PATH, but Cargo
@@ -453,14 +512,22 @@ runs:
         # only way to rebind; a fresh server also starts with zero counters,
         # so a caller's later --show-stats measures their own build.
         "$SCCACHE_PATH" --stop-server >/dev/null 2>&1 || true
-        if "$SCCACHE_PATH" --start-server; then
-          report started
-          echo "::notice title=setup-rust sccache::sccache server started"
-        else
+        if ! "$SCCACHE_PATH" --start-server; then
           report start-failed
           echo "::error title=setup-rust sccache::could not start the sccache server" >&2
           exit 1
         fi
+        # A server this step started has zero counters already. Zeroing is
+        # belt and braces against a --start-server that adopted one, and it
+        # costs a baseline rather than the cache, so it warns rather than
+        # failing the job.
+        if "$SCCACHE_PATH" --zero-stats >/dev/null; then
+          report started
+        else
+          report started-stats-not-zeroed
+          echo "::warning title=setup-rust sccache::could not zero sccache statistics; a later --show-stats may include earlier work"
+        fi
+        echo "::notice title=setup-rust sccache::sccache server started"
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

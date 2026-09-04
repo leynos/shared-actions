@@ -1,0 +1,146 @@
+name: Test sccache against the Ubicloud cache proxy
+
+# The one thing no hosted runner can prove: that sccache, set up by this
+# repository's own actions, actually writes to Ubicloud's cache rather than
+# GitHub's. Everything else about the arrangement is covered by manifest and
+# behavioural tests; the endpoint is only observable on the runner itself.
+#
+# It runs on a billed `ubicloud-standard-2` and compiles one empty crate, so it
+# takes well under a minute. The paths filter keeps it off pull requests that
+# cannot affect the result.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/export-ubicloud-cache-credentials/**'
+      - '.github/actions/probe-ubicloud-action-step-env/**'
+      - '.github/scripts/report-cache-env.sh'
+      - '.github/scripts/start-and-report-sccache.sh'
+      - '.github/workflows/test-ubicloud-sccache-proxy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reaches-the-proxy:
+    # A fork has no Ubicloud runners and would queue until it timed out.
+    if: github.repository == 'leynos/shared-actions'
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    env:
+      SCCACHE_ERROR_LOG: ${{ github.workspace }}/sccache-server.log
+      SCCACHE_LOG: info
+      SCCACHE_VERSION: v0.17.0
+      SCCACHE_SHA256: >-
+        67c4a96dd237c1f518f6b36083f270f9976d516f1e57fce891755ea782e50006
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The probe below needs an sccache before setup-rust has installed one.
+      # Pinned and digest-verified, like every other tool here.
+      - name: Install sccache for the probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          url="https://github.com/mozilla/sccache/releases/download"
+          curl -fsSL -o "$archive" "${url}/${SCCACHE_VERSION}/${archive}"
+          echo "${SCCACHE_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive"
+          install -Dm755 "${archive%.tar.gz}/sccache" "${HOME}/.local/bin/sccache"
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Export the Ubicloud cache credentials
+        uses: ./.github/actions/export-ubicloud-cache-credentials
+
+      # The platform assumption the whole design rests on: a run step reads
+      # GITHUB_ENV and the runner takes nothing back, whether that step belongs
+      # to the workflow or to a composite action. If a future runner started
+      # re-injecting into either, this is where it would show, and it would
+      # show before anyone spent a day on the cache instead.
+      - name: Read the cache variables from a workflow run step
+        shell: bash
+        env:
+          SCCACHE_GHA_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          .github/scripts/report-cache-env.sh after-export-run-step
+          .github/scripts/start-and-report-sccache.sh after-export-run-step
+
+      - name: Read the cache variables from a composite action step
+        uses: ./.github/actions/probe-ubicloud-action-step-env
+        env:
+          SCCACHE_GHA_ENABLED: 'true'
+        with:
+          position: after-export-action-step
+          start-server: 'true'
+
+      - name: Assert both positions bound the proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A run step that saw GitHub's public endpoint, or a v2 flag the
+          # export had cleared, means the runner's behaviour changed.
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            echo "::error::the cleared v2 flag did not survive the export" >&2
+            exit 1
+          fi
+          host="${ACTIONS_CACHE_URL#*://}"
+          host="${host%%/*}"
+          case "$host" in
+            10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|localhost*)
+              echo "the cache URL names the proxy on the private network" ;;
+            *)
+              echo "::error::the cache URL is not a private proxy: ${host}" >&2
+              exit 1 ;;
+          esac
+
+      # The end-to-end path a consumer actually takes.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify a build reaches Ubicloud's store
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            echo "::error::the sccache steps' v2 flag survived the restore" >&2
+            exit 1
+          fi
+          mkdir -p sccache-probe/src
+          cat > sccache-probe/Cargo.toml <<'TOML'
+          [package]
+          name = "sccache-probe"
+          version = "0.0.0"
+          edition = "2021"
+          TOML
+          echo 'fn main() {}' > sccache-probe/src/main.rs
+          cargo build --manifest-path sccache-probe/Cargo.toml
+          "$RUSTC_WRAPPER" --show-stats
+          requests="$("$RUSTC_WRAPPER" --show-stats | awk '/Compile requests/ {print $NF; exit}')"
+          if [[ "${requests:-0}" -lt 1 ]]; then
+            echo "::error::sccache recorded no compile requests" >&2
+            exit 1
+          fi
+          location="$("$RUSTC_WRAPPER" --show-stats | awk -F'  +' '/Cache location/ {print $2; exit}')"
+          echo "sccache cache location: ${location}"
+          if [[ "$location" != *ghac* ]]; then
+            echo "::error::sccache is not on the GitHub Actions backend: ${location}" >&2
+            exit 1
+          fi
+          errors="$("$RUSTC_WRAPPER" --show-stats | awk '/Cache write errors/ {print $NF; exit}')"
+          # The failure this workflow exists to catch is writes going to a
+          # service that rejects them, which shows here and nowhere else.
+          if [[ "${errors:-0}" -gt 0 ]]; then
+            echo "::error::sccache reported ${errors} cache write error(s)" >&2
+            exit 1
+          fi
+          echo "sccache recorded ${requests} compile request(s) with no write errors"

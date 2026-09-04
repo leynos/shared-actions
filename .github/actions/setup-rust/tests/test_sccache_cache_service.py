@@ -1,13 +1,19 @@
 """Tests for the cache-service selection `setup-rust` records and restores.
 
 The last thing `mozilla-actions/sccache-action` does is write
-`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`. On a GitHub-hosted runner that
-is what a caller wants: GitHub's v1 cache service is gone. On Ubicloud it
-overrides the empty value `export-ubicloud-cache-credentials` published, the
-proxy serves v1, and every write goes to the wrong endpoint. Chutoro's Ubicloud
-lane recorded 164 write errors out of 301 requests that way.
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, along with the runner's own
+`ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN`. On a GitHub-hosted runner
+that is what a caller wants: GitHub's v1 cache service is gone. On Ubicloud the
+v2 flag overrides the empty value `export-ubicloud-cache-credentials`
+published, the proxy serves v1, and every write goes to the wrong endpoint.
+Chutoro's Ubicloud lane recorded 164 write errors out of 301 requests that way.
 
-So the caller's value is read before those steps and written back after them.
+All three are recorded and restored, not only the one that does harm today.
+They belong to the sccache-action, and a version that started exporting a
+different results URL or token would break the proxy the same way and just as
+quietly.
+
+So the caller's values are read before those steps and written back after them.
 Two steps, not one, because `GITHUB_ENV` reaches only the next step: a restore
 in the step that starts the server would come too late for that server.
 
@@ -72,8 +78,14 @@ def _run(
     }
     for name in (
         "ACTIONS_CACHE_SERVICE_V2",
+        "ACTIONS_RESULTS_URL",
+        "ACTIONS_RUNTIME_TOKEN",
         "CALLER_CACHE_SERVICE_STATE",
         "CALLER_CACHE_SERVICE_VALUE",
+        "CALLER_RESULTS_URL_STATE",
+        "CALLER_RESULTS_URL_VALUE",
+        "CALLER_RUNTIME_TOKEN_STATE",
+        "CALLER_RUNTIME_TOKEN_VALUE",
     ):
         prepared.pop(name, None)
     prepared.update(environment)
@@ -92,15 +104,17 @@ def _run(
     )
 
 
-def _reported(completed: subprocess.CompletedProcess[str]) -> str | None:
-    """Return the bounded cache-service outcome the fragment reported."""
-    prefix = "metric setup-rust.sccache.cache-service="
+def _reported(
+    completed: subprocess.CompletedProcess[str], metric: str = "cache-service"
+) -> str | None:
+    """Return the bounded outcome the fragment reported for one variable."""
+    prefix = f"metric setup-rust.sccache.{metric}="
     reported = [
         line.removeprefix(prefix)
         for line in completed.stdout.splitlines()
         if line.startswith(prefix)
     ]
-    assert len(reported) <= 1, f"more than one cache-service metric: {reported}"
+    assert len(reported) <= 1, f"more than one {metric} metric: {reported}"
     return reported[0] if reported else None
 
 
@@ -170,132 +184,220 @@ class TestOrdering:
         assert get_step(step_name)["if"] == CONDITION
 
 
+#: The three variables the sccache steps rewrite, with the metric each
+#: reports and the output key pair carrying it between the two steps.
+TRACKED = (
+    ("ACTIONS_CACHE_SERVICE_V2", "cache-service", "CACHE_SERVICE"),
+    ("ACTIONS_RESULTS_URL", "results-url", "RESULTS_URL"),
+    ("ACTIONS_RUNTIME_TOKEN", "runtime-token", "RUNTIME_TOKEN"),
+)
+
+
+def _restore_environment(**recorded: str) -> dict[str, str]:
+    """Return a restore environment with every tracked variable absent.
+
+    Naming only the one under test leaves the other two unset rather than
+    inheriting whatever the host has, so a test asserts about one variable
+    without the others writing to the same `GITHUB_ENV`.
+    """
+    environment = {f"CALLER_{key}_STATE": "unset" for _, _, key in TRACKED}
+    environment.update(recorded)
+    return environment
+
+
 class TestRecord:
     """Run the shipped recording fragment."""
 
-    def test_records_a_caller_value(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("name", "_metric", "key"), TRACKED)
+    def test_records_a_caller_value(
+        self, tmp_path: Path, name: str, _metric: str, key: str
+    ) -> None:
         """The ordinary GitHub-hosted case, where the runner set it."""
         _completed, _env, output = _run(
-            _script(RECORD_STEP),
-            tmp_path,
-            environment={"ACTIONS_CACHE_SERVICE_V2": "on"},
+            _script(RECORD_STEP), tmp_path, environment={name: "recorded-value"}
         )
+        parsed = _parse_outputs(output)
 
-        assert "state=set" in output
-        assert "on" in output
+        assert parsed[f"{key.lower()}_state"] == "set"
+        assert parsed[f"{key.lower()}_value"] == "recorded-value"
 
-    def test_records_a_cleared_value(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("name", "_metric", "key"), TRACKED)
+    def test_records_a_cleared_value(
+        self, tmp_path: Path, name: str, _metric: str, key: str
+    ) -> None:
         """The Ubicloud case, and the one a `name=value` line cannot carry.
 
-        `export-ubicloud-cache-credentials` clears the variable rather than
-        unsetting it, so an empty value has to survive the round trip intact.
+        `export-ubicloud-cache-credentials` clears `ACTIONS_CACHE_SERVICE_V2`
+        rather than unsetting it, so an empty value has to survive the round
+        trip intact.
         """
         _completed, _env, output = _run(
-            _script(RECORD_STEP),
-            tmp_path,
-            environment={"ACTIONS_CACHE_SERVICE_V2": ""},
+            _script(RECORD_STEP), tmp_path, environment={name: ""}
         )
+        parsed = _parse_outputs(output)
 
-        assert "state=set" in output
-        assert "value<<" in output
+        assert parsed[f"{key.lower()}_state"] == "set"
+        assert parsed[f"{key.lower()}_value"] == ""
 
-    def test_records_the_absence_of_a_value(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("_name", "_metric", "key"), TRACKED)
+    def test_records_the_absence_of_a_value(
+        self, tmp_path: Path, _name: str, _metric: str, key: str
+    ) -> None:
         """A caller who never set it must not acquire one from the restore."""
         _completed, _env, output = _run(_script(RECORD_STEP), tmp_path, environment={})
+        parsed = _parse_outputs(output)
 
-        assert "state=unset" in output
-        assert "state=set" not in output
+        assert parsed[f"{key.lower()}_state"] == "unset"
+        assert f"{key.lower()}_value" not in parsed
+
+    def test_masks_the_token_and_nothing_else(self, tmp_path: Path) -> None:
+        """Only the credential is masked, and it is masked before it is written.
+
+        Masking the cache-service flag would redact the word `on` from every
+        later log line in the job, so the mask is per value rather than
+        blanket.
+        """
+        completed, _env, _output = _run(
+            _script(RECORD_STEP),
+            tmp_path,
+            environment={
+                "ACTIONS_RUNTIME_TOKEN": "a-token",
+                "ACTIONS_CACHE_SERVICE_V2": "on",
+                "ACTIONS_RESULTS_URL": "https://example.invalid/",
+            },
+        )
+        masked = [
+            line.removeprefix("::add-mask::")
+            for line in completed.stdout.splitlines()
+            if line.startswith("::add-mask::")
+        ]
+
+        assert masked == ["a-token"]
 
 
 class TestRestore:
     """Run the shipped restoring fragment."""
 
+    @pytest.mark.parametrize(("name", "metric", "key"), TRACKED)
     def test_restores_a_cleared_value_the_sccache_steps_overwrote(
-        self, tmp_path: Path
+        self, tmp_path: Path, name: str, metric: str, key: str
     ) -> None:
         """The failure this exists to end, in one assertion.
 
-        The caller cleared the variable, the sccache steps set it to `on`, and
-        the server would otherwise bind GitHub's v2 service on a runner whose
-        proxy serves v1.
+        The caller cleared the variable, the sccache steps set it to something
+        of their own, and the server would otherwise bind GitHub's service on a
+        runner whose proxy serves another.
         """
         completed, written, _output = _run(
             _script(RESTORE_STEP),
             tmp_path,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": "set",
-                "CALLER_CACHE_SERVICE_VALUE": "",
-                "ACTIONS_CACHE_SERVICE_V2": "on",
-            },
+            environment=_restore_environment(
+                **{
+                    f"CALLER_{key}_STATE": "set",
+                    f"CALLER_{key}_VALUE": "",
+                    name: "the-action's-value",
+                }
+            ),
         )
 
         assert completed.returncode == 0, completed.stderr
-        assert "ACTIONS_CACHE_SERVICE_V2=\n" in written
-        assert _reported(completed) == "restored"
+        assert f"{name}<<" in written
+        assert _reported(completed, metric) == "restored"
 
-    def test_leaves_an_unchanged_value_alone(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("name", "metric", "key"), TRACKED)
+    def test_leaves_an_unchanged_value_alone(
+        self, tmp_path: Path, name: str, metric: str, key: str
+    ) -> None:
         """Rewriting an identical value would add noise and change nothing."""
         completed, written, _output = _run(
             _script(RESTORE_STEP),
             tmp_path,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": "set",
-                "CALLER_CACHE_SERVICE_VALUE": "on",
-                "ACTIONS_CACHE_SERVICE_V2": "on",
-            },
+            environment=_restore_environment(
+                **{
+                    f"CALLER_{key}_STATE": "set",
+                    f"CALLER_{key}_VALUE": "unchanged",
+                    name: "unchanged",
+                }
+            ),
         )
 
         assert completed.returncode == 0, completed.stderr
         assert written == ""
-        assert _reported(completed) == "unchanged"
+        assert _reported(completed, metric) == "unchanged"
 
-    def test_writes_nothing_when_the_caller_had_no_value(self, tmp_path: Path) -> None:
-        """On a GitHub-hosted runner the action's own `on` is the right value.
+    @pytest.mark.parametrize(("name", "metric", "_key"), TRACKED)
+    def test_writes_nothing_when_the_caller_had_no_value(
+        self, tmp_path: Path, name: str, metric: str, _key: str
+    ) -> None:
+        """On a GitHub-hosted runner the action's own values are the right ones.
 
-        Restoring an absence would clear it and send sccache at a v1 service
-        that GitHub no longer runs.
+        Restoring an absence would clear them and send sccache at a service
+        GitHub no longer runs.
         """
         completed, written, _output = _run(
             _script(RESTORE_STEP),
             tmp_path,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": "unset",
-                "ACTIONS_CACHE_SERVICE_V2": "on",
-            },
+            environment=_restore_environment(**{name: "the-action's-value"}),
         )
 
         assert completed.returncode == 0, completed.stderr
         assert written == ""
-        assert _reported(completed) == "absent"
+        assert _reported(completed, metric) == "absent"
 
-    def test_restores_a_value_the_steps_removed_entirely(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("name", "metric", "key"), TRACKED)
+    def test_restores_a_value_the_steps_removed_entirely(
+        self, tmp_path: Path, name: str, metric: str, key: str
+    ) -> None:
         """Set to unset is a change too, and the guard must catch it."""
         completed, written, _output = _run(
             _script(RESTORE_STEP),
             tmp_path,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": "set",
-                "CALLER_CACHE_SERVICE_VALUE": "on",
-            },
+            environment=_restore_environment(
+                **{f"CALLER_{key}_STATE": "set", f"CALLER_{key}_VALUE": "recorded"}
+            ),
         )
 
         assert completed.returncode == 0, completed.stderr
-        assert "ACTIONS_CACHE_SERVICE_V2=on" in written
-        assert _reported(completed) == "restored"
+        assert f"{name}<<" in written
+        assert "recorded" in written
+        assert _reported(completed, metric) == "restored"
 
-    def test_the_metric_stays_inside_its_closed_set(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(("name", "metric", "key"), TRACKED)
+    def test_the_metric_stays_inside_its_closed_set(
+        self, tmp_path: Path, name: str, metric: str, key: str
+    ) -> None:
         """A scraper aggregating the series needs the values bounded."""
         completed, _written, _output = _run(
             _script(RESTORE_STEP),
             tmp_path,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": "set",
-                "CALLER_CACHE_SERVICE_VALUE": "",
-                "ACTIONS_CACHE_SERVICE_V2": "on",
-            },
+            environment=_restore_environment(
+                **{
+                    f"CALLER_{key}_STATE": "set",
+                    f"CALLER_{key}_VALUE": "",
+                    name: "on",
+                }
+            ),
         )
 
-        assert _reported(completed) in CACHE_SERVICE_OUTCOMES
+        assert _reported(completed, metric) in CACHE_SERVICE_OUTCOMES
+
+    def test_the_notice_never_carries_a_value(self, tmp_path: Path) -> None:
+        """One of the three is a credential, so the notices name variables."""
+        completed, _written, _output = _run(
+            _script(RESTORE_STEP),
+            tmp_path,
+            environment=_restore_environment(
+                **{
+                    "CALLER_RUNTIME_TOKEN_STATE": "set",
+                    "CALLER_RUNTIME_TOKEN_VALUE": "the-caller-token",
+                    "ACTIONS_RUNTIME_TOKEN": "the-action-token",
+                }
+            ),
+        )
+
+        assert "ACTIONS_RUNTIME_TOKEN" in completed.stdout
+        assert "the-caller-token" not in completed.stdout
+        assert "the-action-token" not in completed.stdout
 
 
 class TestRoundTrip:
@@ -322,18 +424,21 @@ class TestRoundTrip:
         completed, written, _output = _run(
             _script(RESTORE_STEP),
             restore_root,
-            environment={
-                "CALLER_CACHE_SERVICE_STATE": recorded["state"],
-                "CALLER_CACHE_SERVICE_VALUE": recorded["value"],
-                "ACTIONS_CACHE_SERVICE_V2": "on",
-            },
+            environment=_restore_environment(
+                **{
+                    "CALLER_CACHE_SERVICE_STATE": recorded["cache_service_state"],
+                    "CALLER_CACHE_SERVICE_VALUE": recorded["cache_service_value"],
+                    "ACTIONS_CACHE_SERVICE_V2": "on",
+                }
+            ),
         )
 
         assert completed.returncode == 0, completed.stderr
         if value == "on":
             assert _reported(completed) == "unchanged"
         else:
-            assert f"ACTIONS_CACHE_SERVICE_V2={value}\n" in written
+            assert "ACTIONS_CACHE_SERVICE_V2<<" in written
+            assert value in written.splitlines()
 
 
 def _parse_outputs(raw: str) -> dict[str, str]:

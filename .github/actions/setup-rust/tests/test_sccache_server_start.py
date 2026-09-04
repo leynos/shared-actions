@@ -32,7 +32,13 @@ WRAPPER_STEP = "Export sccache as the rustc wrapper"
 
 #: Every outcome the start may report, and nothing else.
 SERVER_OUTCOMES = frozenset(
-    {"started", "start-failed", "caller-set", "missing-sccache-path"}
+    {
+        "started",
+        "started-stats-not-zeroed",
+        "start-failed",
+        "caller-set",
+        "missing-sccache-path",
+    }
 )
 
 
@@ -70,10 +76,16 @@ def _run_server(
     sccache_path: str | None,
     wrapper_state: str = "exported",
     start_exit: int | None = None,
+    other_exit: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the start fragment under a controlled environment."""
     environment = {**os.environ}
-    for name in ("RUSTC_WRAPPER", "SCCACHE_PATH", "FAKE_START_EXIT"):
+    for name in (
+        "RUSTC_WRAPPER",
+        "SCCACHE_PATH",
+        "FAKE_START_EXIT",
+        "FAKE_SCCACHE_EXIT",
+    ):
         environment.pop(name, None)
     environment["WRAPPER_STATE"] = wrapper_state
     if sccache_path is not None:
@@ -81,6 +93,8 @@ def _run_server(
         environment["RUSTC_WRAPPER"] = sccache_path
     if start_exit is not None:
         environment["FAKE_START_EXIT"] = str(start_exit)
+    if other_exit is not None:
+        environment["FAKE_SCCACHE_EXIT"] = str(other_exit)
     return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [requires_bash(), "-c", _server_script()],
         capture_output=True,
@@ -151,6 +165,29 @@ class TestManifest:
         )
 
 
+class TestPinning:
+    """Every sccache-action invocation names the version it installs."""
+
+    def test_every_invocation_pins_a_version(self) -> None:
+        """Left unset, the action asks the GitHub API for the latest release.
+
+        That is a floating dependency and a network call in the critical path.
+        The call timed out on #440 and failed the job with "Unable to locate
+        executable file: undefined", a red check with no step log behind it.
+        """
+        invocations = [
+            step
+            for step in _steps()
+            if str(step.get("uses", "")).startswith("mozilla-actions/sccache-action@")
+        ]
+
+        assert invocations, "no sccache-action step found; has it been renamed?"
+        for step in invocations:
+            version = step.get("with", {}).get("version")
+            assert version, f"unpinned sccache-action in step {step.get('name')!r}"
+            assert version.startswith("v"), version
+
+
 class TestBehaviour:
     """Run the shipped fragment."""
 
@@ -210,6 +247,26 @@ class TestBehaviour:
         assert completed.returncode != 0
         assert "did not export SCCACHE_PATH" in completed.stderr
         assert _reported(completed) == "missing-sccache-path"
+
+    def test_zeroes_the_counters_after_starting(self, fake_sccache: Path) -> None:
+        """Belt and braces against a `--start-server` that adopted one.
+
+        A server this step started has zero counters already, but a caller's
+        later `--show-stats` must measure their build whichever happened.
+        """
+        completed = _run_server(sccache_path=str(fake_sccache))
+
+        assert completed.returncode == 0, completed.stderr
+        arguments = (fake_sccache.parent / "args.log").read_text().split()
+        assert arguments.index("--start-server") < arguments.index("--zero-stats")
+
+    def test_a_failure_to_zero_keeps_the_server(self, fake_sccache: Path) -> None:
+        """Losing a baseline is a warning; losing the cache would not be."""
+        completed = _run_server(sccache_path=str(fake_sccache), other_exit=1)
+
+        assert completed.returncode == 0, completed.stderr
+        assert "could not zero sccache statistics" in completed.stdout
+        assert _reported(completed) == "started-stats-not-zeroed"
 
     def test_fails_when_the_server_will_not_start(self, fake_sccache: Path) -> None:
         """An unstarted server is an uncached build, so it must be loud.

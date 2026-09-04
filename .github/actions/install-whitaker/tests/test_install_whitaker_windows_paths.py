@@ -21,6 +21,8 @@ import typing as typ
 import pytest
 from _action_manifest import step_by_name
 from _fragment_runner import require_posix_host
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     from pathlib import Path
@@ -246,3 +248,48 @@ def test_a_posix_host_without_cygpath_is_left_alone(tmp_path: Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert seen == staging
+
+
+#: Path shapes a runner may hand the action. The drive-letter forms are what
+#: Git Bash produces from `RUNNER_TEMP`. The POSIX forms are written relative
+#: so the test can create them; their shape, not their location, is what
+#: distinguishes them here.
+WINDOWS_PREFIXES = ("D:\\a\\_temp", "C:\\Users\\runneradmin\\AppData\\Local\\Temp")
+POSIX_PREFIXES = ("work/_temp", "runner/work/_temp")
+STAGING_PREFIXES = st.sampled_from(WINDOWS_PREFIXES + POSIX_PREFIXES)
+STAGING_SUFFIXES = st.lists(
+    st.sampled_from(["whitaker", "installer", "release", "a", "1"]),
+    min_size=1,
+    max_size=3,
+).map("-".join)
+
+
+@given(prefix=STAGING_PREFIXES, suffix=STAGING_SUFFIXES, gnu=st.booleans())
+@settings(max_examples=40, derandomize=True, deadline=None)
+def test_extraction_never_hands_tar_a_remote_looking_path(
+    prefix: str, suffix: str, tmp_path_factory: object, *, gnu: bool
+) -> None:
+    """Across path shapes and both tars, extraction must succeed.
+
+    The invariant is one thing: whatever the runner supplies, tar is never
+    asked to open something it will read as `host:path`. Either the colon is
+    gone, or GNU tar has been told to treat it literally, and bsdtar is never
+    given the flag it rejects.
+    """
+    root = typ.cast("pytest.TempPathFactory", tmp_path_factory).mktemp("paths")
+    if prefix in WINDOWS_PREFIXES:
+        # A literal name under the working directory on a POSIX test host,
+        # carrying the drive-letter colon that GNU tar would misread.
+        staging = f"{prefix}\\{suffix}"
+    else:
+        staging = f"{root}/{prefix}/{suffix}"
+
+    result = _run_extract(root, staging_dir=staging, gnu=gnu)
+
+    assert result.returncode == 0, result.stderr
+    arguments = _tar_arguments(root)
+    archive = next(argument for argument in arguments if ASSET in argument)
+    if gnu:
+        assert "--force-local" in arguments or ":" not in archive
+    else:
+        assert "--force-local" not in arguments

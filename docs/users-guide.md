@@ -205,6 +205,13 @@ intact archive. The action now hashes the archive from standard input, where no
 name appears, and strips a leading backslash from a digest read out of a
 release sidecar. Windows lanes verify correctly with no caller change.
 
+On Windows runners the staging directory comes from `RUNNER_TEMP`, which is a
+native path, so under Git Bash it carries a drive letter. The action converts
+it to POSIX form before use, because GNU tar reads a colon in an archive path
+as remote `host:path` syntax and would try to resolve the drive letter as a
+hostname. GNU tar is additionally told to treat a colon literally. Neither
+affects a caller: no input changes, and Linux and macOS runners are untouched.
+
 The pinned manifest takes precedence. Pass the optional `installer-sha256`
 input only for an asset the manifest does not pin; a digest that disagrees with
 a pinned one is rejected, and an asset with neither anchor fails before

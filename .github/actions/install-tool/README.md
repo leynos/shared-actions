@@ -129,8 +129,8 @@ aggregate.
 
 Edit [`.github/tool-manifest.toml`](../../tool-manifest.toml). Download every
 archive, compute its SHA-256, compare against the upstream sidecar where one
-exists, and record the result in `sidecar`. Never copy a digest out of a
-sidecar without downloading the archive, because that records only that the
+exists, and record the result in `sidecar-verified`. Never copy a digest out of
+a sidecar without downloading the archive, because that records only that the
 sidecar agrees with itself.
 
 ## bin-dir

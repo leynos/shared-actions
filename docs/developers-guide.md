@@ -1255,7 +1255,8 @@ fragments outside GitHub Actions. It resolves the expression subset the
 installer manifests use, evaluates each step's `if:`, and threads
 `$GITHUB_OUTPUT` between steps, so a test exercises the real step boundaries.
 `install-whitaker` still carries a private copy of the same harness in its own
-test directory; folding that copy into this module is a separate change.
+test directory, and that copy still uses `bash -c`; folding it into this module
+is tracked by issue #449.
 
 The harness has its own tests in
 `.github/actions/tests/test_composite_fragments.py`, because a defect there

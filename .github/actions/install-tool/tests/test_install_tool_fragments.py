@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tarfile
+import typing as typ
 import zipfile
 from pathlib import Path
 
@@ -146,12 +147,22 @@ def _resolved(
     return resolved
 
 
+class Archive(typ.NamedTuple):
+    """An archive and where the binary sits inside it."""
+
+    path: Path
+    member: str
+    extension: str
+
+
 def _install(
-    tmp_path: Path, archive: Path, member: str, extension: str, **overrides: str
+    tmp_path: Path, archive: Archive, **overrides: str
 ) -> tuple[Result, Result]:
     """Run probe, download and install against a local archive."""
     context = _context(tmp_path)
-    context.steps["resolve"] = _resolved(archive, member, extension, **overrides)
+    context.steps["resolve"] = _resolved(
+        archive.path, archive.member, archive.extension, **overrides
+    )
 
     probe = run_step(
         step_by_name("Probe for an installed tool"), context, tmp_path / "s1"
@@ -166,8 +177,8 @@ def _install(
         tmp_path / "s2",
         extra_env={
             "PATH": f"{stub_dir}:{os.environ.get('PATH', '')}",
-            "CURL_STUB_SOURCE": str(archive),
-            "CURL_STUB_EXIT": "0" if archive.is_file() else "22",
+            "CURL_STUB_SOURCE": str(archive.path),
+            "CURL_STUB_EXIT": "0" if archive.path.is_file() else "22",
         },
     )
     if download.returncode != 0:
@@ -282,7 +293,9 @@ class TestDownloadAndVerify:
         binary = _stub_binary(_source_dir(tmp_path))
         archive = _tarball(tmp_path, "widget-1.2.3/widget", binary)
 
-        _probe, install = _install(tmp_path, archive, "widget-1.2.3/widget", "tar.gz")
+        _probe, install = _install(
+            tmp_path, Archive(archive, "widget-1.2.3/widget", "tar.gz")
+        )
 
         assert install.returncode == 0, install.stderr
         assert install.metrics["install-tool.install"] == "ok"
@@ -299,7 +312,7 @@ class TestDownloadAndVerify:
         binary = _stub_binary(_source_dir(tmp_path))
         archive = _tarball(tmp_path, "widget", binary)
 
-        _probe, install = _install(tmp_path, archive, "widget", "tar.gz")
+        _probe, install = _install(tmp_path, Archive(archive, "widget", "tar.gz"))
 
         assert install.returncode == 0, install.stderr
         assert (tmp_path / "bin" / "widget").is_file()
@@ -309,7 +322,7 @@ class TestDownloadAndVerify:
         binary = _stub_binary(_source_dir(tmp_path))
         archive = _zip(tmp_path, "widget", binary)
 
-        _probe, install = _install(tmp_path, archive, "widget", "zip")
+        _probe, install = _install(tmp_path, Archive(archive, "widget", "zip"))
 
         assert install.returncode == 0, install.stderr
         assert (tmp_path / "bin" / "widget").is_file()
@@ -320,7 +333,7 @@ class TestDownloadAndVerify:
         archive = _tarball(tmp_path, "widget", binary)
 
         _probe, download = _install(
-            tmp_path, archive, "widget", "tar.gz", sha256="1" * 64
+            tmp_path, Archive(archive, "widget", "tar.gz"), sha256="1" * 64
         )
 
         assert download.returncode != 0
@@ -332,7 +345,7 @@ class TestDownloadAndVerify:
         """A missing archive is not a digest failure and is not reported as one."""
         missing = tmp_path / "absent.tar.gz"
 
-        _probe, download = _install(tmp_path, missing, "widget", "tar.gz")
+        _probe, download = _install(tmp_path, Archive(missing, "widget", "tar.gz"))
 
         assert download.returncode != 0
         assert download.metrics["install-tool.download"] == "failed"
@@ -343,7 +356,9 @@ class TestDownloadAndVerify:
         binary = _stub_binary(_source_dir(tmp_path))
         archive = _tarball(tmp_path, "somewhere-else/widget", binary)
 
-        _probe, install = _install(tmp_path, archive, "widget-1.2.3/widget", "tar.gz")
+        _probe, install = _install(
+            tmp_path, Archive(archive, "widget-1.2.3/widget", "tar.gz")
+        )
 
         assert install.returncode != 0
         assert install.metrics["install-tool.install"] == "missing-member"

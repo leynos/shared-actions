@@ -56,12 +56,23 @@ version-args = []
 """
 
 
+class Runner(typ.NamedTuple):
+    """The pair the resolver maps to a target triple."""
+
+    os: str
+    arch: str
+
+
+#: The runner most tests do not care about, named once so it is not rebuilt
+#: in a default argument on every call.
+LINUX_X64 = Runner("Linux", "X64")
+
+
 def resolve(
     manifest_path: Path,
     tool: str,
     version: str,
-    runner_os: str = "Linux",
-    runner_arch: str = "X64",
+    runner: Runner = LINUX_X64,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     """Run the resolver and return the process and its parsed output."""
     completed = subprocess.run(  # noqa: S603,TID251 - exercise the shipped script.
@@ -75,9 +86,9 @@ def resolve(
             "--version",
             version,
             "--runner-os",
-            runner_os,
+            runner.os,
             "--runner-arch",
-            runner_arch,
+            runner.arch,
         ],
         capture_output=True,
         check=False,
@@ -118,7 +129,7 @@ class TestResolution:
     def test_appends_exe_on_windows(self, manifest: Path) -> None:
         """The probe looks for a file by name, and Windows names it .exe."""
         _completed, fields = resolve(
-            manifest, "widget", "1.2.3", runner_os="Windows", runner_arch="X64"
+            manifest, "widget", "1.2.3", Runner("Windows", "X64")
         )
 
         assert fields["binary"] == "widget.exe"
@@ -168,7 +179,7 @@ class TestFailures:
     def test_an_unsupported_runner_is_refused(self, manifest: Path) -> None:
         """A triple guessed for an unknown runner would be a wrong download."""
         _completed, fields = resolve(
-            manifest, "widget", "1.2.3", runner_os="Plan9", runner_arch="X64"
+            manifest, "widget", "1.2.3", Runner("Plan9", "X64")
         )
 
         assert fields["error-kind"] == "unsupported-runner"
@@ -176,7 +187,7 @@ class TestFailures:
     def test_an_unsupported_target_lists_what_is_offered(self, manifest: Path) -> None:
         """The dylint case: the tool exists, this platform does not."""
         _completed, fields = resolve(
-            manifest, "widget", "1.2.3", runner_os="macOS", runner_arch="ARM64"
+            manifest, "widget", "1.2.3", Runner("macOS", "ARM64")
         )
 
         assert fields["error-kind"] == "unsupported-target"
@@ -209,7 +220,7 @@ class TestAgainstTheRealManifest:
     ) -> None:
         """Only sccache is offered on every runner the action resolves."""
         completed, fields = resolve(
-            TOOL_MANIFEST_PATH, "sccache", "0.17.0", runner_os, runner_arch
+            TOOL_MANIFEST_PATH, "sccache", "0.17.0", Runner(runner_os, runner_arch)
         )
 
         assert completed.returncode == 0, completed.stderr
@@ -219,7 +230,7 @@ class TestAgainstTheRealManifest:
     def test_dylint_fails_closed_off_linux(self) -> None:
         """No macOS or Windows archive exists, so it must refuse to guess."""
         _completed, fields = resolve(
-            TOOL_MANIFEST_PATH, "cargo-dylint", "6.0.4", "macOS", "ARM64"
+            TOOL_MANIFEST_PATH, "cargo-dylint", "6.0.4", Runner("macOS", "ARM64")
         )
 
         assert fields["error-kind"] == "unsupported-target"

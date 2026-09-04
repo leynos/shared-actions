@@ -83,14 +83,18 @@ class _UnresolvedError(Exception):
         }
 
 
-def select_entry(manifest: dict, tool: str, version: str) -> dict:
-    """Return the manifest entry for a tool at a version."""
+def select_tool(manifest: dict, tool: str) -> list[dict]:
+    """Return every entry for a tool, whatever version each carries."""
     entries = [entry for entry in manifest.get("tool", []) if entry.get("name") == tool]
     if not entries:
         known = sorted({entry.get("name", "") for entry in manifest.get("tool", [])})
         message = f"{tool} is not in the manifest; it lists {', '.join(known)}"
         raise _UnresolvedError(UNKNOWN_TOOL, message)
+    return entries
 
+
+def select_version(entries: list[dict], tool: str, version: str) -> dict:
+    """Return the entry at an exact version, naming the fix if there is none."""
     matching = [entry for entry in entries if entry.get("version") == version]
     if not matching:
         available = sorted({str(entry.get("version")) for entry in entries})
@@ -171,7 +175,7 @@ def resolve(
 ) -> dict[str, object]:
     """Return the fields describing one entry, or the reason there is none."""
     try:
-        entry = select_entry(manifest, tool, version)
+        entry = select_version(select_tool(manifest, tool), tool, version)
         triple = select_triple(runner_os, runner_arch)
         target = select_target(entry, triple)
         extension = select_extension(entry, triple, str(target.get("url", "")))

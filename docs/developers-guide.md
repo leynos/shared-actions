@@ -1216,8 +1216,10 @@ upstream SHA, and the hardening flags. The input tests run the real validation
 fragment. The install tests drive every fragment in manifest order against a
 stubbed `cargo`, covering the cached, binstall-present, binstall-installed,
 version-mismatch, install-failed, binstall-unavailable, and no-prebuilt
-outcomes. The property tests generate inputs and check the validator against
-its documented grammar.
+outcomes, and what the action reads from an executable it did not write: a
+report spanning several lines, an overlong one, and a `cargo binstall` that
+exits zero having installed nothing. The property tests generate inputs and
+check the validator against its documented grammar.
 
 The stub refuses to install unless it receives the `--bin-dir` override, so
 dropping that override fails the suite rather than passing silently and failing

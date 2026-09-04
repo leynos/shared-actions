@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import dataclasses as dc
 import os
-import re
 import stat
 import subprocess
 import typing as typ
@@ -35,6 +34,7 @@ from composite_fragments import (
     LifecycleResult,
     StepResult,
     ambient_env,
+    bash_executable,
     bash_file_path,
     bash_path,
     run_step,
@@ -73,20 +73,25 @@ if [ "$bin_dir_override" != "$STUB_REQUIRED_BIN_DIR" ]; then
   echo "bin-dir configuration provided generates empty source path" >&2
   exit 94
 fi
+if [ "$STUB_INSTALL_CREATES" != true ]; then
+  # cargo-binstall reported success but wrote nothing, which the action must
+  # notice rather than assume.
+  exit 0
+fi
 mkdir -p -- "$install_path"
-cat > "${install_path}/mdtablefix" <<STUB_EXECUTABLE
-#!/usr/bin/env bash
-printf 'mdtablefix %s\\n' "$STUB_INSTALL_VERSION"
-STUB_EXECUTABLE
+cp -- "$STUB_STATE_DIR/installed-body" "${install_path}/mdtablefix"
 chmod +x "${install_path}/mdtablefix"
 """
 
-_MDTABLEFIX_STUB = """#!/usr/bin/env bash
-printf 'mdtablefix %s\\n' "{version}"
-"""
 
-#: Recovers the version an installed stub executable reports.
-_STUB_VERSION = re.compile(r"printf 'mdtablefix %s..' \"(?P<version>[^\"]+)\"")
+def _reporting_executable(output: str) -> str:
+    """Return an executable body that prints ``output`` verbatim."""
+    return (
+        "#!/usr/bin/env bash\n"
+        "cat <<'MDTABLEFIX_VERSION'\n"
+        f"{output}\n"
+        "MDTABLEFIX_VERSION\n"
+    )
 
 
 def _write_executable(path: Path, body: str) -> None:
@@ -108,10 +113,17 @@ class Scenario:
     bin_dir: str = "~/.local/bin"
     #: Version a pre-existing executable in ``bin-dir`` reports, if any.
     cached_version: str | None = None
+    #: Exact text a pre-existing executable prints, overriding ``cached_version``.
+    cached_output: str | None = None
     #: Whether ``cargo binstall -V`` succeeds before the upstream step runs.
     binstall_present: bool = True
     #: Version the stubbed binstall installs; defaults to ``version``.
     installs_version: str | None = None
+    #: Exact text the installed executable prints, overriding ``installs_version``.
+    installs_output: str | None = None
+    #: Whether the stubbed binstall writes an executable at all. A success that
+    #: leaves nothing behind is a real cargo-binstall outcome.
+    install_creates_executable: bool = True
     #: Whether the stubbed binstall reports a missing prebuilt asset.
     binstall_fails: bool = False
     #: Whether the upstream cargo-binstall installer step itself fails.
@@ -126,7 +138,17 @@ class ScenarioResult:
     summary: str
     github_path: str
     cargo_log: str
-    installed_version: str | None
+    #: Everything the installed executable prints, or ``None`` when none exists.
+    installed_output: str | None
+
+    @property
+    def installed_version(self) -> str | None:
+        """Return the version the installed executable reports, if any."""
+        if self.installed_output is None:
+            return None
+        lines = self.installed_output.splitlines()
+        first = lines[0] if lines else ""
+        return first.removeprefix("mdtablefix ")
 
     @property
     def returncode(self) -> int:
@@ -156,12 +178,21 @@ class ScenarioResult:
         )
 
 
-def _installed_version(executable: Path) -> str | None:
-    """Return the version an installed stub reports, or ``None``."""
+def _installed_output(executable: Path) -> str | None:
+    """Return everything the installed executable prints, or ``None``.
+
+    The executable is run rather than read, so a fixture that prints several
+    lines, or a very long one, is observed exactly as the action observes it.
+    """
     if not executable.is_file():
         return None
-    match = _STUB_VERSION.search(executable.read_text(encoding="utf-8"))
-    return match["version"] if match is not None else None
+    return subprocess.run(  # noqa: S603,TID251 - a fixture the test itself wrote.
+        [bash_executable(), "-c", '"$1" --version', "bash", str(executable)],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    ).stdout
 
 
 @dc.dataclass(frozen=True)
@@ -224,12 +255,30 @@ def _build_sandbox(scenario: Scenario) -> _Sandbox:
         encoding="utf-8",
     )
     _write_executable(sandbox.stub_dir / "cargo", _CARGO_STUB)
-    if scenario.cached_version is not None:
-        _write_executable(
-            sandbox.executable,
-            _MDTABLEFIX_STUB.format(version=scenario.cached_version),
-        )
+    (sandbox.state_dir / "installed-body").write_text(
+        _reporting_executable(_installed_text(scenario)),
+        encoding="utf-8",
+    )
+    cached = _cached_text(scenario)
+    if cached is not None:
+        _write_executable(sandbox.executable, _reporting_executable(cached))
     return sandbox
+
+
+def _installed_text(scenario: Scenario) -> str:
+    """Return what the stubbed binstall's executable should print."""
+    if scenario.installs_output is not None:
+        return scenario.installs_output
+    return f"mdtablefix {scenario.installs_version or scenario.version}"
+
+
+def _cached_text(scenario: Scenario) -> str | None:
+    """Return what a pre-existing executable should print, or ``None``."""
+    if scenario.cached_output is not None:
+        return scenario.cached_output
+    if scenario.cached_version is not None:
+        return f"mdtablefix {scenario.cached_version}"
+    return None
 
 
 def _build_environment(
@@ -254,7 +303,9 @@ def _build_environment(
             "STUB_BINSTALL_FAILS": "true" if scenario.binstall_fails else "false",
             "STUB_BINSTALL_VERSION": scenario.binstall_version,
             "STUB_CARGO_LOG": bash_file_path(sandbox.cargo_log),
-            "STUB_INSTALL_VERSION": scenario.installs_version or scenario.version,
+            "STUB_INSTALL_CREATES": (
+                "true" if scenario.install_creates_executable else "false"
+            ),
             "STUB_REQUIRED_BIN_DIR": BIN_DIR_OVERRIDE,
             "STUB_STATE_DIR": bash_path(sandbox.state_dir),
         },
@@ -353,5 +404,5 @@ def run_scenario(scenario: Scenario) -> ScenarioResult:
         summary=sandbox.summary_file.read_text(encoding="utf-8"),
         github_path=sandbox.path_file.read_text(encoding="utf-8"),
         cargo_log=sandbox.cargo_log.read_text(encoding="utf-8"),
-        installed_version=_installed_version(sandbox.executable),
+        installed_output=_installed_output(sandbox.executable),
     )

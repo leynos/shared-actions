@@ -7,6 +7,7 @@ manifest lives and how its steps are named.
 
 from __future__ import annotations
 
+import functools
 import typing as typ
 from pathlib import Path
 
@@ -50,8 +51,14 @@ SUPPORTED_PLATFORMS = ("Linux:X64", "Linux:ARM64")
 UNSUPPORTED_PLATFORMS = ("macOS:ARM64", "macOS:X64", "Windows:X64", "Linux:ARM")
 
 
+@functools.cache
 def load_manifest() -> dict[str, object]:
-    """Load the action manifest."""
+    """Return the parsed action manifest.
+
+    Parsed once per session and shared, because the whole suite reads the same
+    file dozens of times and none of it writes to the manifest. Treat the
+    returned document as read-only.
+    """
     return typ.cast(
         "dict[str, object]",
         yaml.safe_load(ACTION_PATH.read_text(encoding="utf-8")),

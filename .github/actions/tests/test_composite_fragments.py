@@ -226,3 +226,17 @@ def test_the_environment_creates_its_output_directory(tmp_path: Path) -> None:
     assert environment.output_file("00-output").parent == output_dir, (
         "the output file was not placed in the output directory"
     )
+
+
+def test_asking_for_an_output_file_changes_nothing(tmp_path: Path) -> None:
+    """Verify the path query has no effect on the filesystem."""
+    output_dir = tmp_path / "outputs"
+    environment = FragmentEnvironment(base_env={}, cwd=tmp_path, output_dir=output_dir)
+    before = sorted(path.name for path in output_dir.iterdir())
+
+    requested = environment.output_file("00-output")
+
+    assert not requested.exists(), "the query created the file it named"
+    assert sorted(path.name for path in output_dir.iterdir()) == before, (
+        "the query changed the output directory's contents"
+    )

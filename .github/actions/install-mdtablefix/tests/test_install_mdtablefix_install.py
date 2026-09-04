@@ -182,6 +182,103 @@ class TestHardenedInstall:
             f"the annotation must name both versions: {result.stderr!r}"
         )
 
+    def test_notices_a_success_that_installed_nothing(self, tmp_path: Path) -> None:
+        """Verify a binstall that exits zero without writing is not believed."""
+        result = run_scenario(
+            Scenario(tmp_path=tmp_path, install_creates_executable=False),
+        )
+
+        assert result.returncode == 1, (
+            f"an empty install must fail the job: {result.returncode}"
+        )
+        assert "install-mdtablefix.result=version-mismatch" in result.metrics(), (
+            f"expected a version-mismatch metric, got {result.metrics()}"
+        )
+        assert "no executable was installed at" in result.stderr, (
+            f"the annotation must say nothing was installed: {result.stderr!r}"
+        )
+
+    def test_ignores_output_after_the_first_line(self, tmp_path: Path) -> None:
+        """Verify trailing lines from the executable do not fail a good install.
+
+        Some tools print a banner or a build line after the version. Only the
+        first line carries the version, so only the first line is compared.
+        """
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path,
+                installs_output="mdtablefix 0.5.0\nbuilt from deadbeef\n",
+            ),
+        )
+
+        assert result.returncode == 0, (
+            f"trailing output must not fail the install: {result.stderr}"
+        )
+        assert "install-mdtablefix.result=installed" in result.metrics(), (
+            f"expected an installed metric, got {result.metrics()}"
+        )
+
+    def test_bounds_the_reported_version_in_the_annotation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify an overlong report is truncated before it reaches the log.
+
+        What sits in `bin-dir` came out of the caller's cache, so its output is
+        not this action's to copy into an annotation whole.
+        """
+        overlong = "mdtablefix 0.5.0" + "z" * 200
+        result = run_scenario(Scenario(tmp_path=tmp_path, installs_output=overlong))
+
+        assert result.returncode == 1, (
+            "an executable reporting an unexpected version must fail the job"
+        )
+        assert "install-mdtablefix.result=version-mismatch" in result.metrics(), (
+            f"expected a version-mismatch metric, got {result.metrics()}"
+        )
+        assert overlong not in result.stderr, (
+            "the whole reported line reached the annotation unbounded"
+        )
+        assert overlong[:120] in result.stderr, (
+            f"the truncated report did not reach the annotation: {result.stderr!r}"
+        )
+
+    def test_a_cached_executable_reporting_too_much_is_reinstalled(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the probe bounds what it trusts from the caller's cache."""
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path,
+                cached_output="mdtablefix 0.5.0" + "z" * 200,
+            ),
+        )
+
+        assert result.returncode == 0, f"the reinstall failed: {result.stderr}"
+        assert "install-mdtablefix.result=installed" in result.metrics(), (
+            f"an overlong cached report was believed: {result.metrics()}"
+        )
+
+    def test_a_cached_executable_may_print_more_than_one_line(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Verify the probe reads the version line and ignores what follows."""
+        result = run_scenario(
+            Scenario(
+                tmp_path=tmp_path,
+                cached_output="mdtablefix 0.5.0\nbuilt from deadbeef\n",
+            ),
+        )
+
+        assert result.metrics() == ("install-mdtablefix.result=cached",), (
+            f"expected a cache hit, got {result.metrics()}"
+        )
+        assert result.cargo_log == "", (
+            f"a cache hit must not call cargo: {result.cargo_log!r}"
+        )
+
     def test_emits_exactly_one_result_metric(self, tmp_path: Path) -> None:
         """Verify the outcome vocabulary stays bounded and unambiguous."""
         result = run_scenario(Scenario(tmp_path=tmp_path))

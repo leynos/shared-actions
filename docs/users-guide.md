@@ -30,6 +30,31 @@ configuration. See the
 [`setup-rust` README](../.github/actions/setup-rust/README.md) for the pinned
 revisions and current cache behaviour.
 
+## `setup-rust` and sccache
+
+On a non-release event with `use-sccache` enabled, `setup-rust` installs
+sccache and exports `RUSTC_WRAPPER` naming it. That export matters: the sccache
+action itself exports only `SCCACHE_PATH`, and Cargo routes compilation through
+sccache only when `RUSTC_WRAPPER` is set, so before this a caller who did not
+set the wrapper had sccache installed and never used.
+
+A `RUSTC_WRAPPER` the caller has already set is left alone, including a
+deliberately empty value, and the action says so in a notice. If `SCCACHE_PATH`
+is absent the step fails rather than continuing silently, because continuing
+would restore exactly the uncached build this exists to prevent. sccache
+statistics are zeroed after the export, so a later `sccache --show-stats`
+measures the caller's own build; if zeroing fails the wrapper still stands and
+the action warns.
+
+Each run reports one bounded `metric setup-rust.sccache.wrapper=<state>` line,
+over `exported`, `exported-stats-not-zeroed`, `caller-set`, and
+`missing-sccache-path`.
+
+On Ubicloud, run the `export-ubicloud-cache-credentials` action **before**
+`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
+server starts, so credentials published afterwards arrive too late and the
+compiler cache silently uses whatever the runner advertised.
+
 ## Rust cache ownership
 
 `setup-rust` and `generate-coverage` accept `cache-provider: github` or

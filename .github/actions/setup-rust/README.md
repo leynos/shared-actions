@@ -135,16 +135,18 @@ Example using an external cache owner:
 When the workflow is not triggered by a `release` event and `use-sccache` is
 enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
 cache compiler output. The sccache action sets `SCCACHE_GHA_ENABLED=true` and
-`RUSTC_WRAPPER=sccache` so subsequent build steps benefit from the cache. The
-compiled objects are stored in `~/.cache/sccache` and cached with a **separate
-cache key** from the directories above. This directory holds the sccache cache
-space and does not share data with the Rust dependency cache. When
-`use-sccache` is enabled, the action also exports `RUSTC_WRAPPER` naming the
-installed sccache, because Cargo routes compilation through sccache only when
-that variable is set; the sccache action itself exports `SCCACHE_PATH` alone. A
-caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
+exports `SCCACHE_PATH`, naming the binary it installed. It does **not** export
+`RUSTC_WRAPPER`, and Cargo routes compilation through sccache only when that
+variable is set, so this action exports it, naming the same binary. Without
+that step sccache is installed and never used.
+
+A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
 says so in a notice. Statistics are zeroed after the export, so a later
 `sccache --show-stats` measures the caller's own build.
+
+The compiled objects are stored in `~/.cache/sccache` and cached with a
+**separate cache key** from the directories above. This directory holds the
+sccache cache space and does not share data with the Rust dependency cache.
 
 On Ubicloud, run the
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)

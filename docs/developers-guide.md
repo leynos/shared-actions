@@ -1211,18 +1211,28 @@ until all five exist.
 
 ### Test boundary
 
-`.github/actions/install-mdtablefix/tests/` holds three modules. The manifest
+`.github/actions/install-mdtablefix/tests/` holds four modules. The manifest
 tests read `action.yml` only and pin the step order, the input table, the
 upstream SHA, and the hardening flags. The input tests run the real validation
 fragment. The install tests drive every fragment in manifest order against a
 stubbed `cargo`, covering the cached, binstall-present, binstall-installed,
 version-mismatch, install-failed, binstall-unavailable, and no-prebuilt
-outcomes.
+outcomes. The property tests generate inputs and check the validator against
+its documented grammar.
 
 The stub refuses to install unless it receives the `--bin-dir` override, so
 dropping that override fails the suite rather than passing silently and failing
 on a runner. A Bash 3.2 guard rejects `${var,,}`, `mapfile`, `readarray`, and
 associative arrays in any fragment, because macOS runners ship Bash 3.2.
+
+The property tests state the grammar from the documentation rather than from
+the fragment, so a fragment that drifts from what is documented fails them.
+They generate version strings and `bin-dir` values, assert the fragment admits
+exactly what the documentation admits, and assert no rejection is silent.
+Absolute candidates are rooted inside the test's own sandbox: the property is
+about the grammar, not about whether the host permits a directory at the
+filesystem root. That distinction is what first surfaced a `mkdir` failure
+leaving no annotation behind.
 
 `.github/workflows/test-install-mdtablefix.yml` is the runner-backed boundary.
 Its `ubuntu-latest` job installs the pinned version, asserts what the

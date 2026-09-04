@@ -83,6 +83,7 @@ over a bounded vocabulary, and at most one `install-mdtablefix.binstall` line.
 
 | Metric                                           | Meaning                                      |
 | ------------------------------------------------ | -------------------------------------------- |
+| `install-mdtablefix.result=invalid-input`        | An input was refused before anything ran     |
 | `install-mdtablefix.result=cached`               | `bin-dir` already held the pinned version    |
 | `install-mdtablefix.result=installed`            | Installed and verified                       |
 | `install-mdtablefix.result=no-prebuilt`          | No prebuilt release for this runner          |

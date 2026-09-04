@@ -34,6 +34,9 @@ runs:
         set -euo pipefail
         input_error() {
           echo "::error title=Invalid mdtablefix input::$1" >&2
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "install-mdtablefix.result=invalid-input" >> "$GITHUB_STEP_SUMMARY"
+          fi
           exit 1
         }
         if [[ ! "$VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -65,8 +68,13 @@ runs:
         if [[ "$bin_dir" == *"$path_separator"* ]]; then
           input_error "bin-dir must not contain the runner PATH separator"
         fi
-        mkdir -p -- "$bin_dir"
-        bin_dir="$(cd -- "$bin_dir" && pwd -P)"
+        # A bin-dir the runner cannot create or enter is refused the same way as
+        # a malformed one. Left to `set -e` it would exit with no annotation and
+        # no metric, which is a failure no operator could attribute.
+        mkdir -p -- "$bin_dir" 2>/dev/null ||
+          input_error "bin-dir ${BIN_DIR_INPUT} could not be created on this runner"
+        bin_dir="$(cd -- "$bin_dir" 2>/dev/null && pwd -P)" ||
+          input_error "bin-dir ${BIN_DIR_INPUT} could not be entered on this runner"
         if [[ "$bin_dir" == *"$path_separator"* ]]; then
           input_error "bin-dir must not contain the runner PATH separator"
         fi
@@ -131,11 +139,16 @@ runs:
         printf '%s\n' "$MDTABLEFIX_BIN_DIR" >> "$GITHUB_PATH"
         export PATH="${MDTABLEFIX_BIN_DIR}:${PATH}"
         expected="mdtablefix ${MDTABLEFIX_VERSION}"
+        # Whatever the caller's cache put in bin-dir is not this action's to
+        # trust, so only the first line, truncated, is ever compared or logged.
+        read_version() {
+          "$1" --version 2>/dev/null | head -n 1 | tr -d '\r' | cut -c 1-120 || true
+        }
         reported=
         if [[ -x "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
-          reported="$("$MDTABLEFIX_EXECUTABLE_PATH" --version 2>/dev/null | tr -d '\r' || true)"
+          reported="$(read_version "$MDTABLEFIX_EXECUTABLE_PATH")"
         elif command -v mdtablefix >/dev/null 2>&1; then
-          reported="$(mdtablefix --version 2>/dev/null | tr -d '\r' || true)"
+          reported="$(read_version mdtablefix)"
         fi
         if [[ "$reported" == "$expected" ]]; then
           echo "::notice title=Install mdtablefix::result=cached version=${MDTABLEFIX_VERSION}"
@@ -260,7 +273,14 @@ runs:
         if [[ ! -x "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
           step_error "no executable was installed at ${MDTABLEFIX_EXECUTABLE_PATH}"
         fi
-        reported="$("$MDTABLEFIX_EXECUTABLE_PATH" --version 2>/dev/null | tr -d '\r' || true)"
+        # Only the first line, and at most 120 characters of it, reaches the
+        # annotation. What is on the end of that path is whatever the caller's
+        # cache put there, so its output is not this action's to trust or to
+        # copy into the log unbounded.
+        reported="$(
+          "$MDTABLEFIX_EXECUTABLE_PATH" --version 2>/dev/null |
+            head -n 1 | tr -d '\r' | cut -c 1-120 || true
+        )"
         if [[ "$reported" != "$expected" ]]; then
           step_error "expected ${expected} at ${MDTABLEFIX_EXECUTABLE_PATH} but it reported ${reported:-nothing}"
         fi

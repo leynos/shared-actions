@@ -1164,6 +1164,121 @@ download/checksum path, checksum and unsupported-version failures, normal and
 forced Nixie reconciliation, Nixie installer failure, and the no-PATH-export
 failure boundary.
 
+## `install-mdtablefix` action contract
+
+The composite action boundary is
+`.github/actions/install-mdtablefix/action.yml`. It declares seven steps whose
+order is itself part of the contract: validate the inputs, reject an
+unsupported platform, probe the cache and `cargo-binstall`, install
+`cargo-binstall` when the probe asked for it, report a failure of that
+installer, run the hardened `cargo binstall`, and verify the installed version.
+
+The platform gate precedes the cache probe deliberately. A cached executable
+must not be able to report success on a runner for which no prebuilt release
+exists, which is the failure `install-whitaker` had to be corrected for.
+
+`cargo-binstall` is probed by running `cargo binstall -V`. A bare `command -v`
+reports a Cargo subcommand shim that cannot run as present, which is the defect
+recorded in issue #420. A composite action cannot make a `uses:` step
+conditional on a shell result directly, so the probe writes an
+`install-binstall` step output and the `uses:` step carries an `if:` over it.
+The upstream installer is pinned by commit SHA
+(`cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c`, v1.22.0)
+with the release named in a trailing comment, and receives the validated
+`binstall-version` input.
+
+That upstream step is the only one whose failure the action cannot annotate
+from inside, so a step guarded by `failure()` and the probe's
+`install-binstall` output follows it and reports
+`install-mdtablefix.result=binstall-unavailable`. The guard is narrow because
+the probe publishes that output only when it succeeded, so the upstream step is
+the only thing that can have failed between the two.
+
+The install passes `--disable-strategies compile`, so a missing prebuilt asset
+fails closed rather than compiling in CI, and
+`--bin-dir '{ bin }{ binary-ext }'`, which overrides `mdtablefix` 0.5.0's
+`bin-dir = "."` metadata. cargo-binstall 1.22 rejects that metadata with
+"bin-dir configuration provided generates empty source path" and, with
+compilation disabled, the install fails outright (leynos/mdtablefix#458).
+Remove the override and its tests once a pinned release carries fixed metadata.
+
+The action caches nothing. The caller owns `bin-dir` and its key, so tool
+caches keep one owner each. Widening the supported platform list requires a
+published prebuilt asset, an updated platform gate, updated tests, an updated
+runner-backed workflow, and synchronized user-facing documentation; fail closed
+until all five exist.
+
+### Test boundary
+
+`.github/actions/install-mdtablefix/tests/` holds four modules. The manifest
+tests read `action.yml` only and pin the step order, the input table, the
+upstream SHA, and the hardening flags. The input tests run the real validation
+fragment. The install tests drive every fragment in manifest order against a
+stubbed `cargo`, covering the cached, binstall-present, binstall-installed,
+version-mismatch, install-failed, binstall-unavailable, and no-prebuilt
+outcomes, and what the action reads from an executable it did not write: a
+report spanning several lines, an overlong one, and a `cargo binstall` that
+exits zero having installed nothing. The property tests generate inputs and
+check the validator against its documented grammar.
+
+The stub refuses to install unless it receives the `--bin-dir` override, so
+dropping that override fails the suite rather than passing silently and failing
+on a runner. A Bash 3.2 guard rejects `${var,,}`, `mapfile`, `readarray`, and
+associative arrays in any fragment, because macOS runners ship Bash 3.2.
+
+The action reports each failure by checking an exit status rather than from an
+`ERR` trap, which is what `install-whitaker` and `install-nixie` use. Both work
+on a runner. A checked status is additionally invariant to how the fragment is
+invoked, which is worth having but is not a reason to change the sibling
+actions.
+
+The property tests state the grammar from the documentation rather than from
+the fragment, so a fragment that drifts from what is documented fails them.
+They generate version strings and `bin-dir` values, assert the fragment admits
+exactly what the documentation admits, and assert no rejection is silent.
+Absolute candidates are rooted inside the test's own sandbox: the property is
+about the grammar, not about whether the host permits a directory at the
+filesystem root. That distinction is what first surfaced a `mkdir` failure
+leaving no annotation behind.
+
+`.github/workflows/test-install-mdtablefix.yml` is the runner-backed boundary.
+Its `ubuntu-latest` job installs the pinned version, asserts what the
+executable reports, then puts a failing `cargo` stub on `PATH` and invokes the
+action again: a second run that reaches `cargo-binstall` fails the job, so the
+cached outcome is proved rather than read out of a log. Its `macos-15` job
+asserts the fail-closed contract and that no executable was left behind.
+
+### Composite fragment harness
+
+`composite_fragments.py` at the repository root runs a composite action's Bash
+fragments outside GitHub Actions. It resolves the expression subset the
+installer manifests use, evaluates each step's `if:`, and threads
+`$GITHUB_OUTPUT` between steps, so a test exercises the real step boundaries.
+`install-whitaker` still carries a private copy of the same harness in its own
+test directory, and that copy still uses `bash -c`; folding it into this module
+is tracked by issue #449.
+
+The harness has its own tests in
+`.github/actions/tests/test_composite_fragments.py`, because a defect there
+makes every suite built on it report an outcome no runner would produce. They
+cover reading `$GITHUB_OUTPUT` back, including a single-line value that contains
+`<<` and must not be read as a heredoc opener, the expression subset, the
+implicit `success()` an `if:` without a status function carries, which exit
+code a run is judged by, and how a fragment is invoked.
+
+That last one is not a formality. A runner writes a composite `run:` fragment
+to a file and executes that file. The harness originally passed the same text to
+`bash -c`, and the two are not equivalent: Bash 3.2, which macOS runners ship,
+replaces itself with the last command of a `bash -c` string when that command
+is external, discarding any `ERR` trap along with the shell. Bash 5 suppresses
+that optimization when a trap is set. So a fragment that reported its failure
+from a trap passed on Linux and, on macOS, failed with no annotation and no
+metric, and the harness was the only thing that differed. Measured on
+`macos-15` across six cases: every combination fires except `bash -c` with an
+external last command on Bash 3.2. Two tests hold the line, one asserting a
+fragment's `$0` names a file and one asserting a fragment's `ERR` trap fires
+when its last command fails.
+
 ## `rust-build-release` Action Architecture
 
 ### Man-Page Path Strategy

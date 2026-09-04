@@ -1,0 +1,290 @@
+name: Install mdtablefix
+description: >-
+  Install a pinned mdtablefix from its prebuilt release through a hardened
+  cargo-binstall, never from source.
+
+inputs:
+  version:
+    description: Exact mdtablefix version to install
+    required: true
+  binstall-version:
+    description: >-
+      Version of cargo-binstall to install when the runner has none. Ignored
+      when cargo-binstall is already present.
+    required: false
+    default: "1.22.0"
+  bin-dir:
+    description: >-
+      Directory that receives the mdtablefix executable and is appended to
+      GITHUB_PATH. The caller owns any cache of this directory.
+    required: false
+    default: ~/.local/bin
+
+runs:
+  using: composite
+  steps:
+    - name: Validate mdtablefix inputs
+      id: validate-inputs
+      shell: bash
+      env:
+        BIN_DIR_INPUT: ${{ inputs.bin-dir }}
+        BINSTALL_VERSION_INPUT: ${{ inputs.binstall-version }}
+        VERSION_INPUT: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        input_error() {
+          echo "::error title=Invalid mdtablefix input::$1" >&2
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "install-mdtablefix.result=invalid-input" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 1
+        }
+        if [[ ! "$VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          input_error "version must be three numeric components without leading zeros"
+        fi
+        if [[ ! "$BINSTALL_VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+          input_error "binstall-version must be three numeric components without leading zeros"
+        fi
+        if [[ "$BIN_DIR_INPUT" == *$'\r'* || "$BIN_DIR_INPUT" == *$'\n'* ]]; then
+          input_error "bin-dir must not contain a carriage return or newline"
+        fi
+        if (( ${#BIN_DIR_INPUT} > 240 )); then
+          input_error "bin-dir must be at most 240 characters"
+        fi
+        if [[ "$BIN_DIR_INPUT" == "~" || "$BIN_DIR_INPUT" == "~/"* ]]; then
+          bin_dir="${HOME}${BIN_DIR_INPUT:1}"
+        elif [[ "$BIN_DIR_INPUT" == /* ]]; then
+          bin_dir="$BIN_DIR_INPUT"
+        else
+          input_error "bin-dir must be an absolute path or start with ~/"
+        fi
+        if [[ "/${bin_dir}/" == *"/../"* ]]; then
+          input_error "bin-dir must not contain parent-directory components"
+        fi
+        path_separator=:
+        if [[ "${RUNNER_OS:-}" == Windows ]]; then
+          path_separator=';'
+        fi
+        if [[ "$bin_dir" == *"$path_separator"* ]]; then
+          input_error "bin-dir must not contain the runner PATH separator"
+        fi
+        # A bin-dir the runner cannot create or enter is refused the same way as
+        # a malformed one. Left to `set -e` it would exit with no annotation and
+        # no metric, which is a failure no operator could attribute.
+        mkdir -p -- "$bin_dir" 2>/dev/null ||
+          input_error "bin-dir ${BIN_DIR_INPUT} could not be created on this runner"
+        bin_dir="$(cd -- "$bin_dir" 2>/dev/null && pwd -P)" ||
+          input_error "bin-dir ${BIN_DIR_INPUT} could not be entered on this runner"
+        if [[ "$bin_dir" == *"$path_separator"* ]]; then
+          input_error "bin-dir must not contain the runner PATH separator"
+        fi
+        executable_suffix=
+        if [[ "${RUNNER_OS:-}" == Windows ]]; then
+          executable_suffix=.exe
+        fi
+        {
+          printf 'version=%s\n' "$VERSION_INPUT"
+          printf 'binstall-version=%s\n' "$BINSTALL_VERSION_INPUT"
+          printf 'bin-dir=%s\n' "$bin_dir"
+          printf 'executable-path=%s\n' "${bin_dir}/mdtablefix${executable_suffix}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Check mdtablefix platform support
+      shell: bash
+      env:
+        MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+      run: |
+        # Rejected before the cache is consulted. A cached executable must not
+        # be able to report success for a platform this action cannot install,
+        # which is the failure install-whitaker learned to avoid.
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        # mdtablefix 0.5.0 publishes prebuilt archives only for Linux gnu on
+        # x86_64 and aarch64; its binstall metadata override is gated on the
+        # same cfg. macOS and Windows have no asset at all, so binstall can
+        # only satisfy them by compiling, which this action never permits.
+        # leynos/mdtablefix#459 asks for those assets and for the metadata to
+        # be ungated. Widen this list, and the runner-backed workflow with it,
+        # once that lands.
+        case "${RUNNER_OPERATING_SYSTEM:-}/${RUNNER_ARCHITECTURE:-}" in
+          Linux/X64|Linux/ARM64) ;;
+          *)
+            echo "::error title=Install mdtablefix failed::mdtablefix ${MDTABLEFIX_VERSION} publishes no prebuilt release for ${RUNNER_OPERATING_SYSTEM:-unknown}/${RUNNER_ARCHITECTURE:-unknown}; this action never builds from source. Assets for this platform are tracked by https://github.com/leynos/mdtablefix/issues/459" >&2
+            emit_metric "install-mdtablefix.result=no-prebuilt"
+            exit 1
+            ;;
+        esac
+
+    - name: Probe mdtablefix and cargo-binstall
+      id: probe
+      shell: bash
+      env:
+        MDTABLEFIX_BIN_DIR: ${{ steps.validate-inputs.outputs.bin-dir }}
+        MDTABLEFIX_EXECUTABLE_PATH: ${{ steps.validate-inputs.outputs.executable-path }}
+        MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        # The caller owns the cache of bin-dir. This action caches nothing, so
+        # one key has one owner.
+        printf '%s\n' "$MDTABLEFIX_BIN_DIR" >> "$GITHUB_PATH"
+        export PATH="${MDTABLEFIX_BIN_DIR}:${PATH}"
+        expected="mdtablefix ${MDTABLEFIX_VERSION}"
+        # Whatever the caller's cache put in bin-dir is not this action's to
+        # trust, so only the first line, truncated, is ever compared or logged.
+        read_version() {
+          "$1" --version 2>/dev/null | head -n 1 | tr -d '\r' | cut -c 1-120 || true
+        }
+        reported=
+        if [[ -x "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
+          reported="$(read_version "$MDTABLEFIX_EXECUTABLE_PATH")"
+        elif command -v mdtablefix >/dev/null 2>&1; then
+          reported="$(read_version mdtablefix)"
+        fi
+        if [[ "$reported" == "$expected" ]]; then
+          echo "::notice title=Install mdtablefix::result=cached version=${MDTABLEFIX_VERSION}"
+          emit_metric "install-mdtablefix.result=cached"
+          {
+            printf 'needs-install=false\n'
+            printf 'install-binstall=false\n'
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # Probe by running cargo-binstall, not with `command -v`. A cargo
+        # subcommand shim can exist on PATH and still be unusable, which is the
+        # presence-probe defect recorded in issue #420.
+        install_binstall=true
+        if cargo binstall -V >/dev/null 2>&1; then
+          install_binstall=false
+        fi
+        {
+          printf 'needs-install=true\n'
+          printf 'install-binstall=%s\n' "$install_binstall"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install cargo-binstall
+      if: ${{ steps.probe.outputs.install-binstall == 'true' }}
+      uses: cargo-bins/cargo-binstall@75b4bfae1b2c753a6806bbce6e6cb89b602de33c # v1.22.0
+      with:
+        version: ${{ steps.validate-inputs.outputs.binstall-version }}
+
+    - name: Report cargo-binstall provisioning failure
+      # The upstream installer is the one step whose failure this action cannot
+      # annotate from inside. Without this step a bad `binstall-version`, or a
+      # failed download, would stop the composite with no
+      # `install-mdtablefix.result` line at all, breaking the guarantee that
+      # every run reports exactly one outcome. The condition is narrow: the
+      # probe publishes `install-binstall` only when it succeeded, and the
+      # upstream step is the only thing that can have failed between the two.
+      if: ${{ failure() && steps.probe.outputs.install-binstall == 'true' }}
+      shell: bash
+      env:
+        MDTABLEFIX_BINSTALL_VERSION: ${{ steps.validate-inputs.outputs.binstall-version }}
+      run: |
+        set -euo pipefail
+        echo "::error title=Install mdtablefix failed::cargo-binstall ${MDTABLEFIX_BINSTALL_VERSION} could not be installed, so mdtablefix cannot be obtained without building from source" >&2
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          printf '%s\n' "install-mdtablefix.result=binstall-unavailable" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Install mdtablefix
+      if: ${{ steps.probe.outputs.needs-install == 'true' }}
+      shell: bash
+      env:
+        MDTABLEFIX_BIN_DIR: ${{ steps.validate-inputs.outputs.bin-dir }}
+        MDTABLEFIX_INSTALL_BINSTALL: ${{ steps.probe.outputs.install-binstall }}
+        MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+      run: |
+        # The failure is reported by an explicit status check rather than by an
+        # ERR trap, which is what the sibling installers use. Both work on a
+        # runner; a checked status additionally works when the fragment is run
+        # from a command string, where Bash 3.2 drops the trap for an external
+        # last command. Nothing here depends on that, but the check is no more
+        # code than the trap and is invariant to how the fragment is invoked.
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        binstall_source=present
+        if [[ "$MDTABLEFIX_INSTALL_BINSTALL" == true ]]; then
+          binstall_source=installed
+        fi
+        emit_metric "install-mdtablefix.binstall=${binstall_source}"
+        # --disable-strategies compile is the "nothing built from source" rule:
+        # a missing prebuilt asset fails closed instead of compiling.
+        #
+        # --bin-dir overrides the crate's own binstall metadata. mdtablefix
+        # 0.5.0 declares `bin-dir = "."`, which cargo-binstall 1.22 rejects with
+        # "bin-dir configuration provided generates empty source path"; with the
+        # compile strategy disabled the install then fails outright
+        # (leynos/mdtablefix#458). The archive holds the executable at its root,
+        # so `{ bin }{ binary-ext }` names it correctly. Drop this override, and
+        # the test that pins it, once a pinned mdtablefix release carries fixed
+        # metadata.
+        install_status=0
+        cargo binstall \
+          --no-confirm \
+          --locked \
+          --disable-strategies compile \
+          --disable-telemetry \
+          --install-path "$MDTABLEFIX_BIN_DIR" \
+          --bin-dir '{ bin }{ binary-ext }' \
+          "mdtablefix@${MDTABLEFIX_VERSION}" || install_status=$?
+        if (( install_status != 0 )); then
+          echo "::error title=Install mdtablefix failed::cargo binstall exited with exit-code=${install_status} for mdtablefix ${MDTABLEFIX_VERSION}" >&2
+          emit_metric "install-mdtablefix.result=install-failed"
+          exit "$install_status"
+        fi
+
+    - name: Verify mdtablefix
+      shell: bash
+      env:
+        MDTABLEFIX_EXECUTABLE_PATH: ${{ steps.validate-inputs.outputs.executable-path }}
+        MDTABLEFIX_NEEDS_INSTALL: ${{ steps.probe.outputs.needs-install }}
+        MDTABLEFIX_VERSION: ${{ steps.validate-inputs.outputs.version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        step_error() {
+          echo "::error title=Install mdtablefix failed::$1" >&2
+          emit_metric "install-mdtablefix.result=version-mismatch"
+          exit 1
+        }
+        if [[ "$MDTABLEFIX_NEEDS_INSTALL" != true ]]; then
+          # The probe already compared the cached executable's reported version
+          # against the pinned one and published the cached metric.
+          exit 0
+        fi
+        expected="mdtablefix ${MDTABLEFIX_VERSION}"
+        if [[ ! -x "$MDTABLEFIX_EXECUTABLE_PATH" ]]; then
+          step_error "no executable was installed at ${MDTABLEFIX_EXECUTABLE_PATH}"
+        fi
+        # Only the first line, and at most 120 characters of it, reaches the
+        # annotation. What is on the end of that path is whatever the caller's
+        # cache put there, so its output is not this action's to trust or to
+        # copy into the log unbounded.
+        reported="$(
+          "$MDTABLEFIX_EXECUTABLE_PATH" --version 2>/dev/null |
+            head -n 1 | tr -d '\r' | cut -c 1-120 || true
+        )"
+        if [[ "$reported" != "$expected" ]]; then
+          step_error "expected ${expected} at ${MDTABLEFIX_EXECUTABLE_PATH} but it reported ${reported:-nothing}"
+        fi
+        echo "::notice title=Install mdtablefix::result=installed version=${MDTABLEFIX_VERSION}"
+        emit_metric "install-mdtablefix.result=installed"

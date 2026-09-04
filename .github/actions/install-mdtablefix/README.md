@@ -35,6 +35,11 @@ A FreeBSD archive is published as well and has no entry, because GitHub
 publishes no FreeBSD runner label for `runner.os` to report. Add one when a
 label exists; until then the entry would be untestable.
 
+A Windows caller may pass `${{ runner.temp }}/...` directly. That arrives as a
+native path such as `D:\a\_temp\bin`, which Git Bash does not treat as
+absolute, so the action converts it with `cygpath` rather than making every
+caller wrap it.
+
 The platform is rejected before the cache is consulted, so a cached executable
 cannot report success on a runner this action could not have installed.
 

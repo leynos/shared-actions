@@ -15,6 +15,11 @@ this file.
   FreeBSD archive is published but has no entry, because GitHub offers no
   FreeBSD runner label to gate on.
 
+- Accept a native Windows `bin-dir`. `${{ runner.temp }}/...` is the natural
+  value for a Windows caller and arrives as `D:\a\_temp\bin`, which Git Bash
+  does not treat as absolute; the validator converts it with `cygpath` instead
+  of rejecting the one expression such a caller would reach for.
+
 - Drop the `--bin-dir` override. 0.5.0 declared `bin-dir = "."`, which
   cargo-binstall rejects, so the install passed an override naming the
   executable itself (leynos/mdtablefix#458). 0.5.1 carries correct metadata and

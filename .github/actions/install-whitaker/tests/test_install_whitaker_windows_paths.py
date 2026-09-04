@@ -230,14 +230,25 @@ def test_the_resolve_step_hands_downstream_a_posix_path(tmp_path: Path) -> None:
 
 
 def test_the_published_staging_path_is_the_converted_one(tmp_path: Path) -> None:
-    """The value carried across the step boundary must be the converted one."""
+    """The value carried across the step boundary must be the converted one.
+
+    Parsed rather than matched as a substring: `staging-dir=<seen>-suffix`
+    contains `staging-dir=<seen>` while breaking the step-output contract, so
+    a substring assertion would stay green through exactly that regression.
+    """
     completed, seen = _run_resolve(
         tmp_path, staging_dir=WINDOWS_STAGING_DIR, with_cygpath=True
     )
 
     assert completed.returncode == 0, completed.stderr
     published = (tmp_path / "github-output").read_text(encoding="utf-8")
-    assert f"staging-dir={seen}" in published
+    records = [
+        line.removeprefix("staging-dir=")
+        for line in published.splitlines()
+        if line.startswith("staging-dir=")
+    ]
+
+    assert records == [seen]
 
 
 def test_a_posix_host_without_cygpath_is_left_alone(tmp_path: Path) -> None:

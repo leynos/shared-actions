@@ -122,8 +122,12 @@ def _run_extract(
         "WHITAKER_STAGING_DIR": staging_dir,
         "WHITAKER_INSTALLER_VERSION": "0.2.7",
         "WHITAKER_ZIP_SCRIPT": str(ZIP_SCRIPT),
+        # Pointed at a file rather than removed, so the job-summary metrics the
+        # step reports are observable. Several failure paths emit one, and the
+        # explicit `exit` arms have to emit it themselves, because an explicit
+        # exit does not fire the step's ERR trap.
+        "GITHUB_STEP_SUMMARY": str(_summary_path(tmp_path)),
     }
-    environment.pop("GITHUB_STEP_SUMMARY", None)
     return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [bash, "-c", _extract_script()],
         capture_output=True,
@@ -133,6 +137,17 @@ def _run_extract(
         text=True,
         timeout=30,
     )
+
+
+def _summary_path(tmp_path: Path) -> Path:
+    """Return the file standing in for `$GITHUB_STEP_SUMMARY`."""
+    return tmp_path / "step-summary.md"
+
+
+def _summary(tmp_path: Path) -> str:
+    """Return what the fragment wrote to the job summary."""
+    path = _summary_path(tmp_path)
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
 def _tar_arguments(tmp_path: Path) -> list[str]:
@@ -401,3 +416,7 @@ def test_an_unknown_extension_is_refused(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "unsupported archive extension" in result.stderr
     assert not (tmp_path / "stubs" / "tar-args.log").exists()
+    # The arm exits explicitly, which does not fire the step's ERR trap, so it
+    # has to report the metric itself or the job summary would disagree with
+    # the annotation.
+    assert "whitaker-installer.failure=install" in _summary(tmp_path)

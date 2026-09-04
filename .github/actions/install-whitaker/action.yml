@@ -472,7 +472,13 @@ runs:
           *)
             # Fail closed. Falling through to tar is how a zip reached GNU tar
             # in the first place.
+            #
+            # The metric is emitted here rather than left to the ERR trap: an
+            # explicit `exit` does not fire it, so without this the step would
+            # annotate the failure and then omit it from the job summary that
+            # the other failure paths all report to.
             echo "::error title=Whitaker installer failed::unsupported archive extension ${WHITAKER_EXTENSION:-<empty>} for asset ${WHITAKER_ASSET}" >&2
+            emit_metric "whitaker-installer.failure=install"
             exit 1
             ;;
         esac

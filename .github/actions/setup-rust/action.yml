@@ -252,15 +252,12 @@ runs:
         fi
     - name: Select the sccache backend
       # BEFORE the sccache-action steps, deliberately. sccache binds its
-      # backend once, when the server starts, and the first thing here to
-      # start one is the --zero-stats in the wrapper step that follows those
-      # sccache steps. GITHUB_ENV reaches only the next step, so a value
-      # exported alongside the wrapper would be read by nobody: the job would
-      # keep a local-disk cache while every log line claimed otherwise.
-      #
-      # The sccache-action steps start no server themselves. What they do is
-      # write ACTIONS_CACHE_SERVICE_V2=on to GITHUB_ENV, which breaks Ubicloud
-      # and is issue #441, not this ordering.
+      # backend once, when the server starts, and "Start the sccache server"
+      # below is what starts it. GITHUB_ENV reaches only the next step, so
+      # every export the server must see has to be written in an earlier one.
+      # A value exported alongside the server start would be read by nobody:
+      # the job would keep a local-disk cache while every log line claimed
+      # otherwise.
       #
       # Its counterpart, "Export sccache as the rustc wrapper", sits AFTER
       # those steps for the opposite reason: it needs SCCACHE_PATH, which they
@@ -295,6 +292,73 @@ runs:
         report gha
         echo "::notice title=setup-rust sccache::selected the GitHub Actions cache backend"
 
+    - name: Record the caller's cache service selection
+      id: cache-service
+      # Read BEFORE the sccache-action steps, because they overwrite these.
+      # The last thing mozilla-actions/sccache-action does is write
+      # ACTIONS_CACHE_SERVICE_V2=on to GITHUB_ENV, along with the runner's own
+      # ACTIONS_RESULTS_URL and ACTIONS_RUNTIME_TOKEN. On a GitHub-hosted
+      # runner that is what a caller wants. On Ubicloud the v2 flag overrides
+      # the empty value export-ubicloud-cache-credentials published, the proxy
+      # serves v1, and every write goes to the wrong endpoint.
+      #
+      # All three are recorded, not just the one that does harm today. They
+      # are the sccache-action's to change, and a version that started
+      # exporting a different results URL or token would break the proxy the
+      # same way, silently. (#441)
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # A fresh delimiter per write. A fixed one lets a value that happens
+        # to contain that line close the block early and turn the rest of
+        # itself into further assignments, which is how a cache flag becomes
+        # arbitrary environment.
+        new_delimiter() {
+          printf 'SETUP_RUST_%s' \
+            "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        }
+        # $1 the variable, $2 the output key, $3 non-empty when the value is a
+        # credential. Bash 3.2 on macOS runners has no nameref, so the
+        # indirect read is eval.
+        record() {
+          local name="$1" key="$2" secret="$3" value
+          # ${VAR+x} rather than -n: clearing the variable, which is exactly
+          # what export-ubicloud-cache-credentials does, is a choice, and
+          # bash 3.2 cannot parse [[ -v VAR ]].
+          if ! eval "[[ \${$name+x} ]]"; then
+            echo "${key}_state=unset" >> "$GITHUB_OUTPUT"
+            return
+          fi
+          eval "value=\${$name}"
+          # A caller who exported a token without marking it secret would
+          # otherwise have it appear here first. Masking is per value, never
+          # blanket: masking a flag whose value is "on" would redact that
+          # word everywhere in the log.
+          if [[ -n "$secret" && -n "$value" ]]; then
+            echo "::add-mask::$value"
+          fi
+          # The delimiter form carries an empty value, which the plain
+          # name=value form cannot round-trip. It also refuses a value
+          # containing a newline the chance to become a second assignment,
+          # which a plain name=value line would grant it.
+          local delimiter
+          delimiter="$(new_delimiter)"
+          if printf '%s' "$value" | grep -qxF "$delimiter"; then
+            echo "::error title=setup-rust sccache::${name} contains this step's delimiter" >&2
+            exit 1
+          fi
+          {
+            echo "${key}_state=set"
+            echo "${key}_value<<${delimiter}"
+            printf '%s\n' "$value"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+        }
+        record ACTIONS_CACHE_SERVICE_V2 cache_service ''
+        record ACTIONS_RESULTS_URL results_url ''
+        record ACTIONS_RUNTIME_TOKEN runtime_token secret
+
     # x86_64-apple-darwin binaries were dropped after sccache v0.12.0
     - name: Run sccache (x86_64 macOS)
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && runner.os == 'macOS' && runner.arch == 'X64' }}
@@ -302,9 +366,96 @@ runs:
       with:
         version: v0.12.0
     - name: Run sccache
+      # Pinned, like its x86_64 macOS sibling. Left unset, the action asks the
+      # GitHub API for the latest release on every job: a floating dependency
+      # and a network call in the critical path. That call timed out on #440
+      # and failed the job with "Unable to locate executable file: undefined",
+      # a red check with no step log to explain it.
+      #
+      # This pin is the action's own. Consumers pinning a prebuilt sccache
+      # binary of their own choose independently, and today do not agree:
+      # 0.16.0 on Whitaker and Axinite, 0.17.0 on Chutoro and Wildside.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' && !(runner.os == 'macOS' && runner.arch == 'X64') }}
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
+      with:
+        version: v0.17.0
+    - name: Restore the caller's cache service selection
+      # AFTER both sccache-action steps and BEFORE anything starts a server,
+      # deliberately. Undoes what those steps wrote to GITHUB_ENV, so a caller
+      # who cleared ACTIONS_CACHE_SERVICE_V2, as an Ubicloud lane does, keeps
+      # their choice. A caller who never set a variable keeps the action's
+      # value, which is right on a GitHub-hosted runner.
+      #
+      # GITHUB_ENV reaches only the next step, so this cannot be merged into
+      # the step that starts the server. A manifest test holds the order.
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      env:
+        CALLER_CACHE_SERVICE_STATE: ${{ steps.cache-service.outputs.cache_service_state }}
+        CALLER_CACHE_SERVICE_VALUE: ${{ steps.cache-service.outputs.cache_service_value }}
+        CALLER_RESULTS_URL_STATE: ${{ steps.cache-service.outputs.results_url_state }}
+        CALLER_RESULTS_URL_VALUE: ${{ steps.cache-service.outputs.results_url_value }}
+        CALLER_RUNTIME_TOKEN_STATE: ${{ steps.cache-service.outputs.runtime_token_state }}
+        CALLER_RUNTIME_TOKEN_VALUE: ${{ steps.cache-service.outputs.runtime_token_value }}
+      run: |
+        set -euo pipefail
+        # A fresh delimiter per write, for the reason the record step gives:
+        # a fixed one lets a value containing that line close the block early
+        # and turn the rest of itself into further assignments.
+        new_delimiter() {
+          printf 'SETUP_RUST_%s' \
+            "$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        }
+        # One bounded outcome per variable, over a closed set: a lane whose
+        # proxy selection was silently overridden is visible in the log rather
+        # than only in a cache that never fills.
+        report() {
+          echo "metric setup-rust.sccache.$1=$2"
+        }
+        # $1 the variable, $2 its metric, $3 the recorded state, $4 the
+        # recorded value. Bash 3.2 on macOS runners has no nameref, so the
+        # indirect read is eval.
+        restore() {
+          local name="$1" metric="$2" state="$3" recorded="$4"
+          local is_set=no current=''
+          if [[ "$state" != set ]]; then
+            report "$metric" absent
+            return
+          fi
+          if eval "[[ \${$name+x} ]]"; then
+            is_set=yes
+            eval "current=\${$name}"
+          fi
+          if [[ "$is_set" == yes && "$current" == "$recorded" ]]; then
+            report "$metric" unchanged
+            return
+          fi
+          # The delimiter form carries an empty value, which the plain
+          # name=value form cannot round-trip, and denies a value containing a
+          # newline the second assignment that form would grant it.
+          local delimiter
+          delimiter="$(new_delimiter)"
+          if printf '%s' "$recorded" | grep -qxF "$delimiter"; then
+            echo "::error title=setup-rust sccache::${name} contains this step's delimiter" >&2
+            exit 1
+          fi
+          {
+            printf '%s<<%s\n' "$name" "$delimiter"
+            printf '%s\n' "$recorded"
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+          report "$metric" restored
+          # The variable, never its value: one of the three is a credential.
+          echo "::notice title=setup-rust sccache::restored the caller's ${name}, which the sccache steps had overwritten"
+        }
+        restore ACTIONS_CACHE_SERVICE_V2 cache-service \
+          "${CALLER_CACHE_SERVICE_STATE:-unset}" "${CALLER_CACHE_SERVICE_VALUE-}"
+        restore ACTIONS_RESULTS_URL results-url \
+          "${CALLER_RESULTS_URL_STATE:-unset}" "${CALLER_RESULTS_URL_VALUE-}"
+        restore ACTIONS_RUNTIME_TOKEN runtime-token \
+          "${CALLER_RUNTIME_TOKEN_STATE:-unset}" "${CALLER_RUNTIME_TOKEN_VALUE-}"
     - name: Export sccache as the rustc wrapper
+      id: rustc-wrapper
       # sccache-action installs sccache and exports SCCACHE_PATH, but Cargo
       # only routes compilation through it when RUSTC_WRAPPER names it. Without
       # this the action reports sccache as enabled while every consumer that
@@ -315,10 +466,11 @@ runs:
       # their output and does not exist before they run.
       #
       # Its counterpart, "Select the sccache backend", sits BEFORE those steps
-      # for the opposite reason: sccache binds its backend at server start, the
-      # --zero-stats below is what starts it, and GITHUB_ENV reaches only the
-      # next step, so that choice has to be made first. The two exports cannot
-      # be merged or reordered, and a manifest test holds both positions.
+      # for the opposite reason: sccache binds its backend at server start,
+      # "Start the sccache server" below is what starts it, and GITHUB_ENV
+      # reaches only the next step, so that choice has to be made first. The
+      # two exports cannot be merged or reordered, and a manifest test holds
+      # both positions.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       shell: bash
       run: |
@@ -328,6 +480,10 @@ runs:
         # aggregate.
         report() {
           echo "metric setup-rust.sccache.wrapper=$1"
+          # The next step needs to know whether this one exported, and the
+          # environment cannot say: an inherited wrapper and one this step
+          # wrote look identical from there.
+          echo "state=$1" >> "$GITHUB_OUTPUT"
         }
         # A caller wrapping rustc for its own reasons must not be overridden
         # silently. ${VAR+x} rather than -n: an inherited empty value is still
@@ -343,20 +499,65 @@ runs:
           echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
           exit 1
         fi
-        # Written before the counters are zeroed, so the wrapper is in place
-        # for every step that follows even if zeroing fails.
         echo "RUSTC_WRAPPER=${SCCACHE_PATH}" >> "$GITHUB_ENV"
-        # Zero the counters so a caller's later --show-stats measures its own
-        # build rather than whatever this runner did before it. A failure here
-        # costs a clean baseline, not the cache, so it warns rather than
-        # failing the job.
-        if "$SCCACHE_PATH" --zero-stats; then
-          report exported
-        else
-          report exported-stats-not-zeroed
-          echo "::warning title=setup-rust sccache::could not zero sccache statistics; a later --show-stats will include earlier work"
-        fi
+        report exported
         echo "::notice title=setup-rust sccache::RUSTC_WRAPPER exported"
+    - name: Start the sccache server
+      # LAST of the sccache steps, deliberately. sccache reads its cache
+      # configuration once, when the server starts, and never rebinds, so the
+      # server has to start after every export that could change it: the
+      # backend selection, the cache-service restore above, and whatever the
+      # caller exported before this action ran.
+      #
+      # Starting it here rather than leaving it to the first wrapped rustc
+      # also makes the binding a step with a name and an outcome, instead of
+      # a side effect of a compile that happens to come first.
+      if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
+      shell: bash
+      env:
+        WRAPPER_STATE: ${{ steps.rustc-wrapper.outputs.state }}
+      run: |
+        set -euo pipefail
+        # One bounded outcome per terminal path, over a closed set.
+        report() {
+          echo "metric setup-rust.sccache.server=$1"
+        }
+        # Only restart a server this action's own wrapper export owns. An
+        # inherited RUSTC_WRAPPER may name this very binary, when a caller ran
+        # setup-rust earlier in the job or nested it through
+        # rust-build-release, and stopping that server would discard the
+        # statistics of everything compiled so far. Checked first, because a
+        # caller who owns the wrapper owes this action no SCCACHE_PATH either.
+        if [[ "${WRAPPER_STATE:-}" != exported ]]; then
+          report caller-set
+          exit 0
+        fi
+        if [[ -z "${SCCACHE_PATH:-}" ]]; then
+          report missing-sccache-path
+          echo "::error title=setup-rust sccache::sccache-action did not export SCCACHE_PATH" >&2
+          exit 1
+        fi
+        # A server already running holds the backend it bound when it
+        # started, which was before the restore above. Stopping it is the
+        # only way to rebind; a fresh server also starts with zero counters,
+        # so a caller's later --show-stats measures their own build.
+        "$SCCACHE_PATH" --stop-server >/dev/null 2>&1 || true
+        if ! "$SCCACHE_PATH" --start-server; then
+          report start-failed
+          echo "::error title=setup-rust sccache::could not start the sccache server" >&2
+          exit 1
+        fi
+        # A server this step started has zero counters already. Zeroing is
+        # belt and braces against a --start-server that adopted one, and it
+        # costs a baseline rather than the cache, so it warns rather than
+        # failing the job.
+        if "$SCCACHE_PATH" --zero-stats >/dev/null; then
+          report started
+        else
+          report started-stats-not-zeroed
+          echo "::warning title=setup-rust sccache::could not zero sccache statistics; a later --show-stats may include earlier work"
+        fi
+        echo "::notice title=setup-rust sccache::sccache server started"
     - name: Install system dependencies
       if: ${{ inputs.install-postgres-deps == 'true' && runner.os == 'Linux' }}
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev

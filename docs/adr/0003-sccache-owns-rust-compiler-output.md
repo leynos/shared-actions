@@ -104,13 +104,21 @@ after them, because it needs `SCCACHE_PATH`, which they produce. Neither can
 move. A caller's own values win in both cases.
 
 The backend export sits first because `GITHUB_ENV` reaches only the next step,
-and the first thing in this action to start a server is the `--zero-stats` in
-the wrapper step immediately after the sccache steps. sccache binds its backend
-once, at server start, so an export written in that same step would be read by
-nobody. The sccache-action steps themselves start no server; measurement on
-Ubicloud (runs 33854048777 and 33854213968) showed that what they do instead is
-write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is a separate
-problem, recorded in `#441`.
+and sccache binds its backend once, at server start. The action now starts that
+server itself, in a `run:` step that is the last of its sccache steps, so the
+moment the cache is bound has a name, an outcome and a position the manifest
+can hold. Before that it was a side effect of whichever client command happened
+to run first.
+
+The sccache-action steps start no server; measurement on Ubicloud (runs
+33854048777 and 33854213968) showed that what they do instead is write
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`. On a GitHub-hosted runner that
+is correct. On Ubicloud it overrode the empty value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1, so
+every write went to the wrong service. The action therefore records the
+caller's value before those steps and restores it after them (`#441`). Owning
+compiler output turns out to require not only the two exports but the server
+start and that restore: four positions, none of which can move.
 
 The decision itself stands: sccache owns compiler output, and no `target`
 archive returns. This records that owning it requires the two exports, which
@@ -119,6 +127,6 @@ the original decision took for granted.
 ## References
 
 - Issue `#424`, PR `#425`
-- Issues `#437` and `#439`, PRs `#438` and `#440`
+- Issues `#437`, `#439` and `#441`, PRs `#438` and `#440`
 - `docs/developers-guide.md`, "Rust action cache ownership"
 - `docs/users-guide.md`, "Rust cache ownership"

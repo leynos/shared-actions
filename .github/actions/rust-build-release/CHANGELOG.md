@@ -38,6 +38,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Inherit the nested `setup-rust` step's sccache server start and its restore
+  of a caller's `ACTIONS_CACHE_SERVICE_V2`. `use-sccache: 'true'` therefore
+  works on Ubicloud, where it previously sent every cache write to a service the
+  proxy does not serve. This action still adds no caches of its own.
+
 - Bump the nested `setup-rust` pin to
   `7c9d66030879b504365202df90f439ea419e72bd`, which carries the
   `cache-provider` and `use-sccache` inputs along with the Node.js 24

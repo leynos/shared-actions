@@ -142,20 +142,60 @@ binary it installed. It sets neither `RUSTC_WRAPPER` nor
   compilation through sccache only when that variable is set. Without it
   sccache is installed and never used.
 - `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
-  nothing persists between jobs. It is exported **before** the sccache steps.
-  sccache binds its backend once, at server start, and `GITHUB_ENV` reaches
-  only the next step, so an export written alongside the wrapper would come too
-  late for the `--zero-stats` in that same step. Those sccache steps start no
-  server themselves; what they do is force `ACTIONS_CACHE_SERVICE_V2=on`, which
-  is issue `#441` and not this ordering. The selection order is: an explicit
-  `SCCACHE_GHA_ENABLED` wins,
-  `false` and empty included; failing that, a caller-set `SCCACHE_DIR` leaves
-  sccache on their directory; otherwise the GitHub Actions backend is chosen.
-  Each run reports `metric setup-rust.sccache.backend=<gha|local|caller>`.
+  nothing persists between jobs. It is exported **before** the sccache steps,
+  because sccache binds its backend once, at server start, and `GITHUB_ENV`
+  reaches only the next step. The selection order is: an explicit
+  `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
+  caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
+  GitHub Actions backend is chosen. Each run reports
+  `metric setup-rust.sccache.backend=<gha|local|caller>`.
 
 A caller that has already set `RUSTC_WRAPPER` keeps its value, and the action
-says so in a notice. Statistics are zeroed after the export, so a later
-`sccache --show-stats` measures the caller's own build.
+says so in a notice.
+
+### Who starts the server, and when
+
+The action starts the sccache server itself, in a `run:` step that is the last
+of its sccache steps. That position is the whole of the design: sccache reads
+its cache configuration once, when the server starts, and never rebinds it, so
+the server has to start after every export that could change the answer. Before
+this step existed the server started as a side effect of the first client
+command, and no step in the log named the moment the cache was bound.
+
+Because the server is fresh, its counters begin at zero, and a caller's later
+`sccache --show-stats` measures their own build. The step only restarts a server
+the action's own wrapper export owns, which it learns from that step's output
+rather than from the environment: an inherited `RUSTC_WRAPPER` may name this
+very binary, when a caller ran `setup-rust` earlier in the job or nested it
+through `rust-build-release`, and stopping that server would discard the
+statistics of everything compiled so far. Each run reports
+`metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
+
+Some exports have to be put back rather than made. The last thing
+`mozilla-actions/sccache-action` does is write `ACTIONS_CACHE_SERVICE_V2=on` to
+`GITHUB_ENV`, along with the runner's own `ACTIONS_RESULTS_URL` and
+`ACTIONS_RUNTIME_TOKEN`. On a GitHub-hosted runner that is what a caller wants.
+On Ubicloud the v2 flag overrides the empty value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1, so every
+write goes to a service that is not the one holding the cache.
+
+The action therefore reads all three before those steps and writes back any that
+changed, reporting
+`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>` and the
+same over `results-url` and `runtime-token`. Only the v2 flag does harm today;
+the other two are recorded because they belong to the sccache-action, and a
+version that started exporting a different results URL or token would break the
+proxy the same way and just as quietly. The token is masked before it is
+recorded, and the notices name variables rather than values.
+
+**A caller who never set a variable keeps the action's value**, including the
+`on` that suits a GitHub-hosted runner. Restoring an absence would clear it and
+point sccache at a v1 service GitHub no longer runs. On Ubicloud the caller is
+expected to run
+[`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
+first, which sets the flag empty, and this restore is what carries that choice
+past the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy
+at all.
 
 Where the compiled objects go follows from the backend. On the GitHub Actions
 backend, the `ghac` arm, sccache stores them through the cache service; there is
@@ -174,7 +214,27 @@ On Ubicloud, run the
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
 action **before** `setup-rust`. Without it the GitHub Actions backend cannot
 reach Ubicloud's store, and the compiler cache silently falls back to whatever
-the runner advertises. The revised
+the runner advertises. With it, `use-sccache: 'true'` is the right setting
+there; the restore above is what makes it so.
+
+On a GitHub-hosted runner, prefer the local-disk arm for Rust. The GitHub
+Actions backend measured 0.28 s per cache hit against 0.42 s per compile on
+Chutoro, which is most of the benefit gone, and Whitaker's Windows lane had
+every one of 643 writes rejected. The same lane on a local directory under
+`actions/cache` had no read errors, no write errors and a 78 % warm hit rate.
+So set `use-sccache: 'false'`, install a pinned sccache, **export
+`RUSTC_WRAPPER` naming it**, point `SCCACHE_DIR` at a directory inside the
+workspace, restore it with
+`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` on pull requests, and
+let one designated job save it on a push to `main`. The wrapper is the step
+that is easy to leave out and impossible to notice: `use-sccache: 'false'`
+turns off this action's export along with its installation, so without it Cargo
+never routes through the sccache the lane just installed and cached. That is
+the failure #437 was. Ubicloud is the opposite
+case: its proxy is on the runner's own network, so the GitHub Actions arm is
+the fast one there.
+
+The revised
 Node.js-backed actions are pinned to specific commits for reproducibility:
 `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
 `mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`

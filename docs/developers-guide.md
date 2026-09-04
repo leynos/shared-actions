@@ -223,13 +223,43 @@ claimed the backend was selected. The two exports therefore sit on opposite
 sides of the sccache steps, each for its own reason, and neither can move. A
 manifest test holds both orderings.
 
-The sccache-action steps do not start a server themselves, which is worth
-knowing before reasoning about this ordering. What they do is write
+The sccache-action steps do not start a server themselves. What they do is write
 `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, forcing GitHub's v2 cache
 service on every step after them. On a GitHub-hosted runner that is what a
-caller wants. On Ubicloud it overrides the cleared value that
-`export-ubicloud-cache-credentials` published, and the proxy serves v1. That is
-issue `#441`, not this ordering.
+caller wants. On Ubicloud it overrides the cleared value
+`export-ubicloud-cache-credentials` published, and the proxy serves v1.
+
+So the action records the caller's `ACTIONS_CACHE_SERVICE_V2` before those
+steps and restores it after them, reporting
+`metric setup-rust.sccache.cache-service=<restored|unchanged|absent>`. Rules to
+keep:
+
+- The record uses `${VAR+x}` and the heredoc delimiter form in `GITHUB_OUTPUT`.
+  Clearing the variable, which is what the credentials action does, is a
+  choice, and a `name=value` line cannot carry an empty value back.
+- A caller who never set it gets `absent` and keeps the action's `on`.
+  Restoring an absence would clear the variable and send sccache at a v1
+  service GitHub no longer runs.
+- Record and restore share one `if:` predicate. Gating one and not the other
+  would strand a value.
+
+Then a final `run:` step starts the server, reporting
+`metric setup-rust.sccache.server=<started|started-stats-not-zeroed|start-failed|caller-set|missing-sccache-path>`.
+It stops any server first, because sccache binds its backend at start and
+never rebinds, so one started before the restore would hold exactly the
+configuration being replaced. Zeroing the counters moved here from the wrapper
+export, and is belt and braces: a server this step started has zero counters
+already, but a `--start-server` that adopted one would not. A failure to zero
+costs a baseline rather than the cache, so it warns.
+
+Whether the restart may happen is read from the wrapper step's `state` output,
+not from `RUSTC_WRAPPER`: an inherited wrapper may name this very binary, and
+stopping the server behind it would discard the statistics of everything
+compiled so far in the job.
+
+The manifest tests hold the whole chain: selection, record, sccache steps,
+restore, wrapper export, start. `GITHUB_ENV` reaches only the next step, so no
+two of these can be merged.
 
 Without that variable sccache writes to local disk, which nothing persists, so
 `RUSTC_WRAPPER` alone buys a wrapper and an empty cache.
@@ -312,8 +342,8 @@ The same states are emitted as two fixed metric lines,
 `metric ratchet-cache.restore=<state>` and `metric ratchet-cache.save=<state>`,
 for consumers that scrape rather than read. Keep the metric names fixed and the
 values drawn from those vocabularies: a name or value that varied with the run
-would give the series unbounded cardinality and make it useless to aggregate.
-A test enumerates every step-outcome combination and asserts the emitted values
+would give the series unbounded cardinality and make it useless to aggregate. A
+test enumerates every step-outcome combination and asserts the emitted values
 stay inside both sets, so widening a vocabulary in the manifest without
 widening it there fails.
 
@@ -425,18 +455,16 @@ Two consequences the action encodes:
 
 - `ACTIONS_CACHE_SERVICE_V2` is exported empty. sccache's GitHub Actions
   backend selects the v2 service whenever that variable is set, and the proxy
-  serves v1, so the runner's value has to be cleared rather than passed
-  through.
+  serves v1, so the runner's value has to be cleared rather than passed through.
 - A public cache host fails the step. This is an Ubicloud-only action; on a
   GitHub-hosted runner the variable points at GitHub's endpoint, and exporting
   that under this action's name would send sccache somewhere other than where
   the job believes. Private means an RFC 1918 range, IPv4 loopback,
   `localhost`, or an IPv6 unique-local or loopback address. `localhost` is the
   one name accepted; every other host must be a complete address literal.
-  Checking a prefix would accept the DNS name
-  `10.attacker.example` and hand it the runtime token, so the address is parsed
-  as a dotted quad, or as an IPv6 hextet for the unique-local range, before any
-  range is considered.
+  Checking a prefix would accept the DNS name `10.attacker.example` and hand it
+  the runtime token, so the address is parsed as a dotted quad, or as an IPv6
+  hextet for the unique-local range, before any range is considered.
 
 The proxy URL's path segment is bearer-like, so the action masks the URL as
 well as the token, and its single notice names only the host and port. Keep it
@@ -462,11 +490,20 @@ log showed it in the declared environment, and the action still read
 `artifactcache.actions.githubusercontent.com`.
 
 So the success path belongs to the Node tests, which run the shipped script
-directly, and the refusal belongs to the runner, which is the only place a
-real GitHub cache endpoint can be put in front of the guard. Do not try to
-recover the success path by adding an input that overrides the environment:
-that would put a way to bypass the private-host check into the action's public
-surface.
+directly, and the refusal belongs to the runner, which is the only place a real
+GitHub cache endpoint can be put in front of the guard. Do not try to recover
+the success path by adding an input that overrides the environment: that would
+put a way to bypass the private-host check into the action's public surface.
+
+One thing no hosted runner can prove is that sccache actually writes to
+Ubicloud's store rather than GitHub's, so
+`.github/workflows/test-ubicloud-sccache-proxy.yml` runs on a real
+`ubicloud-standard-2`. It reads the cache variables from a workflow `run:` step
+and from a composite action's `run:` step, which is the platform assumption the
+whole design rests on, then runs `setup-rust` and asserts a `ghac` cache
+location with no write errors. It compiles one empty crate and finishes in well
+under a minute; a paths filter keeps it off pull requests that cannot change the
+answer, because the runner is billed.
 
 Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
 before any step that starts an sccache server, because sccache reads the cache
@@ -757,10 +794,10 @@ All three default to off, so a caller that does not set them sees the previous
 behaviour exactly.
 
 `feature_selection_args` in
-[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is the
-single place feature flags are decided, and both the coverage command and the
-doc-test command call it. Keep it that way: the precedence rule only holds if
-one function owns it. That rule is that `all_features` wins outright. It
+[`run_rust.py`](../.github/actions/generate-coverage/scripts/run_rust.py) is
+the single place feature flags are decided, and both the coverage command and
+the doc-test command call it. Keep it that way: the precedence rule only holds
+if one function owns it. That rule is that `all_features` wins outright. It
 supersedes `with_default`, so `--all-features --no-default-features` can never
 be emitted, and it is rejected outright alongside a non-empty feature list,
 because silently widening a caller's named selection would misreport what ran.
@@ -784,15 +821,15 @@ The script is arranged so that ambient state is read once and every other
 function is a function of its arguments.
 
 <!-- markdownlint-disable MD013 -->
-| Symbol | Role |
-| --- | --- |
-| `feature_selection_args` | Pure builder. Returns the Cargo feature flags and emits nothing. |
-| `feature_selection_diagnostics` | Pure query. Returns the `(error, warning)` a selection deserves. |
-| `check_feature_selection` | The only function that reports a selection or raises `typer.Exit`. |
+| Symbol                                                       | Role                                                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `feature_selection_args`                                     | Pure builder. Returns the Cargo feature flags and emits nothing.                      |
+| `feature_selection_diagnostics`                              | Pure query. Returns the `(error, warning)` a selection deserves.                      |
+| `check_feature_selection`                                    | The only function that reports a selection or raises `typer.Exit`.                    |
 | `_resolve_targets`, `_resolve_features`, `_resolve_cucumber` | Take the raw inputs and an explicit environment mapping; return a frozen record each. |
-| `_run_coverage` | Runs the instrumented build, then any cucumber and doc-test runs. |
-| `run_doctests` | Uninstrumented `cargo test --doc --workspace` with the same feature selection. |
-| `main` | Reads `os.environ` once, assembles the records, checks the selection, and reports. |
+| `_run_coverage`                                              | Runs the instrumented build, then any cucumber and doc-test runs.                     |
+| `run_doctests`                                               | Uninstrumented `cargo test --doc --workspace` with the same feature selection.        |
+| `main`                                                       | Reads `os.environ` once, assembles the records, checks the selection, and reports.    |
 <!-- markdownlint-enable MD013 -->
 
 Keep the split. The precedence rule holds only because one builder owns it and

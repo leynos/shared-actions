@@ -1,0 +1,147 @@
+name: Test sccache against the Ubicloud cache proxy
+
+# The one thing no hosted runner can prove: that sccache, set up by this
+# repository's own actions, actually writes to Ubicloud's cache rather than
+# GitHub's. Everything else about the arrangement is covered by manifest and
+# behavioural tests; the endpoint is only observable on the runner itself.
+#
+# It runs on a billed `ubicloud-standard-2` and compiles one empty crate, so it
+# takes well under a minute. The paths filter keeps it off pull requests that
+# cannot affect the result.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/setup-rust/**'
+      - '.github/actions/export-ubicloud-cache-credentials/**'
+      - '.github/actions/probe-ubicloud-action-step-env/**'
+      - '.github/scripts/report-cache-env.sh'
+      - '.github/scripts/start-and-report-sccache.sh'
+      - '.github/workflows/test-ubicloud-sccache-proxy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reaches-the-proxy:
+    # `github.repository` is the base repository, so it matches a fork's pull
+    # request too, and this job would then ask for an Ubicloud runner a fork
+    # cannot have and queue until it timed out. The head repository is what
+    # says whether the branch is ours. A dispatch has no pull request, so the
+    # first clause carries it.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    env:
+      SCCACHE_ERROR_LOG: ${{ github.workspace }}/sccache-server.log
+      SCCACHE_LOG: info
+      SCCACHE_VERSION: v0.17.0
+      SCCACHE_SHA256: >-
+        67c4a96dd237c1f518f6b36083f270f9976d516f1e57fce891755ea782e50006
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The probe below needs an sccache before setup-rust has installed one.
+      # Pinned and digest-verified, like every other tool here.
+      - name: Install sccache for the probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="sccache-${SCCACHE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          url="https://github.com/mozilla/sccache/releases/download"
+          curl -fsSL -o "$archive" "${url}/${SCCACHE_VERSION}/${archive}"
+          echo "${SCCACHE_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive"
+          install -Dm755 "${archive%.tar.gz}/sccache" "${HOME}/.local/bin/sccache"
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Export the Ubicloud cache credentials
+        uses: ./.github/actions/export-ubicloud-cache-credentials
+
+      # The platform assumption the whole design rests on: a run step reads
+      # GITHUB_ENV and the runner takes nothing back, whether that step belongs
+      # to the workflow or to a composite action. If a future runner started
+      # re-injecting into either, this is where it would show, and it would
+      # show before anyone spent a day on the cache instead.
+      - name: Read the cache variables from a workflow run step
+        shell: bash
+        env:
+          SCCACHE_GHA_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          .github/scripts/report-cache-env.sh after-export-run-step
+          .github/scripts/start-and-report-sccache.sh after-export-run-step
+
+      - name: Read the cache variables from a composite action step
+        id: action-step
+        uses: ./.github/actions/probe-ubicloud-action-step-env
+        env:
+          SCCACHE_GHA_ENABLED: 'true'
+        with:
+          position: after-export-action-step
+          start-server: 'true'
+
+      - name: Assert both positions bound the proxy
+        shell: bash
+        env:
+          # What the action step saw, rather than what this step sees. Reading
+          # only the workflow's own environment would leave a regression that
+          # affected action steps alone entirely invisible here.
+          ACTION_STEP_HOST: ${{ steps.action-step.outputs.cache-url-host }}
+          ACTION_STEP_SERVICE_V2: ${{ steps.action-step.outputs.cache-service-v2 }}
+          ACTION_STEP_LOCATION: ${{ steps.action-step.outputs.cache-location }}
+        run: |
+          set -euo pipefail
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+          # A private literal, and nothing else. A public host means the runner
+          # stopped handing action steps the proxy; a DNS name means something
+          # is resolving on our behalf, which is not ours to trust.
+          assert_private() {
+            local where="$1" host="${2%%:*}"
+            case "$host" in
+              10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|localhost) ;;
+              *) fail "${where} did not name a private proxy: ${host}" ;;
+            esac
+            echo "${where} named the proxy on the private network"
+          }
+          workflow_host="${ACTIONS_CACHE_URL#*://}"
+          workflow_host="${workflow_host%%[/?#]*}"
+          workflow_host="${workflow_host##*@}"
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            fail "the cleared v2 flag did not survive into a workflow run step"
+          fi
+          if [[ -n "${ACTION_STEP_SERVICE_V2:-}" ]]; then
+            fail "the cleared v2 flag did not survive into an action run step"
+          fi
+          assert_private "the workflow run step" "$workflow_host"
+          assert_private "the action run step" "$ACTION_STEP_HOST"
+          case "$ACTION_STEP_LOCATION" in
+            *ghac*) echo "the action run step's server bound ghac" ;;
+            *) fail "the action run step's server bound ${ACTION_STEP_LOCATION}" ;;
+          esac
+
+      # The end-to-end path a consumer actually takes.
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: stable
+          install-binstall: 'false'
+          use-sccache: 'true'
+
+      - name: Verify a build reaches Ubicloud's store
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${ACTIONS_CACHE_SERVICE_V2:-}" ]]; then
+            echo "::error::the sccache steps' v2 flag survived the restore" >&2
+            exit 1
+          fi
+          .github/scripts/assert-sccache-cached-a-build.sh "$RUSTC_WRAPPER" ghac

@@ -1,0 +1,48 @@
+name: Probe Ubicloud action-step environment
+description: >
+  Reports, from inside a composite action's `run:` step, which cache variables
+  the runner presents and which backend an sccache server started there binds.
+  Test scaffolding for `test-ubicloud-sccache-proxy.yml`, not a public action:
+  it exists so that one position in a job can be observed from inside an action
+  rather than only from the workflow. Callers have no use for it.
+inputs:
+  position:
+    description: Label for the position being measured
+    required: true
+  start-server:
+    description: Start an sccache server from this position
+    required: false
+    default: 'false'
+outputs:
+  cache-url-host:
+    description: Host and port of ACTIONS_CACHE_URL, or `none`
+    value: ${{ steps.observe.outputs.cache-url-host }}
+  results-url-host:
+    description: Host and port of ACTIONS_RESULTS_URL, or `none`
+    value: ${{ steps.observe.outputs.results-url-host }}
+  cache-service-v2:
+    description: ACTIONS_CACHE_SERVICE_V2 as this position saw it
+    value: ${{ steps.observe.outputs.cache-service-v2 }}
+  cache-location:
+    description: >
+      Cache location a server started from this position reported, empty when
+      `start-server` was not requested.
+    value: ${{ steps.observe.outputs.cache-location }}
+runs:
+  using: composite
+  steps:
+    # Publishing rather than only logging is the point. A caller reading its
+    # own environment cannot tell what this position saw, so a regression that
+    # affected action steps alone would leave the job green.
+    - name: Report the environment a composite action step sees
+      id: observe
+      shell: bash
+      env:
+        POSITION: ${{ inputs.position }}
+        START_SERVER: ${{ inputs.start-server }}
+      run: |
+        set -euo pipefail
+        "${GITHUB_WORKSPACE}/.github/scripts/report-cache-env.sh" "$POSITION"
+        if [[ "$START_SERVER" == 'true' ]]; then
+          "${GITHUB_WORKSPACE}/.github/scripts/start-and-report-sccache.sh" "$POSITION"
+        fi

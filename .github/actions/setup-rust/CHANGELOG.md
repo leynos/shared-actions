@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- Pin `mozilla-actions/sccache-action` to sccache v0.17.0. Left unset, the
+  action asks the GitHub API for the latest release on every job: a floating
+  dependency and a network call in the critical path. That call timed out on
+  PR #440 and failed the job with
+  `Unable to locate executable file: undefined`, a red check with no step log
+  behind it. A manifest test now holds that every invocation names a version.
+  The x86_64 macOS invocation stays on v0.12.0, the last release to ship that
+  target. Consumers pinning a prebuilt sccache of their own are unaffected and
+  choose independently.
+
+- Start the sccache server from a `run:` step of the action's own, last of the
+  sccache steps, and restore the caller's `ACTIONS_CACHE_SERVICE_V2`,
+  `ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN` after
+  `mozilla-actions/sccache-action` overwrites them. That action's final act is to
+  write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is right on a
+  GitHub-hosted runner and wrong on Ubicloud, where it overrode the empty value
+  `export-ubicloud-cache-credentials` published and sent every cache write to a
+  service the proxy does not serve. The caller's value is now read before those
+  steps and written back after them. `use-sccache: 'true'` therefore works on
+  Ubicloud, where callers previously had to set it to `false` and own sccache
+  themselves. Each run reports
+  `metric setup-rust.sccache.cache-service=<restored|unchanged|absent>`, the
+  same over `results-url` and `runtime-token`, and
+  `metric setup-rust.sccache.server=<started|started-stats-not-zeroed|start-failed|caller-set|missing-sccache-path>`.
+  Only the v2 flag does harm today; the other two are restored because they
+  belong to the sccache-action, and a version that started exporting a
+  different results URL or token would break the proxy the same way. Zeroing
+  the counters moves from the wrapper export to the server start, so
+  `setup-rust.sccache.wrapper` no longer reports `exported-stats-not-zeroed`.
+
 - Select the GitHub Actions cache backend. Without `SCCACHE_GHA_ENABLED`
   sccache writes to local disk, which nothing persists between jobs, so a
   consumer that set only `RUSTC_WRAPPER` paid for the wrapper and started every

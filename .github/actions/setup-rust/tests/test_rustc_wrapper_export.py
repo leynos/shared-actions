@@ -9,6 +9,10 @@ came to record zero compile requests.
 The manifest tests hold the step's condition and its position after both
 sccache-action steps, because the value it reads is their output. The
 behavioural tests run the shipped fragment under Bash.
+
+Starting the server, and zeroing its counters by starting a fresh one, belongs
+to "Start the sccache server" and is tested in `test_sccache_server_start.py`.
+This step only writes the wrapper.
 """
 
 from __future__ import annotations
@@ -48,20 +52,23 @@ def _run_export(
     *,
     sccache_path: str | None,
     wrapper: str | None = None,
-    sccache_exit: int | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     """Run the export fragment and return the process and GITHUB_ENV content."""
     github_env = tmp_path / "github-env"
+    github_output = tmp_path / "github-output"
     github_env.touch()
-    environment = {**os.environ, "GITHUB_ENV": str(github_env)}
+    github_output.touch()
+    environment = {
+        **os.environ,
+        "GITHUB_ENV": str(github_env),
+        "GITHUB_OUTPUT": str(github_output),
+    }
     environment.pop("RUSTC_WRAPPER", None)
     environment.pop("SCCACHE_PATH", None)
     if sccache_path is not None:
         environment["SCCACHE_PATH"] = sccache_path
     if wrapper is not None:
         environment["RUSTC_WRAPPER"] = wrapper
-    if sccache_exit is not None:
-        environment["FAKE_SCCACHE_EXIT"] = str(sccache_exit)
     completed = subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
         [requires_bash(), "-c", _export_script()],
         capture_output=True,
@@ -71,6 +78,18 @@ def _run_export(
         timeout=10,
     )
     return completed, github_env.read_text(encoding="utf-8")
+
+
+def _published_state(tmp_path: Path) -> str | None:
+    """Return the `state` output the fragment published, if any."""
+    raw = (tmp_path / "github-output").read_text(encoding="utf-8")
+    states = [
+        line.removeprefix("state=")
+        for line in raw.splitlines()
+        if line.startswith("state=")
+    ]
+    assert len(states) <= 1, f"more than one state output: {states}"
+    return states[0] if states else None
 
 
 def _reported_metric(completed: subprocess.CompletedProcess[str]) -> str | None:
@@ -140,13 +159,17 @@ class TestBehaviour:
         assert completed.returncode == 0, completed.stderr
         assert f"RUSTC_WRAPPER={fake_sccache}" in written
 
-    def test_zeroes_the_statistics(self, tmp_path: Path, fake_sccache: Path) -> None:
-        """A caller's later --show-stats must measure only its own build."""
+    def test_starts_no_server(self, tmp_path: Path, fake_sccache: Path) -> None:
+        """Any client command binds the backend, and this step is too early.
+
+        The cache-service restore before it has only just reached `GITHUB_ENV`
+        for this step; the server must start later still, so nothing here may
+        invoke sccache at all.
+        """
         completed, _written = _run_export(tmp_path, sccache_path=str(fake_sccache))
 
         assert completed.returncode == 0, completed.stderr
-        recorded = (fake_sccache.parent / "args.log").read_text(encoding="utf-8")
-        assert "--zero-stats" in recorded.split()
+        assert not (fake_sccache.parent / "args.log").exists()
 
     @pytest.mark.parametrize("wrapper", ["/usr/bin/my-wrapper", ""])
     def test_respects_a_caller_that_set_the_wrapper(
@@ -179,41 +202,31 @@ class TestBehaviour:
 
 #: Every outcome the export may report. Widening this in the manifest without
 #: widening it here breaks a scraper aggregating the series.
-WRAPPER_OUTCOMES = frozenset(
-    {"exported", "exported-stats-not-zeroed", "caller-set", "missing-sccache-path"}
-)
+WRAPPER_OUTCOMES = frozenset({"exported", "caller-set", "missing-sccache-path"})
 
 
-class TestOrdering:
-    """The wrapper must be in place before anything else can fail."""
+class TestPublishedState:
+    """The next step cannot read the outcome from the environment.
 
-    def test_the_wrapper_is_written_before_the_counters_are_zeroed(
-        self, tmp_path: Path, fake_sccache: Path
+    An inherited `RUSTC_WRAPPER` and one this step wrote look identical there,
+    and only the difference decides whether the server start may stop a
+    running server.
+    """
+
+    @pytest.mark.parametrize(
+        ("wrapper", "expected"),
+        [(None, "exported"), ("/usr/bin/other", "caller-set")],
+    )
+    def test_the_outcome_reaches_the_next_step(
+        self, tmp_path: Path, fake_sccache: Path, wrapper: str | None, expected: str
     ) -> None:
-        """A failure while zeroing must not cost the wrapper.
-
-        Zeroing buys a clean baseline for the caller's statistics; the wrapper
-        is what makes the cache work at all. Writing it second would trade the
-        second for the first.
-        """
-        completed, _written = _run_export(tmp_path, sccache_path=str(fake_sccache))
-
-        assert completed.returncode == 0, completed.stderr
-        seen = (fake_sccache.parent / "github-env-at-call").read_text(encoding="utf-8")
-        assert f"RUSTC_WRAPPER={fake_sccache}" in seen
-
-    def test_a_failure_to_zero_keeps_the_wrapper(
-        self, tmp_path: Path, fake_sccache: Path
-    ) -> None:
-        """Losing the baseline is a warning; losing the cache would not be."""
-        completed, written = _run_export(
-            tmp_path, sccache_path=str(fake_sccache), sccache_exit=1
+        """Whatever the metric says, the output says the same."""
+        completed, _written = _run_export(
+            tmp_path, sccache_path=str(fake_sccache), wrapper=wrapper
         )
 
-        assert completed.returncode == 0, completed.stderr
-        assert f"RUSTC_WRAPPER={fake_sccache}" in written
-        assert "could not zero sccache statistics" in completed.stdout
-        assert _reported_metric(completed) == "exported-stats-not-zeroed"
+        assert _published_state(tmp_path) == expected
+        assert _reported_metric(completed) == expected
 
 
 class TestOutcomeMetric:

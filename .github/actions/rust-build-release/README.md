@@ -73,6 +73,19 @@ directory, so only one owner writes each path. The two inputs are independent:
 the compiler cache and the Cargo and uv archive caches can be switched
 separately. An unrecognized `cache-provider` fails before toolchain setup runs.
 
+`use-sccache: 'true'` inherits the nested step's whole sccache contract, which
+now includes starting the server from a `run:` step and restoring a caller's
+`ACTIONS_CACHE_SERVICE_V2` after `mozilla-actions/sccache-action` overwrites it.
+That makes `true` the right setting on Ubicloud, provided
+`export-ubicloud-cache-credentials` runs before this action. On a GitHub-hosted
+runner prefer the local-disk arm instead: pass `use-sccache: 'false'`, install a
+pinned sccache, export `RUSTC_WRAPPER` naming it, and cache `SCCACHE_DIR`
+yourself, because the GitHub Actions backend spends most of what it saves there.
+The wrapper is the lane's to export in that mode: `use-sccache: 'false'` turns
+off the nested step's export along with its installation, and without it Cargo
+never routes through the sccache the lane installed. See the `setup-rust`
+[README](../setup-rust/README.md) for the measurements.
+
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 - uses: ./.github/actions/rust-build-release

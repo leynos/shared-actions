@@ -396,7 +396,6 @@ For an external cache, mount `~/.local/share`, not the terminal
 absent for a fresh install; an empty volume mounted at the child looks like an
 existing but invalid Git checkout.
 
-
 ## `install-mdtablefix` action
 
 The `install-mdtablefix` composite action installs a pinned `mdtablefix` from
@@ -420,7 +419,6 @@ required `version` input names the exact release. The optional
 the runner has none and defaults to `1.22.0`. The optional `bin-dir` input
 defaults to `~/.local/bin`; the executable lands there and the directory is
 appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
-
 
 ### The two-step cache pattern
 
@@ -446,7 +444,6 @@ version short-circuits the install and reports
 Save that cache from one designated writer, on push to the default branch,
 exactly as for every other tool cache in the estate.
 
-
 ### Platform support
 
 `mdtablefix` 0.5.0 publishes prebuilt archives for Linux gnu on `x86_64` and
@@ -455,7 +452,6 @@ closed there with `install-mdtablefix.result=no-prebuilt` rather than
 compiling. A workflow with a macOS or Windows formatter lane keeps its own
 documented source-build exception until `mdtablefix` publishes assets for that
 platform.
-
 
 ### Reported outcomes
 

@@ -92,21 +92,28 @@ def _accepts_version(candidate: str) -> bool:
     return _VERSION.fullmatch(candidate) is not None
 
 
+def _expand_bin_dir(candidate: str, home: str) -> str | None:
+    """Return ``candidate`` rooted as the documentation says, or ``None``.
+
+    ``None`` means the value is neither absolute nor rooted at the home
+    directory, which the documentation refuses outright.
+    """
+    if candidate == "~" or candidate.startswith("~/"):
+        return home + candidate[1:]
+    return candidate if candidate.startswith("/") else None
+
+
 def _accepts_bin_dir(candidate: str, home: str) -> bool:
     """Return whether the documented rules admit ``candidate`` on a POSIX runner."""
-    if "\r" in candidate or "\n" in candidate:
-        return False
-    if len(candidate) > _MAX_BIN_DIR:
-        return False
-    if candidate == "~" or candidate.startswith("~/"):
-        expanded = home + candidate[1:]
-    elif candidate.startswith("/"):
-        expanded = candidate
-    else:
-        return False
-    if "/../" in f"/{expanded}/":
-        return False
-    return ":" not in expanded
+    expanded = _expand_bin_dir(candidate, home)
+    return (
+        expanded is not None
+        and "\r" not in candidate
+        and "\n" not in candidate
+        and len(candidate) <= _MAX_BIN_DIR
+        and "/../" not in f"/{expanded}/"
+        and ":" not in expanded
+    )
 
 
 def _run_validation(

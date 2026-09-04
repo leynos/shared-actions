@@ -1,0 +1,256 @@
+# Tool manifest for the `install-tool` action.
+#
+# One entry per tool, version and target triple. `install-tool` installs only
+# what is listed here, at the version a caller names; there is no floating
+# version and no lookup of a "latest" release, because that is a network call
+# in the critical path and a dependency that changes underneath you.
+#
+# Every digest below was computed from an independent download of the archive
+# it describes, which is the trust anchor. Where upstream publishes a `.sha256`
+# sidecar it was fetched and compared, and `sidecar = "match"` records that it
+# agreed. `sidecar = "absent"` means upstream publishes none, so the pin has no
+# second opinion behind it; see issue #450 for which projects those are.
+#
+# `url` is recorded rather than derived from the triple, because asset naming
+# does not follow it: sccache ships musl archives for every Linux target and
+# cargo-nextest ships one universal archive for both Apple targets.
+#
+# `member` is where the binary sits inside the archive. Some upstreams put it
+# at the root and others under a single directory, so the manifest says which
+# rather than the installer guessing at `--strip-components`.
+#
+# `version-args` is how the installed binary is asked for its version, which is
+# not `--version` for all of them: cargo-llvm-cov and cargo-dylint are cargo
+# subcommands and want their subcommand name first. An empty list means the
+# tool cannot be asked at all. Every one of these was found by running the
+# binary, not by assuming.
+#
+# To add or bump a tool: download every archive, compute its SHA-256, compare
+# against the sidecar where one exists, and record the result. Never copy a
+# digest out of a sidecar without downloading the archive, because that records
+# only that the sidecar agrees with itself.
+
+schema = 1
+
+
+# rustsec publishes no .sha256 sidecars and no aggregate checksums
+# file, so every digest below is pinned from an independent download
+# and has no upstream cross-check. See issue #450.
+[[tool]]
+name = "cargo-audit"
+version = "0.22.2"
+binary = "cargo-audit"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-gnu-v0.22.2.tgz"
+  sha256 = "ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39"
+  member = "cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-aarch64-unknown-linux-gnu-v0.22.2.tgz"
+  sha256 = "c6603814ddaa45e51263dafd31c0ac98808f688d26f7395804f9670b0fd599dd"
+  member = "cargo-audit-aarch64-unknown-linux-gnu-v0.22.2/cargo-audit"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-apple-darwin-v0.22.2.tgz"
+  sha256 = "847831323de932155b226ab60ee4a180e13e5d007a019f0d4b7b4d89a6de2ab2"
+  member = "cargo-audit-x86_64-apple-darwin-v0.22.2/cargo-audit"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-aarch64-apple-darwin-v0.22.2.tgz"
+  sha256 = "ec7ca4263769593df4d909be85b94a6b79efa2897be5d2bb8ebd516e823175af"
+  member = "cargo-audit-aarch64-apple-darwin-v0.22.2/cargo-audit"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-pc-windows-msvc-v0.22.2.zip"
+  sha256 = "0a7316540862c13d954f648917ceacca593747baed6eec180fafa590be2710ab"
+  member = "cargo-audit-x86_64-pc-windows-msvc-v0.22.2/cargo-audit.exe"
+  sidecar = "absent"
+
+# One universal-apple-darwin archive serves both Apple targets, and
+# the Windows sidecar covers the tarball rather than the zip, so the
+# tarball is taken there to keep the cross-check.
+[[tool]]
+name = "cargo-nextest"
+version = "0.9.143"
+binary = "cargo-nextest"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-x86_64-unknown-linux-gnu.tar.gz"
+  sha256 = "66786b9abe23920d022a182d1416b1bbc8130dd4872a9553d76985a1708dcd1e"
+  member = "cargo-nextest"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-aarch64-unknown-linux-gnu.tar.gz"
+  sha256 = "2a64b3566a92508550a7ab29c3e8db25472ca37730ecb4d22100b6aa440c2a68"
+  member = "cargo-nextest"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-universal-apple-darwin.tar.gz"
+  sha256 = "4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07"
+  member = "cargo-nextest"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-universal-apple-darwin.tar.gz"
+  sha256 = "4830d430411148d17602a75cc880bfb4dc8dac153dea59a48a2ef4cc93577f07"
+  member = "cargo-nextest"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.143/cargo-nextest-0.9.143-x86_64-pc-windows-msvc.tar.gz"
+  sha256 = "c42a1dbde532da06dc9b4a43d44fd0ce668b836c2ab7388410f10ff9834476a2"
+  member = "cargo-nextest.exe"
+  sidecar = "match"
+
+# taiki-e publishes no .sha256 sidecars for this release, so every
+# digest below is pinned from an independent download and has no
+# upstream cross-check. See issue #450.
+[[tool]]
+name = "cargo-llvm-cov"
+version = "0.9.0"
+binary = "cargo-llvm-cov"
+version-args = ["llvm-cov", "--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz"
+  sha256 = "b068f7c98841aacb9c4f382b4a0c184ae82f49b56a32d442b429b2961c73be15"
+  member = "cargo-llvm-cov"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-unknown-linux-gnu.tar.gz"
+  sha256 = "9af53b273e50d01d8bde8785de8541f6738cc4375248cd7683aec8b5768b9d21"
+  member = "cargo-llvm-cov"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-apple-darwin.tar.gz"
+  sha256 = "4595bc9310b009913570514eb0ff7c3aba74902562578038f1700d611783fdc2"
+  member = "cargo-llvm-cov"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-aarch64-apple-darwin.tar.gz"
+  sha256 = "1bbf5dc8ad82e0f6ff0eb923aa6a691c760adb60f797cdcb454e204b9399c4f0"
+  member = "cargo-llvm-cov"
+  sidecar = "absent"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/cargo-llvm-cov-x86_64-pc-windows-msvc.zip"
+  sha256 = "5f2c1d805136aadd53483af6cdf3e123291e9a224c37dc5817aab9563b0eef64"
+  member = "cargo-llvm-cov.exe"
+  sidecar = "absent"
+
+# Linux only. The release ships no macOS or Windows assets, so those
+# targets have no prebuilt option and install-tool fails closed on
+# them. See issue #450.
+[[tool]]
+name = "cargo-dylint"
+version = "6.0.4"
+binary = "cargo-dylint"
+version-args = ["dylint", "--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/trailofbits/dylint/releases/download/v6.0.4/cargo-dylint-x86_64-unknown-linux-gnu-v6.0.4.tar.gz"
+  sha256 = "14195423ac6bfe6b055ffa94e0c48e282e1f5997abd98dfb4ea8bdf4633aec5c"
+  member = "cargo-dylint-x86_64-unknown-linux-gnu-v6.0.4/cargo-dylint"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/trailofbits/dylint/releases/download/v6.0.4/cargo-dylint-aarch64-unknown-linux-gnu-v6.0.4.tar.gz"
+  sha256 = "76bea6b65babdbc6d1d96b15b89e731c0afba83338999c0f81a34d3dfd8d8508"
+  member = "cargo-dylint-aarch64-unknown-linux-gnu-v6.0.4/cargo-dylint"
+  sidecar = "match"
+
+# Linux only, for the same reason as cargo-dylint above.
+[[tool]]
+name = "dylint-link"
+version = "6.0.4"
+binary = "dylint-link"
+version-args = []
+# dylint-link refuses every argument without RUSTUP_TOOLCHAIN set,
+# so there is no version to read back. install-tool records
+# install-tool.verify=unsupported rather than pretending.
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/trailofbits/dylint/releases/download/v6.0.4/dylint-link-x86_64-unknown-linux-gnu-v6.0.4.tar.gz"
+  sha256 = "54ce515583ade02b197bc11f6870fd755c30e04b7e44ea015a507726de05fa1d"
+  member = "dylint-link-x86_64-unknown-linux-gnu-v6.0.4/dylint-link"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/trailofbits/dylint/releases/download/v6.0.4/dylint-link-aarch64-unknown-linux-gnu-v6.0.4.tar.gz"
+  sha256 = "dd33dd207272cdafab494089239587f93ab2b6b2af18312281b6754b24a1db13"
+  member = "dylint-link-aarch64-unknown-linux-gnu-v6.0.4/dylint-link"
+  sidecar = "match"
+
+# Every Linux target is served by the musl archive; mozilla ships no
+# gnu build for x86_64 or aarch64, and the musl binary is static.
+[[tool]]
+name = "sccache"
+version = "0.17.0"
+binary = "sccache"
+version-args = ["--version"]
+
+  [[tool.target]]
+  triple = "x86_64-unknown-linux-gnu"
+  url = "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-unknown-linux-musl.tar.gz"
+  sha256 = "67c4a96dd237c1f518f6b36083f270f9976d516f1e57fce891755ea782e50006"
+  member = "sccache-v0.17.0-x86_64-unknown-linux-musl/sccache"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-unknown-linux-gnu"
+  url = "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-aarch64-unknown-linux-musl.tar.gz"
+  sha256 = "821a86343191aa1cbab74bd42f9e93c9a63bf85e4742945f40d3ae84193c1c77"
+  member = "sccache-v0.17.0-aarch64-unknown-linux-musl/sccache"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "x86_64-apple-darwin"
+  url = "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-apple-darwin.tar.gz"
+  sha256 = "c2144cafbfe3d22e34ae637f9974ce53613543ac19477fdb287df22ea3668261"
+  member = "sccache-v0.17.0-x86_64-apple-darwin/sccache"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "aarch64-apple-darwin"
+  url = "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-aarch64-apple-darwin.tar.gz"
+  sha256 = "0c560bfba31aef5bdfb4fb3d2677f6e61d71c5c00952f2a83344f47aa31f00f1"
+  member = "sccache-v0.17.0-aarch64-apple-darwin/sccache"
+  sidecar = "match"
+
+  [[tool.target]]
+  triple = "x86_64-pc-windows-msvc"
+  url = "https://github.com/mozilla/sccache/releases/download/v0.17.0/sccache-v0.17.0-x86_64-pc-windows-msvc.zip"
+  sha256 = "e94cfc5b58cbe439302f586c1d1bd7980c2cd371d47bdf385ade657411e6f3ac"
+  member = "sccache-v0.17.0-x86_64-pc-windows-msvc/sccache.exe"
+  sidecar = "match"

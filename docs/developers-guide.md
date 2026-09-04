@@ -404,6 +404,75 @@ fails if a `target` path reappears in either manifest's cache inputs. When
 this boundary changes, update both manifests, their action READMEs and
 changelogs, the users' guide, that contract test, and these tests together.
 
+
+## `install-tool` and the tool manifest
+
+The manifest is `.github/tool-manifest.toml`, one entry per tool, version and
+target triple. It is TOML rather than JSON because this repository already
+parses TOML with stdlib `tomllib` in four places, and because these entries
+need comments: where each digest came from, and whether an upstream sidecar
+corroborated it. A provenance note kept anywhere but beside the digest it
+describes will drift away from it.
+
+Three fields exist for reasons that are not obvious from the data.
+
+`url` is recorded rather than derived from the triple. Asset naming does not
+follow it: sccache ships musl archives for every Linux target, and
+cargo-nextest ships one `universal-apple-darwin` archive serving both Apple
+targets. Deriving URLs would need an exception table longer than the data.
+
+`member` is where the binary sits inside the archive. cargo-nextest and
+cargo-llvm-cov put it at the root; cargo-audit, cargo-dylint, dylint-link and
+sccache put it under a single directory. `--strip-components=1` is correct for
+the second shape and destroys the first, so the manifest says which rather than
+the installer guessing.
+
+`version-args` is how the installed binary is asked its version, and it is not
+`--version` for all of them. cargo-llvm-cov and cargo-dylint are cargo
+subcommands and want their subcommand name first; `dylint-link` refuses every
+argument unless `RUSTUP_TOOLCHAIN` is set and so cannot be asked at all, which
+its empty list records. Every one of these was found by running the binary
+rather than by assuming, and an assumption here fails on a runner and nowhere
+earlier.
+
+Rules to keep:
+
+- **The pinned digest is the trust anchor, computed from an independent
+  download.** A sidecar is a cross-check on the pin's provenance, never the
+  source of it. Copying a digest out of a sidecar records only that the sidecar
+  agrees with itself.
+- **Record the sidecar state.** `match`, `absent` or `unchecked`. cargo-audit
+  and cargo-llvm-cov publish none, and that gap is data rather than something
+  to infer from silence.
+- **The resolver is pure.** `scripts/resolve_tool.py` reads the manifest,
+  prints `key=value` lines, and performs no side effect. Every failure is a
+  `status` line rather than an exception, so one step decides what a failed
+  resolution means and there is a single place to look. The one exception is an
+  unreadable manifest, which exits 2, because that is this repository's defect
+  rather than a condition a caller can cause.
+- **No step relies on an `ERR` trap.** An explicit `exit` does not fire one,
+  and here most paths exit deliberately, so every terminal path emits its own
+  bounded metric.
+- **Bash 3.2.** `${NAME+x}` rather than `[[ -v NAME ]]`, and no empty-array
+  expansion under `set -u`, because macOS runners ship 3.2. Asserted by the
+  manifest tests rather than left to review.
+- **Fragments carry no `${{ }}`.** Values arrive through `env:`, so a value
+  containing a quote or a newline cannot become shell, and the body can be read
+  and tested as shell. Also asserted.
+
+The behavioural tests write each fragment to a file and run `bash <file>`,
+which is how the runner invokes it. `bash -c` differs in `$0`, in how a syntax
+error is reported, and in the behaviour of a `return` outside a function, and a
+test that does not run the fragment at all proves only that somebody typed the
+right words. `curl` is stubbed there so the tests can serve a local archive,
+which means the real invocation's `--proto '=https'` and its timeouts are
+exercised nowhere else and are asserted as contracts instead.
+
+The runner-backed workflow installs a different tool on each of `ubuntu-latest`,
+`macos-15` and `windows-latest`, chosen so the matrix covers both archive
+shapes and both extractors rather than one tool three times, and calls the
+action twice on each to prove the second call is a cache hit.
+
 ## `install-whitaker` staging paths on Windows
 
 `RUNNER_TEMP` is a native path, so under Git Bash the staging directory arrives
@@ -502,8 +571,8 @@ Ubicloud's store rather than GitHub's, so
 and from a composite action's `run:` step, which is the platform assumption the
 whole design rests on, then runs `setup-rust` and asserts a `ghac` cache
 location with no write errors. It compiles one empty crate and finishes in well
-under a minute; a paths filter keeps it off pull requests that cannot change the
-answer, because the runner is billed.
+under a minute; a paths filter keeps it off pull requests that cannot change
+the answer, because the runner is billed.
 
 Callers set `RUSTC_WRAPPER` and `SCCACHE_GHA_ENABLED` after this action and
 before any step that starts an sccache server, because sccache reads the cache

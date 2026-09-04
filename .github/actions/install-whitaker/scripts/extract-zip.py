@@ -153,7 +153,39 @@ def extract(archive: pathlib.Path, destination: pathlib.Path) -> int:
 
 
 def main(argv: list[str]) -> int:
-    """Run the extractor from the command line."""
+    """Run the extractor from the command line.
+
+    Parameters
+    ----------
+    argv
+        The arguments after the program name: exactly two, the path to the
+        zip archive and the path to an existing destination directory. The
+        action's Bash arm passes both as absolute paths.
+
+    Returns
+    -------
+    int
+        The process exit status.
+
+        ``0``
+            Extraction succeeded and wrote at least one file.
+        ``1``
+            Extraction failed. The archive was unreadable or not a zip, a
+            member would have escaped the destination, or the archive held no
+            files below its top-level directory. An archive that yields
+            nothing is an error rather than a silent success, because exiting
+            zero would leave the install step reporting a missing executable
+            instead of a bad archive.
+        ``2``
+            The wrong number of arguments, which is a caller error rather
+            than an extraction failure and is distinguished so the two do not
+            look alike in a job log.
+
+    Notes
+    -----
+    Every failure is reported as a GitHub Actions error annotation on standard
+    error rather than as a traceback, so the job log names the cause.
+    """
     if len(argv) != 2:
         print(
             "usage: extract-zip.py <archive> <destination>",

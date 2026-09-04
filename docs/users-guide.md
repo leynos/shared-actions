@@ -198,9 +198,8 @@ archive as a `.sha256` file.
 ```
 
 This pin is the lane's, and independent of the one `setup-rust` uses for
-`mozilla-actions/sccache-action`. Across this estate the
-two do not currently agree: Whitaker and Axinite pin 0.16.0, Chutoro and
-Wildside 0.17.0.
+`mozilla-actions/sccache-action`. Across this estate the two do not currently
+agree: Whitaker and Axinite pin 0.16.0, Chutoro and Wildside 0.17.0.
 
 `rust-build-release` accepts both inputs too and forwards them to the
 `setup-rust` step it runs internally, so a workflow that only calls the build
@@ -334,6 +333,75 @@ segment is bearer-like, and the single notice names the proxy's host and port
 only. Each run reports one bounded
 `metric ubicloud-cache-credentials.result=<state>` line, over `exported`,
 `missing-cache-url`, `missing-runtime-token`, `invalid-url`, and `public-host`.
+
+## `install-tool` action
+
+Installs one pinned, digest-verified tool from
+[`.github/tool-manifest.toml`](../.github/tool-manifest.toml):
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: ./.github/actions/install-tool
+  with:
+    tool: cargo-nextest
+    version: 0.9.143
+```
+
+From another repository, reference it by commit SHA rather than by a moving
+tag, so the action code cannot change without the reference changing.
+
+`version` is required and must name a manifest entry. There is no `latest`, and
+a version the manifest does not carry fails closed rather than reaching for
+whatever is newest. A newer version belongs in the manifest; making it float is
+not the fix. An unpinned lookup is a network call in the critical path and a
+dependency that changes underneath the lane, which is how a job on
+[#440](https://github.com/leynos/shared-actions/pull/440) died with
+`Unable to locate executable file: undefined`.
+
+The manifest currently carries cargo-audit, cargo-nextest, cargo-llvm-cov,
+cargo-dylint, dylint-link and sccache.
+
+**Every pinned digest was computed here from an independent download of the
+archive it describes. That is the trust anchor.** Where upstream publishes a
+`.sha256` sidecar it was fetched and compared, and the entry records the result
+in `sidecar-verified`, over `true`, `absent` when upstream publishes none, and
+`false` when one exists and could not be read. The sidecar is a cross-check on
+the pin's provenance and never the source of it: copying a digest out of one
+records only that the sidecar agrees with itself.
+
+Two limits are worth knowing before planning around it.
+
+**Dylint publishes Linux archives only**, so `cargo-dylint` and `dylint-link`
+fail closed on macOS and Windows, and a lane running Dylint there still has no
+prebuilt option and builds from source. Asked for upstream in
+[trailofbits/dylint#2068](https://github.com/trailofbits/dylint/issues/2068).
+Every Tier 2b repository runs Dylint on `ubuntu-latest` today, so nothing is
+blocked; this is here so that a lane moving off Linux discovers it now rather
+than in a red gate.
+
+**cargo-audit and cargo-llvm-cov publish no digest sidecars at all**, for any
+target, so their entries carry `sidecar-verified = "absent"`. What is missing
+is the corroboration of the pin, not any check CI performs, because the digest
+is still verified on every download.
+
+By default, the binary goes to `~/.cargo/bin`, and `bin-dir` moves it. Either
+way the directory is added to `PATH`, so the next step calls the tool by name.
+`bin-dir` must be absolute, since a relative one would make the `path` output
+relative despite its name and resolve differently in a step with another
+working directory. On Windows, `path` is the native form and `posix-path` the
+one a `bash` step wants.
+
+**The action archives nothing.** It installs, and a lane that wants an
+installed tool to survive between jobs owns that cache step and its key,
+exactly as it owns the sccache directory under the local-disk arm. What the
+action does do is probe: a call that finds the exact version already present
+skips the download and reports `cache-hit: true`. A binary of the right name
+and the wrong version is a miss, because that is the failure worth catching.
+
+Each run emits bounded `metric install-tool.*` lines covering resolution, the
+cache probe, the download, the digest, the install and the version check. The
+[action's README](../.github/actions/install-tool/README.md) lists the closed
+set each ranges over.
 
 ## `install-whitaker` action
 

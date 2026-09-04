@@ -1,0 +1,175 @@
+name: Test install-tool
+
+# What only a runner can prove: that the archive named in the manifest really
+# downloads, really verifies against the pinned digest, really extracts on that
+# platform's tar or zip, and that the binary it installs answers for itself.
+# The unit tests cover every decision around those; none of them can cover the
+# download itself, and the extractor differs on all three platforms.
+#
+# Each leg installs a different tool, chosen so the matrix covers both archive
+# shapes and both extractors rather than testing one tool three times.
+
+on:
+  pull_request:
+    paths:
+      - '.github/actions/install-tool/**'
+      - '.github/tool-manifest.toml'
+      - '.github/workflows/test-install-tool.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installs-and-caches:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # A tarball with the binary under one directory, GNU tar.
+          - runner: ubuntu-latest
+            tool: sccache
+            version: 0.17.0
+            expected: sccache 0.17.0
+          # A tarball with the binary at the root, bsdtar.
+          - runner: macos-15
+            tool: cargo-nextest
+            version: 0.9.143
+            expected: cargo-nextest 0.9.143
+          # A zip, which Git Bash's GNU tar cannot read, so this leg is the
+          # one that would catch the extractor being chosen by probing `tar`
+          # rather than by the asset's extension.
+          - runner: windows-latest
+            tool: cargo-audit
+            version: 0.22.2
+            expected: cargo-audit 0.22.2
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the tool
+        id: first
+        uses: ./.github/actions/install-tool
+        with:
+          tool: ${{ matrix.tool }}
+          version: ${{ matrix.version }}
+          bin-dir: ${{ runner.temp }}/install-tool-bin
+
+      - name: Verify the first call installed it
+        shell: bash
+        env:
+          INSTALLED_PATH: ${{ steps.first.outputs.path }}
+          CACHE_HIT: ${{ steps.first.outputs.cache-hit }}
+          EXPECTED: ${{ matrix.expected }}
+        run: |
+          set -euo pipefail
+          if [[ "$CACHE_HIT" != false ]]; then
+            echo "::error::the first call reported a cache hit on a clean runner" >&2
+            exit 1
+          fi
+          if [[ ! -x "$INSTALLED_PATH" ]]; then
+            echo "::error::${INSTALLED_PATH} is not executable" >&2
+            exit 1
+          fi
+          # Found by name, not by the path the action returned: the action
+          # promises to put the directory on PATH, and a caller's next step is
+          # what depends on that.
+          reported="$(${{ matrix.tool }} --version 2>&1 || true)"
+          echo "reported: ${reported}"
+          case "$reported" in
+            *"$EXPECTED"*) echo "the installed tool reports the pinned version" ;;
+            *)
+              echo "::error::expected ${EXPECTED}, got ${reported}" >&2
+              exit 1 ;;
+          esac
+
+      - name: Install the same tool again
+        id: second
+        uses: ./.github/actions/install-tool
+        with:
+          tool: ${{ matrix.tool }}
+          version: ${{ matrix.version }}
+          bin-dir: ${{ runner.temp }}/install-tool-bin
+
+      - name: Verify the second call was a cache hit
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.second.outputs.cache-hit }}
+          FIRST_PATH: ${{ steps.first.outputs.path }}
+          SECOND_PATH: ${{ steps.second.outputs.path }}
+        run: |
+          set -euo pipefail
+          # The probe is the whole reason a second call is cheap, and the only
+          # way to see that it worked is to make one.
+          if [[ "$CACHE_HIT" != true ]]; then
+            echo "::error::the second call downloaded again instead of reusing" >&2
+            exit 1
+          fi
+          if [[ "$FIRST_PATH" != "$SECOND_PATH" ]]; then
+            echo "::error::two calls disagreed about the path" >&2
+            exit 1
+          fi
+          echo "the second call reused the installed tool"
+
+  refuses-an-unpinned-version:
+    # A version outside the manifest must fail closed rather than reach for
+    # whatever is newest, which is the failure mode this action exists to end.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ask for a version the manifest does not carry
+        id: unpinned
+        continue-on-error: true
+        uses: ./.github/actions/install-tool
+        with:
+          tool: sccache
+          version: 0.0.0-not-in-the-manifest
+
+      - name: Verify it failed closed
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.unpinned.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$OUTCOME" != failure ]]; then
+            echo "::error::an unpinned version was accepted" >&2
+            exit 1
+          fi
+          echo "an unpinned version was refused, as it must be"
+
+  refuses-an-unsupported-target:
+    # dylint ships Linux archives only. Asking for it on macOS must say so
+    # rather than install something else or fail obscurely later.
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Ask for a Linux-only tool on macOS
+        id: unsupported
+        continue-on-error: true
+        uses: ./.github/actions/install-tool
+        with:
+          tool: cargo-dylint
+          version: 6.0.4
+
+      - name: Verify it failed closed
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.unsupported.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$OUTCOME" != failure ]]; then
+            echo "::error::a tool with no macOS archive was accepted" >&2
+            exit 1
+          fi
+          echo "an unsupported target was refused, as it must be"

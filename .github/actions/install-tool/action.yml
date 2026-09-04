@@ -1,0 +1,375 @@
+name: Install tool
+description: >
+  Install a pinned, digest-verified tool from the repository's tool manifest.
+  Only what the manifest lists, only at a version the caller names.
+inputs:
+  tool:
+    description: Manifest tool name, for example `sccache`
+    required: true
+  version:
+    description: >
+      Exact manifest version. There is no floating version and no `latest`: an
+      unpinned lookup is a network call in the critical path and a dependency
+      that changes underneath you.
+    required: true
+  bin-dir:
+    description: Directory the binary is installed into, and added to PATH
+    required: false
+    default: ''
+outputs:
+  path:
+    description: >
+      Absolute path of the installed binary, in the runner's native form, so
+      `pwsh` and `cmd` callers can use it as well as `bash` ones.
+    value: ${{ steps.probe.outputs.path }}
+  posix-path:
+    description: >
+      The same path in POSIX form. On Windows `bash` steps want `/c/...`,
+      which the runner and other shells do not understand.
+    value: ${{ steps.probe.outputs.posix-path }}
+  version:
+    description: Version installed, as named in the manifest
+    value: ${{ inputs.version }}
+  cache-hit:
+    description: '`true` when the requested version was already installed'
+    value: ${{ steps.probe.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    # Pure resolution, side effects afterwards. The script reads the manifest
+    # and prints key=value lines; it never installs, never fails a job, and
+    # reports every outcome as a status. This step owns the decision about
+    # what a failed resolution means, so there is one place to look.
+    - name: Resolve the tool entry
+      id: resolve
+      shell: bash
+      env:
+        INPUT_TOOL: ${{ inputs.tool }}
+        INPUT_VERSION: ${{ inputs.version }}
+        MANIFEST_PATH: ${{ github.action_path }}/../../tool-manifest.toml
+        RESOLVE_SCRIPT: ${{ github.action_path }}/scripts/resolve_tool.py
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+      run: |
+        set -euo pipefail
+        # Emitted to the log for a scraper and to the summary for a reader.
+        # Both, because a bounded series is useless if only one audience can
+        # see it.
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        # `python3` on the runner images that have it, `python` on Windows
+        # where that is the name on PATH. Nothing here needs anything beyond
+        # the standard library.
+        python_bin=""
+        for candidate in python3 python; do
+          if command -v "$candidate" >/dev/null 2>&1; then
+            python_bin="$candidate"
+            break
+          fi
+        done
+        if [[ -z "$python_bin" ]]; then
+          emit_metric "install-tool.resolve=no-python"
+          echo "::error title=install-tool::no python3 or python on PATH" >&2
+          exit 1
+        fi
+        resolution="$("$python_bin" "$RESOLVE_SCRIPT" \
+          --manifest "$MANIFEST_PATH" \
+          --tool "$INPUT_TOOL" \
+          --version "$INPUT_VERSION" \
+          --runner-os "$RUNNER_OPERATING_SYSTEM" \
+          --runner-arch "$RUNNER_ARCHITECTURE")" || {
+          emit_metric "install-tool.resolve=manifest-unreadable"
+          echo "::error title=install-tool::could not read the tool manifest" >&2
+          exit 1
+        }
+        field() {
+          printf '%s\n' "$resolution" | awk -v key="$1" -F= '$1 == key { sub(/^[^=]*=/, ""); print; exit }'
+        }
+        status="$(field status)"
+        if [[ "$status" != ok ]]; then
+          kind="$(field error-kind)"
+          emit_metric "install-tool.resolve=${kind}"
+          echo "::error title=install-tool::$(field error-message)" >&2
+          exit 1
+        fi
+        # Only known keys are republished. A manifest is repository data
+        # rather than caller input, but forwarding whatever it happens to
+        # contain into step outputs would make it one.
+        printf '%s\n' "$resolution" | awk -F= '
+          $1 == "triple" || $1 == "url" || $1 == "sha256" || $1 == "member" ||
+          $1 == "sidecar-verified" || $1 == "extension" || $1 == "binary" ||
+          $1 == "version-args" || $1 == "version-check" ||
+          $1 == "expected-version" { print }
+        ' >> "$GITHUB_OUTPUT"
+        emit_metric "install-tool.resolve=ok"
+        emit_metric "install-tool.sidecar-verified=$(field sidecar-verified)"
+
+    # Probing before downloading is what makes a second call cheap, and it
+    # probes for the exact version rather than for the file, because a binary
+    # of the wrong version is the failure this action exists to prevent.
+    - name: Probe for an installed tool
+      id: probe
+      shell: bash
+      env:
+        BIN_DIR_INPUT: ${{ inputs.bin-dir }}
+        TOOL_BINARY: ${{ steps.resolve.outputs.binary }}
+        VERSION_ARGS: ${{ steps.resolve.outputs.version-args }}
+        VERSION_CHECK: ${{ steps.resolve.outputs.version-check }}
+        EXPECTED_VERSION: ${{ steps.resolve.outputs.expected-version }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        bin_dir="${BIN_DIR_INPUT}"
+        if [[ -z "$bin_dir" ]]; then
+          bin_dir="${HOME}/.cargo/bin"
+        fi
+        # A relative directory would make the advertised absolute path a lie,
+        # and would resolve differently in a later step with another working
+        # directory. Refused rather than guessed at, since which base to
+        # resolve against is the caller's decision and not this action's.
+        case "$bin_dir" in
+          /*|[A-Za-z]:[\\/]*) ;;
+          *)
+            emit_metric "install-tool.bin-dir=relative"
+            echo "::error title=install-tool::bin-dir must be an absolute path, got ${bin_dir}" >&2
+            exit 1
+            ;;
+        esac
+        # Windows runners hand bash a native path; every later step in this
+        # action joins it with `/`, so a POSIX form is produced once, here.
+        # The native form is kept as well, because GITHUB_PATH and the public
+        # `path` output are read by the runner and by pwsh and cmd callers,
+        # none of which understand `/c/...`.
+        native_dir="$bin_dir"
+        if command -v cygpath >/dev/null 2>&1; then
+          bin_dir="$(cygpath -u "$bin_dir")"
+          native_dir="$(cygpath -w "$bin_dir")"
+        fi
+        mkdir -p "$bin_dir"
+        target="${bin_dir}/${TOOL_BINARY}"
+        native_target="$target"
+        if command -v cygpath >/dev/null 2>&1; then
+          native_target="$(cygpath -w "$target")"
+        fi
+        {
+          echo "bin-dir=${bin_dir}"
+          echo "posix-path=${target}"
+          echo "path=${native_target}"
+        } >> "$GITHUB_OUTPUT"
+        echo "$native_dir" >> "$GITHUB_PATH"
+        cache=miss
+        if [[ -x "$target" ]]; then
+          if [[ "$VERSION_CHECK" != true ]]; then
+            # Nothing to compare against, so an existing binary is taken on
+            # trust rather than reinstalled every run. Recorded as its own
+            # outcome so the series does not claim a verified hit.
+            cache=hit-unverified
+          elif reported="$("$target" $VERSION_ARGS 2>&1)" &&
+            [[ "$reported" == *"$EXPECTED_VERSION"* ]]; then
+            cache=hit
+          else
+            cache=stale
+          fi
+        fi
+        if [[ "$cache" == hit || "$cache" == hit-unverified ]]; then
+          echo "cache-hit=true" >> "$GITHUB_OUTPUT"
+          echo "needs-install=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "cache-hit=false" >> "$GITHUB_OUTPUT"
+          echo "needs-install=true" >> "$GITHUB_OUTPUT"
+        fi
+        emit_metric "install-tool.cache=${cache}"
+
+    - name: Download and verify the archive
+      id: download
+      if: ${{ steps.probe.outputs.needs-install == 'true' }}
+      shell: bash
+      env:
+        ARCHIVE_URL: ${{ steps.resolve.outputs.url }}
+        EXPECTED_SHA256: ${{ steps.resolve.outputs.sha256 }}
+        EXTENSION: ${{ steps.resolve.outputs.extension }}
+        RUNNER_TEMPORARY: ${{ runner.temp }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        staging="${RUNNER_TEMPORARY}"
+        if command -v cygpath >/dev/null 2>&1; then
+          staging="$(cygpath -u "$staging")"
+        fi
+        staging="${staging}/install-tool-$$"
+        mkdir -p "$staging"
+        archive="${staging}/archive.${EXTENSION}"
+        if ! curl -fsSL --proto '=https' --tlsv1.2 \
+          --retry 3 --retry-delay 2 --retry-all-errors \
+          --connect-timeout 20 --max-time 300 \
+          "$ARCHIVE_URL" -o "$archive"; then
+          emit_metric "install-tool.download=failed"
+          echo "::error title=install-tool::could not download the archive" >&2
+          exit 1
+        fi
+        emit_metric "install-tool.download=ok"
+        # Hashed from stdin, never by file name. GNU sha256sum escapes its
+        # output line when the name contains a backslash, so a Windows path
+        # produced a leading backslash and rejected a correct archive.
+        if command -v sha256sum >/dev/null 2>&1; then
+          computed="$(sha256sum < "$archive" | awk '{print $1}')"
+        else
+          computed="$(shasum -a 256 < "$archive" | awk '{print $1}')"
+        fi
+        if [[ "$computed" != "$EXPECTED_SHA256" ]]; then
+          emit_metric "install-tool.digest=mismatch"
+          echo "::error title=install-tool::digest mismatch for ${ARCHIVE_URL}" >&2
+          echo "::error title=install-tool::expected ${EXPECTED_SHA256}, computed ${computed}" >&2
+          exit 1
+        fi
+        emit_metric "install-tool.digest=verified"
+        {
+          echo "archive=${archive}"
+          echo "staging=${staging}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Extract and install the binary
+      if: ${{ steps.probe.outputs.needs-install == 'true' }}
+      shell: bash
+      env:
+        ARCHIVE: ${{ steps.download.outputs.archive }}
+        STAGING: ${{ steps.download.outputs.staging }}
+        EXTENSION: ${{ steps.resolve.outputs.extension }}
+        MEMBER: ${{ steps.resolve.outputs.member }}
+        TARGET_PATH: ${{ steps.probe.outputs.posix-path }}
+        UNZIP_SCRIPT: ${{ github.action_path }}/scripts/extract_zip.py
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        extract_dir="${STAGING}/extract"
+        mkdir -p "$extract_dir"
+        extract_tarball() {
+          # Two calls rather than an options array: macOS runners ship bash
+          # 3.2, where expanding an empty array under `set -u` is an error.
+          # --force-local keeps GNU tar from reading `C:\...` as a remote host.
+          if tar --version 2>/dev/null | grep -q GNU; then
+            tar --force-local -xf "$1" -C "$2"
+          else
+            tar -xf "$1" -C "$2"
+          fi
+        }
+        extract_zip() {
+          # bsdtar by absolute path, because Git Bash puts MSYS GNU tar first
+          # on PATH and GNU tar cannot read a zip. `unzip` is not on these
+          # images and is deliberately not used.
+          local system_tar="/c/Windows/System32/tar.exe"
+          if command -v cygpath >/dev/null 2>&1; then
+            system_tar="$(cygpath -u 'C:\Windows\System32\tar.exe')"
+          fi
+          if [[ -x "$system_tar" ]]; then
+            "$system_tar" -xf "$1" -C "$2"
+            return
+          fi
+          for candidate in python3 python; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              "$candidate" "$UNZIP_SCRIPT" "$1" "$2"
+              return
+            fi
+          done
+          echo "::error title=install-tool::no bsdtar or python to read a zip" >&2
+          return 1
+        }
+        # By extension, never by probing what `tar` happens to be. An
+        # unsupported one exits explicitly and emits its own metric, because
+        # an explicit exit fires no ERR trap and this action declares none.
+        # Each arm is guarded rather than left to `set -e`, which would abort
+        # the step before any metric was emitted and leave a scraper seeing a
+        # verified digest followed by silence.
+        case "$EXTENSION" in
+          tar.gz|tgz)
+            if ! extract_tarball "$ARCHIVE" "$extract_dir"; then
+              emit_metric "install-tool.install=failed"
+              echo "::error title=install-tool::could not extract ${ARCHIVE}" >&2
+              exit 1
+            fi
+            ;;
+          zip)
+            if ! extract_zip "$ARCHIVE" "$extract_dir"; then
+              emit_metric "install-tool.install=failed"
+              echo "::error title=install-tool::could not extract ${ARCHIVE}" >&2
+              exit 1
+            fi
+            ;;
+          *)
+            emit_metric "install-tool.install=unsupported-extension"
+            echo "::error title=install-tool::cannot extract .${EXTENSION}" >&2
+            exit 1
+            ;;
+        esac
+        source_path="${extract_dir}/${MEMBER}"
+        if [[ ! -f "$source_path" ]]; then
+          emit_metric "install-tool.install=missing-member"
+          echo "::error title=install-tool::${MEMBER} is not in the archive" >&2
+          exit 1
+        fi
+        if ! install -m 0755 "$source_path" "$TARGET_PATH"; then
+          emit_metric "install-tool.install=failed"
+          echo "::error title=install-tool::could not install to ${TARGET_PATH}" >&2
+          exit 1
+        fi
+        rm -rf "$STAGING"
+        emit_metric "install-tool.install=ok"
+
+    # The last word is the installed binary's own, not the manifest's. A
+    # digest proves the bytes arrived intact; only running it proves the
+    # right thing was installed where the caller will find it.
+    - name: Verify the installed tool
+      shell: bash
+      env:
+        TARGET_PATH: ${{ steps.probe.outputs.posix-path }}
+        VERSION_ARGS: ${{ steps.resolve.outputs.version-args }}
+        VERSION_CHECK: ${{ steps.resolve.outputs.version-check }}
+        EXPECTED_VERSION: ${{ steps.resolve.outputs.expected-version }}
+        CACHE_HIT: ${{ steps.probe.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+        emit_metric() {
+          echo "metric $1"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "metric $1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        if [[ ! -x "$TARGET_PATH" ]]; then
+          emit_metric "install-tool.verify=missing"
+          echo "::error title=install-tool::${TARGET_PATH} is not executable" >&2
+          exit 1
+        fi
+        if [[ "$VERSION_CHECK" != true ]]; then
+          emit_metric "install-tool.verify=unsupported"
+        elif reported="$("$TARGET_PATH" $VERSION_ARGS 2>&1)" &&
+          [[ "$reported" == *"$EXPECTED_VERSION"* ]]; then
+          emit_metric "install-tool.verify=ok"
+        else
+          emit_metric "install-tool.verify=mismatch"
+          echo "::error title=install-tool::expected ${EXPECTED_VERSION}, got ${reported:-nothing}" >&2
+          exit 1
+        fi
+        if [[ "$CACHE_HIT" == true ]]; then
+          emit_metric "install-tool.result=cached"
+        else
+          emit_metric "install-tool.result=installed"
+        fi

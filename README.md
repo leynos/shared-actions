@@ -17,6 +17,7 @@ GitHub Actions
 | Generate coverage                 | `.github/actions/generate-coverage`                                                | v1           |
 | Install mdtablefix                | `.github/actions/install-mdtablefix`                                               | unreleased   |
 | Install Nixie                     | `.github/actions/install-nixie`                                                    | unreleased   |
+| Install tool                      | `.github/actions/install-tool`                                                     | unreleased   |
 | Linux packages                    | `.github/actions/linux-packages`                                                   | v1           |
 | macOS package                     | `.github/actions/macos-package`                                                    | v1           |
 | Ratchet coverage                  | `.github/actions/ratchet-coverage`                                                 | v1           |

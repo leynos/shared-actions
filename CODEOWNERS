@@ -4,3 +4,4 @@
 .github/actions/upload-codescene-coverage/ @leynos
 .github/actions/ratchet-coverage/ @leynos
 .github/actions/install-mdtablefix/ @leynos
+.github/actions/install-tool/ @leynos

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import math
 import os
 import selectors
 import shlex
@@ -309,12 +310,73 @@ def _assert_cargo_streams(proc: subprocess.Popen[str]) -> None:
     raise typer.Exit(1) from None
 
 
+#: How long cargo may run before the watchdog kills it, in seconds.
+#:
+#: Sized for a cold sccache store rather than a warm one. A lane that no longer
+#: archives its `target` tree has the whole instrumented compile to do on the
+#: first run of a branch and after every cache eviction, inside this budget;
+#: netsuke measured a run that finished its 2,790 tests at about 512 s and was
+#: killed 88 s later at 600 s, during report generation, with sccache at 19%
+#: hits. A watchdog is there to catch a hang, and a build that is merely cold
+#: must not look like one.
+DEFAULT_CARGO_WAIT_TIMEOUT = 1800.0
+
+
+def _read_wait_timeout(name: str, raw: str) -> float:
+    """Return the budget ``raw`` names, or exit reporting why it cannot."""
+    try:
+        wait_timeout = float(raw)
+    except ValueError as exc:
+        typer.echo(f"::error::{name} must be a number", err=True)
+        raise typer.Exit(1) from exc
+    # A public input can now carry anything float() accepts. A NaN deadline
+    # never compares greater than the clock, so the watchdog never fires and
+    # the selector loop spins; an infinite one reaches the platform's own
+    # timeout handling; a non-positive one kills a healthy build at once.
+    if not math.isfinite(wait_timeout) or wait_timeout <= 0:
+        typer.echo(
+            f"::error::{name} must be a finite number of seconds greater than "
+            f"zero; got {raw!r}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    return wait_timeout
+
+
+def _resolve_wait_timeout() -> float:
+    """Return the watchdog budget, and report it before cargo starts.
+
+    ``RUN_RUST_CARGO_WAIT_TIMEOUT`` wins over the action input, so a caller
+    setting one budget across several steps at job level keeps it when a step
+    also passes the input. An unset input reaches the script as an empty
+    string rather than an absent variable, so blank means "not set" for both.
+    """
+    for name in ("RUN_RUST_CARGO_WAIT_TIMEOUT", "INPUT_CARGO_WAIT_TIMEOUT"):
+        raw = os.getenv(name)
+        if raw is not None and raw.strip():
+            wait_timeout = _read_wait_timeout(name, raw.strip())
+            break
+    else:
+        wait_timeout = DEFAULT_CARGO_WAIT_TIMEOUT
+    typer.echo(f"cargo watchdog budget: {wait_timeout}s")
+    return wait_timeout
+
+
 def _raise_cargo_timeout(
     proc: subprocess.Popen[str], *, wait_timeout: float
 ) -> typ.Never:
-    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout."""
+    """Kill ``proc`` and raise ``typer.Exit(1)`` for a cargo timeout.
+
+    The message names the budget and how to change it. A build that is merely
+    cold looks exactly like a hang from the outside, and the first reaction to
+    this error should be to check the budget rather than to hunt a deadlock.
+    """
     typer.echo(
-        f"::error::cargo did not exit within {wait_timeout}s; killing",
+        f"::error::cargo did not exit within {wait_timeout}s; killing. "
+        "This is a budget, not a detected hang: raise the cargo-wait-timeout "
+        "input, or RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately "
+        "slower. A cold sccache store makes the first run on a branch compile "
+        "everything inside this budget.",
         err=True,
     )
     with contextlib.suppress(Exception):
@@ -330,7 +392,7 @@ def _wait_for_cargo(
     """Wait for cargo to exit and return its return code.
 
     Kills the process and raises ``typer.Exit(1)`` if it does not exit
-    within ``RUN_RUST_CARGO_WAIT_TIMEOUT`` seconds (default 600).
+    within the watchdog budget; see ``DEFAULT_CARGO_WAIT_TIMEOUT``.
     """
     try:
         return proc.wait(timeout=max(0.0, deadline - time.monotonic()))
@@ -400,14 +462,7 @@ def _run_cargo(
     """
     typer.echo(f"$ cargo {shlex.join(args)}")
     env = _build_cargo_env(env_overrides, env_unsets)
-    try:
-        wait_timeout = float(os.getenv("RUN_RUST_CARGO_WAIT_TIMEOUT", "600"))
-    except ValueError as exc:
-        typer.echo(
-            "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number",
-            err=True,
-        )
-        raise typer.Exit(1) from exc
+    wait_timeout = _resolve_wait_timeout()
     deadline = time.monotonic() + wait_timeout
     proc = _spawn_cargo(cargo[args], env)
     try:

@@ -308,6 +308,33 @@ def _run_rust_coverage_call(
     return calls[0], out, gh
 
 
+#: What an expiry message must say. A cold build and a hang are
+#: indistinguishable from outside cargo, so the message has to name the budget
+#: and both ways to raise it, or the reader goes looking for a deadlock.
+_EXPIRY_TERMS = ("cargo-wait-timeout", "RUN_RUST_CARGO_WAIT_TIMEOUT")
+
+
+def _assert_watchdog_expiry(messages: list[tuple[str, bool]], *, budget: float) -> None:
+    """Assert the watchdog reported one useful expiry for ``budget``."""
+    expiry_positions = [
+        index
+        for index, (text, is_error) in enumerate(messages)
+        if is_error and "cargo did not exit within" in text
+    ]
+    assert len(expiry_positions) == 1, f"expected one expiry, got {expiry_positions}"
+    expiry_at = expiry_positions[0]
+    expiry = messages[expiry_at][0]
+    assert f"within {budget}s" in expiry, f"budget not named: {expiry!r}"
+    for term in _EXPIRY_TERMS:
+        assert term in expiry, f"{term} not named: {expiry!r}"
+    # Before, not merely present: a budget reported after the kill tells an
+    # operator nothing at the moment they need it.
+    report = (f"cargo watchdog budget: {budget}s", False)
+    assert report in messages[:expiry_at], (
+        f"the budget was not reported before the expiry: {messages}"
+    )
+
+
 def test_run_rust_success(
     tmp_path: Path,
     shell_stubs: StubManager,
@@ -930,7 +957,7 @@ def test_run_cargo_unix_pump_timeout(
     assert _exit_code(excinfo.value) == 1
     assert fake_proc.killed
     assert fake_proc.waited
-    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
+    _assert_watchdog_expiry(messages, budget=1.0)
 
 
 def test_run_cargo_invalid_timeout_does_not_spawn(
@@ -1126,7 +1153,7 @@ def test_run_cargo_windows_pump_timeout(
     assert _exit_code(excinfo.value) == 1
     assert fake_proc.killed
     assert fake_proc.waited
-    assert ("::error::cargo did not exit within 1.0s; killing", True) in messages
+    _assert_watchdog_expiry(messages, budget=1.0)
 
 
 def test_run_cargo_windows_pump_exception(

@@ -61,6 +61,15 @@ inputs:
     description: Fail if coverage falls below the stored baseline
     required: false
     default: "false"
+  cargo-wait-timeout:
+    description: >-
+      Seconds cargo may run before the watchdog kills it. The watchdog exists
+      to catch a hang, so the budget is sized for a cold sccache store: a lane
+      that does not archive its target tree compiles everything on the first
+      run of a branch and after every eviction. Raise it for a slower suite;
+      lower it only if a hang must be caught sooner than the build can finish.
+    required: false
+    default: "1800"
   artefact-name-suffix:
     description: Optional suffix appended to the coverage artefact name
     required: false
@@ -283,6 +292,10 @@ runs:
         INPUT_CUCUMBER_RS_FEATURES: ${{ inputs.cucumber-rs-features }}
         INPUT_CUCUMBER_RS_ARGS: ${{ inputs.cucumber-rs-args }}
         BASELINE_RUST_FILE: ${{ inputs.baseline-rust-file }}
+        # Passed under its own name, not as RUN_RUST_CARGO_WAIT_TIMEOUT: a
+        # step-level assignment of that variable would clobber a caller's
+        # job-level one, which is the budget they meant to set everywhere.
+        INPUT_CARGO_WAIT_TIMEOUT: ${{ inputs.cargo-wait-timeout }}
       shell: bash
 
     - name: Cache Python deps

@@ -61,12 +61,33 @@ This choice is reported as
 effect, `sccache --show-stats` reports a `ghac` cache location rather than
 `Local disk`.
 
-On Ubicloud, run the `export-ubicloud-cache-credentials` action **before**
-`setup-rust`. The GitHub Actions backend reads its endpoint when the sccache
-server starts, and `setup-rust` starts that server, so credentials published
-afterwards arrive too late and the compiler cache silently uses whatever the
-runner advertised. Ordering is the whole contract: credentials, then
-`setup-rust`, then the build.
+This export fixes GitHub-hosted runners. **On Ubicloud it is not sufficient
+yet.** The Ubicloud runner re-injects `ACTIONS_CACHE_URL`,
+`ACTIONS_RESULTS_URL`, and `ACTIONS_CACHE_SERVICE_V2=on` into every *action*
+step, overriding whatever `export-ubicloud-cache-credentials` wrote to
+`GITHUB_ENV`. `setup-rust` starts the sccache server inside an action step, so
+the server binds GitHub's v2 service regardless, and writes to Ubicloud's store
+fail. Chutoro's Ubicloud lane recorded 164 write errors out of 301 requests
+with v2 still on.
+
+Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, an
+Ubicloud lane should start sccache from a `run:` step of its own, which the
+runner does not re-inject into, ordered after the credentials export:
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@v1
+- uses: leynos/shared-actions/.github/actions/setup-rust@v1
+  with:
+    use-sccache: 'false'
+- name: Start sccache
+  shell: bash
+  run: |
+    echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+    echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+```
+
+On a GitHub-hosted runner none of that applies: run
+`export-ubicloud-cache-credentials` nowhere, and `setup-rust` alone is enough.
 
 ## Rust cache ownership
 

@@ -1,0 +1,95 @@
+name: Test install-mdtablefix
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MDTABLEFIX_TEST_VERSION: 0.5.0
+
+jobs:
+  install-mdtablefix:
+    name: Install and reuse mdtablefix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mdtablefix
+        uses: ./.github/actions/install-mdtablefix
+        with:
+          version: ${{ env.MDTABLEFIX_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/mdtablefix-bin
+
+      - name: Verify the installed version
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin_dir="${RUNNER_TEMP}/mdtablefix-bin"
+          test -x "${bin_dir}/mdtablefix"
+          reported="$(mdtablefix --version)"
+          expected="mdtablefix ${MDTABLEFIX_TEST_VERSION}"
+          test "${reported}" = "${expected}"
+          echo "mdtablefix_test_version=${reported}"
+
+      - name: Poison cargo before the second invocation
+        shell: bash
+        run: |
+          # The cached outcome is asserted by making any other outcome
+          # impossible: a second invocation that reaches cargo-binstall runs
+          # this stub and fails the job.
+          set -euo pipefail
+          poisoned="${RUNNER_TEMP}/poisoned-cargo"
+          mkdir -p "${poisoned}"
+          cat > "${poisoned}/cargo" <<'POISONED_CARGO'
+          #!/usr/bin/env bash
+          echo "the second invocation must be served from bin-dir, not from cargo" >&2
+          exit 1
+          POISONED_CARGO
+          chmod +x "${poisoned}/cargo"
+          printf '%s\n' "${poisoned}" >> "$GITHUB_PATH"
+
+      - name: Install mdtablefix again
+        uses: ./.github/actions/install-mdtablefix
+        with:
+          version: ${{ env.MDTABLEFIX_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/mdtablefix-bin
+
+      - name: Verify the cached invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          reported="$(mdtablefix --version)"
+          test "${reported}" = "mdtablefix ${MDTABLEFIX_TEST_VERSION}"
+          echo "mdtablefix_test_cached=true"
+
+  install-mdtablefix-no-prebuilt:
+    name: Fail closed where no prebuilt release exists
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install mdtablefix
+        id: install-mdtablefix
+        continue-on-error: true
+        uses: ./.github/actions/install-mdtablefix
+        with:
+          version: ${{ env.MDTABLEFIX_TEST_VERSION }}
+          bin-dir: ${{ runner.temp }}/mdtablefix-bin
+
+      - name: Verify the fail-closed contract
+        shell: bash
+        run: |
+          # mdtablefix publishes no macOS asset, so the only way to satisfy
+          # this runner is a source build. The action must refuse, and must
+          # leave no executable behind.
+          set -euo pipefail
+          test "${{ steps.install-mdtablefix.outcome }}" = failure
+          test ! -e "${RUNNER_TEMP}/mdtablefix-bin/mdtablefix"
+          echo "mdtablefix_test_no_prebuilt=true"

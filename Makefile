@@ -72,6 +72,7 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/windows-package/scripts \
 		--extra-search-path .github/actions/setup-rust/scripts \
 		cmd_utils.py \
+		composite_fragments.py \
 		.github/actions/generate-coverage/scripts \
 		.github/actions/ratchet-coverage/scripts \
 		.github/actions/linux-packages/scripts \

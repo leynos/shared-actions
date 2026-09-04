@@ -17,6 +17,8 @@ documents how to use the `install-nixie` action.
   – full input and output tables.
 - [`install-whitaker` README](../.github/actions/install-whitaker/README.md) –
   installer input and cache details.
+- [`install-mdtablefix` README](../.github/actions/install-mdtablefix/README.md)
+  – platform support, cache ownership, and the pinned `cargo-binstall`.
 - [Migrating to verified prebuilt CI tools](./migrating-to-verified-prebuilt-tools.md)
   – upgrade guidance for the `install-whitaker` and `generate-coverage`
   verified prebuilt tool installation.
@@ -393,6 +395,74 @@ For an external cache, mount `~/.local/share`, not the terminal
 `~/.local/share/whitaker` directory. The installer expects that child to be
 absent for a fresh install; an empty volume mounted at the child looks like an
 existing but invalid Git checkout.
+
+
+## `install-mdtablefix` action
+
+The `install-mdtablefix` composite action installs a pinned `mdtablefix` from
+its prebuilt release through a hardened `cargo binstall`. It never builds the
+tool from source. Every repository whose `make check-fmt` shells out to
+`mdtablefix` should use it instead of its own installer step.
+
+```yaml
+- name: Check out the repository
+  uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+- name: Install mdtablefix
+  uses: ./.github/actions/install-mdtablefix
+  with:
+    version: 0.5.0
+```
+
+The repository must be checked out before invoking this local action. The
+required `version` input names the exact release. The optional
+`binstall-version` input selects the `cargo-binstall` release installed when
+the runner has none and defaults to `1.22.0`. The optional `bin-dir` input
+defaults to `~/.local/bin`; the executable lands there and the directory is
+appended to `GITHUB_PATH`, so later steps call `mdtablefix` by name.
+
+
+### The two-step cache pattern
+
+The action caches nothing itself, so one key keeps one owner. Restore `bin-dir`
+yourself, then invoke the action; a directory that already holds the pinned
+version short-circuits the install and reports
+`install-mdtablefix.result=cached`.
+
+```yaml
+- name: Restore mdtablefix
+  uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+  with:
+    path: ${{ runner.temp }}/mdtablefix-bin
+    key: mdtablefix-0.5.0-${{ runner.os }}-${{ runner.arch }}
+
+- name: Install mdtablefix
+  uses: ./.github/actions/install-mdtablefix
+  with:
+    version: 0.5.0
+    bin-dir: ${{ runner.temp }}/mdtablefix-bin
+```
+
+Save that cache from one designated writer, on push to the default branch,
+exactly as for every other tool cache in the estate.
+
+
+### Platform support
+
+`mdtablefix` 0.5.0 publishes prebuilt archives for Linux gnu on `x86_64` and
+`aarch64` only. macOS and Windows have no asset at all, so the action fails
+closed there with `install-mdtablefix.result=no-prebuilt` rather than
+compiling. A workflow with a macOS or Windows formatter lane keeps its own
+documented source-build exception until `mdtablefix` publishes assets for that
+platform.
+
+
+### Reported outcomes
+
+Each run writes exactly one `install-mdtablefix.result` line to the job
+summary, over `cached`, `installed`, `no-prebuilt`, `install-failed`, and
+`version-mismatch`, plus at most one `install-mdtablefix.binstall` line over
+`present` and `installed`. A failure is also annotated with `::error`.
 
 ## `generate-coverage` action
 

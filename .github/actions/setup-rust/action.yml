@@ -252,10 +252,15 @@ runs:
         fi
     - name: Select the sccache backend
       # BEFORE the sccache-action steps, deliberately. sccache binds its
-      # backend when the server starts, and that server is started inside
-      # those steps, so a value exported afterwards would be read by nobody:
-      # the job would keep a local-disk cache while every log line claimed
-      # otherwise. Writing it to GITHUB_ENV here puts it in their environment.
+      # backend once, when the server starts, and the first thing here to
+      # start one is the --zero-stats in the wrapper step that follows those
+      # sccache steps. GITHUB_ENV reaches only the next step, so a value
+      # exported alongside the wrapper would be read by nobody: the job would
+      # keep a local-disk cache while every log line claimed otherwise.
+      #
+      # The sccache-action steps start no server themselves. What they do is
+      # write ACTIONS_CACHE_SERVICE_V2=on to GITHUB_ENV, which breaks Ubicloud
+      # and is issue #441, not this ordering.
       #
       # Its counterpart, "Export sccache as the rustc wrapper", sits AFTER
       # those steps for the opposite reason: it needs SCCACHE_PATH, which they
@@ -310,10 +315,10 @@ runs:
       # their output and does not exist before they run.
       #
       # Its counterpart, "Select the sccache backend", sits BEFORE those steps
-      # for the opposite reason: sccache binds its backend at server start, and
-      # the server starts inside them, so that choice has to be made first. The
-      # two exports cannot be merged or reordered, and a manifest test holds
-      # both positions.
+      # for the opposite reason: sccache binds its backend at server start, the
+      # --zero-stats below is what starts it, and GITHUB_ENV reaches only the
+      # next step, so that choice has to be made first. The two exports cannot
+      # be merged or reordered, and a manifest test holds both positions.
       if: ${{ inputs.use-sccache == 'true' && github.event_name != 'release' }}
       shell: bash
       run: |

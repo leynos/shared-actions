@@ -142,9 +142,13 @@ binary it installed. It sets neither `RUSTC_WRAPPER` nor
   compilation through sccache only when that variable is set. Without it
   sccache is installed and never used.
 - `SCCACHE_GHA_ENABLED`, because sccache otherwise writes to local disk, which
-  nothing persists between jobs. It is exported **before** the sccache steps,
-  since sccache binds its backend when the server starts and that server starts
-  inside them. The selection order is: an explicit `SCCACHE_GHA_ENABLED` wins,
+  nothing persists between jobs. It is exported **before** the sccache steps.
+  sccache binds its backend once, at server start, and `GITHUB_ENV` reaches
+  only the next step, so an export written alongside the wrapper would come too
+  late for the `--zero-stats` in that same step. Those sccache steps start no
+  server themselves; what they do is force `ACTIONS_CACHE_SERVICE_V2=on`, which
+  is issue `#441` and not this ordering. The selection order is: an explicit
+  `SCCACHE_GHA_ENABLED` wins,
   `false` and empty included; failing that, a caller-set `SCCACHE_DIR` leaves
   sccache on their directory; otherwise the GitHub Actions backend is chosen.
   Each run reports `metric setup-rust.sccache.backend=<gha|local|caller>`.

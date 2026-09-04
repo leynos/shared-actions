@@ -5,10 +5,15 @@ set, and nothing persists that directory between jobs, so a consumer that set
 only `RUSTC_WRAPPER` paid for the wrapper and got no cache across runs.
 
 Ordering is the subtle part and the manifest tests hold it. sccache binds its
-backend when the server starts, and the server starts inside the sccache-action
-step, so the variable has to reach `GITHUB_ENV` *before* those steps. Exported
-afterwards, as the wrapper is, it would be read by nobody while every log line
-claimed the backend was selected.
+backend once, when the server starts, and the first thing this action does that
+starts one is the `--zero-stats` in the wrapper step. `GITHUB_ENV` reaches only
+the next step, so the variable has to be written *before* the sccache-action
+steps. Exported afterwards, as the wrapper is, it would be read by nobody while
+every log line claimed the backend was selected.
+
+The sccache-action steps start no server of their own. Measurement on Ubicloud
+established that what they do instead is write `ACTIONS_CACHE_SERVICE_V2=on` to
+`GITHUB_ENV`, which is issue #441 and not this ordering.
 """
 
 from __future__ import annotations

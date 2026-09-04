@@ -64,17 +64,19 @@ effect, `sccache --show-stats` reports a `ghac` cache location rather than
 `Local disk`.
 
 This export fixes GitHub-hosted runners. **On Ubicloud it is not sufficient
-yet.** The Ubicloud runner re-injects `ACTIONS_CACHE_URL`,
-`ACTIONS_RESULTS_URL`, and `ACTIONS_CACHE_SERVICE_V2=on` into every *action*
-step, overriding whatever `export-ubicloud-cache-credentials` wrote to
-`GITHUB_ENV`. `setup-rust` starts the sccache server inside an action step, so
-the server binds GitHub's v2 service regardless, and writes to Ubicloud's store
-fail. Chutoro's Ubicloud lane recorded 164 write errors out of 301 requests
-with v2 still on.
+yet**, and the reason is `mozilla-actions/sccache-action` rather than the
+runner. That action starts no server. It installs sccache, exports
+`SCCACHE_PATH`, and then writes `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`,
+along with `ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN`. The v2 flag
+overrides the empty value `export-ubicloud-cache-credentials` published, so
+every step after `setup-rust`'s sccache steps selects GitHub's v2 results
+service, and the first of them to start a server binds it. Ubicloud's proxy
+serves v1, so the writes fail: Chutoro's Ubicloud lane recorded 164 write
+errors out of 301 requests with v2 back on.
 
 Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, an
-Ubicloud lane should start sccache from a `run:` step of its own, which the
-runner does not re-inject into, ordered after the credentials export.
+Ubicloud lane should keep that action out of the job with
+`use-sccache: 'false'` and start sccache itself, after the credentials export.
 
 `use-sccache: 'false'` also turns off the action's sccache **installation**, so
 the lane owns that too. Nothing on the Ubicloud image provides the binary, and
@@ -190,15 +192,21 @@ backend selects the v2 cache service whenever that variable is set, and the
 proxy serves v1.
 
 Ordering this action before `setup-rust` is **not** enough on Ubicloud, and
-`use-sccache: 'true'` must not be used there yet. The runner re-injects
-`ACTIONS_CACHE_URL`, `ACTIONS_RESULTS_URL`, and `ACTIONS_CACHE_SERVICE_V2=on`
-into every *action* step, overriding whatever this action wrote to `GITHUB_ENV`.
-`setup-rust` starts the sccache server inside an action step, so the server
-binds GitHub's v2 service regardless and writes to Ubicloud's store fail.
-Chutoro and Wildside both landed zero objects in Ubicloud's store that way.
+`use-sccache: 'true'` must not be used there yet. `setup-rust` runs
+`mozilla-actions/sccache-action`, whose last act is to write
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, together with
+`ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN`. That undoes the empty value
+this action publishes, so every later step selects GitHub's v2 results service
+and the first one to start a server binds it. Chutoro and Wildside both landed
+zero objects in Ubicloud's store that way.
 
-Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, start
-the server from a `run:` step, which the runner does not re-inject into:
+The other two of those three exports are harmless here. On Ubicloud the runner
+already gives action steps the proxy's own `ACTIONS_CACHE_URL` and
+`ACTIONS_RUNTIME_TOKEN`, which is how this action reads them, and
+`ACTIONS_RESULTS_URL` is unset throughout. Only the v2 flag does damage.
+
+Until [#441](https://github.com/leynos/shared-actions/issues/441) lands, keep
+that action out of the job and own sccache in the lane:
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -241,7 +249,16 @@ than the proxy.
 
 `setup-rust`'s own sccache support, including its `RUSTC_WRAPPER` and
 `SCCACHE_GHA_ENABLED` exports, is the right path on GitHub-hosted runners,
-where none of this re-injection happens.
+where forcing the v2 cache service is what a caller wants anyway.
+
+A `run:` step is the safe position for the server for a plainer reason than it
+first appeared. Measured on `ubicloud-standard-2`, the runner exposes
+`ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN` to *JavaScript* action steps
+only. Neither a workflow `run:` step nor a composite action's `run:` step sees
+them, and neither is overridden once `GITHUB_ENV` carries them: both read the
+proxy host and the cleared v2 flag, and a server started from either reports
+`Cache location  ghac`. So the distinction that matters is between a step that
+rewrites `GITHUB_ENV` and one that does not, not between step kinds.
 
 Order matters either way, and for one reason: sccache reads its cache
 configuration once when the server starts and keeps it for that server's life.

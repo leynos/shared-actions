@@ -6,8 +6,9 @@
   sccache writes to local disk, which nothing persists between jobs, so a
   consumer that set only `RUSTC_WRAPPER` paid for the wrapper and started every
   run with an empty cache. The variable is exported before the sccache-action
-  steps, because sccache binds its backend when the server starts and that
-  server starts inside them. The selection order is: an explicit
+  steps, because sccache binds its backend once at server start, the
+  `--zero-stats` in the wrapper step is what starts it, and `GITHUB_ENV`
+  reaches only the next step. The selection order is: an explicit
   `SCCACHE_GHA_ENABLED` wins, `false` and empty included; failing that, a
   caller-set `SCCACHE_DIR` leaves sccache on their directory; otherwise the
   GitHub Actions backend is chosen. Each run reports

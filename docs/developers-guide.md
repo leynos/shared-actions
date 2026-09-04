@@ -214,12 +214,22 @@ name fixed and the values inside that set, with no path or wrapper value in the
 line.
 
 The backend is chosen in a separate step **before** the sccache-action steps,
-and that position is the whole point. sccache binds its backend when the server
-starts, and the server starts inside those steps, so `SCCACHE_GHA_ENABLED`
-exported afterwards would be read by nobody: the job would keep a local-disk
-cache while every log line claimed the backend was selected. The two exports
-therefore sit on opposite sides of the sccache steps, each for its own reason,
-and neither can move. A manifest test holds both orderings.
+and that position is the whole point. sccache binds its backend once, when the
+server starts, and the first thing here to start one is the `--zero-stats` in
+the wrapper step that follows those sccache steps. `GITHUB_ENV` reaches only
+the next step, so `SCCACHE_GHA_ENABLED` exported alongside the wrapper would be
+read by nobody: the job would keep a local-disk cache while every log line
+claimed the backend was selected. The two exports therefore sit on opposite
+sides of the sccache steps, each for its own reason, and neither can move. A
+manifest test holds both orderings.
+
+The sccache-action steps do not start a server themselves, which is worth
+knowing before reasoning about this ordering. What they do do is write
+`ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, forcing GitHub's v2 cache
+service on every step after them. On a GitHub-hosted runner that is what a
+caller wants. On Ubicloud it overrides the cleared value that
+`export-ubicloud-cache-credentials` published, and the proxy serves v1. That is
+issue `#441`, not this ordering.
 
 Without that variable sccache writes to local disk, which nothing persists, so
 `RUSTC_WRAPPER` alone buys a wrapper and an empty cache.

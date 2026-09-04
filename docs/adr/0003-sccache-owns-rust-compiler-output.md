@@ -96,10 +96,18 @@ measured zero compile requests, then 3,836 requests at a 0.18 % hit rate once
 the wrapper landed.
 
 `setup-rust` now exports both. The positions are load-bearing:
-`SCCACHE_GHA_ENABLED` before the sccache-action steps, because sccache binds
-its backend when the server starts and that server starts inside them, and
-`RUSTC_WRAPPER` after them, because it needs `SCCACHE_PATH`, which they
-produce. Neither can move. A caller's own values win in both cases.
+`SCCACHE_GHA_ENABLED` before the sccache-action steps and `RUSTC_WRAPPER`
+after them, because it needs `SCCACHE_PATH`, which they produce. Neither can
+move. A caller's own values win in both cases.
+
+The backend export sits first because `GITHUB_ENV` reaches only the next step,
+and the first thing in this action to start a server is the `--zero-stats` in
+the wrapper step immediately after the sccache steps. sccache binds its backend
+once, at server start, so an export written in that same step would be read by
+nobody. The sccache-action steps themselves start no server; measurement on
+Ubicloud (runs 33854048777 and 33854213968) showed that what they do instead is
+write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is a separate
+problem, recorded in `#441`.
 
 The decision itself stands: sccache owns compiler output, and no `target`
 archive returns. This records that owning it requires the two exports, which

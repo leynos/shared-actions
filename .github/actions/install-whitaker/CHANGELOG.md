@@ -5,6 +5,27 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Expose `suite-version` and pass it to the installer, so a caller can pin the
+  lint suite instead of taking whatever is at the Whitaker default branch tip.
+  This action pinned the installer thoroughly and the lints not at all, and a
+  caller reading its inputs would reasonably have believed otherwise:
+  `pg-embed-setup-unpriv`'s lint gate was red from 2026-08-19 to 2026-09-04
+  through exactly that, with the same installer version, the same toolchain and
+  a different suite commit.
+
+  A pin costs a source build, since prebuilt lint libraries are published only
+  for the tip, and requires installer 0.2.8 or later. The default is unchanged,
+  so nothing gets slower without asking. Each run reports
+  `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
+  which makes an unpinned lane's exposure visible rather than silent. The
+  pinned arm is split by mutability: a branch or a tag can advance without the
+  caller changing a line, so reporting either as simply pinned would claim a
+  protection the lane does not have.
+
+  The default `installer-version` moves to 0.2.8, whose digests are pinned for
+  all five targets, each computed from an independent download and cross-checked
+  against the release sidecar.
+
 - Run the action's Bash fragments from a file in the test harness, as a
   runner does, instead of passing them to `bash -c`. The two are not the same
   shell invocation: Bash 3.2, which macOS runners ship, replaces itself with

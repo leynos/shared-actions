@@ -442,8 +442,30 @@ action from a workflow in this repository with its local path:
 
 The repository must be checked out before invoking this local action.
 
+**The action pins the installer, not the lints it installs.** By default the
+installer builds the Dylint suite from the Whitaker default branch tip, so a
+change on that branch alters lint results with no commit in the consuming
+repository. The optional `suite-version` input names a tag, branch or commit to
+build from instead, so a suite change arrives as a reviewed bump:
+
+```yaml
+- name: Install Whitaker
+  uses: ./.github/actions/install-whitaker
+  with:
+    suite-version: v0.2.8
+```
+
+A pin costs a source build, because prebuilt lint libraries are published only
+for the branch tip, and it needs installer 0.2.8 or later. It cannot be applied
+when the workflow runs inside a Whitaker checkout because checking out a
+reference there would move the working tree the run is using. Each run records
+which arm it took as
+`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
+Only a full commit identifier reports as `pinned-commit`; a branch or tag is
+reported as mutable because it can move without the caller changing anything.
+
 The optional `installer-version` input selects the `whitaker-installer` version
-and defaults to `0.2.7`. The optional `cargo-home` input defaults to
+and defaults to `0.2.8`. The optional `cargo-home` input defaults to
 `~/.cargo`; it controls the cached `whitaker-installer` location
 (`${{ steps.validate-inputs.outputs.installer-path }}`). The optional
 `cache-provider` input defaults to `github`; use `external` when the caller

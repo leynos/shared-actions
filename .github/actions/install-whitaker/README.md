@@ -85,9 +85,49 @@ older version.
 | Name                | Type   | Description                                                  | Required | Default    |
 | ------------------- | ------ | ------------------------------------------------------------ | -------- | ---------- |
 | `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary  | no       | `~/.cargo` |
-| `installer-version` | string | Version of `whitaker-installer` to install                   | no       | `0.2.7`    |
+| `installer-version` | string | Version of `whitaker-installer` to install                   | no       | `0.2.8`    |
 | `installer-sha256`  | string | Archive digest for an asset absent from the pinned manifest  | no       | `""`       |
+| `suite-version`     | string | Git reference the lint suite is built from                   | no       | `""`       |
 | `cache-provider`    | string | Built-in `github` cache or caller-owned `external` cache     | no       | `github`   |
+
+## What is pinned, and what is not
+
+The installer is pinned thoroughly: a release archive verified against
+[`installer-digests.sha256`](installer-digests.sha256), never built from
+source.
+
+**The lint suite is a separate decision.** By default the installer builds it
+from the Whitaker default branch tip, so a change on that branch alters lint
+results with no commit in the consuming repository. That is how
+`pg-embed-setup-unpriv`'s lint gate stayed red from 2026-08-19 to 2026-09-04:
+the same installer version and the same toolchain, a different suite commit,
+and nothing in the consumer to point at.
+
+`suite-version` names a tag, branch or commit to build the suite from instead,
+so a suite change arrives as a reviewed bump:
+
+```yaml
+- uses: ./.github/actions/install-whitaker
+  with:
+    suite-version: v0.2.8
+```
+
+It costs a source build. Prebuilt lint libraries are published only for the
+branch tip, so a pin cannot be served from them, and the installer does not
+attempt the download when one is set. The trade is install time for
+reproducibility, and it stays that trade even where artefacts exist: a lint
+library must be built with the exact toolchain that loads it.
+
+A pin needs installer 0.2.8 or later, and cannot be applied when the workflow
+runs inside a Whitaker checkout, because checking out a reference there would
+move the working tree.
+
+Each run records which arm it took as
+`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
+so a lane that never chose can see the exposure rather than discover it from a
+red gate. The pinned arm is split because only a full commit identifier is
+immutable: a branch or a tag can advance without the calling repository
+changing a line, which is the same drift an unpinned lane suffers.
 
 ## Outputs
 

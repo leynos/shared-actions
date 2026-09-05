@@ -311,8 +311,16 @@ jobs:
         # tree back here is early enough for them and late enough that no
         # mutation run ever saw it.
         #
-        # `always()`, because a failed mutation run must not also fail the
-        # cleanup, and because the relocation has already happened by then.
+        # `always()` rather than `!cancelled()`, deliberately. It has to cover
+        # three endings, not one. A mutation run that fails must not also fail
+        # its cleanup and report two problems for one cause. A run that exceeds
+        # the step's own `timeout-minutes` is recorded as a failed step, so
+        # ordinary failure handling applies. And a job cancelled outright, by
+        # the job-level ceiling or by hand, still runs `always()` steps, which
+        # is precisely why GitHub cautions that `always()` can keep a
+        # cancelled job alive; here the work is one `mv`, so that caution
+        # costs nothing. `!cancelled()` would skip exactly the ending that
+        # leaves the tree displaced with no later step to notice.
         if: >-
           always() && steps.workflow-source.outputs.checkout == 'true' &&
           steps.relocate-workflow-source.outcome == 'success'

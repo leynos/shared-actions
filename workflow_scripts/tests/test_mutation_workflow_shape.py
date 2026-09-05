@@ -140,6 +140,15 @@ def _workspace_local_action_steps(
     ]
 
 
+def _restore_condition(job: dict[str, object]) -> str | None:
+    """Return a job's restore condition, or ``None`` when it has no restore."""
+    steps = _steps(job)
+    names = _step_names(steps)
+    if RESTORE_STEP not in names:
+        return None
+    return " ".join(str(steps[names.index(RESTORE_STEP)].get("if", "")).split())
+
+
 class TestRestoreWorkflowSource:
     """The relocation must not outlive the job that depends on the checkout."""
 
@@ -189,15 +198,34 @@ class TestRestoreWorkflowSource:
         top of the real one.
         """
         for job_name, job in _jobs(workflow_name).items():
-            steps = _steps(job)
-            names = _step_names(steps)
-            if RESTORE_STEP not in names:
+            condition = _restore_condition(job)
+            if condition is None:
                 continue
-            condition = " ".join(
-                str(steps[names.index(RESTORE_STEP)].get("if", "")).split()
-            )
 
             assert "always()" in condition, (
                 f"{workflow_name}:{job_name} restore is not guarded by always(): "
                 f"{condition!r}"
+            )
+
+    @pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+    def test_the_restore_runs_when_the_job_is_cancelled(
+        self, workflow_name: str
+    ) -> None:
+        """A cancelled job is the ending that most needs the restore.
+
+        ``always()`` runs on cancellation, which is why GitHub cautions that it
+        can keep a cancelled job alive; the restore is one ``mv``, so that
+        caution does not apply here. ``!cancelled()`` is the idiom that would
+        exclude this ending, and it must not appear: a job cancelled by its
+        ceiling or by hand would otherwise leave the checkout displaced, with
+        the post phase still to run and no later step to notice.
+        """
+        for job_name, job in _jobs(workflow_name).items():
+            condition = _restore_condition(job)
+            if condition is None:
+                continue
+
+            assert "cancelled()" not in condition, (
+                f"{workflow_name}:{job_name} restore excludes the cancelled "
+                f"path: {condition!r}"
             )

@@ -241,3 +241,147 @@ def test_split_csv_trims_and_drops_empties() -> None:
     """CSV inputs tolerate whitespace and empty segments."""
     assert detect.split_csv(" a/, ,b/,") == ("a/", "b/")
     assert detect.split_csv("") == ()
+
+
+class TestIsTestOnly:
+    """Which files cargo-mutants cannot mutate."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "tests/behaviour.rs",
+            "crates/thing/tests/cli.rs",
+            "crates/thing/tests/support/helpers.rs",
+            "src/tests/ir_consistency.rs",
+            "src/roadmap/render_tests.rs",
+            "src/parser_test.rs",
+        ],
+        ids=[
+            "root-integration",
+            "crate-integration",
+            "nested-integration",
+            "src-tests-module",
+            "tests-suffix",
+            "test-suffix",
+        ],
+    )
+    def test_test_files_are_recognised(self, name: str) -> None:
+        """Scoping a run to these enumerates nothing."""
+        assert detect.is_test_only(name), name
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "src/lib.rs",
+            "src/roadmap/render.rs",
+            "crates/thing/src/cli.rs",
+            "src/testing/support.rs",
+            "src/attestation.rs",
+            "src/latest.rs",
+        ],
+        ids=[
+            "root-source",
+            "nested-source",
+            "crate-source",
+            "testing-not-tests",
+            "attestation-not-test",
+            "latest-not-test",
+        ],
+    )
+    def test_sources_are_not_mistaken_for_tests(self, name: str) -> None:
+        """The rule must not quietly drop files a caller expects covered.
+
+        ``src/testing/`` is production support code, and a file merely
+        containing the substring ``test`` is not a test file. A lane that
+        silently mutates less than it claims is the fault this whole area
+        keeps producing.
+        """
+        assert not detect.is_test_only(name), name
+
+    def test_it_drops_only_the_test_files(self) -> None:
+        """A mixed change set keeps its sources."""
+        changed = [
+            "src/lib.rs",
+            "src/lib_tests.rs",
+            "tests/behaviour.rs",
+            "crates/thing/src/cli.rs",
+        ]
+
+        assert detect.drop_unmutated_by_cargo_mutants(changed) == [
+            "src/lib.rs",
+            "crates/thing/src/cli.rs",
+        ], "sources must survive alongside dropped tests"
+
+
+class TestNothingToMutate:
+    """A test-only day is not a mutation failure."""
+
+    def test_a_test_only_change_set_skips_the_job(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_repo: Path
+    ) -> None:
+        """The job must not run to a `no mutants found` failure.
+
+        Before the fail-closed rule this ran a full baseline and reported
+        `all mutants caught`. After it, running the job at all would fail
+        the lane on a day when no mutable source changed.
+        """
+        _commit_file(git_repo, "src/tests/ir_consistency.rs")
+        _commit_file(git_repo, "tests/behaviour.rs")
+
+        outputs = self._run(tmp_path, monkeypatch, git_repo)
+
+        assert outputs["has_changes"] == "false", outputs
+        assert json.loads(outputs["matrix"]) == {"include": []}
+        summary = (tmp_path / "github_summary").read_text(encoding="utf-8")
+        assert "Only test files changed" in summary, summary
+
+    def test_a_mixed_change_set_still_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_repo: Path
+    ) -> None:
+        """One source file is enough to be worth mutating."""
+        _commit_file(git_repo, "tests/behaviour.rs")
+        _commit_file(git_repo, "src/lib.rs")
+
+        outputs = self._run(tmp_path, monkeypatch, git_repo)
+
+        assert outputs["has_changes"] == "true", outputs
+        assert outputs["root_files"] == "src/lib.rs", (
+            "the test file must not reach cargo-mutants as a --file filter"
+        )
+
+    def test_an_empty_window_keeps_its_own_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git_repo: Path
+    ) -> None:
+        """No changes at all is a different thing from test-only changes.
+
+        Both skip, and an operator reading the summary needs to know
+        which happened.
+        """
+        outputs = self._run(tmp_path, monkeypatch, git_repo)
+
+        assert outputs["has_changes"] == "false", outputs
+        summary = (tmp_path / "github_summary").read_text(encoding="utf-8")
+        assert "No matching source changes" in summary, summary
+        assert "Only test files changed" not in summary, summary
+
+    @staticmethod
+    def _run(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repo: Path
+    ) -> dict[str, str]:
+        """Invoke ``main`` for a scheduled run and parse the outputs."""
+        output_file = tmp_path / "github_output"
+        output_file.touch()
+        summary_file = tmp_path / "github_summary"
+        summary_file.touch()
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+        monkeypatch.setenv("INPUT_EVENT_NAME", "schedule")
+        monkeypatch.setenv("INPUT_SHARD_COUNT", "1")
+        monkeypatch.setenv("INPUT_BASE_REF", "HEAD")
+        monkeypatch.chdir(repo)
+        detect.app([])
+        outputs: dict[str, str] = {}
+        for line in output_file.read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition("=")
+            outputs[key] = value
+        return outputs

@@ -88,6 +88,14 @@ jobs:
 
 ## Notes
 
+- A day whose only Rust changes are test files skips the job. Change
+  detection drops the files cargo-mutants never mutates, integration tests,
+  `src/tests/` modules and `*_test.rs` or `*_tests.rs` companions, before
+  scoping. If no mutable source is left, the run reports `nothing to mutate`
+  and stays green rather than building a baseline to enumerate zero. The rule
+  is narrow on purpose: it names only the conventions cargo-mutants itself
+  skips, because a rule that guessed would drop sources a caller expected to be
+  covered. `src/testing/` is production support code and stays.
 - A run that finds no mutants fails. cargo-mutants exits `0` both when
   every mutant was caught and when its filters matched nothing, so an empty run
   used to be recorded as `all mutants caught`. Four consumers were passing that

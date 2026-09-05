@@ -271,19 +271,7 @@ NO_MUTANTS = "no mutants found"
 
 
 def _shard_inventory_count(artefact_dir: Path) -> int | None:
-    """Count one shard's enumerated mutants, or ``None`` if unreadable.
-
-    Parameters
-    ----------
-    artefact_dir : Path
-        One downloaded artefact directory.
-
-    Returns
-    -------
-    int | None
-        The shard's mutant count, or ``None`` when its inventory is
-        missing or malformed.
-    """
+    """Count one shard's mutants, or None when its inventory is unusable."""
     try:
         listed = json.loads(
             (artefact_dir / MUTANT_INVENTORY).read_text(encoding="utf-8")
@@ -310,16 +298,23 @@ def total_enumerated_mutants(report_root: Path) -> int | None:
     Returns
     -------
     int | None
-        The total, or ``None`` when no shard carried a readable
-        inventory. Unknown is deliberately not zero.
+        The total, or ``None`` when any shard's inventory is missing or
+        unreadable. Unknown is deliberately not zero, and one unknown
+        shard makes the total unknown rather than merely smaller.
     """
-    shards = sorted(entry for entry in report_root.iterdir() if entry.is_dir())
-    counts = [
-        count
-        for directory in shards
-        if (count := _shard_inventory_count(directory)) is not None
-    ]
-    return sum(counts) if counts else None
+    shards = sorted(
+        entry
+        for entry in report_root.iterdir()
+        if entry.is_dir() and ARTEFACT_NAME_PATTERN.match(entry.name)
+    )
+    counts = [_shard_inventory_count(directory) for directory in shards]
+    # One unreadable shard makes the whole total unknown. Summing the rest
+    # would report a run as empty on the strength of the shards that
+    # happened to survive, and failing a job for that is exactly the kind
+    # of confident wrong answer this check exists to prevent.
+    if not counts or any(count is None for count in counts):
+        return None
+    return sum(count for count in counts if count is not None)
 
 
 def check_the_run_was_not_empty(*, total: int | None, allowed: bool) -> bool:

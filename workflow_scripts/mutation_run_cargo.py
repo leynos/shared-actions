@@ -238,13 +238,11 @@ def count_enumerated_mutants(output_dir: str) -> int | None:
 
 
 def _unreadable_inventory(inventory: pathlib.Path) -> None:
-    """Announce an inventory that could not be read.
-
-    Unknown keeps the run passing, which is right, but it must not do so
-    quietly: a cargo-mutants that stopped writing this file would
-    otherwise restore the vacuous pass across every consumer at once,
-    with nothing in the log to say so.
-    """
+    """Announce an inventory that could not be read."""
+    # Unknown keeps the run passing, which is right, but it must not do
+    # so quietly: a cargo-mutants that stopped writing this file would
+    # otherwise restore the vacuous pass across every consumer at once,
+    # with nothing in the log to say so.
     print(
         f"::warning title=Mutation testing::the mutant inventory at "
         f"{inventory} could not be read, so an empty run cannot be told "

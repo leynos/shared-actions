@@ -303,3 +303,8 @@ class TestAllowNoMutants:
                 "the summary step must pass INPUT_ALLOW_NO_MUTANTS, or the "
                 "aggregate check cannot honour the caller's opt-out"
             )
+            assert "inputs.allow-no-mutants" in env["INPUT_ALLOW_NO_MUTANTS"], (
+                "the summary step must pass the caller's input rather than a "
+                f"literal, got {env['INPUT_ALLOW_NO_MUTANTS']!r}; a hard-coded "
+                f"false would fail an empty aggregate run the caller allowed"
+            )

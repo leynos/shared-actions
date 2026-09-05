@@ -237,6 +237,36 @@ class TestTotalEnumeratedMutants:
             "a run with no readable inventory must not read as empty"
         )
 
+    def test_one_unreadable_shard_makes_the_total_unknown(self, tmp_path: Path) -> None:
+        """Partial evidence must not be reported as a complete answer.
+
+        An empty shard beside an unreadable one would otherwise sum to
+        zero and fail the job as an empty run, on the strength of the
+        shards that happened to survive.
+        """
+        _write_inventory(tmp_path, "mutation-report-root-0", 0)
+        _write_inventory(tmp_path, "mutation-report-root-1", None)
+
+        assert summarize.total_enumerated_mutants(tmp_path) is None, (
+            "one unreadable shard must make the total unknown, not zero"
+        )
+
+    def test_a_foreign_directory_does_not_make_the_total_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """Only shard artefacts count.
+
+        The download root can hold directories that were never shard
+        artefacts. Treating one as an unreadable shard would make every
+        total unknown and silently disable the check.
+        """
+        _write_inventory(tmp_path, "mutation-report-root-0", 5)
+        (tmp_path / "unrelated").mkdir()
+
+        assert summarize.total_enumerated_mutants(tmp_path) == 5, (
+            "a directory that is not a shard artefact must be ignored"
+        )
+
 
 class TestCheckTheRunWasNotEmpty:
     """The aggregate verdict."""

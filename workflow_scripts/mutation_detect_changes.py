@@ -374,6 +374,75 @@ def _write_skip_summary(config: DetectionConfig, *, nothing_to_mutate: bool) -> 
         )
 
 
+class Detection(typ.NamedTuple):
+    """What one detection run concluded.
+
+    Attributes
+    ----------
+    entries : list[MatrixEntry]
+        The matrix to run, empty when there is nothing to do.
+    buckets : dict[str, list[str]]
+        Changed files by target directory.
+    nothing_to_mutate : bool
+        True when files changed but none of them can be mutated.
+    """
+
+    entries: list[MatrixEntry]
+    buckets: dict[str, list[str]]
+    nothing_to_mutate: bool
+
+
+def detect(event_name: str, config: DetectionConfig) -> Detection:
+    """Decide what this run should mutate.
+
+    Parameters
+    ----------
+    event_name : str
+        The triggering event.
+    config : DetectionConfig
+        Detection settings.
+
+    Returns
+    -------
+    Detection
+        The matrix, the buckets behind it, and whether the run found
+        changes it cannot mutate.
+    """
+    if event_name == "workflow_dispatch":
+        return Detection(full_run_matrix(config), {}, nothing_to_mutate=False)
+    changed = changed_files(config)
+    mutable = drop_unmutated_by_cargo_mutants(changed)
+    # A day whose only Rust changes are tests is not a mutation failure
+    # and must not be scheduled as one: the job would build a full
+    # baseline, enumerate nothing, and now fail for it.
+    buckets = bucket_files(mutable, config)
+    return Detection(
+        scoped_run_matrix(buckets, config),
+        buckets,
+        nothing_to_mutate=bool(changed) and not mutable,
+    )
+
+
+def _report(
+    detection: Detection, *, config: DetectionConfig, output_path: Path
+) -> None:
+    """Write the step outputs, the summary, and the metric lines."""
+    has_changes = bool(detection.entries)
+    _write_output("has_changes", "true" if has_changes else "false", output_path)
+    _write_output("matrix", matrix_json(detection.entries), output_path)
+    _write_output("root_files", " ".join(detection.buckets.get(".", [])), output_path)
+    if not has_changes:
+        _write_skip_summary(config, nothing_to_mutate=detection.nothing_to_mutate)
+        emit(
+            "mutation_detect_outcome",
+            "nothing to mutate"
+            if detection.nothing_to_mutate
+            else "no matching changes",
+        )
+    emit("mutation_detect_has_changes", has_changes)
+    emit("mutation_detect_targets", [entry.slug for entry in detection.entries])
+
+
 @app.default
 def main(
     *,
@@ -434,32 +503,8 @@ def main(
         base_ref=base_ref,
     )
 
-    nothing_to_mutate = False
-    if event_name == "workflow_dispatch":
-        entries = full_run_matrix(config)
-        buckets: dict[str, list[str]] = {}
-    else:
-        changed = changed_files(config)
-        mutable = drop_unmutated_by_cargo_mutants(changed)
-        # A day whose only Rust changes are tests is not a mutation
-        # failure and must not be scheduled as one: the job would build
-        # a full baseline, enumerate nothing, and now fail for it.
-        nothing_to_mutate = bool(changed) and not mutable
-        buckets = bucket_files(mutable, config)
-        entries = scoped_run_matrix(buckets, config)
-
-    has_changes = bool(entries)
-    _write_output("has_changes", "true" if has_changes else "false", output_path)
-    _write_output("matrix", matrix_json(entries), output_path)
-    _write_output("root_files", " ".join(buckets.get(".", [])), output_path)
-    if not has_changes:
-        _write_skip_summary(config, nothing_to_mutate=nothing_to_mutate)
-        emit(
-            "mutation_detect_outcome",
-            "nothing to mutate" if nothing_to_mutate else "no matching changes",
-        )
-    emit("mutation_detect_has_changes", has_changes)
-    emit("mutation_detect_targets", [entry.slug for entry in entries])
+    detection = detect(event_name, config)
+    _report(detection, config=config, output_path=output_path)
 
 
 if __name__ == "__main__":

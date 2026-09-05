@@ -197,7 +197,22 @@ class TestTotalEnumeratedMutants:
     """Summing what every shard enumerated."""
 
     def test_it_sums_across_shards(self, tmp_path: Path) -> None:
-        """The whole point: one shard's emptiness is not the run's."""
+        """The whole point: one shard's emptiness is not the run's.
+
+        Every shard carries mutants and each count differs, so dropping
+        any one of them changes the total. A fixture with a single
+        populated shard would let a summer that skipped a shard pass.
+        """
+        _write_inventory(tmp_path, "mutation-report-root-0", 2)
+        _write_inventory(tmp_path, "mutation-report-root-1", 3)
+        _write_inventory(tmp_path, "mutation-report-root-2", 4)
+
+        assert summarize.total_enumerated_mutants(tmp_path) == 9, (
+            "the total must be the sum of every shard's inventory"
+        )
+
+    def test_an_empty_shard_does_not_hide_a_populated_one(self, tmp_path: Path) -> None:
+        """One shard's emptiness is not the run's."""
         _write_inventory(tmp_path, "mutation-report-root-0", 0)
         _write_inventory(tmp_path, "mutation-report-root-1", 3)
 

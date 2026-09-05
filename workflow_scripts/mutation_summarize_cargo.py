@@ -270,6 +270,29 @@ MUTANT_INVENTORY = "mutants.json"
 NO_MUTANTS = "no mutants found"
 
 
+def _shard_inventory_count(artefact_dir: Path) -> int | None:
+    """Count one shard's enumerated mutants, or ``None`` if unreadable.
+
+    Parameters
+    ----------
+    artefact_dir : Path
+        One downloaded artefact directory.
+
+    Returns
+    -------
+    int | None
+        The shard's mutant count, or ``None`` when its inventory is
+        missing or malformed.
+    """
+    try:
+        listed = json.loads(
+            (artefact_dir / MUTANT_INVENTORY).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    return len(listed) if isinstance(listed, list) else None
+
+
 def total_enumerated_mutants(report_root: Path) -> int | None:
     """Sum the mutants every shard enumerated.
 
@@ -290,17 +313,13 @@ def total_enumerated_mutants(report_root: Path) -> int | None:
         The total, or ``None`` when no shard carried a readable
         inventory. Unknown is deliberately not zero.
     """
-    total: int | None = None
-    for artefact_dir in sorted(p for p in report_root.iterdir() if p.is_dir()):
-        try:
-            listed = json.loads(
-                (artefact_dir / MUTANT_INVENTORY).read_text(encoding="utf-8")
-            )
-        except (OSError, ValueError):
-            continue
-        if isinstance(listed, list):
-            total = (total or 0) + len(listed)
-    return total
+    shards = sorted(entry for entry in report_root.iterdir() if entry.is_dir())
+    counts = [
+        count
+        for directory in shards
+        if (count := _shard_inventory_count(directory)) is not None
+    ]
+    return sum(counts) if counts else None
 
 
 def check_the_run_was_not_empty(*, total: int | None, allowed: bool) -> bool:
@@ -319,15 +338,23 @@ def check_the_run_was_not_empty(*, total: int | None, allowed: bool) -> bool:
         ``True`` when the job may pass.
     """
     if total is None:
-        print(
-            "::warning title=Mutation testing::no shard carried a readable "
-            "mutant inventory, so an empty run cannot be told from a full one"
-        )
-        emit("mutation_summary_inventory", "unreadable")
-        return True
+        return _report_unknown_total()
     emit("mutation_summary_mutants", total)
-    if total > 0:
-        return True
+    return True if total > 0 else _report_empty_run(allowed=allowed)
+
+
+def _report_unknown_total() -> bool:
+    """Announce an unreadable inventory and let the job pass."""
+    print(
+        "::warning title=Mutation testing::no shard carried a readable "
+        "mutant inventory, so an empty run cannot be told from a full one"
+    )
+    emit("mutation_summary_inventory", "unreadable")
+    return True
+
+
+def _report_empty_run(*, allowed: bool) -> bool:
+    """Announce an all-empty run and decide whether it may pass."""
     if allowed:
         print(
             "::notice title=Mutation testing::no mutants were found in any "

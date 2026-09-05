@@ -58,6 +58,14 @@ on:
           "--all-features" so feature-gated tests run against mutants.
         type: string
         default: ""
+      allow-no-mutants:
+        description: >-
+          Accept a run that enumerated no mutants. cargo-mutants exits 0
+          both when every mutant was caught and when it found none, so a
+          caller whose filters match nothing otherwise reports a clean
+          pass on an empty run. Left false, that becomes a failure.
+        type: boolean
+        default: false
       setup-commands:
         description: >-
           Shell commands run in each mutants job before cargo-mutants
@@ -284,6 +292,7 @@ jobs:
           INPUT_TIMEOUT_MULTIPLIER: ${{ inputs.timeout-multiplier }}
           INPUT_EXCLUDE_GLOBS: ${{ inputs.exclude-globs }}
           INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+          INPUT_ALLOW_NO_MUTANTS: ${{ inputs.allow-no-mutants }}
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
@@ -430,6 +439,7 @@ jobs:
         shell: bash
         env:
           INPUT_REPORT_ROOT: reports
+          INPUT_ALLOW_NO_MUTANTS: ${{ inputs.allow-no-mutants }}
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail

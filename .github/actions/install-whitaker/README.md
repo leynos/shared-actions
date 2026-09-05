@@ -82,13 +82,16 @@ older version.
 
 ## Inputs
 
-| Name                | Type   | Description                                                  | Required | Default    |
-| ------------------- | ------ | ------------------------------------------------------------ | -------- | ---------- |
-| `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary  | no       | `~/.cargo` |
-| `installer-version` | string | Version of `whitaker-installer` to install                   | no       | `0.2.8`    |
-| `installer-sha256`  | string | Archive digest for an asset absent from the pinned manifest  | no       | `""`       |
-| `suite-version`     | string | Git reference the lint suite is built from                   | no       | `""`       |
-| `cache-provider`    | string | Built-in `github` cache or caller-owned `external` cache     | no       | `github`   |
+| Name                | Type   | Description                                        | Required | Default        |
+| ------------------- | ------ | -------------------------------------------------- | -------- | -------------- |
+| `cargo-home`        | string | Cargo home holding the cached installer binary     | no       | `~/.cargo`     |
+| `installer-version` | string | Version of `whitaker-installer` to install         | no       | `0.2.8`        |
+| `installer-sha256`  | string | Digest for an asset the manifest does not pin      | no       | `""`           |
+| `suite-version`     | string | Git reference the lint suite is built from         | no       | `""`           |
+| `cache-provider`    | string | Built-in `github` or caller-owned `external`       | no       | `github`       |
+| `ci-mode`           | string | Check published assets, then refuse a source build | no       | `true`         |
+| `allow-suite-pin`   | string | Accept `suite-version` while `ci-mode` is on       | no       | `false`        |
+| `github-token`      | string | Read the rolling release without the anon limit    | no       | `github.token` |
 
 ## What is pinned, and what is not
 
@@ -121,6 +124,27 @@ library must be built with the exact toolchain that loads it.
 A pin needs installer 0.2.8 or later, and cannot be applied when the workflow
 runs inside a Whitaker checkout, because checking out a reference there would
 move the working tree.
+
+CI pins the installer and never the suite. Whitaker publishes prebuilt lint
+libraries for its branch tip on every merge, and a pin forces a source build
+because those libraries exist only for the tip, so `ci-mode` rejects a
+non-empty `suite-version` unless `allow-suite-pin: true` says the cost is
+deliberate.
+
+`ci-mode` also refuses a silent source build. Before the installer runs, the
+action checks that the rolling release carries this target's manifest, the
+lint archive that manifest names, and both Dylint tool archives, retrying five
+times over about thirty seconds because a republish takes six or seven. If an
+asset is still absent the step fails with the URL rather than letting the
+installer build from source. Afterwards the action reads the installer's own
+output and records
+`whitaker-installer.suite-source=<prebuilt|source>`, failing the step on
+`source`. A source build succeeds, which is the difficulty: without this the
+run is slower, tests something else, and looks fine.
+
+The resolved nightly is recorded as
+`whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
+to the compiler that produced the libraries.
 
 Each run records which arm it took as
 `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,

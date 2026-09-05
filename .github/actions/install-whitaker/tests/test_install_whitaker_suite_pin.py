@@ -110,3 +110,88 @@ class TestSuitePin:
         assert run.result.returncode == 0, run.result.stderr
         assert run.installer_args.read_text(encoding="utf-8").strip() == ""
         assert "whitaker-installer.suite=default-branch-tip" in run.summary_lines()
+
+
+class TestSuiteSource:
+    """Cover the outcome CI exists to refuse: a silent source build."""
+
+    def test_a_prebuilt_install_is_reported_as_prebuilt(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The ordinary path must be visible, not only the failure."""
+        run = run_scenario(InstallScenario(ci_mode="true"))
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=prebuilt" in run.summary_lines()
+
+    def test_a_source_build_fails_the_step_in_ci_mode(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """A source build succeeds, and that is the problem.
+
+        The installer exits zero after falling back to `cargo install`, so a
+        run that built its lint tooling from source looks like a working run
+        while having tested something else, more slowly. CI must refuse it.
+        """
+        run = run_scenario(
+            InstallScenario(ci_mode="true", installer_source_fallback=True)
+        )
+
+        assert run.result.returncode != 0
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "built from source" in run.result.stderr
+        assert "whitaker-installer.result=success" not in run.summary_lines(), (
+            "a source build must not be recorded as a successful install"
+        )
+
+    def test_a_source_build_is_reported_but_allowed_outside_ci_mode(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """Local reproduction may legitimately build from source."""
+        run = run_scenario(
+            InstallScenario(ci_mode="false", installer_source_fallback=True)
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "whitaker-installer.result=success" in run.summary_lines()
+
+    def test_an_allowed_pin_may_build_from_source(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The escape hatch has to survive the check it exempts from.
+
+        A pin builds from source by definition, so failing the run for that
+        outcome would let `allow-suite-pin` pass validation and then fail the
+        step, which is worse than not offering it at all.
+        """
+        run = run_scenario(
+            InstallScenario(
+                ci_mode="true",
+                allow_suite_pin="true",
+                suite_version="v0.2.8",
+                installer_source_fallback=True,
+            )
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "whitaker-installer.result=success" in run.summary_lines()
+
+    def test_an_unpinned_source_build_still_fails_with_the_allowance_set(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The allowance excuses a pin, not any source build whatsoever.
+
+        Without a pin there is no reason to build from source, so a fallback
+        there is the missing-asset failure this mode exists to catch, and the
+        allowance must not suppress it.
+        """
+        run = run_scenario(
+            InstallScenario(
+                ci_mode="true", allow_suite_pin="true", installer_source_fallback=True
+            )
+        )
+
+        assert run.result.returncode != 0
+        assert "built from source" in run.result.stderr

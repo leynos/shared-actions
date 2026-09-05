@@ -35,6 +35,31 @@ inputs:
       built-in cache or "external" when the caller mounts the Cargo home.
     required: false
     default: "github"
+  ci-mode:
+    description: >-
+      Treat a source build as a failure rather than a slow success. CI is
+      meant to consume Whitaker's published binaries, so a run that built the
+      lint suite or the Dylint tools from source has silently changed what it
+      tested and how long it took. With this on, the action checks the
+      published assets before starting, retries a short absence, and fails the
+      step if the installer still resorted to a source build. Set it off only
+      for local reproduction, where a source build is a legitimate choice.
+    required: false
+    default: "true"
+  allow-suite-pin:
+    description: >-
+      Permit suite-version while ci-mode is on. A pin forces a source build,
+      because prebuilt lint libraries are published only for the branch tip,
+      so the two settings contradict each other unless the caller says
+      otherwise deliberately.
+    required: false
+    default: "false"
+  github-token:
+    description: >-
+      Token used only to read the public rolling release without meeting the
+      unauthenticated rate limit. It is never sent anywhere else.
+    required: false
+    default: ${{ github.token }}
 
 runs:
   using: composite
@@ -43,10 +68,13 @@ runs:
       id: validate-inputs
       shell: bash
       env:
+        ALLOW_SUITE_PIN_INPUT: ${{ inputs.allow-suite-pin }}
         CACHE_PROVIDER_INPUT: ${{ inputs.cache-provider }}
         CARGO_HOME_INPUT: ${{ inputs.cargo-home }}
+        CI_MODE_INPUT: ${{ inputs.ci-mode }}
         INSTALLER_SHA256_INPUT: ${{ inputs.installer-sha256 }}
         INSTALLER_VERSION_INPUT: ${{ inputs.installer-version }}
+        SUITE_VERSION_INPUT: ${{ inputs.suite-version }}
       run: |
         set -euo pipefail
         input_error() {
@@ -66,6 +94,23 @@ runs:
           github|external) ;;
           *) input_error "cache-provider must be github or external" ;;
         esac
+        case "$CI_MODE_INPUT" in
+          true|false) ;;
+          *) input_error "ci-mode must be true or false" ;;
+        esac
+        case "$ALLOW_SUITE_PIN_INPUT" in
+          true|false) ;;
+          *) input_error "allow-suite-pin must be true or false" ;;
+        esac
+        # CI consumes Whitaker's published binaries; it does not build them.
+        # A suite pin forces a source build, because prebuilt lint libraries
+        # exist only for the branch tip, so the two settings contradict each
+        # other. Rejected rather than silently honoured, so a lane cannot
+        # acquire a source build by setting one input.
+        if [[ "$CI_MODE_INPUT" == "true" && -n "$SUITE_VERSION_INPUT" \
+              && "$ALLOW_SUITE_PIN_INPUT" != "true" ]]; then
+          input_error "suite-version forces a source build, which ci-mode forbids; set allow-suite-pin: true to accept that cost deliberately"
+        fi
         if (( ${#CARGO_HOME_INPUT} > 240 )); then
           input_error "cargo-home must be at most 240 characters"
         fi
@@ -522,12 +567,55 @@ runs:
         echo "::notice title=Whitaker installer::path=official-release version=${WHITAKER_INSTALLER_VERSION}"
         emit_metric "whitaker-installer.path=official-release"
 
+    - name: Verify the published lint assets
+      id: rolling-assets
+      # Skipped when a suite pin is in force: a pin builds from source by
+      # design, so the published assets are not what that run will use.
+      if: ${{ inputs.ci-mode == 'true' && inputs.suite-version == '' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        RUNNER_ARCHITECTURE: ${{ runner.arch }}
+        RUNNER_OPERATING_SYSTEM: ${{ runner.os }}
+        WHITAKER_VERIFY_SCRIPT: ${{ github.action_path }}/scripts/verify_rolling_assets.py
+      run: |
+        set -Eeuo pipefail
+        emit_metric() {
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        }
+        case "${RUNNER_OPERATING_SYSTEM}:${RUNNER_ARCHITECTURE}" in
+          Linux:X64) target=x86_64-unknown-linux-gnu ;;
+          Linux:ARM64) target=aarch64-unknown-linux-gnu ;;
+          macOS:X64) target=x86_64-apple-darwin ;;
+          macOS:ARM64) target=aarch64-apple-darwin ;;
+          Windows:X64) target=x86_64-pc-windows-msvc ;;
+          *)
+            echo "::error title=Whitaker rolling assets::unsupported runner ${RUNNER_OPERATING_SYSTEM}/${RUNNER_ARCHITECTURE}" >&2
+            emit_metric "whitaker-installer.rolling-assets=unsupported-runner"
+            exit 1
+            ;;
+        esac
+        # Five looks over roughly thirty seconds. A republish takes six or
+        # seven, so a run that merely arrived mid-publish waits rather than
+        # failing, while a genuine gap still fails closed with the URL.
+        if ! toolchain="$(python3 "$WHITAKER_VERIFY_SCRIPT" --target "$target" --attempts 5 --interval 6)"; then
+          emit_metric "whitaker-installer.rolling-assets=missing"
+          exit 1
+        fi
+        emit_metric "whitaker-installer.rolling-assets=complete"
+        emit_metric "whitaker-installer.suite-toolchain=${toolchain}"
+        echo "::notice title=Whitaker rolling assets::target=${target} toolchain=${toolchain}"
+
     - name: Run Whitaker installer
       shell: bash
       env:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
         WHITAKER_SUITE_VERSION: ${{ inputs.suite-version }}
+        WHITAKER_CI_MODE: ${{ inputs.ci-mode }}
+        WHITAKER_ALLOW_SUITE_PIN: ${{ inputs.allow-suite-pin }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -536,6 +624,12 @@ runs:
           fi
         }
         trap 'status=$?; echo "::error title=Whitaker installer failed::exit-code=${status} version=${WHITAKER_INSTALLER_VERSION}" >&2; emit_metric "whitaker-installer.failure=execution"; exit "${status}"' ERR
+        # Only stdout is captured. Merging stderr into it would cost the
+        # stream distinction the failure notices rely on, and the installer
+        # reports its source fallback on stdout. `pipefail` is already set, so
+        # the installer's exit status survives the pipe.
+        installer_log="${RUNNER_TEMP:-/tmp}/whitaker-installer-output.log"
+        : > "$installer_log"
         if [[ ! -x "$WHITAKER_INSTALLER_PATH" ]]; then
           echo "::error title=Whitaker installer failed::installer was not created at ${WHITAKER_INSTALLER_PATH}" >&2
           exit 1
@@ -553,13 +647,36 @@ runs:
           else
             emit_metric "whitaker-installer.suite=pinned-mutable-ref"
           fi
-          "$WHITAKER_INSTALLER_PATH" --suite-version "$WHITAKER_SUITE_VERSION"
+          "$WHITAKER_INSTALLER_PATH" --suite-version "$WHITAKER_SUITE_VERSION" | tee "$installer_log"
         else
           # Recorded rather than left silent: an unpinned suite is the
           # exposure this input exists to close, and a lane that never
           # noticed it should be able to see it in the series.
           emit_metric "whitaker-installer.suite=default-branch-tip"
-          "$WHITAKER_INSTALLER_PATH"
+          "$WHITAKER_INSTALLER_PATH" | tee "$installer_log"
         fi
-        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=${WHITAKER_SUITE_VERSION:-default-branch-tip}"
+        # Read from the installer's own output rather than inferred from a
+        # green exit. A source build succeeds; that is the problem. Until the
+        # installer reports the path explicitly, its fallback notice is the
+        # only evidence, and matching it is better than assuming a run that
+        # passed used the binaries it was supposed to.
+        suite_source=prebuilt
+        if grep -Eqi "falling back|from source with cargo install|installing .* from source" "$installer_log"; then
+          suite_source=source
+        fi
+        emit_metric "whitaker-installer.suite-source=${suite_source}"
+        # A pin builds from source by definition, so a caller who accepted that
+        # cost with allow-suite-pin must not then be failed for the outcome
+        # they asked for. Without this the escape hatch passes validation and
+        # fails the run, which is worse than not offering it.
+        pin_allows_source=false
+        if [[ -n "${WHITAKER_SUITE_VERSION}" && "$WHITAKER_ALLOW_SUITE_PIN" == "true" ]]; then
+          pin_allows_source=true
+        fi
+        if [[ "$suite_source" == "source" && "$WHITAKER_CI_MODE" == "true" \
+              && "$pin_allows_source" != "true" ]]; then
+          echo "::error title=Whitaker installer::the installer built from source instead of using the published binaries; CI must consume them. Re-run once the rolling release is complete, or set ci-mode: false if a source build is intended" >&2
+          exit 1
+        fi
+        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=${WHITAKER_SUITE_VERSION:-default-branch-tip} suite-source=${suite_source}"
         emit_metric "whitaker-installer.result=success"

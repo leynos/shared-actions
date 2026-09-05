@@ -456,10 +456,24 @@ build from instead, so a suite change arrives as a reviewed bump:
 ```
 
 A pin costs a source build, because prebuilt lint libraries are published only
-for the branch tip, and it needs installer 0.2.8 or later. It cannot be applied
-when the workflow runs inside a Whitaker checkout because checking out a
-reference there would move the working tree the run is using. Each run records
-which arm it took as
+for the branch tip, and it needs installer 0.2.8 or later. The action's
+`ci-mode` input defaults to on and rejects a pin for that reason: CI pins the
+installer and consumes the published binaries, and a lane that wants the cost
+must say so with `allow-suite-pin: true`. `ci-mode` also verifies the rolling
+assets before the installer runs, retrying a short absence, and fails the step
+if the installer resorted to a source build anyway.
+
+Every run records which path it took as
+`whitaker-installer.suite-source=<prebuilt|source>`, and the nightly the
+published libraries were built with as
+`whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
+to the compiler that produced it. Set `ci-mode: false` when a source build is
+the intention, such as reproducing a lint locally against a modified suite. The
+path is still recorded, but `source` no longer fails the step.
+
+A pin cannot be applied when the workflow runs inside a Whitaker checkout
+because checking out a reference there would move the working tree the run is
+using. Each run records which arm it took as
 `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
 Only a full commit identifier reports as `pinned-commit`; a branch or tag is
 reported as mutable because it can move without the caller changing anything.

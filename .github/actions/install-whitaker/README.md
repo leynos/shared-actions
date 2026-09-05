@@ -123,7 +123,7 @@ runs inside a Whitaker checkout, because checking out a reference there would
 move the working tree.
 
 Each run records which arm it took as
-`metric whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
+`whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
 so a lane that never chose can see the exposure rather than discover it from a
 red gate. The pinned arm is split because only a full commit identifier is
 immutable: a branch or a tag can advance without the calling repository

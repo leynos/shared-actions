@@ -16,7 +16,7 @@ file.
   A pin costs a source build, since prebuilt lint libraries are published only
   for the tip, and requires installer 0.2.8 or later. The default is unchanged,
   so nothing gets slower without asking. Each run reports
-  `metric whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
+  `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`,
   which makes an unpinned lane's exposure visible rather than silent. The
   pinned arm is split by mutability: a branch or a tag can advance without the
   caller changing a line, so reporting either as simply pinned would claim a

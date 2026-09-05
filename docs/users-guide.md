@@ -458,7 +458,9 @@ build from instead, so a suite change arrives as a reviewed bump:
 A pin costs a source build, because prebuilt lint libraries are published only
 for the branch tip, and it needs installer 0.2.8 or later. Each run records
 which arm it took as
-`metric whitaker-installer.suite=<pinned|default-branch-tip>`.
+`metric whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
+Only a full commit identifier reports as `pinned-commit`; a branch or tag is
+reported as mutable because it can move without the caller changing anything.
 
 The optional `installer-version` input selects the `whitaker-installer` version
 and defaults to `0.2.8`. The optional `cargo-home` input defaults to

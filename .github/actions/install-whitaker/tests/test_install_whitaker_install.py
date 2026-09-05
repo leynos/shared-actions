@@ -117,7 +117,48 @@ class TestInstallation:
             run.installer_args.read_text(encoding="utf-8").strip()
             == "--suite-version v0.2.7"
         )
-        assert "whitaker-installer.suite=pinned" in run.summary_lines()
+
+    @pytest.mark.parametrize(
+        ("suite_version", "metric"),
+        [
+            pytest.param(
+                "4c9a0b6e1d7f2a35c8e0b419d6f7a2c3e5b8d1f0",
+                "whitaker-installer.suite=pinned-commit",
+                id="commit",
+            ),
+            pytest.param(
+                "v0.2.7",
+                "whitaker-installer.suite=pinned-mutable-ref",
+                id="tag",
+            ),
+            pytest.param(
+                "main",
+                "whitaker-installer.suite=pinned-mutable-ref",
+                id="branch",
+            ),
+            pytest.param(
+                "4c9a0b6e1d7f2a35c8e0b419d6f7a2c3e5b8d1f",
+                "whitaker-installer.suite=pinned-mutable-ref",
+                id="short-commit",
+            ),
+        ],
+    )
+    def test_reports_whether_the_pin_can_move(
+        self,
+        run_scenario: ScenarioRunner,
+        suite_version: str,
+        metric: str,
+    ) -> None:
+        """Distinguish an immutable pin from one that can advance silently.
+
+        A branch or tag reported as simply "pinned" would claim a protection
+        the lane does not have: both can move without the calling repository
+        changing a line, which is the drift this metric exists to expose.
+        """
+        run = run_scenario(InstallScenario(suite_version=suite_version))
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert metric in run.summary_lines()
 
     def test_passes_no_suite_argument_when_unpinned(
         self, run_scenario: ScenarioRunner

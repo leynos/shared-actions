@@ -301,6 +301,60 @@ jobs:
           path: ${{ matrix.dir == '.' && 'mutants.out' || format('{0}/mutants.out', matrix.dir) }}
           if-no-files-found: warn
 
+      - name: Restore workflow source
+        # "Setup Rust" above is a workspace-local action, and GitHub re-reads a
+        # local action's action.yml when it runs that action's post step. The
+        # relocation moved that directory out of the workspace, so the post
+        # phase could not find it and every mutants job that actually ran
+        # failed at "Post Setup Rust" while the mutation results themselves
+        # succeeded. Post steps run after the last regular step, so putting the
+        # tree back here is early enough for them and late enough that no
+        # mutation run ever saw it.
+        #
+        # `always()` rather than `!cancelled()`, deliberately. It has to cover
+        # three endings, not one. A mutation run that fails must not also fail
+        # its cleanup and report two problems for one cause. A run that exceeds
+        # the step's own `timeout-minutes` is recorded as a failed step, so
+        # ordinary failure handling applies. And a job cancelled outright, by
+        # the job-level ceiling or by hand, still runs `always()` steps, which
+        # is precisely why GitHub cautions that `always()` can keep a
+        # cancelled job alive; here the work is one `mv`, so that caution
+        # costs nothing. `!cancelled()` would skip exactly the ending that
+        # leaves the tree displaced with no later step to notice.
+        if: >-
+          always() && steps.workflow-source.outputs.checkout == 'true' &&
+          steps.relocate-workflow-source.outcome == 'success'
+        shell: bash
+        env:
+          ORIGINAL_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          RELOCATED_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          # One bounded outcome per run, so a job summary or a log scraper can
+          # tell a restore that happened from one that was skipped and why.
+          # Without it the successful case is silent, and silence is what made
+          # the original failure hard to attribute.
+          if [[ -z "${ORIGINAL_DIR}" || -z "${RELOCATED_DIR}" ]]; then
+            echo "::warning title=Restore workflow source::a directory is unset;" \
+              "leaving the relocated checkout in place"
+            echo "metric mutation-restore.result=unset-directory"
+            exit 0
+          fi
+          if [[ "${ORIGINAL_DIR}" == "${RELOCATED_DIR}" ]]; then
+            echo "Nothing to restore: the checkout was never relocated."
+            echo "metric mutation-restore.result=not-relocated"
+            exit 0
+          fi
+          if [[ ! -d "${RELOCATED_DIR}" ]]; then
+            echo "::warning title=Restore workflow source::${RELOCATED_DIR} is absent"
+            echo "metric mutation-restore.result=absent"
+            exit 0
+          fi
+          echo "Restoring the workflow source: ${RELOCATED_DIR} -> ${ORIGINAL_DIR}"
+          rm -rf -- "${ORIGINAL_DIR}"
+          mv -- "${RELOCATED_DIR}" "${ORIGINAL_DIR}"
+          echo "metric mutation-restore.result=restored"
+
   summarize:
     needs: [detect, mutants]
     if: ${{ always() && needs.detect.outputs.has_changes == 'true' }}

@@ -330,20 +330,30 @@ jobs:
           RELOCATED_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail
+          # One bounded outcome per run, so a job summary or a log scraper can
+          # tell a restore that happened from one that was skipped and why.
+          # Without it the successful case is silent, and silence is what made
+          # the original failure hard to attribute.
           if [[ -z "${ORIGINAL_DIR}" || -z "${RELOCATED_DIR}" ]]; then
             echo "::warning title=Restore workflow source::a directory is unset;" \
               "leaving the relocated checkout in place"
+            echo "metric mutation-restore.result=unset-directory"
             exit 0
           fi
           if [[ "${ORIGINAL_DIR}" == "${RELOCATED_DIR}" ]]; then
+            echo "Nothing to restore: the checkout was never relocated."
+            echo "metric mutation-restore.result=not-relocated"
             exit 0
           fi
           if [[ ! -d "${RELOCATED_DIR}" ]]; then
             echo "::warning title=Restore workflow source::${RELOCATED_DIR} is absent"
+            echo "metric mutation-restore.result=absent"
             exit 0
           fi
+          echo "Restoring the workflow source: ${RELOCATED_DIR} -> ${ORIGINAL_DIR}"
           rm -rf -- "${ORIGINAL_DIR}"
           mv -- "${RELOCATED_DIR}" "${ORIGINAL_DIR}"
+          echo "metric mutation-restore.result=restored"
 
   summarize:
     needs: [detect, mutants]

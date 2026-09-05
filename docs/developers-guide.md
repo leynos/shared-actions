@@ -1177,6 +1177,35 @@ Internals for maintainers:
   formats are unstable; a version bump must be paired with a parser check
   (`outcomes.json` fields for cargo-mutants; the `mutmut results --all true`
   line format for mutmut).
+- The workflow checkout has a lifecycle, and both halves of it matter. Each
+  job checks the workflow repository out into `workflow-src/` inside the
+  caller's workspace, then relocates it to `$RUNNER_TEMP` before any mutation
+  work begins, so a caller's tree-scanning tests — manifest sweeps, file
+  inventories, lint-everything globs — never see foreign files in their
+  baseline or mutant runs.
+
+  A job that also loads an action out of that checkout has to put it back.
+  GitHub re-reads a local action's `action.yml` when it runs that action's
+  post step, so the mutants job, which uses
+  `./workflow-src/.github/actions/setup-rust`, failed at `Post Setup Rust`
+  with its mutation results already produced and uploaded. The restore is the
+  job's last regular step, which is late enough that no mutation run sees the
+  tree and early enough for the post phase, since post steps run after the
+  last regular step.
+
+  It is guarded by `always()` rather than `!cancelled()`, deliberately. Three
+  endings need covering: a failed run, whose cleanup must not add a second
+  failure; an overrun, which the step's own `timeout-minutes` records as a
+  failed step; and a cancelled job, where `always()` steps still run. The
+  third is the one `!cancelled()` would drop, and it is the one that most
+  needs the restore.
+
+  `workflow_scripts/tests/test_mutation_workflow_shape.py` pins the shape in
+  its general form, so a local action added to either workflow brings the
+  requirement with it, and
+  `workflow_scripts/tests/test_mutation_restore_fragment.py` executes the
+  shipped Bash against temporary directories, because a step named,
+  positioned and guarded correctly can still fail to move a directory.
 - Unit tests fake the `cargo`/`uv` boundary with POSIX shell shims on
   `PATH`; those tests are skipped on Windows (the workflows only run on
   `ubuntu-latest`). Property-based tests in

@@ -356,8 +356,14 @@ class TestResolveOutputDir:
             ["mutants", "--output", "out/first", "--output", "out/second"],
             ["mutants", "--output=out/first", "--output=out/second"],
             ["mutants", "--output", "out/first", "--output=out/second"],
+            ["mutants", "--output=out/first", "--output", "out/second"],
         ],
-        ids=["both-separate", "both-joined", "mixed"],
+        ids=[
+            "both-separate",
+            "both-joined",
+            "separate-then-joined",
+            "joined-then-separate",
+        ],
     )
     def test_the_last_override_wins(self, arguments: list[str]) -> None:
         """As it does for cargo-mutants itself.

@@ -91,6 +91,26 @@ SKIP_SUMMARY_TEMPLATE = """## Mutation testing skipped
 No matching source changes on `{base_ref}` in the last {window_hours} hours.
 """
 
+NOTHING_TO_MUTATE_SUMMARY = """## Mutation testing skipped
+
+Only test files changed on `{base_ref}` in the last {window_hours} hours, and
+cargo-mutants does not mutate those. Nothing to mutate, so the run is green
+rather than reporting a mutation score it did not measure.
+"""
+
+#: Files cargo-mutants never mutates, so scoping a run to them enumerates
+#: nothing. Kept separate from the caller's ``exclude-globs``, which says
+#: what a caller does not want mutated; this says what cannot be.
+#:
+#: Deliberately narrow. Only the conventions cargo-mutants itself skips
+#: are listed, because a rule that guessed would silently drop sources a
+#: caller expected to be covered, and a mutation lane that quietly tests
+#: less than it claims is the fault this whole area keeps producing.
+TEST_ONLY_SUFFIXES: typ.Final[tuple[str, ...]] = ("_test.rs", "_tests.rs")
+
+#: Directory names whose entire subtree is test code.
+TEST_ONLY_DIRECTORIES: typ.Final[frozenset[str]] = frozenset({"tests"})
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class DetectionConfig:
@@ -206,6 +226,42 @@ def _is_under(name: str, base: str) -> bool:
     return path != base_path and path.is_relative_to(base_path)
 
 
+def is_test_only(name: str) -> bool:
+    """Return True when cargo-mutants cannot mutate this file.
+
+    Parameters
+    ----------
+    name : str
+        A repo-relative path.
+
+    Returns
+    -------
+    bool
+        True for integration tests, ``src/tests/`` modules, and
+        ``*_test.rs`` or ``*_tests.rs`` companions.
+    """
+    path = PurePosixPath(name)
+    if path.name.endswith(TEST_ONLY_SUFFIXES):
+        return True
+    return bool(TEST_ONLY_DIRECTORIES.intersection(path.parent.parts))
+
+
+def drop_unmutated_by_cargo_mutants(files: cabc.Iterable[str]) -> list[str]:
+    """Drop the files cargo-mutants would enumerate nothing from.
+
+    Parameters
+    ----------
+    files : Iterable[str]
+        Repo-relative changed file paths.
+
+    Returns
+    -------
+    list[str]
+        The paths that could yield a mutant.
+    """
+    return [name for name in files if not is_test_only(name)]
+
+
 def bucket_files(
     files: cabc.Iterable[str], config: DetectionConfig
 ) -> dict[str, list[str]]:
@@ -306,17 +362,85 @@ def _write_output(name: str, value: str, output_path: Path) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def _write_skip_summary(config: DetectionConfig) -> None:
+def _write_skip_summary(config: DetectionConfig, *, nothing_to_mutate: bool) -> None:
     """Write the skip message to the job summary, when available."""
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
+    template = NOTHING_TO_MUTATE_SUMMARY if nothing_to_mutate else SKIP_SUMMARY_TEMPLATE
     with Path(summary_path).open("a", encoding="utf-8") as handle:
         handle.write(
-            SKIP_SUMMARY_TEMPLATE.format(
-                base_ref=config.base_ref, window_hours=config.window_hours
-            )
+            template.format(base_ref=config.base_ref, window_hours=config.window_hours)
         )
+
+
+class Detection(typ.NamedTuple):
+    """What one detection run concluded.
+
+    Attributes
+    ----------
+    entries : list[MatrixEntry]
+        The matrix to run, empty when there is nothing to do.
+    buckets : dict[str, list[str]]
+        Changed files by target directory.
+    nothing_to_mutate : bool
+        True when files changed but none of them can be mutated.
+    """
+
+    entries: list[MatrixEntry]
+    buckets: dict[str, list[str]]
+    nothing_to_mutate: bool
+
+
+def detect(event_name: str, config: DetectionConfig) -> Detection:
+    """Decide what this run should mutate.
+
+    Parameters
+    ----------
+    event_name : str
+        The triggering event.
+    config : DetectionConfig
+        Detection settings.
+
+    Returns
+    -------
+    Detection
+        The matrix, the buckets behind it, and whether the run found
+        changes it cannot mutate.
+    """
+    if event_name == "workflow_dispatch":
+        return Detection(full_run_matrix(config), {}, nothing_to_mutate=False)
+    changed = changed_files(config)
+    mutable = drop_unmutated_by_cargo_mutants(changed)
+    # A day whose only Rust changes are tests is not a mutation failure
+    # and must not be scheduled as one: the job would build a full
+    # baseline, enumerate nothing, and now fail for it.
+    buckets = bucket_files(mutable, config)
+    return Detection(
+        scoped_run_matrix(buckets, config),
+        buckets,
+        nothing_to_mutate=bool(changed) and not mutable,
+    )
+
+
+def _report(
+    detection: Detection, *, config: DetectionConfig, output_path: Path
+) -> None:
+    """Write the step outputs, the summary, and the metric lines."""
+    has_changes = bool(detection.entries)
+    _write_output("has_changes", "true" if has_changes else "false", output_path)
+    _write_output("matrix", matrix_json(detection.entries), output_path)
+    _write_output("root_files", " ".join(detection.buckets.get(".", [])), output_path)
+    if not has_changes:
+        _write_skip_summary(config, nothing_to_mutate=detection.nothing_to_mutate)
+        emit(
+            "mutation_detect_outcome",
+            "nothing to mutate"
+            if detection.nothing_to_mutate
+            else "no matching changes",
+        )
+    emit("mutation_detect_has_changes", has_changes)
+    emit("mutation_detect_targets", [entry.slug for entry in detection.entries])
 
 
 @app.default
@@ -379,21 +503,8 @@ def main(
         base_ref=base_ref,
     )
 
-    if event_name == "workflow_dispatch":
-        entries = full_run_matrix(config)
-        buckets: dict[str, list[str]] = {}
-    else:
-        buckets = bucket_files(changed_files(config), config)
-        entries = scoped_run_matrix(buckets, config)
-
-    has_changes = bool(entries)
-    _write_output("has_changes", "true" if has_changes else "false", output_path)
-    _write_output("matrix", matrix_json(entries), output_path)
-    _write_output("root_files", " ".join(buckets.get(".", [])), output_path)
-    if not has_changes:
-        _write_skip_summary(config)
-    emit("mutation_detect_has_changes", has_changes)
-    emit("mutation_detect_targets", [entry.slug for entry in entries])
+    detection = detect(event_name, config)
+    _report(detection, config=config, output_path=output_path)
 
 
 if __name__ == "__main__":

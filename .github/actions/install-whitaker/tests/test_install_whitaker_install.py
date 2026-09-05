@@ -93,12 +93,46 @@ class TestInstallation:
             "whitaker-installer.digest=verified",
             "whitaker-installer.trust-anchor=pinned",
             "whitaker-installer.path=official-release",
+            "whitaker-installer.suite=default-branch-tip",
             "whitaker-installer.result=success",
         ]
         assert (
             "::notice title=Whitaker installer::path=official-release version=0.2.7"
             in run.result.stdout
         )
+
+    def test_passes_the_suite_pin_to_the_installer(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The input is worth nothing unless it reaches the installer.
+
+        Asserted on the arguments the installer actually received, because an
+        input that is declared, documented and never forwarded looks exactly
+        like one that works.
+        """
+        run = run_scenario(InstallScenario(suite_version="v0.2.7"))
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert (
+            run.installer_args.read_text(encoding="utf-8").strip()
+            == "--suite-version v0.2.7"
+        )
+        assert "whitaker-installer.suite=pinned" in run.summary_lines()
+
+    def test_passes_no_suite_argument_when_unpinned(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The default must stay the installer's own default.
+
+        Passing an empty `--suite-version` would be a pin to the empty string
+        rather than an absence, and macOS runners ship bash 3.2, where an
+        empty array expanded under `set -u` is an error rather than nothing.
+        """
+        run = run_scenario(InstallScenario())
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert run.installer_args.read_text(encoding="utf-8").strip() == ""
+        assert "whitaker-installer.suite=default-branch-tip" in run.summary_lines()
 
     def test_reuses_a_restored_installer(self, run_scenario: ScenarioRunner) -> None:
         """Verify a restored installer bypasses the release download."""
@@ -112,6 +146,7 @@ class TestInstallation:
         assert run.summary_lines() == [
             "whitaker-installer.cache=hit",
             "whitaker-installer.path=cache",
+            "whitaker-installer.suite=default-branch-tip",
             "whitaker-installer.result=success",
         ]
         assert run.transfer_metrics() == []

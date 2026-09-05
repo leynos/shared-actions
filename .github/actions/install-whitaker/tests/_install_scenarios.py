@@ -83,6 +83,9 @@ if [ "$FAIL_INSTALLER" = "true" ]; then
   exit 33
 fi
 printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
+# Arguments go to a sibling file so the installer log stays exactly what
+# the existing assertions expect it to be.
+printf '%s\\n' "$*" >> "${INSTALLER_LOG}.args"
 """
 
 _CONFLICTING_INSTALLER_STUB = """#!/usr/bin/env bash
@@ -221,6 +224,7 @@ class InstallScenario:
     sidecar_sha256: str = AUTO
     pinned_sha256: str | None = AUTO
     installer_sha256: str = ""
+    suite_version: str = ""
 
     @property
     def payload_sha256(self) -> str:
@@ -276,6 +280,11 @@ class InstallRun:
     def installer_log(self) -> Path:
         """Return the log written by the stubbed installer."""
         return self.root / "installer.log"
+
+    @property
+    def installer_args(self) -> Path:
+        """Return the arguments the action passed to the installer."""
+        return self.root / "installer.log.args"
 
     @property
     def conflict_log(self) -> Path:
@@ -381,6 +390,7 @@ def _build_context(
             "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
             "installer-sha256": scenario.installer_sha256,
             "installer-version": scenario.installer_version,
+            "suite-version": scenario.suite_version,
         },
         runner_os=scenario.runner_os,
         runner_arch=scenario.runner_arch,

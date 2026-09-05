@@ -9,13 +9,24 @@ inputs:
   installer-version:
     description: Version of whitaker-installer to install
     required: false
-    default: "0.2.7"
+    default: "0.2.8"
   installer-sha256:
     description: >-
       SHA-256 digest of the whitaker-installer release archive for this
       runner. The action's pinned digest manifest takes precedence; supply
       this only for an asset the manifest does not pin. A value that
       disagrees with a pinned digest is rejected.
+    required: false
+    default: ""
+  suite-version:
+    description: >-
+      Git reference the lint suite is built from: a tag, a branch or a
+      commit. Left empty, the installer builds the suite from the Whitaker
+      default branch tip, so a change there alters lint results with no
+      commit in this repository. Pinning makes a suite change arrive as a
+      reviewed bump, at the cost of a source build, because prebuilt lint
+      libraries are published only for the tip. Requires installer 0.2.8 or
+      later.
     required: false
     default: ""
   cache-provider:
@@ -516,6 +527,7 @@ runs:
       env:
         WHITAKER_INSTALLER_PATH: ${{ steps.validate-inputs.outputs.installer-path }}
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
+        WHITAKER_SUITE_VERSION: ${{ inputs.suite-version }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -528,6 +540,18 @@ runs:
           echo "::error title=Whitaker installer failed::installer was not created at ${WHITAKER_INSTALLER_PATH}" >&2
           exit 1
         fi
-        "$WHITAKER_INSTALLER_PATH"
-        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION}"
+        # Two calls rather than one with an options array: macOS runners ship
+        # bash 3.2, where expanding an empty array under `set -u` is an
+        # unbound-variable error.
+        if [[ -n "${WHITAKER_SUITE_VERSION}" ]]; then
+          emit_metric "whitaker-installer.suite=pinned"
+          "$WHITAKER_INSTALLER_PATH" --suite-version "$WHITAKER_SUITE_VERSION"
+        else
+          # Recorded rather than left silent: an unpinned suite is the
+          # exposure this input exists to close, and a lane that never
+          # noticed it should be able to see it in the series.
+          emit_metric "whitaker-installer.suite=default-branch-tip"
+          "$WHITAKER_INSTALLER_PATH"
+        fi
+        echo "::notice title=Whitaker installer::status=complete version=${WHITAKER_INSTALLER_VERSION} suite=${WHITAKER_SUITE_VERSION:-default-branch-tip}"
         emit_metric "whitaker-installer.result=success"

@@ -29,7 +29,7 @@ _PINNED_TARGETS = (
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
-_PINNED_VERSIONS = ("0.2.6", "0.2.7")
+_PINNED_VERSIONS = ("0.2.6", "0.2.7", "0.2.8")
 
 
 def _step_env(name: str) -> dict[str, str]:
@@ -65,7 +65,7 @@ class TestInputs:
             "installer-version": {
                 "description": "Version of whitaker-installer to install",
                 "required": False,
-                "default": "0.2.7",
+                "default": "0.2.8",
             },
             "installer-sha256": {
                 "description": (
@@ -74,6 +74,20 @@ class TestInputs:
                     "precedence; supply this only for an asset the manifest does "
                     "not pin. A value that disagrees with a pinned digest is "
                     "rejected."
+                ),
+                "required": False,
+                "default": "",
+            },
+            "suite-version": {
+                "description": (
+                    "Git reference the lint suite is built from: a tag, a "
+                    "branch or a commit. Left empty, the installer builds the "
+                    "suite from the Whitaker default branch tip, so a change "
+                    "there alters lint results with no commit in this "
+                    "repository. Pinning makes a suite change arrive as a "
+                    "reviewed bump, at the cost of a source build, because "
+                    "prebuilt lint libraries are published only for the tip. "
+                    "Requires installer 0.2.8 or later."
                 ),
                 "required": False,
                 "default": "",

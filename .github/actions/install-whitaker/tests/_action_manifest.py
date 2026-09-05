@@ -54,6 +54,17 @@ def load_manifest() -> dict[str, object]:
     )
 
 
+def default_input(name: str) -> str:
+    """Return an input's declared default.
+
+    Read from the manifest rather than repeated in the fixtures, so a bump to
+    the action's default cannot leave the lifecycle tests exercising the
+    previous version while still passing.
+    """
+    inputs = typ.cast("dict[str, dict[str, str]]", load_manifest()["inputs"])
+    return inputs[name]["default"]
+
+
 def manifest_steps() -> list[CompositeStep]:
     """Return the composite steps in declaration order.
 

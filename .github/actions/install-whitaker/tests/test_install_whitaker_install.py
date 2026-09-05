@@ -83,9 +83,10 @@ class TestInstallation:
 
         assert run.result.returncode == 0, run.result.stderr
         scenario = InstallScenario()
+        version = scenario.installer_version
         download_log = run.download_log.read_text(encoding="utf-8")
-        assert f"/v0.2.7/{scenario.asset} " in download_log
-        assert f"/v0.2.7/{scenario.asset}.sha256 " in download_log
+        assert f"/v{version}/{scenario.asset} " in download_log
+        assert f"/v{version}/{scenario.asset}.sha256 " in download_log
         assert run.installer_path.is_file()
         assert run.installer_log.read_text(encoding="utf-8") == "suite installed\n"
         assert run.lifecycle_metrics() == [
@@ -97,8 +98,8 @@ class TestInstallation:
             "whitaker-installer.result=success",
         ]
         assert (
-            "::notice title=Whitaker installer::path=official-release version=0.2.7"
-            in run.result.stdout
+            "::notice title=Whitaker installer::path=official-release "
+            f"version={version}" in run.result.stdout
         )
 
     def test_reuses_a_restored_installer(self, run_scenario: ScenarioRunner) -> None:
@@ -277,7 +278,10 @@ class TestStaleCacheDetection:
         assert "whitaker-installer.cache-entry=stale" in run.summary_lines()
         assert "whitaker-installer.path=official-release" in run.summary_lines()
         assert "cached-version=0.2.6" in run.result.stdout
-        assert run.version_marker.read_text(encoding="utf-8").strip() == "0.2.7"
+        assert (
+            run.version_marker.read_text(encoding="utf-8").strip()
+            == InstallScenario().installer_version
+        )
 
     def test_replaces_a_cached_installer_with_no_version_marker(
         self,
@@ -355,8 +359,9 @@ class TestPlatformMatrix:
 
         assert run.result.returncode == 0, run.result.stderr
         download_log = run.download_log.read_text(encoding="utf-8")
-        assert f"/v0.2.7/{scenario.asset} " in download_log
-        assert f"/v0.2.7/{scenario.asset}.sha256 " in download_log
+        version = scenario.installer_version
+        assert f"/v{version}/{scenario.asset} " in download_log
+        assert f"/v{version}/{scenario.asset}.sha256 " in download_log
         assert run.installer_path.name == scenario.installer_name
         assert run.installer_path.is_file()
         assert run.installer_log.read_text(encoding="utf-8") == "suite installed\n"
@@ -623,7 +628,8 @@ class TestFailureContract:
         assert expected_error in run.result.stderr
         assert (
             f"::error title=Whitaker installer failed::"
-            f"exit-code={run.result.returncode} version=0.2.7"
+            f"exit-code={run.result.returncode} "
+            f"version={InstallScenario().installer_version}"
         ) in run.result.stderr
         assert any(
             line.startswith("whitaker-installer.failure=")

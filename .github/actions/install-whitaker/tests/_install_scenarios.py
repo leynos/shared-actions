@@ -27,6 +27,7 @@ from _action_manifest import (
     SUPPORTED_PLATFORMS,
     ZIP_SCRIPT_PATH,
     asset_name,
+    default_input,
     installer_filename,
     lifecycle_steps,
     step_by_id,
@@ -203,6 +204,11 @@ def archive_fixture(scenario: InstallScenario) -> bytes:
     return _tar_fixture(member, payload)
 
 
+#: The action's own default, so a lifecycle run with no explicit version
+#: exercises the version the action would really install.
+DEFAULT_INSTALLER_VERSION = default_input("installer-version")
+
+
 @dc.dataclass(frozen=True)
 class InstallScenario:
     """Describe one lifecycle run of the install-whitaker action."""
@@ -212,7 +218,7 @@ class InstallScenario:
     installer_present: bool = False
     fail_download: bool = False
     fail_installer: bool = False
-    installer_version: str = "0.2.7"
+    installer_version: str = DEFAULT_INSTALLER_VERSION
     cargo_home_name: str = "cargo-home"
     cargo_home_value: str | None = None
     cache_hit: bool = False

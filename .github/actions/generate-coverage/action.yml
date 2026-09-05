@@ -70,6 +70,16 @@ inputs:
       lower it only if a hang must be caught sooner than the build can finish.
     required: false
     default: "1800"
+  publish-baseline:
+    description: >-
+      When the ratchet may publish a new baseline. "auto" saves only on a push
+      to refs/heads/main, so a workflow_dispatch measuring warm caches, and a
+      push to any other branch, read the baseline without advancing it. Use
+      "always" when a repository's merges fire no push event, or when its trunk
+      is not called main; the calling workflow is then responsible for
+      restricting the job to its trunk.
+    required: false
+    default: auto
   artefact-name-suffix:
     description: Optional suffix appended to the coverage artefact name
     required: false
@@ -121,6 +131,23 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate baseline publication mode
+      shell: bash
+      env:
+        GC_PUBLISH_BASELINE: ${{ inputs.publish-baseline }}
+      run: |
+        # Refused here rather than in the save step's condition. An expression
+        # can only decide whether to run; a typo such as "alway" would read as
+        # "not always", publish nothing, and leave later runs comparing against
+        # a baseline that silently stopped advancing.
+        set -euo pipefail
+        case "$GC_PUBLISH_BASELINE" in
+          auto|always) ;;
+          *)
+            echo "::error title=Invalid publish-baseline::expected auto or always, got '"'"'${GC_PUBLISH_BASELINE}'"'"'" >&2
+            exit 1
+            ;;
+        esac
     - name: Validate cache provider
       shell: bash
       env:
@@ -415,7 +442,18 @@ runs:
       # save on the constant key.
       # The save sub-action pairs with the restore sub-action above, so exactly
       # one step writes this key.
-      if: success() && inputs.with-ratchet == 'true'
+      # Publish only from a trunk push. A workflow_dispatch is how warm-cache
+      # evidence is gathered: the same workflow is re-run over an unchanged
+      # tree, and such a run must read the generation it is measuring rather
+      # than advance it. A push to another branch would advance the trunk
+      # baseline that later pull requests are compared against, which is a
+      # correctness question rather than housekeeping. A caller whose merges
+      # fire no push event, or whose trunk is not main, sets
+      # publish-baseline: always and restricts the job itself.
+      if: >-
+        success() && inputs.with-ratchet == 'true' &&
+        (inputs.publish-baseline == 'always' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
       # v6.1.0
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:

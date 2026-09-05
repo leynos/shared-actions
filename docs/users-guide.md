@@ -219,6 +219,28 @@ written as a fixed `metric ratchet-cache.restore=<state>` or
 without parsing the notice text. `disabled` means the ratchet is off; `skipped`
 means an earlier failure stopped the step running.
 
+### When the baseline is published
+
+In the default `auto` mode the save publishes only on a `push` to
+`refs/heads/main`. A `workflow_dispatch` never publishes, and neither does a
+push to any other branch. `publish-baseline: always` lifts both restrictions.
+
+That matters for two reasons. A dispatch is how warm-cache evidence is
+gathered, by re-running the same workflow over an unchanged tree; a run that
+publishes disturbs the generation it was measuring, and adds an entry rather
+than replacing one, since the key names the run. And a push to a branch other
+than the trunk would advance the baseline that later pull requests are measured
+against, which is a correctness question rather than housekeeping.
+
+A repository whose merges fire no `push` event, because they land through an
+automerge token, and one whose trunk is not called `main`, set
+`publish-baseline: always`. The calling workflow is then responsible for
+restricting the job to the runs that should publish, since the action no longer
+does. It defaults to `auto`, the guarded behaviour, so no caller inherits the
+exception.
+
+`ratchet-coverage` carries the same input and the same guard.
+
 ## `ratchet-coverage` baseline caching
 
 `ratchet-coverage` stores its coverage baseline in a GitHub cache between runs.

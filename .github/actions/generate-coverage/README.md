@@ -143,6 +143,7 @@ Known limitations:
 | format                | Formats: `lcov`*, `cobertura`, `coveragepy`*                                                                                                                                                       | no       | `cobertura`                 |
 | with-ratchet          | Fail if coverage drops more than 1pp below baseline                                                                                                                                                | no       | `false`                     |
 | cargo-wait-timeout    | Seconds cargo may run before the watchdog kills it                                                                                                                                                 | no       | `1800`                      |
+| publish-baseline      | When the baseline may be published: `auto` or `always`                                                                                                                                             | no       | `auto`                      |
 | artefact-name-suffix  | Additional suffix appended to the uploaded coverage artefact                                                                                                                                       | no       |                             |
 | baseline-rust-file    | Rust baseline path                                                                                                                                                                                 | no       | `.coverage-baseline.rust`   |
 | baseline-python-file  | Python baseline path                                                                                                                                                                               | no       | `.coverage-baseline.python` |
@@ -300,6 +301,28 @@ Use `language: rust` for a Rust repository that keeps a tooling-only
     format: lcov
 ```
 
+## When the baseline is published
+
+In the default `auto` mode the save runs only on a `push` to `refs/heads/main`.
+A `workflow_dispatch` never publishes, and neither does a push to any other
+branch. `publish-baseline: always` lifts both restrictions.
+
+A dispatch is how warm-cache evidence is gathered, by re-running a workflow
+over an unchanged tree; a run that publishes disturbs the generation it was
+measuring, and adds a cache entry rather than replacing one, because the key
+names the run. A push to a branch other than the trunk would advance the
+baseline that later pull requests are measured against, which is a correctness
+question rather than housekeeping.
+
+Set `publish-baseline: always` when a repository's merges fire no `push` event,
+because they land through an automerge token, or when its trunk is not called
+`main`. The calling workflow is then responsible for restricting the job to the
+runs that should publish, since the action no longer is. Any value other than
+`auto` or `always` is refused by the action's first step, before it restores
+anything, rather than being treated as `auto`: a typo would otherwise stop
+publication silently and leave later runs comparing against a baseline that had
+stopped advancing.
+
 ## The cargo watchdog
 
 `cargo` is run under a watchdog that kills it after `cargo-wait-timeout`
@@ -404,9 +427,9 @@ provisional symmetric ±1 percentage-point dead-band. Coverage within one
 absolute percentage point of the baseline is treated as noise: the run passes
 and the baseline is held. A drop of more than one point below the baseline
 fails the run; a rise of more than one point above the baseline advances the
-baseline. On pushes to the default branch the advanced baseline is persisted to
-the Actions cache and restored on subsequent runs, so the baseline tracks the
-latest default-branch coverage.
+baseline. Under the default `publish-baseline: auto`, only a push to
+`refs/heads/main` persists the advanced baseline to the Actions cache; every
+run restores it, so the baseline tracks the latest trunk coverage.
 
 Enable cucumber-rs:
 

@@ -441,8 +441,16 @@ class TestLifecycleSteps:
         invocation. Anchoring to a command boundary keeps the rule that
         matters: nothing here may run Cargo.
         """
+        # Every keyword that can precede a command, not only the ones the
+        # current fragments happen to use. `if cargo install ...; then` is the
+        # obvious way to write a fallback, so omitting `if` would have left the
+        # rule blind to the shape most likely to reintroduce one.
         invocation = re.compile(
-            r"""(?:^|[;&|(]|\$\(|`|\bthen\b|\bdo\b|\belse\b)\s*
+            r"""(?:
+                    ^ | [;&|(] | \$\( | `
+                  | \b(?:if|elif|while|until|then|do|else)\b
+                  | !
+                )\s*
                 (?:[A-Za-z_]\w*=\S*\s+)*
                 cargo\s+(?:install|binstall)\b""",
             re.VERBOSE | re.MULTILINE,
@@ -455,6 +463,25 @@ class TestLifecycleSteps:
                 if not line.lstrip().startswith("#") and invocation.search(line)
             ]
             assert not offenders, f"{name} invokes Cargo: {offenders}"
+
+        # The recognizer is the rule here, so it is asserted rather than
+        # inferred from fragments that happen to be clean today.
+        for shape in (
+            "cargo install cargo-dylint",
+            "if cargo install cargo-dylint; then :; fi",
+            "elif cargo binstall cargo-dylint; then :; fi",
+            "  set -e; cargo install cargo-dylint",
+            "RUSTUP_TOOLCHAIN=stable cargo install cargo-dylint",
+            "! cargo install cargo-dylint",
+        ):
+            assert invocation.search(shape), f"a Cargo invocation slipped past: {shape}"
+        for benign in (
+            'grep -q "from source with cargo install" "$log"',
+            "echo 'never run cargo install here'",
+        ):
+            assert not invocation.search(benign), (
+                f"a mention was read as an invocation: {benign}"
+            )
 
     def test_installation_reads_the_resolved_installer_name(self) -> None:
         """Verify the install step installs the resolved filename."""

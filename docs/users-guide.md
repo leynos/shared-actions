@@ -468,11 +468,12 @@ Every run records which path it took as
 published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
 to the compiler that produced it. Set `ci-mode: false` when a source build is
-the intention, such as reproducing a lint locally against a modified suite.
-The path is still recorded, but `source` no longer fails the step. It cannot be applied when
-the workflow runs inside a Whitaker checkout because checking out a reference
-there would move the working tree the run is using. Each run records which arm
-it took as
+the intention, such as reproducing a lint locally against a modified suite. The
+path is still recorded, but `source` no longer fails the step.
+
+A pin cannot be applied when the workflow runs inside a Whitaker checkout
+because checking out a reference there would move the working tree the run is
+using. Each run records which arm it took as
 `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
 Only a full commit identifier reports as `pinned-commit`; a branch or tag is
 reported as mutable because it can move without the caller changing anything.

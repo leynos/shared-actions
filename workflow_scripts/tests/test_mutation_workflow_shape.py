@@ -9,6 +9,12 @@ PyYAML and pin the corrective invariant: every job that checks out the
 workflow repository must relocate it to ``$RUNNER_TEMP`` before any
 step consumes it, and every ``WORKFLOW_DIR`` consumer must read the
 relocated path.
+
+The relocation has a second edge. GitHub re-reads a local action's
+``action.yml`` when it runs that action's post step, so a job that both
+relocates the checkout and loads an action out of it must put the tree
+back before the post phase, or the job fails during cleanup with its
+real work already done. That is pinned here too.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ WORKFLOW_NAMES = ("mutation-cargo.yml", "mutation-mutmut.yml")
 
 CHECKOUT_STEP = "Checkout workflow repository"
 RELOCATE_STEP = "Relocate workflow source"
+RESTORE_STEP = "Restore workflow source"
 RELOCATED_DIR_EXPR = "${{ steps.relocate-workflow-source.outputs.workflow_dir }}"
 
 pytestmark = pytest.mark.skipif(
@@ -111,3 +118,79 @@ def test_workflow_dir_consumers_read_the_relocated_path(
                 f"WORKFLOW_DIR from the relocation step's output, got "
                 f"{env['WORKFLOW_DIR']!r}"
             )
+
+
+def _workspace_local_action_steps(
+    steps: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return the steps loading an action from the workflow checkout.
+
+    Only these make the relocation a cleanup hazard: GitHub re-reads a local
+    action's ``action.yml`` to run its post step, and a remote action's code
+    does not live in the moved tree.
+    """
+    return [
+        step
+        for step in steps
+        if str(step.get("uses") or "").startswith("./workflow-src/")
+    ]
+
+
+@pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+def test_a_relocating_job_that_uses_a_local_action_restores_the_checkout(
+    workflow_name: str,
+) -> None:
+    """A job cannot move a local action out from under its own post step.
+
+    Post steps run after the last regular step, so the restore has to be a
+    regular step and it has to be the last one that touches the tree. Without
+    it the job fails at ``Post Setup Rust`` having already produced its
+    mutation results, which reads as a mutation failure and is not one.
+    """
+    for job_name, job in _jobs(workflow_name).items():
+        steps = _steps(job)
+        names = _step_names(steps)
+        if RELOCATE_STEP not in names:
+            continue
+        local_actions = _workspace_local_action_steps(steps)
+        if not local_actions:
+            continue
+
+        assert RESTORE_STEP in names, (
+            f"{workflow_name}:{job_name} relocates workflow-src and loads "
+            f"{[s.get('name') for s in local_actions]} from it, so it must "
+            f"restore the checkout before its post steps run"
+        )
+        assert names.index(RESTORE_STEP) > names.index(RELOCATE_STEP), (
+            f"{workflow_name}:{job_name} restores workflow-src before it relocates it"
+        )
+        assert names.index(RESTORE_STEP) == len(names) - 1, (
+            f"{workflow_name}:{job_name} must restore workflow-src in its "
+            f"last step; a later step would see the checkout the relocation "
+            f"exists to hide"
+        )
+
+
+@pytest.mark.parametrize("workflow_name", WORKFLOW_NAMES)
+def test_the_restore_runs_even_when_the_mutation_run_failed(
+    workflow_name: str,
+) -> None:
+    """Cleanup must not be conditional on the work having succeeded.
+
+    Without ``always()`` a failed mutation run would leave the checkout
+    outside the workspace, and the job would report the post-step failure on
+    top of the real one.
+    """
+    for job_name, job in _jobs(workflow_name).items():
+        steps = _steps(job)
+        names = _step_names(steps)
+        if RESTORE_STEP not in names:
+            continue
+        condition = " ".join(
+            str(steps[names.index(RESTORE_STEP)].get("if", "")).split()
+        )
+
+        assert "always()" in condition, (
+            f"{workflow_name}:{job_name} restore is not guarded by always(): "
+            f"{condition!r}"
+        )

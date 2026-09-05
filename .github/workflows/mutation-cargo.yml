@@ -301,6 +301,42 @@ jobs:
           path: ${{ matrix.dir == '.' && 'mutants.out' || format('{0}/mutants.out', matrix.dir) }}
           if-no-files-found: warn
 
+      - name: Restore workflow source
+        # "Setup Rust" above is a workspace-local action, and GitHub re-reads a
+        # local action's action.yml when it runs that action's post step. The
+        # relocation moved that directory out of the workspace, so the post
+        # phase could not find it and every mutants job that actually ran
+        # failed at "Post Setup Rust" while the mutation results themselves
+        # succeeded. Post steps run after the last regular step, so putting the
+        # tree back here is early enough for them and late enough that no
+        # mutation run ever saw it.
+        #
+        # `always()`, because a failed mutation run must not also fail the
+        # cleanup, and because the relocation has already happened by then.
+        if: >-
+          always() && steps.workflow-source.outputs.checkout == 'true' &&
+          steps.relocate-workflow-source.outcome == 'success'
+        shell: bash
+        env:
+          ORIGINAL_DIR: ${{ steps.workflow-source.outputs.workflow_dir }}
+          RELOCATED_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ORIGINAL_DIR}" || -z "${RELOCATED_DIR}" ]]; then
+            echo "::warning title=Restore workflow source::a directory is unset;" \
+              "leaving the relocated checkout in place"
+            exit 0
+          fi
+          if [[ "${ORIGINAL_DIR}" == "${RELOCATED_DIR}" ]]; then
+            exit 0
+          fi
+          if [[ ! -d "${RELOCATED_DIR}" ]]; then
+            echo "::warning title=Restore workflow source::${RELOCATED_DIR} is absent"
+            exit 0
+          fi
+          rm -rf -- "${ORIGINAL_DIR}"
+          mv -- "${RELOCATED_DIR}" "${ORIGINAL_DIR}"
+
   summarize:
     needs: [detect, mutants]
     if: ${{ always() && needs.detect.outputs.has_changes == 'true' }}

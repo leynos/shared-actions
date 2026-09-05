@@ -457,7 +457,7 @@ build from instead, so a suite change arrives as a reviewed bump:
 
 A pin costs a source build, because prebuilt lint libraries are published only
 for the branch tip, and it needs installer 0.2.8 or later. It cannot be applied
-when the workflow runs inside a Whitaker checkout, because checking out a
+when the workflow runs inside a Whitaker checkout because checking out a
 reference there would move the working tree the run is using. Each run records
 which arm it took as
 `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.

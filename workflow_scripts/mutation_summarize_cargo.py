@@ -281,6 +281,29 @@ def _shard_inventory_count(artefact_dir: Path) -> int | None:
     return len(listed) if isinstance(listed, list) else None
 
 
+def _shard_directories(report_root: Path) -> tuple[Path, ...]:
+    """Return the artefact directories that are shard reports."""
+    # The download root can hold directories that were never shard
+    # artefacts. Treating one as an unreadable shard would make every
+    # total unknown and switch the empty-run check off in silence.
+    return tuple(
+        sorted(
+            entry
+            for entry in report_root.iterdir()
+            if entry.is_dir() and ARTEFACT_NAME_PATTERN.match(entry.name)
+        )
+    )
+
+
+def _is_unknown(counts: tuple[int | None, ...]) -> bool:
+    """Return True when the shards do not add up to a known total."""
+    # One unreadable shard makes the whole total unknown. Summing the
+    # rest would report a run as empty on the strength of the shards
+    # that happened to survive, and failing a job for that is exactly
+    # the kind of confident wrong answer this check exists to prevent.
+    return not counts or any(count is None for count in counts)
+
+
 def total_enumerated_mutants(report_root: Path) -> int | None:
     """Sum the mutants every shard enumerated.
 
@@ -302,19 +325,11 @@ def total_enumerated_mutants(report_root: Path) -> int | None:
         unreadable. Unknown is deliberately not zero, and one unknown
         shard makes the total unknown rather than merely smaller.
     """
-    shards = tuple(
-        sorted(
-            entry
-            for entry in report_root.iterdir()
-            if entry.is_dir() and ARTEFACT_NAME_PATTERN.match(entry.name)
-        )
+    counts = tuple(
+        _shard_inventory_count(directory)
+        for directory in _shard_directories(report_root)
     )
-    counts = tuple(_shard_inventory_count(directory) for directory in shards)
-    # One unreadable shard makes the whole total unknown. Summing the rest
-    # would report a run as empty on the strength of the shards that
-    # happened to survive, and failing a job for that is exactly the kind
-    # of confident wrong answer this check exists to prevent.
-    if not counts or any(count is None for count in counts):
+    if _is_unknown(counts):
         return None
     return sum(count for count in counts if count is not None)
 

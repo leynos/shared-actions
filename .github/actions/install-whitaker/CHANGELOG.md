@@ -5,6 +5,27 @@ file.
 
 ## v1.0.0 (Unreleased)
 
+- Refuse a silent source build. Whitaker republishes its rolling release on
+  every merge, and the publish briefly left the tag without a complete asset
+  set. A consumer landed in it: chutoro's install began in the same second a
+  republish deleted the release, could not fetch
+  `cargo-dylint-x86_64-unknown-linux-gnu-v6.0.1.tgz`, and built the Dylint
+  tools from source instead. That build succeeded, so the run looked healthy
+  while testing something else, more slowly.
+
+  A new `ci-mode` input, on by default, checks the rolling assets this target
+  needs before the installer runs, retrying five times over about thirty
+  seconds because a republish takes six or seven, and failing with the URL if
+  they are still absent. Afterwards it reads the installer's own output and
+  records `whitaker-installer.suite-source=<prebuilt|source>`, failing the step
+  on `source`. The resolved nightly is recorded as
+  `whitaker-installer.suite-toolchain=<toolchain>`.
+
+  `ci-mode` also rejects a non-empty `suite-version`, because a pin forces the
+  source build the mode exists to prevent, unless `allow-suite-pin: true` makes
+  that deliberate. Set `ci-mode: false` for local reproduction, where a source
+  build is a legitimate choice.
+
 - Expose `suite-version` and pass it to the installer, so a caller can pin the
   lint suite instead of taking whatever is at the Whitaker default branch tip.
   This action pinned the installer thoroughly and the lints not at all, and a

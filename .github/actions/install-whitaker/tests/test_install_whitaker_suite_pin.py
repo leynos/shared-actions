@@ -110,3 +110,48 @@ class TestSuitePin:
         assert run.result.returncode == 0, run.result.stderr
         assert run.installer_args.read_text(encoding="utf-8").strip() == ""
         assert "whitaker-installer.suite=default-branch-tip" in run.summary_lines()
+
+
+class TestSuiteSource:
+    """Cover the outcome CI exists to refuse: a silent source build."""
+
+    def test_a_prebuilt_install_is_reported_as_prebuilt(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The ordinary path must be visible, not only the failure."""
+        run = run_scenario(InstallScenario(ci_mode="true"))
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=prebuilt" in run.summary_lines()
+
+    def test_a_source_build_fails_the_step_in_ci_mode(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """A source build succeeds, and that is the problem.
+
+        The installer exits zero after falling back to `cargo install`, so a
+        run that built its lint tooling from source looks like a working run
+        while having tested something else, more slowly. CI must refuse it.
+        """
+        run = run_scenario(
+            InstallScenario(ci_mode="true", installer_source_fallback=True)
+        )
+
+        assert run.result.returncode != 0
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "built from source" in run.result.stderr
+        assert "whitaker-installer.result=success" not in run.summary_lines(), (
+            "a source build must not be recorded as a successful install"
+        )
+
+    def test_a_source_build_is_reported_but_allowed_outside_ci_mode(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """Local reproduction may legitimately build from source."""
+        run = run_scenario(
+            InstallScenario(ci_mode="false", installer_source_fallback=True)
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "whitaker-installer.result=success" in run.summary_lines()

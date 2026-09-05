@@ -39,6 +39,9 @@ class ValidationInputs:
     cache_provider: str = "github"
     runner_os: str = "Linux"
     installer_sha256: str = ""
+    ci_mode: str = "true"
+    allow_suite_pin: str = "false"
+    suite_version: str = ""
 
 
 @dc.dataclass(frozen=True)
@@ -66,10 +69,13 @@ def run_validation(tmp_path: Path, inputs: ValidationInputs) -> ValidationRun:
     home.mkdir(exist_ok=True)
     context = ActionContext(
         inputs={
+            "allow-suite-pin": inputs.allow_suite_pin,
             "cache-provider": inputs.cache_provider,
             "cargo-home": inputs.cargo_home,
+            "ci-mode": inputs.ci_mode,
             "installer-sha256": inputs.installer_sha256,
             "installer-version": inputs.installer_version,
+            "suite-version": inputs.suite_version,
         },
         runner_os=inputs.runner_os,
         runner_arch="X64",
@@ -151,10 +157,13 @@ class TestRejections:
         home.mkdir(exist_ok=True)
         context = ActionContext(
             inputs={
+                "allow-suite-pin": "false",
                 "cache-provider": "github",
                 "cargo-home": "~/.cargo",
+                "ci-mode": "true",
                 "installer-sha256": "",
                 "installer-version": "1.2.3",
+                "suite-version": "",
             },
             runner_os="Linux",
             runner_arch="X64",
@@ -296,3 +305,77 @@ class TestRejections:
 
         assert run.returncode != 0
         assert "installer-sha256 must be 64 hexadecimal characters" in run.stderr
+
+
+class TestSuitePinInCiMode:
+    """Cover the rule that CI pins the installer and never the suite."""
+
+    @staticmethod
+    def _inputs(**overrides: str) -> ValidationInputs:
+        """Return validation inputs with the supplied overrides applied."""
+        return ValidationInputs(
+            cargo_home="~/.cargo", installer_version="0.2.8", **overrides
+        )
+
+    def test_ci_mode_rejects_a_suite_pin(self, tmp_path: Path) -> None:
+        """A pin forces a source build, which is what ci-mode forbids.
+
+        The two settings contradict each other, so honouring both would let a
+        lane acquire a source build by setting one input, which is the outcome
+        the mode exists to prevent.
+        """
+        run = run_validation(
+            tmp_path, self._inputs(ci_mode="true", suite_version="v0.2.8")
+        )
+
+        assert run.returncode != 0
+        assert "forces a source build" in run.stderr
+        assert "allow-suite-pin" in run.stderr, (
+            "the rejection must name the way out, or a caller with a reason "
+            "cannot act on it"
+        )
+
+    def test_an_explicit_allowance_accepts_the_pin(self, tmp_path: Path) -> None:
+        """A caller may take the cost deliberately."""
+        run = run_validation(
+            tmp_path,
+            self._inputs(
+                ci_mode="true", suite_version="v0.2.8", allow_suite_pin="true"
+            ),
+        )
+
+        assert run.returncode == 0, run.stderr
+
+    def test_outside_ci_mode_the_pin_stands(self, tmp_path: Path) -> None:
+        """Local reproduction keeps the behaviour it had."""
+        run = run_validation(
+            tmp_path, self._inputs(ci_mode="false", suite_version="v0.2.8")
+        )
+
+        assert run.returncode == 0, run.stderr
+
+    def test_ci_mode_permits_an_absent_pin(self, tmp_path: Path) -> None:
+        """The default path must stay open."""
+        run = run_validation(tmp_path, self._inputs(ci_mode="true"))
+
+        assert run.returncode == 0, run.stderr
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            pytest.param("ci_mode", "yes", id="ci-mode"),
+            pytest.param("allow_suite_pin", "1", id="allow-suite-pin"),
+        ],
+    )
+    def test_a_non_boolean_flag_is_rejected(
+        self, tmp_path: Path, field: str, value: str
+    ) -> None:
+        """A near-miss must fail rather than read as false.
+
+        `yes` and `1` are the shapes a caller reaches for, and treating either
+        as false would silently disable the protection they meant to enable.
+        """
+        run = run_validation(tmp_path, self._inputs(**{field: value}))
+
+        assert run.returncode != 0
+        assert "must be true or false" in run.stderr

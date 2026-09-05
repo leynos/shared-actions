@@ -10,6 +10,7 @@ modules. Run the suite with ``uv run pytest
 
 from __future__ import annotations
 
+import re
 import string
 import typing as typ
 
@@ -101,6 +102,41 @@ class TestInputs:
                 "required": False,
                 "default": "github",
             },
+            "ci-mode": {
+                "description": (
+                    "Treat a source build as a failure rather than a slow "
+                    "success. CI is meant to consume Whitaker's published "
+                    "binaries, so a run that built the lint suite or the Dylint "
+                    "tools from source has silently changed what it tested and "
+                    "how long it took. With this on, the action checks the "
+                    "published assets before starting, retries a short absence, "
+                    "and fails the step if the installer still resorted to a "
+                    "source build. Set it off only for local reproduction, "
+                    "where a source build is a legitimate choice."
+                ),
+                "required": False,
+                "default": "true",
+            },
+            "allow-suite-pin": {
+                "description": (
+                    "Permit suite-version while ci-mode is on. A pin forces a "
+                    "source build, because prebuilt lint libraries are "
+                    "published only for the branch tip, so the two settings "
+                    "contradict each other unless the caller says otherwise "
+                    "deliberately."
+                ),
+                "required": False,
+                "default": "false",
+            },
+            "github-token": {
+                "description": (
+                    "Token used only to read the public rolling release without "
+                    "meeting the unauthenticated rate limit. It is never sent "
+                    "anywhere else."
+                ),
+                "required": False,
+                "default": "${{ github.token }}",
+            },
         }
 
 
@@ -129,12 +165,15 @@ class TestValidationStep:
     """Validate the input-validation step's contract."""
 
     def test_declares_every_validated_input(self) -> None:
-        """Verify the validation step receives all four inputs."""
+        """Verify the validation step receives every input it judges."""
         assert _step_env("Validate Whitaker inputs") == {
+            "ALLOW_SUITE_PIN_INPUT": "${{ inputs.allow-suite-pin }}",
             "CACHE_PROVIDER_INPUT": "${{ inputs.cache-provider }}",
             "CARGO_HOME_INPUT": "${{ inputs.cargo-home }}",
+            "CI_MODE_INPUT": "${{ inputs.ci-mode }}",
             "INSTALLER_SHA256_INPUT": "${{ inputs.installer-sha256 }}",
             "INSTALLER_VERSION_INPUT": "${{ inputs.installer-version }}",
+            "SUITE_VERSION_INPUT": "${{ inputs.suite-version }}",
         }
 
     def test_states_every_rejection_reason(self) -> None:
@@ -388,11 +427,28 @@ class TestLifecycleSteps:
         assert "whitaker-installer.trust-anchor=" in script
 
     def test_no_lifecycle_step_invokes_cargo(self) -> None:
-        """Verify no fragment can fall back to a Cargo installation."""
+        """Verify no fragment can fall back to a Cargo installation.
+
+        Command position, not mere occurrence. One fragment now greps the
+        installer's output for the phrase it prints when it falls back to
+        `cargo install`, and a substring check cannot tell a detector from an
+        invocation. Anchoring to a command boundary keeps the rule that
+        matters: nothing here may run Cargo.
+        """
+        invocation = re.compile(
+            r"""(?:^|[;&|(]|\$\(|`|\bthen\b|\bdo\b|\belse\b)\s*
+                (?:[A-Za-z_]\w*=\S*\s+)*
+                cargo\s+(?:install|binstall)\b""",
+            re.VERBOSE | re.MULTILINE,
+        )
         for name in LIFECYCLE_STEP_NAMES:
             script = _step_script(name)
-            assert "cargo install" not in script
-            assert "cargo binstall" not in script
+            offenders = [
+                line
+                for line in script.splitlines()
+                if not line.lstrip().startswith("#") and invocation.search(line)
+            ]
+            assert not offenders, f"{name} invokes Cargo: {offenders}"
 
     def test_installation_reads_the_resolved_installer_name(self) -> None:
         """Verify the install step installs the resolved filename."""

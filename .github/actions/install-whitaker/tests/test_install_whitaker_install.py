@@ -95,6 +95,7 @@ class TestInstallation:
             "whitaker-installer.trust-anchor=pinned",
             "whitaker-installer.path=official-release",
             "whitaker-installer.suite=default-branch-tip",
+            "whitaker-installer.suite-source=prebuilt",
             "whitaker-installer.result=success",
         ]
         assert (
@@ -115,6 +116,7 @@ class TestInstallation:
             "whitaker-installer.cache=hit",
             "whitaker-installer.path=cache",
             "whitaker-installer.suite=default-branch-tip",
+            "whitaker-installer.suite-source=prebuilt",
             "whitaker-installer.result=success",
         ]
         assert run.transfer_metrics() == []

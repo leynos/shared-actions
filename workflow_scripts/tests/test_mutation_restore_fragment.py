@@ -153,7 +153,9 @@ class TestRestoreFragment:
 
         assert process.returncode == 0, process.stderr
         assert _metric(process) == "absent"
-        assert "::warning" in process.stdout, "an absent tree must be annotated"
+        assert "::warning title=Restore workflow source::" in process.stdout, (
+            f"an absent tree must be annotated; stdout was {process.stdout!r}"
+        )
 
     def test_it_declines_when_the_paths_are_identical(self, tmp_path: Path) -> None:
         """Under act the workspace is the workflow source, so nothing moved.
@@ -182,8 +184,16 @@ class TestRestoreFragment:
     def test_it_declines_when_a_directory_is_unset(
         self, tmp_path: Path, original: str, relocated: str
     ) -> None:
-        """An unset path must never reach `rm -rf`."""
+        """An unset path must never reach `rm -rf`, and must not do so quietly.
+
+        The metric alone would accept a regression that declines correctly and
+        says nothing, which is the shape of the failure this whole change came
+        from: a job that did the wrong thing without reporting it.
+        """
         process = _run_fragment(tmp_path, original=original, relocated=relocated)
 
         assert process.returncode == 0, process.stderr
         assert _metric(process) == "unset-directory"
+        assert "::warning title=Restore workflow source::" in process.stdout, (
+            f"an unset directory must be annotated; stdout was {process.stdout!r}"
+        )

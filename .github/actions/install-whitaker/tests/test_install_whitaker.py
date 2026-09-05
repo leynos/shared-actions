@@ -50,94 +50,100 @@ def _step_script(name: str) -> str:
     return script
 
 
+#: Every input the action publishes, with the default and description a
+#: consumer reads. Held at module level rather than inside the test: the
+#: literal is the contract, and burying it in a method made that method
+#: long enough to trip the repository's size gate without making the
+#: assertion any clearer.
+DOCUMENTED_INPUTS: dict[str, dict[str, object]] = {
+    "cargo-home": {
+        "description": ("Cargo home that stores the cached whitaker-installer binary"),
+        "required": False,
+        "default": "~/.cargo",
+    },
+    "installer-version": {
+        "description": "Version of whitaker-installer to install",
+        "required": False,
+        "default": "0.2.8",
+    },
+    "installer-sha256": {
+        "description": (
+            "SHA-256 digest of the whitaker-installer release archive "
+            "for this runner. The action's pinned digest manifest takes "
+            "precedence; supply this only for an asset the manifest does "
+            "not pin. A value that disagrees with a pinned digest is "
+            "rejected."
+        ),
+        "required": False,
+        "default": "",
+    },
+    "suite-version": {
+        "description": (
+            "Git reference the lint suite is built from: a tag, a "
+            "branch or a commit. Left empty, the installer builds the "
+            "suite from the Whitaker default branch tip, so a change "
+            "there alters lint results with no commit in this "
+            "repository. Pinning makes a suite change arrive as a "
+            "reviewed bump, at the cost of a source build, because "
+            "prebuilt lint libraries are published only for the tip. "
+            "Requires installer 0.2.8 or later."
+        ),
+        "required": False,
+        "default": "",
+    },
+    "cache-provider": {
+        "description": (
+            'Cache owner for the installer binary. Use "github" for the '
+            'action\'s built-in cache or "external" when the caller mounts '
+            "the Cargo home."
+        ),
+        "required": False,
+        "default": "github",
+    },
+    "ci-mode": {
+        "description": (
+            "Treat a source build as a failure rather than a slow "
+            "success. CI is meant to consume Whitaker's published "
+            "binaries, so a run that built the lint suite or the Dylint "
+            "tools from source has silently changed what it tested and "
+            "how long it took. With this on, the action checks the "
+            "published assets before starting, retries a short absence, "
+            "and fails the step if the installer still resorted to a "
+            "source build. Set it off only for local reproduction, "
+            "where a source build is a legitimate choice."
+        ),
+        "required": False,
+        "default": "true",
+    },
+    "allow-suite-pin": {
+        "description": (
+            "Permit suite-version while ci-mode is on. A pin forces a "
+            "source build, because prebuilt lint libraries are "
+            "published only for the branch tip, so the two settings "
+            "contradict each other unless the caller says otherwise "
+            "deliberately."
+        ),
+        "required": False,
+        "default": "false",
+    },
+    "github-token": {
+        "description": (
+            "Token used only to read the public rolling release without "
+            "meeting the unauthenticated rate limit. It is never sent "
+            "anywhere else."
+        ),
+        "required": False,
+        "default": "${{ github.token }}",
+    },
+}
+
+
 class TestInputs:
     """Validate the action's declared input contract."""
 
     def test_declares_the_documented_inputs(self) -> None:
         """Verify every input, its default, and its description."""
-        assert load_manifest()["inputs"] == {
-            "cargo-home": {
-                "description": (
-                    "Cargo home that stores the cached whitaker-installer binary"
-                ),
-                "required": False,
-                "default": "~/.cargo",
-            },
-            "installer-version": {
-                "description": "Version of whitaker-installer to install",
-                "required": False,
-                "default": "0.2.8",
-            },
-            "installer-sha256": {
-                "description": (
-                    "SHA-256 digest of the whitaker-installer release archive "
-                    "for this runner. The action's pinned digest manifest takes "
-                    "precedence; supply this only for an asset the manifest does "
-                    "not pin. A value that disagrees with a pinned digest is "
-                    "rejected."
-                ),
-                "required": False,
-                "default": "",
-            },
-            "suite-version": {
-                "description": (
-                    "Git reference the lint suite is built from: a tag, a "
-                    "branch or a commit. Left empty, the installer builds the "
-                    "suite from the Whitaker default branch tip, so a change "
-                    "there alters lint results with no commit in this "
-                    "repository. Pinning makes a suite change arrive as a "
-                    "reviewed bump, at the cost of a source build, because "
-                    "prebuilt lint libraries are published only for the tip. "
-                    "Requires installer 0.2.8 or later."
-                ),
-                "required": False,
-                "default": "",
-            },
-            "cache-provider": {
-                "description": (
-                    'Cache owner for the installer binary. Use "github" for the '
-                    'action\'s built-in cache or "external" when the caller mounts '
-                    "the Cargo home."
-                ),
-                "required": False,
-                "default": "github",
-            },
-            "ci-mode": {
-                "description": (
-                    "Treat a source build as a failure rather than a slow "
-                    "success. CI is meant to consume Whitaker's published "
-                    "binaries, so a run that built the lint suite or the Dylint "
-                    "tools from source has silently changed what it tested and "
-                    "how long it took. With this on, the action checks the "
-                    "published assets before starting, retries a short absence, "
-                    "and fails the step if the installer still resorted to a "
-                    "source build. Set it off only for local reproduction, "
-                    "where a source build is a legitimate choice."
-                ),
-                "required": False,
-                "default": "true",
-            },
-            "allow-suite-pin": {
-                "description": (
-                    "Permit suite-version while ci-mode is on. A pin forces a "
-                    "source build, because prebuilt lint libraries are "
-                    "published only for the branch tip, so the two settings "
-                    "contradict each other unless the caller says otherwise "
-                    "deliberately."
-                ),
-                "required": False,
-                "default": "false",
-            },
-            "github-token": {
-                "description": (
-                    "Token used only to read the public rolling release without "
-                    "meeting the unauthenticated rate limit. It is never sent "
-                    "anywhere else."
-                ),
-                "required": False,
-                "default": "${{ github.token }}",
-            },
-        }
+        assert load_manifest()["inputs"] == DOCUMENTED_INPUTS
 
 
 class TestStepOrdering:

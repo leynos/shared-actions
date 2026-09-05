@@ -615,6 +615,7 @@ runs:
         WHITAKER_INSTALLER_VERSION: ${{ steps.validate-inputs.outputs.installer-version }}
         WHITAKER_SUITE_VERSION: ${{ inputs.suite-version }}
         WHITAKER_CI_MODE: ${{ inputs.ci-mode }}
+        WHITAKER_ALLOW_SUITE_PIN: ${{ inputs.allow-suite-pin }}
       run: |
         set -Eeuo pipefail
         emit_metric() {
@@ -664,7 +665,16 @@ runs:
           suite_source=source
         fi
         emit_metric "whitaker-installer.suite-source=${suite_source}"
-        if [[ "$suite_source" == "source" && "$WHITAKER_CI_MODE" == "true" ]]; then
+        # A pin builds from source by definition, so a caller who accepted that
+        # cost with allow-suite-pin must not then be failed for the outcome
+        # they asked for. Without this the escape hatch passes validation and
+        # fails the run, which is worse than not offering it.
+        pin_allows_source=false
+        if [[ -n "${WHITAKER_SUITE_VERSION}" && "$WHITAKER_ALLOW_SUITE_PIN" == "true" ]]; then
+          pin_allows_source=true
+        fi
+        if [[ "$suite_source" == "source" && "$WHITAKER_CI_MODE" == "true" \
+              && "$pin_allows_source" != "true" ]]; then
           echo "::error title=Whitaker installer::the installer built from source instead of using the published binaries; CI must consume them. Re-run once the rolling release is complete, or set ci-mode: false if a source build is intended" >&2
           exit 1
         fi

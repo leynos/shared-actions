@@ -186,3 +186,25 @@ def test_the_command_line_fails_closed(
 
     assert exit_code == 1
     assert "::error title=Whitaker rolling assets::" in capsys.readouterr().err
+
+
+def test_retry_diagnostics_stay_off_stdout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The caller captures stdout as the toolchain, so only it may go there.
+
+    The retry path is the republish case this loop exists for, so a diagnostic
+    on stdout would contaminate the recorded toolchain every time the retry did
+    its job, which is the one case it was added for.
+    """
+    incomplete = tuple(name for name in COMPLETE if name != ARCHIVE)
+    _responses(monkeypatch, [incomplete, COMPLETE])
+
+    exit_code = verify_rolling_assets.main(
+        ["--target", TARGET, "--attempts", "2", "--interval", "0"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out.strip() == TOOLCHAIN
+    assert "retrying" in captured.err

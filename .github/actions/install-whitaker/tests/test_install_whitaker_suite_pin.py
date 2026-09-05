@@ -155,3 +155,43 @@ class TestSuiteSource:
         assert run.result.returncode == 0, run.result.stderr
         assert "whitaker-installer.suite-source=source" in run.summary_lines()
         assert "whitaker-installer.result=success" in run.summary_lines()
+
+    def test_an_allowed_pin_may_build_from_source(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The escape hatch has to survive the check it exempts from.
+
+        A pin builds from source by definition, so failing the run for that
+        outcome would let `allow-suite-pin` pass validation and then fail the
+        step, which is worse than not offering it at all.
+        """
+        run = run_scenario(
+            InstallScenario(
+                ci_mode="true",
+                allow_suite_pin="true",
+                suite_version="v0.2.8",
+                installer_source_fallback=True,
+            )
+        )
+
+        assert run.result.returncode == 0, run.result.stderr
+        assert "whitaker-installer.suite-source=source" in run.summary_lines()
+        assert "whitaker-installer.result=success" in run.summary_lines()
+
+    def test_an_unpinned_source_build_still_fails_with_the_allowance_set(
+        self, run_scenario: ScenarioRunner
+    ) -> None:
+        """The allowance excuses a pin, not any source build whatsoever.
+
+        Without a pin there is no reason to build from source, so a fallback
+        there is the missing-asset failure this mode exists to catch, and the
+        allowance must not suppress it.
+        """
+        run = run_scenario(
+            InstallScenario(
+                ci_mode="true", allow_suite_pin="true", installer_source_fallback=True
+            )
+        )
+
+        assert run.result.returncode != 0
+        assert "built from source" in run.result.stderr

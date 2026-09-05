@@ -82,13 +82,16 @@ older version.
 
 ## Inputs
 
-| Name                | Type   | Description                                                  | Required | Default    |
-| ------------------- | ------ | ------------------------------------------------------------ | -------- | ---------- |
-| `cargo-home`        | string | Cargo home that stores the cached whitaker-installer binary  | no       | `~/.cargo` |
-| `installer-version` | string | Version of `whitaker-installer` to install                   | no       | `0.2.8`    |
-| `installer-sha256`  | string | Archive digest for an asset absent from the pinned manifest  | no       | `""`       |
-| `suite-version`     | string | Git reference the lint suite is built from                   | no       | `""`       |
-| `cache-provider`    | string | Built-in `github` cache or caller-owned `external` cache     | no       | `github`   |
+| Name                | Type   | Description                                        | Required | Default        |
+| ------------------- | ------ | -------------------------------------------------- | -------- | -------------- |
+| `cargo-home`        | string | Cargo home holding the cached installer binary     | no       | `~/.cargo`     |
+| `installer-version` | string | Version of `whitaker-installer` to install         | no       | `0.2.8`        |
+| `installer-sha256`  | string | Digest for an asset the manifest does not pin      | no       | `""`           |
+| `suite-version`     | string | Git reference the lint suite is built from         | no       | `""`           |
+| `cache-provider`    | string | Built-in `github` or caller-owned `external`       | no       | `github`       |
+| `ci-mode`           | string | Check published assets, then refuse a source build | no       | `true`         |
+| `allow-suite-pin`   | string | Accept `suite-version` while `ci-mode` is on       | no       | `false`        |
+| `github-token`      | string | Read the rolling release without the anon limit    | no       | `github.token` |
 
 ## What is pinned, and what is not
 

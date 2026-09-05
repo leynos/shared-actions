@@ -134,7 +134,15 @@ def verify(target: str, attempts: Attempt, token: str | None) -> str:
                 return str(manifest["toolchain"])
             last = "the rolling release is missing: " + ", ".join(missing)
         if attempt < attempts.count:
-            print(f"attempt {attempt}/{attempts.count}: {last}; retrying", flush=True)
+            # stderr, not stdout. The caller captures this script's stdout as
+            # the toolchain, and the retry path is exactly the republish case
+            # this loop exists for, so a diagnostic here would end up in the
+            # metric every time the retry did its job.
+            print(
+                f"attempt {attempt}/{attempts.count}: {last}; retrying",
+                file=sys.stderr,
+                flush=True,
+            )
             time.sleep(attempts.interval)
     message = (
         f"{last}. A republish takes a few seconds, so this is either a longer "

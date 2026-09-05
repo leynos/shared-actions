@@ -461,10 +461,10 @@ for the branch tip, and it needs installer 0.2.8 or later. The action's
 installer and consumes the published binaries, and a lane that wants the cost
 must say so with `allow-suite-pin: true`. `ci-mode` also verifies the rolling
 assets before the installer runs, retrying a short absence, and fails the step
-if the installer resorted to a source build anyway. It cannot be applied
-when the workflow runs inside a Whitaker checkout because checking out a
-reference there would move the working tree the run is using. Each run records
-which arm it took as
+if the installer resorted to a source build anyway. It cannot be applied when
+the workflow runs inside a Whitaker checkout because checking out a reference
+there would move the working tree the run is using. Each run records which arm
+it took as
 `whitaker-installer.suite=<pinned-commit|pinned-mutable-ref|default-branch-tip>`.
 Only a full commit identifier reports as `pinned-commit`; a branch or tag is
 reported as mutable because it can move without the caller changing anything.

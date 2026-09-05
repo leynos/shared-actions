@@ -229,3 +229,82 @@ class TestRestoreWorkflowSource:
                 f"{workflow_name}:{job_name} restore excludes the cancelled "
                 f"path: {condition!r}"
             )
+
+
+class TestAllowNoMutants:
+    """The opt-out must reach the script, not merely exist.
+
+    An input declared but never passed through would leave the workflow
+    looking configurable while every caller got the default, which is the
+    failure mode a shape test is for.
+    """
+
+    def test_the_workflow_declares_the_opt_out(self) -> None:
+        """The caller needs a way to say an empty run is expected."""
+        workflow = yaml.safe_load(
+            (WORKFLOWS_DIR / "mutation-cargo.yml").read_text(encoding="utf-8")
+        )
+        triggers = workflow.get("on", workflow.get(True))
+        inputs = triggers["workflow_call"]["inputs"]
+
+        assert "allow-no-mutants" in inputs, (
+            "mutation-cargo.yml must expose allow-no-mutants; without it a "
+            "caller that legitimately has nothing to mutate cannot say so"
+        )
+        assert inputs["allow-no-mutants"].get("default") is False, (
+            "allow-no-mutants must default to false, or the fail-closed "
+            "behaviour is opt-in and the vacuous pass survives"
+        )
+
+    def test_the_run_step_passes_the_opt_out_to_the_script(self) -> None:
+        """The environment variable the script reads must be set."""
+        workflow = yaml.safe_load(
+            (WORKFLOWS_DIR / "mutation-cargo.yml").read_text(encoding="utf-8")
+        )
+        run_steps = [
+            step
+            for job in workflow["jobs"].values()
+            for step in _steps(job)
+            if step.get("name") == "Run mutation testing"
+        ]
+        assert run_steps, "mutation-cargo.yml must have a 'Run mutation testing' step"
+
+        for step in run_steps:
+            env = step.get("env") or {}
+            assert "INPUT_ALLOW_NO_MUTANTS" in env, (
+                "the run step must pass INPUT_ALLOW_NO_MUTANTS; the script "
+                "reads the opt-out from the environment and nowhere else"
+            )
+            assert "inputs.allow-no-mutants" in env["INPUT_ALLOW_NO_MUTANTS"], (
+                "INPUT_ALLOW_NO_MUTANTS must carry the caller's input, got "
+                f"{env['INPUT_ALLOW_NO_MUTANTS']!r}"
+            )
+
+    def test_the_summary_step_also_receives_the_opt_out(self) -> None:
+        """The aggregate check lives in the summary job and needs it too.
+
+        An individual empty shard is exempt, so the only place that can
+        see an all-empty run is the job holding every shard at once.
+        """
+        workflow = yaml.safe_load(
+            (WORKFLOWS_DIR / "mutation-cargo.yml").read_text(encoding="utf-8")
+        )
+        summary_steps = [
+            step
+            for job in workflow["jobs"].values()
+            for step in _steps(job)
+            if step.get("name") == "Post summary"
+        ]
+        assert summary_steps, "mutation-cargo.yml must have a 'Post summary' step"
+
+        for step in summary_steps:
+            env = step.get("env") or {}
+            assert "INPUT_ALLOW_NO_MUTANTS" in env, (
+                "the summary step must pass INPUT_ALLOW_NO_MUTANTS, or the "
+                "aggregate check cannot honour the caller's opt-out"
+            )
+            assert "inputs.allow-no-mutants" in env["INPUT_ALLOW_NO_MUTANTS"], (
+                "the summary step must pass the caller's input rather than a "
+                f"literal, got {env['INPUT_ALLOW_NO_MUTANTS']!r}; a hard-coded "
+                f"false would fail an empty aggregate run the caller allowed"
+            )

@@ -279,3 +279,27 @@ class TestAllowNoMutants:
                 "INPUT_ALLOW_NO_MUTANTS must carry the caller's input, got "
                 f"{env['INPUT_ALLOW_NO_MUTANTS']!r}"
             )
+
+    def test_the_summary_step_also_receives_the_opt_out(self) -> None:
+        """The aggregate check lives in the summary job and needs it too.
+
+        An individual empty shard is exempt, so the only place that can
+        see an all-empty run is the job holding every shard at once.
+        """
+        workflow = yaml.safe_load(
+            (WORKFLOWS_DIR / "mutation-cargo.yml").read_text(encoding="utf-8")
+        )
+        summary_steps = [
+            step
+            for job in workflow["jobs"].values()
+            for step in _steps(job)
+            if step.get("name") == "Post summary"
+        ]
+        assert summary_steps, "mutation-cargo.yml must have a 'Post summary' step"
+
+        for step in summary_steps:
+            env = step.get("env") or {}
+            assert "INPUT_ALLOW_NO_MUTANTS" in env, (
+                "the summary step must pass INPUT_ALLOW_NO_MUTANTS, or the "
+                "aggregate check cannot honour the caller's opt-out"
+            )

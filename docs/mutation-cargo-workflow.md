@@ -104,6 +104,15 @@ jobs:
   `extra-args` is honoured when locating the inventory, since reading the
   default location regardless would find nothing and hand the empty run back
   its clean pass.
+- An unreadable inventory is announced, not merely tolerated. The
+  step emits a warning naming the path and a `mutation_cargo_inventory` metric,
+  so a cargo-mutants change that stops writing the file appears in the series
+  instead of quietly restoring the vacuous pass everywhere at once.
+- A run in which *every* shard is empty still fails. The
+  per-shard exemption would otherwise leave exactly the vacuity being fixed, so
+  the summary job, which is the only place holding all the shards at once, sums
+  their inventories and fails when the total is zero. `allow-no-mutants`
+  governs that verdict too.
 
 - The `cargo-mutants-version` default is pinned because the
   `outcomes.json` format is documented as unstable and the summary parser must

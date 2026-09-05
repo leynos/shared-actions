@@ -439,6 +439,7 @@ jobs:
         shell: bash
         env:
           INPUT_REPORT_ROOT: reports
+          INPUT_ALLOW_NO_MUTANTS: ${{ inputs.allow-no-mutants }}
           WORKFLOW_DIR: ${{ steps.relocate-workflow-source.outputs.workflow_dir }}
         run: |
           set -euo pipefail

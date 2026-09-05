@@ -263,12 +263,96 @@ def render_summary(reports: list[TargetReport]) -> str:
     return "\n".join(lines)
 
 
+#: Where each shard's artefact carries the mutants it enumerated.
+MUTANT_INVENTORY = "mutants.json"
+
+#: Reported when no shard enumerated anything.
+NO_MUTANTS = "no mutants found"
+
+
+def total_enumerated_mutants(report_root: Path) -> int | None:
+    """Sum the mutants every shard enumerated.
+
+    A single empty shard is ordinary: sharding splits the inventory after
+    enumeration, so a project with fewer mutants than shards leaves some
+    shards with nothing. A run where *every* shard is empty is the
+    vacuous pass, and this job is the only place that can see it, because
+    it is the only one holding all the shards at once.
+
+    Parameters
+    ----------
+    report_root : Path
+        Directory containing the downloaded artefact subdirectories.
+
+    Returns
+    -------
+    int | None
+        The total, or ``None`` when no shard carried a readable
+        inventory. Unknown is deliberately not zero.
+    """
+    total: int | None = None
+    for artefact_dir in sorted(p for p in report_root.iterdir() if p.is_dir()):
+        try:
+            listed = json.loads(
+                (artefact_dir / MUTANT_INVENTORY).read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            continue
+        if isinstance(listed, list):
+            total = (total or 0) + len(listed)
+    return total
+
+
+def check_the_run_was_not_empty(*, total: int | None, allowed: bool) -> bool:
+    """Decide whether an all-empty run should fail the job.
+
+    Parameters
+    ----------
+    total : int | None
+        Mutants enumerated across every shard, or ``None`` when unknown.
+    allowed : bool
+        Whether the caller opted in to an empty run.
+
+    Returns
+    -------
+    bool
+        ``True`` when the job may pass.
+    """
+    if total is None:
+        print(
+            "::warning title=Mutation testing::no shard carried a readable "
+            "mutant inventory, so an empty run cannot be told from a full one"
+        )
+        emit("mutation_summary_inventory", "unreadable")
+        return True
+    emit("mutation_summary_mutants", total)
+    if total > 0:
+        return True
+    if allowed:
+        print(
+            "::notice title=Mutation testing::no mutants were found in any "
+            "shard, which this caller has declared expected"
+        )
+        emit("mutation_summary_outcome", f"{NO_MUTANTS} (allowed)")
+        return True
+    print(
+        "::error title=Mutation testing::no mutants were found in any shard, "
+        "so this run proved nothing; widen the filters, or set "
+        "allow-no-mutants: true if an empty run is expected here"
+    )
+    emit("mutation_summary_outcome", NO_MUTANTS)
+    return False
+
+
 @app.default
 def main(
     *,
     report_root: typ.Annotated[
         str, Parameter(required=True, env_var="INPUT_REPORT_ROOT")
     ],
+    allow_no_mutants: typ.Annotated[
+        str, Parameter(env_var="INPUT_ALLOW_NO_MUTANTS")
+    ] = "false",
 ) -> None:
     """Merge shard reports and append the Markdown job summary.
 
@@ -276,12 +360,15 @@ def main(
     ----------
     report_root : str
         Directory containing downloaded artefact subdirectories.
+    allow_no_mutants : str
+        ``true`` to accept a run in which no shard found a mutant.
 
     Raises
     ------
     SystemExit
         Exits with code 1 when the report root or ``GITHUB_STEP_SUMMARY``
-        is missing.
+        is missing, and when no shard enumerated a mutant and the caller
+        did not opt in to that.
     """
     summary_env = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_env:
@@ -297,6 +384,13 @@ def main(
         "mutation_summary_targets",
         {report.slug: report.missed for report in reports},
     )
+    # After the summary is written, deliberately: an operator reading a
+    # failed job still gets the table that says what did run.
+    if not check_the_run_was_not_empty(
+        total=total_enumerated_mutants(root),
+        allowed=allow_no_mutants.strip().lower() == "true",
+    ):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

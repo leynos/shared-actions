@@ -182,3 +182,87 @@ class TestMainEntry:
         with pytest.raises(SystemExit) as excinfo:
             summarize.app([])
         assert excinfo.value.code == 1, "a missing report root should exit with code 1"
+
+
+def _write_inventory(root: Path, name: str, count: int | None) -> None:
+    """Write one shard artefact directory carrying a mutant inventory."""
+    artefact = root / name
+    artefact.mkdir(parents=True, exist_ok=True)
+    if count is not None:
+        entries = [{"function": f"f{index}"} for index in range(count)]
+        (artefact / "mutants.json").write_text(json.dumps(entries), encoding="utf-8")
+
+
+class TestTotalEnumeratedMutants:
+    """Summing what every shard enumerated."""
+
+    def test_it_sums_across_shards(self, tmp_path: Path) -> None:
+        """The whole point: one shard's emptiness is not the run's."""
+        _write_inventory(tmp_path, "mutation-report-root-0", 0)
+        _write_inventory(tmp_path, "mutation-report-root-1", 3)
+
+        assert summarize.total_enumerated_mutants(tmp_path) == 3, (
+            "an empty shard beside a populated one totals the populated one"
+        )
+
+    def test_all_empty_shards_total_zero(self, tmp_path: Path) -> None:
+        """The vacuous run this check exists to catch."""
+        _write_inventory(tmp_path, "mutation-report-root-0", 0)
+        _write_inventory(tmp_path, "mutation-report-root-1", 0)
+
+        assert summarize.total_enumerated_mutants(tmp_path) == 0, (
+            "every shard empty must total zero, not unknown"
+        )
+
+    def test_no_readable_inventory_is_unknown(self, tmp_path: Path) -> None:
+        """Unknown is deliberately not zero."""
+        _write_inventory(tmp_path, "mutation-report-root-0", None)
+
+        assert summarize.total_enumerated_mutants(tmp_path) is None, (
+            "a run with no readable inventory must not read as empty"
+        )
+
+
+class TestCheckTheRunWasNotEmpty:
+    """The aggregate verdict."""
+
+    def test_a_populated_run_passes(self, capsys: pytest.CaptureFixture) -> None:
+        """The ordinary case stays quiet."""
+        assert summarize.check_the_run_was_not_empty(total=7, allowed=False), (
+            "a run with mutants must pass"
+        )
+        assert "::error" not in capsys.readouterr().out, "no annotation is warranted"
+
+    def test_an_all_empty_run_fails(self, capsys: pytest.CaptureFixture) -> None:
+        """Zero across every shard is the vacuity being fixed."""
+        assert not summarize.check_the_run_was_not_empty(total=0, allowed=False), (
+            "an all-empty run must fail the job"
+        )
+
+        output = capsys.readouterr().out
+        assert "::error title=Mutation testing::" in output, output
+        assert f"mutation_summary_outcome={summarize.NO_MUTANTS}" in output, output
+
+    def test_an_all_empty_run_the_caller_expects_passes(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Opting out changes the verdict, never the report."""
+        assert summarize.check_the_run_was_not_empty(total=0, allowed=True), (
+            "the opt-out must let the job pass"
+        )
+
+        output = capsys.readouterr().out
+        assert "::notice title=Mutation testing::" in output, output
+        assert "(allowed)" in output, output
+
+    def test_an_unknown_total_passes_but_says_so(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Unknown must not fail every consumer, nor pass silently."""
+        assert summarize.check_the_run_was_not_empty(total=None, allowed=False), (
+            "unknown must not fail the job"
+        )
+
+        output = capsys.readouterr().out
+        assert "::warning title=Mutation testing::" in output, output
+        assert "mutation_summary_inventory=unreadable" in output, output

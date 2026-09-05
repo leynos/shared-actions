@@ -400,3 +400,37 @@ class TestEmptyRunWithRelocatedOutput:
 
         assert excinfo.value.code == 1, excinfo.value.code
         assert fake_cargo.read_text(encoding="utf-8"), "cargo must have run"
+
+
+class TestUnreadableInventoryIsAnnounced:
+    """Unknown must be visible, not merely safe."""
+
+    def test_a_missing_inventory_warns_and_reports_a_metric(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A cargo-mutants that stopped writing the file must be findable.
+
+        Unknown keeps the run passing, which is right, but silently
+        restoring the vacuous pass across every consumer is not.
+        """
+        assert run_cargo.count_enumerated_mutants(str(tmp_path)) is None, (
+            "a missing inventory is unknown"
+        )
+
+        output = capsys.readouterr().out
+        assert "::warning title=Mutation testing::" in output, output
+        assert "mutation_cargo_inventory=unreadable" in output, output
+
+    def test_a_readable_inventory_reports_its_own_metric(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """One bounded outcome per path, so the series can be aggregated."""
+        inventory = tmp_path / "mutants.out" / "mutants.json"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text("[]", encoding="utf-8")
+
+        assert run_cargo.count_enumerated_mutants(str(tmp_path)) == 0, "empty"
+
+        output = capsys.readouterr().out
+        assert "mutation_cargo_inventory=readable" in output, output
+        assert "::warning" not in output, output

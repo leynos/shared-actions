@@ -110,6 +110,7 @@ def test_action_install_step_resolves_from_external_checkout(tmp_path: Path) -> 
             "target",
             "_self",
             ".cache",
+            ".hypothesis",
             ".uv-cache",
         ),
     )

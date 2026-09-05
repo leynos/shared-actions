@@ -83,9 +83,24 @@ jobs:
 | `shard-count`           | `6`                       | Fan-out for full dispatch runs (scoped runs stay single-shard).                                                                                             |
 | `cargo-mutants-version` | pinned                    | Tool version; the summary parser is validated against it.                                                                                                   |
 | `extra-args`            | (empty)                   | Extra cargo-mutants arguments (shell-lexed), e.g. `--all-features`.                                                                                         |
+| `allow-no-mutants`      | `false`                   | Accept a run that enumerated no mutants; left false, an empty run fails.                                                                                    |
 | `setup-commands`        | (empty)                   | Shell commands run before cargo-mutants in each mutants job (e.g. `sudo apt-get install -y mold` when the repo's `.cargo/config.toml` selects that linker). |
 
 ## Notes
+
+- A run that finds no mutants fails. cargo-mutants exits `0` both when
+  every mutant was caught and when its filters matched nothing, so an empty run
+  used to be recorded as `all mutants caught`. Four consumers were passing that
+  way, one of them for weeks, which is why the default is closed rather than
+  staged. Set `allow-no-mutants: true` where an empty run is genuinely expected;
+  the outcome still reports that nothing was found, so the lane cannot be
+  mistaken for a working one.
+- The check reads the mutant inventory cargo-mutants writes to
+  `mutants.out/mutants.json`. A missing or unreadable inventory is treated as
+  unknown rather than empty, so a tool version that stops writing it does not
+  fail every caller at once. Sharded runs are exempt: sharding splits the
+  inventory after enumeration, so a project with fewer mutants than shards
+  leaves some shards legitimately empty.
 
 - The `cargo-mutants-version` default is pinned because the
   `outcomes.json` format is documented as unstable and the summary parser must

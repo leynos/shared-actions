@@ -22,6 +22,21 @@ Exit-code contract (from the cargo-mutants handbook)
     Usage error / failing baseline / internal error — genuine faults that
     fail the step, as does any other unexpected code.
 
+The empty run
+-------------
+cargo-mutants exits ``0`` both when every mutant was caught and when it
+found no mutants at all, so a lane whose filters match nothing reports a
+clean pass on an empty run. Four consumers were doing exactly that. This
+script separates the two by reading the mutant inventory cargo-mutants
+writes to ``mutants.out/mutants.json``: an empty inventory is reported as
+``no-mutants`` and fails the step unless ``INPUT_ALLOW_NO_MUTANTS`` says
+the caller expects it.
+
+A sharded run is exempt. Sharding splits the inventory after enumeration,
+so a shard with nothing to do is ordinary when the project has fewer
+mutants than shards, and failing it would be a false alarm. The vacuous
+passes all came from unsharded scoped runs, which is what this catches.
+
 Environment Variables
 ---------------------
 INPUT_DIR : str, optional
@@ -40,6 +55,8 @@ INPUT_EXCLUDE_GLOBS : str, optional
 INPUT_EXTRA_ARGS : str, optional
     Extra arguments appended verbatim (shell-lexed), e.g.
     ``--all-features`` so feature-gated tests run.
+INPUT_ALLOW_NO_MUTANTS : str, optional
+    ``true`` to accept a run that found no mutants. Default: ``false``.
 
 Usage
 -----
@@ -53,6 +70,8 @@ As a workflow step::
 from __future__ import annotations
 
 import dataclasses
+import json
+import pathlib
 import shlex
 import typing as typ
 
@@ -142,6 +161,40 @@ def build_arguments(invocation: MutantsInvocation) -> list[str]:
     return arguments
 
 
+#: Where cargo-mutants records the mutants it enumerated for this run.
+MUTANT_INVENTORY = pathlib.Path("mutants.out") / "mutants.json"
+
+#: Reported when the run enumerated nothing. Distinct from "all mutants
+#: caught", which is what an empty run used to be recorded as.
+NO_MUTANTS = "no mutants found"
+
+
+def count_enumerated_mutants(target_dir: str) -> int | None:
+    """Count the mutants cargo-mutants enumerated for this run.
+
+    Parameters
+    ----------
+    target_dir : str
+        The crate directory the run mutated.
+
+    Returns
+    -------
+    int | None
+        The mutant count, or ``None`` when the inventory is missing or
+        unreadable. ``None`` is deliberately not zero: a version that
+        stops writing the file, or writes it somewhere else, must not
+        start failing every caller's run.
+    """
+    inventory = pathlib.Path(target_dir) / MUTANT_INVENTORY
+    try:
+        listed = json.loads(inventory.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(listed, list):
+        return None
+    return len(listed)
+
+
 def interpret_exit_code(code: int) -> tuple[bool, str]:
     """Classify a cargo-mutants exit code under the workflow contract.
 
@@ -159,6 +212,56 @@ def interpret_exit_code(code: int) -> tuple[bool, str]:
     return code in INFORMATIVE_EXIT_CODES, meaning
 
 
+def classify_empty_run(
+    *,
+    meaning: str,
+    enumerated: int | None,
+    sharded: bool,
+    allowed: bool,
+) -> tuple[bool, str]:
+    """Separate a clean pass from an empty one.
+
+    cargo-mutants exits ``0`` for both, so the exit code alone cannot tell
+    a lane that caught every mutant from a lane whose filters matched
+    nothing.
+
+    Parameters
+    ----------
+    meaning : str
+        The meaning the exit code alone gives, used when the run was not
+        empty or cannot be shown to be.
+    enumerated : int | None
+        Mutants enumerated, or ``None`` when the inventory is unreadable.
+    sharded : bool
+        Whether the run was one shard of several.
+    allowed : bool
+        Whether the caller opted in to an empty run.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(is_success, human_readable_meaning)``.
+    """
+    if enumerated is None or enumerated > 0:
+        return True, meaning
+    if sharded:
+        # Sharding splits the inventory after enumeration, so an empty
+        # shard is ordinary when there are fewer mutants than shards.
+        return True, f"{NO_MUTANTS} in this shard"
+    if allowed:
+        print(
+            "::notice title=Mutation testing::no mutants were found, "
+            "which this caller has declared expected"
+        )
+        return True, f"{NO_MUTANTS} (allowed)"
+    print(
+        "::error title=Mutation testing::no mutants were found, so this run "
+        "proved nothing; widen the filters, or set allow-no-mutants: true if "
+        "an empty run is expected here"
+    )
+    return False, NO_MUTANTS
+
+
 @app.default
 def main(
     *,
@@ -171,6 +274,9 @@ def main(
     ] = "3",
     exclude_globs: typ.Annotated[str, Parameter(env_var="INPUT_EXCLUDE_GLOBS")] = "",
     extra_args: typ.Annotated[str, Parameter(env_var="INPUT_EXTRA_ARGS")] = "",
+    allow_no_mutants: typ.Annotated[
+        str, Parameter(env_var="INPUT_ALLOW_NO_MUTANTS")
+    ] = "false",
 ) -> None:
     """Run cargo-mutants for one matrix target.
 
@@ -190,12 +296,16 @@ def main(
         Comma-separated ``--exclude`` globs.
     extra_args : str
         Extra arguments appended verbatim.
+    allow_no_mutants : str
+        ``true`` to accept a run that enumerated no mutants.
 
     Raises
     ------
     SystemExit
         Exits with the tool's code when it signals a genuine fault
-        (anything outside ``{0, 2, 3}``), and with 1 on invalid inputs.
+        (anything outside ``{0, 2, 3}``), with 1 on invalid inputs, and
+        with 1 when an unsharded run enumerated no mutants and the caller
+        did not opt in to that.
     """
     if shard_count < 1:
         fail(f"shard-count must be at least 1, got {shard_count}")
@@ -217,9 +327,16 @@ def main(
     code = local["cargo"][arguments] & RETCODE(FG=True)
     success, meaning = interpret_exit_code(code)
     emit("mutation_cargo_exit_code", code)
+    if code == 0:
+        success, meaning = classify_empty_run(
+            meaning=meaning,
+            enumerated=count_enumerated_mutants(target_dir),
+            sharded=shard_count > 1,
+            allowed=allow_no_mutants.strip().lower() == "true",
+        )
     emit("mutation_cargo_outcome", meaning)
     if not success:
-        raise SystemExit(code)
+        raise SystemExit(code or 1)
 
 
 if __name__ == "__main__":

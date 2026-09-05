@@ -100,7 +100,10 @@ jobs:
   unknown rather than empty, so a tool version that stops writing it does not
   fail every caller at once. Sharded runs are exempt: sharding splits the
   inventory after enumeration, so a project with fewer mutants than shards
-  leaves some shards legitimately empty.
+  leaves some shards legitimately empty. An `--output` directory passed through
+  `extra-args` is honoured when locating the inventory, since reading the
+  default location regardless would find nothing and hand the empty run back
+  its clean pass.
 
 - The `cargo-mutants-version` default is pinned because the
   `outcomes.json` format is documented as unstable and the summary parser must

@@ -83,6 +83,9 @@ if __package__:
 else:
     from output import emit, fail  # type: ignore[import-not-found,no-redef]
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 app = App()
 
 #: cargo-mutants exit codes that are informative outcomes, not failures.
@@ -169,13 +172,47 @@ MUTANT_INVENTORY = pathlib.Path("mutants.out") / "mutants.json"
 NO_MUTANTS = "no mutants found"
 
 
-def count_enumerated_mutants(target_dir: str) -> int | None:
-    """Count the mutants cargo-mutants enumerated for this run.
+def resolve_output_dir(target_dir: str, arguments: cabc.Sequence[str]) -> str:
+    """Find where cargo-mutants will write ``mutants.out``.
+
+    It writes beside the crate by default, but ``--output`` moves it, and
+    a caller can pass that through ``extra-args``. Reading the default
+    location regardless would find nothing, report the inventory as
+    unknown, and hand the empty run back its clean pass.
 
     Parameters
     ----------
     target_dir : str
         The crate directory the run mutated.
+    arguments : cabc.Sequence[str]
+        The full argument list handed to cargo.
+
+    Returns
+    -------
+    str
+        The directory that will contain ``mutants.out``. The last
+        ``--output`` wins, as it does for cargo-mutants itself.
+    """
+    output: str | None = None
+    pending = False
+    for argument in arguments:
+        if pending:
+            output = argument
+            pending = False
+        elif argument == "--output":
+            pending = True
+        elif argument.startswith("--output="):
+            output = argument.partition("=")[2]
+    return output if output is not None else target_dir
+
+
+def count_enumerated_mutants(output_dir: str) -> int | None:
+    """Count the mutants cargo-mutants enumerated for this run.
+
+    Parameters
+    ----------
+    output_dir : str
+        The directory containing ``mutants.out``.
 
     Returns
     -------
@@ -185,14 +222,16 @@ def count_enumerated_mutants(target_dir: str) -> int | None:
         stops writing the file, or writes it somewhere else, must not
         start failing every caller's run.
     """
-    inventory = pathlib.Path(target_dir) / MUTANT_INVENTORY
+    inventory = pathlib.Path(output_dir) / MUTANT_INVENTORY
     try:
         listed = json.loads(inventory.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    if not isinstance(listed, list):
-        return None
-    return len(listed)
+    match listed:
+        case list():
+            return len(listed)
+        case _:
+            return None
 
 
 def interpret_exit_code(code: int) -> tuple[bool, str]:
@@ -262,6 +301,46 @@ def classify_empty_run(
     return False, NO_MUTANTS
 
 
+def report_outcome(
+    *,
+    code: int,
+    output_dir: str,
+    sharded: bool,
+    allow_no_mutants: str,
+) -> None:
+    """Emit the run's outcome and fail the step when it is a fault.
+
+    Parameters
+    ----------
+    code : int
+        The exit code cargo-mutants returned.
+    output_dir : str
+        The directory containing ``mutants.out``.
+    sharded : bool
+        Whether the run was one shard of several.
+    allow_no_mutants : str
+        The caller's opt-out, as the environment spells it.
+
+    Raises
+    ------
+    SystemExit
+        With the tool's code on a genuine fault, or 1 when an unsharded
+        run enumerated no mutants and the caller did not opt in.
+    """
+    success, meaning = interpret_exit_code(code)
+    emit("mutation_cargo_exit_code", code)
+    if code == 0:
+        success, meaning = classify_empty_run(
+            meaning=meaning,
+            enumerated=count_enumerated_mutants(output_dir),
+            sharded=sharded,
+            allowed=allow_no_mutants.strip().lower() == "true",
+        )
+    emit("mutation_cargo_outcome", meaning)
+    if not success:
+        raise SystemExit(code or 1)
+
+
 @app.default
 def main(
     *,
@@ -325,18 +404,12 @@ def main(
     )
     emit("mutation_cargo_command", ["cargo", *arguments])
     code = local["cargo"][arguments] & RETCODE(FG=True)
-    success, meaning = interpret_exit_code(code)
-    emit("mutation_cargo_exit_code", code)
-    if code == 0:
-        success, meaning = classify_empty_run(
-            meaning=meaning,
-            enumerated=count_enumerated_mutants(target_dir),
-            sharded=shard_count > 1,
-            allowed=allow_no_mutants.strip().lower() == "true",
-        )
-    emit("mutation_cargo_outcome", meaning)
-    if not success:
-        raise SystemExit(code or 1)
+    report_outcome(
+        code=code,
+        output_dir=resolve_output_dir(target_dir, arguments),
+        sharded=shard_count > 1,
+        allow_no_mutants=allow_no_mutants,
+    )
 
 
 if __name__ == "__main__":

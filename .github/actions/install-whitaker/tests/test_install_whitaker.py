@@ -445,12 +445,14 @@ class TestLifecycleSteps:
         # current fragments happen to use. `if cargo install ...; then` is the
         # obvious way to write a fallback, so omitting `if` would have left the
         # rule blind to the shape most likely to reintroduce one.
+        # The control keywords sit *after* a boundary rather than beside it.
+        # As alternatives they matched anywhere, so `echo 'if cargo install x'`
+        # read as an invocation, and a fragment that merely quotes the phrase
+        # would have been rejected.
         invocation = re.compile(
-            r"""(?:
-                    ^ | [;&|(] | \$\( | `
-                  | \b(?:if|elif|while|until|then|do|else)\b
-                  | !
-                )\s*
+            r"""(?:^ | [;&|(] | \$\( | `)\s*
+                (?:(?:if|elif|while|until|then|do|else)\s+)*
+                (?:!\s*)?
                 (?:[A-Za-z_]\w*=\S*\s+)*
                 cargo\s+(?:install|binstall)\b""",
             re.VERBOSE | re.MULTILINE,
@@ -478,6 +480,9 @@ class TestLifecycleSteps:
         for benign in (
             'grep -q "from source with cargo install" "$log"',
             "echo 'never run cargo install here'",
+            "echo 'if cargo install cargo-dylint'",
+            "echo '! cargo install cargo-dylint'",
+            'printf "%s" "then cargo binstall cargo-dylint"',
         ):
             assert not invocation.search(benign), (
                 f"a mention was read as an invocation: {benign}"

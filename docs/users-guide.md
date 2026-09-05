@@ -464,7 +464,7 @@ assets before the installer runs, retrying a short absence, and fails the step
 if the installer resorted to a source build anyway.
 
 Every run records which path it took as
-`whitaker-installer.suite-source=<prebuilt|source>`, and the nightly the
+`whitaker-installer.suite-source=<prebuilt|source>`, and the toolchain the
 published libraries were built with as
 `whitaker-installer.suite-toolchain=<toolchain>`, so a lint result can be tied
 to the compiler that produced it. Set `ci-mode: false` when a source build is

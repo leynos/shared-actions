@@ -302,12 +302,14 @@ def total_enumerated_mutants(report_root: Path) -> int | None:
         unreadable. Unknown is deliberately not zero, and one unknown
         shard makes the total unknown rather than merely smaller.
     """
-    shards = sorted(
-        entry
-        for entry in report_root.iterdir()
-        if entry.is_dir() and ARTEFACT_NAME_PATTERN.match(entry.name)
+    shards = tuple(
+        sorted(
+            entry
+            for entry in report_root.iterdir()
+            if entry.is_dir() and ARTEFACT_NAME_PATTERN.match(entry.name)
+        )
     )
-    counts = [_shard_inventory_count(directory) for directory in shards]
+    counts = tuple(_shard_inventory_count(directory) for directory in shards)
     # One unreadable shard makes the whole total unknown. Summing the rest
     # would report a run as empty on the strength of the shards that
     # happened to survive, and failing a job for that is exactly the kind

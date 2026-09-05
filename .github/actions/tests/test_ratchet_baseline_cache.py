@@ -12,10 +12,12 @@ run-scoped primary key with a shared prefix as its restore-key, then save
 through ``actions/cache/save`` under that same run-scoped key.
 
 The save is additionally guarded on the event and the ref. A cache family has
-one writer, and that writer publishes only on a push to the trunk: a
-``workflow_dispatch`` is how warm-cache evidence is gathered, over a tree that
-must not be disturbed, and a push to another branch would advance the trunk
-baseline that later pull requests are measured against.
+one writer, and in the default ``auto`` mode that writer publishes only on a
+push to the trunk: a ``workflow_dispatch`` is how warm-cache evidence is
+gathered, over a tree that must not be disturbed, and a push to another branch
+would advance the trunk baseline that later pull requests are measured against.
+``publish-baseline: always`` widens that for a caller whose runs are not trunk
+pushes, and which restricts the job itself.
 
 Action-specific behaviour, such as the reporting step ``generate-coverage``
 emits, is covered in that action's own test directory.
@@ -203,6 +205,24 @@ def test_baseline_save_is_guarded_on_a_trunk_push(action: str) -> None:
 
 
 @pytest.mark.parametrize("action", ACTION_IDS)
+def test_always_is_an_alternative_to_the_trunk_push(action: str) -> None:
+    """``always`` must widen the guard, not add another requirement.
+
+    Conjoining it would demand a trunk push *and* the override, which is the
+    opposite of what it is for: the callers that need it are the ones whose
+    runs are not trunk pushes.
+    """
+    condition = _save_condition(action)
+
+    assert "inputs.publish-baseline == 'always' ||" in condition, (
+        f"{action}: always is not disjoined from the push guard: {condition}"
+    )
+    assert "inputs.publish-baseline == 'always' &&" not in condition, (
+        f"{action}: always is conjoined with the push guard: {condition}"
+    )
+
+
+@pytest.mark.parametrize("action", ACTION_IDS)
 def test_baseline_save_still_requires_success(action: str) -> None:
     """A failed run must not publish whatever the baseline file holds."""
     assert "success()" in _save_condition(action), (
@@ -228,25 +248,27 @@ def test_publish_baseline_defaults_to_the_guarded_behaviour(action: str) -> None
 
 @pytest.mark.parametrize("action", ACTION_IDS)
 def test_publish_baseline_is_validated_before_anything_runs(action: str) -> None:
-    """An unrecognized mode must fail, not quietly behave like ``auto``.
+    """An unrecognized mode must fail first, not quietly behave like ``auto``.
 
     A condition can only decide whether a step runs, so a typo such as
     ``alway`` reads as "not always": the run would succeed, publish nothing,
     and leave later runs comparing against a baseline that had silently
     stopped advancing.
     """
-    steps = _steps(action)
-    names = [step.get("name") for step in steps]
-    assert "Validate baseline publication mode" in names, (
-        f"{action}: no validation step for publish-baseline"
+    names = [step.get("name") for step in _steps(action)]
+    assert names[0] == "Validate baseline publication mode", (
+        f"{action}: validation must be the first step, not {names[0]!r}; a mode "
+        f"the action cannot honour should cost nothing to discover"
     )
 
-    restore_step, _save_step = BASELINE_CACHE_STEPS[action]
-    assert names.index("Validate baseline publication mode") < names.index(
-        restore_step
-    ), f"{action}: validation must precede the restore"
-
-    script = _step(action, "Validate baseline publication mode")["run"]
+    step = _step(action, "Validate baseline publication mode")
+    assert step["env"] == {"GC_PUBLISH_BASELINE": "${{ inputs.publish-baseline }}"}, (
+        f"{action}: validation does not read the input it claims to: {step.get('env')}"
+    )
+    script = step["run"]
+    assert "$GC_PUBLISH_BASELINE" in script, (
+        f"{action}: validation does not test the value it was given"
+    )
     assert "auto|always" in script, (
         f"{action}: validation does not accept exactly auto and always"
     )

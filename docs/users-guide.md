@@ -221,8 +221,9 @@ means an earlier failure stopped the step running.
 
 ### When the baseline is published
 
-The save publishes only on a `push` to `refs/heads/main`. A `workflow_dispatch`
-never publishes, and neither does a push to any other branch.
+In the default `auto` mode the save publishes only on a `push` to
+`refs/heads/main`. A `workflow_dispatch` never publishes, and neither does a
+push to any other branch. `publish-baseline: always` lifts both restrictions.
 
 That matters for two reasons. A dispatch is how warm-cache evidence is
 gathered, by re-running the same workflow over an unchanged tree; a run that

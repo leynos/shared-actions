@@ -52,8 +52,9 @@ rebuilds.
 
 ## When the baseline is published
 
-The save runs only on a `push` to `refs/heads/main`. A `workflow_dispatch`
-never publishes, and neither does a push to any other branch.
+In the default `auto` mode the save runs only on a `push` to `refs/heads/main`.
+A `workflow_dispatch` never publishes, and neither does a push to any other
+branch. `publish-baseline: always` lifts both restrictions.
 
 A dispatch is how warm-cache evidence is gathered, by re-running a workflow
 over an unchanged tree; a run that publishes disturbs the generation it was
@@ -66,9 +67,10 @@ Set `publish-baseline: always` when a repository's merges fire no `push` event,
 because they land through an automerge token, or when its trunk is not called
 `main`. The calling workflow is then responsible for restricting the job to the
 runs that should publish, since the action no longer is. Any value other than
-`auto` or `always` is refused before the action does anything, rather than
-being treated as `auto`: a typo would otherwise stop publication silently and
-leave later runs comparing against a baseline that had stopped advancing.
+`auto` or `always` is refused by the action's first step, before it restores
+anything, rather than being treated as `auto`: a typo would otherwise stop
+publication silently and leave later runs comparing against a baseline that had
+stopped advancing.
 
 ### Requirements
 

@@ -26,14 +26,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Setup uv
-      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
-      with:
-        uv-version: ">=0.7.19,<0.8.0"
-        cache-dependency-glob: |
-          **/pyproject.toml
-          **/uv.lock
-          **/scripts/*.py
     - name: Validate baseline publication mode
       shell: bash
       env:
@@ -51,6 +43,14 @@ runs:
             exit 1
             ;;
         esac
+    - name: Setup uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      with:
+        uv-version: ">=0.7.19,<0.8.0"
+        cache-dependency-glob: |
+          **/pyproject.toml
+          **/uv.lock
+          **/scripts/*.py
     - name: Restore baseline
       id: restore-baseline
       # The restore sub-action, not the full `actions/cache` action: the full

@@ -110,6 +110,23 @@ DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in Dependabo
 #: still identify the commit.
 UNKNOWN_AUTHOR: typ.Final[str] = "an unnamed author"
 
+#: Stands in for the authors of a commit whose credit list came back
+#: truncated. Such a commit cannot be certified as Dependabot's, so it is
+#: reported as foreign rather than waved through.
+UNREAD_CO_AUTHOR: typ.Final[str] = "an unread co-author"
+
+#: How many commits and credited authors one page of the query asks for.
+#: Both connections are paged or checked for truncation, because a
+#: connection read to its limit and no further is how a foreign commit
+#: slips past a check that looks complete.
+COMMIT_PAGE_SIZE: typ.Final[int] = 100
+AUTHOR_PAGE_SIZE: typ.Final[int] = 100
+
+#: Ceiling on commit pages. Fifty pages is 5,000 commits, far beyond any
+#: real dependency branch; stopping there bounds the work rather than
+#: trusting a cursor to terminate, and the branch is reported unreadable.
+MAX_COMMIT_PAGES: typ.Final[int] = 50
+
 
 class MergeStateStatus(enum.StrEnum):
     """Supported merge state statuses from GitHub GraphQL."""
@@ -139,8 +156,42 @@ MERGE_METHODS = {
     "squash": "SQUASH",
 }
 
-PULL_REQUEST_QUERY = """
-query PullRequestInfo($owner: String!, $name: String!, $number: Int!) {
+#: The commit connection, shared by the first query and the paging one so
+#: the two cannot describe different shapes. ``totalCount`` on ``authors``
+#: is what makes a truncated credit list visible.
+COMMITS_FRAGMENT = """
+      commits(first: $commitPageSize, after: $commitCursor) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          commit {
+            oid
+            authors(first: $authorPageSize) {
+              totalCount
+              nodes {
+                user {
+                  login
+                }
+              }
+            }
+          }
+        }
+      }
+"""
+
+PULL_REQUEST_QUERY = (
+    """
+query PullRequestInfo(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $commitPageSize: Int!
+  $authorPageSize: Int!
+  $commitCursor: String
+) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       id
@@ -160,30 +211,51 @@ query PullRequestInfo($owner: String!, $name: String!, $number: Int!) {
         enabledAt
         mergeMethod
       }
-      commits(last: 100) {
-        nodes {
-          commit {
-            oid
-            authors(first: 10) {
-              nodes {
-                user {
-                  login
-                }
-              }
-            }
-          }
-        }
-      }
+"""
+    + COMMITS_FRAGMENT
+    + """
     }
   }
 }
 """
+)
+
+COMMITS_PAGE_QUERY = (
+    """
+query PullRequestCommits(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $commitPageSize: Int!
+  $authorPageSize: Int!
+  $commitCursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+"""
+    + COMMITS_FRAGMENT
+    + """
+    }
+  }
+}
+"""
+)
 
 ENABLE_AUTOMERGE_MUTATION = """
 mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
   enablePullRequestAutoMerge(
     input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
   ) {
+    pullRequest {
+      number
+    }
+  }
+}
+"""
+
+DISABLE_AUTOMERGE_MUTATION = """
+mutation DisableAutomerge($pullRequestId: ID!) {
+  disablePullRequestAutoMerge(input: {pullRequestId: $pullRequestId}) {
     pullRequest {
       number
     }
@@ -205,6 +277,45 @@ mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMet
 """
 
 app = App()
+
+
+class CommitRecord(typ.NamedTuple):
+    """One commit on the branch, in terms the eligibility rule uses.
+
+    The GraphQL shape stops here. Everything downstream reads a commit as
+    an identifier and the logins credited on it, so the rule can be stated
+    and tested without a GitHub response in the way.
+
+    Attributes
+    ----------
+    oid : str
+        The commit SHA.
+    authors : tuple[str, ...]
+        The logins credited on the commit, with :data:`UNKNOWN_AUTHOR` for
+        any GitHub did not name.
+    authors_complete : bool
+        Whether every credited author was returned. A truncated list
+        cannot certify the commit as Dependabot's.
+    """
+
+    oid: str
+    authors: tuple[str, ...]
+    authors_complete: bool = True
+
+
+class CommitPage(typ.NamedTuple):
+    """One page of a branch's commits, and where the next one starts.
+
+    Attributes
+    ----------
+    records : tuple[CommitRecord, ...]
+        The commits on this page.
+    next_cursor : str or None
+        The cursor for the following page, or None at the end.
+    """
+
+    records: tuple[CommitRecord, ...]
+    next_cursor: str | None
 
 
 class CommitAudit(typ.NamedTuple):
@@ -338,8 +449,11 @@ class Decision:
     Attributes
     ----------
     status : str
-        The decision status: ``skipped``, ``ready``, ``enabled``, ``merged``,
-        or ``error``.
+        The decision status: ``skipped``, ``cancelled``, ``ready``,
+        ``enabled``, ``merged``, or ``error``. ``cancelled`` is a skip that
+        also withdrew an auto-merge request armed earlier, and is reported
+        separately because the run changed the pull request rather than
+        merely declining to.
     reason : str
         Human-readable reason for the decision, e.g. ``author-not-dependabot``.
     """
@@ -581,6 +695,7 @@ def _emit_decision(
     emit("automerge_labels", pr.labels)
     emit("automerge_merge_state", pr.merge_state_status.value)
     emit("automerge_mergeable_state", pr.mergeable_state.value)
+    emit("automerge_commit_audit", _commit_audit_outcome(pr))
     if pr.foreign_commits:
         _announce_foreign_commits(pr)
     elif not pr.commits_readable:
@@ -591,6 +706,30 @@ def _emit_decision(
             f"author alone. A change pushed onto this branch by someone other "
             f"than Dependabot would not be detected."
         )
+
+
+def _commit_audit_outcome(pr: PullRequestContext) -> str:
+    """Return the commit audit's outcome as one of three fixed words.
+
+    ``clean`` means every commit was read and every one was Dependabot's;
+    ``foreign`` that at least one was not; ``unreadable`` that the check
+    did not run. The value is bounded on purpose and carries no commit
+    identifier, so the log line can be counted across repositories
+    without becoming high-cardinality.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot the decision was taken from.
+
+    Returns
+    -------
+    str
+        ``clean``, ``foreign`` or ``unreadable``.
+    """
+    if not pr.commits_readable:
+        return "unreadable"
+    return "foreign" if pr.foreign_commits else "clean"
 
 
 def _announce_foreign_commits(pr: PullRequestContext) -> None:
@@ -604,24 +743,139 @@ def _announce_foreign_commits(pr: PullRequestContext) -> None:
     )
 
 
-def _commit_authors(commit: dict[str, JsonValue]) -> tuple[str, ...]:
-    """Return the logins credited on one commit."""
+def _commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]:
+    """Return the logins credited on one commit, and whether that is all.
+
+    Parameters
+    ----------
+    commit : dict
+        The commit node from the GraphQL query.
+
+    Returns
+    -------
+    tuple[tuple[str, ...], bool]
+        The credited logins, and whether the connection returned every
+        one. ``totalCount`` above the number of nodes means the credit
+        list was cut off at the page size.
+    """
     authors = commit.get("authors")
     if not isinstance(authors, dict):
-        return ()
+        return (), True
     nodes = authors.get("nodes")
     if not isinstance(nodes, list):
-        return ()
+        return (), True
     logins: list[str] = []
     for node in nodes:
         user = node.get("user") if isinstance(node, dict) else None
         login = user.get("login") if isinstance(user, dict) else None
         logins.append(login if isinstance(login, str) and login else UNKNOWN_AUTHOR)
-    return tuple(logins)
+    total = authors.get("totalCount")
+    complete = not isinstance(total, int) or total <= len(logins)
+    return tuple(logins), complete
+
+
+def _commit_page(pull_request: dict[str, JsonValue]) -> CommitPage | None:
+    """Translate one page of the GraphQL commit connection.
+
+    This is the whole of the GitHub shape's reach into the eligibility
+    rule: everything past it reads :class:`CommitRecord`. Keeping the two
+    apart is what lets the rule be stated and exercised without a GraphQL
+    response, and what stops a schema change from quietly meaning a
+    different rule.
+
+    Parameters
+    ----------
+    pull_request : dict
+        The pull request node from the GraphQL query.
+
+    Returns
+    -------
+    CommitPage or None
+        The commits on this page and the cursor for the next, or None
+        when the response carried no commit list at all.
+    """
+    commits = pull_request.get("commits")
+    nodes = commits.get("nodes") if isinstance(commits, dict) else None
+    if not isinstance(commits, dict) or not isinstance(nodes, list):
+        return None
+    records: list[CommitRecord] = []
+    for node in nodes:
+        commit = node.get("commit") if isinstance(node, dict) else None
+        if not isinstance(commit, dict):
+            continue
+        oid = commit.get("oid")
+        authors, complete = _commit_authors(commit)
+        records.append(
+            CommitRecord(
+                oid=oid if isinstance(oid, str) else UNKNOWN_AUTHOR,
+                authors=authors,
+                authors_complete=complete,
+            )
+        )
+    return CommitPage(records=tuple(records), next_cursor=_next_cursor(commits))
+
+
+def _next_cursor(commits: dict[str, JsonValue]) -> str | None:
+    """Return the cursor for the next commit page, or None at the end.
+
+    Parameters
+    ----------
+    commits : dict
+        The commit connection from the GraphQL query.
+
+    Returns
+    -------
+    str or None
+        The end cursor when another page follows.
+    """
+    page_info = commits.get("pageInfo")
+    if not isinstance(page_info, dict) or page_info.get("hasNextPage") is not True:
+        return None
+    cursor = page_info.get("endCursor")
+    return cursor if isinstance(cursor, str) and cursor else None
+
+
+def _foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit, ...]:
+    """Apply the eligibility rule to commits already in domain terms.
+
+    The rule: every login credited on every commit must be Dependabot's,
+    and the whole credit list must have been read. A commit whose authors
+    came back truncated is reported foreign rather than waved through,
+    because the check exists to certify the branch and a partial list
+    certifies nothing. That is the opposite of the unreadable-list case
+    in :func:`_audit_commits`, and deliberately so: there the branch's
+    commits could not be seen at all, which is a query fault affecting
+    every consumer at once; here one visible commit could not be read to
+    the end, which is a property of that commit.
+
+    Parameters
+    ----------
+    records : typ.Sequence[CommitRecord]
+        The branch's commits.
+
+    Returns
+    -------
+    tuple[ForeignCommit, ...]
+        One entry per commit that fails the rule, in branch order.
+    """
+    foreign: list[ForeignCommit] = []
+    for record in records:
+        outside = [name for name in record.authors if name not in DEPENDABOT_LOGINS]
+        if not outside:
+            if record.authors_complete:
+                continue
+            foreign.append(ForeignCommit(oid=record.oid, author=UNREAD_CO_AUTHOR))
+            continue
+        foreign.append(ForeignCommit(oid=record.oid, author=outside[0]))
+    return tuple(foreign)
 
 
 def _audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
-    """Find the commits on the branch that Dependabot did not write.
+    """Find the commits on one page that Dependabot did not write.
+
+    Callers that must cover a whole branch use :func:`_fetch_pull_request`,
+    which pages the connection first. This composes the adapter and the
+    rule over a single response.
 
     Parameters
     ----------
@@ -639,27 +893,10 @@ def _audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
         one this prevents. ``readable`` is what makes that loss visible
         rather than silent.
     """
-    commits = pull_request.get("commits")
-    nodes = commits.get("nodes") if isinstance(commits, dict) else None
-    if not isinstance(nodes, list):
+    page = _commit_page(pull_request)
+    if page is None:
         return CommitAudit(readable=False, foreign=())
-    foreign: list[ForeignCommit] = []
-    for node in nodes:
-        commit = node.get("commit") if isinstance(node, dict) else None
-        if not isinstance(commit, dict):
-            continue
-        oid = commit.get("oid")
-        authors = _commit_authors(commit)
-        outside = [name for name in authors if name not in DEPENDABOT_LOGINS]
-        if not outside:
-            continue
-        foreign.append(
-            ForeignCommit(
-                oid=oid if isinstance(oid, str) else UNKNOWN_AUTHOR,
-                author=outside[0],
-            )
-        )
-    return CommitAudit(readable=True, foreign=tuple(foreign))
+    return CommitAudit(readable=True, foreign=_foreign_commits(page.records))
 
 
 def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
@@ -737,6 +974,127 @@ def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableSta
     )
 
 
+def _commit_variables(
+    owner: str, repo: str, number: int, cursor: str | None
+) -> dict[str, JsonValue]:
+    """Build the variables both commit-bearing queries take.
+
+    Parameters
+    ----------
+    owner : str
+        The repository owner.
+    repo : str
+        The repository name.
+    number : int
+        The pull request number.
+    cursor : str or None
+        Where to resume the commit connection, or None for the first page.
+
+    Returns
+    -------
+    dict
+        The GraphQL variables.
+    """
+    return {
+        "owner": owner,
+        "name": repo,
+        "number": number,
+        "commitPageSize": COMMIT_PAGE_SIZE,
+        "authorPageSize": AUTHOR_PAGE_SIZE,
+        "commitCursor": cursor,
+    }
+
+
+def _pull_request_node(
+    data: dict[str, JsonValue], owner: str, repo: str, number: int
+) -> dict[str, JsonValue]:
+    """Unwrap the pull request node, failing when it is absent.
+
+    Parameters
+    ----------
+    data : dict
+        A GraphQL response body.
+    owner : str
+        The repository owner.
+    repo : str
+        The repository name.
+    number : int
+        The pull request number.
+
+    Returns
+    -------
+    dict
+        The pull request node.
+    """
+    repository = data.get("repository")
+    if isinstance(repository, dict):
+        pull_request = repository.get("pullRequest")
+        if isinstance(pull_request, dict):
+            return pull_request
+    # `fail` is NoReturn; returning it is what tells the linter so, since
+    # the conditional import leaves that annotation out of reach here.
+    return fail(f"Pull request {owner}/{repo}#{number} was not found.")
+
+
+def _audit_whole_branch(
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    first_page: dict[str, JsonValue],
+) -> CommitAudit:
+    """Audit every commit on the branch, not merely the first page.
+
+    A connection read to its page size and no further looks complete: the
+    nodes come back, the audit runs, and a commit past the limit is never
+    seen. On a branch of more than :data:`COMMIT_PAGE_SIZE` commits that
+    is a foreign commit certified as Dependabot's, so the pages are
+    followed to the end.
+
+    Parameters
+    ----------
+    token : str
+        A GitHub token.
+    owner : str
+        The repository owner.
+    repo : str
+        The repository name.
+    number : int
+        The pull request number.
+    first_page : dict
+        The pull request node already fetched, carrying page one.
+
+    Returns
+    -------
+    CommitAudit
+        The audit over every commit, or an unreadable result when a page
+        carried no commit list or the branch exceeded
+        :data:`MAX_COMMIT_PAGES`.
+    """
+    page = _commit_page(first_page)
+    if page is None:
+        return CommitAudit(readable=False, foreign=())
+    records = list(page.records)
+    cursor = page.next_cursor
+    pages = 1
+    while cursor is not None:
+        if pages >= MAX_COMMIT_PAGES:
+            return CommitAudit(readable=False, foreign=())
+        data = request_graphql(
+            token,
+            COMMITS_PAGE_QUERY,
+            _commit_variables(owner, repo, number, cursor),
+        )
+        node = _pull_request_node(data, owner, repo, number)
+        page = _commit_page(node)
+        if page is None:
+            return CommitAudit(readable=False, foreign=())
+        records.extend(page.records)
+        cursor = page.next_cursor
+        pages += 1
+    return CommitAudit(readable=True, foreign=_foreign_commits(records))
+
+
 def _fetch_pull_request(
     token: str, owner: str, repo: str, number: int
 ) -> PullRequestContext:
@@ -744,17 +1102,12 @@ def _fetch_pull_request(
     data = request_graphql(
         token,
         PULL_REQUEST_QUERY,
-        {"owner": owner, "name": repo, "number": number},
+        _commit_variables(owner, repo, number, None),
     )
-    repository = data.get("repository")
-    if not isinstance(repository, dict):
-        fail(f"Pull request {owner}/{repo}#{number} was not found.")
-    pull_request = repository.get("pullRequest")
-    if not isinstance(pull_request, dict):
-        fail(f"Pull request {owner}/{repo}#{number} was not found.")
+    pull_request = _pull_request_node(data, owner, repo, number)
     author_login = _extract_author_login(pull_request)
     labels = _extract_labels(pull_request)
-    audit = _audit_commits(pull_request)
+    audit = _audit_whole_branch(token, owner, repo, number, pull_request)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
     node_id = pull_request.get("id")
     return PullRequestContext(
@@ -887,6 +1240,15 @@ def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> No
     )
 
 
+def _disable_automerge(token: str, pull_request_id: str) -> None:
+    """Cancel an auto-merge request via the GitHub GraphQL API."""
+    request_graphql(
+        token,
+        DISABLE_AUTOMERGE_MUTATION,
+        {"pullRequestId": pull_request_id},
+    )
+
+
 def _merge_pull_request(token: str, pull_request_id: str, merge_method: str) -> None:
     """Merge a pull request directly via the GitHub GraphQL API."""
     request_graphql(
@@ -914,6 +1276,55 @@ def _handle_dry_run(
     )
 
 
+def _stop_unless_eligible(
+    github_token: str,
+    pr: PullRequestContext,
+    *,
+    config: AutomergeConfig,
+) -> bool:
+    """Report the decision and stop when the pull request is not eligible.
+
+    Cancels an auto-merge request that was armed before the branch went
+    foreign. Declining to arm one is not enough on its own: GitHub keeps
+    an existing request alive across a push, so a request armed while the
+    branch was Dependabot's would still merge the commit that made it
+    foreign as soon as the required checks passed. That is the outcome
+    this whole check exists to prevent, so the request is withdrawn.
+
+    Parameters
+    ----------
+    github_token : str
+        A GitHub token.
+    pr : PullRequestContext
+        The snapshot to judge.
+    config : AutomergeConfig
+        The run's configuration.
+
+    Returns
+    -------
+    bool
+        True when the caller must stop.
+    """
+    decision = _evaluate(pr, config.required_label)
+    if decision.status == "ready":
+        return False
+    if pr.foreign_commits and pr.auto_merge_enabled and pr.node_id:
+        _disable_automerge(github_token, pr.node_id)
+        print(
+            f"::notice title=dependabot-automerge::cancelled the auto-merge "
+            f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "
+            f"branch gained a commit Dependabot did not write; it would "
+            f"otherwise have merged that commit once the required checks "
+            f"passed."
+        )
+        decision = Decision(
+            status="cancelled",
+            reason=decision.reason,
+        )
+    _emit_decision(pr, decision, config=config)
+    return True
+
+
 def _handle_live_execution(
     github_token: str,
     context: RuntimeContext,
@@ -928,13 +1339,7 @@ def _handle_live_execution(
     )
 
     pr = _fetch_pull_request(github_token, owner, repo, pr_number)
-    decision = _evaluate(pr, config.required_label)
-    if decision.status != "ready":
-        _emit_decision(
-            pr,
-            decision,
-            config=config,
-        )
+    if _stop_unless_eligible(github_token, pr, config=config):
         return
 
     if pr.auto_merge_enabled:
@@ -946,6 +1351,12 @@ def _handle_live_execution(
         return
 
     pr = _refresh_merge_state(github_token, pr)
+    # The refresh refetched the pull request, so it also refetched who
+    # wrote the commits. A push landing inside the retry window is
+    # visible in this snapshot and nowhere else, and arming auto-merge on
+    # the strength of the earlier one would merge it unreviewed.
+    if _stop_unless_eligible(github_token, pr, config=config):
+        return
     if pr.auto_merge_enabled:
         _emit_decision(
             pr,

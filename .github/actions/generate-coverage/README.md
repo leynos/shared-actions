@@ -391,8 +391,13 @@ watchdog     >= nextest global-timeout + longest slow-timeout + cold build
 job ceiling  >= watchdog + measured work outside the watchdog's window
 ```
 
-A caller states both allowances and where it measured them. Guessing either is
-how the ordering silently inverts.
+A caller states both allowances, where it measured them, and how many runs it
+read. One run is not a measurement of the cold case, it is the coldest run seen
+so far, and the difference matters: rstest-bdd's allowances were sized three
+times from successive "cold" runs of 22, 30 and finally 42 minutes, each of
+which had looked like the worst until the next one arrived. Take the allowance
+from the worst of several, and say how many were read, so the next person
+sizing it knows what the number rests on.
 
 The failure this prevents is not hypothetical. rstest-bdd had a 30 minute
 watchdog under a 75 minute nextest budget; on 2026-09-05 a dependabot bump
@@ -401,6 +406,14 @@ served 9 % of Rust compile requests from cache and was killed at 1,800 s with
 and passed, because the watchdog times `cargo` rather than the step. That lane
 was not near its budget, it was straddling it, and whether a run survived was
 decided by a few seconds of job setup.
+
+The job ceiling matters as much as the watchdog, and is easier to forget. On a
+genuinely cold run of that same lane the coverage step took 42 minutes and the
+whole job took 1 h 50 m, because the work either side of coverage ran cold too:
+37 minutes before and 31 after, against 14 and 37 on a warmer run. A larger
+watchdog alone would not have saved it. The job would have been cancelled at
+its 90 minute ceiling, and a cancellation discards the log that explains the
+overrun.
 
 ### Asserting the ordering
 

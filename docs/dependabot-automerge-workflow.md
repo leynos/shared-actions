@@ -39,6 +39,12 @@ nothing rather than as foreign: a query change that stopped returning commits
 would otherwise halt every consumer's automerge at once, which is a worse
 failure than the one this prevents.
 
+That second limit fails open, so it is made loud rather than left silent: when
+the commit list cannot be read the run logs a warning saying the check did not
+run and eligibility rested on the pull request's author alone. A protection
+that disappears without saying so is the failure worth guarding against here,
+since nothing else in the run would look different.
+
 Pushing a fix onto a Dependabot branch has a second cost worth knowing. Once a
 branch has a non-Dependabot commit, Dependabot will no longer rebase or
 recreate it, so the pull request has to be maintained by hand from then on.

@@ -213,29 +213,48 @@ class _ServedBranch:
         return self._pages
 
 
-def _install_graphql(
-    monkeypatch: pytest.MonkeyPatch,
-    pages: typ.Sequence[typ.Sequence[dict[str, object]]],
-    *,
-    auto_merge_request: dict[str, object] | None = None,
-    merge_state: str = "BLOCKED",
-    later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None = None,
-) -> GraphQLCalls:
+class Branch(typ.NamedTuple):
+    """The pull request a test wants GitHub to appear to hold.
+
+    One value rather than a parameter list, because these four describe
+    one situation, and a call naming three of them by keyword read as
+    though the fourth had been forgotten.
+
+    Attributes
+    ----------
+    pages : typ.Sequence[typ.Sequence[dict[str, object]]]
+        Commit pages served to the first fetch of the pull request.
+    auto_merge_request : dict or None
+        The ``autoMergeRequest`` field. Not None means already armed.
+    merge_state : str
+        The ``mergeStateStatus`` to report.
+    later_pages : typ.Sequence[typ.Sequence[dict[str, object]]] or None
+        Commit pages served from the second fetch onward, for the case of
+        a push landing inside the merge-state retry window.
+    """
+
+    pages: typ.Sequence[typ.Sequence[dict[str, object]]]
+    auto_merge_request: dict[str, object] | None = None
+    merge_state: str = "BLOCKED"
+    later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None = None
+
+
+#: An auto-merge request already armed when the run starts.
+ARMED: typ.Final[dict[str, object]] = {
+    "enabledAt": "2026-09-06T00:00:00Z",
+    "mergeMethod": "SQUASH",
+}
+
+
+def _install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQLCalls:
     """Replace the GraphQL client with a scripted one, and record calls.
 
     Parameters
     ----------
     monkeypatch : pytest.MonkeyPatch
         The patching fixture.
-    pages : typ.Sequence[typ.Sequence[dict[str, object]]]
-        Commit pages served to the first fetch of the pull request.
-    auto_merge_request : dict or None
-        The ``autoMergeRequest`` field to report.
-    merge_state : str
-        The ``mergeStateStatus`` to report.
-    later_pages : typ.Sequence[typ.Sequence[dict[str, object]]] or None
-        Commit pages served from the second fetch onward, for the case of
-        a push landing inside the merge-state retry window.
+    branch : Branch
+        The pull request GitHub should appear to hold.
 
     Returns
     -------
@@ -243,7 +262,7 @@ def _install_graphql(
         The record the test asserts against.
     """
     calls = GraphQLCalls(enable=[], disable=[], merge=[], cursors=[])
-    state = _ServedBranch(pages, later_pages)
+    state = _ServedBranch(branch.pages, branch.later_pages)
 
     def handler(
         _token: str, query: str, variables: dict[str, object]
@@ -259,8 +278,8 @@ def _install_graphql(
                 "pullRequest": _pull_request_node(
                     served,
                     index,
-                    auto_merge_request=auto_merge_request,
-                    merge_state=merge_state,
+                    auto_merge_request=branch.auto_merge_request,
+                    merge_state=branch.merge_state,
                 )
             }
         }
@@ -301,12 +320,14 @@ class TestTheProductionPathReachesTheRule:
         """
         calls = _install_graphql(
             monkeypatch,
-            [
-                [
-                    _commit_node("aaaa1111", DEPENDABOT),
-                    _commit_node("cccc3333", MAINTAINER),
+            Branch(
+                pages=[
+                    [
+                        _commit_node("aaaa1111", DEPENDABOT),
+                        _commit_node("cccc3333", MAINTAINER),
+                    ]
                 ]
-            ],
+            ),
         )
 
         _run(monkeypatch)
@@ -329,12 +350,14 @@ class TestTheProductionPathReachesTheRule:
         """
         calls = _install_graphql(
             monkeypatch,
-            [
-                [
-                    _commit_node("aaaa1111", DEPENDABOT),
-                    _commit_node("bbbb2222", "dependabot"),
+            Branch(
+                pages=[
+                    [
+                        _commit_node("aaaa1111", DEPENDABOT),
+                        _commit_node("bbbb2222", "dependabot"),
+                    ]
                 ]
-            ],
+            ),
         )
 
         _run(monkeypatch)
@@ -354,7 +377,7 @@ class TestTheProductionPathReachesTheRule:
         """
         _install_graphql(
             monkeypatch,
-            [[_commit_node("dddd4444", DEPENDABOT, MAINTAINER)]],
+            Branch(pages=[[_commit_node("dddd4444", DEPENDABOT, MAINTAINER)]]),
         )
 
         _run(monkeypatch)
@@ -406,10 +429,15 @@ class TestTheWholeBranchIsAudited:
         """
         calls = _install_graphql(
             monkeypatch,
-            [
-                [_commit_node(f"aaaa{index:04d}", DEPENDABOT) for index in range(3)],
-                [_commit_node("cccc3333", MAINTAINER)],
-            ],
+            Branch(
+                pages=[
+                    [
+                        _commit_node(f"aaaa{index:04d}", DEPENDABOT)
+                        for index in range(3)
+                    ],
+                    [_commit_node("cccc3333", MAINTAINER)],
+                ]
+            ),
         )
 
         _run(monkeypatch)
@@ -430,7 +458,7 @@ class TestTheWholeBranchIsAudited:
         """
         _install_graphql(
             monkeypatch,
-            [[_commit_node("eeee5555", DEPENDABOT, total=101)]],
+            Branch(pages=[[_commit_node("eeee5555", DEPENDABOT, total=101)]]),
         )
 
         _run(monkeypatch)
@@ -451,11 +479,13 @@ class TestTheWholeBranchIsAudited:
         monkeypatch.setattr(dependabot_automerge, "MAX_COMMIT_PAGES", 2)
         calls = _install_graphql(
             monkeypatch,
-            [
-                [_commit_node("aaaa1111", DEPENDABOT)],
-                [_commit_node("bbbb2222", DEPENDABOT)],
-                [_commit_node("cccc3333", MAINTAINER)],
-            ],
+            Branch(
+                pages=[
+                    [_commit_node("aaaa1111", DEPENDABOT)],
+                    [_commit_node("bbbb2222", DEPENDABOT)],
+                    [_commit_node("cccc3333", MAINTAINER)],
+                ]
+            ),
         )
 
         _run(monkeypatch)
@@ -480,11 +510,10 @@ class TestAnArmedRequestIsWithdrawn:
         """
         calls = _install_graphql(
             monkeypatch,
-            [[_commit_node("cccc3333", MAINTAINER)]],
-            auto_merge_request={
-                "enabledAt": "2026-09-06T00:00:00Z",
-                "mergeMethod": "SQUASH",
-            },
+            Branch(
+                pages=[[_commit_node("cccc3333", MAINTAINER)]],
+                auto_merge_request=ARMED,
+            ),
         )
 
         _run(monkeypatch)
@@ -506,11 +535,10 @@ class TestAnArmedRequestIsWithdrawn:
         """
         calls = _install_graphql(
             monkeypatch,
-            [[_commit_node("aaaa1111", DEPENDABOT)]],
-            auto_merge_request={
-                "enabledAt": "2026-09-06T00:00:00Z",
-                "mergeMethod": "SQUASH",
-            },
+            Branch(
+                pages=[[_commit_node("aaaa1111", DEPENDABOT)]],
+                auto_merge_request=ARMED,
+            ),
         )
 
         _run(monkeypatch)
@@ -532,9 +560,11 @@ class TestAnArmedRequestIsWithdrawn:
         monkeypatch.setenv("AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS", "0")
         calls = _install_graphql(
             monkeypatch,
-            [[_commit_node("aaaa1111", DEPENDABOT)]],
-            merge_state="UNKNOWN",
-            later_pages=[[_commit_node("cccc3333", MAINTAINER)]],
+            Branch(
+                pages=[[_commit_node("aaaa1111", DEPENDABOT)]],
+                merge_state="UNKNOWN",
+                later_pages=[[_commit_node("cccc3333", MAINTAINER)]],
+            ),
         )
 
         _run(monkeypatch)

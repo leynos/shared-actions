@@ -12,6 +12,7 @@ import pytest
 from workflow_scripts import (
     dependabot_automerge,
     dependabot_commit_audit,
+    dependabot_decision,
     graphql_client,
 )
 
@@ -628,7 +629,7 @@ class PullRequestOverrides(typ.TypedDict, total=False):
 
 def _pr(
     **overrides: typ.Unpack[PullRequestOverrides],
-) -> dependabot_automerge.PullRequestContext:
+) -> dependabot_decision.PullRequestContext:
     """Build a PullRequestContext with eligible defaults."""
     values: PullRequestOverrides = {
         "number": 1,
@@ -639,7 +640,7 @@ def _pr(
         "labels": (),
     }
     values.update(overrides)
-    return dependabot_automerge.PullRequestContext(**values)
+    return dependabot_decision.PullRequestContext(**values)
 
 
 def _commit_node(oid: str, *logins: str) -> dict[str, object]:
@@ -750,7 +751,7 @@ class TestForeignCommitsBlockAutomerge:
 
     def test_a_clean_branch_stays_eligible(self) -> None:
         """The ordinary bump is unaffected."""
-        decision = dependabot_automerge._evaluate(_pr(), None)
+        decision = dependabot_decision.evaluate(_pr(), None)
 
         assert decision.status == "ready", decision
         assert decision.reason == "eligible", decision
@@ -763,7 +764,7 @@ class TestForeignCommitsBlockAutomerge:
             )
         )
 
-        decision = dependabot_automerge._evaluate(pr, None)
+        decision = dependabot_decision.evaluate(pr, None)
 
         assert decision.status == "skipped", decision
         assert decision.reason == "foreign-commit:cccccccc", decision
@@ -778,12 +779,12 @@ class TestForeignCommitsBlockAutomerge:
             )
         )
 
-        dependabot_automerge._emit_decision(
+        dependabot_decision.emit_decision(
             pr,
-            dependabot_automerge.Decision(
+            dependabot_decision.Decision(
                 status="skipped", reason="foreign-commit:cccccccc"
             ),
-            config=dependabot_automerge.AutomergeConfig(
+            config=dependabot_decision.AutomergeConfig(
                 merge_method="squash", required_label=None, dry_run=False
             ),
         )
@@ -803,10 +804,10 @@ def test_an_unreadable_commit_list_is_announced(
     refusing on unknown would stop every consumer's automerge at once.
     What it may not do is lose the protection quietly.
     """
-    dependabot_automerge._emit_decision(
+    dependabot_decision.emit_decision(
         _pr(commits_readable=False),
-        dependabot_automerge.Decision(status="ready", reason="eligible"),
-        config=dependabot_automerge.AutomergeConfig(
+        dependabot_decision.Decision(status="ready", reason="eligible"),
+        config=dependabot_decision.AutomergeConfig(
             merge_method="squash", required_label=None, dry_run=False
         ),
     )

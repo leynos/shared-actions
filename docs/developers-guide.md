@@ -1546,13 +1546,14 @@ precedes toolchain setup.
 
 `workflow_scripts/dependabot_automerge.py` decides whether a Dependabot pull
 request may merge unattended. Since 2026-09-06 that decision includes who wrote
-each commit on the branch, and the helper is split into four modules so the
-decision flow is not carrying three other concerns.
+each commit on the branch, and the helper is split into five modules so that no
+one of them carries four concerns.
 
 | Module | Owns |
 | --- | --- |
-| `dependabot_automerge.py` | The decision flow, the fetch and paging, and the CLI |
+| `dependabot_automerge.py` | The run: fetching, paging, the API calls, the CLI |
 | `dependabot_commit_audit.py` | Reading commit authorship, and the rule over it |
+| `dependabot_decision.py` | The snapshot, the eligibility rules, the emitted lines |
 | `dependabot_merge_state.py` | GitHub merge state and its four classifications |
 | `dependabot_queries.py` | The GraphQL documents |
 
@@ -1580,10 +1581,10 @@ first and is what the production path uses.
 
 ### The two fields on `PullRequestContext`
 
-- `foreign_commits` defaults to `()`. A non-empty value makes `_evaluate`
+- `foreign_commits` defaults to `()`. A non-empty value makes `evaluate`
   return `skipped` with `foreign-commit:<sha>`.
 - `commits_readable` defaults to `True`. `False` means the check did not run,
-  so eligibility rested on the pull request's author alone; `_emit_decision`
+  so eligibility rested on the pull request's author alone; `emit_decision`
   logs a warning saying so.
 
 The defaults matter because contexts built from event data in the dry-run path
@@ -1613,7 +1614,8 @@ the owner, repository and number through that path as one value.
 
 ### Withdrawing an armed request
 
-`_stop_unless_eligible` reports the decision and, when the branch is foreign
+`_stop_unless_eligible` reports the decision through `emit_decision` and, when
+the branch is foreign
 and auto-merge is already armed, calls `_disable_automerge` before doing so.
 GitHub keeps an auto-merge request alive across a push, so declining to arm one
 is not enough on its own. Those runs report `status=cancelled` rather than

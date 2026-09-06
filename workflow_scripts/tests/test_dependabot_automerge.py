@@ -638,7 +638,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        assert dependabot_automerge._extract_foreign_commits(payload) == (), (
+        assert dependabot_automerge._audit_commits(payload).foreign == (), (
             "both logins are Dependabot's, so nothing is foreign"
         )
 
@@ -653,7 +653,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._extract_foreign_commits(payload)
+        found = dependabot_automerge._audit_commits(payload).foreign
 
         assert [commit.oid for commit in found] == ["cccccccc3333"], found
         assert found[0].author == "leynos", found
@@ -670,7 +670,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._extract_foreign_commits(payload)
+        found = dependabot_automerge._audit_commits(payload).foreign
 
         assert [commit.author for commit in found] == ["leynos"], found
 
@@ -682,7 +682,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._extract_foreign_commits(payload)
+        found = dependabot_automerge._audit_commits(payload).foreign
 
         assert [commit.author for commit in found] == [
             dependabot_automerge.UNKNOWN_AUTHOR
@@ -702,7 +702,19 @@ class TestForeignCommitExtraction:
         halt every consumer's automerge at once, which is a worse
         failure than the one this check prevents.
         """
-        assert dependabot_automerge._extract_foreign_commits(payload) == (), payload
+        audit = dependabot_automerge._audit_commits(payload)
+
+        assert audit.foreign == (), payload
+        assert not audit.readable, (
+            "an unreadable list must be distinguishable from a clean branch, "
+            "or the loss of the check is silent"
+        )
+
+    def test_a_readable_list_says_so(self) -> None:
+        """The ordinary case must not look like a failure to read."""
+        payload = {"commits": {"nodes": [_commit_node("aaaa1111", "dependabot[bot]")]}}
+
+        assert dependabot_automerge._audit_commits(payload).readable, payload
 
 
 class TestForeignCommitsBlockAutomerge:
@@ -752,3 +764,26 @@ class TestForeignCommitsBlockAutomerge:
         assert "::notice title=dependabot-automerge::" in out, out
         assert "cccccccc by leynos" in out, out
         assert "its own pull request" in out, out
+
+
+def test_an_unreadable_commit_list_is_announced(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """Failing open must be loud.
+
+    The check is allowed to pass a branch it cannot inspect, because
+    refusing on unknown would stop every consumer's automerge at once.
+    What it may not do is lose the protection quietly.
+    """
+    dependabot_automerge._emit_decision(
+        _pr(commits_readable=False),
+        dependabot_automerge.Decision(status="ready", reason="eligible"),
+        config=dependabot_automerge.AutomergeConfig(
+            merge_method="squash", required_label=None, dry_run=False
+        ),
+    )
+
+    out = capsys.readouterr().out
+    assert "::warning title=dependabot-automerge::" in out, out
+    assert "did not run" in out, out
+    assert "author alone" in out, out

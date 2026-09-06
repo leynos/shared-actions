@@ -207,6 +207,21 @@ mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMet
 app = App()
 
 
+class CommitAudit(typ.NamedTuple):
+    """The outcome of reading a branch's commit authorship.
+
+    Attributes
+    ----------
+    readable : bool
+        Whether the API returned a commit list at all.
+    foreign : tuple[ForeignCommit, ...]
+        Commits Dependabot did not write.
+    """
+
+    readable: bool
+    foreign: tuple[ForeignCommit, ...]
+
+
 class ForeignCommit(typ.NamedTuple):
     """A commit on the branch that Dependabot did not write.
 
@@ -259,9 +274,10 @@ class PullRequestContext:
     mergeable_state : MergeableState
         The PR mergeable state (e.g. MERGEABLE, CONFLICTING), or ``UNKNOWN``.
     foreign_commits : tuple[ForeignCommit, ...]
-        Commits on the branch that Dependabot did not write. Empty when
-        the branch is all Dependabot's, and also when the commits could
-        not be read, since unknown is not the same as none.
+        Commits on the branch that Dependabot did not write.
+    commits_readable : bool
+        Whether the commit list could be read. False means the check did
+        not run and eligibility rests on the author alone.
     """
 
     number: int
@@ -275,6 +291,7 @@ class PullRequestContext:
     merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
     mergeable_state: MergeableState = MergeableState.UNKNOWN
     foreign_commits: tuple[ForeignCommit, ...] = ()
+    commits_readable: bool = True
 
 
 MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
@@ -566,6 +583,14 @@ def _emit_decision(
     emit("automerge_mergeable_state", pr.mergeable_state.value)
     if pr.foreign_commits:
         _announce_foreign_commits(pr)
+    elif not pr.commits_readable:
+        print(
+            f"::warning title=dependabot-automerge::could not read the commits "
+            f"of {pr.owner}/{pr.repo}#{pr.number}, so the commit-authorship "
+            f"check did not run and eligibility rests on the pull request's "
+            f"author alone. A change pushed onto this branch by someone other "
+            f"than Dependabot would not be detected."
+        )
 
 
 def _announce_foreign_commits(pr: PullRequestContext) -> None:
@@ -595,10 +620,8 @@ def _commit_authors(commit: dict[str, JsonValue]) -> tuple[str, ...]:
     return tuple(logins)
 
 
-def _extract_foreign_commits(
-    pull_request: dict[str, JsonValue],
-) -> tuple[ForeignCommit, ...]:
-    """Return the commits on the branch that Dependabot did not write.
+def _audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
+    """Find the commits on the branch that Dependabot did not write.
 
     Parameters
     ----------
@@ -607,19 +630,19 @@ def _extract_foreign_commits(
 
     Returns
     -------
-    tuple[ForeignCommit, ...]
-        One entry per commit with an author outside
-        :data:`DEPENDABOT_LOGINS`. Empty when every commit is
-        Dependabot's, and also when the commit list could not be read:
-        this check refuses a branch it can see is mixed, and does not
-        block one it cannot see at all, because a query change that
-        stopped returning commits would otherwise halt every consumer's
-        automerge at once.
+    CommitAudit
+        Whether the commit list could be read, and one entry per commit
+        with an author outside :data:`DEPENDABOT_LOGINS`. An unreadable
+        list yields no foreign commits, so the check fails open: a query
+        change that stopped returning commits would otherwise halt every
+        consumer's automerge at once, which is a worse failure than the
+        one this prevents. ``readable`` is what makes that loss visible
+        rather than silent.
     """
     commits = pull_request.get("commits")
     nodes = commits.get("nodes") if isinstance(commits, dict) else None
     if not isinstance(nodes, list):
-        return ()
+        return CommitAudit(readable=False, foreign=())
     foreign: list[ForeignCommit] = []
     for node in nodes:
         commit = node.get("commit") if isinstance(node, dict) else None
@@ -636,7 +659,7 @@ def _extract_foreign_commits(
                 author=outside[0],
             )
         )
-    return tuple(foreign)
+    return CommitAudit(readable=True, foreign=tuple(foreign))
 
 
 def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
@@ -731,6 +754,7 @@ def _fetch_pull_request(
         fail(f"Pull request {owner}/{repo}#{number} was not found.")
     author_login = _extract_author_login(pull_request)
     labels = _extract_labels(pull_request)
+    audit = _audit_commits(pull_request)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
     node_id = pull_request.get("id")
     return PullRequestContext(
@@ -744,7 +768,8 @@ def _fetch_pull_request(
         auto_merge_enabled=auto_merge_enabled,
         merge_state_status=_extract_merge_state_status(pull_request),
         mergeable_state=_extract_mergeable_state(pull_request),
-        foreign_commits=_extract_foreign_commits(pull_request),
+        foreign_commits=audit.foreign,
+        commits_readable=audit.readable,
     )
 
 

@@ -345,6 +345,106 @@ how to raise it. Raise the input for a slower suite. Lower it only when a hang
 must be caught sooner than the build can legitimately finish, and know that you
 are trading a false failure for a faster one.
 
+When it expires, the step prints:
+
+```text
+::error::cargo did not exit within <budget>s; killing. This is a budget, not a
+detected hang: raise the cargo-wait-timeout input, or
+RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately slower. A cold
+sccache store makes the first run on a branch compile everything inside this
+budget.
+```
+
+Take that at its word. Nothing was detected as hung. A budget expired, and on a
+cold compiler cache that is the expected outcome rather than a symptom.
+
+### Sizing the budget against the timers around it
+
+The watchdog is one of four timers that can end a test run, and it is the one
+nobody expects because nothing in a caller's `.config/nextest.toml` mentions
+it. They only work if each sits above the one inside it.
+
+| Tier | What it bounds | Where a caller sets it |
+| --- | --- | --- |
+| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
+| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
+| This watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
+| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+
+Comparing the configured numbers is not enough because the four clocks do not
+start together and do not cover the same work.
+
+- **The watchdog starts when `cargo` starts**, so it covers the build as well
+  as the test run. nextest's global timeout starts only once tests begin. A
+  watchdog merely larger than the global timeout still pre-empts it whenever
+  the build takes longer than the difference.
+- **A run that hits the global timeout does not stop instantly.** nextest
+  follows its usual termination procedure: on Unix it signals the process group
+  and waits a grace period, ten seconds by default and set by
+  `slow-timeout.grace-period`, before killing it. On Windows, termination is
+  immediate, and the grace period is ignored for timeouts.
+- **The job timer starts when the job starts**, before the formatting, linting
+  and other steps that precede coverage, and it is still running through
+  whatever follows.
+
+So the rule has three terms on each side:
+
+```text
+watchdog     >= nextest global-timeout + termination allowance + cold build
+job ceiling  >= watchdog + measured work outside the watchdog's window
+```
+
+A caller states both allowances, where it measured them, and how many runs it
+read. One run is not a measurement of the cold case, it is the coldest run seen
+so far, and the difference matters: rstest-bdd's allowances were sized three
+times from successive "cold" runs of 22, 30 and finally 42 minutes, each of
+which had looked like the worst until the next one arrived. Take the allowance
+from the worst of several, and say how many were read, so the next person
+sizing it knows what the number rests on.
+
+The failure this prevents is not hypothetical. rstest-bdd had a 30-minute
+watchdog under a 75-minute nextest budget; on 2026-09-05 a dependabot bump
+served 9 % of Rust compile requests from cache and was killed at 1,800 s with
+1,894 of its 1,897 tests complete. The run immediately before it took 1,833 s
+and passed, because the watchdog times `cargo` rather than the step. That lane
+was not near its budget, it was straddling it, and whether a run survived was
+decided by a few seconds of job setup.
+
+The job ceiling matters as much as the watchdog, and is easier to forget. On a
+genuinely cold run of that same lane the coverage step took 42 minutes and the
+whole job took 1 h 50 m, because the work either side of coverage ran cold too:
+37 minutes before and 31 after, against 14 and 37 on a warmer run. A larger
+watchdog alone would not have saved it. The job would have been cancelled at
+its 90-minute ceiling, and a cancellation discards the log that explains the
+overrun.
+
+### Asserting the ordering
+
+A comment goes stale; a contract does not. Consumers that carry this mechanism
+assert the ordering by value, and two details of that shape are worth copying
+rather than reinventing.
+
+**Enumerate every step that invokes this action**, not only the steps that
+already set a budget. A contract that reads the variable where it finds it will
+pass when a step loses its override, and that step silently inherits the 1,800
+second default.
+
+**Compare the job ceiling per job**, not against the tightest
+`timeout-minutes` in the file. An unrelated job's ceiling has nothing to say
+about the coverage lane's, and comparing them either fails an honestly sized
+job or forces unrelated budgets to move together.
+
+Take the termination allowance from `slow-timeout.grace-period` where a
+repository sets one, rather than assuming the ten-second default. Scan both
+`*.yml` and `*.yaml`: a coverage lane in the other extension
+would otherwise inherit the default without failing anything.
+
+One portability note, because this contract gets copied. Module-level
+annotations are evaluated at import below Python 3.14 and deferred from 3.14
+onwards, so a `Path` used in a module constant's annotation must be imported at
+runtime in a repository on the older baseline, and may live in a type-checking
+block in one on the newer.
+
 `RUN_RUST_CARGO_WAIT_TIMEOUT` takes precedence over the input, for a caller
 setting one budget at job level across several steps. The action passes the
 input to the script under its own name rather than as that variable, so a step

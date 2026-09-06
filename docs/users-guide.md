@@ -624,6 +624,55 @@ the archive or the extracted executable -- is a hard failure: the installer
 exits non-zero and the action stops. There is no fallback to
 `cargo install cargo-nextest` in any of these cases.
 
+## Test timeouts: four tiers, outermost last
+
+Four independent timers can end a coverage run, and a caller sets them in four
+different places. A run that dies without an obvious cause is nearly always one
+of them.
+
+| Tier | What it bounds | Where it is set |
+| --- | --- | --- |
+| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
+| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
+| Cargo watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
+| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+
+The watchdog belongs to `generate-coverage` and defaults to 1,800 seconds.
+Nothing in a caller's nextest configuration mentions it, which is how it comes
+to sit underneath a larger nextest budget without anyone noticing.
+
+The four clocks do not start together, so comparing the configured numbers is
+not enough. The watchdog starts with `cargo` and covers the build; nextest's
+global timeout starts only when tests begin; hitting that timeout starts a
+termination procedure rather than stopping the run instantly; and the job timer
+runs from job start through everything either side of coverage. The rule
+therefore has three terms on each side:
+
+```text
+watchdog     >= nextest global-timeout + termination allowance + cold build
+job ceiling  >= watchdog + measured work outside the watchdog's window
+```
+
+State both allowances and where they were measured. `generate-coverage`'s
+README carries the full account, the exact text the watchdog prints, and the
+shape of the contract that asserts the ordering by value.
+
+## Mutation testing and workspace shape
+
+`cargo mutants` selects packages the way Cargo does. When started in a
+workspace root that has a root package, it mutates that package and no other
+member unless `--workspace` or another package selector is given. So a scoped
+run over a member's files enumerates nothing while reporting success. A caller
+in that shape passes `--workspace` through `extra-args`.
+
+A virtual workspace, one with no root package, already mutates every member, so
+the same flag changes nothing there. Check which shape a repository has before
+applying the fix; adding the flag uniformly leads to concluding it did nothing.
+
+A day whose only Rust changes are test files is a separate matter and needs no
+caller change: `mutation-cargo.yml` drops the files cargo-mutants cannot act on
+before scoping, and skips the job rather than running it to a failure.
+
 ## The problem
 
 The nested `actions-rust-lang/setup-rust-toolchain` action exports

@@ -184,9 +184,9 @@ layout, which 0.6.24 cannot read: on such a toolchain coverage failed with
 toolchain from 2026-08-22 or later needs this release of the action.
 
 `generate-coverage` no longer provisions `cargo-binstall` at all, and
-`~/.cargo/bin/cargo-binstall` is no longer part of its Cargo cache. A caller
-that relied on the action leaving a `cargo-binstall` on `PATH` for its own
-later steps must install one itself.
+`~/.cargo/bin/cargo-binstall` is no longer part of its Cargo cache. A workflow
+that relied on the action leaving a `cargo-binstall` on `PATH` for later steps
+must install one in those steps.
 
 ## Checklist
 
@@ -196,8 +196,9 @@ later steps must install one itself.
 - [ ] If you pin `installer-version` explicitly, confirm it is one of the
       versions listed in `installer-digests.sha256`, or supply a verified
       `installer-sha256`.
-- [ ] If a later step of yours used the `cargo-binstall` that `generate-coverage`
-      used to leave on `PATH`, install one yourself; the action no longer does.
+- [ ] If a later workflow step used the `cargo-binstall` that `generate-coverage`
+      used to leave on `PATH`, install one in that workflow; the action no
+      longer does.
 - [ ] If you relied on a cargo-binstall QuickInstall substitute or a source
       build for `cargo-nextest`, replace that reliance with a version this
       repository pins, or preinstall a verified binary on `PATH` before

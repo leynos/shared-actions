@@ -361,7 +361,7 @@ cold compiler cache that is the expected outcome rather than a symptom.
 ### Sizing the budget against the timers around it
 
 The watchdog is one of four timers that can end a test run, and it is the one
-nobody expects, because nothing in a caller's `.config/nextest.toml` mentions
+nobody expects because nothing in a caller's `.config/nextest.toml` mentions
 it. They only work if each sits above the one inside it.
 
 | Tier | What it bounds | Where a caller sets it |
@@ -371,15 +371,18 @@ it. They only work if each sits above the one inside it.
 | This watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
 | Job `timeout-minutes` | the whole job | the job holding the coverage step |
 
-Comparing the configured numbers is not enough, because the four clocks do not
+Comparing the configured numbers is not enough because the four clocks do not
 start together and do not cover the same work.
 
 - **The watchdog starts when `cargo` starts**, so it covers the build as well
   as the test run. nextest's global timeout starts only once tests begin. A
   watchdog merely larger than the global timeout still pre-empts it whenever
   the build takes longer than the difference.
-- **A test already running when the global timeout expires is allowed to
-  finish**, so a run can outlast that budget by the longest per-test allowance.
+- **A run that hits the global timeout does not stop instantly.** nextest
+  follows its usual termination procedure: on Unix it signals the process group
+  and waits a grace period, ten seconds by default and set by
+  `slow-timeout.grace-period`, before killing it. On Windows termination is
+  immediate and the grace period is ignored for timeouts.
 - **The job timer starts when the job starts**, before the formatting, linting
   and other steps that precede coverage, and it is still running through
   whatever follows.
@@ -387,7 +390,7 @@ start together and do not cover the same work.
 So the rule has three terms on each side:
 
 ```text
-watchdog     >= nextest global-timeout + longest slow-timeout + cold build
+watchdog     >= nextest global-timeout + termination allowance + cold build
 job ceiling  >= watchdog + measured work outside the watchdog's window
 ```
 
@@ -399,8 +402,8 @@ which had looked like the worst until the next one arrived. Take the allowance
 from the worst of several, and say how many were read, so the next person
 sizing it knows what the number rests on.
 
-The failure this prevents is not hypothetical. rstest-bdd had a 30 minute
-watchdog under a 75 minute nextest budget; on 2026-09-05 a dependabot bump
+The failure this prevents is not hypothetical. rstest-bdd had a 30-minute
+watchdog under a 75-minute nextest budget; on 2026-09-05 a dependabot bump
 served 9 % of Rust compile requests from cache and was killed at 1,800 s with
 1,894 of its 1,897 tests complete. The run immediately before it took 1,833 s
 and passed, because the watchdog times `cargo` rather than the step. That lane
@@ -412,7 +415,7 @@ genuinely cold run of that same lane the coverage step took 42 minutes and the
 whole job took 1 h 50 m, because the work either side of coverage ran cold too:
 37 minutes before and 31 after, against 14 and 37 on a warmer run. A larger
 watchdog alone would not have saved it. The job would have been cancelled at
-its 90 minute ceiling, and a cancellation discards the log that explains the
+its 90-minute ceiling, and a cancellation discards the log that explains the
 overrun.
 
 ### Asserting the ordering
@@ -428,12 +431,12 @@ second default.
 
 **Compare the job ceiling per job**, not against the tightest
 `timeout-minutes` in the file. An unrelated job's ceiling has nothing to say
-about the coverage lane's, and comparing them either fails an honestly-sized
+about the coverage lane's, and comparing them either fails an honestly sized
 job or forces unrelated budgets to move together.
 
-Read the running-test tail from the nextest configuration at test time rather
-than writing it as a constant, so moving an override moves the requirement with
-it. Scan both `*.yml` and `*.yaml`: a coverage lane in the other extension
+Take the termination allowance from `slow-timeout.grace-period` where a
+repository sets one, rather than assuming the ten-second default. Scan both
+`*.yml` and `*.yaml`: a coverage lane in the other extension
 would otherwise inherit the default without failing anything.
 
 One portability note, because this contract gets copied. Module-level

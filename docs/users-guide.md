@@ -877,3 +877,47 @@ claiming that its changed-line coverage was evaluated; rebase or merge it onto
 the default branch before relying on the gate result.
 
 [codescene-coverage-action]: ../.github/actions/upload-codescene-coverage/README.md
+
+## Dependabot auto-merge eligibility
+
+The Dependabot auto-merge reusable workflow arms GitHub's auto-merge on a
+dependency bump so it lands without a human review. Deciding that a pull
+request qualifies therefore has to answer more than "did Dependabot open it?".
+
+Every commit on the branch must be Dependabot's. Opening a pull request is not
+the same as writing what is in it, and once Dependabot has opened one, anything
+pushed to that branch would otherwise merge under the same rule, unreviewed.
+A branch carrying a commit Dependabot did not write skips with
+`automerge_reason=foreign-commit:<sha>`, and the run logs a notice naming each
+such commit and its author.
+
+Two consequences are worth knowing before pushing a fix onto a Dependabot
+branch:
+
+- **A co-authored commit counts as the co-author's.** A commit Dependabot
+  pushed but a person co-wrote carries that person's change, so it makes the
+  branch ineligible. The remedy is to open that change as its own pull request
+  with its own review.
+- **Dependabot stops rebasing an edited branch.** Keeping it current against
+  the base branch becomes a manual job from then on. `@dependabot recreate`
+  still works, but it rebuilds the branch from scratch and discards everything
+  pushed onto it.
+
+An auto-merge request already armed when the foreign commit arrives is
+withdrawn rather than left in place, because GitHub keeps such a request alive
+across a push and it would otherwise merge that commit as soon as the required
+checks passed. Those runs report `automerge_status=cancelled`.
+
+Where the commit list cannot be read at all, the check fails open: the run
+proceeds on the author alone and logs a warning saying so, because a query
+fault that halted every consumer's auto-merge at once is a worse failure than
+the one this prevents. A single commit whose credited authors came back
+truncated is treated the other way, as foreign, since a partial credit list
+certifies nothing.
+
+Every run logs `automerge_commit_audit=` with one of `clean`, `foreign` or
+`unreadable`, so the outcome can be counted without reading the notices.
+
+See the [Dependabot auto-merge reusable workflow](./dependabot-automerge-workflow.md)
+for the merge-state rules, the required repository settings, and the full
+decision log.

@@ -600,9 +600,33 @@ def test_retries_until_merge_state_known(
     assert "automerge_status=enabled" in captured.out, "Expected enabled status"
 
 
-def _pr(**overrides: object) -> dependabot_automerge.PullRequestContext:
+class PullRequestOverrides(typ.TypedDict, total=False):
+    """The fields :func:`_pr` accepts, with their real types.
+
+    A ``dict[str, typ.Any]`` here would take a misspelled field name or a
+    wrongly typed value from every caller without Pyright noticing, which
+    is the opposite of what a fixture builder is for.
+    """
+
+    number: int
+    owner: str
+    repo: str
+    author: str
+    is_draft: bool
+    labels: tuple[str, ...]
+    node_id: str | None
+    auto_merge_enabled: bool
+    merge_state_status: dependabot_automerge.MergeStateStatus
+    mergeable_state: dependabot_automerge.MergeableState
+    foreign_commits: tuple[dependabot_automerge.ForeignCommit, ...]
+    commits_readable: bool
+
+
+def _pr(
+    **overrides: typ.Unpack[PullRequestOverrides],
+) -> dependabot_automerge.PullRequestContext:
     """Build a PullRequestContext with eligible defaults."""
-    values: dict[str, typ.Any] = {
+    values: PullRequestOverrides = {
         "number": 1,
         "owner": "leynos",
         "repo": "rstest-bdd",

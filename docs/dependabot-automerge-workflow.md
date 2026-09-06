@@ -46,8 +46,55 @@ that disappears without saying so is the failure worth guarding against here,
 since nothing else in the run would look different.
 
 Pushing a fix onto a Dependabot branch has a second cost worth knowing. Once a
-branch has a non-Dependabot commit, Dependabot will no longer rebase or
-recreate it, so the pull request has to be maintained by hand from then on.
+branch carries commits Dependabot did not write, Dependabot stops rebasing it
+automatically, so keeping it current against the base branch becomes a manual
+job. `@dependabot recreate` still works, but it rebuilds the branch from
+scratch and discards everything pushed onto it, so it is a way of abandoning
+the manual edits rather than a way of keeping them.
+
+### Reading the whole branch, not the first page of it
+
+A GraphQL connection read to its page size and no further looks complete: the
+commits come back, the check runs, and anything past the limit is never seen.
+The helper therefore follows the commit connection to its end rather than
+reading one page, up to a ceiling of 50 pages, and reports a branch longer than
+that as unreadable rather than following pages indefinitely.
+
+The credit list on a single commit is treated differently from the commit list
+as a whole. Where a commit's authors come back truncated, that commit is
+reported as foreign, with `an unread co-author` named in its place. The two
+cases are not symmetrical on purpose: an absent commit list is a query fault
+that would stop every consumer at once, while a visible commit that could not
+be read to the end is a property of that commit, and a partial credit list
+certifies nothing.
+
+### Withdrawing a request that was already armed
+
+Declining to arm auto-merge does not help when it is armed already. GitHub
+keeps an auto-merge request alive across a push, so a request armed while the
+branch was still Dependabot's would merge the commit that made it foreign as
+soon as the required checks passed — the exact outcome the check exists to
+prevent.
+
+So a run that finds a foreign commit on a branch with auto-merge armed cancels
+the request, logs a notice saying it did so, and reports
+`automerge_status=cancelled` with the usual `foreign-commit:<sha>` reason. The
+separate status is deliberate: that run changed the pull request rather than
+merely declining to act on it. Auto-merge is left alone on branches that are
+skipped for any other reason.
+
+The eligibility decision is taken again after the merge-state retry. That retry
+refetches the pull request, so it also refetches who wrote the commits, and a
+push landing inside the retry window is visible in the refreshed snapshot and
+nowhere else.
+
+### Counting the outcome
+
+Every run logs `automerge_commit_audit=` with one of three fixed words:
+`clean` when every commit was read and every one was Dependabot's, `foreign`
+when at least one was not, and `unreadable` when the check could not run. The
+value carries no commit identifier, so it stays countable across repositories
+without becoming high-cardinality.
 
 Note: The helper reads `DEPENDABOT_LOGINS` (defined in
 `workflow_scripts/dependabot_automerge.py`) to support both author login

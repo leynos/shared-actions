@@ -1541,3 +1541,86 @@ the manifest's declared shape instead: the `rustflags` input's empty default,
 the export step's `if` condition and `RBR_RUSTFLAGS` wiring, the
 `${RUSTFLAGS+x}` guard's presence in the run script, and that the export step
 precedes toolchain setup.
+
+## Dependabot auto-merge commit audit
+
+`workflow_scripts/dependabot_automerge.py` decides whether a Dependabot pull
+request may merge unattended. Since 2026-09-06 that decision includes who wrote
+each commit on the branch, and the types below carry that reading from the
+GraphQL response to the decision.
+
+### Where the GitHub shape stops
+
+`_commit_page` is the only function that knows the GraphQL shape
+(`commits.nodes[].commit.authors.nodes[].user.login`). It translates one page
+into `CommitRecord` values, and everything downstream reads those. Keeping the
+adapter and the rule apart is what lets the rule be stated and exercised
+without a GitHub response in the way, and what stops a schema change from
+quietly meaning a different rule.
+
+| Type | Role |
+| --- | --- |
+| `CommitRecord` | One commit as the rule sees it: `oid`, the credited `authors`, and `authors_complete` |
+| `CommitPage` | One page of `CommitRecord` values plus the cursor for the next |
+| `ForeignCommit` | A commit that failed the rule, with the author to name in the notice |
+| `CommitAudit` | The branch-wide outcome: `readable`, and the `foreign` commits |
+
+`_foreign_commits` holds the rule itself, over `CommitRecord` values alone:
+every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
+have been read to its end. `_audit_commits` composes the two over a single
+response; `_audit_whole_branch` pages the connection first and is what the
+production path uses.
+
+### The two fields on `PullRequestContext`
+
+- `foreign_commits` defaults to `()`. A non-empty value makes `_evaluate`
+  return `skipped` with `foreign-commit:<sha>`.
+- `commits_readable` defaults to `True`. `False` means the check did not run,
+  so eligibility rested on the pull request's author alone; `_emit_decision`
+  logs a warning saying so.
+
+The defaults matter because contexts built from event data in the dry-run path
+carry no commit information. They describe a branch with nothing foreign found
+and nothing lost, which is what a dry run can honestly claim.
+
+### Fail open, fail closed
+
+The two are deliberately not symmetrical.
+
+- **An absent commit list fails open.** A query change that stopped returning
+  commits would halt every consumer's auto-merge at once, which is worse than
+  the failure this prevents. `commits_readable` is what keeps that loss visible
+  rather than silent.
+- **A truncated credit list fails closed.** That commit is visible and merely
+  unread to the end, so it is reported foreign with `UNREAD_CO_AUTHOR` named in
+  place of the author who could not be seen.
+
+### Paging and its ceiling
+
+`COMMIT_PAGE_SIZE` and `AUTHOR_PAGE_SIZE` are both 100. The commit connection
+is followed to its end because a connection read to its page size and no
+further looks complete while hiding everything past the limit.
+`MAX_COMMIT_PAGES` bounds that loop at 50 pages, and a branch beyond it is
+reported unreadable rather than followed indefinitely.
+
+### Withdrawing an armed request
+
+`_stop_unless_eligible` reports the decision and, when the branch is foreign
+and auto-merge is already armed, calls `_disable_automerge` before doing so.
+GitHub keeps an auto-merge request alive across a push, so declining to arm one
+is not enough on its own. Those runs report `status=cancelled` rather than
+`skipped`, because the run changed the pull request rather than merely
+declining to act on it.
+
+The same function runs again after `_refresh_merge_state`, since that refresh
+refetches the pull request and therefore refetches its commits. A push landing
+inside the retry window is visible in the refreshed snapshot and nowhere else.
+
+### Tests
+
+`workflow_scripts/tests/test_dependabot_commit_audit.py` drives the production
+path with a scripted GraphQL client: a foreign commit on the second page, a
+truncated credit list, the page ceiling, a withdrawal, and a push inside the
+retry window. It also states the rule's invariants as Hypothesis properties
+over arbitrary branches, since a loop that stops at the first offender or skips
+the commit after a match passes any handful of examples.

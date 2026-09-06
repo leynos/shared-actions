@@ -381,8 +381,8 @@ start together and do not cover the same work.
 - **A run that hits the global timeout does not stop instantly.** nextest
   follows its usual termination procedure: on Unix it signals the process group
   and waits a grace period, ten seconds by default and set by
-  `slow-timeout.grace-period`, before killing it. On Windows termination is
-  immediate and the grace period is ignored for timeouts.
+  `slow-timeout.grace-period`, before killing it. On Windows, termination is
+  immediate, and the grace period is ignored for timeouts.
 - **The job timer starts when the job starts**, before the formatting, linting
   and other steps that precede coverage, and it is still running through
   whatever follows.

@@ -645,11 +645,11 @@ shape of the contract that asserts the ordering by value.
 
 ## Mutation testing and workspace shape
 
-`cargo mutants` selects packages the way Cargo does. Started in a workspace
-root that has a root package, it mutates that package and no other member
-unless `--workspace` or another package selector is given. So a scoped run over
-a member's files enumerates nothing while reporting success. A caller in that
-shape passes `--workspace` through `extra-args`.
+`cargo mutants` selects packages the way Cargo does. When started in a
+workspace root that has a root package, it mutates that package and no other
+member unless `--workspace` or another package selector is given. So a scoped
+run over a member's files enumerates nothing while reporting success. A caller
+in that shape passes `--workspace` through `extra-args`.
 
 A virtual workspace, one with no root package, already mutates every member, so
 the same flag changes nothing there. Check which shape a repository has before

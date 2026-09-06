@@ -16,7 +16,7 @@ import typing as typ
 from hypothesis import given
 from hypothesis import strategies as st
 
-from workflow_scripts import dependabot_automerge
+from workflow_scripts import dependabot_automerge, dependabot_commit_audit
 
 if typ.TYPE_CHECKING:
     import pytest
@@ -127,6 +127,92 @@ def _pull_request_node(
     }
 
 
+def _mutation_response(
+    query: str, variables: dict[str, object], calls: GraphQLCalls
+) -> dict[str, object] | None:
+    """Record and answer a mutation, or return None for a query.
+
+    Parameters
+    ----------
+    query : str
+        The GraphQL document.
+    variables : dict[str, object]
+        Its variables, recorded so a test can assert on them.
+    calls : GraphQLCalls
+        The record to append to.
+
+    Returns
+    -------
+    dict[str, object] or None
+        The mutation's response, or None when this is not a mutation.
+    """
+    mutations = (
+        ("enablePullRequestAutoMerge", calls.enable, {"pullRequest": {"number": 7}}),
+        ("disablePullRequestAutoMerge", calls.disable, {"pullRequest": {"number": 7}}),
+        (
+            "mergePullRequest",
+            calls.merge,
+            {"pullRequest": {"number": 7, "merged": True}},
+        ),
+    )
+    for name, record, payload in mutations:
+        if name in query:
+            record.append(variables)
+            return {name: payload}
+    return None
+
+
+class _ServedBranch:
+    """Serves commit pages, switching sets after the first whole fetch.
+
+    The merge-state retry refetches the pull request from the first page,
+    which is the only way a test can put a push inside the retry window:
+    the second fetch must see a different branch from the first.
+    """
+
+    def __init__(
+        self,
+        pages: typ.Sequence[typ.Sequence[dict[str, object]]],
+        later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None,
+    ) -> None:
+        self._pages = pages
+        self._later_pages = later_pages
+        self._fetches = 0
+
+    def page_for(
+        self, cursor: object
+    ) -> tuple[typ.Sequence[typ.Sequence[dict[str, object]]], int]:
+        """Return the page set to serve and the index within it.
+
+        Parameters
+        ----------
+        cursor : object
+            The requested commit cursor, None for the first page.
+
+        Returns
+        -------
+        tuple
+            The page set and the index of the requested page.
+        """
+        if cursor is None:
+            self._fetches += 1
+            return self._served, 0
+        return self._served, int(str(cursor).rsplit("-", 1)[1])
+
+    @property
+    def _served(self) -> typ.Sequence[typ.Sequence[dict[str, object]]]:
+        """Return the page set the current fetch should see.
+
+        Returns
+        -------
+        typ.Sequence[typ.Sequence[dict[str, object]]]
+            The commit pages.
+        """
+        if self._later_pages is not None and self._fetches > 1:
+            return self._later_pages
+        return self._pages
+
+
 def _install_graphql(
     monkeypatch: pytest.MonkeyPatch,
     pages: typ.Sequence[typ.Sequence[dict[str, object]]],
@@ -157,30 +243,17 @@ def _install_graphql(
         The record the test asserts against.
     """
     calls = GraphQLCalls(enable=[], disable=[], merge=[], cursors=[])
-    fetches = {"count": 0}
+    state = _ServedBranch(pages, later_pages)
 
     def handler(
         _token: str, query: str, variables: dict[str, object]
     ) -> dict[str, object]:
-        if "enablePullRequestAutoMerge" in query:
-            calls.enable.append(variables)
-            return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 7}}}
-        if "disablePullRequestAutoMerge" in query:
-            calls.disable.append(variables)
-            return {"disablePullRequestAutoMerge": {"pullRequest": {"number": 7}}}
-        if "mergePullRequest" in query:
-            calls.merge.append(variables)
-            return {"mergePullRequest": {"pullRequest": {"number": 7, "merged": True}}}
+        mutation = _mutation_response(query, variables, calls)
+        if mutation is not None:
+            return mutation
         cursor = variables.get("commitCursor")
         calls.cursors.append(cursor)
-        served = pages
-        if cursor is None:
-            fetches["count"] += 1
-            if later_pages is not None and fetches["count"] > 1:
-                served = later_pages
-        elif later_pages is not None and fetches["count"] > 1:
-            served = later_pages
-        index = 0 if cursor is None else int(str(cursor).rsplit("-", 1)[1])
+        served, index = state.page_for(cursor)
         return {
             "repository": {
                 "pullRequest": _pull_request_node(
@@ -477,7 +550,7 @@ _LOGINS = st.sampled_from([DEPENDABOT, "dependabot", MAINTAINER, "renovate[bot]"
 @st.composite
 def _commit_records(
     draw: st.DrawFn,
-) -> tuple[dependabot_automerge.CommitRecord, ...]:
+) -> tuple[dependabot_commit_audit.CommitRecord, ...]:
     """Generate a branch's commits with arbitrary authorship.
 
     Parameters
@@ -491,15 +564,15 @@ def _commit_records(
         A bounded branch.
     """
     count = draw(st.integers(min_value=0, max_value=8))
-    records: list[dependabot_automerge.CommitRecord] = []
+    records: list[dependabot_commit_audit.CommitRecord] = []
     for index in range(count):
         logins = draw(st.lists(_LOGINS, min_size=0, max_size=4))
         complete = draw(st.booleans())
         authors = tuple(
-            login or dependabot_automerge.UNKNOWN_AUTHOR for login in logins
+            login or dependabot_commit_audit.UNKNOWN_AUTHOR for login in logins
         )
         records.append(
-            dependabot_automerge.CommitRecord(
+            dependabot_commit_audit.CommitRecord(
                 oid=f"{index:040x}",
                 authors=authors,
                 authors_complete=complete,
@@ -513,7 +586,7 @@ class TestTheRuleHoldsOverArbitraryBranches:
 
     @given(records=_commit_records())
     def test_a_commit_is_reported_exactly_when_it_fails_the_rule(
-        self, records: tuple[dependabot_automerge.CommitRecord, ...]
+        self, records: tuple[dependabot_commit_audit.CommitRecord, ...]
     ) -> None:
         """The rule is total: every commit is judged, and judged once.
 
@@ -522,13 +595,13 @@ class TestTheRuleHoldsOverArbitraryBranches:
         branch that reports a commit twice, or one that skips the commit
         after a match.
         """
-        found = dependabot_automerge._foreign_commits(records)
+        found = dependabot_commit_audit.foreign_commits(records)
         expected = [
             record.oid
             for record in records
             if not record.authors_complete
             or any(
-                author not in dependabot_automerge.DEPENDABOT_LOGINS
+                author not in dependabot_commit_audit.DEPENDABOT_LOGINS
                 for author in record.authors
             )
         ]
@@ -539,14 +612,14 @@ class TestTheRuleHoldsOverArbitraryBranches:
 
     @given(records=_commit_records())
     def test_a_reported_commit_always_names_something(
-        self, records: tuple[dependabot_automerge.CommitRecord, ...]
+        self, records: tuple[dependabot_commit_audit.CommitRecord, ...]
     ) -> None:
         """The notice is the only record a maintainer sees.
 
         A blank author would leave the log saying a commit was rejected
         by nobody, which is unactionable.
         """
-        for commit in dependabot_automerge._foreign_commits(records):
+        for commit in dependabot_commit_audit.foreign_commits(records):
             assert commit.author, f"{commit.oid} was reported with no author"
 
     @given(
@@ -554,7 +627,7 @@ class TestTheRuleHoldsOverArbitraryBranches:
             lambda records: all(
                 record.authors_complete
                 and all(
-                    author in dependabot_automerge.DEPENDABOT_LOGINS
+                    author in dependabot_commit_audit.DEPENDABOT_LOGINS
                     for author in record.authors
                 )
                 for record in records
@@ -562,13 +635,13 @@ class TestTheRuleHoldsOverArbitraryBranches:
         )
     )
     def test_a_wholly_dependabot_branch_is_never_reported(
-        self, records: tuple[dependabot_automerge.CommitRecord, ...]
+        self, records: tuple[dependabot_commit_audit.CommitRecord, ...]
     ) -> None:
         """The gate must not stop the bumps it exists to let through.
 
         Both login variants count, in any mixture, on any number of
         commits.
         """
-        assert dependabot_automerge._foreign_commits(records) == (), (
+        assert dependabot_commit_audit.foreign_commits(records) == (), (
             f"a branch written only by Dependabot must pass: {records}"
         )

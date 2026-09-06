@@ -106,6 +106,10 @@ class DependabotLogin(enum.StrEnum):
 
 DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in DependabotLogin)
 
+#: Stands in for a commit author GitHub did not name, so a message can
+#: still identify the commit.
+UNKNOWN_AUTHOR: typ.Final[str] = "an unnamed author"
+
 
 class MergeStateStatus(enum.StrEnum):
     """Supported merge state statuses from GitHub GraphQL."""
@@ -156,6 +160,20 @@ query PullRequestInfo($owner: String!, $name: String!, $number: Int!) {
         enabledAt
         mergeMethod
       }
+      commits(last: 100) {
+        nodes {
+          commit {
+            oid
+            authors(first: 10) {
+              nodes {
+                user {
+                  login
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -189,6 +207,31 @@ mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMet
 app = App()
 
 
+class ForeignCommit(typ.NamedTuple):
+    """A commit on the branch that Dependabot did not write.
+
+    Attributes
+    ----------
+    oid : str
+        The commit SHA.
+    author : str
+        The author's login, or ``unknown`` when the API did not name one.
+    """
+
+    oid: str
+    author: str
+
+    def __str__(self) -> str:
+        """Return a short description naming the commit and its author.
+
+        Returns
+        -------
+        str
+            ``<short sha> by <author>``.
+        """
+        return f"{self.oid[:8]} by {self.author}"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class PullRequestContext:
     """Snapshot of the pull request metadata used for gating.
@@ -215,6 +258,10 @@ class PullRequestContext:
         The PR merge state status (e.g. CLEAN, UNSTABLE), or ``UNKNOWN``.
     mergeable_state : MergeableState
         The PR mergeable state (e.g. MERGEABLE, CONFLICTING), or ``UNKNOWN``.
+    foreign_commits : tuple[ForeignCommit, ...]
+        Commits on the branch that Dependabot did not write. Empty when
+        the branch is all Dependabot's, and also when the commits could
+        not be read, since unknown is not the same as none.
     """
 
     number: int
@@ -227,6 +274,7 @@ class PullRequestContext:
     auto_merge_enabled: bool = False
     merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
     mergeable_state: MergeableState = MergeableState.UNKNOWN
+    foreign_commits: tuple[ForeignCommit, ...] = ()
 
 
 MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
@@ -477,6 +525,15 @@ def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     """
     if pr.author not in DEPENDABOT_LOGINS:
         return Decision(status="skipped", reason="author-not-dependabot")
+    if pr.foreign_commits:
+        # Opening the pull request is not the same as writing what is in
+        # it. Once Dependabot opens one, anything pushed to that branch
+        # would otherwise merge under this rule without review, which is
+        # how a workflow edit reached a trunk unreviewed.
+        return Decision(
+            status="skipped",
+            reason=f"foreign-commit:{pr.foreign_commits[0].oid[:8]}",
+        )
     if pr.is_draft:
         return Decision(status="skipped", reason="draft-pr")
     if required_label and required_label not in pr.labels:
@@ -507,6 +564,79 @@ def _emit_decision(
     emit("automerge_labels", pr.labels)
     emit("automerge_merge_state", pr.merge_state_status.value)
     emit("automerge_mergeable_state", pr.mergeable_state.value)
+    if pr.foreign_commits:
+        _announce_foreign_commits(pr)
+
+
+def _announce_foreign_commits(pr: PullRequestContext) -> None:
+    """Name the commits that stopped the branch merging unattended."""
+    named = ", ".join(str(commit) for commit in pr.foreign_commits)
+    print(
+        f"::notice title=dependabot-automerge::{pr.owner}/{pr.repo}#{pr.number} "
+        f"carries {len(pr.foreign_commits)} commit(s) Dependabot did not write "
+        f"({named}), so it will not merge unattended. A change pushed onto a "
+        f"Dependabot branch needs its own pull request and its own review."
+    )
+
+
+def _commit_authors(commit: dict[str, JsonValue]) -> tuple[str, ...]:
+    """Return the logins credited on one commit."""
+    authors = commit.get("authors")
+    if not isinstance(authors, dict):
+        return ()
+    nodes = authors.get("nodes")
+    if not isinstance(nodes, list):
+        return ()
+    logins: list[str] = []
+    for node in nodes:
+        user = node.get("user") if isinstance(node, dict) else None
+        login = user.get("login") if isinstance(user, dict) else None
+        logins.append(login if isinstance(login, str) and login else UNKNOWN_AUTHOR)
+    return tuple(logins)
+
+
+def _extract_foreign_commits(
+    pull_request: dict[str, JsonValue],
+) -> tuple[ForeignCommit, ...]:
+    """Return the commits on the branch that Dependabot did not write.
+
+    Parameters
+    ----------
+    pull_request : dict
+        The pull request node from the GraphQL query.
+
+    Returns
+    -------
+    tuple[ForeignCommit, ...]
+        One entry per commit with an author outside
+        :data:`DEPENDABOT_LOGINS`. Empty when every commit is
+        Dependabot's, and also when the commit list could not be read:
+        this check refuses a branch it can see is mixed, and does not
+        block one it cannot see at all, because a query change that
+        stopped returning commits would otherwise halt every consumer's
+        automerge at once.
+    """
+    commits = pull_request.get("commits")
+    nodes = commits.get("nodes") if isinstance(commits, dict) else None
+    if not isinstance(nodes, list):
+        return ()
+    foreign: list[ForeignCommit] = []
+    for node in nodes:
+        commit = node.get("commit") if isinstance(node, dict) else None
+        if not isinstance(commit, dict):
+            continue
+        oid = commit.get("oid")
+        authors = _commit_authors(commit)
+        outside = [name for name in authors if name not in DEPENDABOT_LOGINS]
+        if not outside:
+            continue
+        foreign.append(
+            ForeignCommit(
+                oid=oid if isinstance(oid, str) else UNKNOWN_AUTHOR,
+                author=outside[0],
+            )
+        )
+    return tuple(foreign)
 
 
 def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
@@ -614,6 +744,7 @@ def _fetch_pull_request(
         auto_merge_enabled=auto_merge_enabled,
         merge_state_status=_extract_merge_state_status(pull_request),
         mergeable_state=_extract_mergeable_state(pull_request),
+        foreign_commits=_extract_foreign_commits(pull_request),
     )
 
 

@@ -11,8 +11,10 @@
   nightly-2026-08-23. 0.9.0 reads the new layout. The installer resolves the
   manifest entry with the `install-tool` resolver, downloads the release
   archive, verifies its SHA-256 against the manifest, extracts only the named
-  member, and reuses an installed binary that already reports the pinned
-  version. The `Ensure cargo-binstall` step is removed, as nothing in this
+  member, stages it beside the destination and publishes it with a rename so
+  no reader sees a partial executable, and reuses an installed binary that
+  already reports exactly the pinned version. The `Ensure cargo-binstall` step
+  is removed, as nothing in this
   action invokes `cargo binstall` any more, and `~/.cargo/bin/cargo-binstall`
   leaves the Cargo cache paths.
 - Refuse a `publish-baseline` that is neither `auto` nor `always`, before the

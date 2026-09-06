@@ -50,6 +50,9 @@ CARGO_LLVM_COV_VERSION = "0.9.0"
 
 TOOL_NAME = "cargo-llvm-cov"
 
+#: The resolver reports every other failure kind; this one is ours.
+MANIFEST_UNREADABLE = "manifest-unreadable"
+
 #: Where the manifest and the shared resolver live relative to this script:
 #: ``<repo>/.github/actions/<action>/scripts/<this file>``.
 _GITHUB_DIR = Path(__file__).resolve().parents[3]
@@ -118,30 +121,50 @@ def runner_description() -> tuple[str, str]:
     return runner_os, runner_arch
 
 
+class ToolResolutionError(Exception):
+    """The manifest offers no usable entry for this tool, version and runner.
+
+    ``kind`` is one of the resolver's closed set of reasons, so the caller can
+    publish it as a bounded metric without inspecting the message.
+    """
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+def load_manifest(manifest_path: Path = MANIFEST_PATH) -> dict[str, object]:
+    """Read the tool manifest, or raise ``ToolResolutionError``."""
+    try:
+        with manifest_path.open("rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        message = f"could not read the tool manifest {manifest_path}: {exc}"
+        raise ToolResolutionError(MANIFEST_UNREADABLE, message) from exc
+
+
 def resolve_tool(
     version: str = CARGO_LLVM_COV_VERSION,
     *,
-    manifest_path: Path = MANIFEST_PATH,
+    manifest: dict[str, object] | None = None,
     runner: tuple[str, str] | None = None,
 ) -> ResolvedTool:
-    """Resolve the manifest entry for ``version`` on this runner or fail."""
+    """Return the manifest entry for ``version`` on ``runner``.
+
+    A query with no side effects: it reads the manifest (or the one passed
+    in) and either returns the entry or raises ``ToolResolutionError``.
+    """
     resolver = _load_resolver()
-    try:
-        with manifest_path.open("rb") as handle:
-            manifest = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        emit_metric("cargo-llvm-cov.resolve=manifest-unreadable")
-        typer.echo(f"could not read the tool manifest {manifest_path}: {exc}", err=True)
-        raise typer.Exit(1) from exc
+    if manifest is None:
+        manifest = load_manifest()
     runner_os, runner_arch = runner or runner_description()
     fields = resolver.resolve(
         manifest, TOOL_NAME, version, resolver.Runner(runner_os, runner_arch)
     )
     if fields.get("status") != "ok":
-        emit_metric(f"cargo-llvm-cov.resolve={fields.get('error_kind')}")
-        typer.echo(str(fields.get("error_message")), err=True)
-        raise typer.Exit(1)
-    emit_metric("cargo-llvm-cov.resolve=ok")
+        kind = str(fields.get("error_kind"))
+        message = str(fields.get("error_message"))
+        raise ToolResolutionError(kind, message)
     return ResolvedTool(
         triple=str(fields["triple"]),
         url=str(fields["url"]),
@@ -185,8 +208,7 @@ def installed_at_pinned_version(destination: Path, tool: ResolvedTool) -> bool:
     """Whether ``destination`` already holds the binary at the pinned version."""
     if not destination.is_file():
         return False
-    reported = reported_version(destination, tool.version_args)
-    return reported is not None and reported.startswith(tool.expected_version)
+    return reported_version(destination, tool.version_args) == tool.expected_version
 
 
 class _ArchiveTooLargeError(Exception):
@@ -324,7 +346,13 @@ def install(
     ``destination`` is left intact when any step before the final move fails.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="cargo-llvm-cov-") as workdir:
+    # Staged in the destination's own directory so the final publish is a
+    # rename on one filesystem: a temporary directory elsewhere would turn
+    # the move into copy-then-delete, during which a concurrent reader could
+    # open a half-written executable.
+    with tempfile.TemporaryDirectory(
+        prefix=".cargo-llvm-cov-staging-", dir=destination.parent
+    ) as workdir:
         archive = Path(workdir) / tool.filename
         fetch(tool, archive)
         verify_archive(archive, tool)
@@ -336,9 +364,9 @@ def install(
             typer.echo(f"cargo-llvm-cov archive extraction failed: {exc}", err=True)
             raise typer.Exit(1) from exc
         staged.chmod(0o755)
-        shutil.move(str(staged), str(destination))
+        staged.replace(destination)
     reported = reported_version(destination, tool.version_args)
-    if reported is None or not reported.startswith(tool.expected_version):
+    if reported != tool.expected_version:
         emit_metric("cargo-llvm-cov.install=version-mismatch")
         typer.echo(
             f"installed cargo-llvm-cov reports {reported!r}, expected "
@@ -360,7 +388,13 @@ def export_path(directory: Path) -> None:
 
 def main() -> None:
     """Install cargo-llvm-cov at the pinned version from the tool manifest."""
-    tool = resolve_tool()
+    try:
+        tool = resolve_tool()
+    except ToolResolutionError as exc:
+        emit_metric(f"cargo-llvm-cov.resolve={exc.kind}")
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    emit_metric("cargo-llvm-cov.resolve=ok")
     destination = cargo_bin() / tool.binary
     if installed_at_pinned_version(destination, tool):
         emit_metric("cargo-llvm-cov.install=reused")

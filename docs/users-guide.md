@@ -580,7 +580,19 @@ failure is also annotated with `::error`.
 ## `generate-coverage` action
 
 The `generate-coverage` composite action runs `cargo llvm-cov` for Rust
-projects and, by default, drives it through `cargo nextest`. The optional
+projects and, by default, drives it through `cargo nextest`.
+
+`cargo-llvm-cov` itself is installed from the repository's tool manifest
+(`.github/tool-manifest.toml`), at 0.9.0. The installer selects the archive for
+the runner's operating system and architecture (x86_64 and aarch64 Linux,
+x86_64 and aarch64 macOS, x86_64 Windows), verifies its SHA-256 digest against
+the manifest, extracts only the named executable into `CARGO_HOME/bin`, and
+reuses an installed binary that already reports the pinned version. There is
+no `cargo binstall` or `cargo install` fallback. 0.9.0 is the first release
+that reads Cargo's new build-dir layout, which cargo 1.100 nightlies enable by
+default; the previous 0.6.24 searched `target/llvm-cov-target/debug/deps` and
+failed with `failed to collect object files` on those toolchains after every
+test had passed. The same installer serves `ratchet-coverage`. The optional
 `use-cargo-nextest` input defaults to `true`; set it to `false` to run
 `cargo llvm-cov` directly instead of through `cargo nextest`.
 

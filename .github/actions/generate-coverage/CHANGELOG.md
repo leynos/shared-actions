@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Install `cargo-llvm-cov` from the tool manifest at 0.9.0, replacing the
+  `cargo-binstall` of 0.6.24. cargo 1.100 nightlies (from 2026-08-22) use
+  Cargo's new build-dir layout, which places test executables under
+  `debug/build/<package>/<hash>/out`; 0.6.24 searched `debug/deps` and failed
+  with `failed to collect object files` after every test had passed, which is
+  what statelet's coverage lane has reported since its toolchain moved to
+  nightly-2026-08-23. 0.9.0 reads the new layout. The installer resolves the
+  manifest entry with the `install-tool` resolver, downloads the release
+  archive, verifies its SHA-256 against the manifest, extracts only the named
+  member, and reuses an installed binary that already reports the pinned
+  version. The `Ensure cargo-binstall` step is removed, as nothing in this
+  action invokes `cargo binstall` any more, and `~/.cargo/bin/cargo-binstall`
+  leaves the Cargo cache paths.
 - Refuse a `publish-baseline` that is neither `auto` nor `always`, before the
   action restores anything, rather than treating an unrecognized value as
   `auto`.

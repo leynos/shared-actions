@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Install `cargo-llvm-cov` from the tool manifest at 0.9.0 instead of
+  `cargo-binstall` at 0.6.24, for the same reason as `generate-coverage`:
+  cargo 1.100 nightlies use Cargo's new build-dir layout, which 0.6.24 cannot
+  read and 0.9.0 can. The installer is the same manifest-driven script.
 - Refuse a `publish-baseline` that is neither `auto` nor `always`, before the
   action restores anything. A condition can only decide whether a step runs, so
   a typo would otherwise read as `auto` and stop publication silently.

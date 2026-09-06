@@ -34,13 +34,13 @@ the same across platforms.
 
 The action restores the previous coverage baseline using
 [actions/cache](https://github.com/actions/cache) and installs `cargo-llvm-cov`
-if necessary. After running the coverage command, it compares the new
-percentage with the stored baseline. Both values are rounded to two decimals
-before comparison to avoid failures from floating‑point noise. The job fails if
-coverage drops. On success the baseline file is updated, and on a push to
-`refs/heads/main` it is saved back to the cache for future runs. A
-`workflow_dispatch`, and a push to any other branch, update the file for the
-run and publish nothing.
+from the repository's tool manifest if necessary. After running the coverage
+command, it compares the new percentage with the stored baseline. Both values
+are rounded to two decimals before comparison to avoid failures from
+floating‑point noise. The job fails if coverage drops. On success the baseline
+file is updated, and on a push to `refs/heads/main` it is saved back to the
+cache for future runs. A `workflow_dispatch`, and a push to any other branch,
+update the file for the run and publish nothing.
 
 ## Caching
 

@@ -135,7 +135,6 @@ def test_cargo_cache_archives_binaries_registry_and_git_index_only() -> None:
     ]
 
     assert paths == [
-        "~/.cargo/bin/cargo-binstall",
         "~/.cargo/bin/cargo-llvm-cov",
         "~/.cargo/bin/cargo-nextest",
         "~/.cargo/registry",

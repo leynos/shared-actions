@@ -202,23 +202,52 @@ def cargo_bin() -> Path:
     return cargo_home / "bin"
 
 
-def reported_version(binary: Path, version_args: tuple[str, ...]) -> str | None:
-    """Return the version line ``binary`` reports, or None if it cannot run."""
+#: What probing an installed binary can find. Closed, so the command
+#: boundary can publish it as a bounded metric.
+PROBE_ABSENT = "absent"
+PROBE_UNRUNNABLE = "unrunnable"
+PROBE_REPORTED = "reported"
+
+
+class VersionProbe(typ.NamedTuple):
+    """The outcome of asking a binary for its version.
+
+    ``version`` is the first line the binary printed when ``state`` is
+    ``reported``, and ``None`` otherwise.
+    """
+
+    state: str
+    version: str | None
+
+    def metric_state(self, expected_version: str) -> str:
+        """Return the bounded state this probe publishes against a pin."""
+        if self.state != PROBE_REPORTED:
+            return self.state
+        return "pinned" if self.version == expected_version else "other-version"
+
+
+def probe_version(binary: Path, version_args: tuple[str, ...]) -> VersionProbe:
+    """Run ``binary`` with ``version_args`` and report what happened.
+
+    The only place a process is spawned to read a version. Every outcome is
+    a value: a missing file, a binary that cannot run or exits non-zero, and
+    a reported version line are all distinct states rather than exceptions.
+    """
+    if not binary.is_file():
+        return VersionProbe(PROBE_ABSENT, None)
     if not version_args:
-        return None
+        return VersionProbe(PROBE_UNRUNNABLE, None)
     try:
         output = local[str(binary)][list(version_args)](timeout=60)
     except (OSError, CommandNotFound, ProcessExecutionError):
-        return None
+        return VersionProbe(PROBE_UNRUNNABLE, None)
     text = str(output).strip()
-    return text.splitlines()[0] if text else ""
+    return VersionProbe(PROBE_REPORTED, text.splitlines()[0] if text else "")
 
 
-def installed_at_pinned_version(destination: Path, tool: ResolvedTool) -> bool:
-    """Whether ``destination`` already holds the binary at the pinned version."""
-    if not destination.is_file():
-        return False
-    return reported_version(destination, tool.version_args) == tool.expected_version
+def installed_at_pinned_version(probe: VersionProbe, expected_version: str) -> bool:
+    """Whether a probe shows exactly the pinned version. Pure."""
+    return probe.state == PROBE_REPORTED and probe.version == expected_version
 
 
 class _ArchiveTooLargeError(Exception):
@@ -377,12 +406,12 @@ def install(
         # Probe the staged binary, not the published one: a checksum-valid
         # archive whose binary reports another version must leave whatever
         # was installed before untouched.
-        reported = reported_version(staged, tool.version_args)
-        if reported != tool.expected_version:
+        probe = probe_version(staged, tool.version_args)
+        if not installed_at_pinned_version(probe, tool.expected_version):
             emit_metric("cargo-llvm-cov.install=version-mismatch")
             typer.echo(
-                f"extracted cargo-llvm-cov reports {reported!r}, expected "
-                f"{tool.expected_version!r}",
+                f"extracted cargo-llvm-cov {probe.state}, reports "
+                f"{probe.version!r}, expected {tool.expected_version!r}",
                 err=True,
             )
             raise typer.Exit(1)
@@ -409,7 +438,9 @@ def main() -> None:
         raise typer.Exit(1) from exc
     emit_metric("cargo-llvm-cov.resolve=ok")
     destination = cargo_bin() / tool.binary
-    if installed_at_pinned_version(destination, tool):
+    probe = probe_version(destination, tool.version_args)
+    emit_metric(f"cargo-llvm-cov.probe={probe.metric_state(tool.expected_version)}")
+    if installed_at_pinned_version(probe, tool.expected_version):
         emit_metric("cargo-llvm-cov.install=reused")
         typer.echo(f"cargo-llvm-cov {CARGO_LLVM_COV_VERSION} already installed")
     else:

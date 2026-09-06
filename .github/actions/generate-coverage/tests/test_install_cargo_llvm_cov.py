@@ -120,6 +120,7 @@ def test_unreadable_manifest_is_a_typed_error(
 
 
 def _tarball_with(member: str, payload: bytes) -> bytes:
+    """Return a gzip tarball holding ``payload`` at ``member``, mode 0o755."""
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as package:
         info = tarfile.TarInfo(member)
@@ -130,6 +131,7 @@ def _tarball_with(member: str, payload: bytes) -> bytes:
 
 
 def _zip_with(member: str, payload: bytes) -> bytes:
+    """Return a zip archive holding ``payload`` at ``member``."""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w") as package:
         package.writestr(member, payload)
@@ -139,6 +141,7 @@ def _zip_with(member: str, payload: bytes) -> bytes:
 def _fake_tool(
     module: ModuleType, archive: bytes, *, extension: str, member: str
 ) -> ResolvedTool:
+    """Return a ``ResolvedTool`` whose digest matches ``archive``."""
     url = (
         "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/"
         f"cargo-llvm-cov-x86_64-unknown-linux-gnu.{extension}"
@@ -159,7 +162,10 @@ def _fake_tool(
 
 
 def _write_fetch(archive: bytes) -> typ.Callable[[object, Path], None]:
+    """Return a ``fetch`` stand-in that writes ``archive`` instead of downloading."""
+
     def fetch(_tool: object, destination: Path) -> None:
+        """Write the canned archive to ``destination``."""
         destination.write_bytes(archive)
 
     return fetch
@@ -184,7 +190,10 @@ def test_install_extracts_the_manifest_member_and_verifies_it(
 
     assert destination.read_bytes() == _FAKE_BINARY
     assert destination.stat().st_mode & 0o111
-    assert install_llvm_cov_module.installed_at_pinned_version(destination, tool)
+    probe = install_llvm_cov_module.probe_version(destination, tool.version_args)
+    assert install_llvm_cov_module.installed_at_pinned_version(
+        probe, tool.expected_version
+    )
     assert [p.name for p in destination.parent.iterdir()] == ["cargo-llvm-cov"], (
         "the staging directory must not outlive the install"
     )
@@ -272,28 +281,55 @@ def _installer_module() -> ModuleType:
     return module
 
 
-@given(reported=st.one_of(st.none(), st.text(max_size=40)))
-def test_only_the_exact_expected_version_counts_as_installed(
-    reported: str | None,
+_PROBE_STATES = st.sampled_from(["absent", "unrunnable", "reported"])
+
+
+@given(state=_PROBE_STATES, version=st.one_of(st.none(), st.text(max_size=40)))
+def test_only_a_reported_exact_version_counts_as_installed(
+    state: str, version: str | None
 ) -> None:
-    """``installed_at_pinned_version`` accepts the exact version line and nothing else.
+    """``installed_at_pinned_version`` accepts one probe outcome and nothing else.
 
     A prefix match would accept ``cargo-llvm-cov 0.9.0-rc1`` or
     ``cargo-llvm-cov 0.9.01``; a substring match would accept a longer line
-    that merely mentions the version.
+    that merely mentions the version; and an absent or unrunnable binary must
+    never count, whatever ``version`` says.
     """
     module = _installer_module()
-    tool = _fake_tool(module, b"", extension="tar.gz", member="cargo-llvm-cov")
+    probe = module.VersionProbe(state, version)
 
-    class _Present:
-        def is_file(self) -> bool:
-            return True
+    outcome = module.installed_at_pinned_version(probe, "cargo-llvm-cov 0.9.0")
 
-    module.reported_version = lambda _binary, _args: reported
+    assert outcome == (state == "reported" and version == "cargo-llvm-cov 0.9.0")
+    assert probe.metric_state("cargo-llvm-cov 0.9.0") == (
+        state if state != "reported" else ("pinned" if outcome else "other-version")
+    )
 
-    outcome = module.installed_at_pinned_version(typ.cast("Path", _Present()), tool)
 
-    assert outcome == (reported == "cargo-llvm-cov 0.9.0")
+@pytest.mark.parametrize(
+    ("binary", "expected"),
+    [
+        pytest.param(None, ("absent", None), id="absent"),
+        pytest.param(b"not executable", ("unrunnable", None), id="unrunnable"),
+        pytest.param(_FAKE_BINARY, ("reported", "cargo-llvm-cov 0.9.0"), id="reported"),
+    ],
+)
+def test_probe_version_reports_each_outcome_as_a_value(
+    install_llvm_cov_module: ModuleType,
+    tmp_path: Path,
+    binary: bytes | None,
+    expected: tuple[str, str | None],
+) -> None:
+    """A missing, unrunnable and reporting binary are three distinct probe states."""
+    path = tmp_path / "cargo-llvm-cov"
+    if binary is not None:
+        path.write_bytes(binary)
+        if binary == _FAKE_BINARY:
+            path.chmod(0o755)
+
+    probe = install_llvm_cov_module.probe_version(path, ("llvm-cov", "--version"))
+
+    assert tuple(probe) == expected
 
 
 def test_oversized_download_is_discarded(
@@ -303,10 +339,14 @@ def test_oversized_download_is_discarded(
     monkeypatch.setattr(install_llvm_cov_module, "_MAX_ARCHIVE_BYTES", 16)
 
     class _Response(io.BytesIO):
+        """A urlopen response that streams more bytes than the cap allows."""
+
         def __enter__(self) -> _Response:
+            """Enter the response context."""
             return self
 
         def __exit__(self, *_args: object) -> None:
+            """Close the response."""
             self.close()
 
     monkeypatch.setattr(
@@ -351,6 +391,7 @@ def test_main_reuses_an_installed_binary_at_the_pinned_version(
     binary.chmod(0o755)
 
     def fail_install(*_args: object, **_kwargs: object) -> None:
+        """Fail the test if the installer tries to install."""
         message = "install must not run for a reused binary"
         raise AssertionError(message)
 
@@ -399,6 +440,7 @@ class _ArchiveHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(self.archive)
 
     def log_message(self, *_args: object) -> None:
+        """Keep the server quiet during the test."""
         return
 
 
@@ -410,6 +452,7 @@ def archive_server() -> typ.Iterator[typ.Callable[[bytes, str], str]]:
     thread.start()
 
     def serve(archive: bytes, path: str) -> str:
+        """Publish ``archive`` at ``path`` and return its URL."""
         _ArchiveHandler.archive = archive
         _ArchiveHandler.path_served = path
         return f"http://127.0.0.1:{server.server_port}{path}"

@@ -938,8 +938,11 @@ The script has one pure step and one effectful one:
   verifies its SHA-256 against the manifest, extracts exactly the manifest's
   `member`, stages it in a temporary directory beside the destination and
   publishes it with a rename, so a concurrent reader never sees a partially
-  written executable, then checks the binary reports exactly
-  `expected_version`. A binary already reporting that version is reused.
+  written executable. Before publishing it probes the staged binary
+  (`probe_version`, the one place a process is spawned to read a version,
+  returning a `VersionProbe` value over `absent`, `unrunnable` and `reported`)
+  and the pure `installed_at_pinned_version` accepts only a reported line equal
+  to `expected_version`. The same probe on the destination decides reuse.
 
 `main` is the command boundary: it turns a `ToolResolutionError` into an exit
 status and publishes the `cargo-llvm-cov.resolve`, `.download`,

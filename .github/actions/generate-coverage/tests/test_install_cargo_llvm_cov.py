@@ -9,6 +9,7 @@ that an installed binary at the pinned version is reused rather than replaced.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import tarfile
@@ -152,33 +153,37 @@ def test_install_extracts_the_manifest_member_and_verifies_it(
     assert install_llvm_cov_module.installed_at_pinned_version(destination, tool)
 
 
-def test_digest_mismatch_fails_and_preserves_the_existing_binary(
-    install_llvm_cov_module: ModuleType, tmp_path: Path
+@dataclasses.dataclass(frozen=True)
+class _RejectedArchive:
+    """One way a downloaded archive can be unusable."""
+
+    member: str
+    tamper_digest: bool
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            _RejectedArchive(member="cargo-llvm-cov", tamper_digest=True),
+            id="digest-mismatch",
+        ),
+        pytest.param(
+            _RejectedArchive(member="some-other-binary", tamper_digest=False),
+            id="missing-member",
+        ),
+    ],
+)
+def test_rejected_archive_fails_and_preserves_the_existing_binary(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, case: _RejectedArchive
 ) -> None:
-    """A tampered archive is rejected before anything touches the destination."""
-    archive = _tarball_with("cargo-llvm-cov", _FAKE_BINARY)
-    tool = _fake_tool(
-        install_llvm_cov_module, archive, extension="tar.gz", member="cargo-llvm-cov"
-    )._replace(sha256="0" * 64)
-    destination = tmp_path / "bin" / "cargo-llvm-cov"
-    destination.parent.mkdir()
-    destination.write_bytes(b"previous")
-
-    with pytest.raises(BaseException) as excinfo:  # noqa: PT011 - typer.Exit
-        install_llvm_cov_module.install(tool, destination, fetch=_write_fetch(archive))
-
-    assert _exit_code(excinfo.value) == 1
-    assert destination.read_bytes() == b"previous"
-
-
-def test_missing_member_fails_and_preserves_the_existing_binary(
-    install_llvm_cov_module: ModuleType, tmp_path: Path
-) -> None:
-    """An archive without the manifest's member is an error, not a guess."""
-    archive = _tarball_with("some-other-binary", _FAKE_BINARY)
+    """A tampered or malformed archive is an error that leaves the binary alone."""
+    archive = _tarball_with(case.member, _FAKE_BINARY)
     tool = _fake_tool(
         install_llvm_cov_module, archive, extension="tar.gz", member="cargo-llvm-cov"
     )
+    if case.tamper_digest:
+        tool = tool._replace(sha256="0" * 64)
     destination = tmp_path / "bin" / "cargo-llvm-cov"
     destination.parent.mkdir()
     destination.write_bytes(b"previous")

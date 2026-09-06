@@ -157,6 +157,16 @@ def resolve_tool(
     resolver = _load_resolver()
     if manifest is None:
         manifest = load_manifest()
+    schema = manifest.get("schema")
+    if schema != resolver.SCHEMA:
+        # The generic install-tool action fails closed on a schema it does
+        # not read; calling the resolver directly must not skip that check,
+        # or a later layout with plausible old fields would resolve wrongly.
+        message = (
+            f"the tool manifest declares schema {schema!r}; this installer "
+            f"reads schema {resolver.SCHEMA}"
+        )
+        raise ToolResolutionError(resolver.UNSUPPORTED_SCHEMA, message)
     runner_os, runner_arch = runner or runner_description()
     fields = resolver.resolve(
         manifest, TOOL_NAME, version, resolver.Runner(runner_os, runner_arch)

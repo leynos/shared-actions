@@ -95,6 +95,20 @@ def test_unknown_version_is_refused_rather_than_floated(
     assert excinfo.value.kind == "unknown-version"
 
 
+def test_manifest_with_another_schema_is_refused(
+    install_llvm_cov_module: ModuleType,
+) -> None:
+    """A manifest schema this installer does not read fails closed, by kind."""
+    manifest = {"schema": 2, "tool": []}
+
+    with pytest.raises(install_llvm_cov_module.ToolResolutionError) as excinfo:
+        install_llvm_cov_module.resolve_tool(
+            manifest=manifest, runner=RUNNERS["linux-x64"]
+        )
+
+    assert excinfo.value.kind == "unsupported-schema"
+
+
 def test_unreadable_manifest_is_a_typed_error(
     install_llvm_cov_module: ModuleType, tmp_path: Path
 ) -> None:
@@ -123,18 +137,12 @@ def _zip_with(member: str, payload: bytes) -> bytes:
 
 
 def _fake_tool(
-    module: ModuleType,
-    archive: bytes,
-    *,
-    extension: str,
-    member: str,
-    url: str | None = None,
+    module: ModuleType, archive: bytes, *, extension: str, member: str
 ) -> ResolvedTool:
-    if url is None:
-        url = (
-            "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/"
-            f"cargo-llvm-cov-x86_64-unknown-linux-gnu.{extension}"
-        )
+    url = (
+        "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.0/"
+        f"cargo-llvm-cov-x86_64-unknown-linux-gnu.{extension}"
+    )
     return typ.cast(
         "ResolvedTool",
         module.ResolvedTool(

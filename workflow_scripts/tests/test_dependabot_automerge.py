@@ -598,3 +598,157 @@ def test_retries_until_merge_state_known(
     captured = capsys.readouterr()
     assert calls["fetch"] >= 2, "Expected merge state to be refreshed"
     assert "automerge_status=enabled" in captured.out, "Expected enabled status"
+
+
+def _pr(**overrides: object) -> dependabot_automerge.PullRequestContext:
+    """Build a PullRequestContext with eligible defaults."""
+    values: dict[str, typ.Any] = {
+        "number": 1,
+        "owner": "leynos",
+        "repo": "rstest-bdd",
+        "author": "dependabot[bot]",
+        "is_draft": False,
+        "labels": (),
+    }
+    values.update(overrides)
+    return dependabot_automerge.PullRequestContext(**values)
+
+
+def _commit_node(oid: str, *logins: str) -> dict[str, object]:
+    """Build one commit node as the GraphQL query returns it."""
+    return {
+        "commit": {
+            "oid": oid,
+            "authors": {"nodes": [{"user": {"login": login}} for login in logins]},
+        }
+    }
+
+
+class TestForeignCommitExtraction:
+    """Reading who wrote each commit on the branch."""
+
+    def test_an_all_dependabot_branch_has_none(self) -> None:
+        """The ordinary bump, which must keep merging unattended."""
+        payload = {
+            "commits": {
+                "nodes": [
+                    _commit_node("aaaaaaaa1111", "dependabot[bot]"),
+                    _commit_node("bbbbbbbb2222", "dependabot"),
+                ]
+            }
+        }
+
+        assert dependabot_automerge._extract_foreign_commits(payload) == (), (
+            "both logins are Dependabot's, so nothing is foreign"
+        )
+
+    def test_a_maintainer_commit_is_foreign(self) -> None:
+        """The case this exists for: a human fix pushed onto the branch."""
+        payload = {
+            "commits": {
+                "nodes": [
+                    _commit_node("aaaaaaaa1111", "dependabot[bot]"),
+                    _commit_node("cccccccc3333", "leynos"),
+                ]
+            }
+        }
+
+        found = dependabot_automerge._extract_foreign_commits(payload)
+
+        assert [commit.oid for commit in found] == ["cccccccc3333"], found
+        assert found[0].author == "leynos", found
+
+    def test_a_co_authored_commit_is_foreign(self) -> None:
+        """Dependabot plus a human is still a human's change.
+
+        A commit crediting both would pass a check that asked only
+        whether Dependabot appears among the authors.
+        """
+        payload = {
+            "commits": {
+                "nodes": [_commit_node("dddd4444", "dependabot[bot]", "leynos")]
+            }
+        }
+
+        found = dependabot_automerge._extract_foreign_commits(payload)
+
+        assert [commit.author for commit in found] == ["leynos"], found
+
+    def test_an_unnamed_author_is_foreign(self) -> None:
+        """A commit GitHub cannot attribute is not evidence of a bot."""
+        payload = {
+            "commits": {
+                "nodes": [{"commit": {"oid": "eeee5555", "authors": {"nodes": [{}]}}}]
+            }
+        }
+
+        found = dependabot_automerge._extract_foreign_commits(payload)
+
+        assert [commit.author for commit in found] == [
+            dependabot_automerge.UNKNOWN_AUTHOR
+        ], found
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"commits": None}, {"commits": {"nodes": None}}],
+        ids=["absent", "null-commits", "null-nodes"],
+    )
+    def test_an_unreadable_commit_list_blocks_nothing(
+        self, payload: dict[str, object]
+    ) -> None:
+        """Unknown is not the same as foreign.
+
+        A query change that stopped returning commits would otherwise
+        halt every consumer's automerge at once, which is a worse
+        failure than the one this check prevents.
+        """
+        assert dependabot_automerge._extract_foreign_commits(payload) == (), payload
+
+
+class TestForeignCommitsBlockAutomerge:
+    """The verdict, and what it tells the maintainer."""
+
+    def test_a_clean_branch_stays_eligible(self) -> None:
+        """The ordinary bump is unaffected."""
+        decision = dependabot_automerge._evaluate(_pr(), None)
+
+        assert decision.status == "ready", decision
+        assert decision.reason == "eligible", decision
+
+    def test_a_foreign_commit_skips_and_names_it(self) -> None:
+        """Opening a pull request is not the same as writing what is in it."""
+        pr = _pr(
+            foreign_commits=(
+                dependabot_automerge.ForeignCommit("cccccccc3333", "leynos"),
+            )
+        )
+
+        decision = dependabot_automerge._evaluate(pr, None)
+
+        assert decision.status == "skipped", decision
+        assert decision.reason == "foreign-commit:cccccccc", decision
+
+    def test_the_annotation_names_the_commit_and_the_remedy(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A maintainer must learn why, not merely that it stopped."""
+        pr = _pr(
+            foreign_commits=(
+                dependabot_automerge.ForeignCommit("cccccccc3333", "leynos"),
+            )
+        )
+
+        dependabot_automerge._emit_decision(
+            pr,
+            dependabot_automerge.Decision(
+                status="skipped", reason="foreign-commit:cccccccc"
+            ),
+            config=dependabot_automerge.AutomergeConfig(
+                merge_method="squash", required_label=None, dry_run=False
+            ),
+        )
+
+        out = capsys.readouterr().out
+        assert "::notice title=dependabot-automerge::" in out, out
+        assert "cccccccc by leynos" in out, out
+        assert "its own pull request" in out, out

@@ -87,6 +87,14 @@ printf '%s\\n' "suite installed" >> "$INSTALLER_LOG"
 # Arguments go to a sibling file so the installer log stays exactly what
 # the existing assertions expect it to be.
 printf '%s\\n' "$*" >> "${INSTALLER_LOG}.args"
+# Reproduces the notice a real installer prints when a rolling asset is
+# absent and it builds the Dylint tools with `cargo install` instead. The
+# action reads this from stdout, so the stub writes it there too.
+if [ "$INSTALLER_SOURCE_FALLBACK" = "true" ]; then
+  asset=cargo-dylint-x86_64-unknown-linux-gnu-v6.0.1.tgz
+  echo "repository asset not found: ${asset}. Falling back"
+  echo "Installed cargo-dylint from source with cargo install"
+fi
 """
 
 _CONFLICTING_INSTALLER_STUB = """#!/usr/bin/env bash
@@ -231,6 +239,15 @@ class InstallScenario:
     pinned_sha256: str | None = AUTO
     installer_sha256: str = ""
     suite_version: str = ""
+    #: Defaults mirror the action's own. `ci-mode` is off here because most
+    #: lifecycle scenarios stub the installer and never publish rolling
+    #: assets, so an asset pre-check would fail for a reason unrelated to
+    #: the behaviour under test. The tests that care set it explicitly.
+    ci_mode: str = "false"
+    allow_suite_pin: str = "false"
+    #: Make the stub installer report the source fallback a missing rolling
+    #: asset causes, which is the outcome CI must refuse.
+    installer_source_fallback: bool = False
 
     @property
     def payload_sha256(self) -> str:
@@ -392,8 +409,11 @@ def _build_context(
     """Build the expression context the lifecycle fragments resolve against."""
     return ActionContext(
         inputs={
+            "allow-suite-pin": scenario.allow_suite_pin,
             "cache-provider": scenario.cache_provider,
             "cargo-home": scenario.cargo_home_value or bash_path(cargo_home),
+            "ci-mode": scenario.ci_mode,
+            "github-token": "",
             "installer-sha256": scenario.installer_sha256,
             "installer-version": scenario.installer_version,
             "suite-version": scenario.suite_version,
@@ -500,6 +520,7 @@ def _base_env(root: Path, scenario: InstallScenario, path: str) -> dict[str, str
         "GITHUB_STEP_SUMMARY": bash_file_path(root / "summary.md"),
         "HOME": bash_path(home),
         "INSTALLER_LOG": bash_file_path(root / "installer.log"),
+        "INSTALLER_SOURCE_FALLBACK": str(scenario.installer_source_fallback).lower(),
         "RUNNER_OS": scenario.runner_os,
         "RUNNER_TEMP": bash_path(runner_temp),
         "SIDECAR_SHA256": scenario.expected_sidecar,

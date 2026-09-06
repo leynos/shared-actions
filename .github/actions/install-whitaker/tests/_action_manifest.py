@@ -33,6 +33,7 @@ LIFECYCLE_STEP_NAMES = (
     "Verify Whitaker release",
     "Extract Whitaker installer",
     "Install Whitaker installer",
+    "Verify the published lint assets",
     "Run Whitaker installer",
 )
 

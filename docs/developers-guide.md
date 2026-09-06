@@ -1546,17 +1546,24 @@ precedes toolchain setup.
 
 `workflow_scripts/dependabot_automerge.py` decides whether a Dependabot pull
 request may merge unattended. Since 2026-09-06 that decision includes who wrote
-each commit on the branch, and the types below carry that reading from the
-GraphQL response to the decision.
+each commit on the branch, and the helper is split into four modules so the
+decision flow is not carrying three other concerns.
+
+| Module | Owns |
+| --- | --- |
+| `dependabot_automerge.py` | The decision flow, the fetch and paging, and the CLI |
+| `dependabot_commit_audit.py` | Reading commit authorship, and the rule over it |
+| `dependabot_merge_state.py` | GitHub merge state and its four classifications |
+| `dependabot_queries.py` | The GraphQL documents |
 
 ### Where the GitHub shape stops
 
-`_commit_page` is the only function that knows the GraphQL shape
+`commit_page` is the only function that knows the GraphQL shape
 (`commits.nodes[].commit.authors.nodes[].user.login`). It translates one page
-into `CommitRecord` values, and everything downstream reads those. Keeping the
-adapter and the rule apart is what lets the rule be stated and exercised
-without a GitHub response in the way, and what stops a schema change from
-quietly meaning a different rule.
+into `CommitRecord` values, returning None as the explicit unavailable result,
+and everything downstream reads those. Keeping the adapter and the rule apart
+is what lets the rule be exercised without a GitHub response in the way, and
+what stops a schema change from quietly meaning a different rule.
 
 | Type | Role |
 | --- | --- |
@@ -1565,11 +1572,11 @@ quietly meaning a different rule.
 | `ForeignCommit` | A commit that failed the rule, with the author to name in the notice |
 | `CommitAudit` | The branch-wide outcome: `readable`, and the `foreign` commits |
 
-`_foreign_commits` holds the rule itself, over `CommitRecord` values alone:
+`foreign_commits` holds the rule itself, over `CommitRecord` values alone:
 every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
-have been read to its end. `_audit_commits` composes the two over a single
-response; `_audit_whole_branch` pages the connection first and is what the
-production path uses.
+have been read to its end. `audit_commits` composes the two over a single
+response. `_audit_whole_branch`, in the workflow module, pages the connection
+first and is what the production path uses.
 
 ### The two fields on `PullRequestContext`
 
@@ -1601,7 +1608,8 @@ The two are deliberately not symmetrical.
 is followed to its end because a connection read to its page size and no
 further looks complete while hiding everything past the limit.
 `MAX_COMMIT_PAGES` bounds that loop at 50 pages, and a branch beyond it is
-reported unreadable rather than followed indefinitely.
+reported unreadable rather than followed indefinitely. `PullRequestRef` carries
+the owner, repository and number through that path as one value.
 
 ### Withdrawing an armed request
 
@@ -1610,7 +1618,8 @@ and auto-merge is already armed, calls `_disable_automerge` before doing so.
 GitHub keeps an auto-merge request alive across a push, so declining to arm one
 is not enough on its own. Those runs report `status=cancelled` rather than
 `skipped`, because the run changed the pull request rather than merely
-declining to act on it.
+declining to act on it. Withdrawal is scoped to the foreign-commit case: a
+branch skipped as a draft or for a missing label keeps its armed request.
 
 The same function runs again after `_refresh_merge_state`, since that refresh
 refetches the pull request and therefore refetches its commits. A push landing

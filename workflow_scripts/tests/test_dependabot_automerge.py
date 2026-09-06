@@ -9,7 +9,11 @@ import typing as typ
 import httpx
 import pytest
 
-from workflow_scripts import dependabot_automerge, graphql_client
+from workflow_scripts import (
+    dependabot_automerge,
+    dependabot_commit_audit,
+    graphql_client,
+)
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -618,7 +622,7 @@ class PullRequestOverrides(typ.TypedDict, total=False):
     auto_merge_enabled: bool
     merge_state_status: dependabot_automerge.MergeStateStatus
     mergeable_state: dependabot_automerge.MergeableState
-    foreign_commits: tuple[dependabot_automerge.ForeignCommit, ...]
+    foreign_commits: tuple[dependabot_commit_audit.ForeignCommit, ...]
     commits_readable: bool
 
 
@@ -662,7 +666,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        assert dependabot_automerge._audit_commits(payload).foreign == (), (
+        assert dependabot_commit_audit.audit_commits(payload).foreign == (), (
             "both logins are Dependabot's, so nothing is foreign"
         )
 
@@ -677,7 +681,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._audit_commits(payload).foreign
+        found = dependabot_commit_audit.audit_commits(payload).foreign
 
         assert [commit.oid for commit in found] == ["cccccccc3333"], found
         assert found[0].author == "leynos", found
@@ -694,7 +698,7 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._audit_commits(payload).foreign
+        found = dependabot_commit_audit.audit_commits(payload).foreign
 
         assert [commit.author for commit in found] == ["leynos"], found
 
@@ -706,10 +710,10 @@ class TestForeignCommitExtraction:
             }
         }
 
-        found = dependabot_automerge._audit_commits(payload).foreign
+        found = dependabot_commit_audit.audit_commits(payload).foreign
 
         assert [commit.author for commit in found] == [
-            dependabot_automerge.UNKNOWN_AUTHOR
+            dependabot_commit_audit.UNKNOWN_AUTHOR
         ], found
 
     @pytest.mark.parametrize(
@@ -726,7 +730,7 @@ class TestForeignCommitExtraction:
         halt every consumer's automerge at once, which is a worse
         failure than the one this check prevents.
         """
-        audit = dependabot_automerge._audit_commits(payload)
+        audit = dependabot_commit_audit.audit_commits(payload)
 
         assert audit.foreign == (), payload
         assert not audit.readable, (
@@ -738,7 +742,7 @@ class TestForeignCommitExtraction:
         """The ordinary case must not look like a failure to read."""
         payload = {"commits": {"nodes": [_commit_node("aaaa1111", "dependabot[bot]")]}}
 
-        assert dependabot_automerge._audit_commits(payload).readable, payload
+        assert dependabot_commit_audit.audit_commits(payload).readable, payload
 
 
 class TestForeignCommitsBlockAutomerge:
@@ -755,7 +759,7 @@ class TestForeignCommitsBlockAutomerge:
         """Opening a pull request is not the same as writing what is in it."""
         pr = _pr(
             foreign_commits=(
-                dependabot_automerge.ForeignCommit("cccccccc3333", "leynos"),
+                dependabot_commit_audit.ForeignCommit("cccccccc3333", "leynos"),
             )
         )
 
@@ -770,7 +774,7 @@ class TestForeignCommitsBlockAutomerge:
         """A maintainer must learn why, not merely that it stopped."""
         pr = _pr(
             foreign_commits=(
-                dependabot_automerge.ForeignCommit("cccccccc3333", "leynos"),
+                dependabot_commit_audit.ForeignCommit("cccccccc3333", "leynos"),
             )
         )
 

@@ -91,6 +91,7 @@ if __package__:
         AutomergeConfig,
         Decision,
         PullRequestContext,
+        armed_request_to_withdraw,
         emit_decision,
         evaluate,
     )
@@ -126,6 +127,7 @@ else:
         AutomergeConfig,
         Decision,
         PullRequestContext,
+        armed_request_to_withdraw,
         emit_decision,
         evaluate,
     )
@@ -661,8 +663,9 @@ def _stop_unless_eligible(
     decision = evaluate(pr, config.required_label)
     if decision.status == "ready":
         return False
-    if pr.foreign_commits and pr.auto_merge_enabled and pr.node_id:
-        _disable_automerge(github_token, pr.node_id)
+    armed = armed_request_to_withdraw(pr)
+    if armed is not None:
+        _disable_automerge(github_token, armed)
         print(
             f"::notice title=dependabot-automerge::cancelled the auto-merge "
             f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "

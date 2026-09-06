@@ -112,6 +112,51 @@ class AutomergeConfig:
     dry_run: bool
 
 
+def armed_request_to_withdraw(pr: PullRequestContext) -> str | None:
+    """Return the node of an auto-merge request that must be withdrawn.
+
+    Three things have to hold at once, and each rules out a different
+    case: the branch must carry a commit Dependabot did not write, a
+    request must already be armed, and the pull request's node must be
+    known so a mutation can name it. A branch skipped for any other
+    reason keeps its request, since cancelling there would undo the
+    arming this workflow exists to do.
+
+    The node is returned rather than a flag so the caller has the value
+    the mutation needs, and cannot ask for it a second way.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot the decision was taken from.
+
+    Returns
+    -------
+    str or None
+        The pull request's node id, or None when nothing is to be
+        withdrawn.
+
+    Examples
+    --------
+    >>> armed_request_to_withdraw(
+    ...     PullRequestContext(
+    ...         number=1,
+    ...         owner="acme",
+    ...         repo="example",
+    ...         author="dependabot[bot]",
+    ...         is_draft=False,
+    ...         labels=(),
+    ...     )
+    ... ) is None
+    True
+    """
+    if not pr.foreign_commits:
+        return None
+    if not pr.auto_merge_enabled:
+        return None
+    return pr.node_id
+
+
 def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     """Evaluate a PR against eligibility rules and return a Decision.
 

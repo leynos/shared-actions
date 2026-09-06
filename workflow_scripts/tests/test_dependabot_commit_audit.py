@@ -86,6 +86,7 @@ def _pull_request_node(
     *,
     auto_merge_request: dict[str, object] | None,
     merge_state: str,
+    is_draft: bool = False,
 ) -> dict[str, object]:
     """Build the pull request node for one page of commits.
 
@@ -99,6 +100,8 @@ def _pull_request_node(
         The ``autoMergeRequest`` field; not None means already armed.
     merge_state : str
         The ``mergeStateStatus`` to report.
+    is_draft : bool
+        Whether to report the pull request as a draft.
 
     Returns
     -------
@@ -110,7 +113,7 @@ def _pull_request_node(
     return {
         "id": "PR_node",
         "number": 7,
-        "isDraft": False,
+        "isDraft": is_draft,
         "mergeStateStatus": merge_state,
         "mergeable": "MERGEABLE",
         "author": {"login": DEPENDABOT},
@@ -231,12 +234,16 @@ class Branch(typ.NamedTuple):
     later_pages : typ.Sequence[typ.Sequence[dict[str, object]]] or None
         Commit pages served from the second fetch onward, for the case of
         a push landing inside the merge-state retry window.
+    is_draft : bool
+        Whether the pull request is a draft, which is a skip reason other
+        than a foreign commit.
     """
 
     pages: typ.Sequence[typ.Sequence[dict[str, object]]]
     auto_merge_request: dict[str, object] | None = None
     merge_state: str = "BLOCKED"
     later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None = None
+    is_draft: bool = False
 
 
 #: An auto-merge request already armed when the run starts.
@@ -280,6 +287,7 @@ def _install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQL
                     index,
                     auto_merge_request=branch.auto_merge_request,
                     merge_state=branch.merge_state,
+                    is_draft=branch.is_draft,
                 )
             }
         }
@@ -546,6 +554,35 @@ class TestAnArmedRequestIsWithdrawn:
         out = capsys.readouterr().out
         assert not calls.disable, "an eligible branch keeps its armed request"
         assert "automerge_status=enabled" in out, out
+
+    def test_a_branch_skipped_for_another_reason_keeps_its_request(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Withdrawal answers a foreign commit, not every skip.
+
+        A draft pull request is skipped too, and cancelling its armed
+        request would mean a maintainer marking a bump ready found the
+        arming silently undone. The distinction only holds if something
+        exercises a skip that is not a foreign commit; a test whose
+        branch is eligible never reaches the withdrawal at all.
+        """
+        calls = _install_graphql(
+            monkeypatch,
+            Branch(
+                pages=[[_commit_node("aaaa1111", DEPENDABOT)]],
+                auto_merge_request=ARMED,
+                is_draft=True,
+            ),
+        )
+
+        _run(monkeypatch)
+
+        out = capsys.readouterr().out
+        assert "automerge_reason=draft-pr" in out, out
+        assert not calls.disable, (
+            "a draft branch written only by Dependabot must keep its armed "
+            "request; the withdrawal is for foreign commits alone"
+        )
 
     def test_a_push_inside_the_retry_window_is_caught(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

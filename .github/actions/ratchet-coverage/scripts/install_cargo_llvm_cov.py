@@ -374,16 +374,19 @@ def install(
             typer.echo(f"cargo-llvm-cov archive extraction failed: {exc}", err=True)
             raise typer.Exit(1) from exc
         staged.chmod(0o755)
+        # Probe the staged binary, not the published one: a checksum-valid
+        # archive whose binary reports another version must leave whatever
+        # was installed before untouched.
+        reported = reported_version(staged, tool.version_args)
+        if reported != tool.expected_version:
+            emit_metric("cargo-llvm-cov.install=version-mismatch")
+            typer.echo(
+                f"extracted cargo-llvm-cov reports {reported!r}, expected "
+                f"{tool.expected_version!r}",
+                err=True,
+            )
+            raise typer.Exit(1)
         staged.replace(destination)
-    reported = reported_version(destination, tool.version_args)
-    if reported != tool.expected_version:
-        emit_metric("cargo-llvm-cov.install=version-mismatch")
-        typer.echo(
-            f"installed cargo-llvm-cov reports {reported!r}, expected "
-            f"{tool.expected_version!r}",
-            err=True,
-        )
-        raise typer.Exit(1)
     emit_metric("cargo-llvm-cov.install=ok")
 
 

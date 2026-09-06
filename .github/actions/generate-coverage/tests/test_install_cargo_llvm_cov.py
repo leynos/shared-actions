@@ -235,17 +235,21 @@ def test_rejected_archive_fails_and_preserves_the_existing_binary(
 def test_installed_binary_reporting_another_version_fails_the_install(
     install_llvm_cov_module: ModuleType, tmp_path: Path
 ) -> None:
-    """A verified archive whose binary reports the wrong version is still a failure."""
+    """A verified archive whose binary reports the wrong version is not published."""
     archive = _tarball_with("cargo-llvm-cov", _WRONG_VERSION_BINARY)
     tool = _fake_tool(
         install_llvm_cov_module, archive, extension="tar.gz", member="cargo-llvm-cov"
     )
     destination = tmp_path / "bin" / "cargo-llvm-cov"
+    destination.parent.mkdir()
+    destination.write_bytes(b"previous")
 
     with pytest.raises(typer.Exit) as excinfo:
         install_llvm_cov_module.install(tool, destination, fetch=_write_fetch(archive))
 
     assert _exit_code(excinfo.value) == 1
+    assert destination.read_bytes() == b"previous"
+    assert [p.name for p in destination.parent.iterdir()] == ["cargo-llvm-cov"]
 
 
 def _installer_module() -> ModuleType:

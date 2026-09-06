@@ -938,11 +938,25 @@ The script has one pure step and one effectful one:
   verifies its SHA-256 against the manifest, extracts exactly the manifest's
   `member`, stages it in a temporary directory beside the destination and
   publishes it with a rename, so a concurrent reader never sees a partially
-  written executable. Before publishing it probes the staged binary
+  written executable. Before publishing, it probes the staged binary
   (`probe_version`, the one place a process is spawned to read a version,
   returning a `VersionProbe` value over `absent`, `unrunnable` and `reported`)
   and the pure `installed_at_pinned_version` accepts only a reported line equal
   to `expected_version`. The same probe on the destination decides reuse.
+
+The probe and the decision compose like this:
+
+```python
+tool = resolve_tool()  # ResolvedTool(expected_version="cargo-llvm-cov 0.9.0", ...)
+probe = probe_version(cargo_bin() / tool.binary, tool.version_args)
+# VersionProbe(state="reported", version="cargo-llvm-cov 0.9.0")  -> reuse
+# VersionProbe(state="reported", version="cargo-llvm-cov 0.6.24") -> install
+# VersionProbe(state="absent", version=None)                     -> install
+# VersionProbe(state="unrunnable", version=None)                 -> install
+if installed_at_pinned_version(probe, tool.expected_version):
+    ...  # reuse
+probe.metric_state(tool.expected_version)  # "pinned", "other-version", ...
+```
 
 `main` is the command boundary: it turns a `ToolResolutionError` into an exit
 status and publishes the `cargo-llvm-cov.resolve`, `.download`,

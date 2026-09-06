@@ -45,14 +45,52 @@ _FAKE_BINARY = b"#!/bin/sh\necho 'cargo-llvm-cov 0.9.0'\n"
 _WRONG_VERSION_BINARY = b"#!/bin/sh\necho 'cargo-llvm-cov 0.6.24'\n"
 
 
-@pytest.fixture
-def install_llvm_cov_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Return a freshly loaded installer with job-level side effects disabled."""
+ACTIONS_DIR = Path(__file__).resolve().parents[2]
+
+#: Both actions ship the installer; the suite runs against each copy so the
+#: ratchet-coverage one is executed rather than assumed identical.
+INSTALLER_COPIES = {
+    "generate-coverage": ACTIONS_DIR
+    / "generate-coverage"
+    / "scripts"
+    / "install_cargo_llvm_cov.py",
+    "ratchet-coverage": ACTIONS_DIR
+    / "ratchet-coverage"
+    / "scripts"
+    / "install_cargo_llvm_cov.py",
+}
+
+
+def _load_installer(script: Path, name: str) -> ModuleType:
+    """Load one installer copy from ``script`` under module name ``name``."""
+    spec = importlib.util.spec_from_file_location(name, script)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(params=list(INSTALLER_COPIES), ids=list(INSTALLER_COPIES))
+def install_llvm_cov_module(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> ModuleType:
+    """Return a freshly loaded installer copy with job-level side effects disabled."""
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     monkeypatch.delenv("GITHUB_PATH", raising=False)
     monkeypatch.delenv("RUNNER_OS", raising=False)
     monkeypatch.delenv("RUNNER_ARCH", raising=False)
-    return _load_module(monkeypatch, "install_cargo_llvm_cov")
+    if request.param == "generate-coverage":
+        return _load_module(monkeypatch, "install_cargo_llvm_cov")
+    return _load_installer(
+        INSTALLER_COPIES[request.param], f"install_cargo_llvm_cov_{request.param}"
+    )
+
+
+def test_both_actions_ship_the_same_installer() -> None:
+    """The two copies are byte-identical, so a fix in one cannot miss the other."""
+    contents = {name: path.read_bytes() for name, path in INSTALLER_COPIES.items()}
+    assert contents["generate-coverage"] == contents["ratchet-coverage"]
 
 
 @pytest.mark.parametrize("runner", list(RUNNERS.values()), ids=list(RUNNERS))
@@ -268,17 +306,9 @@ def _installer_module() -> ModuleType:
     fixtures would be shared across those examples, so the module is loaded
     directly here.
     """
-    script = (
-        Path(__file__).resolve().parents[1] / "scripts" / "install_cargo_llvm_cov.py"
+    return _load_installer(
+        INSTALLER_COPIES["generate-coverage"], "install_cargo_llvm_cov_property"
     )
-    spec = importlib.util.spec_from_file_location(
-        "install_cargo_llvm_cov_property", script
-    )
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 _PROBE_STATES = st.sampled_from(["absent", "unrunnable", "reported"])

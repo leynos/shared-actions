@@ -124,9 +124,22 @@ The decision itself stands: sccache owns compiler output, and no `target`
 archive returns. This records that owning it requires the two exports, which
 the original decision took for granted.
 
+## Addendum, 2026-09-06: `cargo-binstall` leaves the coverage cache
+
+`generate-coverage` no longer provisions `cargo-binstall`: `cargo-llvm-cov` is
+installed from the tool manifest at 0.9.0 by `install_cargo_llvm_cov.py`, and
+`cargo-nextest` already came from its own pinned release, so nothing in the
+action shells out to `cargo binstall`. The "Ensure cargo-binstall" step is
+removed and `~/.cargo/bin/cargo-binstall` is dropped from the Cargo cache
+paths, which now cover the `cargo-llvm-cov` and `cargo-nextest` binaries, the
+registry and the Git index. The cache key and the `cache-provider` boundary are
+unchanged, and the decision stands: sccache owns compiler output and no
+`target` archive returns (`#470`).
+
 ## References
 
 - Issue `#424`, PR `#425`
 - Issues `#437`, `#439` and `#441`, PRs `#438` and `#440`
+- PR `#470`
 - `docs/developers-guide.md`, "Rust action cache ownership"
 - `docs/users-guide.md`, "Rust cache ownership"

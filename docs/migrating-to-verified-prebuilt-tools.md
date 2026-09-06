@@ -165,6 +165,29 @@ instead of the previous cargo-binstall path. A caller that sets
 `use-cargo-nextest: "false"` is unaffected, since the action never installs
 `cargo-nextest` in that mode.
 
+### `cargo-llvm-cov` from the tool manifest
+
+`generate-coverage` and `ratchet-coverage` install `cargo-llvm-cov` 0.9.0 from
+the repository tool manifest (`.github/tool-manifest.toml`) through
+`scripts/install_cargo_llvm_cov.py`, replacing the `cargo binstall` of 0.6.24.
+The installer selects the archive for the runner's operating system and
+architecture, verifies its SHA-256 against the manifest, extracts only the
+named executable, and publishes it only when it reports exactly the pinned
+version. The supported targets are the manifest entry's: x86_64 and aarch64
+Linux (glibc), x86_64 and aarch64 macOS, and x86_64 Windows. Any other runner
+fails resolution with a bounded `cargo-llvm-cov.resolve=unsupported-runner`
+metric rather than building from source.
+
+The version moved because cargo 1.100 nightlies enable Cargo's new build-dir
+layout, which 0.6.24 cannot read: on such a toolchain coverage failed with
+`failed to collect object files` after every test had passed. A caller on a
+toolchain from 2026-08-22 or later needs this release of the action.
+
+`generate-coverage` no longer provisions `cargo-binstall` at all, and
+`~/.cargo/bin/cargo-binstall` is no longer part of its Cargo cache. A caller
+that relied on the action leaving a `cargo-binstall` on `PATH` for its own
+later steps must install one itself.
+
 ## Checklist
 
 - [ ] Confirm which `install-whitaker` and `generate-coverage` major tags you
@@ -173,6 +196,8 @@ instead of the previous cargo-binstall path. A caller that sets
 - [ ] If you pin `installer-version` explicitly, confirm it is one of the
       versions listed in `installer-digests.sha256`, or supply a verified
       `installer-sha256`.
+- [ ] If a later step of yours used the `cargo-binstall` that `generate-coverage`
+      used to leave on `PATH`, install one yourself; the action no longer does.
 - [ ] If you relied on a cargo-binstall QuickInstall substitute or a source
       build for `cargo-nextest`, replace that reliance with a version this
       repository pins, or preinstall a verified binary on `PATH` before

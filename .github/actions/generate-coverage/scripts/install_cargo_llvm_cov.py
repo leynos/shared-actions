@@ -50,8 +50,9 @@ CARGO_LLVM_COV_VERSION = "0.9.0"
 
 TOOL_NAME = "cargo-llvm-cov"
 
-#: The resolver reports every other failure kind; this one is ours.
+#: The resolver reports every other failure kind; these two are ours.
 MANIFEST_UNREADABLE = "manifest-unreadable"
+RESOLVER_UNAVAILABLE = "resolver-unavailable"
 
 #: Where the manifest and the shared resolver live relative to this script:
 #: ``<repo>/.github/actions/<action>/scripts/<this file>``.
@@ -97,17 +98,6 @@ def emit_metric(line: str) -> None:
         handle.write(f"metric {line}\n")
 
 
-def _load_resolver() -> ModuleType:
-    """Import the install-tool resolver from its own script directory."""
-    spec = importlib.util.spec_from_file_location("resolve_tool", RESOLVER_PATH)
-    if spec is None or spec.loader is None:
-        typer.echo(f"cannot load the tool resolver at {RESOLVER_PATH}", err=True)
-        raise typer.Exit(1)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def runner_description() -> tuple[str, str]:
     """Return the runner OS and architecture as GitHub Actions names them.
 
@@ -143,18 +133,49 @@ def load_manifest(manifest_path: Path = MANIFEST_PATH) -> dict[str, object]:
         raise ToolResolutionError(MANIFEST_UNREADABLE, message) from exc
 
 
+def load_resolver(resolver_path: Path | None = None) -> ModuleType:
+    """Import the install-tool resolver, or raise ``ToolResolutionError``.
+
+    Executing another script's module body can raise anything its top level
+    raises, so every failure is reported under one bounded kind rather than
+    escaping as ``OSError``, ``ImportError`` or a loader exception. The
+    command boundary publishes that kind as a metric; this query writes
+    nothing and never exits the process. ``resolver_path`` defaults to
+    ``RESOLVER_PATH`` read at call time, so a caller can redirect it.
+    """
+    resolver_path = RESOLVER_PATH if resolver_path is None else resolver_path
+    spec = importlib.util.spec_from_file_location("resolve_tool", resolver_path)
+    if spec is None or spec.loader is None:
+        message = f"cannot load the tool resolver at {resolver_path}"
+        raise ToolResolutionError(RESOLVER_UNAVAILABLE, message)
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    # A module body raises whatever its top level raises, so the catch is as
+    # wide as the failure it must convert into a bounded kind.
+    except Exception as exc:
+        message = f"the tool resolver at {resolver_path} failed to load: {exc}"
+        raise ToolResolutionError(RESOLVER_UNAVAILABLE, message) from exc
+    return module
+
+
 def resolve_tool(
     version: str = CARGO_LLVM_COV_VERSION,
     *,
     manifest: dict[str, object] | None = None,
     runner: tuple[str, str] | None = None,
+    resolver: ModuleType | None = None,
 ) -> ResolvedTool:
     """Return the manifest entry for ``version`` on ``runner``.
 
-    A query with no side effects: it reads the manifest (or the one passed
-    in) and either returns the entry or raises ``ToolResolutionError``.
+    A query with no side effects: it reads the manifest and the resolver (or
+    the ones passed in) and either returns the entry or raises
+    ``ToolResolutionError``. Passing ``resolver`` makes the dependency
+    explicit, so a caller or a test can supply one without touching the
+    filesystem.
     """
-    resolver = _load_resolver()
+    if resolver is None:
+        resolver = load_resolver()
     if manifest is None:
         manifest = load_manifest()
     schema = manifest.get("schema")

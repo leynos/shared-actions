@@ -39,9 +39,8 @@ compiler output.
 profile-agnostic key
 `${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}`,
 with a matching `${{ runner.os }}-cargo-` restore prefix. `generate-coverage`
-caches the `cargo-llvm-cov` and `cargo-nextest` binaries alongside the
-registry and Git index, under its existing key (the `cargo-binstall` binary
-left that list on 2026-09-06; see the addendum below).
+caches the `cargo-binstall`, `cargo-llvm-cov`, and `cargo-nextest` binaries
+alongside the registry and Git index, under its existing key.
 
 The `cache-provider` boundary is unchanged. `external` still disables the
 actions' own archive caches so a caller such as an Ubicloud or Namespace cache

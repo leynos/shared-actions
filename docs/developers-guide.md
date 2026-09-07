@@ -928,12 +928,18 @@ constant second.
 
 The script has one pure step and one effectful one:
 
-- **Resolution** (`load_manifest`, `resolve_tool`) reads the manifest and
-  selects the archive for the runner with the `install-tool` resolver
-  (`.github/actions/install-tool/scripts/resolve_tool.py`), using `RUNNER_OS`
-  and `RUNNER_ARCH` inside a job and `platform` outside one. It returns a
-  `ResolvedTool` or raises `ToolResolutionError` carrying the resolver's
-  bounded failure kind; it publishes nothing.
+- **Resolution** (`load_manifest`, `load_resolver`, `resolve_tool`) reads the
+  manifest and selects the archive for the runner with the `install-tool`
+  resolver (`.github/actions/install-tool/scripts/resolve_tool.py`), using
+  `RUNNER_OS` and `RUNNER_ARCH` inside a job and `platform` outside one. It
+  returns a `ResolvedTool` or raises `ToolResolutionError` carrying the
+  resolver's bounded failure kind; it publishes nothing and never exits the
+  process. `resolve_tool` takes both the manifest and the resolver as optional
+  arguments, so a caller or a test supplies either without touching the
+  filesystem. When neither is given it loads them, and a resolver that is
+  missing or raises from its own module body becomes
+  `ToolResolutionError(kind="resolver-unavailable")` rather than an `OSError`,
+  an `ImportError` or whatever that module body raised.
 - **Installation** (`install`) downloads the archive with a 200 MB cap,
   verifies its SHA-256 against the manifest, extracts exactly the manifest's
   `member`, stages it in a temporary directory beside the destination and
@@ -969,8 +975,11 @@ The behavioural tests live in
 hold the pinned version to the manifest for every runner the resolver knows,
 drive `main` end to end against a temporary manifest whose entry points at a
 local HTTP server, and cover digest mismatch, a missing member, an oversized
-download, a binary reporting another version, and the reuse path. A Hypothesis
-property holds that only the exact expected version line counts as installed.
+download, a binary reporting another version, and the reuse path. They also
+inject a failing resolver, both absent and raising on import, and assert that
+resolution reports `resolver-unavailable` while writing nothing, and that
+`main` turns it into that metric and exit status. A Hypothesis property holds
+that only the exact expected version line counts as installed.
 
 `generate-coverage` no longer provisions `cargo-binstall`: nothing in either
 action invokes `cargo binstall`.

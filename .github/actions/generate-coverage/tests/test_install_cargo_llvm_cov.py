@@ -557,3 +557,96 @@ def test_entry_point_reports_a_resolution_failure_by_kind(
     assert "metric cargo-llvm-cov.resolve=unsupported-runner" in summary.read_text(
         encoding="utf-8"
     )
+
+
+def test_a_missing_resolver_is_a_typed_error_without_output(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """An absent resolver raises the bounded kind and the query stays silent.
+
+    Loading the resolver used to exit the process from inside the query, so
+    a caller could not convert the failure into a metric.
+    """
+    with pytest.raises(install_llvm_cov_module.ToolResolutionError) as excinfo:
+        install_llvm_cov_module.load_resolver(tmp_path / "absent.py")
+
+    assert excinfo.value.kind == install_llvm_cov_module.RESOLVER_UNAVAILABLE
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_a_resolver_raising_on_import_is_a_typed_error(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """A resolver whose module body raises is reported by kind, not as a traceback."""
+    resolver = tmp_path / "resolve_tool.py"
+    resolver.write_text('raise RuntimeError("resolver is broken")\n', encoding="utf-8")
+
+    with pytest.raises(install_llvm_cov_module.ToolResolutionError) as excinfo:
+        install_llvm_cov_module.load_resolver(resolver)
+
+    assert excinfo.value.kind == install_llvm_cov_module.RESOLVER_UNAVAILABLE
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_resolve_tool_reports_a_failing_resolver_load_by_kind(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``resolve_tool`` surfaces a resolver-load failure as its own typed error."""
+    monkeypatch.setattr(
+        install_llvm_cov_module, "RESOLVER_PATH", tmp_path / "absent.py"
+    )
+
+    with pytest.raises(install_llvm_cov_module.ToolResolutionError) as excinfo:
+        install_llvm_cov_module.resolve_tool(runner=RUNNERS["linux-x64"])
+
+    assert excinfo.value.kind == install_llvm_cov_module.RESOLVER_UNAVAILABLE
+
+
+def test_resolve_tool_uses_an_injected_resolver(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An injected resolver is used as given, so the query loads no file.
+
+    ``RESOLVER_PATH`` points at nothing for the duration, which would fail the
+    call were the dependency still resolved from disk.
+    """
+    monkeypatch.setattr(
+        install_llvm_cov_module, "RESOLVER_PATH", tmp_path / "absent.py"
+    )
+    resolver = install_llvm_cov_module.load_resolver(
+        Path(install_llvm_cov_module.__file__).resolve().parents[3]
+        / "actions"
+        / "install-tool"
+        / "scripts"
+        / "resolve_tool.py"
+    )
+
+    tool = install_llvm_cov_module.resolve_tool(
+        runner=RUNNERS["linux-x64"], resolver=resolver
+    )
+
+    assert tool.expected_version == (
+        f"cargo-llvm-cov {install_llvm_cov_module.CARGO_LLVM_COV_VERSION}"
+    )
+
+
+def test_main_reports_a_failing_resolver_load_as_a_metric(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``main`` converts a resolver-load failure into the bounded metric and exit 1."""
+    _binary, _github_path, summary = _job_environment(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        install_llvm_cov_module, "RESOLVER_PATH", tmp_path / "absent.py"
+    )
+
+    with pytest.raises(typer.Exit) as excinfo:
+        install_llvm_cov_module.main()
+
+    assert _exit_code(excinfo.value) == 1
+    assert "metric cargo-llvm-cov.resolve=resolver-unavailable" in summary.read_text(
+        encoding="utf-8"
+    )

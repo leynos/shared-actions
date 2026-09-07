@@ -94,7 +94,6 @@ main : The CLI entrypoint function.
 
 from __future__ import annotations
 
-import collections.abc as cabc
 import dataclasses
 import json
 import os
@@ -106,15 +105,10 @@ from cyclopts import App, Parameter
 
 if __package__:
     from .dependabot_commit_audit import (
-        AUTHOR_PAGE_SIZE,
-        COMMIT_PAGE_SIZE,
-        MAX_COMMIT_PAGES,
         CommitAudit,
         CommitRecord,
         DependabotLogin,
         ForeignCommit,
-        commit_page,
-        foreign_commits,
     )
     from .dependabot_decision import (
         AutomergeConfig,
@@ -123,34 +117,30 @@ if __package__:
         armed_request_to_withdraw,
         evaluate,
     )
+    from .dependabot_github import (
+        GraphQLQuery,
+        PullRequestRef,
+        fetch_pull_request,
+    )
     from .dependabot_merge_state import (
-        MergeableState,
         MergeStateRetryConfig,
-        MergeStateStatus,
         classify_merge_state,
         merge_state_retry_config,
     )
     from .dependabot_queries import (
-        COMMITS_PAGE_QUERY,
         DISABLE_AUTOMERGE_MUTATION,
         ENABLE_AUTOMERGE_MUTATION,
         MERGE_PULL_REQUEST_MUTATION,
-        PULL_REQUEST_QUERY,
     )
     from .dependabot_report import emit_decision
     from .graphql_client import JsonValue, request_graphql
     from .output import fail
 else:
     from dependabot_commit_audit import (  # type: ignore[import-not-found,no-redef]
-        AUTHOR_PAGE_SIZE,
-        COMMIT_PAGE_SIZE,
-        MAX_COMMIT_PAGES,
         CommitAudit,
         CommitRecord,
         DependabotLogin,
         ForeignCommit,
-        commit_page,
-        foreign_commits,
     )
     from dependabot_decision import (  # type: ignore[import-not-found,no-redef]
         AutomergeConfig,
@@ -159,19 +149,20 @@ else:
         armed_request_to_withdraw,
         evaluate,
     )
+    from dependabot_github import (  # type: ignore[import-not-found,no-redef]
+        GraphQLQuery,
+        PullRequestRef,
+        fetch_pull_request,
+    )
     from dependabot_merge_state import (  # type: ignore[import-not-found,no-redef]
-        MergeableState,
         MergeStateRetryConfig,
-        MergeStateStatus,
         classify_merge_state,
         merge_state_retry_config,
     )
     from dependabot_queries import (  # type: ignore[import-not-found,no-redef]
-        COMMITS_PAGE_QUERY,
         DISABLE_AUTOMERGE_MUTATION,
         ENABLE_AUTOMERGE_MUTATION,
         MERGE_PULL_REQUEST_MUTATION,
-        PULL_REQUEST_QUERY,
     )
     from dependabot_report import (  # type: ignore[import-not-found,no-redef]
         emit_decision,
@@ -182,16 +173,36 @@ else:
     )
     from output import fail  # type: ignore[import-not-found,no-redef]
 
-#: The one call the read path makes against GitHub, named so it can be
-#: supplied rather than reached for. `_fetch_pull_request` and
-#: `_audit_whole_branch` take it as an argument defaulting to the live
-#: client, which keeps the network at the boundary the caller chooses
-#: instead of at whichever module happens to be imported. Tests that
-#: patch the module attribute still work, because the default is read
-#: at call time.
-type GraphQLQuery = cabc.Callable[
-    [str, str, dict[str, JsonValue]], dict[str, JsonValue]
-]
+
+def _fetch_pull_request(
+    token: str,
+    ref: PullRequestRef,
+    *,
+    query: GraphQLQuery | None = None,
+) -> PullRequestContext:
+    """Read one pull request through the live client by default.
+
+    The adapter in ``dependabot_github`` requires the call rather than
+    naming one, so this module is where the live client is chosen. It is
+    read at call time, so patching this module's ``request_graphql``
+    still redirects the read path.
+
+    Parameters
+    ----------
+    token : str
+        A GitHub token.
+    ref : PullRequestRef
+        Where the pull request lives.
+    query : GraphQLQuery or None
+        A call to use instead of the live client.
+
+    Returns
+    -------
+    PullRequestContext
+        The pull request as the decision layer reads it.
+    """
+    return fetch_pull_request(token, ref, query=query or request_graphql)
+
 
 #: Re-exported so the workflow module remains the single import for
 #: callers and tests that do not care where the audit lives.
@@ -369,288 +380,6 @@ def _snapshot_from_event(
     )
 
 
-def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
-    """Extract author login from PR data, returning empty string if unavailable."""
-    author_obj = pull_request.get("author")
-    if not isinstance(author_obj, dict):
-        return ""
-    login = author_obj.get("login")
-    if not isinstance(login, str):
-        return ""
-    return login
-
-
-def _extract_labels(pull_request: dict[str, JsonValue]) -> tuple[str, ...]:
-    """Extract label names from PR data, returning empty tuple if unavailable."""
-    labels_obj = pull_request.get("labels")
-    if not isinstance(labels_obj, dict):
-        return ()
-    nodes = labels_obj.get("nodes")
-    if not isinstance(nodes, list):
-        return ()
-    labels: list[str] = []
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        name = node.get("name")
-        if isinstance(name, str):
-            labels.append(name)
-    return tuple(labels)
-
-
-def _normalize_enum(value: JsonValue | None) -> str | None:
-    """Normalize a GraphQL enum value to uppercase string form."""
-    if isinstance(value, str):
-        normalized = value.strip().upper()
-        return normalized or None
-    return None
-
-
-def _extract_enum[EnumT](
-    data: dict[str, JsonValue],
-    field: str,
-    enum_type: type[EnumT],
-    default: EnumT,
-) -> EnumT:
-    """Extract and validate an enum field from GraphQL data."""
-    normalized = _normalize_enum(data.get(field))
-    if normalized is None:
-        return default
-    try:
-        return enum_type(normalized)
-    except ValueError:
-        return default
-
-
-def _extract_merge_state_status(
-    pull_request: dict[str, JsonValue],
-) -> MergeStateStatus:
-    """Extract mergeStateStatus from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeStateStatus",
-        MergeStateStatus,
-        MergeStateStatus.UNKNOWN,
-    )
-
-
-def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
-    """Extract mergeable state from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeable",
-        MergeableState,
-        MergeableState.UNKNOWN,
-    )
-
-
-class PullRequestRef(typ.NamedTuple):
-    """Where a pull request lives, as every query here needs it.
-
-    The three travel together through the fetch and paging path, so they
-    travel as one value rather than as three parameters repeated at each
-    call.
-
-    Attributes
-    ----------
-    owner : str
-        The repository owner.
-    repo : str
-        The repository name.
-    number : int
-        The pull request number.
-    """
-
-    owner: str
-    repo: str
-    number: int
-
-    def __str__(self) -> str:
-        """Return ``owner/repo#number``.
-
-        Returns
-        -------
-        str
-            The pull request's location, for a message.
-        """
-        return f"{self.owner}/{self.repo}#{self.number}"
-
-
-def _commit_variables(ref: PullRequestRef, cursor: str | None) -> dict[str, JsonValue]:
-    """Build the variables both commit-bearing queries take.
-
-    Parameters
-    ----------
-    ref : PullRequestRef
-        The pull request to query.
-    cursor : str or None
-        Where to resume the commit connection, or None for the first page.
-
-    Returns
-    -------
-    dict
-        The GraphQL variables.
-    """
-    return {
-        "owner": ref.owner,
-        "name": ref.repo,
-        "number": ref.number,
-        "commitPageSize": COMMIT_PAGE_SIZE,
-        "authorPageSize": AUTHOR_PAGE_SIZE,
-        "commitCursor": cursor,
-    }
-
-
-def _pull_request_node(
-    data: dict[str, JsonValue], ref: PullRequestRef
-) -> dict[str, JsonValue]:
-    """Unwrap the pull request node, failing when it is absent.
-
-    Parameters
-    ----------
-    data : dict
-        A GraphQL response body.
-    ref : PullRequestRef
-        The pull request that was queried, for the failure message.
-
-    Returns
-    -------
-    dict
-        The pull request node.
-    """
-    repository = data.get("repository")
-    if isinstance(repository, dict):
-        pull_request = repository.get("pullRequest")
-        if isinstance(pull_request, dict):
-            return pull_request
-    # `fail` is NoReturn; returning it is what tells the linter so, since
-    # the conditional import leaves that annotation out of reach here.
-    return fail(f"Pull request {ref} was not found.")
-
-
-def _audit_whole_branch(
-    token: str,
-    ref: PullRequestRef,
-    first_page: dict[str, JsonValue],
-    *,
-    query: GraphQLQuery | None = None,
-) -> CommitAudit:
-    """Audit every commit on the branch, not merely the first page.
-
-    A connection read to its page size and no further looks complete: the
-    nodes come back, the audit runs, and a commit past the limit is never
-    seen. On a branch of more than :data:`COMMIT_PAGE_SIZE` commits that
-    is a foreign commit certified as Dependabot's, so the pages are
-    followed to the end.
-
-    Parameters
-    ----------
-    token : str
-        A GitHub token.
-    ref : PullRequestRef
-        The pull request being audited.
-    first_page : dict
-        The pull request node already fetched, carrying page one.
-    query : GraphQLQuery or None
-        The call used to read each further page. Defaults to the live
-        client, so a caller that wants a different one supplies it
-        rather than patching this module.
-
-    Returns
-    -------
-    CommitAudit
-        The audit over every commit, or an unreadable result when a page
-        carried no commit list or the branch exceeded
-        :data:`MAX_COMMIT_PAGES`.
-    """
-    ask = query or request_graphql
-    page = commit_page(first_page)
-    if page is None:
-        return CommitAudit(readable=False, foreign=())
-    records = list(page.records)
-    cursor = page.next_cursor
-    pages = 1
-    while cursor is not None:
-        if pages >= MAX_COMMIT_PAGES:
-            return CommitAudit(readable=False, foreign=())
-        data = ask(
-            token,
-            COMMITS_PAGE_QUERY,
-            _commit_variables(ref, cursor),
-        )
-        node = _pull_request_node(data, ref)
-        page = commit_page(node)
-        if page is None:
-            return CommitAudit(readable=False, foreign=())
-        records.extend(page.records)
-        cursor = page.next_cursor
-        pages += 1
-    return CommitAudit(
-        readable=True,
-        foreign=foreign_commits(records),
-        pages=pages,
-        commits=len(records),
-    )
-
-
-def _fetch_pull_request(
-    token: str,
-    owner: str,
-    repo: str,
-    number: int,
-    *,
-    query: GraphQLQuery | None = None,
-) -> PullRequestContext:
-    """Fetch PR metadata from the GitHub GraphQL API.
-
-    Parameters
-    ----------
-    token : str
-        A GitHub token.
-    owner : str
-        The repository's owner.
-    repo : str
-        The repository's name.
-    number : int
-        The pull request's number.
-    query : GraphQLQuery or None
-        The call used to read the pull request and each further commit
-        page. Defaults to the live client.
-
-    Returns
-    -------
-    PullRequestContext
-        The pull request as the decision layer reads it.
-    """
-    ask = query or request_graphql
-    ref = PullRequestRef(owner=owner, repo=repo, number=number)
-    data = ask(token, PULL_REQUEST_QUERY, _commit_variables(ref, None))
-    pull_request = _pull_request_node(data, ref)
-    author_login = _extract_author_login(pull_request)
-    labels = _extract_labels(pull_request)
-    audit = _audit_whole_branch(token, ref, pull_request, query=ask)
-    auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
-    node_id = pull_request.get("id")
-    head_oid = pull_request.get("headRefOid")
-    return PullRequestContext(
-        number=number,
-        owner=owner,
-        repo=repo,
-        author=author_login,
-        is_draft=bool(pull_request.get("isDraft", False)),
-        labels=labels,
-        node_id=node_id if isinstance(node_id, str) else None,
-        head_oid=head_oid if isinstance(head_oid, str) else None,
-        auto_merge_enabled=auto_merge_enabled,
-        merge_state_status=_extract_merge_state_status(pull_request),
-        mergeable_state=_extract_mergeable_state(pull_request),
-        foreign_commits=audit.foreign,
-        commits_readable=audit.readable,
-        commit_pages_read=audit.pages,
-        commits_audited=audit.commits,
-    )
-
-
 def _refresh_merge_state(
     token: str,
     pr: PullRequestContext,
@@ -673,7 +402,10 @@ def _refresh_merge_state(
         )
         time.sleep(sleep_seconds)
         current = _fetch_pull_request(
-            token, current.owner, current.repo, current.number
+            token,
+            PullRequestRef(
+                owner=current.owner, repo=current.repo, number=current.number
+            ),
         )
     return current
 
@@ -841,7 +573,9 @@ def _handle_live_execution(
         context.event,
     )
 
-    pr = _fetch_pull_request(github_token, owner, repo, pr_number)
+    pr = _fetch_pull_request(
+        github_token, PullRequestRef(owner=owner, repo=repo, number=pr_number)
+    )
     if _stop_unless_eligible(github_token, pr, config=config):
         return
 

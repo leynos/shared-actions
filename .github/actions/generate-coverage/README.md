@@ -329,6 +329,32 @@ stopped advancing.
 seconds, defaulting to 1800. The watchdog is there to catch a hang, and its
 budget is sized so that a build which is merely cold does not look like one.
 
+**If your repository has not set a value, it is on 1,800 s and nothing in
+your repository says so.** That is not a budget anyone chose for your suite,
+and it is the state that killed a dependency bump in `rstest-bdd` with 1,894
+of its 1,897 tests complete. Choosing one takes four steps, in this order:
+
+1. **Read your own runs, not one of them.** Take the longest your coverage
+   step has taken across several recent successful runs, and note the run
+   ids. One run is the coldest seen so far, not a measurement of the cold
+   case.
+2. **Add what the watchdog covers and the inner timers do not.** If you run
+   nextest, that is its `global-timeout` plus a termination allowance read
+   from the largest configured `slow-timeout.grace-period`, with a floor of
+   about a minute, plus a cold build. If you do not, the observed step
+   duration is the whole of it.
+3. **Set the value where the whole job can see it**, as
+   `RUN_RUST_CARGO_WAIT_TIMEOUT` at job level or the `cargo-wait-timeout`
+   input on the step, and write down beside it what it was sized against.
+4. **Check the job ceiling above it.** It must clear the watchdog plus the
+   measured work outside the watchdog's window, or the job is cancelled
+   before the watchdog can report the overrun and the log that would have
+   explained it is discarded.
+
+The subsections below give the reasoning behind each step. A caller adopting
+this for the first time can stop at the four above and come back for the
+rest when a number is questioned.
+
 That distinction is the whole reason for the number. A lane that archives its
 `target` tree runs a mostly incremental instrumented build, and a few hundred
 seconds covers little more than test execution. A lane that has stopped

@@ -459,3 +459,41 @@ class TestAnArmedRequestIsWithdrawn:
         out = capsys.readouterr().out
         assert "automerge_reason=foreign-commit:cccc3333" in out, out
         assert not calls.enable, "the refreshed snapshot must gate the decision"
+
+
+def test_the_read_path_uses_the_query_it_is_given() -> None:
+    """The GraphQL call is an argument, not a module attribute.
+
+    Patching a module attribute makes every caller in the process use
+    the substitute, so a test cannot describe one read path without
+    describing all of them. Passing the call proves the parameter is
+    honoured rather than shadowed by the default, which is the whole
+    point of taking it.
+    """
+    pages = [
+        [commit_node("b" * 40, DEPENDABOT)],
+        [commit_node("c" * 40, DEPENDABOT)],
+    ]
+    branch = Branch(pages=pages)
+    asked: list[str] = []
+
+    def _query(
+        _token: str, query: str, _variables: dict[str, object]
+    ) -> dict[str, object]:
+        page_index = len(asked)
+        asked.append(query)
+        return {
+            "repository": {"pullRequest": pull_request_node(branch, pages, page_index)}
+        }
+
+    pull_request = dependabot_automerge._fetch_pull_request(
+        "token", "leynos", "shared-actions", 1, query=_query
+    )
+
+    assert len(asked) == len(pages), (
+        "the first fetch and every further page must go through the supplied "
+        f"query; it was called {len(asked)} time(s) for {len(pages)} pages"
+    )
+    assert not pull_request.foreign_commits, (
+        "the audit read this branch through the supplied query"
+    )

@@ -17,6 +17,34 @@ Auto-merge is enabled only when all conditions are met:
 - The PR author is ``dependabot[bot]`` or ``dependabot``
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
+- Every commit on the branch is Dependabot's, and the whole branch was
+  read
+
+Commit Audit
+------------
+The author field names who opened the pull request, not who wrote what
+is on the branch, so a maintainer pushing to a Dependabot branch would
+otherwise be merged unattended. Every commit is therefore audited.
+
+The commit connection is paged to the end rather than read once: a
+connection read to its page size looks complete, and a foreign commit
+past that limit would be certified as Dependabot's. A branch longer
+than the page cap, a page carrying no commit list, or an author list
+the connection could not account for is reported unreadable rather than
+clean, because the check exists to certify the branch and a partial
+read certifies nothing.
+
+An unreadable audit does more than withhold a merge. Auto-merge already
+armed on the pull request is withdrawn, since arming it was a decision
+made on evidence that no longer holds. Both mutations are bound to the
+head commit the audit read, so a push racing the run cannot have the
+decision applied to it.
+
+The rule itself lives in ``dependabot_commit_audit`` and takes values
+rather than a client, so it can be exercised without a network. This
+module holds the GitHub boundary: ``_fetch_pull_request`` and
+``_audit_whole_branch`` take the GraphQL call as an argument that
+defaults to the live client.
 
 Merge-state handling: auto-merge is armed while the PR is blocked by
 required rules (``BLOCKED``). If the PR is already mergeable (``CLEAN``,
@@ -66,6 +94,7 @@ main : The CLI entrypoint function.
 
 from __future__ import annotations
 
+import collections.abc as cabc
 import dataclasses
 import json
 import os
@@ -152,6 +181,17 @@ else:
         request_graphql,
     )
     from output import fail  # type: ignore[import-not-found,no-redef]
+
+#: The one call the read path makes against GitHub, named so it can be
+#: supplied rather than reached for. `_fetch_pull_request` and
+#: `_audit_whole_branch` take it as an argument defaulting to the live
+#: client, which keeps the network at the boundary the caller chooses
+#: instead of at whichever module happens to be imported. Tests that
+#: patch the module attribute still work, because the default is read
+#: at call time.
+type GraphQLQuery = cabc.Callable[
+    [str, str, dict[str, JsonValue]], dict[str, JsonValue]
+]
 
 #: Re-exported so the workflow module remains the single import for
 #: callers and tests that do not care where the audit lives.
@@ -492,6 +532,8 @@ def _audit_whole_branch(
     token: str,
     ref: PullRequestRef,
     first_page: dict[str, JsonValue],
+    *,
+    query: GraphQLQuery | None = None,
 ) -> CommitAudit:
     """Audit every commit on the branch, not merely the first page.
 
@@ -509,6 +551,10 @@ def _audit_whole_branch(
         The pull request being audited.
     first_page : dict
         The pull request node already fetched, carrying page one.
+    query : GraphQLQuery or None
+        The call used to read each further page. Defaults to the live
+        client, so a caller that wants a different one supplies it
+        rather than patching this module.
 
     Returns
     -------
@@ -517,6 +563,7 @@ def _audit_whole_branch(
         carried no commit list or the branch exceeded
         :data:`MAX_COMMIT_PAGES`.
     """
+    ask = query or request_graphql
     page = commit_page(first_page)
     if page is None:
         return CommitAudit(readable=False, foreign=())
@@ -526,7 +573,7 @@ def _audit_whole_branch(
     while cursor is not None:
         if pages >= MAX_COMMIT_PAGES:
             return CommitAudit(readable=False, foreign=())
-        data = request_graphql(
+        data = ask(
             token,
             COMMITS_PAGE_QUERY,
             _commit_variables(ref, cursor),
@@ -547,15 +594,41 @@ def _audit_whole_branch(
 
 
 def _fetch_pull_request(
-    token: str, owner: str, repo: str, number: int
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    *,
+    query: GraphQLQuery | None = None,
 ) -> PullRequestContext:
-    """Fetch PR metadata from the GitHub GraphQL API."""
+    """Fetch PR metadata from the GitHub GraphQL API.
+
+    Parameters
+    ----------
+    token : str
+        A GitHub token.
+    owner : str
+        The repository's owner.
+    repo : str
+        The repository's name.
+    number : int
+        The pull request's number.
+    query : GraphQLQuery or None
+        The call used to read the pull request and each further commit
+        page. Defaults to the live client.
+
+    Returns
+    -------
+    PullRequestContext
+        The pull request as the decision layer reads it.
+    """
+    ask = query or request_graphql
     ref = PullRequestRef(owner=owner, repo=repo, number=number)
-    data = request_graphql(token, PULL_REQUEST_QUERY, _commit_variables(ref, None))
+    data = ask(token, PULL_REQUEST_QUERY, _commit_variables(ref, None))
     pull_request = _pull_request_node(data, ref)
     author_login = _extract_author_login(pull_request)
     labels = _extract_labels(pull_request)
-    audit = _audit_whole_branch(token, ref, pull_request)
+    audit = _audit_whole_branch(token, ref, pull_request, query=ask)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
     node_id = pull_request.get("id")
     head_oid = pull_request.get("headRefOid")

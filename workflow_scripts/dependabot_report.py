@@ -41,7 +41,43 @@ def emit_decision(
     *,
     config: AutomergeConfig,
 ) -> None:
-    """Emit structured decision output for the automerge workflow."""
+    """Emit the automerge workflow's decision as step outputs.
+
+    Every field the workflow branches on is emitted unconditionally, so
+    a run's outputs describe the decision whether or not it merged. Two
+    of them describe the evidence rather than the verdict: how many
+    pages of commits were read and how many commits were audited, which
+    is what distinguishes a run that saw one page of a longer branch
+    from one that saw the branch.
+
+    A dry run reports ``dry-run`` rather than ``ready``, so the outputs
+    never claim a merge that the workflow was configured not to make.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The pull request the decision is about, and the audit read from
+        it.
+    decision : Decision
+        The verdict and the reason behind it.
+    config : AutomergeConfig
+        The workflow's configuration, which supplies the merge method,
+        the required label, and whether this is a dry run.
+
+    Returns
+    -------
+    None
+        The outputs are written through :func:`emit` rather than
+        returned.
+
+    Notes
+    -----
+    Two side effects beyond the outputs, and only one can occur. A
+    branch carrying foreign commits prints a warning naming them, since
+    that is the case a maintainer must look at. A branch whose commits
+    could not be read prints a notice instead, because that is a query
+    fault rather than a finding about the branch.
+    """
     reason = decision.reason
     if decision.status == "ready" and config.dry_run:
         status = "dry-run"

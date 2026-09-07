@@ -13,19 +13,56 @@ from __future__ import annotations
 
 import typing as typ
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
 from workflow_scripts import dependabot_automerge, dependabot_commit_audit
 
-if typ.TYPE_CHECKING:
-    import pytest
-
 # Test-only constant (not a real credential)
 TEST_TOKEN = "test-token"  # noqa: S105
 
 DEPENDABOT = "dependabot[bot]"
+
+#: The head the audit reads, named to every merge mutation.
+HEAD_OID = "0" * 40
 MAINTAINER = "leynos"
+
+
+class Mutation(typ.NamedTuple):
+    """One mutation the script sent.
+
+    The document is kept alongside the variables because a variable is
+    only sent if the document declares it. An assertion on the variables
+    alone passes with the field deleted from the input, which is the
+    deletion that matters.
+
+    Attributes
+    ----------
+    document : str
+        The GraphQL document.
+    variables : dict[str, object]
+        The variables sent with it.
+    """
+
+    document: str
+    variables: dict[str, object]
+
+    def binds(self, name: str) -> bool:
+        """Return whether the document passes ``name`` into its input.
+
+        Parameters
+        ----------
+        name : str
+            The input field, such as ``expectedHeadOid``.
+
+        Returns
+        -------
+        bool
+            True when the input names the field and takes it from the
+            matching variable.
+        """
+        return f"{name}: ${name}" in self.document
 
 
 class GraphQLCalls(typ.NamedTuple):
@@ -33,20 +70,20 @@ class GraphQLCalls(typ.NamedTuple):
 
     Attributes
     ----------
-    enable : list[dict[str, object]]
-        Variables of each ``enablePullRequestAutoMerge`` call.
-    disable : list[dict[str, object]]
-        Variables of each ``disablePullRequestAutoMerge`` call.
-    merge : list[dict[str, object]]
-        Variables of each ``mergePullRequest`` call.
+    enable : list[Mutation]
+        Each ``enablePullRequestAutoMerge`` call.
+    disable : list[Mutation]
+        Each ``disablePullRequestAutoMerge`` call.
+    merge : list[Mutation]
+        Each ``mergePullRequest`` call.
     cursors : list[object]
         The commit cursor of each query, first page included, so a test
         can assert the connection was followed rather than read once.
     """
 
-    enable: list[dict[str, object]]
-    disable: list[dict[str, object]]
-    merge: list[dict[str, object]]
+    enable: list[Mutation]
+    disable: list[Mutation]
+    merge: list[Mutation]
     cursors: list[object]
 
 
@@ -111,6 +148,7 @@ def _pull_request_node(
     return {
         "id": "PR_node",
         "number": 7,
+        "headRefOid": HEAD_OID,
         "isDraft": branch.is_draft,
         "mergeStateStatus": branch.merge_state,
         "mergeable": "MERGEABLE",
@@ -158,7 +196,7 @@ def _mutation_response(
     )
     for name, record, payload in mutations:
         if name in query:
-            record.append(variables)
+            record.append(Mutation(document=query, variables=variables))
             return {name: payload}
     return None
 
@@ -463,6 +501,28 @@ class TestTheWholeBranchIsAudited:
         assert "automerge_reason=foreign-commit:eeee5555" in out, out
         assert "an unread co-author" in out, out
 
+    def test_a_commit_crediting_nobody_is_treated_as_foreign(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A visible commit with no author evidence certifies nothing.
+
+        This is the shape a rule looking only for outsiders waves
+        through: an empty credit list has no login outside Dependabot's,
+        so nothing objects, and the branch merges unreviewed on the
+        strength of a commit nobody is recorded as writing.
+        """
+        calls = _install_graphql(
+            monkeypatch,
+            Branch(pages=[[_commit_node("ffff6666")]]),
+        )
+
+        _run(monkeypatch)
+
+        out = capsys.readouterr().out
+        assert "automerge_reason=foreign-commit:ffff6666" in out, out
+        assert "an unnamed author" in out, out
+        assert not calls.enable, "a commit crediting nobody must not merge"
+
     def test_a_branch_beyond_the_page_ceiling_is_reported_unreadable(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -491,6 +551,97 @@ class TestTheWholeBranchIsAudited:
         assert len(calls.cursors) == 2, calls.cursors
 
 
+class TestEveryMergeNamesTheAuditedHead:
+    """The audit binds the merge, or it is only advice."""
+
+    def test_arming_auto_merge_names_the_head_the_audit_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A push between the audit and the mutation is the whole risk.
+
+        GitHub makes no head-match check without ``expectedHeadOid``, so
+        the request would be armed on a head nobody looked at, and the
+        audit would have been advice rather than a gate.
+        """
+        calls = _install_graphql(
+            monkeypatch,
+            Branch(pages=[[_commit_node("aaaa1111", DEPENDABOT)]]),
+        )
+
+        _run(monkeypatch)
+
+        assert len(calls.enable) == 1, calls.enable
+        armed = calls.enable[0]
+        assert armed.binds("expectedHeadOid"), (
+            "the arming mutation must pass expectedHeadOid into its input; a "
+            "variable the document does not declare is not sent at all"
+        )
+        assert armed.variables["expectedHeadOid"] == HEAD_OID, (
+            f"arming must name the audited head, got "
+            f"{armed.variables.get('expectedHeadOid')!r}"
+        )
+
+    def test_merging_directly_names_the_head_the_audit_read(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The direct merge carries the same risk and the same guard.
+
+        An already-mergeable pull request is merged outright rather than
+        armed, so it needs the binding just as much.
+        """
+        calls = _install_graphql(
+            monkeypatch,
+            Branch(
+                pages=[[_commit_node("aaaa1111", DEPENDABOT)]],
+                merge_state="CLEAN",
+            ),
+        )
+
+        _run(monkeypatch)
+
+        assert len(calls.merge) == 1, calls.merge
+        merged = calls.merge[0]
+        assert merged.binds("expectedHeadOid"), (
+            "the merge mutation must pass expectedHeadOid into its input; a "
+            "variable the document does not declare is not sent at all"
+        )
+        assert merged.variables["expectedHeadOid"] == HEAD_OID, (
+            f"the direct merge must name the audited head, got "
+            f"{merged.variables.get('expectedHeadOid')!r}"
+        )
+
+    def test_a_response_with_no_head_refuses_to_merge(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Without a head there is nothing to bind the audit to.
+
+        Sending the mutation anyway would act on whatever the head is at
+        that moment, which is the case the binding exists to refuse.
+        """
+
+        def handler(
+            _token: str, query: str, variables: dict[str, object]
+        ) -> dict[str, object]:
+            if "enablePullRequestAutoMerge" in query:
+                message = "arming must not be attempted without a head"
+                raise AssertionError(message)
+            node = _pull_request_node(
+                Branch(pages=[[_commit_node("aaaa1111", DEPENDABOT)]]),
+                [[_commit_node("aaaa1111", DEPENDABOT)]],
+                0,
+            )
+            del node["headRefOid"]
+            return {"repository": {"pullRequest": node}}
+
+        monkeypatch.setattr(dependabot_automerge, "request_graphql", handler)
+
+        with pytest.raises(SystemExit):
+            _run(monkeypatch)
+
+        err = capsys.readouterr().err
+        assert "unaudited head" in err, err
+
+
 class TestAnArmedRequestIsWithdrawn:
     """Declining to arm auto-merge is not enough once it is armed."""
 
@@ -516,7 +667,7 @@ class TestAnArmedRequestIsWithdrawn:
 
         out = capsys.readouterr().out
         assert len(calls.disable) == 1, "the armed request must be withdrawn"
-        assert calls.disable[0]["pullRequestId"] == "PR_node", calls.disable
+        assert calls.disable[0].variables["pullRequestId"] == "PR_node", calls.disable
         assert "automerge_status=cancelled" in out, out
         assert "automerge_reason=foreign-commit:cccc3333" in out, out
         assert "cancelled the auto-merge request" in out, out
@@ -636,6 +787,33 @@ def _commit_records(
     return tuple(records)
 
 
+def _is_dependabot_only(record: dependabot_commit_audit.CommitRecord) -> bool:
+    """Return whether one commit passes the eligibility rule.
+
+    Stated here independently of the implementation, so the property
+    tests compare two readings of the rule rather than one reading with
+    itself. A commit crediting nobody fails: the rule certifies on
+    evidence, and no credited author is no evidence.
+
+    Parameters
+    ----------
+    record : dependabot_commit_audit.CommitRecord
+        The commit to judge.
+
+    Returns
+    -------
+    bool
+        True when the commit is Dependabot's and wholly read.
+    """
+    if not record.authors:
+        return False
+    if not record.authors_complete:
+        return False
+    return all(
+        author in dependabot_commit_audit.DEPENDABOT_LOGINS for author in record.authors
+    )
+
+
 class TestTheRuleHoldsOverArbitraryBranches:
     """Invariants of the rule, over branches nobody wrote down."""
 
@@ -651,15 +829,7 @@ class TestTheRuleHoldsOverArbitraryBranches:
         after a match.
         """
         found = dependabot_commit_audit.foreign_commits(records)
-        expected = [
-            record.oid
-            for record in records
-            if not record.authors_complete
-            or any(
-                author not in dependabot_commit_audit.DEPENDABOT_LOGINS
-                for author in record.authors
-            )
-        ]
+        expected = [record.oid for record in records if not _is_dependabot_only(record)]
         assert [commit.oid for commit in found] == expected, (
             f"every failing commit must be reported once, in branch order; "
             f"got {[commit.oid for commit in found]} for {records}"
@@ -679,14 +849,7 @@ class TestTheRuleHoldsOverArbitraryBranches:
 
     @given(
         records=_commit_records().filter(
-            lambda records: all(
-                record.authors_complete
-                and all(
-                    author in dependabot_commit_audit.DEPENDABOT_LOGINS
-                    for author in record.authors
-                )
-                for record in records
-            )
+            lambda records: all(_is_dependabot_only(record) for record in records)
         )
     )
     def test_a_wholly_dependabot_branch_is_never_reported(
@@ -695,7 +858,8 @@ class TestTheRuleHoldsOverArbitraryBranches:
         """The gate must not stop the bumps it exists to let through.
 
         Both login variants count, in any mixture, on any number of
-        commits.
+        commits. A commit crediting nobody is excluded: it is not a
+        Dependabot commit, it is a commit with no evidence either way.
         """
         assert dependabot_commit_audit.foreign_commits(records) == (), (
             f"a branch written only by Dependabot must pass: {records}"

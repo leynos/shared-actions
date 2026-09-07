@@ -29,6 +29,7 @@ query PullRequestInfo(
     pullRequest(number: $number) {
       id
       number
+      headRefOid
       isDraft
       mergeStateStatus
       mergeable
@@ -74,10 +75,22 @@ query PullRequestCommits(
 """
 )
 
+# Both mutations name the head the audit read. A push can land between
+# the audit and the mutation, and without `expectedHeadOid` GitHub makes
+# no head-match check, so the request would be armed on, or the merge
+# performed against, a head nobody looked at.
 ENABLE_AUTOMERGE_MUTATION = """
-mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+mutation EnableAutomerge(
+  $pullRequestId: ID!
+  $mergeMethod: PullRequestMergeMethod!
+  $expectedHeadOid: GitObjectID!
+) {
   enablePullRequestAutoMerge(
-    input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
+    input: {
+      pullRequestId: $pullRequestId
+      mergeMethod: $mergeMethod
+      expectedHeadOid: $expectedHeadOid
+    }
   ) {
     pullRequest {
       number
@@ -97,9 +110,17 @@ mutation DisableAutomerge($pullRequestId: ID!) {
 """
 
 MERGE_PULL_REQUEST_MUTATION = """
-mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+mutation MergePullRequest(
+  $pullRequestId: ID!
+  $mergeMethod: PullRequestMergeMethod!
+  $expectedHeadOid: GitObjectID!
+) {
   mergePullRequest(
-    input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
+    input: {
+      pullRequestId: $pullRequestId
+      mergeMethod: $mergeMethod
+      expectedHeadOid: $expectedHeadOid
+    }
   ) {
     pullRequest {
       number

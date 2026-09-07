@@ -300,7 +300,14 @@ def _labels_from_pr(pr: dict[str, JsonValue]) -> tuple[str, ...]:
 def _snapshot_from_event(
     event: dict[str, JsonValue], repo_full_name: str
 ) -> PullRequestContext:
-    """Build a PullRequestContext from a GitHub event payload."""
+    """Build a PullRequestContext from a GitHub event payload.
+
+    The event carries no commit list, so the audit did not run here and
+    the context says so. Leaving ``commits_readable`` at its default
+    would have the dry run report ``automerge_commit_audit=clean``, which
+    claims a check that was never made and does so in the one output
+    meant to be counted.
+    """
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         fail("Event payload does not include pull_request data.")
@@ -316,6 +323,7 @@ def _snapshot_from_event(
         author=author_login,
         is_draft=is_draft,
         labels=_labels_from_pr(pr),
+        commits_readable=False,
     )
 
 
@@ -543,6 +551,7 @@ def _fetch_pull_request(
     audit = _audit_whole_branch(token, ref, pull_request)
     auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
     node_id = pull_request.get("id")
+    head_oid = pull_request.get("headRefOid")
     return PullRequestContext(
         number=number,
         owner=owner,
@@ -551,6 +560,7 @@ def _fetch_pull_request(
         is_draft=bool(pull_request.get("isDraft", False)),
         labels=labels,
         node_id=node_id if isinstance(node_id, str) else None,
+        head_oid=head_oid if isinstance(head_oid, str) else None,
         auto_merge_enabled=auto_merge_enabled,
         merge_state_status=_extract_merge_state_status(pull_request),
         mergeable_state=_extract_mergeable_state(pull_request),
@@ -586,13 +596,19 @@ def _refresh_merge_state(
     return current
 
 
-def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> None:
-    """Enable auto-merge on a pull request via the GitHub GraphQL API."""
-    request_graphql(
-        token,
-        ENABLE_AUTOMERGE_MUTATION,
-        {"pullRequestId": pull_request_id, "mergeMethod": merge_method},
-    )
+def _enable_automerge(pr: PullRequestContext, token: str, merge_method: str) -> None:
+    """Enable auto-merge on the head the audit read.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot, carrying the node and head.
+    token : str
+        A GitHub token.
+    merge_method : str
+        The normalized merge method.
+    """
+    _mutate(pr, token, ENABLE_AUTOMERGE_MUTATION, merge_method)
 
 
 def _disable_automerge(token: str, pull_request_id: str) -> None:
@@ -604,12 +620,61 @@ def _disable_automerge(token: str, pull_request_id: str) -> None:
     )
 
 
-def _merge_pull_request(token: str, pull_request_id: str, merge_method: str) -> None:
-    """Merge a pull request directly via the GitHub GraphQL API."""
+def _merge_pull_request(pr: PullRequestContext, token: str, merge_method: str) -> None:
+    """Merge the head the audit read, directly.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot, carrying the node and head.
+    token : str
+        A GitHub token.
+    merge_method : str
+        The normalized merge method.
+    """
+    _mutate(pr, token, MERGE_PULL_REQUEST_MUTATION, merge_method)
+
+
+def _mutate(
+    pr: PullRequestContext, token: str, mutation: str, merge_method: str
+) -> None:
+    """Send one merge mutation, bound to the head the audit read.
+
+    ``expectedHeadOid`` is what makes the audit binding rather than
+    advisory. A push can land between reading the commits and arming or
+    performing the merge, and GitHub makes no head-match check without
+    it, so the request would be armed on a head nobody looked at. Where
+    the head has moved GitHub refuses the mutation, which fails the run:
+    no merge happens, and the push that moved the head starts a new run
+    that audits it from scratch.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot.
+    token : str
+        A GitHub token.
+    mutation : str
+        The GraphQL document to send.
+    merge_method : str
+        The normalized merge method.
+    """
+    if not pr.node_id:
+        fail("Pull request node ID missing from GitHub response.")
+    if not pr.head_oid:
+        fail(
+            f"Pull request {pr.owner}/{pr.repo}#{pr.number} reported no head "
+            f"commit, so the merge cannot be bound to the head the commit "
+            f"audit read. Refusing to act on an unaudited head."
+        )
     request_graphql(
         token,
-        MERGE_PULL_REQUEST_MUTATION,
-        {"pullRequestId": pull_request_id, "mergeMethod": merge_method},
+        mutation,
+        {
+            "pullRequestId": pr.node_id,
+            "mergeMethod": merge_method,
+            "expectedHeadOid": pr.head_oid,
+        },
     )
 
 
@@ -740,11 +805,8 @@ def _handle_live_execution(
         )
         return
 
-    if not pr.node_id:
-        fail("Pull request node ID missing from GitHub response.")
-
     if state == "merge":
-        _merge_pull_request(github_token, pr.node_id, config.merge_method)
+        _merge_pull_request(pr, github_token, config.merge_method)
         emit_decision(
             pr,
             Decision(status="merged", reason="merged-directly"),
@@ -752,7 +814,7 @@ def _handle_live_execution(
         )
         return
 
-    _enable_automerge(github_token, pr.node_id, config.merge_method)
+    _enable_automerge(pr, github_token, config.merge_method)
     emit_decision(
         pr,
         Decision(status="enabled", reason="enabled"),

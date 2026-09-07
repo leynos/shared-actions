@@ -1660,9 +1660,19 @@ Consumers upgrading to the next major tag should read
 
 ### Tests
 
-`workflow_scripts/tests/test_dependabot_commit_audit.py` drives the production
-path with a scripted GraphQL client: a foreign commit on the second page, a
-truncated credit list, the page ceiling, a withdrawal, and a push inside the
-retry window. It also states the rule's invariants as Hypothesis properties
-over arbitrary branches, since a loop that stops at the first offender or skips
-the commit after a match passes any handful of examples.
+Three files, because a scripted GitHub, a behavioural suite and a set of
+properties are three things:
+
+- `dependabot_graphql_double.py` is the scripted GitHub. It answers with a
+  branch of a given shape, spread over pages, with or without an armed request,
+  and can answer differently on the second fetch so a push inside the
+  merge-state retry window is describable.
+- `test_dependabot_commit_audit.py` drives the production path: a foreign
+  commit on the second page, a truncated credit list, a commit crediting
+  nobody, the page ceiling, both merge mutations naming the audited head, a
+  withdrawal, and the skip that must not withdraw.
+- `test_dependabot_audit_rule.py` states the rule's invariants as Hypothesis
+  properties over arbitrary branches, since a loop that stops at the first
+  offender or skips the commit after a match passes any handful of examples.
+  It restates the rule rather than importing it, so two readings are compared
+  rather than one reading with itself.

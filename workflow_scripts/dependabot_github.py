@@ -121,28 +121,6 @@ def _extract_enum[EnumT](
         return default
 
 
-def _extract_merge_state_status(
-    pull_request: dict[str, JsonValue],
-) -> MergeStateStatus:
-    """Extract mergeStateStatus from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeStateStatus",
-        MergeStateStatus,
-        MergeStateStatus.UNKNOWN,
-    )
-
-
-def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
-    """Extract mergeable state from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeable",
-        MergeableState,
-        MergeableState.UNKNOWN,
-    )
-
-
 class PullRequestRef(typ.NamedTuple):
     """Where a pull request lives, as every query here needs it.
 
@@ -336,8 +314,18 @@ def fetch_pull_request(
         node_id=node_id if isinstance(node_id, str) else None,
         head_oid=head_oid if isinstance(head_oid, str) else None,
         auto_merge_enabled=auto_merge_enabled,
-        merge_state_status=_extract_merge_state_status(pull_request),
-        mergeable_state=_extract_mergeable_state(pull_request),
+        merge_state_status=_extract_enum(
+            pull_request,
+            "mergeStateStatus",
+            MergeStateStatus,
+            MergeStateStatus.UNKNOWN,
+        ),
+        mergeable_state=_extract_enum(
+            pull_request,
+            "mergeable",
+            MergeableState,
+            MergeableState.UNKNOWN,
+        ),
         foreign_commits=audit.foreign,
         commits_readable=audit.readable,
         commit_pages_read=audit.pages,

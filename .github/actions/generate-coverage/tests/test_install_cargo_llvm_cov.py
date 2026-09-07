@@ -176,6 +176,54 @@ def _zip_with(member: str, payload: bytes) -> bytes:
     return buffer.getvalue()
 
 
+#: A second payload, so a test can tell the requested member from a decoy by
+#: content rather than only by name.
+_DECOY_PAYLOAD = b"#!/bin/sh\necho 'decoy'\n"
+
+#: Members an archive carries beside the one the manifest names. A correct
+#: extraction writes none of them; ``extractall`` would write all of them.
+_DECOY_MEMBERS = ("README.md", "completions/cargo-llvm-cov.bash")
+
+
+def _tarball_with_members(members: dict[str, bytes]) -> bytes:
+    """Return a gzip tarball holding each ``member`` payload, mode 0o755."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as package:
+        for name, payload in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o755
+            package.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def _zip_with_members(members: dict[str, bytes]) -> bytes:
+    """Return a zip archive holding each ``member`` payload."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w") as package:
+        for name, payload in members.items():
+            package.writestr(name, payload)
+    return buffer.getvalue()
+
+
+def _tarball_with_a_directory_member(member: str) -> bytes:
+    """Return a gzip tarball whose ``member`` is a directory, not a file."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as package:
+        info = tarfile.TarInfo(member)
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        package.addfile(info)
+    return buffer.getvalue()
+
+
+#: The two archive formats the manifest can name, with the builder for each.
+_ARCHIVE_FORMATS = {
+    "tar.gz": _tarball_with_members,
+    "zip": _zip_with_members,
+}
+
+
 def _fake_tool(
     module: ModuleType, archive: bytes, *, extension: str, member: str
 ) -> ResolvedTool:
@@ -650,3 +698,96 @@ def test_main_reports_a_failing_resolver_load_as_a_metric(
     assert "metric cargo-llvm-cov.resolve=resolver-unavailable" in summary.read_text(
         encoding="utf-8"
     )
+
+
+@pytest.mark.parametrize(
+    "extension", list(_ARCHIVE_FORMATS), ids=list(_ARCHIVE_FORMATS)
+)
+def test_extraction_takes_only_the_named_member(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, extension: str
+) -> None:
+    """Only the manifest's member leaves the archive, whatever else it holds.
+
+    The archive carries decoys beside the wanted member, so an implementation
+    that unpacked everything would be caught here. Without them an
+    ``extractall`` would satisfy every other test in this module, because a
+    single-member archive makes the two strategies indistinguishable.
+    """
+    members = {"cargo-llvm-cov": _FAKE_BINARY} | dict.fromkeys(
+        _DECOY_MEMBERS, _DECOY_PAYLOAD
+    )
+    archive_bytes = _ARCHIVE_FORMATS[extension](members)
+    archive = tmp_path / f"cargo-llvm-cov.{extension}"
+    archive.write_bytes(archive_bytes)
+    tool = _fake_tool(
+        install_llvm_cov_module,
+        archive_bytes,
+        extension=extension,
+        member="cargo-llvm-cov",
+    )
+    destination = tmp_path / "bin" / "cargo-llvm-cov"
+    destination.parent.mkdir()
+
+    install_llvm_cov_module.extract_member(archive, tool, destination)
+
+    assert destination.read_bytes() == _FAKE_BINARY
+    assert [path.name for path in destination.parent.iterdir()] == ["cargo-llvm-cov"]
+    assert not (tmp_path / "README.md").exists()
+    assert not (tmp_path / "completions").exists()
+
+
+@pytest.mark.parametrize(
+    "extension", list(_ARCHIVE_FORMATS), ids=list(_ARCHIVE_FORMATS)
+)
+def test_extraction_refuses_an_archive_without_the_named_member(
+    install_llvm_cov_module: ModuleType, tmp_path: Path, extension: str
+) -> None:
+    """A member the manifest names but the archive lacks is rejected outright.
+
+    Both formats are covered: the missing-member path is written separately
+    for zip and tar, so testing one leaves the other unguarded.
+    """
+    members = dict.fromkeys(_DECOY_MEMBERS, _DECOY_PAYLOAD)
+    archive_bytes = _ARCHIVE_FORMATS[extension](members)
+    archive = tmp_path / f"cargo-llvm-cov.{extension}"
+    archive.write_bytes(archive_bytes)
+    tool = _fake_tool(
+        install_llvm_cov_module,
+        archive_bytes,
+        extension=extension,
+        member="cargo-llvm-cov",
+    )
+    destination = tmp_path / "bin" / "cargo-llvm-cov"
+    destination.parent.mkdir()
+
+    with pytest.raises(ValueError, match="missing from"):
+        install_llvm_cov_module.extract_member(archive, tool, destination)
+
+    assert not destination.exists()
+
+
+def test_extraction_refuses_a_tar_member_that_is_not_a_file(
+    install_llvm_cov_module: ModuleType, tmp_path: Path
+) -> None:
+    """A tar entry with the member's name but a directory type is rejected.
+
+    ``TarFile.extractfile`` returns ``None`` rather than raising for a
+    non-regular entry, so an unchecked implementation would carry that
+    ``None`` into the copy instead of failing here.
+    """
+    archive_bytes = _tarball_with_a_directory_member("cargo-llvm-cov")
+    archive = tmp_path / "cargo-llvm-cov.tar.gz"
+    archive.write_bytes(archive_bytes)
+    tool = _fake_tool(
+        install_llvm_cov_module,
+        archive_bytes,
+        extension="tar.gz",
+        member="cargo-llvm-cov",
+    )
+    destination = tmp_path / "bin" / "cargo-llvm-cov"
+    destination.parent.mkdir()
+
+    with pytest.raises(ValueError, match="not a file"):
+        install_llvm_cov_module.extract_member(archive, tool, destination)
+
+    assert not destination.exists()

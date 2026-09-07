@@ -188,14 +188,14 @@ toolchain from 2026-08-22 or later needs this release of the action.
 that relied on the action leaving a `cargo-binstall` on `PATH` for later steps
 must install one in those steps.
 
-The two actions differ here, so check which one you consume.
-`ratchet-coverage` never provisioned or cached `cargo-binstall`: it invoked
-whichever one the job already had on `PATH`, and it left nothing behind. Its
-change is the other direction. It no longer needs a `cargo-binstall` on `PATH`
-at all, so a job that installed one solely to satisfy `ratchet-coverage`, or
-that ran `generate-coverage` first to obtain one, can drop that step. A later
-step in such a job that used that `cargo-binstall` for its own purposes still
-needs one installed explicitly.
+The two actions differ here, so the consumed action determines the required
+change. `ratchet-coverage` never provisioned or cached `cargo-binstall`: it
+invoked whichever one the job already had on `PATH`, and it left nothing
+behind. Its change is the other direction. It no longer needs a
+`cargo-binstall` on `PATH` at all, so a job that installed one solely to
+satisfy `ratchet-coverage`, or that ran `generate-coverage` first to obtain
+one, can drop that step. A later step in such a job that used that
+`cargo-binstall` for its own purposes still needs one installed explicitly.
 
 ## Checklist
 
@@ -208,8 +208,8 @@ needs one installed explicitly.
 - [ ] If a later workflow step used the `cargo-binstall` that `generate-coverage`
       used to leave on `PATH`, install one in that workflow; the action no
       longer does.
-- [ ] If you run `ratchet-coverage`, drop any step that installed
-      `cargo-binstall` only to satisfy it, and any ordering that ran
+- [ ] For a workflow that runs `ratchet-coverage`, drop any step that
+      installed `cargo-binstall` only to satisfy it, and any ordering that ran
       `generate-coverage` first for the same reason. `ratchet-coverage` now
       installs `cargo-llvm-cov` from the manifest and calls no `cargo binstall`
       of its own. Keep such a step only where a later step uses that

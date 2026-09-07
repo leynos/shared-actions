@@ -49,6 +49,12 @@ COVERAGE_ACTION_SUFFIX: typ.Final[str] = ".github/actions/generate-coverage"
 WATCHDOG_VARIABLE: typ.Final[str] = "RUN_RUST_CARGO_WAIT_TIMEOUT"
 WATCHDOG_INPUT: typ.Final[str] = "cargo-wait-timeout"
 
+#: The action's other route to a `cargo` run. `detect.py` prefers a root
+#: manifest, but falls back to this input when one is named and exists,
+#: so the tiers below apply to a lane that passes it even where the root
+#: manifest is absent.
+MANIFEST_INPUT: typ.Final[str] = "cargo-manifest"
+
 #: The action's own default, in seconds. Named here so the failure
 #: message can say what a lane would inherit rather than only that it
 #: inherits something.
@@ -249,11 +255,14 @@ def _watchdog_of(
     return None
 
 
-def _workflow_documents() -> dict[str, WorkflowDocument]:
+def workflow_documents() -> dict[str, WorkflowDocument]:
     """Return every workflow document, keyed by file name.
 
-    Both workflow extensions are read. A lane in the other one would
-    otherwise escape every assertion here without failing anything.
+    This is the one place these tests touch the filesystem or the YAML
+    parser, so an unreadable or unparsable workflow fails here rather
+    than inside an assertion about budgets. Both workflow extensions
+    are read: a lane in the other one would otherwise escape every
+    assertion here without failing anything.
 
     Returns
     -------
@@ -269,8 +278,16 @@ def _workflow_documents() -> dict[str, WorkflowDocument]:
     return documents
 
 
-def _declared_jobs() -> list[tuple[str, WorkflowDocument, str, WorkflowJob]]:
+def _declared_jobs(
+    documents: dict[str, WorkflowDocument] | None = None,
+) -> list[tuple[str, WorkflowDocument, str, WorkflowJob]]:
     """Return every job in every workflow, with its file and document.
+
+    The documents are a parameter so the reading can be driven with
+    workflows written for a case rather than found in the tree. Reading
+    the repository's own is the default rather than the only option,
+    which keeps the filesystem access at one named boundary instead of
+    inside the derivations.
 
     The job's identity travels with it rather than being reconstructed
     from an enclosing loop, which is what lets the lane building be a
@@ -283,7 +300,7 @@ def _declared_jobs() -> list[tuple[str, WorkflowDocument, str, WorkflowJob]]:
     """
     return [
         (workflow, document, str(name), job)
-        for workflow, document in _workflow_documents().items()
+        for workflow, document in (documents or workflow_documents()).items()
         for name, job in (document.get("jobs") or {}).items()
         if isinstance(job, dict)
     ]
@@ -349,11 +366,16 @@ def _coverage_lane(
     )
 
 
-def _coverage_lanes() -> tuple[CoverageLane, ...]:
+def _coverage_lanes(
+    documents: dict[str, WorkflowDocument] | None = None,
+) -> tuple[CoverageLane, ...]:
     """Return every job invoking the coverage action, with its budgets.
 
-    Both workflow extensions are read. A lane in the other one would
-    otherwise escape every assertion here without failing anything.
+    This is the one place these tests touch the filesystem or the YAML
+    parser, so an unreadable or unparsable workflow fails here rather
+    than inside an assertion about budgets. Both workflow extensions
+    are read: a lane in the other one would otherwise escape every
+    assertion here without failing anything.
 
     Returns
     -------
@@ -362,9 +384,38 @@ def _coverage_lanes() -> tuple[CoverageLane, ...]:
     """
     return tuple(
         lane
-        for workflow, document, job_name, job in _declared_jobs()
+        for workflow, document, job_name, job in _declared_jobs(documents)
         if (lane := _coverage_lane(workflow, document, job_name, job)) is not None
     )
+
+
+def _manifest_inputs(
+    documents: dict[str, WorkflowDocument] | None = None,
+) -> list[tuple[CoverageLane, str]]:
+    """Return each coverage step's ``cargo-manifest`` input, if any.
+
+    Parameters
+    ----------
+    documents : dict[str, WorkflowDocument] or None
+        Parsed workflows keyed by file name. When None, the
+        repository's own are read.
+
+    Returns
+    -------
+    list of tuple
+        The lane and the manifest it names, once per coverage step.
+    """
+    found: list[tuple[CoverageLane, str]] = []
+    for workflow, document, job_name, job in _declared_jobs(documents):
+        lane = _coverage_lane(workflow, document, job_name, job)
+        if lane is None:
+            continue
+        for step in _coverage_steps(job):
+            inputs = step.get("with")
+            if not isinstance(inputs, dict):
+                continue
+            found.append((lane, str(inputs.get(MANIFEST_INPUT, "")).strip()))
+    return found
 
 
 class TestCoverageTimeoutTiers:
@@ -387,6 +438,27 @@ class TestCoverageTimeoutTiers:
         assert _coverage_lanes(), (
             f"no workflow job uses {COVERAGE_ACTION_SUFFIX}; either coverage moved "
             f"or this contract stopped recognizing it"
+        )
+
+    def test_no_lane_names_a_manifest_of_its_own(self) -> None:
+        """The root manifest is not the only route to a `cargo` run.
+
+        `detect.py` prefers a root ``Cargo.toml`` but falls back to the
+        ``cargo-manifest`` input when one is named and exists. A lane
+        passing it runs cargo with no root manifest present, so the
+        precondition below would skip the very tiers that had become
+        real. This asserts the second route is closed as well as the
+        first.
+        """
+        naming = [
+            f"{lane}: {MANIFEST_INPUT}={manifest!r}"
+            for lane, manifest in _manifest_inputs()
+            if manifest
+        ]
+        assert not naming, (
+            f"these lanes pass {MANIFEST_INPUT}, so generate-coverage may run "
+            f"cargo here whatever the repository root holds, and the tiers "
+            f"below stop being inert: {naming}"
         )
 
     def test_the_cargo_tiers_do_not_apply_until_a_manifest_appears(self) -> None:
@@ -629,4 +701,120 @@ class TestTheWatchdogIsResolvedAsTheActionResolvesIt:
         assert lane is not None, "the job invokes the coverage action twice"
         assert lane.watchdogs == (1800, 2700), (
             f"both steps' budgets must be carried, got {lane.watchdogs!r}"
+        )
+
+
+class TestTheCeilingRequirement:
+    """The arithmetic the ceiling assertion applies, on chosen numbers.
+
+    The assertion over this repository's own lanes is skipped while
+    there is no root manifest, so it certifies nothing about the
+    arithmetic today. These drive that arithmetic with workflows written
+    for the case, including the equality the README explicitly rejects.
+    """
+
+    @staticmethod
+    def _document(*, ceiling: int, watchdogs: tuple[int, ...]) -> WorkflowDocument:
+        """Return one synthetic workflow with a coverage job.
+
+        Parameters
+        ----------
+        ceiling : int
+            The job's `timeout-minutes`.
+        watchdogs : tuple[int, ...]
+            One watchdog per coverage step the job runs.
+
+        Returns
+        -------
+        WorkflowDocument
+            A document with a single `build` job.
+        """
+        return typ.cast(
+            "WorkflowDocument",
+            {
+                "jobs": {
+                    "build": {
+                        "timeout-minutes": ceiling,
+                        "steps": [
+                            {
+                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
+                                "env": {WATCHDOG_VARIABLE: str(watchdog)},
+                            }
+                            for watchdog in watchdogs
+                        ],
+                    }
+                }
+            },
+        )
+
+    def test_a_ceiling_on_its_requirement_is_refused(self) -> None:
+        """Equality is the case the README rejects by name.
+
+        A ceiling equal to the sum it contains cancels the job at the
+        moment the watchdog would have reported the overrun. An
+        inclusive comparison passes that lane, which is why the rule and
+        the assertion both read `>`.
+        """
+        required = 1800 + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
+        (lane,) = _coverage_lanes(
+            {"ci.yml": self._document(ceiling=required // 60, watchdogs=(1800,))}
+        )
+
+        assert lane.ceiling is not None, "the synthetic job declares a ceiling"
+        assert lane.ceiling * 60 == required, (
+            "this case exists to sit exactly on the requirement"
+        )
+        assert not lane.ceiling * 60 > required, (
+            "a ceiling on its requirement must fail the strict comparison the "
+            "README states; an inclusive one would pass it"
+        )
+
+    def test_two_steps_require_the_sum_rather_than_a_multiple(self) -> None:
+        """Unequal budgets are why the rule sums rather than multiplies.
+
+        A job running the action twice with 1,800 s and 2,700 s needs
+        4,500 s of watchdog. Multiplying the first step's budget by the
+        step count asks for 3,600, which is less, so a lane sized that
+        way would be certified while being able to overrun its ceiling.
+        """
+        (lane,) = _coverage_lanes(
+            {"ci.yml": self._document(ceiling=120, watchdogs=(1800, 2700))}
+        )
+
+        budgets = [watchdog for watchdog in lane.watchdogs if watchdog is not None]
+
+        assert sum(budgets) == 4500, f"the sum of both budgets, got {budgets}"
+        assert sum(budgets) != budgets[0] * len(budgets), (
+            "this case exists because the multiplication and the sum differ"
+        )
+
+    def test_a_lane_naming_a_manifest_is_detected(self) -> None:
+        """No lane here passes one, so the reading needs its own case.
+
+        The assertion over this tree is satisfied by a reading that
+        never looks at the input at all, since nothing sets it. Driving
+        the reading with a lane that does is the only way to show it
+        would notice the second route to a `cargo` run.
+        """
+        document = typ.cast(
+            "WorkflowDocument",
+            {
+                "jobs": {
+                    "build": {
+                        "timeout-minutes": 120,
+                        "steps": [
+                            {
+                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
+                                "with": {MANIFEST_INPUT: "crates/thing/Cargo.toml"},
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+
+        named = [manifest for _, manifest in _manifest_inputs({"ci.yml": document})]
+
+        assert named == ["crates/thing/Cargo.toml"], (
+            f"a lane passing {MANIFEST_INPUT} must be seen, got {named!r}"
         )

@@ -884,12 +884,17 @@ The Dependabot auto-merge reusable workflow arms GitHub's auto-merge on a
 dependency bump so it lands without a human review. Deciding that a pull
 request qualifies therefore has to answer more than "did Dependabot open it?".
 
-Every commit on the branch must be Dependabot's. Opening a pull request is not
-the same as writing what is in it, and once Dependabot has opened one, anything
-pushed to that branch would otherwise merge under the same rule, unreviewed.
-A branch carrying a commit Dependabot did not write skips with
-`automerge_reason=foreign-commit:<sha>`, and the run logs a notice naming each
-such commit and its author.
+Every commit on the branch must be Dependabot's, wherever the commit list can
+be read. Opening a pull request is not the same as writing what is in it, and
+once Dependabot has opened one, anything pushed to that branch would otherwise
+merge under the same rule, unreviewed. A branch carrying a commit Dependabot
+did not write skips with `automerge_reason=foreign-commit:<sha>`, and the run
+logs a notice naming each such commit and its author.
+
+The qualification matters: where the commit list cannot be read at all the
+check does not run, and the paragraph below says what happens then. What the
+workflow guarantees is not that every merged branch was audited, but that no
+branch merges over a foreign commit the audit saw.
 
 Two consequences are worth knowing before pushing a fix onto a Dependabot
 branch:
@@ -908,12 +913,16 @@ withdrawn rather than left in place, because GitHub keeps such a request alive
 across a push and it would otherwise merge that commit as soon as the required
 checks passed. Those runs report `automerge_status=cancelled`.
 
+Arming and merging both name the head the audit read, so a push landing between
+the two makes GitHub refuse the operation rather than act on a head nobody
+looked at. That push starts its own run, which audits the new head.
+
 Where the commit list cannot be read at all, the check fails open: the run
 proceeds on the author alone and logs a warning saying so, because a query
 fault that halted every consumer's auto-merge at once is a worse failure than
 the one this prevents. A single commit whose credited authors came back
-truncated is treated the other way, as foreign, since a partial credit list
-certifies nothing.
+truncated, or which credits nobody at all, is treated the other way, as
+foreign, since a partial or absent credit list certifies nothing.
 
 Every run logs `automerge_commit_audit=` with one of `clean`, `foreign` or
 `unreadable`, so the outcome can be counted without reading the notices.

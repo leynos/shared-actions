@@ -46,6 +46,10 @@ class PullRequestContext:
         Labels currently applied to the pull request.
     node_id : str or None
         The GraphQL node ID for mutations. None when created from event data.
+    head_oid : str or None
+        The head commit the audit read, named to every mutation so GitHub
+        refuses to act on a head that moved since. None when created from
+        event data, where no mutation follows.
     auto_merge_enabled : bool
         Whether auto-merge is already enabled on this PR.
     merge_state_status : MergeStateStatus
@@ -66,6 +70,7 @@ class PullRequestContext:
     is_draft: bool
     labels: tuple[str, ...]
     node_id: str | None = None
+    head_oid: str | None = None
     auto_merge_enabled: bool = False
     merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
     mergeable_state: MergeableState = MergeableState.UNKNOWN

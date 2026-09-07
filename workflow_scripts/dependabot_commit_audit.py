@@ -183,6 +183,14 @@ class ForeignCommit(typ.NamedTuple):
 def commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]:
     """Return the logins credited on one commit, and whether that is all.
 
+    A commit whose credit list is missing, malformed or empty yields one
+    :data:`UNKNOWN_AUTHOR` rather than no authors at all. The difference
+    decides the commit: an empty tuple has no login outside
+    :data:`DEPENDABOT_LOGINS`, so the rule would find nothing to object
+    to and certify a commit it has no evidence about. The whole point of
+    the check is evidence, and absence of evidence is not evidence of
+    Dependabot.
+
     Parameters
     ----------
     commit : dict
@@ -194,21 +202,40 @@ def commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]
         The credited logins, and whether the connection returned every
         one. ``totalCount`` above the number of nodes means the credit
         list was cut off at the page size.
+
+    Examples
+    --------
+    >>> commit_authors({"authors": {"totalCount": 0, "nodes": []}})
+    (('an unnamed author',), True)
     """
-    authors = commit.get("authors")
-    if not isinstance(authors, dict):
-        return (), True
-    nodes = authors.get("nodes")
-    if not isinstance(nodes, list):
-        return (), True
-    logins: list[str] = []
-    for node in nodes:
-        user = node.get("user") if isinstance(node, dict) else None
-        login = user.get("login") if isinstance(user, dict) else None
-        logins.append(login if isinstance(login, str) and login else UNKNOWN_AUTHOR)
-    total = authors.get("totalCount")
-    complete = not isinstance(total, int) or total <= len(logins)
-    return tuple(logins), complete
+    match commit.get("authors"):
+        case {"nodes": list() as nodes} as authors:
+            logins = [_login_of(node) for node in nodes] or [UNKNOWN_AUTHOR]
+            total = authors.get("totalCount")
+            complete = not isinstance(total, int) or total <= len(logins)
+            return tuple(logins), complete
+        case _:
+            return (UNKNOWN_AUTHOR,), True
+
+
+def _login_of(node: JsonValue) -> str:
+    """Return the login one author node credits.
+
+    Parameters
+    ----------
+    node : JsonValue
+        One node of the author connection.
+
+    Returns
+    -------
+    str
+        The login, or :data:`UNKNOWN_AUTHOR` where GitHub named none.
+    """
+    match node:
+        case {"user": {"login": str() as login}} if login:
+            return login
+        case _:
+            return UNKNOWN_AUTHOR
 
 
 def commit_page(pull_request: dict[str, JsonValue]) -> CommitPage | None:
@@ -231,25 +258,40 @@ def commit_page(pull_request: dict[str, JsonValue]) -> CommitPage | None:
         The commits on this page and the cursor for the next, or None
         when the response carried no commit list at all.
     """
-    commits = pull_request.get("commits")
-    nodes = commits.get("nodes") if isinstance(commits, dict) else None
-    if not isinstance(commits, dict) or not isinstance(nodes, list):
-        return None
-    records: list[CommitRecord] = []
-    for node in nodes:
-        commit = node.get("commit") if isinstance(node, dict) else None
-        if not isinstance(commit, dict):
-            continue
-        oid = commit.get("oid")
-        authors, complete = commit_authors(commit)
-        records.append(
-            CommitRecord(
+    match pull_request.get("commits"):
+        case {"nodes": list() as nodes} as commits:
+            records = [
+                record for node in nodes if (record := _commit_record(node)) is not None
+            ]
+            return CommitPage(records=tuple(records), next_cursor=next_cursor(commits))
+        case _:
+            return None
+
+
+def _commit_record(node: JsonValue) -> CommitRecord | None:
+    """Translate one node of the commit connection.
+
+    Parameters
+    ----------
+    node : JsonValue
+        One node of the commit connection.
+
+    Returns
+    -------
+    CommitRecord or None
+        The commit, or None where the node carried no commit at all.
+    """
+    match node:
+        case {"commit": dict() as commit}:
+            authors, complete = commit_authors(commit)
+            oid = commit.get("oid")
+            return CommitRecord(
                 oid=oid if isinstance(oid, str) else UNKNOWN_AUTHOR,
                 authors=authors,
                 authors_complete=complete,
             )
-        )
-    return CommitPage(records=tuple(records), next_cursor=next_cursor(commits))
+        case _:
+            return None
 
 
 def next_cursor(commits: dict[str, JsonValue]) -> str | None:
@@ -275,8 +317,9 @@ def next_cursor(commits: dict[str, JsonValue]) -> str | None:
 def foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit, ...]:
     """Apply the eligibility rule to commits already in domain terms.
 
-    The rule: every login credited on every commit must be Dependabot's,
-    and the whole credit list must have been read. A commit whose authors
+    The rule: a commit must credit at least one author, every login
+    credited on it must be Dependabot's, and the whole credit list must
+    have been read. A commit whose authors
     came back truncated is reported foreign rather than waved through,
     because the check exists to certify the branch and a partial list
     certifies nothing. That is the opposite of the unreadable-list case
@@ -297,6 +340,13 @@ def foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit,
     """
     foreign: list[ForeignCommit] = []
     for record in records:
+        if not record.authors:
+            # No credited author is no evidence, and the rule certifies on
+            # evidence. An empty tuple has no login outside
+            # DEPENDABOT_LOGINS, so a rule that only looked for outsiders
+            # would pass a commit it knows nothing about.
+            foreign.append(ForeignCommit(oid=record.oid, author=UNKNOWN_AUTHOR))
+            continue
         outside = [name for name in record.authors if name not in DEPENDABOT_LOGINS]
         if not outside:
             if record.authors_complete:

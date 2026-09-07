@@ -1586,10 +1586,13 @@ first and is what the production path uses.
 - `commits_readable` defaults to `True`. `False` means the check did not run,
   so eligibility rested on the pull request's author alone; `emit_decision`
   logs a warning saying so.
+- `head_oid` is the commit the audit read. Every merge mutation names it as
+  `expectedHeadOid`, so GitHub refuses to act on a head that moved in between.
 
-The defaults matter because contexts built from event data in the dry-run path
-carry no commit information. They describe a branch with nothing foreign found
-and nothing lost, which is what a dry run can honestly claim.
+The dry-run path sets `commits_readable=False` explicitly, because the event
+payload carries no commit list. Leaving the default would have the dry run
+report `automerge_commit_audit=clean`, claiming a check that was never made in
+the one output meant to be counted.
 
 ### Fail open, fail closed
 
@@ -1602,6 +1605,11 @@ The two are deliberately not symmetrical.
 - **A truncated credit list fails closed.** That commit is visible and merely
   unread to the end, so it is reported foreign with `UNREAD_CO_AUTHOR` named in
   place of the author who could not be seen.
+- **A commit crediting nobody fails closed.** An empty author tuple has no
+  login outside `DEPENDABOT_LOGINS`, so a rule that only looked for outsiders
+  would find nothing to object to and certify a commit it has no evidence
+  about. Both the adapter and `foreign_commits` guard this, the second so the
+  invariant holds wherever a `CommitRecord` came from.
 
 ### Paging and its ceiling
 
@@ -1611,6 +1619,15 @@ further looks complete while hiding everything past the limit.
 `MAX_COMMIT_PAGES` bounds that loop at 50 pages, and a branch beyond it is
 reported unreadable rather than followed indefinitely. `PullRequestRef` carries
 the owner, repository and number through that path as one value.
+
+### Binding the merge to the audited head
+
+An audit that does not bind the merge is advice. A push can land between
+reading the commits and arming or performing the merge, and GitHub makes no
+head-match check unless the mutation names `expectedHeadOid`. Both mutations
+name `PullRequestContext.head_oid`, so a moved head is refused rather than
+merged; the push that moved it starts its own run, which audits the new head.
+A response carrying no head at all is refused for the same reason.
 
 ### Withdrawing an armed request
 

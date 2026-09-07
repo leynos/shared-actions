@@ -206,8 +206,10 @@ def commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]
     -------
     tuple[tuple[str, ...], bool]
         The credited logins, and whether the connection returned every
-        one. ``totalCount`` above the number of nodes means the credit
-        list was cut off at the page size.
+        one. Completeness requires ``totalCount`` to be an integer equal
+        to the number of nodes: above it, the credit list was cut off at
+        the page size; absent or otherwise disagreeing, the connection
+        is not evidence of anything and is refused.
 
     Examples
     --------
@@ -217,11 +219,50 @@ def commit_authors(commit: dict[str, JsonValue]) -> tuple[tuple[str, ...], bool]
     match commit.get("authors"):
         case {"nodes": list() as nodes} as authors:
             logins = [_login_of(node) for node in nodes] or [UNKNOWN_AUTHOR]
-            total = authors.get("totalCount")
-            complete = not isinstance(total, int) or total <= len(logins)
-            return tuple(logins), complete
+            return tuple(logins), _count_accounts_for(authors.get("totalCount"), nodes)
         case _:
             return (UNKNOWN_AUTHOR,), True
+
+
+def _count_accounts_for(total: JsonValue, nodes: list[JsonValue]) -> bool:
+    """Return whether ``totalCount`` accounts for exactly these nodes.
+
+    Fails closed on anything else. A count above the nodes is the paged
+    case the caller exists to catch, but a count that is absent,
+    fractional, boolean, or *below* the nodes is not evidence of a short
+    list either: it is a connection whose own arithmetic disagrees with
+    itself, and a certificate cannot rest on that. Booleans are excluded
+    explicitly because ``True`` is an ``int`` in Python and would
+    otherwise certify a one-node list.
+
+    The comparison is against the nodes rather than the credited logins,
+    because a commit crediting nobody yields one placeholder login from
+    an empty node list, and ``totalCount = 0`` describes that honestly.
+
+    Parameters
+    ----------
+    total : JsonValue
+        The connection's ``totalCount``, as GitHub returned it.
+    nodes : list[JsonValue]
+        The author nodes the connection returned.
+
+    Returns
+    -------
+    bool
+        True only when the count is an integer equal to the node count.
+
+    Examples
+    --------
+    >>> _count_accounts_for(0, [])
+    True
+    >>> _count_accounts_for(None, [])
+    False
+    >>> _count_accounts_for(0, [{"user": {"login": "dependabot"}}])
+    False
+    """
+    if isinstance(total, bool) or not isinstance(total, int):
+        return False
+    return total == len(nodes)
 
 
 def _login_of(node: JsonValue) -> str:

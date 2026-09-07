@@ -18,6 +18,9 @@ import typing as typ
 from workflow_scripts import dependabot_automerge
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
+if typ.TYPE_CHECKING:
     import pytest
 
 TEST_TOKEN = "test-token"  # noqa: S105
@@ -119,7 +122,7 @@ def commit_node(oid: str, *logins: str, total: int | None = None) -> dict[str, o
 
 def pull_request_node(
     branch: Branch,
-    served: typ.Sequence[typ.Sequence[dict[str, object]]],
+    served: cabc.Sequence[cabc.Sequence[dict[str, object]]],
     page_index: int,
 ) -> dict[str, object]:
     """Build the pull request node for one page of commits.
@@ -133,7 +136,7 @@ def pull_request_node(
     ----------
     branch : Branch
         The pull request GitHub should appear to hold.
-    served : typ.Sequence[typ.Sequence[dict[str, object]]]
+    served : cabc.Sequence[cabc.Sequence[dict[str, object]]]
         The commit pages this fetch is serving.
     page_index : int
         Which of those pages this response carries.
@@ -211,8 +214,8 @@ class _ServedBranch:
 
     def __init__(
         self,
-        pages: typ.Sequence[typ.Sequence[dict[str, object]]],
-        later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None,
+        pages: cabc.Sequence[cabc.Sequence[dict[str, object]]],
+        later_pages: cabc.Sequence[cabc.Sequence[dict[str, object]]] | None,
     ) -> None:
         self._pages = pages
         self._later_pages = later_pages
@@ -220,7 +223,7 @@ class _ServedBranch:
 
     def page_for(
         self, cursor: object
-    ) -> tuple[typ.Sequence[typ.Sequence[dict[str, object]]], int]:
+    ) -> tuple[cabc.Sequence[cabc.Sequence[dict[str, object]]], int]:
         """Return the page set to serve and the index within it.
 
         Parameters
@@ -239,12 +242,12 @@ class _ServedBranch:
         return self._served, int(str(cursor).rsplit("-", 1)[1])
 
     @property
-    def _served(self) -> typ.Sequence[typ.Sequence[dict[str, object]]]:
+    def _served(self) -> cabc.Sequence[cabc.Sequence[dict[str, object]]]:
         """Return the page set the current fetch should see.
 
         Returns
         -------
-        typ.Sequence[typ.Sequence[dict[str, object]]]
+        cabc.Sequence[cabc.Sequence[dict[str, object]]]
             The commit pages.
         """
         if self._later_pages is not None and self._fetches > 1:
@@ -261,13 +264,13 @@ class Branch(typ.NamedTuple):
 
     Attributes
     ----------
-    pages : typ.Sequence[typ.Sequence[dict[str, object]]]
+    pages : cabc.Sequence[cabc.Sequence[dict[str, object]]]
         Commit pages served to the first fetch of the pull request.
     auto_merge_request : dict or None
         The ``autoMergeRequest`` field. Not None means already armed.
     merge_state : str
         The ``mergeStateStatus`` to report.
-    later_pages : typ.Sequence[typ.Sequence[dict[str, object]]] or None
+    later_pages : cabc.Sequence[cabc.Sequence[dict[str, object]]] or None
         Commit pages served from the second fetch onward, for the case of
         a push landing inside the merge-state retry window.
     is_draft : bool
@@ -275,10 +278,10 @@ class Branch(typ.NamedTuple):
         than a foreign commit.
     """
 
-    pages: typ.Sequence[typ.Sequence[dict[str, object]]]
+    pages: cabc.Sequence[cabc.Sequence[dict[str, object]]]
     auto_merge_request: dict[str, object] | None = None
     merge_state: str = "BLOCKED"
-    later_pages: typ.Sequence[typ.Sequence[dict[str, object]]] | None = None
+    later_pages: cabc.Sequence[cabc.Sequence[dict[str, object]]] | None = None
     is_draft: bool = False
 
 

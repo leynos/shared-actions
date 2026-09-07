@@ -134,6 +134,106 @@ def _watchdog_of(
     return None
 
 
+def _workflow_documents() -> dict[str, dict[str, typ.Any]]:
+    """Return every workflow document, keyed by file name.
+
+    Both workflow extensions are read. A lane in the other one would
+    otherwise escape every assertion here without failing anything.
+
+    Returns
+    -------
+    dict[str, dict[str, typ.Any]]
+        File name to parsed document.
+    """
+    documents: dict[str, dict[str, typ.Any]] = {}
+    for pattern in ("*.yml", "*.yaml"):
+        for path in sorted(WORKFLOWS_DIRECTORY.glob(pattern)):
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            if isinstance(document, dict):
+                documents[path.name] = document
+    return documents
+
+
+def _declared_jobs() -> list[tuple[str, dict[str, typ.Any], str, dict[str, typ.Any]]]:
+    """Return every job in every workflow, with its file and document.
+
+    The job's identity travels with it rather than being reconstructed
+    from an enclosing loop, which is what lets the lane building be a
+    single comprehension.
+
+    Returns
+    -------
+    list of tuple
+        Workflow name, document, job identifier, and job.
+    """
+    return [
+        (workflow, document, str(name), job)
+        for workflow, document in _workflow_documents().items()
+        for name, job in (document.get("jobs") or {}).items()
+        if isinstance(job, dict)
+    ]
+
+
+def _coverage_steps(job: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return the steps in one job that invoke the coverage action.
+
+    Parameters
+    ----------
+    job : dict[str, typ.Any]
+        The parsed job.
+
+    Returns
+    -------
+    list[dict[str, typ.Any]]
+        The matching steps, in the order the job runs them.
+    """
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and COVERAGE_ACTION_SUFFIX in str(step.get("uses", ""))
+    ]
+
+
+def _coverage_lane(
+    workflow: str,
+    document: dict[str, typ.Any],
+    job_name: str,
+    job: dict[str, typ.Any],
+) -> CoverageLane | None:
+    """Return one job's lane, or None when it runs no coverage step.
+
+    Parameters
+    ----------
+    workflow : str
+        The workflow file's name.
+    document : dict[str, typ.Any]
+        The enclosing document, read for a workflow-level watchdog.
+    job_name : str
+        The job's identifier.
+    job : dict[str, typ.Any]
+        The parsed job.
+
+    Returns
+    -------
+    CoverageLane or None
+        The lane, or None when the job invokes no coverage step.
+    """
+    steps = _coverage_steps(job)
+    if not steps:
+        return None
+    raw = job.get("timeout-minutes")
+    return CoverageLane(
+        workflow=workflow,
+        job=job_name,
+        watchdog=_watchdog_of(document, job, steps[0]),
+        ceiling=None if raw is None else int(str(raw)),
+    )
+
+
 def _coverage_lanes() -> tuple[CoverageLane, ...]:
     """Return every job invoking the coverage action, with its budgets.
 
@@ -145,33 +245,11 @@ def _coverage_lanes() -> tuple[CoverageLane, ...]:
     tuple[CoverageLane, ...]
         One entry per coverage-invoking job.
     """
-    lanes: list[CoverageLane] = []
-    for pattern in ("*.yml", "*.yaml"):
-        for path in sorted(WORKFLOWS_DIRECTORY.glob(pattern)):
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-            if not isinstance(document, dict):
-                continue
-            for name, job in (document.get("jobs") or {}).items():
-                if not isinstance(job, dict):
-                    continue
-                steps = [
-                    step
-                    for step in (job.get("steps") or [])
-                    if isinstance(step, dict)
-                    and COVERAGE_ACTION_SUFFIX in str(step.get("uses", ""))
-                ]
-                if not steps:
-                    continue
-                raw = job.get("timeout-minutes")
-                lanes.append(
-                    CoverageLane(
-                        workflow=path.name,
-                        job=str(name),
-                        watchdog=_watchdog_of(document, job, steps[0]),
-                        ceiling=None if raw is None else int(str(raw)),
-                    )
-                )
-    return tuple(lanes)
+    return tuple(
+        lane
+        for workflow, document, job_name, job in _declared_jobs()
+        if (lane := _coverage_lane(workflow, document, job_name, job)) is not None
+    )
 
 
 def test_this_repository_invokes_its_own_coverage_action() -> None:

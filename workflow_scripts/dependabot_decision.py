@@ -1,9 +1,11 @@
-"""What the auto-merge run decided, and how it says so.
+"""What the auto-merge run decided.
 
-The snapshot a decision is taken from, the rules that judge it, and the
-structured lines the workflow reads back. Kept apart from the fetching
-and the API calls, so the rules can be read as rules and exercised
-against a value rather than a response.
+The snapshot a decision is taken from and the rules that judge it. This
+module writes nothing and calls nothing: every function here is a value
+in and a value out, so a rule can be read as a rule and exercised
+without a response, a runner or a captured stream. Saying the decision
+out loud belongs to :mod:`dependabot_report`, and acting on it to
+:mod:`dependabot_automerge`.
 """
 
 from __future__ import annotations
@@ -13,7 +15,6 @@ import dataclasses
 if __package__:
     from .dependabot_commit_audit import DEPENDABOT_LOGINS, ForeignCommit
     from .dependabot_merge_state import MergeableState, MergeStateStatus
-    from .output import emit
 else:
     from dependabot_commit_audit import (  # type: ignore[import-not-found,no-redef]
         DEPENDABOT_LOGINS,
@@ -23,7 +24,6 @@ else:
         MergeableState,
         MergeStateStatus,
     )
-    from output import emit  # type: ignore[import-not-found,no-redef]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -61,6 +61,12 @@ class PullRequestContext:
     commits_readable : bool
         Whether the commit list could be read. False means the check did
         not run and eligibility rests on the author alone.
+    commit_pages_read : int
+        How many pages of the commit connection were fetched. Reported so
+        a run that read one page of a longer branch is distinguishable in
+        the log from one that read the branch.
+    commits_audited : int
+        How many commits were judged.
     """
 
     number: int
@@ -76,6 +82,8 @@ class PullRequestContext:
     mergeable_state: MergeableState = MergeableState.UNKNOWN
     foreign_commits: tuple[ForeignCommit, ...] = ()
     commits_readable: bool = True
+    commit_pages_read: int = 0
+    commits_audited: int = 0
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -205,42 +213,6 @@ def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     return Decision(status="ready", reason="eligible")
 
 
-def emit_decision(
-    pr: PullRequestContext,
-    decision: Decision,
-    *,
-    config: AutomergeConfig,
-) -> None:
-    """Emit structured decision output for the automerge workflow."""
-    reason = decision.reason
-    if decision.status == "ready" and config.dry_run:
-        status = "dry-run"
-    else:
-        status = decision.status
-    emit("automerge_status", status)
-    emit("automerge_reason", reason)
-    emit("automerge_merge_method", config.merge_method)
-    emit("automerge_required_label", config.required_label or "")
-    emit("automerge_repository", f"{pr.owner}/{pr.repo}")
-    emit("automerge_pr_number", pr.number)
-    emit("automerge_author", pr.author)
-    emit("automerge_draft", str(pr.is_draft).lower())
-    emit("automerge_labels", pr.labels)
-    emit("automerge_merge_state", pr.merge_state_status.value)
-    emit("automerge_mergeable_state", pr.mergeable_state.value)
-    emit("automerge_commit_audit", commit_audit_outcome(pr))
-    if pr.foreign_commits:
-        _announceforeign_commits(pr)
-    elif not pr.commits_readable:
-        print(
-            f"::warning title=dependabot-automerge::could not read the commits "
-            f"of {pr.owner}/{pr.repo}#{pr.number}, so the commit-authorship "
-            f"check did not run and eligibility rests on the pull request's "
-            f"author alone. A change pushed onto this branch by someone other "
-            f"than Dependabot would not be detected."
-        )
-
-
 def commit_audit_outcome(pr: PullRequestContext) -> str:
     """Return the commit audit's outcome as one of three fixed words.
 
@@ -263,14 +235,3 @@ def commit_audit_outcome(pr: PullRequestContext) -> str:
     if not pr.commits_readable:
         return "unreadable"
     return "foreign" if pr.foreign_commits else "clean"
-
-
-def _announceforeign_commits(pr: PullRequestContext) -> None:
-    """Name the commits that stopped the branch merging unattended."""
-    named = ", ".join(str(commit) for commit in pr.foreign_commits)
-    print(
-        f"::notice title=dependabot-automerge::{pr.owner}/{pr.repo}#{pr.number} "
-        f"carries {len(pr.foreign_commits)} commit(s) Dependabot did not write "
-        f"({named}), so it will not merge unattended. A change pushed onto a "
-        f"Dependabot branch needs its own pull request and its own review."
-    )

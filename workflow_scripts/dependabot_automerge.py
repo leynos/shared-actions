@@ -92,7 +92,6 @@ if __package__:
         Decision,
         PullRequestContext,
         armed_request_to_withdraw,
-        emit_decision,
         evaluate,
     )
     from .dependabot_merge_state import (
@@ -109,6 +108,7 @@ if __package__:
         MERGE_PULL_REQUEST_MUTATION,
         PULL_REQUEST_QUERY,
     )
+    from .dependabot_report import emit_decision
     from .graphql_client import JsonValue, request_graphql
     from .output import fail
 else:
@@ -128,7 +128,6 @@ else:
         Decision,
         PullRequestContext,
         armed_request_to_withdraw,
-        emit_decision,
         evaluate,
     )
     from dependabot_merge_state import (  # type: ignore[import-not-found,no-redef]
@@ -144,6 +143,9 @@ else:
         ENABLE_AUTOMERGE_MUTATION,
         MERGE_PULL_REQUEST_MUTATION,
         PULL_REQUEST_QUERY,
+    )
+    from dependabot_report import (  # type: ignore[import-not-found,no-redef]
+        emit_decision,
     )
     from graphql_client import (  # type: ignore[import-not-found,no-redef]
         JsonValue,
@@ -536,7 +538,12 @@ def _audit_whole_branch(
         records.extend(page.records)
         cursor = page.next_cursor
         pages += 1
-    return CommitAudit(readable=True, foreign=foreign_commits(records))
+    return CommitAudit(
+        readable=True,
+        foreign=foreign_commits(records),
+        pages=pages,
+        commits=len(records),
+    )
 
 
 def _fetch_pull_request(
@@ -566,6 +573,8 @@ def _fetch_pull_request(
         mergeable_state=_extract_mergeable_state(pull_request),
         foreign_commits=audit.foreign,
         commits_readable=audit.readable,
+        commit_pages_read=audit.pages,
+        commits_audited=audit.commits,
     )
 
 

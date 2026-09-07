@@ -501,6 +501,33 @@ class TestTheWholeBranchIsAudited:
         assert "automerge_reason=foreign-commit:eeee5555" in out, out
         assert "an unread co-author" in out, out
 
+    def test_the_run_reports_how_much_of_the_branch_it_read(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A count is the difference between one page and the branch.
+
+        `automerge_commit_audit=clean` says the same thing whether one
+        page or four were read, so a paging fault would look exactly like
+        a short branch. The counts are what make that visible, and they
+        are counts rather than identifiers so the lines stay countable.
+        """
+        _install_graphql(
+            monkeypatch,
+            Branch(
+                pages=[
+                    [_commit_node("aaaa1111", DEPENDABOT)],
+                    [_commit_node("bbbb2222", DEPENDABOT)],
+                    [_commit_node("cccc3333", DEPENDABOT)],
+                ]
+            ),
+        )
+
+        _run(monkeypatch)
+
+        out = capsys.readouterr().out
+        assert "automerge_commit_pages_read=3" in out, out
+        assert "automerge_commits_audited=3" in out, out
+
     def test_a_commit_crediting_nobody_is_treated_as_foreign(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

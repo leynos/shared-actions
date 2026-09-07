@@ -1185,27 +1185,27 @@ Internals for maintainers:
   baseline or mutant runs.
 
   A job that also loads an action out of that checkout has to put it back.
-  GitHub re-reads a local action's `action.yml` when it runs that action's
-  post step, so the mutants job, which uses
-  `./workflow-src/.github/actions/setup-rust`, failed at `Post Setup Rust`
-  with its mutation results already produced and uploaded. The restore is the
-  job's last regular step, which is late enough that no mutation run sees the
-  tree and early enough for the post phase, since post steps run after the
-  last regular step.
+  GitHub re-reads a local action's `action.yml` when it runs that action's post
+  step, so the mutants job, which uses
+  `./workflow-src/.github/actions/setup-rust`, failed at `Post Setup Rust` with
+  its mutation results already produced and uploaded. The restore is the job's
+  last regular step, which is late enough that no mutation run sees the tree
+  and early enough for the post phase, since post steps run after the last
+  regular step.
 
   It is guarded by `always()` rather than `!cancelled()`, deliberately. Three
   endings need covering: a failed run, whose cleanup must not add a second
   failure; an overrun, which the step's own `timeout-minutes` records as a
-  failed step; and a cancelled job, where `always()` steps still run. The
-  third is the one `!cancelled()` would drop, and it is the one that most
-  needs the restore.
+  failed step; and a cancelled job, where `always()` steps still run. The third
+  is the one `!cancelled()` would drop, and it is the one that most needs the
+  restore.
 
   `workflow_scripts/tests/test_mutation_workflow_shape.py` pins the shape in
   its general form, so a local action added to either workflow brings the
   requirement with it, and
   `workflow_scripts/tests/test_mutation_restore_fragment.py` executes the
-  shipped Bash against temporary directories, because a step named,
-  positioned and guarded correctly can still fail to move a directory.
+  shipped Bash against temporary directories, because a step named, positioned
+  and guarded correctly can still fail to move a directory.
 - Unit tests fake the `cargo`/`uv` boundary with POSIX shell shims on
   `PATH`; those tests are skipped on Windows (the workflows only run on
   `ubuntu-latest`). Property-based tests in
@@ -1546,16 +1546,22 @@ precedes toolchain setup.
 
 `workflow_scripts/dependabot_automerge.py` decides whether a Dependabot pull
 request may merge unattended. Since 2026-09-06 that decision includes who wrote
-each commit on the branch, and the helper is split into five modules so that no
-one of them carries four concerns.
+each commit on the branch, and the helper is split into six modules so that no
+one of them carries several concerns.
 
-| Module | Owns |
-| --- | --- |
-| `dependabot_automerge.py` | The run: fetching, paging, the API calls, the CLI |
-| `dependabot_commit_audit.py` | Reading commit authorship, and the rule over it |
-| `dependabot_decision.py` | The snapshot, the eligibility rules, the emitted lines |
-| `dependabot_merge_state.py` | GitHub merge state and its four classifications |
-| `dependabot_queries.py` | The GraphQL documents |
+| Module                       | Owns                                              |
+| ---------------------------- | ------------------------------------------------- |
+| `dependabot_automerge.py`    | The run: fetching, paging, the API calls, the CLI |
+| `dependabot_commit_audit.py` | Reading commit authorship, and the rule over it   |
+| `dependabot_decision.py`     | The snapshot and the eligibility rules            |
+| `dependabot_report.py`       | The `key=value` lines, notices and warnings       |
+| `dependabot_merge_state.py`  | GitHub merge state and its four classifications   |
+| `dependabot_queries.py`      | The GraphQL documents                             |
+
+`dependabot_decision.py` writes nothing and calls nothing: every function is a
+value in and a value out, so a rule can be exercised without a response, a
+runner or a captured stream. Saying the decision out loud is
+`dependabot_report.py`, the only one of the two that imports `output`.
 
 ### Where the GitHub shape stops
 
@@ -1566,12 +1572,12 @@ and everything downstream reads those. Keeping the adapter and the rule apart
 is what lets the rule be exercised without a GitHub response in the way, and
 what stops a schema change from quietly meaning a different rule.
 
-| Type | Role |
-| --- | --- |
-| `CommitRecord` | One commit as the rule sees it: `oid`, the credited `authors`, and `authors_complete` |
-| `CommitPage` | One page of `CommitRecord` values plus the cursor for the next |
-| `ForeignCommit` | A commit that failed the rule, with the author to name in the notice |
-| `CommitAudit` | The branch-wide outcome: `readable`, and the `foreign` commits |
+| Type            | Role                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------- |
+| `CommitRecord`  | One commit as the rule sees it: `oid`, the credited `authors`, and `authors_complete` |
+| `CommitPage`    | One page of `CommitRecord` values plus the cursor for the next                        |
+| `ForeignCommit` | A commit that failed the rule, with the author to name in the notice                  |
+| `CommitAudit`   | The branch-wide outcome: `readable`, and the `foreign` commits                        |
 
 `foreign_commits` holds the rule itself, over `CommitRecord` values alone:
 every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
@@ -1588,6 +1594,11 @@ first and is what the production path uses.
   logs a warning saying so.
 - `head_oid` is the commit the audit read. Every merge mutation names it as
   `expectedHeadOid`, so GitHub refuses to act on a head that moved in between.
+- `commit_pages_read` and `commits_audited` record what the audit reached.
+  `automerge_commit_audit=clean` says the same thing whether one page or four
+  were read, so a paging fault would look exactly like a short branch; the
+  counts are what make the difference visible. They are counts rather than
+  identifiers, so the lines stay countable.
 
 The dry-run path sets `commits_readable=False` explicitly, because the event
 payload carries no commit list. Leaving the default would have the dry run
@@ -1626,23 +1637,26 @@ An audit that does not bind the merge is advice. A push can land between
 reading the commits and arming or performing the merge, and GitHub makes no
 head-match check unless the mutation names `expectedHeadOid`. Both mutations
 name `PullRequestContext.head_oid`, so a moved head is refused rather than
-merged; the push that moved it starts its own run, which audits the new head.
-A response carrying no head at all is refused for the same reason.
+merged; the push that moved it starts its own run, which audits the new head. A
+response carrying no head at all is refused for the same reason.
 
 ### Withdrawing an armed request
 
 `_stop_unless_eligible` reports the decision through `emit_decision` and, when
-the branch is foreign
-and auto-merge is already armed, calls `_disable_automerge` before doing so.
-GitHub keeps an auto-merge request alive across a push, so declining to arm one
-is not enough on its own. Those runs report `status=cancelled` rather than
-`skipped`, because the run changed the pull request rather than merely
-declining to act on it. Withdrawal is scoped to the foreign-commit case: a
-branch skipped as a draft or for a missing label keeps its armed request.
+the branch is foreign and auto-merge is already armed, calls
+`_disable_automerge` before doing so. GitHub keeps an auto-merge request alive
+across a push, so declining to arm one is not enough on its own. Those runs
+report `status=cancelled` rather than `skipped`, because the run changed the
+pull request rather than merely declining to act on it. Withdrawal is scoped to
+the foreign-commit case: a branch skipped as a draft or for a missing label
+keeps its armed request.
 
 The same function runs again after `_refresh_merge_state`, since that refresh
 refetches the pull request and therefore refetches its commits. A push landing
 inside the retry window is visible in the refreshed snapshot and nowhere else.
+
+Consumers upgrading to the next major tag should read
+[Migrating to the audited Dependabot auto-merge](./migrating-to-audited-dependabot-automerge.md).
 
 ### Tests
 

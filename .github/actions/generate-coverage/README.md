@@ -417,11 +417,42 @@ So the rule has three terms on each side:
 
 ```text
 watchdog     >= nextest global-timeout + termination allowance + cold build
-job ceiling  >= watchdog + measured work outside the watchdog's window
+job ceiling  >= (watchdog x coverage steps in that job)
+                + measured work outside those steps
 ```
 
 A caller states both allowances, where it measured them, and how many runs it
-read. One run is not a measurement of the cold case, it is the coldest run seen
+read.
+
+Three details of that arithmetic are easy to read past, and each has been got
+wrong in this estate.
+
+**Count the coverage steps in the job, not the jobs.** Each invocation of this
+action gets its own watchdog, so a job that runs it twice, once per feature
+set, can legitimately spend both budgets. Its ceiling has to contain the sum.
+ortho-config runs it twice per job and was sized as though it ran it once.
+
+**Measure the outside allowance per lane, not once.** A pull-request lane and a
+trunk lane can differ by an order of magnitude in what they do around the
+coverage step: ortho-config's Windows leg spends 2,717 s on cache saving and
+its trunk lane spends 68 s. One allowance taken from the larger demands a
+ceiling the smaller lane's runs cannot justify. Give each lane its own figure
+with its own run id, and hold a lane nobody has measured to the largest until
+somebody does.
+
+**The per-test budget is `period` multiplied by `terminate-after`.** nextest
+warns once per period and terminates after that many of them, so a
+`{ period = "60s", terminate-after = 10 }` allows ten minutes, not one. Reading
+the period alone understated netsuke's largest allowance tenfold and
+ortho-config's fivefold. Whatever compares the whole-run budget against the
+per-test one has to read the product.
+
+**And a ceiling on its requirement is not above it.** Satisfying the rule with
+`>=` leaves no slack, so the first cold run that spends the full watchdog is
+cancelled with budget left, and the cancellation discards the log that would
+have explained it. Leave the lane a margin and say what it is.
+
+One run is not a measurement of the cold case, it is the coldest run seen
 so far, and the difference matters: rstest-bdd's allowances were sized three
 times from successive "cold" runs of 22, 30 and finally 42 minutes, each of
 which had looked like the worst until the next one arrived. Take the allowance
@@ -447,8 +478,22 @@ overrun.
 ### Asserting the ordering
 
 A comment goes stale; a contract does not. Consumers that carry this mechanism
-assert the ordering by value, and two details of that shape are worth copying
-rather than reinventing.
+assert the ordering by value, and several details of that shape are worth
+copying rather than reinventing.
+
+**Read the watchdog from the step, then the job, then the workflow**, as GitHub
+resolves it. stilyagi sets the value at workflow level, so a contract reading
+only the job found nothing and would have reported every lane as inheriting the
+default, which is exactly backwards.
+
+**Assert an absent tier rather than assuming it.** A caller that passes
+`use-cargo-nextest: 'false'`, or does not use this action at all, has no
+per-test and no whole-run budget. That is a coherent shape, and turning nextest
+on introduces both tiers at once with nothing setting either. A contract that
+fails on the input change is what makes the guide move with it. Where a tier is
+missing rather than declined, say so as a gap and bind the value the moment one
+appears, so it lands above and below the right neighbours rather than merely
+somewhere.
 
 **Enumerate every step that invokes this action**, not only the steps that
 already set a budget. A contract that reads the variable where it finds it will

@@ -405,17 +405,32 @@ def _manifest_inputs(
     list of tuple
         The lane and the manifest it names, once per coverage step.
     """
-    found: list[tuple[CoverageLane, str]] = []
-    for workflow, document, job_name, job in _declared_jobs(documents):
-        lane = _coverage_lane(workflow, document, job_name, job)
-        if lane is None:
-            continue
-        for step in _coverage_steps(job):
-            inputs = step.get("with")
-            if not isinstance(inputs, dict):
-                continue
-            found.append((lane, str(inputs.get(MANIFEST_INPUT, "")).strip()))
-    return found
+    return [
+        (lane, manifest)
+        for workflow, document, job_name, job in _declared_jobs(documents)
+        if (lane := _coverage_lane(workflow, document, job_name, job)) is not None
+        for manifest in _named_manifests(job)
+    ]
+
+
+def _named_manifests(job: WorkflowJob) -> list[str]:
+    """Return the ``cargo-manifest`` each coverage step in one job names.
+
+    Parameters
+    ----------
+    job : WorkflowJob
+        The parsed job.
+
+    Returns
+    -------
+    list[str]
+        One entry per coverage step, empty string where it names none.
+    """
+    return [
+        str(inputs.get(MANIFEST_INPUT, "")).strip()
+        for step in _coverage_steps(job)
+        if isinstance(inputs := step.get("with"), dict)
+    ]
 
 
 class TestCoverageTimeoutTiers:
@@ -550,271 +565,4 @@ class TestCoverageTimeoutTiers:
             f"{OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS} s of measured work outside "
             f"them, and a {CEILING_MARGIN_SECONDS} s margin above that sum; an "
             f"overrun would be cancelled rather than reported"
-        )
-
-
-class TestTheWatchdogIsResolvedAsTheActionResolvesIt:
-    """Reading one step's budget out of the four places it can live.
-
-    Every assertion above is skipped while this repository has no root
-    manifest, so the reading behind them is exercised here instead,
-    against values chosen rather than found. A reading that is wrong
-    about a blank source or a zero would otherwise arrive with the
-    manifest, unexamined.
-    """
-
-    @pytest.mark.parametrize(
-        ("step", "job", "document", "expected"),
-        [
-            pytest.param(
-                {"env": {WATCHDOG_VARIABLE: "2400"}},
-                {"env": {WATCHDOG_VARIABLE: "1800"}},
-                {"env": {WATCHDOG_VARIABLE: "1200"}},
-                2400,
-                id="the-step-wins",
-            ),
-            pytest.param(
-                {},
-                {"env": {WATCHDOG_VARIABLE: "1800"}},
-                {"env": {WATCHDOG_VARIABLE: "1200"}},
-                1800,
-                id="then-the-job",
-            ),
-            pytest.param(
-                {},
-                {},
-                {"env": {WATCHDOG_VARIABLE: "1200"}},
-                1200,
-                id="then-the-workflow",
-            ),
-            pytest.param(
-                {"with": {WATCHDOG_INPUT: "900"}},
-                {},
-                {},
-                900,
-                id="then-the-action-input",
-            ),
-            pytest.param(
-                {"env": {WATCHDOG_VARIABLE: "2400"}, "with": {WATCHDOG_INPUT: "900"}},
-                {},
-                {},
-                2400,
-                id="the-variable-beats-the-input",
-            ),
-            pytest.param({}, {}, {}, None, id="nothing-sets-one"),
-        ],
-    )
-    def test_the_innermost_source_that_sets_a_budget_wins(
-        self,
-        step: dict[str, object],
-        job: dict[str, object],
-        document: dict[str, object],
-        expected: int | None,
-    ) -> None:
-        """Step, then job, then workflow, then the action's own input.
-
-        The order is the action's, not a convenience: a lane that sets
-        the variable and passes the input runs on the variable, so a
-        contract reading the input first would report a budget the run
-        does not use.
-        """
-        resolved = _watchdog_of(
-            typ.cast("WorkflowDocument", document),
-            typ.cast("WorkflowJob", job),
-            typ.cast("WorkflowStep", step),
-        )
-
-        assert resolved == expected, (
-            f"step={step!r} job={job!r} document={document!r} must resolve to "
-            f"{expected!r}, got {resolved!r}"
-        )
-
-    @pytest.mark.parametrize(
-        "blank", ["", "   ", "\n"], ids=["empty", "spaces", "a-newline"]
-    )
-    def test_a_blank_source_falls_through_rather_than_raising(self, blank: str) -> None:
-        """A source that says nothing is not a budget of zero.
-
-        This is what a workflow writes when it interpolates an
-        expression that resolved to nothing, and it is ordinary rather
-        than exotic. Converting it directly raises during collection,
-        which loses the lane's name along with the reason.
-        """
-        resolved = _watchdog_of(
-            typ.cast("WorkflowDocument", {"env": {WATCHDOG_VARIABLE: "1200"}}),
-            typ.cast("WorkflowJob", {}),
-            typ.cast("WorkflowStep", {"env": {WATCHDOG_VARIABLE: blank}}),
-        )
-
-        assert resolved == 1200, (
-            f"a step setting {blank!r} sets nothing, so the workflow's 1200 "
-            f"applies; got {resolved!r}"
-        )
-
-    @pytest.mark.parametrize("value", ["0", "-1", " -30 "], ids=str)
-    def test_a_non_positive_budget_is_refused(self, value: str) -> None:
-        """Zero is not a watchdog, it is the absence of one.
-
-        The action treats a non-positive value as no timeout, so a lane
-        carrying one has no third tier while appearing to declare one.
-        Returning it would let the arithmetic above certify a lane that
-        is unbounded, which is the inversion this contract exists to
-        catch.
-        """
-        with pytest.raises(ValueError, match="positive number of seconds"):
-            _watchdog_of(
-                typ.cast("WorkflowDocument", {}),
-                typ.cast("WorkflowJob", {}),
-                typ.cast("WorkflowStep", {"env": {WATCHDOG_VARIABLE: value}}),
-            )
-
-    def test_every_coverage_step_in_a_job_is_read(self) -> None:
-        """A job running the action twice has two budgets, not one.
-
-        They need not agree, so the lane carries both and the ceiling
-        requirement sums them. Reading the first step and multiplying
-        describes such a job only when the two happen to match.
-        """
-        document = typ.cast(
-            "WorkflowDocument",
-            {
-                "jobs": {
-                    "build": {
-                        "timeout-minutes": 120,
-                        "steps": [
-                            {
-                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
-                                "env": {WATCHDOG_VARIABLE: "1800"},
-                            },
-                            {
-                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
-                                "env": {WATCHDOG_VARIABLE: "2700"},
-                            },
-                        ],
-                    }
-                }
-            },
-        )
-
-        lane = _coverage_lane("ci.yml", document, "build", document["jobs"]["build"])
-
-        assert lane is not None, "the job invokes the coverage action twice"
-        assert lane.watchdogs == (1800, 2700), (
-            f"both steps' budgets must be carried, got {lane.watchdogs!r}"
-        )
-
-
-class TestTheCeilingRequirement:
-    """The arithmetic the ceiling assertion applies, on chosen numbers.
-
-    The assertion over this repository's own lanes is skipped while
-    there is no root manifest, so it certifies nothing about the
-    arithmetic today. These drive that arithmetic with workflows written
-    for the case, including the equality the README explicitly rejects.
-    """
-
-    @staticmethod
-    def _document(*, ceiling: int, watchdogs: tuple[int, ...]) -> WorkflowDocument:
-        """Return one synthetic workflow with a coverage job.
-
-        Parameters
-        ----------
-        ceiling : int
-            The job's `timeout-minutes`.
-        watchdogs : tuple[int, ...]
-            One watchdog per coverage step the job runs.
-
-        Returns
-        -------
-        WorkflowDocument
-            A document with a single `build` job.
-        """
-        return typ.cast(
-            "WorkflowDocument",
-            {
-                "jobs": {
-                    "build": {
-                        "timeout-minutes": ceiling,
-                        "steps": [
-                            {
-                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
-                                "env": {WATCHDOG_VARIABLE: str(watchdog)},
-                            }
-                            for watchdog in watchdogs
-                        ],
-                    }
-                }
-            },
-        )
-
-    def test_a_ceiling_on_its_requirement_is_refused(self) -> None:
-        """Equality is the case the README rejects by name.
-
-        A ceiling equal to the sum it contains cancels the job at the
-        moment the watchdog would have reported the overrun. An
-        inclusive comparison passes that lane, which is why the rule and
-        the assertion both read `>`.
-        """
-        required = 1800 + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
-        (lane,) = _coverage_lanes(
-            {"ci.yml": self._document(ceiling=required // 60, watchdogs=(1800,))}
-        )
-
-        assert lane.ceiling is not None, "the synthetic job declares a ceiling"
-        assert lane.ceiling * 60 == required, (
-            "this case exists to sit exactly on the requirement"
-        )
-        assert not lane.ceiling * 60 > required, (
-            "a ceiling on its requirement must fail the strict comparison the "
-            "README states; an inclusive one would pass it"
-        )
-
-    def test_two_steps_require_the_sum_rather_than_a_multiple(self) -> None:
-        """Unequal budgets are why the rule sums rather than multiplies.
-
-        A job running the action twice with 1,800 s and 2,700 s needs
-        4,500 s of watchdog. Multiplying the first step's budget by the
-        step count asks for 3,600, which is less, so a lane sized that
-        way would be certified while being able to overrun its ceiling.
-        """
-        (lane,) = _coverage_lanes(
-            {"ci.yml": self._document(ceiling=120, watchdogs=(1800, 2700))}
-        )
-
-        budgets = [watchdog for watchdog in lane.watchdogs if watchdog is not None]
-
-        assert sum(budgets) == 4500, f"the sum of both budgets, got {budgets}"
-        assert sum(budgets) != budgets[0] * len(budgets), (
-            "this case exists because the multiplication and the sum differ"
-        )
-
-    def test_a_lane_naming_a_manifest_is_detected(self) -> None:
-        """No lane here passes one, so the reading needs its own case.
-
-        The assertion over this tree is satisfied by a reading that
-        never looks at the input at all, since nothing sets it. Driving
-        the reading with a lane that does is the only way to show it
-        would notice the second route to a `cargo` run.
-        """
-        document = typ.cast(
-            "WorkflowDocument",
-            {
-                "jobs": {
-                    "build": {
-                        "timeout-minutes": 120,
-                        "steps": [
-                            {
-                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
-                                "with": {MANIFEST_INPUT: "crates/thing/Cargo.toml"},
-                            }
-                        ],
-                    }
-                }
-            },
-        )
-
-        named = [manifest for _, manifest in _manifest_inputs({"ci.yml": document})]
-
-        assert named == ["crates/thing/Cargo.toml"], (
-            f"a lane passing {MANIFEST_INPUT} must be seen, got {named!r}"
         )

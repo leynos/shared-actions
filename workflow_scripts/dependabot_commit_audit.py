@@ -344,23 +344,45 @@ def foreign_commits(records: typ.Sequence[CommitRecord]) -> tuple[ForeignCommit,
     tuple[ForeignCommit, ...]
         One entry per commit that fails the rule, in branch order.
     """
-    foreign: list[ForeignCommit] = []
-    for record in records:
-        if not record.authors:
-            # No credited author is no evidence, and the rule certifies on
-            # evidence. An empty tuple has no login outside
-            # DEPENDABOT_LOGINS, so a rule that only looked for outsiders
-            # would pass a commit it knows nothing about.
-            foreign.append(ForeignCommit(oid=record.oid, author=UNKNOWN_AUTHOR))
-            continue
-        outside = [name for name in record.authors if name not in DEPENDABOT_LOGINS]
-        if not outside:
-            if record.authors_complete:
-                continue
-            foreign.append(ForeignCommit(oid=record.oid, author=UNREAD_CO_AUTHOR))
-            continue
-        foreign.append(ForeignCommit(oid=record.oid, author=outside[0]))
-    return tuple(foreign)
+    judged = (_judge(record) for record in records)
+    return tuple(commit for commit in judged if commit is not None)
+
+
+def _judge(record: CommitRecord) -> ForeignCommit | None:
+    """Return why one commit fails the rule, or None where it passes.
+
+    Three ways to fail, and each names a different author in the notice a
+    maintainer reads, which is why they are distinguished rather than
+    collapsed into one.
+
+    Parameters
+    ----------
+    record : CommitRecord
+        The commit to judge.
+
+    Returns
+    -------
+    ForeignCommit or None
+        The failure, or None when the commit is Dependabot's and wholly
+        read.
+
+    Examples
+    --------
+    >>> _judge(CommitRecord(oid="abc", authors=("dependabot[bot]",))) is None
+    True
+    """
+    if not record.authors:
+        # No credited author is no evidence, and the rule certifies on
+        # evidence. An empty tuple has no login outside DEPENDABOT_LOGINS,
+        # so a rule that only looked for outsiders would pass a commit it
+        # knows nothing about.
+        return ForeignCommit(oid=record.oid, author=UNKNOWN_AUTHOR)
+    outside = [name for name in record.authors if name not in DEPENDABOT_LOGINS]
+    if outside:
+        return ForeignCommit(oid=record.oid, author=outside[0])
+    if not record.authors_complete:
+        return ForeignCommit(oid=record.oid, author=UNREAD_CO_AUTHOR)
+    return None
 
 
 def audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:

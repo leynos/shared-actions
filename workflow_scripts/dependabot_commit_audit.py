@@ -149,10 +149,16 @@ class CommitAudit(typ.NamedTuple):
         Whether the API returned a commit list at all.
     foreign : tuple[ForeignCommit, ...]
         Commits Dependabot did not write.
+    pages : int
+        Commit pages fetched. Zero when the list could not be read.
+    commits : int
+        Commits judged across those pages.
     """
 
     readable: bool
     foreign: tuple[ForeignCommit, ...]
+    pages: int = 0
+    commits: int = 0
 
 
 class ForeignCommit(typ.NamedTuple):
@@ -383,4 +389,9 @@ def audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
     page = commit_page(pull_request)
     if page is None:
         return CommitAudit(readable=False, foreign=())
-    return CommitAudit(readable=True, foreign=foreign_commits(page.records))
+    return CommitAudit(
+        readable=True,
+        foreign=foreign_commits(page.records),
+        pages=1,
+        commits=len(page.records),
+    )

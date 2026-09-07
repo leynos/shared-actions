@@ -13,6 +13,7 @@ from workflow_scripts import (
     dependabot_automerge,
     dependabot_commit_audit,
     dependabot_decision,
+    dependabot_report,
     graphql_client,
 )
 
@@ -822,7 +823,7 @@ class TestForeignCommitsBlockAutomerge:
             )
         )
 
-        dependabot_decision.emit_decision(
+        dependabot_report.emit_decision(
             pr,
             dependabot_decision.Decision(
                 status="skipped", reason="foreign-commit:cccccccc"
@@ -847,7 +848,7 @@ def test_an_unreadable_commit_list_is_announced(
     refusing on unknown would stop every consumer's automerge at once.
     What it may not do is lose the protection quietly.
     """
-    dependabot_decision.emit_decision(
+    dependabot_report.emit_decision(
         _pr(commits_readable=False),
         dependabot_decision.Decision(status="ready", reason="eligible"),
         config=dependabot_decision.AutomergeConfig(

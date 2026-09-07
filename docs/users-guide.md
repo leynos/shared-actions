@@ -994,6 +994,9 @@ foreign, since a partial or absent credit list certifies nothing.
 Every run logs `automerge_commit_audit=` with one of `clean`, `foreign` or
 `unreadable`, so the outcome can be counted without reading the notices.
 
-See the [Dependabot auto-merge reusable workflow](./dependabot-automerge-workflow.md)
+See the
+[Dependabot auto-merge reusable workflow](./dependabot-automerge-workflow.md)
 for the merge-state rules, the required repository settings, and the full
-decision log.
+decision log, and
+[Migrating to the audited Dependabot auto-merge](./migrating-to-audited-dependabot-automerge.md)
+before pulling in the next major tag.

@@ -55,6 +55,50 @@ def _commit_records(
     return tuple(records)
 
 
+@st.composite
+def _dependabot_records(
+    draw: st.DrawFn,
+) -> tuple[dependabot_commit_audit.CommitRecord, ...]:
+    """Generate a branch every commit of which passes the rule.
+
+    Constructed rather than filtered. Filtering the general strategy
+    accepts a commit only when it credits at least one author, was read
+    to the end, and names nothing but Dependabot, which is at most one
+    example in five; an eight-commit branch would then survive about
+    once in four hundred thousand draws, so Hypothesis would spend the
+    budget rejecting and raise `filter_too_much` before it exercised a
+    long branch. Building the branch reaches the lengths the invariant
+    is about.
+
+    Parameters
+    ----------
+    draw : st.DrawFn
+        Hypothesis's draw function.
+
+    Returns
+    -------
+    tuple[CommitRecord, ...]
+        A branch of Dependabot commits, possibly empty.
+    """
+    count = draw(st.integers(min_value=0, max_value=8))
+    return tuple(
+        dependabot_commit_audit.CommitRecord(
+            oid=f"{index:040x}",
+            authors=tuple(
+                draw(
+                    st.lists(
+                        st.sampled_from([DEPENDABOT, "dependabot"]),
+                        min_size=1,
+                        max_size=4,
+                    )
+                )
+            ),
+            authors_complete=True,
+        )
+        for index in range(count)
+    )
+
+
 def _is_dependabot_only(record: dependabot_commit_audit.CommitRecord) -> bool:
     """Return whether one commit passes the eligibility rule.
 
@@ -115,11 +159,7 @@ class TestTheRuleHoldsOverArbitraryBranches:
         for commit in dependabot_commit_audit.foreign_commits(records):
             assert commit.author, f"{commit.oid} was reported with no author"
 
-    @given(
-        records=_commit_records().filter(
-            lambda records: all(_is_dependabot_only(record) for record in records)
-        )
-    )
+    @given(records=_dependabot_records())
     def test_a_wholly_dependabot_branch_is_never_reported(
         self, records: tuple[dependabot_commit_audit.CommitRecord, ...]
     ) -> None:
@@ -128,7 +168,17 @@ class TestTheRuleHoldsOverArbitraryBranches:
         Both login variants count, in any mixture, on any number of
         commits. A commit crediting nobody is excluded: it is not a
         Dependabot commit, it is a commit with no evidence either way.
+
+        The branch is built rather than filtered out of the general
+        strategy, which would reject roughly four draws in five per
+        commit and so almost never reach a long branch. The independent
+        reading of the rule still guards the construction below, so a
+        builder that drifted from the rule fails rather than quietly
+        testing something narrower.
         """
+        assert all(_is_dependabot_only(record) for record in records), (
+            f"the builder must produce only passing commits: {records}"
+        )
         assert dependabot_commit_audit.foreign_commits(records) == (), (
             f"a branch written only by Dependabot must pass: {records}"
         )

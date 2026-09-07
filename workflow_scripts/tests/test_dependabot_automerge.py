@@ -688,17 +688,134 @@ def _pr(
 
 
 def _commit_node(oid: str, *logins: str) -> dict[str, object]:
-    """Build one commit node as the GraphQL query returns it."""
+    """Build one commit node as the GraphQL query returns it.
+
+    ``totalCount`` is included because the query asks for it and GitHub
+    always answers it. Omitting it here would model a response that does
+    not occur, and would exercise the refusal path in every case rather
+    than the rule the case is about.
+    """
+    nodes = [{"user": {"login": login}} for login in logins]
     return {
         "commit": {
             "oid": oid,
-            "authors": {"nodes": [{"user": {"login": login}} for login in logins]},
+            "authors": {"totalCount": len(nodes), "nodes": nodes},
         }
     }
 
 
 class TestForeignCommitExtraction:
     """Reading who wrote each commit on the branch."""
+
+    def test_an_empty_connection_counts_as_read(self) -> None:
+        """Zero authors and a count of zero agree with each other.
+
+        The count is compared against the nodes rather than the credited
+        logins, because a commit crediting nobody still yields one
+        placeholder login and would otherwise read as a list cut short.
+        The distinction never changes the verdict, since the placeholder
+        is not a Dependabot login and fails the rule either way, so it is
+        asserted on the reading rather than through the verdict.
+        """
+        _, complete = dependabot_commit_audit.commit_authors(
+            {"authors": {"totalCount": 0, "nodes": []}}
+        )
+
+        assert complete, (
+            "a connection returning no authors and counting none is "
+            "consistent, so the credit list was read to the end"
+        )
+
+    def test_a_commit_crediting_nobody_names_that_rather_than_truncation(
+        self,
+    ) -> None:
+        """A count of zero over no nodes is honest, not truncated.
+
+        The commit still fails, because the rule certifies on evidence
+        and no credited author is no evidence. What it must not do is
+        blame the page size: the notice a maintainer reads names the
+        unnamed author, and the count is compared against the nodes
+        rather than the credited logins so that an empty connection
+        reads as consistent rather than as a list cut short.
+        """
+        payload = {
+            "commits": {
+                "nodes": [
+                    {
+                        "commit": {
+                            "oid": "aaaa1111",
+                            "authors": {"totalCount": 0, "nodes": []},
+                        }
+                    }
+                ]
+            }
+        }
+
+        (foreign,) = dependabot_commit_audit.audit_commits(payload).foreign
+
+        assert foreign.author == dependabot_commit_audit.UNKNOWN_AUTHOR, (
+            "a commit crediting nobody must be reported as unauthored, not "
+            f"as an unread list; got {foreign.author!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("authors", "reason"),
+        [
+            pytest.param(
+                {"nodes": [{"user": {"login": "dependabot[bot]"}}]},
+                "no totalCount at all",
+                id="the-count-is-absent",
+            ),
+            pytest.param(
+                {"totalCount": None, "nodes": [{"user": {"login": "dependabot"}}]},
+                "a null count",
+                id="the-count-is-null",
+            ),
+            pytest.param(
+                {"totalCount": "1", "nodes": [{"user": {"login": "dependabot"}}]},
+                "a count that is not a number",
+                id="the-count-is-a-string",
+            ),
+            pytest.param(
+                {"totalCount": True, "nodes": [{"user": {"login": "dependabot"}}]},
+                "a boolean, which is an int in Python",
+                id="the-count-is-a-boolean",
+            ),
+            pytest.param(
+                {"totalCount": 0, "nodes": [{"user": {"login": "dependabot"}}]},
+                "a count below the nodes it returned",
+                id="the-count-is-below-the-nodes",
+            ),
+            pytest.param(
+                {"totalCount": 3, "nodes": [{"user": {"login": "dependabot"}}]},
+                "a count above the nodes, the paged case",
+                id="the-count-is-above-the-nodes",
+            ),
+        ],
+    )
+    def test_a_count_that_does_not_account_for_the_nodes_is_foreign(
+        self, authors: dict[str, object], reason: str
+    ) -> None:
+        """Every commit here credits Dependabot and none of them may merge.
+
+        The logins alone would pass the rule. What fails is the evidence:
+        a connection whose own count does not describe the nodes it
+        returned certifies nothing, and this check exists to certify the
+        branch. Treating any of these as complete would let an unattended
+        merge proceed on an authorship list that was never read to the
+        end.
+        """
+        payload = {
+            "commits": {
+                "nodes": [{"commit": {"oid": "aaaa1111", **{"authors": authors}}}]
+            }
+        }
+
+        foreign = dependabot_commit_audit.audit_commits(payload).foreign
+
+        assert [commit.oid for commit in foreign] == ["aaaa1111"], (
+            f"{reason} must be refused rather than certified"
+        )
 
     def test_an_all_dependabot_branch_has_none(self) -> None:
         """The ordinary bump, which must keep merging unattended."""

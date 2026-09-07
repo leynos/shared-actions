@@ -334,10 +334,15 @@ your repository says so.** That is not a budget anyone chose for your suite,
 and it is the state that killed a dependency bump in `rstest-bdd` with 1,894
 of its 1,897 tests complete. Choosing one takes four steps, in this order:
 
-1. **Read your own runs, not one of them.** Take the longest your coverage
-   step has taken across several recent successful runs, and note the run
-   ids. One run is the coldest seen so far, not a measurement of the cold
-   case.
+1. **Read your own runs, not one of them, and not only the green ones.**
+   Take the longest your coverage step has taken across several recent runs,
+   and note the run ids. One run is the coldest seen so far, not a
+   measurement of the cold case. Include runs that a timeout ended:
+   a run killed by the watchdog or cancelled by the job ceiling is the
+   strongest evidence the allowance was too small, and sizing from the
+   successful ones alone reproduces the failure it recorded. Where the
+   sample contains none, say so, because that is a fact about the sample
+   rather than about the budget.
 2. **Add what the watchdog covers and the inner timers do not.** If you run
    nextest, that is its `global-timeout` plus a termination allowance read
    from the largest configured `slow-timeout.grace-period`, with a floor of
@@ -404,11 +409,21 @@ start together and do not cover the same work.
   as the test run. nextest's global timeout starts only once tests begin. A
   watchdog merely larger than the global timeout still pre-empts it whenever
   the build takes longer than the difference.
-- **A run that hits the global timeout does not stop instantly.** nextest
-  follows its usual termination procedure: on Unix it signals the process group
-  and waits a grace period, ten seconds by default and set by
-  `slow-timeout.grace-period`, before killing it. On Windows, termination is
-  immediate, and the grace period is ignored for timeouts.
+- **A run that hits the global timeout does not stop instantly, on some
+  platforms.** nextest follows its usual termination procedure. On Linux and
+  macOS it signals the process group and waits `slow-timeout.grace-period`
+  before killing it; nextest's own default is ten seconds, but a caller that
+  generated its configuration from this estate's template has five, so read
+  the value rather than assuming either. On Windows termination is immediate
+  and the grace period is ignored for timeouts, so the term is zero there.
+
+  Two numbers, not one, and they are added for different reasons. The
+  termination allowance is what nextest will actually spend, and it is
+  platform-dependent. Any floor a caller adds on top, a minute is a common
+  choice, is a safety margin against a grace period nobody has read rather
+  than time nextest is known to need. Keep them separate in the arithmetic
+  and in the writing, so a caller on Windows can see that the first term is
+  zero and the second is theirs to justify.
 - **The job timer starts when the job starts**, before the formatting, linting
   and other steps that precede coverage, and it is still running through
   whatever follows.
@@ -416,7 +431,10 @@ start together and do not cover the same work.
 So the rule has three terms on each side:
 
 ```text
-watchdog     >= nextest global-timeout + termination allowance + cold build
+termination  =  configured slow-timeout.grace-period on Linux and macOS
+                0 on Windows
+watchdog     >= nextest global-timeout + termination + safety margin
+                + cold build
 job ceiling  >= (watchdog x coverage steps in that job)
                 + measured work outside those steps
 ```
@@ -480,6 +498,18 @@ overrun.
 A comment goes stale; a contract does not. Consumers that carry this mechanism
 assert the ordering by value, and several details of that shape are worth
 copying rather than reinventing.
+
+**Check that `cargo` runs at all before comparing anything to the watchdog.**
+The action detects the project's language and gates every Rust step on it, so
+a caller with no root `Cargo.toml` never invokes `cargo` and the watchdog and
+both nextest tiers are inert however its lanes are configured. This
+repository's own coverage lanes are that case: their 30 minute ceiling equals
+the 1,800 second default, which is the inverted shape, and it means nothing
+because no `cargo` runs. A rule that compares the two numbers without checking
+the precondition reports that as a defect. What is worth asserting there is
+the precondition itself, so that adding the manifest, a change about
+packaging, fails until the budgets are set; `tests/workflows/test_coverage_timeout_tiers.py`
+in this repository is that assertion.
 
 **Read the watchdog from the step, then the job, then the workflow**, as GitHub
 resolves it. stilyagi sets the value at workflow level, so a contract reading

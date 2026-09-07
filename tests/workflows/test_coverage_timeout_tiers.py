@@ -67,6 +67,63 @@ WATCHDOG_DEFAULT_SECONDS: typ.Final[int] = 1800
 OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS: typ.Final[int] = 10 * 60
 
 
+#: The margin a ceiling must carry above the sum it contains. A ceiling
+#: equal to that sum cancels the job at the moment the watchdog would
+#: have reported the overrun, and the report is the only thing that makes
+#: an overrun actionable, so reaching the requirement buys nothing.
+CEILING_MARGIN_SECONDS: typ.Final[int] = 15 * 60
+
+
+class WorkflowStep(typ.TypedDict, total=False):
+    """One step of a job, declaring only the keys these tests read.
+
+    Attributes
+    ----------
+    uses : str
+        The action the step invokes, when it invokes one.
+    env : dict[str, object]
+        The step-level environment, the innermost watchdog scope.
+    with_ : dict[str, object]
+        The action's inputs. Spelled ``with`` in YAML, which is a Python
+        keyword, so the mapping is read by key rather than by attribute.
+    """
+
+    uses: str
+    env: dict[str, object]
+
+
+class WorkflowJob(typ.TypedDict, total=False):
+    """One job of a workflow, declaring only the keys these tests read.
+
+    Attributes
+    ----------
+    timeout-minutes : int
+        The job's ceiling, the outermost tier.
+    env : dict[str, object]
+        The job-level environment, consulted when the step sets nothing.
+    steps : list[WorkflowStep]
+        The job's steps, in the order it runs them.
+    """
+
+    env: dict[str, object]
+    steps: list[WorkflowStep]
+
+
+class WorkflowDocument(typ.TypedDict, total=False):
+    """One workflow file, declaring only the keys these tests read.
+
+    Attributes
+    ----------
+    env : dict[str, object]
+        The workflow-level environment, the outermost watchdog scope.
+    jobs : dict[str, WorkflowJob]
+        The workflow's jobs, keyed by identifier.
+    """
+
+    env: dict[str, object]
+    jobs: dict[str, WorkflowJob]
+
+
 class CoverageLane(typ.NamedTuple):
     """One job invoking the coverage action, with its budgets.
 
@@ -76,17 +133,24 @@ class CoverageLane(typ.NamedTuple):
         The workflow file's name.
     job : str
         The job's identifier.
-    watchdog : int or None
-        The budget in force, from the step's environment, the job's, the
-        workflow's, or the step's ``cargo-wait-timeout`` input. None
-        means the lane would inherit the action's default.
+    watchdogs : tuple[int | None, ...]
+        The budget in force for each coverage step the job runs, in
+        order, each resolved from that step's environment, the job's,
+        the workflow's, or that step's ``cargo-wait-timeout`` input.
+        None means the step would inherit the action's default.
+
+        A tuple rather than one value because the budgets need not
+        agree: the variable resolves per step, so a job running the
+        action twice can raise it for the feature set that builds more,
+        and its ceiling has to contain the sum of what it actually set
+        rather than a multiple of whichever step was read first.
     ceiling : int or None
         The job's ``timeout-minutes``, or None when it declares none.
     """
 
     workflow: str
     job: str
-    watchdog: int | None
+    watchdogs: tuple[int | None, ...]
     ceiling: int | None
 
     def __str__(self) -> str:
@@ -100,23 +164,71 @@ class CoverageLane(typ.NamedTuple):
         return f"{self.workflow}:{self.job}"
 
 
+def _budget_from(raw: object) -> int | None:
+    """Return one source's watchdog budget, or None when it sets none.
+
+    A blank or whitespace-only value is not a budget of zero, it is a
+    source that says nothing, so it falls through to the next one. That
+    is what a workflow writes when it interpolates an expression that
+    resolved to nothing, and converting it directly raises before the
+    contract can say which lane was at fault.
+
+    Zero and negative values are refused rather than returned. The
+    action treats them as no timeout at all, so a lane carrying one has
+    no third tier while appearing to declare one, which is the inversion
+    this contract exists to catch rather than to propagate.
+
+    Parameters
+    ----------
+    raw : object
+        The value a workflow set, as the YAML parser returned it.
+
+    Returns
+    -------
+    int or None
+        The budget in seconds, or None when the source sets none.
+
+    Raises
+    ------
+    ValueError
+        If the value is present and non-blank but not a whole number of
+        seconds, or is not positive.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    seconds = int(text)
+    if seconds <= 0:
+        message = (
+            f"{WATCHDOG_VARIABLE} must be a positive number of seconds; "
+            f"{raw!r} would leave the cargo invocation unbounded while "
+            f"appearing to bound it"
+        )
+        raise ValueError(message)
+    return seconds
+
+
 def _watchdog_of(
-    document: dict[str, typ.Any], job: dict[str, typ.Any], step: dict[str, typ.Any]
+    document: WorkflowDocument, job: WorkflowJob, step: WorkflowStep
 ) -> int | None:
     """Return the watchdog budget in force for one coverage step.
 
     All three environment levels are read, innermost first, as GitHub
     resolves them, and the action's input last: the variable takes
     precedence over the input, so a lane setting both runs on the
-    variable.
+    variable. A level that sets the name to a blank value is treated as
+    setting nothing, so resolution continues rather than stopping at a
+    source that says nothing.
 
     Parameters
     ----------
-    document : dict[str, typ.Any]
+    document : WorkflowDocument
         The whole workflow document.
-    job : dict[str, typ.Any]
+    job : WorkflowJob
         The enclosing job.
-    step : dict[str, typ.Any]
+    step : WorkflowStep
         The coverage step.
 
     Returns
@@ -126,15 +238,18 @@ def _watchdog_of(
     """
     levels = (step.get("env"), job.get("env"), document.get("env"))
     for source in levels:
-        if isinstance(source, dict) and source.get(WATCHDOG_VARIABLE) is not None:
-            return int(str(source[WATCHDOG_VARIABLE]))
+        if not isinstance(source, dict):
+            continue
+        budget = _budget_from(source.get(WATCHDOG_VARIABLE))
+        if budget is not None:
+            return budget
     inputs = step.get("with")
-    if isinstance(inputs, dict) and inputs.get(WATCHDOG_INPUT) is not None:
-        return int(str(inputs[WATCHDOG_INPUT]))
+    if isinstance(inputs, dict):
+        return _budget_from(inputs.get(WATCHDOG_INPUT))
     return None
 
 
-def _workflow_documents() -> dict[str, dict[str, typ.Any]]:
+def _workflow_documents() -> dict[str, WorkflowDocument]:
     """Return every workflow document, keyed by file name.
 
     Both workflow extensions are read. A lane in the other one would
@@ -142,10 +257,10 @@ def _workflow_documents() -> dict[str, dict[str, typ.Any]]:
 
     Returns
     -------
-    dict[str, dict[str, typ.Any]]
+    dict[str, WorkflowDocument]
         File name to parsed document.
     """
-    documents: dict[str, dict[str, typ.Any]] = {}
+    documents: dict[str, WorkflowDocument] = {}
     for pattern in ("*.yml", "*.yaml"):
         for path in sorted(WORKFLOWS_DIRECTORY.glob(pattern)):
             document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -154,7 +269,7 @@ def _workflow_documents() -> dict[str, dict[str, typ.Any]]:
     return documents
 
 
-def _declared_jobs() -> list[tuple[str, dict[str, typ.Any], str, dict[str, typ.Any]]]:
+def _declared_jobs() -> list[tuple[str, WorkflowDocument, str, WorkflowJob]]:
     """Return every job in every workflow, with its file and document.
 
     The job's identity travels with it rather than being reconstructed
@@ -174,17 +289,17 @@ def _declared_jobs() -> list[tuple[str, dict[str, typ.Any], str, dict[str, typ.A
     ]
 
 
-def _coverage_steps(job: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+def _coverage_steps(job: WorkflowJob) -> list[WorkflowStep]:
     """Return the steps in one job that invoke the coverage action.
 
     Parameters
     ----------
-    job : dict[str, typ.Any]
+    job : WorkflowJob
         The parsed job.
 
     Returns
     -------
-    list[dict[str, typ.Any]]
+    list[WorkflowStep]
         The matching steps, in the order the job runs them.
     """
     steps = job.get("steps")
@@ -200,9 +315,9 @@ def _coverage_steps(job: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
 
 def _coverage_lane(
     workflow: str,
-    document: dict[str, typ.Any],
+    document: WorkflowDocument,
     job_name: str,
-    job: dict[str, typ.Any],
+    job: WorkflowJob,
 ) -> CoverageLane | None:
     """Return one job's lane, or None when it runs no coverage step.
 
@@ -210,11 +325,11 @@ def _coverage_lane(
     ----------
     workflow : str
         The workflow file's name.
-    document : dict[str, typ.Any]
+    document : WorkflowDocument
         The enclosing document, read for a workflow-level watchdog.
     job_name : str
         The job's identifier.
-    job : dict[str, typ.Any]
+    job : WorkflowJob
         The parsed job.
 
     Returns
@@ -229,7 +344,7 @@ def _coverage_lane(
     return CoverageLane(
         workflow=workflow,
         job=job_name,
-        watchdog=_watchdog_of(document, job, steps[0]),
+        watchdogs=tuple(_watchdog_of(document, job, step) for step in steps),
         ceiling=None if raw is None else int(str(raw)),
     )
 
@@ -252,88 +367,266 @@ def _coverage_lanes() -> tuple[CoverageLane, ...]:
     )
 
 
-def test_this_repository_invokes_its_own_coverage_action() -> None:
-    """The contract needs a lane to assert against.
+class TestCoverageTimeoutTiers:
+    """The four tiers, as they stand in this repository's own workflows.
 
-    A rename or a move that stopped the coordinate matching would
-    otherwise turn every assertion below into a vacuous pass over an
-    empty list, and the loss would look exactly like success.
+    Two of them are inert here and asserted anyway. The action runs
+    `cargo` only where a root manifest exists, and this repository has
+    none, so the watchdog and the nextest budgets bound nothing today.
+    The tests are written now so the requirement arrives with the
+    manifest rather than after the first run it kills.
     """
-    assert _coverage_lanes(), (
-        f"no workflow job uses {COVERAGE_ACTION_SUFFIX}; either coverage moved "
-        f"or this contract stopped recognizing it"
-    )
+
+    def test_this_repository_invokes_its_own_coverage_action(self) -> None:
+        """The contract needs a lane to assert against.
+
+        A rename or a move that stopped the coordinate matching would
+        otherwise turn every assertion below into a vacuous pass over an
+        empty list, and the loss would look exactly like success.
+        """
+        assert _coverage_lanes(), (
+            f"no workflow job uses {COVERAGE_ACTION_SUFFIX}; either coverage moved "
+            f"or this contract stopped recognizing it"
+        )
+
+    def test_the_cargo_tiers_do_not_apply_until_a_manifest_appears(self) -> None:
+        """The precondition, asserted rather than assumed.
+
+        `detect.py` classifies this project by the presence of a root
+        `Cargo.toml`, and the action gates every Rust step on that. Without
+        the manifest no `cargo` runs, so the watchdog and both nextest tiers
+        are inert here however the lanes are configured.
+
+        The failure message is the point of the test: it fires on the change
+        that adds the manifest, which is a change about packaging rather
+        than about timeouts, and tells its author what else has to move.
+        """
+        assert not ROOT_MANIFEST.is_file(), (
+            "a root Cargo.toml has appeared, so generate-coverage now runs cargo "
+            "here and the tiers below apply. Before this lands: set "
+            f"{WATCHDOG_VARIABLE} on every coverage job from measured runs, raise "
+            "each job's timeout-minutes above that plus the work outside the "
+            "watchdog's window, set a per-test slow-timeout and a global-timeout "
+            "in .config/nextest.toml, and update the four-tier section in "
+            ".github/actions/generate-coverage/README.md in the same change"
+        )
+
+    @pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
+    def test_a_lane_that_runs_cargo_states_its_watchdog(
+        self, lane: CoverageLane
+    ) -> None:
+        """A budget nobody chose is one nobody can defend.
+
+        Skipped while no manifest exists, because the watchdog is inert
+        then. The test is written now rather than later so the requirement
+        arrives with the manifest rather than after the first run it kills.
+        """
+        if not ROOT_MANIFEST.is_file():
+            pytest.skip("no root Cargo.toml, so the cargo watchdog never runs here")
+        unstated = [
+            index + 1
+            for index, watchdog in enumerate(lane.watchdogs)
+            if watchdog is None
+        ]
+        assert not unstated, (
+            f"{lane} leaves step(s) {unstated} of {len(lane.watchdogs)} to inherit "
+            f"the action's undocumented {WATCHDOG_DEFAULT_SECONDS} s default; set "
+            f"{WATCHDOG_VARIABLE} or {WATCHDOG_INPUT} on each from measured runs"
+        )
+
+    @pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
+    def test_a_lane_that_runs_cargo_has_a_ceiling_above_its_watchdog(
+        self, lane: CoverageLane
+    ) -> None:
+        """Tier four must not pre-empt tier three.
+
+        The two clocks do not start together: the job timer starts before
+        the checkout and the toolchain setup, and the watchdog starts when
+        `cargo` does. A ceiling merely equal to the watchdog cancels the job
+        before the watchdog can report an overrun, and the cancellation
+        discards the log that would have explained it.
+
+        That equality is exactly what this repository's lanes carry today, a
+        30 minute ceiling against the 1,800 s default, which is inert only
+        because no `cargo` runs. It is asserted here so it cannot survive
+        the manifest that would make it real.
+
+        The requirement sums every coverage step's own watchdog rather than
+        multiplying one of them, because they need not agree, and it is
+        strict by a stated margin, because a ceiling that merely reaches its
+        requirement converts a legible overrun into a cancellation with no
+        log.
+        """
+        if not ROOT_MANIFEST.is_file():
+            pytest.skip("no root Cargo.toml, so the cargo watchdog never runs here")
+        budgets = [
+            watchdog if watchdog is not None else WATCHDOG_DEFAULT_SECONDS
+            for watchdog in lane.watchdogs
+        ]
+        required = (
+            sum(budgets) + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
+        )
+        assert lane.ceiling is not None, (
+            f"{lane} runs cargo under {len(budgets)} watchdog(s) totalling "
+            f"{sum(budgets)} s in a job with no timeout-minutes; the outermost "
+            f"tier is missing and GitHub's six-hour default applies"
+        )
+        assert lane.ceiling * 60 > required, (
+            f"{lane} has a ceiling of {lane.ceiling} minutes, at or below the "
+            f"{required / 60:.0f} needed to cover {len(budgets)} watchdog(s) "
+            f"totalling {sum(budgets)} s, "
+            f"{OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS} s of measured work outside "
+            f"them, and a {CEILING_MARGIN_SECONDS} s margin above that sum; an "
+            f"overrun would be cancelled rather than reported"
+        )
 
 
-def test_the_cargo_tiers_do_not_apply_until_a_manifest_appears() -> None:
-    """The precondition, asserted rather than assumed.
+class TestTheWatchdogIsResolvedAsTheActionResolvesIt:
+    """Reading one step's budget out of the four places it can live.
 
-    `detect.py` classifies this project by the presence of a root
-    `Cargo.toml`, and the action gates every Rust step on that. Without
-    the manifest no `cargo` runs, so the watchdog and both nextest tiers
-    are inert here however the lanes are configured.
-
-    The failure message is the point of the test: it fires on the change
-    that adds the manifest, which is a change about packaging rather
-    than about timeouts, and tells its author what else has to move.
+    Every assertion above is skipped while this repository has no root
+    manifest, so the reading behind them is exercised here instead,
+    against values chosen rather than found. A reading that is wrong
+    about a blank source or a zero would otherwise arrive with the
+    manifest, unexamined.
     """
-    assert not ROOT_MANIFEST.is_file(), (
-        "a root Cargo.toml has appeared, so generate-coverage now runs cargo "
-        "here and the tiers below apply. Before this lands: set "
-        f"{WATCHDOG_VARIABLE} on every coverage job from measured runs, raise "
-        "each job's timeout-minutes above that plus the work outside the "
-        "watchdog's window, set a per-test slow-timeout and a global-timeout "
-        "in .config/nextest.toml, and update the four-tier section in "
-        ".github/actions/generate-coverage/README.md in the same change"
+
+    @pytest.mark.parametrize(
+        ("step", "job", "document", "expected"),
+        [
+            pytest.param(
+                {"env": {WATCHDOG_VARIABLE: "2400"}},
+                {"env": {WATCHDOG_VARIABLE: "1800"}},
+                {"env": {WATCHDOG_VARIABLE: "1200"}},
+                2400,
+                id="the-step-wins",
+            ),
+            pytest.param(
+                {},
+                {"env": {WATCHDOG_VARIABLE: "1800"}},
+                {"env": {WATCHDOG_VARIABLE: "1200"}},
+                1800,
+                id="then-the-job",
+            ),
+            pytest.param(
+                {},
+                {},
+                {"env": {WATCHDOG_VARIABLE: "1200"}},
+                1200,
+                id="then-the-workflow",
+            ),
+            pytest.param(
+                {"with": {WATCHDOG_INPUT: "900"}},
+                {},
+                {},
+                900,
+                id="then-the-action-input",
+            ),
+            pytest.param(
+                {"env": {WATCHDOG_VARIABLE: "2400"}, "with": {WATCHDOG_INPUT: "900"}},
+                {},
+                {},
+                2400,
+                id="the-variable-beats-the-input",
+            ),
+            pytest.param({}, {}, {}, None, id="nothing-sets-one"),
+        ],
     )
+    def test_the_innermost_source_that_sets_a_budget_wins(
+        self,
+        step: dict[str, object],
+        job: dict[str, object],
+        document: dict[str, object],
+        expected: int | None,
+    ) -> None:
+        """Step, then job, then workflow, then the action's own input.
 
+        The order is the action's, not a convenience: a lane that sets
+        the variable and passes the input runs on the variable, so a
+        contract reading the input first would report a budget the run
+        does not use.
+        """
+        resolved = _watchdog_of(
+            typ.cast("WorkflowDocument", document),
+            typ.cast("WorkflowJob", job),
+            typ.cast("WorkflowStep", step),
+        )
 
-@pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
-def test_a_lane_that_runs_cargo_states_its_watchdog(lane: CoverageLane) -> None:
-    """A budget nobody chose is one nobody can defend.
+        assert resolved == expected, (
+            f"step={step!r} job={job!r} document={document!r} must resolve to "
+            f"{expected!r}, got {resolved!r}"
+        )
 
-    Skipped while no manifest exists, because the watchdog is inert
-    then. The test is written now rather than later so the requirement
-    arrives with the manifest rather than after the first run it kills.
-    """
-    if not ROOT_MANIFEST.is_file():
-        pytest.skip("no root Cargo.toml, so the cargo watchdog never runs here")
-    assert lane.watchdog is not None, (
-        f"{lane} would inherit the action's undocumented "
-        f"{WATCHDOG_DEFAULT_SECONDS} s default; set {WATCHDOG_VARIABLE} or "
-        f"{WATCHDOG_INPUT} from measured runs"
+    @pytest.mark.parametrize(
+        "blank", ["", "   ", "\n"], ids=["empty", "spaces", "a-newline"]
     )
+    def test_a_blank_source_falls_through_rather_than_raising(self, blank: str) -> None:
+        """A source that says nothing is not a budget of zero.
 
+        This is what a workflow writes when it interpolates an
+        expression that resolved to nothing, and it is ordinary rather
+        than exotic. Converting it directly raises during collection,
+        which loses the lane's name along with the reason.
+        """
+        resolved = _watchdog_of(
+            typ.cast("WorkflowDocument", {"env": {WATCHDOG_VARIABLE: "1200"}}),
+            typ.cast("WorkflowJob", {}),
+            typ.cast("WorkflowStep", {"env": {WATCHDOG_VARIABLE: blank}}),
+        )
 
-@pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
-def test_a_lane_that_runs_cargo_has_a_ceiling_above_its_watchdog(
-    lane: CoverageLane,
-) -> None:
-    """Tier four must not pre-empt tier three.
+        assert resolved == 1200, (
+            f"a step setting {blank!r} sets nothing, so the workflow's 1200 "
+            f"applies; got {resolved!r}"
+        )
 
-    The two clocks do not start together: the job timer starts before
-    the checkout and the toolchain setup, and the watchdog starts when
-    `cargo` does. A ceiling merely equal to the watchdog cancels the job
-    before the watchdog can report an overrun, and the cancellation
-    discards the log that would have explained it.
+    @pytest.mark.parametrize("value", ["0", "-1", " -30 "], ids=str)
+    def test_a_non_positive_budget_is_refused(self, value: str) -> None:
+        """Zero is not a watchdog, it is the absence of one.
 
-    That equality is exactly what this repository's lanes carry today, a
-    30 minute ceiling against the 1,800 s default, which is inert only
-    because no `cargo` runs. It is asserted here so it cannot survive
-    the manifest that would make it real.
-    """
-    if not ROOT_MANIFEST.is_file():
-        pytest.skip("no root Cargo.toml, so the cargo watchdog never runs here")
-    watchdog = lane.watchdog or WATCHDOG_DEFAULT_SECONDS
-    required = watchdog + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS
-    assert lane.ceiling is not None, (
-        f"{lane} runs cargo under a {watchdog} s watchdog in a job with no "
-        f"timeout-minutes; the outermost tier is missing and GitHub's "
-        f"six-hour default applies"
-    )
-    assert lane.ceiling * 60 >= required, (
-        f"{lane} has a ceiling of {lane.ceiling} minutes, below the "
-        f"{required / 60:.0f} needed to cover a {watchdog} s watchdog plus "
-        f"{OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS} s of measured work outside it; "
-        f"an overrun would be cancelled rather than reported"
-    )
+        The action treats a non-positive value as no timeout, so a lane
+        carrying one has no third tier while appearing to declare one.
+        Returning it would let the arithmetic above certify a lane that
+        is unbounded, which is the inversion this contract exists to
+        catch.
+        """
+        with pytest.raises(ValueError, match="positive number of seconds"):
+            _watchdog_of(
+                typ.cast("WorkflowDocument", {}),
+                typ.cast("WorkflowJob", {}),
+                typ.cast("WorkflowStep", {"env": {WATCHDOG_VARIABLE: value}}),
+            )
+
+    def test_every_coverage_step_in_a_job_is_read(self) -> None:
+        """A job running the action twice has two budgets, not one.
+
+        They need not agree, so the lane carries both and the ceiling
+        requirement sums them. Reading the first step and multiplying
+        describes such a job only when the two happen to match.
+        """
+        document = typ.cast(
+            "WorkflowDocument",
+            {
+                "jobs": {
+                    "build": {
+                        "timeout-minutes": 120,
+                        "steps": [
+                            {
+                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
+                                "env": {WATCHDOG_VARIABLE: "1800"},
+                            },
+                            {
+                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
+                                "env": {WATCHDOG_VARIABLE: "2700"},
+                            },
+                        ],
+                    }
+                }
+            },
+        )
+
+        lane = _coverage_lane("ci.yml", document, "build", document["jobs"]["build"])
+
+        assert lane is not None, "the job invokes the coverage action twice"
+        assert lane.watchdogs == (1800, 2700), (
+            f"both steps' budgets must be carried, got {lane.watchdogs!r}"
+        )

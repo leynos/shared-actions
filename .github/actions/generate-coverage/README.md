@@ -435,20 +435,37 @@ termination  =  configured slow-timeout.grace-period on Linux and macOS
                 0 on Windows
 watchdog     >= nextest global-timeout + termination + safety margin
                 + cold build
-job ceiling  >= (watchdog x coverage steps in that job)
+job ceiling  >  sum of every coverage step's watchdog in that job
                 + measured work outside those steps
+                + a stated margin above that sum
 ```
 
 A caller states both allowances, where it measured them, and how many runs it
 read.
 
+The last line is a sum rather than a multiplication, and a strict comparison
+rather than an inclusive one. Two coverage steps in a job need not carry the
+same watchdog: the variable resolves per step, so one lane can raise it for the
+feature set that builds more. Multiplying one step's value by the number of
+steps describes that job only when they happen to agree.
+
+The comparison is strict, and by a margin the caller states, because a ceiling
+equal to the sum it contains cancels the job at the moment the watchdog would
+have reported the overrun. The report is the only thing that makes an overrun
+actionable, so a ceiling that merely reaches its requirement buys nothing: it
+converts a legible failure into a cancellation with no log. Fifteen minutes is
+the margin this estate carries.
+
 Three details of that arithmetic are easy to read past, and each has been got
 wrong in this estate.
 
-**Count the coverage steps in the job, not the jobs.** Each invocation of this
-action gets its own watchdog, so a job that runs it twice, once per feature
-set, can legitimately spend both budgets. Its ceiling has to contain the sum.
-ortho-config runs it twice per job and was sized as though it ran it once.
+**Count the coverage steps in the job, not the jobs, and sum their budgets.**
+Each invocation of this action gets its own watchdog, so a job that runs it
+twice, once per feature set, can legitimately spend both. Its ceiling has to
+contain the sum, and a contract that resolves one step's watchdog and
+multiplies is a contract that stops describing the job the moment the two
+differ. ortho-config runs it twice per job and was sized as though it ran it
+once.
 
 **Measure the outside allowance per lane, not once.** A pull-request lane and a
 trunk lane can differ by an order of magnitude in what they do around the

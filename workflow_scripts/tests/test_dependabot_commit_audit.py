@@ -26,7 +26,7 @@ from dependabot_graphql_double import (
     run,
 )
 
-from workflow_scripts import dependabot_automerge
+from workflow_scripts import dependabot_automerge, dependabot_github
 
 
 class TestTheProductionPathReachesTheRule:
@@ -243,7 +243,7 @@ class TestTheWholeBranchIsAudited:
         them would hang the job with no decision at all, which is worse
         than an audit that says plainly it did not finish.
         """
-        monkeypatch.setattr(dependabot_automerge, "MAX_COMMIT_PAGES", 2)
+        monkeypatch.setattr(dependabot_github, "MAX_COMMIT_PAGES", 2)
         calls = install_graphql(
             monkeypatch,
             Branch(
@@ -487,7 +487,11 @@ def test_the_read_path_uses_the_query_it_is_given() -> None:
         }
 
     pull_request = dependabot_automerge._fetch_pull_request(
-        "token", "leynos", "shared-actions", 1, query=_query
+        "token",
+        dependabot_automerge.PullRequestRef(
+            owner="leynos", repo="shared-actions", number=1
+        ),
+        query=_query,
     )
 
     assert len(asked) == len(pages), (

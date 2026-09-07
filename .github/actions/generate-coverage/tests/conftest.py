@@ -14,6 +14,7 @@ if sys.platform.startswith("win"):
     pytest.skip("cmd-mox IPC is unavailable on Windows", allow_module_level=True)
 
 from _coverage_test_support import _load_module
+from _llvm_cov_test_support import INSTALLER_COPIES, _load_installer
 
 from test_support.cmd_mox_stub_adapter import StubManager
 
@@ -56,3 +57,27 @@ def install_nextest_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     monkeypatch.delenv("GITHUB_PATH", raising=False)
     return _load_module(monkeypatch, "install_cargo_nextest")
+
+
+@pytest.fixture(params=list(INSTALLER_COPIES), ids=list(INSTALLER_COPIES))
+def install_llvm_cov_module(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> ModuleType:
+    """Return a freshly loaded installer copy with job-level side effects disabled.
+
+    Declared here rather than in one test module because the installer's tests
+    are split across three modules by responsibility and each needs it; a
+    conftest fixture is visible to all of them without an import that reads as
+    unused. Both actions ship the installer, so the fixture is parametrised
+    over the two copies and the ratchet-coverage one is executed rather than
+    assumed identical.
+    """
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.delenv("GITHUB_PATH", raising=False)
+    monkeypatch.delenv("RUNNER_OS", raising=False)
+    monkeypatch.delenv("RUNNER_ARCH", raising=False)
+    if request.param == "generate-coverage":
+        return _load_module(monkeypatch, "install_cargo_llvm_cov")
+    return _load_installer(
+        INSTALLER_COPIES[request.param], f"install_cargo_llvm_cov_{request.param}"
+    )

@@ -81,46 +81,44 @@ def _commit_node(oid: str, *logins: str, total: int | None = None) -> dict[str, 
 
 
 def _pull_request_node(
-    pages: typ.Sequence[typ.Sequence[dict[str, object]]],
+    branch: Branch,
+    served: typ.Sequence[typ.Sequence[dict[str, object]]],
     page_index: int,
-    *,
-    auto_merge_request: dict[str, object] | None,
-    merge_state: str,
-    is_draft: bool = False,
 ) -> dict[str, object]:
     """Build the pull request node for one page of commits.
 
+    The scalar fields come from the branch and the commits from the page
+    set in use, which is not always the branch's own: the merge-state
+    retry serves a second set, so that a push landing inside the retry
+    window can be described.
+
     Parameters
     ----------
-    pages : typ.Sequence[typ.Sequence[dict[str, object]]]
-        The commit pages, in branch order.
+    branch : Branch
+        The pull request GitHub should appear to hold.
+    served : typ.Sequence[typ.Sequence[dict[str, object]]]
+        The commit pages this fetch is serving.
     page_index : int
-        Which page this response carries.
-    auto_merge_request : dict or None
-        The ``autoMergeRequest`` field; not None means already armed.
-    merge_state : str
-        The ``mergeStateStatus`` to report.
-    is_draft : bool
-        Whether to report the pull request as a draft.
+        Which of those pages this response carries.
 
     Returns
     -------
     dict
         The pull request node.
     """
-    nodes = list(pages[page_index])
-    has_next = page_index + 1 < len(pages)
+    nodes = list(served[page_index])
+    has_next = page_index + 1 < len(served)
     return {
         "id": "PR_node",
         "number": 7,
-        "isDraft": is_draft,
-        "mergeStateStatus": merge_state,
+        "isDraft": branch.is_draft,
+        "mergeStateStatus": branch.merge_state,
         "mergeable": "MERGEABLE",
         "author": {"login": DEPENDABOT},
         "labels": {"nodes": [{"name": "dependencies"}]},
-        "autoMergeRequest": auto_merge_request,
+        "autoMergeRequest": branch.auto_merge_request,
         "commits": {
-            "totalCount": sum(len(page) for page in pages),
+            "totalCount": sum(len(page) for page in served),
             "pageInfo": {
                 "hasNextPage": has_next,
                 "endCursor": f"cursor-{page_index + 1}" if has_next else None,
@@ -281,15 +279,7 @@ def _install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQL
         calls.cursors.append(cursor)
         served, index = state.page_for(cursor)
         return {
-            "repository": {
-                "pullRequest": _pull_request_node(
-                    served,
-                    index,
-                    auto_merge_request=branch.auto_merge_request,
-                    merge_state=branch.merge_state,
-                    is_draft=branch.is_draft,
-                )
-            }
+            "repository": {"pullRequest": _pull_request_node(branch, served, index)}
         }
 
     monkeypatch.setattr(dependabot_automerge, "request_graphql", handler)
@@ -407,9 +397,7 @@ class TestTheProductionPathReachesTheRule:
         ) -> dict[str, object]:
             if "enablePullRequestAutoMerge" in query:
                 return {"enablePullRequestAutoMerge": {"pullRequest": {"number": 7}}}
-            node = _pull_request_node(
-                [[]], 0, auto_merge_request=None, merge_state="BLOCKED"
-            )
+            node = _pull_request_node(Branch(pages=[[]]), [[]], 0)
             del node["commits"]
             return {"repository": {"pullRequest": node}}
 

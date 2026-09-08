@@ -142,15 +142,10 @@ jobs:
         shell: bash
       - name: Install Makefile parser
         if: runner.os == 'macOS'
-        run: |
-          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
-          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
-            --git https://github.com/leynos/makeutil \
-            --rev "${MAKEUTIL_REVISION}" \
-            --locked \
-            --force \
-            makeutil
-        shell: bash
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       - name: Run tests
         # Not on Linux. The coverage job below runs this same suite under
         # the coverage action on the same trigger, and its own comment says
@@ -209,15 +204,10 @@ jobs:
         with:
           save-cache: 'true'
       - name: Install Makefile parser
-        run: |
-          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
-          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
-            --git https://github.com/leynos/makeutil \
-            --rev "${MAKEUTIL_REVISION}" \
-            --locked \
-            --force \
-            makeutil
-        shell: bash
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       # Build and cache the project like the python-tests job does. Several
       # tests shell out to `uv run --script`, which builds shared-actions into
       # the script environment; without a warm build cache that emits `Using
@@ -290,15 +280,10 @@ jobs:
         run: choco install make --no-progress --yes
         shell: bash
       - name: Install Makefile parser
-        run: |
-          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
-          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
-            --git https://github.com/leynos/makeutil \
-            --rev "${MAKEUTIL_REVISION}" \
-            --locked \
-            --force \
-            makeutil
-        shell: bash
+        uses: ./.github/actions/install-makeutil-from-source
+        with:
+          makeutil-revision: ${{ env.MAKEUTIL_REVISION }}
+          makeutil-toolchain: ${{ env.MAKEUTIL_TOOLCHAIN }}
       - name: Run tests
         run: |
           uv sync --group dev

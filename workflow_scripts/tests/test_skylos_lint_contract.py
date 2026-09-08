@@ -109,6 +109,8 @@ _EXPECTED_SKYLOS_WHITELIST_NAMES: typ.Final = frozenset(
         "_pump_cargo_output_posix",
         "_pump_cargo_output_windows",
         "_raise_cargo_timeout",
+        "_read_wait_timeout",
+        "_resolve_wait_timeout",
         "_run_cargo",
         "_spawn_cargo",
         "_wait_for_cargo",

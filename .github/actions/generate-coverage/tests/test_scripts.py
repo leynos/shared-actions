@@ -2131,6 +2131,8 @@ def test_coverage_cmd_for_fmt_threads_workers_through(
     cmd = run_python_module.coverage_cmd_for_fmt("cobertura", tmp_path / "cov.xml", "2")
     parts = list(cmd.formulate())
     assert parts[-2:] == ["-n", "2"]
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [

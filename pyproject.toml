@@ -171,6 +171,8 @@ names = [
     "_pump_cargo_output_posix",
     "_pump_cargo_output_windows",
     "_raise_cargo_timeout",
+    "_read_wait_timeout",
+    "_resolve_wait_timeout",
     "_run_cargo",
     "_spawn_cargo",
     "_wait_for_cargo",
@@ -195,6 +197,8 @@ names = [
 "_pump_cargo_output_posix" = "The platform dispatcher invokes this helper on POSIX runners."
 "_pump_cargo_output_windows" = "The platform dispatcher invokes this helper on Windows runners."
 "_raise_cargo_timeout" = "Cargo process and output-pump timeout paths invoke this helper."
+"_read_wait_timeout" = "The action-local cargo runner validates its watchdog budget through this helper."
+"_resolve_wait_timeout" = "The action-local cargo runner resolves its watchdog budget through this helper."
 "_run_cargo" = "run_rust imports the action-local cargo runner entry point."
 "_spawn_cargo" = "The action-local _run_cargo entry point creates cargo processes with this helper."
 "_wait_for_cargo" = "The action-local _run_cargo entry point waits for cargo through this helper."

@@ -26,6 +26,13 @@ from plumbum import local
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _MAKEUTIL_REVISION: typ.Final = "29fc5a1634ffbaa18a773eed9dff1b2838a45d9c"
 _MAKEUTIL_TOOLCHAIN: typ.Final = "nightly-2026-05-28"
+_GNU_MAKE_INSTALL_TOKENS: typ.Final = (
+    "choco",
+    "install",
+    "make",
+    "--no-progress",
+    "--yes",
+)
 _SKYLOS_VERSION_TOKENS: typ.Final = ("4.33.2",)
 _SKYLOS_CLI_TOKENS: typ.Final = (
     "$(UV_ENV)",
@@ -308,6 +315,14 @@ def _assert_makeutil_installation(command: object, *, contract: str) -> None:
     ), f"{contract} must install the pinned Makeutil revision and toolchain"
 
 
+def _assert_gnu_make_installation(command: object, *, contract: str) -> None:
+    """Assert that a Windows workflow command provisions GNU Make."""
+    assert isinstance(command, str), f"{contract} must provide a shell command"
+    assert tuple(shlex.split(command)) == _GNU_MAKE_INSTALL_TOKENS, (
+        f"{contract} must install GNU Make through Chocolatey"
+    )
+
+
 def test_skylos_lint_contract_uses_python_314_and_production_scope() -> None:
     """The lint target must run Skylos strictly against production modules only."""
     test_prerequisites = _text_sequence(
@@ -559,3 +574,10 @@ def test_full_suite_workflows_install_the_pinned_makefile_parser() -> None:
             parser_step.get("run"),
             contract=f"{workflow_path} {job_name} Makeutil installation",
         )
+    windows_make_step = _sole_workflow_step(
+        ".github/workflows/ci.yml", "python-tests-windows", "Install GNU Make"
+    )
+    _assert_gnu_make_installation(
+        windows_make_step.get("run"),
+        contract="python-tests-windows GNU Make installation",
+    )

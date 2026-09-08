@@ -69,40 +69,76 @@ type GraphQLQuery = cabc.Callable[
 
 
 def extract_author_login(pull_request: dict[str, JsonValue]) -> str:
-    """Extract author login from PR data, returning empty string if unavailable."""
-    author_obj = pull_request.get("author")
-    if not isinstance(author_obj, dict):
-        return ""
-    login = author_obj.get("login")
-    if not isinstance(login, str):
-        return ""
-    return login
+    """Return the pull request's author login.
+
+    A deleted account, or a response shaped otherwise, yields the empty
+    string rather than raising: the caller compares the login against
+    Dependabot's, and an absent author is simply not Dependabot.
+
+    Parameters
+    ----------
+    pull_request : dict[str, JsonValue]
+        The pull request node as GraphQL returned it.
+
+    Returns
+    -------
+    str
+        The login, or the empty string when the response carries none.
+    """
+    match pull_request.get("author"):
+        case {"login": str() as login}:
+            return login
+        case _:
+            return ""
 
 
 def extract_labels(pull_request: dict[str, JsonValue]) -> tuple[str, ...]:
-    """Extract label names from PR data, returning empty tuple if unavailable."""
-    labels_obj = pull_request.get("labels")
-    if not isinstance(labels_obj, dict):
-        return ()
-    nodes = labels_obj.get("nodes")
-    if not isinstance(nodes, list):
-        return ()
-    labels: list[str] = []
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        name = node.get("name")
-        if isinstance(name, str):
-            labels.append(name)
-    return tuple(labels)
+    """Return the pull request's label names.
+
+    A node without a name is skipped rather than refused, since one
+    malformed entry in a connection says nothing about the labels beside
+    it, and the caller only asks whether a required label is present.
+
+    Parameters
+    ----------
+    pull_request : dict[str, JsonValue]
+        The pull request node as GraphQL returned it.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The label names, empty when the response carries none.
+    """
+    match pull_request.get("labels"):
+        case {"nodes": list() as nodes}:
+            return tuple(
+                name
+                for node in nodes
+                if isinstance(node, dict) and isinstance(name := node.get("name"), str)
+            )
+        case _:
+            return ()
 
 
 def _normalize_enum(value: JsonValue | None) -> str | None:
-    """Normalize a GraphQL enum value to uppercase string form."""
-    if isinstance(value, str):
-        normalized = value.strip().upper()
-        return normalized or None
-    return None
+    """Return a GraphQL enum value in uppercase, or None.
+
+    Parameters
+    ----------
+    value : JsonValue or None
+        The field as GraphQL returned it.
+
+    Returns
+    -------
+    str or None
+        The normalized name, or None when the field is absent, is not a
+        string, or is blank.
+    """
+    match value:
+        case str() as text:
+            return text.strip().upper() or None
+        case _:
+            return None
 
 
 def _extract_enum[EnumT](
@@ -195,14 +231,14 @@ def pull_request_node(
     dict
         The pull request node.
     """
-    repository = data.get("repository")
-    if isinstance(repository, dict):
-        pull_request = repository.get("pullRequest")
-        if isinstance(pull_request, dict):
+    match data:
+        case {"repository": {"pullRequest": dict() as pull_request}}:
             return pull_request
-    # `fail` is NoReturn; returning it is what tells the linter so, since
-    # the conditional import leaves that annotation out of reach here.
-    return fail(f"Pull request {ref} was not found.")
+        case _:
+            # `fail` is NoReturn; returning it is what tells the linter
+            # so, since the conditional import leaves that annotation out
+            # of reach here.
+            return fail(f"Pull request {ref} was not found.")
 
 
 def audit_whole_branch(
@@ -228,10 +264,10 @@ def audit_whole_branch(
         The pull request being audited.
     first_page : dict
         The pull request node already fetched, carrying page one.
-    query : GraphQLQuery or None
-        The call used to read each further page. Defaults to the live
-        client, so a caller that wants a different one supplies it
-        rather than patching this module.
+    query : GraphQLQuery
+        The call used to read each further page. Required, and passed
+        rather than reached for, so a caller that wants a different one
+        supplies it instead of patching this module.
 
     Returns
     -------
@@ -281,15 +317,12 @@ def fetch_pull_request(
     ----------
     token : str
         A GitHub token.
-    owner : str
-        The repository's owner.
-    repo : str
-        The repository's name.
-    number : int
-        The pull request's number.
-    query : GraphQLQuery or None
+    ref : PullRequestRef
+        The pull request to read, carrying its owner, repository and
+        number together so the three cannot be passed out of order.
+    query : GraphQLQuery
         The call used to read the pull request and each further commit
-        page. Defaults to the live client.
+        page. Required, and passed rather than reached for.
 
     Returns
     -------

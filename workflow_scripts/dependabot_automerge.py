@@ -34,17 +34,21 @@ the connection could not account for is reported unreadable rather than
 clean, because the check exists to certify the branch and a partial
 read certifies nothing.
 
-An unreadable audit does more than withhold a merge. Auto-merge already
+A foreign commit does more than withhold a merge. Auto-merge already
 armed on the pull request is withdrawn, since arming it was a decision
-made on evidence that no longer holds. Both mutations are bound to the
-head commit the audit read, so a push racing the run cannot have the
-decision applied to it.
+taken while the branch was still Dependabot's and GitHub keeps such a
+request alive across a push. The withdrawal is deliberately limited to
+that case: a branch skipped for any other reason, an unreadable audit
+among them, keeps its request, because cancelling there would undo the
+arming this workflow exists to do. Both mutations are bound to the head
+commit the audit read, so a push racing the run cannot have the decision
+applied to it.
 
 The rule itself lives in ``dependabot_commit_audit`` and takes values
-rather than a client, so it can be exercised without a network. This
-module holds the GitHub boundary: ``_fetch_pull_request`` and
-``_audit_whole_branch`` take the GraphQL call as an argument that
-defaults to the live client.
+rather than a client, so it can be exercised without a network. The
+GitHub boundary and the branch audit live in ``dependabot_github``,
+whose readers take the GraphQL call as an argument that defaults to the
+live client.
 
 Merge-state handling: auto-merge is armed while the PR is blocked by
 required rules (``BLOCKED``). If the PR is already mergeable (``CLEAN``,

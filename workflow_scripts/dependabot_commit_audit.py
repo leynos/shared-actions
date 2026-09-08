@@ -260,9 +260,16 @@ def _count_accounts_for(total: JsonValue, nodes: list[JsonValue]) -> bool:
     >>> _count_accounts_for(0, [{"user": {"login": "dependabot"}}])
     False
     """
-    if isinstance(total, bool) or not isinstance(total, int):
-        return False
-    return total == len(nodes)
+    match total:
+        case bool():
+            # `True` is an `int` in Python, so this arm has to precede
+            # the integer one or a one-node list would be certified by a
+            # count of `True`.
+            return False
+        case int() as count:
+            return count == len(nodes)
+        case _:
+            return False
 
 
 def _login_of(node: JsonValue) -> str:

@@ -33,6 +33,15 @@ _GNU_MAKE_INSTALL_TOKENS: typ.Final = (
     "--no-progress",
     "--yes",
 )
+_MAKEUTIL_ACTION_REFERENCE: typ.Final = "./.github/actions/install-makeutil"
+_MAKEUTIL_ACTION_INPUTS: typ.Final = {
+    "makeutil-revision": "${{ env.MAKEUTIL_REVISION }}",
+    "makeutil-toolchain": "${{ env.MAKEUTIL_TOOLCHAIN }}",
+}
+_MAKEUTIL_ACTION_ENVIRONMENT: typ.Final = {
+    "MAKEUTIL_REVISION": "${{ inputs.makeutil-revision }}",
+    "MAKEUTIL_TOOLCHAIN": "${{ inputs.makeutil-toolchain }}",
+}
 _SKYLOS_VERSION_TOKENS: typ.Final = ("4.33.2",)
 _SKYLOS_CLI_TOKENS: typ.Final = (
     "$(UV_ENV)",
@@ -112,6 +121,7 @@ _EXPECTED_SKYLOS_WHITELIST_NAMES: typ.Final = frozenset(
     }
 )
 _EXPECTED_SKYLOS_ENTRYPOINT_NAMES: typ.Final = frozenset()
+_WILDCARD_SYMBOLS: typ.Final = ("*", "?", "[")
 _MAKEUTIL_INSTALL_TOKENS: typ.Final = (
     "rustup",
     "toolchain",
@@ -135,7 +145,7 @@ _SHELL_ARGUMENT_TEXT: typ.Final = st.builds(
     lambda prefix, content, suffix: prefix + content + suffix,
     st.text(alphabet=" \t", max_size=4),
     st.text(
-        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$;|&'\"()[]{}*?!\\`",
+        alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$;|&'\"()]{}!\\`",
         min_size=1,
         max_size=40,
     ),
@@ -291,6 +301,18 @@ def _workflow_job(workflow_path: str, job_name: str) -> dict[str, object]:
     return _mapping(jobs.get(job_name), subject=f"{workflow_path} {job_name} job")
 
 
+def _makeutil_action() -> dict[str, object]:
+    """Return the local Makeutil composite-action manifest."""
+    return _mapping(
+        yaml.safe_load(
+            (
+                _REPOSITORY_ROOT / ".github/actions/install-makeutil/action.yml"
+            ).read_text()
+        ),
+        subject="Makeutil composite action",
+    )
+
+
 def _sole_workflow_step(
     workflow_path: str, job_name: str, step_name: str
 ) -> dict[str, object]:
@@ -323,261 +345,329 @@ def _assert_gnu_make_installation(command: object, *, contract: str) -> None:
     )
 
 
-def test_skylos_lint_contract_uses_python_314_and_production_scope() -> None:
-    """The lint target must run Skylos strictly against production modules only."""
-    test_prerequisites = _text_sequence(
-        _sole_recipe_rule("test").get("prerequisites"),
-        subject="test target prerequisites",
-    )
-    assert "makeutil" in test_prerequisites, (
-        "make test must require makeutil before contract tests execute"
-    )
-    assert _variable_tokens("SKYLOS_VERSION") == _SKYLOS_VERSION_TOKENS, (
-        "Skylos version must remain pinned to 4.33.2"
-    )
-    assert _variable_tokens("SKYLOS_CLI") == _SKYLOS_CLI_TOKENS, (
-        "Skylos CLI must use Python 3.14 before its pinned tool source"
-    )
-    assert _variable_tokens("SKYLOS") == _SKYLOS_SCAN_TOKENS, (
-        "Skylos scan options must remain separate from the command-only CLI"
-    )
-    assert _variable_tokens("SKYLOS_PRODUCTION_TARGETS") == (
-        _SKYLOS_PRODUCTION_TARGET_TOKENS
-    ), "Skylos must scan only the reviewed production module set"
-    assert _variable_tokens("SKYLOS_EXCLUDE_FOLDERS") == _SKYLOS_EXCLUDE_TOKENS, (
-        "Skylos must exclude test-only callers from its production scan"
-    )
-    commands = [
-        command for command in _recipe_tokens("lint") if command[:1] == ("$(SKYLOS)",)
-    ]
-    assert commands == [_SKYLOS_LINT_TOKENS], (
-        "make lint must run the strict production dead-code gate exactly once"
-    )
+class TestSkylosLintContract:
+    """Contract tests for the Skylos lint gate and supporting CI plumbing."""
 
+    def test_skylos_lint_contract_uses_python_314_and_production_scope(
+        self,
+    ) -> None:
+        """The lint target must run Skylos strictly against production modules only."""
+        test_prerequisites = _text_sequence(
+            _sole_recipe_rule("test").get("prerequisites"),
+            subject="test target prerequisites",
+        )
+        assert "makeutil" in test_prerequisites, (
+            "make test must require makeutil before contract tests execute"
+        )
+        assert _variable_tokens("SKYLOS_VERSION") == _SKYLOS_VERSION_TOKENS, (
+            "Skylos version must remain pinned to 4.33.2"
+        )
+        assert _variable_tokens("SKYLOS_CLI") == _SKYLOS_CLI_TOKENS, (
+            "Skylos CLI must use Python 3.14 before its pinned tool source"
+        )
+        assert _variable_tokens("SKYLOS") == _SKYLOS_SCAN_TOKENS, (
+            "Skylos scan options must remain separate from the command-only CLI"
+        )
+        assert _variable_tokens("SKYLOS_PRODUCTION_TARGETS") == (
+            _SKYLOS_PRODUCTION_TARGET_TOKENS
+        ), "Skylos must scan only the reviewed production module set"
+        assert _variable_tokens("SKYLOS_EXCLUDE_FOLDERS") == _SKYLOS_EXCLUDE_TOKENS, (
+            "Skylos must exclude test-only callers from its production scan"
+        )
+        commands = [
+            command
+            for command in _recipe_tokens("lint")
+            if command[:1] == ("$(SKYLOS)",)
+        ]
+        assert commands == [_SKYLOS_LINT_TOKENS], (
+            "make lint must run the strict production dead-code gate exactly once"
+        )
 
-def test_skylos_configuration_is_strict_and_documents_every_exception() -> None:
-    """The Skylos configuration must keep strict mode and reasons aligned."""
-    with (_REPOSITORY_ROOT / "pyproject.toml").open("rb") as configuration_file:
-        configuration = tomllib.load(configuration_file)
-    tool = _mapping(configuration.get("tool"), subject="tool configuration")
-    skylos = _mapping(tool.get("skylos"), subject="Skylos configuration")
-    gate = _mapping(skylos.get("gate"), subject="Skylos gate configuration")
-    assert gate.get("strict") is True, "Skylos strict gate mode must remain enabled"
-    whitelist = _mapping(skylos.get("whitelist"), subject="Skylos whitelist")
-    names = frozenset(_text_sequence(whitelist.get("names"), subject="whitelist names"))
-    documented = _mapping(
-        whitelist.get("documented"), subject="documented whitelist reasons"
-    )
-    assert names == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
-        "Skylos whitelist names must preserve the consciously reviewed set"
-    )
-    assert frozenset(documented) == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
-        "Skylos documented whitelist names must preserve the reviewed set"
-    )
-    assert names == frozenset(documented), (
-        "every Skylos allow-list name must have exactly one documented reason"
-    )
-    assert all(
-        isinstance(reason, str) and reason.strip() for reason in documented.values()
-    ), "every Skylos allow-list reason must contain verified runtime-caller text"
-    dead_code = _mapping(
-        skylos.get("dead_code", {}), subject="Skylos dead-code configuration"
-    )
-    entrypoints = _objects(
-        dead_code.get("entrypoints", []), subject="Skylos dead-code entry points"
-    )
-    entrypoint_names = frozenset(
-        name
-        for entrypoint in entrypoints
-        for name in _text_sequence(
-            entrypoint.get("full_name"), subject="Skylos entry-point names"
-        )
-    )
-    assert entrypoint_names == _EXPECTED_SKYLOS_ENTRYPOINT_NAMES, (
-        "Skylos entry-point names must preserve the consciously reviewed set"
-    )
-
-
-def test_skylos_allow_recipe_dispatches_the_whitelist_subcommand_first() -> None:
-    """The exception target must not place scan options before ``whitelist``."""
-    assert _variable_tokens("SKYLOS_WHITELIST_LOCK") == _SKYLOS_WHITELIST_LOCK_TOKENS, (
-        "Skylos whitelist updates must use the repository-local lock path"
-    )
-    commands = [
-        command
-        for command in _recipe_tokens("skylos-allow")
-        if command[:4] == _SKYLOS_WHITELIST_TOKENS[:4]
-    ]
-    assert commands == [_SKYLOS_WHITELIST_TOKENS], (
-        "skylos-allow must lock, then dispatch whitelist before the symbol and --reason"
-    )
-
-
-@settings(max_examples=25, deadline=None)
-@given(value=st.text(alphabet=" \t", min_size=1, max_size=8))
-def test_skylos_allow_rejects_missing_or_whitespace_values(value: str) -> None:
-    """Missing and whitespace-only exception values must exit two without writes."""
-    pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
-    requests = (
-        ({}, "SYMBOL"),
-        ({"SYMBOL": "handler"}, "REASON"),
-        ({"SYMBOL": value, "REASON": "verified caller"}, "SYMBOL"),
-        ({"SYMBOL": "handler", "REASON": value}, "REASON"),
-    )
-    for values, missing_name in requests:
-        returncode, _stdout, stderr = _make_command(
-            "skylos-allow", environment=_skylos_allow_environment(**values)
-        )
-        assert returncode == 2, (
-            f"skylos-allow must reject missing or whitespace-only {missing_name}"
-        )
-        assert (
-            f"Error: {missing_name} is required for a named whitelist exception"
-            in stderr
-        ), f"skylos-allow must name the missing {missing_name} validation error"
-    assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
-        "invalid skylos-allow requests must not mutate pyproject.toml"
-    )
-
-
-@settings(max_examples=25, deadline=None)
-@example(symbol="$(handler);*", reason='Loaded "$plugin" | registry')
-@given(symbol=_SHELL_ARGUMENT_TEXT, reason=_SHELL_ARGUMENT_TEXT)
-def test_skylos_allow_forwards_generated_arguments_exactly(
-    symbol: str, reason: str
-) -> None:
-    """A recorder must receive every valid symbol and reason as one argument."""
-    pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
-    with TemporaryDirectory() as temporary_directory:
-        directory = Path(temporary_directory)
-        recorded_arguments = directory / "arguments.json"
-        recorder = directory / "skylos-recorder"
-        recorder.write_text(
-            "#!/usr/bin/env python3\n"
-            "import json\n"
-            "import os\n"
-            "import sys\n"
-            "from pathlib import Path\n\n"
-            'Path(os.environ["SKYLOS_ARGUMENTS_PATH"]).write_text(\n'
-            "    json.dumps(sys.argv[1:]), encoding='utf-8'\n"
-            ")\n",
-            encoding="utf-8",
-        )
-        recorder.chmod(0o755)
-        environment = _skylos_allow_environment(
-            SKYLOS_ARGUMENTS_PATH=str(recorded_arguments),
-            SYMBOL=symbol,
-            REASON=reason,
-        )
-        returncode, _stdout, stderr = _make_command(
-            *_isolated_skylos_allow_arguments(directory, skylos_cli=recorder),
-            environment=environment,
-            working_directory=directory,
-        )
-        assert returncode == 0, (
-            f"skylos-allow must forward valid generated arguments: {stderr}"
-        )
-        assert json.loads(recorded_arguments.read_text(encoding="utf-8")) == [
-            "whitelist",
-            symbol,
-            "--reason",
-            reason,
-        ], "Skylos must receive each generated value as exactly one argument"
-    assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
-        "recorder-backed skylos-allow requests must not mutate pyproject.toml"
-    )
-
-
-def test_skylos_allow_lock_preserves_concurrent_documented_entries() -> None:
-    """The whitelist lock must prevent concurrent documented-entry loss."""
-    pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
-    with TemporaryDirectory() as temporary_directory:
-        directory = Path(temporary_directory)
-        (directory / "pyproject.toml").write_text(
-            "[tool.skylos.whitelist.documented]\n", encoding="utf-8"
-        )
-        writer = directory / "skylos-whitelist-writer"
-        writer.write_text(
-            f"#!{sys.executable}\n"
-            "from pathlib import Path\n"
-            "import sys\n"
-            "import time\n"
-            "symbol = sys.argv[2]\n"
-            "reason = sys.argv[4]\n"
-            "path = Path('pyproject.toml')\n"
-            "contents = path.read_text(encoding='utf-8')\n"
-            "time.sleep(0.2)\n"
-            "path.write_text(contents + f'{symbol} = {reason!r}\\n', "
-            "encoding='utf-8')\n",
-            encoding="utf-8",
-        )
-        writer.chmod(0o755)
-        first = _whitelist_process(
-            directory,
-            skylos_cli=writer,
-            symbol="first",
-            reason="first reason",
-        )
-        second = _whitelist_process(
-            directory,
-            skylos_cli=writer,
-            symbol="second",
-            reason="second reason",
-        )
-        first_stdout, first_stderr = first.communicate()
-        second_stdout, second_stderr = second.communicate()
-
-        assert first.returncode == 0, (
-            "the first Skylos whitelist update must succeed: "
-            f"{first_stdout}{first_stderr}"
-        )
-        assert second.returncode == 0, (
-            "the second Skylos whitelist update must succeed: "
-            f"{second_stdout}{second_stderr}"
-        )
-        with (directory / "pyproject.toml").open("rb") as configuration_file:
+    def test_skylos_configuration_is_strict_and_documents_every_exception(
+        self,
+    ) -> None:
+        """The Skylos configuration must keep strict mode and reasons aligned."""
+        with (_REPOSITORY_ROOT / "pyproject.toml").open("rb") as configuration_file:
             configuration = tomllib.load(configuration_file)
-        documented = typ.cast(
-            "dict[str, object]",
-            configuration["tool"]["skylos"]["whitelist"]["documented"],
+        tool = _mapping(configuration.get("tool"), subject="tool configuration")
+        skylos = _mapping(tool.get("skylos"), subject="Skylos configuration")
+        gate = _mapping(skylos.get("gate"), subject="Skylos gate configuration")
+        assert gate.get("strict") is True, "Skylos strict gate mode must remain enabled"
+        whitelist = _mapping(skylos.get("whitelist"), subject="Skylos whitelist")
+        names = frozenset(
+            _text_sequence(whitelist.get("names"), subject="whitelist names")
         )
+        documented = _mapping(
+            whitelist.get("documented"), subject="documented whitelist reasons"
+        )
+        assert names == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
+            "Skylos whitelist names must preserve the consciously reviewed set"
+        )
+        assert frozenset(documented) == _EXPECTED_SKYLOS_WHITELIST_NAMES, (
+            "Skylos documented whitelist names must preserve the reviewed set"
+        )
+        assert names == frozenset(documented), (
+            "every Skylos allow-list name must have exactly one documented reason"
+        )
+        assert all(
+            isinstance(reason, str) and reason.strip() for reason in documented.values()
+        ), "every Skylos allow-list reason must contain verified runtime-caller text"
+        dead_code = _mapping(
+            skylos.get("dead_code", {}), subject="Skylos dead-code configuration"
+        )
+        entrypoints = _objects(
+            dead_code.get("entrypoints", []), subject="Skylos dead-code entry points"
+        )
+        entrypoint_names = frozenset(
+            name
+            for entrypoint in entrypoints
+            for name in _text_sequence(
+                entrypoint.get("full_name"), subject="Skylos entry-point names"
+            )
+        )
+        assert entrypoint_names == _EXPECTED_SKYLOS_ENTRYPOINT_NAMES, (
+            "Skylos entry-point names must preserve the consciously reviewed set"
+        )
+
+    def test_skylos_allow_recipe_dispatches_the_whitelist_subcommand_first(
+        self,
+    ) -> None:
+        """The exception target must not place scan options before ``whitelist``."""
+        assert (
+            _variable_tokens("SKYLOS_WHITELIST_LOCK") == _SKYLOS_WHITELIST_LOCK_TOKENS
+        ), "Skylos whitelist updates must use the repository-local lock path"
+        commands = [
+            command
+            for command in _recipe_tokens("skylos-allow")
+            if command[:4] == _SKYLOS_WHITELIST_TOKENS[:4]
+        ]
+        assert commands == [_SKYLOS_WHITELIST_TOKENS], (
+            "skylos-allow must lock, then dispatch whitelist before the symbol "
+            "and --reason"
+        )
+
+    @settings(max_examples=25, deadline=None)
+    @given(value=st.text(alphabet=" \t", min_size=1, max_size=8))
+    def test_skylos_allow_rejects_missing_or_whitespace_values(
+        self, value: str
+    ) -> None:
+        """Missing and whitespace-only exception values must exit two without writes."""
+        pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
+        requests = (
+            ({}, "SYMBOL"),
+            ({"SYMBOL": "handler"}, "REASON"),
+            ({"SYMBOL": value, "REASON": "verified caller"}, "SYMBOL"),
+            ({"SYMBOL": "handler", "REASON": value}, "REASON"),
+        )
+        for values, missing_name in requests:
+            returncode, _stdout, stderr = _make_command(
+                "skylos-allow", environment=_skylos_allow_environment(**values)
+            )
+            assert returncode == 2, (
+                f"skylos-allow must reject missing or whitespace-only {missing_name}"
+            )
+            assert (
+                f"Error: {missing_name} is required for a named whitelist exception"
+                in stderr
+            ), f"skylos-allow must name the missing {missing_name} validation error"
+        assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
+            "invalid skylos-allow requests must not mutate pyproject.toml"
+        )
+
+    def test_skylos_allow_rejects_wildcard_symbols(self) -> None:
+        """Wildcard-bearing symbols must not reach the Skylos whitelist command."""
+        pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
+        for wildcard in _WILDCARD_SYMBOLS:
+            returncode, _stdout, stderr = _make_command(
+                "skylos-allow",
+                environment=_skylos_allow_environment(
+                    SYMBOL=f"registered{wildcard}handler",
+                    REASON="verified runtime caller",
+                ),
+            )
+            assert returncode == 2, "skylos-allow must reject wildcard-bearing symbols"
+            assert (
+                "Error: SYMBOL must not contain wildcard characters (*, ?, or [)"
+                in stderr
+            ), "skylos-allow must explain its wildcard-symbol rejection"
+        assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
+            "wildcard-symbol validation must not mutate pyproject.toml"
+        )
+
+    @settings(max_examples=25, deadline=None)
+    @example(symbol="$(handler);!", reason='Loaded "$plugin" | registry')
+    @given(symbol=_SHELL_ARGUMENT_TEXT, reason=_SHELL_ARGUMENT_TEXT)
+    def test_skylos_allow_forwards_generated_arguments_exactly(
+        self, symbol: str, reason: str
+    ) -> None:
+        """A recorder must receive every valid symbol and reason as one argument."""
+        pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
+        with TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            recorded_arguments = directory / "arguments.json"
+            recorder = directory / "skylos-recorder"
+            recorder.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json\n"
+                "import os\n"
+                "import sys\n"
+                "from pathlib import Path\n\n"
+                'Path(os.environ["SKYLOS_ARGUMENTS_PATH"]).write_text(\n'
+                "    json.dumps(sys.argv[1:]), encoding='utf-8'\n"
+                ")\n",
+                encoding="utf-8",
+            )
+            recorder.chmod(0o755)
+            environment = _skylos_allow_environment(
+                SKYLOS_ARGUMENTS_PATH=str(recorded_arguments),
+                SYMBOL=symbol,
+                REASON=reason,
+            )
+            returncode, _stdout, stderr = _make_command(
+                *_isolated_skylos_allow_arguments(directory, skylos_cli=recorder),
+                environment=environment,
+                working_directory=directory,
+            )
+            assert returncode == 0, (
+                f"skylos-allow must forward valid generated arguments: {stderr}"
+            )
+            assert json.loads(recorded_arguments.read_text(encoding="utf-8")) == [
+                "whitelist",
+                symbol,
+                "--reason",
+                reason,
+            ], "Skylos must receive each generated value as exactly one argument"
+        assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
+            "recorder-backed skylos-allow requests must not mutate pyproject.toml"
+        )
+
+    def test_skylos_allow_lock_preserves_concurrent_documented_entries(
+        self,
+    ) -> None:
+        """The whitelist lock must prevent concurrent documented-entry loss."""
+        pyproject_before = (_REPOSITORY_ROOT / "pyproject.toml").read_bytes()
+        with TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            (directory / "pyproject.toml").write_text(
+                "[tool.skylos.whitelist.documented]\n", encoding="utf-8"
+            )
+            writer = directory / "skylos-whitelist-writer"
+            writer.write_text(
+                f"#!{sys.executable}\n"
+                "from pathlib import Path\n"
+                "import sys\n"
+                "import time\n"
+                "symbol = sys.argv[2]\n"
+                "reason = sys.argv[4]\n"
+                "path = Path('pyproject.toml')\n"
+                "contents = path.read_text(encoding='utf-8')\n"
+                "time.sleep(0.2)\n"
+                "path.write_text(contents + f'{symbol} = {reason!r}\\n', "
+                "encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            writer.chmod(0o755)
+            first = _whitelist_process(
+                directory,
+                skylos_cli=writer,
+                symbol="first",
+                reason="first reason",
+            )
+            second = _whitelist_process(
+                directory,
+                skylos_cli=writer,
+                symbol="second",
+                reason="second reason",
+            )
+            first_stdout, first_stderr = first.communicate()
+            second_stdout, second_stderr = second.communicate()
+
+            assert first.returncode == 0, (
+                "the first Skylos whitelist update must succeed: "
+                f"{first_stdout}{first_stderr}"
+            )
+            assert second.returncode == 0, (
+                "the second Skylos whitelist update must succeed: "
+                f"{second_stdout}{second_stderr}"
+            )
+            with (directory / "pyproject.toml").open("rb") as configuration_file:
+                configuration = tomllib.load(configuration_file)
+            documented = typ.cast(
+                "dict[str, object]",
+                configuration["tool"]["skylos"]["whitelist"]["documented"],
+            )
         assert documented == {"first": "first reason", "second": "second reason"}, (
             "Skylos whitelist locking must preserve every concurrent documented entry"
         )
-    assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
-        "isolated concurrent Skylos whitelist tests must not mutate pyproject.toml"
-    )
+        assert (_REPOSITORY_ROOT / "pyproject.toml").read_bytes() == pyproject_before, (
+            "isolated concurrent Skylos whitelist tests must not mutate pyproject.toml"
+        )
 
-
-def test_full_suite_workflows_install_the_pinned_makefile_parser() -> None:
-    """Every isolated full-suite job must provision Makeutil independently."""
-    for workflow_path, job_name in (
-        (".github/workflows/ci.yml", "python-tests"),
-        (".github/workflows/ci.yml", "coverage"),
-        (".github/workflows/ci.yml", "python-tests-windows"),
-        (".github/workflows/coverage-main.yml", "coverage-upload"),
-    ):
-        job = _workflow_job(workflow_path, job_name)
-        environment = _mapping(
-            job.get("env"), subject=f"{workflow_path} {job_name} environment"
+    def test_full_suite_workflows_install_the_pinned_makefile_parser(
+        self,
+    ) -> None:
+        """Every isolated full-suite job must provision Makeutil independently."""
+        for workflow_path, job_name in (
+            (".github/workflows/ci.yml", "python-tests"),
+            (".github/workflows/ci.yml", "coverage"),
+            (".github/workflows/ci.yml", "python-tests-windows"),
+            (".github/workflows/coverage-main.yml", "coverage-upload"),
+        ):
+            job = _workflow_job(workflow_path, job_name)
+            environment = _mapping(
+                job.get("env"), subject=f"{workflow_path} {job_name} environment"
+            )
+            assert environment.get("MAKEUTIL_REVISION") == _MAKEUTIL_REVISION, (
+                f"{workflow_path} {job_name} must pin the Makeutil revision"
+            )
+            assert environment.get("MAKEUTIL_TOOLCHAIN") == _MAKEUTIL_TOOLCHAIN, (
+                f"{workflow_path} {job_name} must pin the Makeutil nightly toolchain"
+            )
+            parser_step = _sole_workflow_step(
+                workflow_path, job_name, "Install Makefile parser"
+            )
+            assert parser_step.get("uses") == _MAKEUTIL_ACTION_REFERENCE, (
+                f"{workflow_path} {job_name} must use the local Makeutil installer"
+            )
+            assert (
+                _mapping(
+                    parser_step.get("with"),
+                    subject=f"{workflow_path} {job_name} Makeutil installer inputs",
+                )
+                == _MAKEUTIL_ACTION_INPUTS
+            ), f"{workflow_path} {job_name} must pass both pinned Makeutil inputs"
+        action = _makeutil_action()
+        inputs = _mapping(action.get("inputs"), subject="Makeutil action inputs")
+        for input_name in _MAKEUTIL_ACTION_INPUTS:
+            input_configuration = _mapping(
+                inputs.get(input_name), subject=f"Makeutil action {input_name} input"
+            )
+            assert input_configuration.get("required") is True, (
+                f"Makeutil action must require {input_name}"
+            )
+        runs = _mapping(action.get("runs"), subject="Makeutil action runs")
+        assert runs.get("using") == "composite", "Makeutil installer must be composite"
+        install_steps = _objects(
+            runs.get("steps"), subject="Makeutil composite action steps"
         )
-        assert environment.get("MAKEUTIL_REVISION") == _MAKEUTIL_REVISION, (
-            f"{workflow_path} {job_name} must pin the Makeutil revision"
+        assert len(install_steps) == 1, (
+            "Makeutil composite action must have one install step"
         )
-        assert environment.get("MAKEUTIL_TOOLCHAIN") == _MAKEUTIL_TOOLCHAIN, (
-            f"{workflow_path} {job_name} must pin the Makeutil nightly toolchain"
+        install_step = install_steps[0]
+        assert install_step.get("shell") == "bash", (
+            "Makeutil installer must preserve its bash execution environment"
         )
-        parser_step = _sole_workflow_step(
-            workflow_path, job_name, "Install Makefile parser"
-        )
+        assert (
+            _mapping(install_step.get("env"), subject="Makeutil installer environment")
+            == _MAKEUTIL_ACTION_ENVIRONMENT
+        ), "Makeutil installer must map both caller inputs to its command environment"
         _assert_makeutil_installation(
-            parser_step.get("run"),
-            contract=f"{workflow_path} {job_name} Makeutil installation",
+            install_step.get("run"), contract="Makeutil composite action installation"
         )
-    windows_make_step = _sole_workflow_step(
-        ".github/workflows/ci.yml", "python-tests-windows", "Install GNU Make"
-    )
-    _assert_gnu_make_installation(
-        windows_make_step.get("run"),
-        contract="python-tests-windows GNU Make installation",
-    )
+        windows_make_step = _sole_workflow_step(
+            ".github/workflows/ci.yml", "python-tests-windows", "Install GNU Make"
+        )
+        _assert_gnu_make_installation(
+            windows_make_step.get("run"),
+            contract="python-tests-windows GNU Make installation",
+        )

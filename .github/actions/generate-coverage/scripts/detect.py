@@ -153,13 +153,15 @@ def get_lang(
 ) -> tuple[Lang, Path | None]:
     """Detect project language and selected Cargo manifest (if any)."""
     selected_manifest = _resolve_cargo_manifest(cargo_manifest)
-    if mode is LangMode.AUTO:
-        return _auto_lang(selected_manifest)
-    if mode is LangMode.RUST:
-        return _forced_rust(selected_manifest)
-    if mode is LangMode.PYTHON:
-        return _forced_python()
-    return _forced_mixed(selected_manifest)
+    match mode:
+        case LangMode.AUTO:
+            return _auto_lang(selected_manifest)
+        case LangMode.RUST:
+            return _forced_rust(selected_manifest)
+        case LangMode.PYTHON:
+            return _forced_python()
+        case LangMode.MIXED:
+            return _forced_mixed(selected_manifest)
 
 
 def _parse_lang_mode(raw: str) -> LangMode:

@@ -33,6 +33,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 WORKFLOWS_DIRECTORY: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "workflows"
 
@@ -78,6 +81,79 @@ OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS: typ.Final[int] = 10 * 60
 #: have reported the overrun, and the report is the only thing that makes
 #: an overrun actionable, so reaching the requirement buys nothing.
 CEILING_MARGIN_SECONDS: typ.Final[int] = 15 * 60
+
+
+def required_ceiling_seconds(budgets: cabc.Sequence[int]) -> int:
+    """Return the smallest ceiling that does not pre-empt the watchdogs.
+
+    Three terms. Every coverage step may legitimately spend its whole
+    watchdog, so the budgets are summed rather than one of them
+    multiplied by their count: they need not agree, and multiplying the
+    first understates a job whose second step is given more. The measured
+    work outside those windows is added because the job timer covers it
+    and the watchdogs do not. The margin is added because a ceiling that
+    merely reaches this sum cancels the job at the moment the watchdog
+    would have reported the overrun.
+
+    Parameters
+    ----------
+    budgets : cabc.Sequence[int]
+        One watchdog budget per coverage step, in seconds.
+
+    Returns
+    -------
+    int
+        The requirement in seconds.
+
+    Examples
+    --------
+    >>> required_ceiling_seconds([1800, 2700])
+    6000
+    """
+    return sum(budgets) + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
+
+
+def ceiling_is_sufficient(
+    ceiling_minutes: int | None, budgets: cabc.Sequence[int]
+) -> bool:
+    """Return whether a job's ceiling clears its requirement.
+
+    Strictly above, not at: a ceiling sitting exactly on the requirement
+    is the case the README rejects by name, because the job is cancelled
+    at the moment the watchdog would have reported the overrun and a
+    cancellation discards the log.
+
+    The rule lives here rather than inline in an assertion so it can be
+    exercised against lanes this repository does not have. Its own lanes
+    skip while no root ``Cargo.toml`` exists, so an inline comparison
+    would be checked by nothing at all.
+
+    Parameters
+    ----------
+    ceiling_minutes : int or None
+        The job's ``timeout-minutes``, or None when it declares none and
+        so inherits GitHub's six-hour default.
+    budgets : cabc.Sequence[int]
+        One watchdog budget per coverage step, in seconds.
+
+    Returns
+    -------
+    bool
+        True when the ceiling is declared and strictly above the
+        requirement.
+
+    Examples
+    --------
+    >>> ceiling_is_sufficient(None, [1800])
+    False
+    >>> ceiling_is_sufficient(55, [1800])
+    False
+    >>> ceiling_is_sufficient(56, [1800])
+    True
+    """
+    if ceiling_minutes is None:
+        return False
+    return ceiling_minutes * 60 > required_ceiling_seconds(budgets)
 
 
 class WorkflowStep(typ.TypedDict, total=False):
@@ -550,15 +626,13 @@ class TestCoverageTimeoutTiers:
             watchdog if watchdog is not None else WATCHDOG_DEFAULT_SECONDS
             for watchdog in lane.watchdogs
         ]
-        required = (
-            sum(budgets) + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
-        )
+        required = required_ceiling_seconds(budgets)
         assert lane.ceiling is not None, (
             f"{lane} runs cargo under {len(budgets)} watchdog(s) totalling "
             f"{sum(budgets)} s in a job with no timeout-minutes; the outermost "
             f"tier is missing and GitHub's six-hour default applies"
         )
-        assert lane.ceiling * 60 > required, (
+        assert ceiling_is_sufficient(lane.ceiling, budgets), (
             f"{lane} has a ceiling of {lane.ceiling} minutes, at or below the "
             f"{required / 60:.0f} needed to cover {len(budgets)} watchdog(s) "
             f"totalling {sum(budgets)} s, "

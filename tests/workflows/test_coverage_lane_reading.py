@@ -19,10 +19,9 @@ import typing as typ
 import pytest
 
 from tests.workflows.test_coverage_timeout_tiers import (
-    CEILING_MARGIN_SECONDS,
     COVERAGE_ACTION_SUFFIX,
     MANIFEST_INPUT,
-    OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS,
+    WATCHDOG_DEFAULT_SECONDS,
     WATCHDOG_INPUT,
     WATCHDOG_VARIABLE,
     WorkflowDocument,
@@ -32,6 +31,8 @@ from tests.workflows.test_coverage_timeout_tiers import (
     _coverage_lanes,
     _manifest_inputs,
     _watchdog_of,
+    ceiling_is_sufficient,
+    required_ceiling_seconds,
 )
 
 
@@ -229,26 +230,50 @@ class TestTheCeilingRequirement:
             },
         )
 
-    def test_a_ceiling_on_its_requirement_is_refused(self) -> None:
-        """Equality is the case the README rejects by name.
+    @pytest.mark.parametrize(
+        ("ceiling_minutes", "watchdogs", "sufficient"),
+        [
+            pytest.param(None, (1800,), False, id="no-ceiling-at-all"),
+            pytest.param(40, (1800,), False, id="below-the-requirement"),
+            pytest.param(55, (1800,), False, id="exactly-on-the-requirement"),
+            pytest.param(56, (1800,), True, id="one-minute-above-it"),
+            pytest.param(100, (1800, 2700), False, id="two-steps-below-the-sum"),
+            pytest.param(101, (1800, 2700), True, id="two-steps-above-the-sum"),
+        ],
+    )
+    def test_the_ceiling_rule_judges_a_parsed_lane(
+        self,
+        ceiling_minutes: int | None,
+        watchdogs: tuple[int, ...],
+        *,
+        sufficient: bool,
+    ) -> None:
+        """The rule the contract applies, over lanes this repository lacks.
 
-        A ceiling equal to the sum it contains cancels the job at the
-        moment the watchdog would have reported the overrun. An
-        inclusive comparison passes that lane, which is why the rule and
-        the assertion both read `>`.
+        Every assertion in the contract skips while no root
+        ``Cargo.toml`` exists, so the arithmetic behind them is exercised
+        by nothing there. These drive the same predicate the contract
+        calls, over documents parsed the same way, so the equality case
+        the README rejects by name is checked rather than restated.
+
+        The 55-minute case is the one that matters: 1,800 s of watchdog,
+        600 s of measured work outside it and a 900 s margin is exactly
+        3,300 s, so a ceiling of 55 minutes sits on its requirement and
+        an inclusive comparison would pass it.
         """
-        required = 1800 + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
-        (lane,) = _coverage_lanes(
-            {"ci.yml": self._document(ceiling=required // 60, watchdogs=(1800,))}
-        )
+        document = self._document(ceiling=ceiling_minutes, watchdogs=watchdogs)
+        (lane,) = _coverage_lanes({"ci.yml": document})
+        budgets = [
+            watchdog if watchdog is not None else WATCHDOG_DEFAULT_SECONDS
+            for watchdog in lane.watchdogs
+        ]
 
-        assert lane.ceiling is not None, "the synthetic job declares a ceiling"
-        assert lane.ceiling * 60 == required, (
-            "this case exists to sit exactly on the requirement"
-        )
-        assert not lane.ceiling * 60 > required, (
-            "a ceiling on its requirement must fail the strict comparison the "
-            "README states; an inclusive one would pass it"
+        assert ceiling_is_sufficient(lane.ceiling, budgets) is sufficient, (
+            f"a ceiling of {ceiling_minutes} minutes against watchdogs "
+            f"{watchdogs} must {'clear' if sufficient else 'fail'} the "
+            f"{required_ceiling_seconds(budgets)} s requirement; the rule is "
+            f"strictly above, because a ceiling on its requirement cancels the "
+            f"job at the moment the watchdog would have reported the overrun"
         )
 
     def test_two_steps_require_the_sum_rather_than_a_multiple(self) -> None:

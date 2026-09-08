@@ -73,10 +73,12 @@ def emit_decision(
     Notes
     -----
     Two side effects beyond the outputs, and only one can occur. A
-    branch carrying foreign commits prints a warning naming them, since
-    that is the case a maintainer must look at. A branch whose commits
-    could not be read prints a notice instead, because that is a query
-    fault rather than a finding about the branch.
+    branch carrying foreign commits prints a notice naming them: the
+    check has done its job and the branch simply will not merge
+    unattended, which is an outcome rather than a fault. A branch whose
+    commits could not be read prints a warning, because there the check
+    did not run at all and eligibility rests on the pull request's
+    author alone, which is a degradation someone has to fix.
     """
     reason = decision.reason
     if decision.status == "ready" and config.dry_run:

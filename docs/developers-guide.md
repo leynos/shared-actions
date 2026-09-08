@@ -916,53 +916,73 @@ environment arrives as an argument rather than through `os.environ`.
 `_required_env` and `_env_bool` in `common.py` accept the same optional mapping
 for that reason.
 
-## `generate-coverage` cargo-binstall Pinning
+## `generate-coverage` and `ratchet-coverage` cargo-llvm-cov installation
 
-`generate-coverage` provisions its own `cargo-binstall` in the "Ensure
-cargo-binstall" step before installing `cargo-llvm-cov`. It follows the same
-pinning discipline as `setup-rust`: `BINSTALL_VERSION` and the installer-script
-`BINSTALL_SHA256` are a pair and must be updated together.
+Both coverage actions install `cargo-llvm-cov` with the same script,
+`scripts/install_cargo_llvm_cov.py`, from the repository's tool manifest
+(`.github/tool-manifest.toml`). `CARGO_LLVM_COV_VERSION` in the script names
+the manifest entry; the resolver refuses a version the manifest does not list,
+so bumping the tool means adding the manifest entry first (every digest from an
+independent download, as the manifest's header prescribes) and moving the
+constant second.
 
-The step is idempotent and verifies the version on both paths:
+The script has one pure step and one effectful one:
 
-- **Fast path** — if `cargo-binstall` is already on `PATH`, its `-V` output is
-  matched against the pinned version. On a match the step reuses the binary and
-  exits without any network access; on a mismatch it logs the discrepancy and
-  falls through to a pinned reinstall.
-- **Install path** — the checksum-pinned installer script is downloaded and its
-  SHA-256 verified before execution, and the freshly installed binary's version
-  is re-checked so a wrong installed version fails the step.
+- **Resolution** (`load_manifest`, `load_resolver`, `resolve_tool`) reads the
+  manifest and selects the archive for the runner with the `install-tool`
+  resolver (`.github/actions/install-tool/scripts/resolve_tool.py`), using
+  `RUNNER_OS` and `RUNNER_ARCH` inside a job and `platform` outside one. It
+  returns a `ResolvedTool` or raises `ToolResolutionError` carrying the
+  resolver's bounded failure kind; it publishes nothing and never exits the
+  process. `resolve_tool` takes both the manifest and the resolver as optional
+  arguments, so a caller or a test supplies either without touching the
+  filesystem. When neither is given it loads them, and a resolver that is
+  missing or raises from its own module body becomes
+  `ToolResolutionError(kind="resolver-unavailable")` rather than an `OSError`,
+  an `ImportError` or whatever that module body raised.
+- **Installation** (`install`) downloads the archive with a 200 MB cap,
+  verifies its SHA-256 against the manifest, extracts exactly the manifest's
+  `member`, stages it in a temporary directory beside the destination and
+  publishes it with a rename, so a concurrent reader never sees a partially
+  written executable. Before publishing, it probes the staged binary
+  (`probe_version`, the one place a process is spawned to read a version,
+  returning a `VersionProbe` value over `absent`, `unrunnable` and `reported`)
+  and the pure `installed_at_pinned_version` accepts only a reported line equal
+  to `expected_version`. The same probe on the destination decides reuse.
 
-Both paths are exercised by behavioural tests in
-`.github/actions/generate-coverage/tests/test_scripts.py`, which execute the
-extracted step body against fake `cargo-binstall` binaries and installers
-rather than asserting on the step's source text.
+The probe and the decision compose like this:
 
-### CARGO_HOME resolution and PATH handling
-
-The "Ensure cargo-binstall" step derives the active Cargo bin directory at
-runtime:
-
-```bash
-cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+```python
+tool = resolve_tool()  # ResolvedTool(expected_version="cargo-llvm-cov 0.9.0", ...)
+probe = probe_version(cargo_bin() / tool.binary, tool.version_args)
+# VersionProbe(state="reported", version="cargo-llvm-cov 0.9.0")  -> reuse
+# VersionProbe(state="reported", version="cargo-llvm-cov 0.6.24") -> install
+# VersionProbe(state="absent", version=None)                     -> install
+# VersionProbe(state="unrunnable", version=None)                 -> install
+if installed_at_pinned_version(probe, tool.expected_version):
+    ...  # reuse
+probe.metric_state(tool.expected_version)  # "pinned", "other-version", ...
 ```
 
-This respects any custom `CARGO_HOME` set by the caller. The resolved path is
-used for three purposes:
+`main` is the command boundary: it turns a `ToolResolutionError` into an exit
+status and publishes the `cargo-llvm-cov.resolve`, `.download`,
+`.archive-digest` and `.install` metrics, each over a closed set of values, to
+the log and the job summary. It appends `CARGO_HOME/bin` to `GITHUB_PATH` so
+later steps find the binary.
 
-1. **GITHUB_PATH** – when `GITHUB_PATH` is set, the resolved bin directory is
-   appended so that subsequent workflow steps see the binary on their `PATH`.
-2. **Current-step PATH** – the bin directory is prepended to the *current*
-   shell's `PATH` (guarded by a `case ":$PATH:"` check to avoid duplication) so
-   that in-step commands can also find the binary.
-3. **Absolute-path verification** – `cargo-binstall` is invoked via its
-   resolved absolute path (`"$cargo_binstall"`) rather than as an unqualified
-   command, ensuring that verification succeeds even when the bin directory has
-   not yet been propagated to the shell's `PATH` by other means.
+The behavioural tests live in
+`.github/actions/generate-coverage/tests/test_install_cargo_llvm_cov.py`. They
+hold the pinned version to the manifest for every runner the resolver knows,
+drive `main` end to end against a temporary manifest whose entry points at a
+local HTTP server, and cover digest mismatch, a missing member, an oversized
+download, a binary reporting another version, and the reuse path. They also
+inject a failing resolver, both absent and raising on import, and assert that
+resolution reports `resolver-unavailable` while writing nothing, and that
+`main` turns it into that metric and exit status. A Hypothesis property holds
+that only the exact expected version line counts as installed.
 
-Keep `cargo_home_bin` resolution and the `BINSTALL_VERSION` pin in sync: both
-must reflect the same intended installation location and version whenever the
-pin is updated.
+`generate-coverage` no longer provisions `cargo-binstall`: nothing in either
+action invokes `cargo binstall`.
 
 ## `generate-coverage` cargo-nextest installation
 

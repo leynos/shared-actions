@@ -165,6 +165,38 @@ instead of the previous cargo-binstall path. A caller that sets
 `use-cargo-nextest: "false"` is unaffected, since the action never installs
 `cargo-nextest` in that mode.
 
+### `cargo-llvm-cov` from the tool manifest
+
+`generate-coverage` and `ratchet-coverage` install `cargo-llvm-cov` 0.9.0 from
+the repository tool manifest (`.github/tool-manifest.toml`) through
+`scripts/install_cargo_llvm_cov.py`, replacing the `cargo binstall` of 0.6.24.
+The installer selects the archive for the runner's operating system and
+architecture, verifies its SHA-256 against the manifest, extracts only the
+named executable, and publishes it only when it reports exactly the pinned
+version. The supported targets are the manifest entry's: x86_64 and aarch64
+Linux (glibc), x86_64 and aarch64 macOS, and x86_64 Windows. Any other runner
+fails resolution with a bounded `cargo-llvm-cov.resolve=unsupported-runner`
+metric rather than building from source.
+
+The version moved because cargo 1.100 nightlies enable Cargo's new build-dir
+layout, which 0.6.24 cannot read: on such a toolchain coverage failed with
+`failed to collect object files` after every test had passed. A caller on a
+toolchain from 2026-08-22 or later needs this release of the action.
+
+`generate-coverage` no longer provisions `cargo-binstall` at all, and
+`~/.cargo/bin/cargo-binstall` is no longer part of its Cargo cache. A workflow
+that relied on the action leaving a `cargo-binstall` on `PATH` for later steps
+must install one in those steps.
+
+The two actions differ here, so the consumed action determines the required
+change. `ratchet-coverage` never provisioned or cached `cargo-binstall`: it
+invoked whichever one the job already had on `PATH`, and it left nothing
+behind. Its change is the other direction. It no longer needs a
+`cargo-binstall` on `PATH` at all, so a job that installed one solely to
+satisfy `ratchet-coverage`, or that ran `generate-coverage` first to obtain
+one, can drop that step. A later step in such a job that used that
+`cargo-binstall` for its own purposes still needs one installed explicitly.
+
 ## Checklist
 
 - [ ] Confirm which `install-whitaker` and `generate-coverage` major tags you
@@ -173,6 +205,15 @@ instead of the previous cargo-binstall path. A caller that sets
 - [ ] If you pin `installer-version` explicitly, confirm it is one of the
       versions listed in `installer-digests.sha256`, or supply a verified
       `installer-sha256`.
+- [ ] If a later workflow step used the `cargo-binstall` that `generate-coverage`
+      used to leave on `PATH`, install one in that workflow; the action no
+      longer does.
+- [ ] For a workflow that runs `ratchet-coverage`, drop any step that
+      installed `cargo-binstall` only to satisfy it, and any ordering that ran
+      `generate-coverage` first for the same reason. `ratchet-coverage` now
+      installs `cargo-llvm-cov` from the manifest and calls no `cargo binstall`
+      of its own. Keep such a step only where a later step uses that
+      `cargo-binstall` itself.
 - [ ] If you relied on a cargo-binstall QuickInstall substitute or a source
       build for `cargo-nextest`, replace that reliance with a version this
       repository pins, or preinstall a verified binary on `PATH` before

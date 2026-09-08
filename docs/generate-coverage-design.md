@@ -59,6 +59,23 @@ action and the evolution of its supporting scripts.
   relying on an unpinned or stale binary already present on the runner. Both
   the fast (reuse) and install paths are covered by behavioural tests that
   execute the extracted step body against fake binaries and installers.
+- *2026-09-06* — `cargo-llvm-cov` is installed from the repository tool
+  manifest (`.github/tool-manifest.toml`) at 0.9.0, and the "Ensure
+  cargo-binstall" step is gone: nothing in the action shells out to
+  `cargo binstall` any more, so the 2026-07-04 decision above is superseded.
+  The trigger was cargo 1.100 nightlies enabling Cargo's new build-dir layout,
+  which puts test executables under `debug/build/<package>/<hash>/out`;
+  cargo-llvm-cov 0.6.24 searched `debug/deps` and failed with `failed to
+  collect object files` after every test passed, and 0.9.0 reads the new
+  layout. `install_cargo_llvm_cov.py` (shared byte for byte with
+  `ratchet-coverage`) resolves the manifest entry through the `install-tool`
+  resolver, refusing any other manifest schema, selects the archive for the
+  runner's OS and architecture, downloads it with a 200 MB cap, verifies its
+  SHA-256 against the manifest, extracts only the named member, probes the
+  staged binary and publishes it with a rename beside the destination only
+  when it reports exactly the pinned version. Resolution and the version
+  probe are values (`ToolResolutionError`, `VersionProbe`) and the command
+  boundary in `main` publishes every outcome as a bounded metric.
 - *2026-09-03* — The ratchet baseline cache moved from the full `actions/cache`
   action to the `actions/cache/restore` and `actions/cache/save` sub-actions at
   one pinned revision. The full action registers a post-job save of its own, so
@@ -351,11 +368,12 @@ requires no explicit synchronization.
 
 ## Addendum: prebuilt CI tool installation (2026-09-03)
 
-`cargo-llvm-cov` and `cargo-nextest` now follow separate installation
-strategies. `cargo-llvm-cov` continues to install via a pinned `cargo-binstall`.
-`cargo-nextest` instead downloads its pinned official release archive directly
-from `nextest-rs/nextest` and never invokes Cargo, so a missing prebuilt binary
-is a hard error rather than a source build.
+`cargo-llvm-cov` and `cargo-nextest` follow separate installation strategies.
+`cargo-llvm-cov` installed via a pinned `cargo-binstall` when this addendum was
+written; since 2026-09-06 it installs from the tool manifest (see the design
+decision of that date). `cargo-nextest` downloads its pinned official release
+archive directly from `nextest-rs/nextest` and never invokes Cargo, so a missing
+prebuilt binary is a hard error rather than a source build.
 
 ### Platform asset selection
 

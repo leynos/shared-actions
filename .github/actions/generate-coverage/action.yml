@@ -212,7 +212,6 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: |
-          ~/.cargo/bin/cargo-binstall
           ~/.cargo/bin/cargo-llvm-cov
           ~/.cargo/bin/cargo-nextest
           ~/.cargo/registry
@@ -220,74 +219,6 @@ runs:
         key: ${{ runner.os }}-llvmcov-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-llvmcov-
-    - name: Ensure cargo-binstall
-      if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
-      run: |
-        set -euo pipefail
-        # NOTE: BINSTALL_SHA256 pins and validates only the installer script
-        # (install-from-binstall-release.sh), not the cargo-binstall binary that
-        # the script subsequently downloads and executes.
-        #
-        # Keep BINSTALL_VERSION and BINSTALL_SHA256 in sync; update both together.
-        # To refresh the installer checksum: curl -fsSL "$INSTALLER_URL" | shasum -a 256 | awk '{print $1}'
-        #
-        # If a stronger supply-chain posture is required (similar to cargo-nextest),
-        # extend this step to also verify the checksum of the downloaded cargo-binstall
-        # artefact before invoking it, assuming such checksums are available upstream.
-        # Export so the child installer shell inherits it; the installer reads
-        # BINSTALL_VERSION from the environment to pick the pinned release and
-        # otherwise silently falls back to releases/latest.
-        export BINSTALL_VERSION="v1.19.1"
-        binstall_ver="${BINSTALL_VERSION#v}"
-        # Match the pinned version as a whole, space-delimited token so a
-        # look-alike such as 1.19.10 does not satisfy a 1.19.1 pin. The `-V`
-        # output may be a bare version ("1.19.1") or "<name> <version>".
-        binstall_version_matches() {
-          case " $1 " in
-            *" ${binstall_ver} "*) return 0 ;;
-            *) return 1 ;;
-          esac
-        }
-        if command -v cargo-binstall >/dev/null 2>&1; then
-          existing_version="$(cargo-binstall -V)"
-          if binstall_version_matches "$existing_version"; then
-            echo "cargo-binstall already installed: $existing_version"
-            exit 0
-          fi
-          echo "cargo-binstall version mismatch: expected $binstall_ver, found $existing_version; reinstalling pinned version" >&2
-        fi
-        BINSTALL_SHA256="d3a93702160e0ec03e2a4e996855db1f01adee801fb84a43add24e0877ef8eae"
-        INSTALLER_URL="https://raw.githubusercontent.com/cargo-bins/cargo-binstall/${BINSTALL_VERSION}/install-from-binstall-release.sh"
-        INSTALLER_PATH="$(mktemp)"
-        trap 'rm -f "$INSTALLER_PATH"' EXIT
-        curl -fsSL --proto '=https' --tlsv1.2 "$INSTALLER_URL" -o "$INSTALLER_PATH"
-        if [ ! -s "$INSTALLER_PATH" ]; then
-          echo "cargo-binstall installer download failed or empty" >&2
-          exit 1
-        fi
-        if command -v sha256sum >/dev/null 2>&1; then
-          ACTUAL_SHA256="$(sha256sum "$INSTALLER_PATH" | awk '{print $1}')"
-        else
-          ACTUAL_SHA256="$(shasum -a 256 "$INSTALLER_PATH" | awk '{print $1}')"
-        fi
-        if [ "$ACTUAL_SHA256" != "$BINSTALL_SHA256" ]; then
-          echo "cargo-binstall install script checksum mismatch: $ACTUAL_SHA256" >&2
-          exit 1
-        fi
-        bash "$INSTALLER_PATH"
-        cargo_home_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
-        if [ -n "${GITHUB_PATH:-}" ]; then
-          echo "$cargo_home_bin" >> "$GITHUB_PATH"
-        fi
-        cargo_binstall="$cargo_home_bin/cargo-binstall"
-        installed_version="$("$cargo_binstall" -V)"
-        if ! binstall_version_matches "$installed_version"; then
-          echo "cargo-binstall version verification failed: expected $binstall_ver" >&2
-          printf '%s\n' "$installed_version" >&2
-          exit 1
-        fi
-        echo "cargo-binstall $installed_version verified"
-      shell: bash
     - name: Install cargo-llvm-cov
       if: steps.detect.outputs.lang == 'rust' || steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/install_cargo_llvm_cov.py"

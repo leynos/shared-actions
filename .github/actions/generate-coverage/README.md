@@ -10,10 +10,12 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` is installed via
-a pinned `cargo-binstall`. `cargo-nextest` is downloaded directly from its
+are required. When Rust coverage is required, `cargo-llvm-cov` is installed from
+the repository's tool manifest (`.github/tool-manifest.toml`): the entry names
+the release archive and its SHA-256 digest per target, and the installer
+extracts only the named member. `cargo-nextest` is downloaded directly from its
 pinned official release; both the archive and extracted binary have fixed
-SHA-256 digests, and no Cargo source-build fallback exists. If both
+SHA-256 digests. Neither has a Cargo source-build fallback. If both
 configuration files are present, coverage is run for each language and the
 Cobertura reports are merged using `uvx merge-cobertura`.
 
@@ -203,7 +205,7 @@ With the default `cache-provider: github`, setup-uv retains its historical
 automatic policy: its GitHub cache is enabled on GitHub-hosted runners and
 disabled on self-hosted runners. The action also caches Cargo artefacts and
 Python dependencies with `actions/cache`. The Cargo cache covers the
-`cargo-binstall`, `cargo-llvm-cov`, and `cargo-nextest` binaries, the Cargo
+`cargo-llvm-cov` and `cargo-nextest` binaries, the Cargo
 registry, and the Cargo Git index. It no longer archives the `target` tree.
 
 Coverage builds an instrumented `target/llvm-cov-target` tree, whereas lint and

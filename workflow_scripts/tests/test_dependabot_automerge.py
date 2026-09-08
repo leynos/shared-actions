@@ -9,7 +9,10 @@ import typing as typ
 import httpx
 import pytest
 
-from workflow_scripts import dependabot_automerge, graphql_client
+from workflow_scripts import (
+    dependabot_automerge,
+    graphql_client,
+)
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -90,6 +93,7 @@ def _build_live_execution_mock(
                 "pullRequest": {
                     "id": f"PR_{test_case.pr_number}",
                     "number": test_case.pr_number,
+                    "headRefOid": "0" * 40,
                     "isDraft": False,
                     "mergeStateStatus": test_case.merge_state_status,
                     "mergeable": test_case.mergeable,
@@ -353,6 +357,47 @@ def test_dry_run_skips(
     )
 
 
+def test_a_dry_run_reports_the_commit_audit_as_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A dry run reads no commits, and must not claim it did.
+
+    The event payload carries no commit list, so the audit never runs.
+    Reporting `clean` would put a check that was never made into the one
+    output meant to be counted across repositories, and the warning that
+    explains the gap would not be printed either.
+    """
+    event_path = _write_event(
+        tmp_path,
+        {
+            "pull_request": {
+                "number": 42,
+                "user": {"login": "dependabot[bot]"},
+                "draft": False,
+                "labels": [{"name": "dependencies"}],
+            },
+            "repository": {"full_name": "acme/example"},
+        },
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+
+    dependabot_automerge.main(
+        github_token=TEST_TOKEN,
+        options=dependabot_automerge.AutomergeOptions(
+            dry_run=True,
+            required_label="dependencies",
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert "automerge_commit_audit=unreadable" in captured.out, captured.out
+    assert "could not read the commits" in captured.out, (
+        "the dry run must say the commit check did not run"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Other integration tests
 # ---------------------------------------------------------------------------
@@ -574,6 +619,7 @@ def test_retries_until_merge_state_known(
                 "pullRequest": {
                     "id": "PR_21",
                     "number": 21,
+                    "headRefOid": "0" * 40,
                     "isDraft": False,
                     "mergeStateStatus": merge_state,
                     "mergeable": mergeable_state,

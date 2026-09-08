@@ -17,6 +17,38 @@ Auto-merge is enabled only when all conditions are met:
 - The PR author is ``dependabot[bot]`` or ``dependabot``
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
+- Every commit on the branch is Dependabot's, and the whole branch was
+  read
+
+Commit Audit
+------------
+The author field names who opened the pull request, not who wrote what
+is on the branch, so a maintainer pushing to a Dependabot branch would
+otherwise be merged unattended. Every commit is therefore audited.
+
+The commit connection is paged to the end rather than read once: a
+connection read to its page size looks complete, and a foreign commit
+past that limit would be certified as Dependabot's. A branch longer
+than the page cap, a page carrying no commit list, or an author list
+the connection could not account for is reported unreadable rather than
+clean, because the check exists to certify the branch and a partial
+read certifies nothing.
+
+A foreign commit does more than withhold a merge. Auto-merge already
+armed on the pull request is withdrawn, since arming it was a decision
+taken while the branch was still Dependabot's and GitHub keeps such a
+request alive across a push. The withdrawal is deliberately limited to
+that case: a branch skipped for any other reason, an unreadable audit
+among them, keeps its request, because cancelling there would undo the
+arming this workflow exists to do. Both mutations are bound to the head
+commit the audit read, so a push racing the run cannot have the decision
+applied to it.
+
+The rule itself lives in ``dependabot_commit_audit`` and takes values
+rather than a client, so it can be exercised without a network. The
+GitHub boundary and the branch audit live in ``dependabot_github``,
+whose readers take the GraphQL call as an argument that defaults to the
+live client.
 
 Merge-state handling: auto-merge is armed while the PR is blocked by
 required rules (``BLOCKED``). If the PR is already mergeable (``CLEAN``,
@@ -67,66 +99,124 @@ main : The CLI entrypoint function.
 from __future__ import annotations
 
 import dataclasses
-import enum
 import json
-import math
 import os
 import time
 import typing as typ
 from pathlib import Path
-from types import MappingProxyType
 
 from cyclopts import App, Parameter
 
 if __package__:
+    from .dependabot_commit_audit import (
+        CommitAudit,
+        CommitRecord,
+        DependabotLogin,
+        ForeignCommit,
+    )
+    from .dependabot_decision import (
+        AutomergeConfig,
+        Decision,
+        PullRequestContext,
+        armed_request_to_withdraw,
+        evaluate,
+    )
+    from .dependabot_github import (
+        GraphQLQuery,
+        PullRequestRef,
+        fetch_pull_request,
+    )
+    from .dependabot_merge_state import (
+        MergeStateRetryConfig,
+        classify_merge_state,
+        merge_state_retry_config,
+    )
+    from .dependabot_queries import (
+        DISABLE_AUTOMERGE_MUTATION,
+        ENABLE_AUTOMERGE_MUTATION,
+        MERGE_PULL_REQUEST_MUTATION,
+    )
+    from .dependabot_report import emit_decision
     from .graphql_client import JsonValue, request_graphql
-    from .output import emit, fail
+    from .output import fail
 else:
+    from dependabot_commit_audit import (  # type: ignore[import-not-found,no-redef]
+        CommitAudit,
+        CommitRecord,
+        DependabotLogin,
+        ForeignCommit,
+    )
+    from dependabot_decision import (  # type: ignore[import-not-found,no-redef]
+        AutomergeConfig,
+        Decision,
+        PullRequestContext,
+        armed_request_to_withdraw,
+        evaluate,
+    )
+    from dependabot_github import (  # type: ignore[import-not-found,no-redef]
+        GraphQLQuery,
+        PullRequestRef,
+        fetch_pull_request,
+    )
+    from dependabot_merge_state import (  # type: ignore[import-not-found,no-redef]
+        MergeStateRetryConfig,
+        classify_merge_state,
+        merge_state_retry_config,
+    )
+    from dependabot_queries import (  # type: ignore[import-not-found,no-redef]
+        DISABLE_AUTOMERGE_MUTATION,
+        ENABLE_AUTOMERGE_MUTATION,
+        MERGE_PULL_REQUEST_MUTATION,
+    )
+    from dependabot_report import (  # type: ignore[import-not-found,no-redef]
+        emit_decision,
+    )
     from graphql_client import (  # type: ignore[import-not-found,no-redef]
         JsonValue,
         request_graphql,
     )
-    from output import emit, fail  # type: ignore[import-not-found,no-redef]
+    from output import fail  # type: ignore[import-not-found,no-redef]
 
 
-class DependabotLogin(enum.StrEnum):
-    """Supported Dependabot author login variants.
+def _fetch_pull_request(
+    token: str,
+    ref: PullRequestRef,
+    *,
+    query: GraphQLQuery | None = None,
+) -> PullRequestContext:
+    """Read one pull request through the live client by default.
 
-    Attributes
+    The adapter in ``dependabot_github`` requires the call rather than
+    naming one, so this module is where the live client is chosen. It is
+    read at call time, so patching this module's ``request_graphql``
+    still redirects the read path.
+
+    Parameters
     ----------
-    BOT : DependabotLogin
-        The canonical Dependabot bot login (``dependabot[bot]``).
-    LEGACY : DependabotLogin
-        The legacy Dependabot login (``dependabot``).
+    token : str
+        A GitHub token.
+    ref : PullRequestRef
+        Where the pull request lives.
+    query : GraphQLQuery or None
+        A call to use instead of the live client.
+
+    Returns
+    -------
+    PullRequestContext
+        The pull request as the decision layer reads it.
     """
-
-    BOT = "dependabot[bot]"
-    LEGACY = "dependabot"
+    return fetch_pull_request(token, ref, query=query or request_graphql)
 
 
-DEPENDABOT_LOGINS: frozenset[str] = frozenset(login.value for login in DependabotLogin)
-
-
-class MergeStateStatus(enum.StrEnum):
-    """Supported merge state statuses from GitHub GraphQL."""
-
-    BEHIND = "BEHIND"
-    BLOCKED = "BLOCKED"
-    CLEAN = "CLEAN"
-    DIRTY = "DIRTY"
-    DRAFT = "DRAFT"
-    HAS_HOOKS = "HAS_HOOKS"
-    MERGED = "MERGED"
-    UNKNOWN = "UNKNOWN"
-    UNSTABLE = "UNSTABLE"
-
-
-class MergeableState(enum.StrEnum):
-    """Supported mergeable states from GitHub GraphQL."""
-
-    CONFLICTING = "CONFLICTING"
-    MERGEABLE = "MERGEABLE"
-    UNKNOWN = "UNKNOWN"
+#: Re-exported so the workflow module remains the single import for
+#: callers and tests that do not care where the audit lives.
+__all__ = [
+    "CommitAudit",
+    "CommitRecord",
+    "DependabotLogin",
+    "ForeignCommit",
+    "main",
+]
 
 
 MERGE_METHODS = {
@@ -135,171 +225,7 @@ MERGE_METHODS = {
     "squash": "SQUASH",
 }
 
-PULL_REQUEST_QUERY = """
-query PullRequestInfo($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      id
-      number
-      isDraft
-      mergeStateStatus
-      mergeable
-      author {
-        login
-      }
-      labels(first: 100) {
-        nodes {
-          name
-        }
-      }
-      autoMergeRequest {
-        enabledAt
-        mergeMethod
-      }
-    }
-  }
-}
-"""
-
-ENABLE_AUTOMERGE_MUTATION = """
-mutation EnableAutomerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
-  enablePullRequestAutoMerge(
-    input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
-  ) {
-    pullRequest {
-      number
-    }
-  }
-}
-"""
-
-MERGE_PULL_REQUEST_MUTATION = """
-mutation MergePullRequest($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
-  mergePullRequest(
-    input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}
-  ) {
-    pullRequest {
-      number
-      merged
-    }
-  }
-}
-"""
-
 app = App()
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class PullRequestContext:
-    """Snapshot of the pull request metadata used for gating.
-
-    Attributes
-    ----------
-    number : int
-        The pull request number.
-    owner : str
-        The repository owner (organization or user).
-    repo : str
-        The repository name.
-    author : str
-        The login of the pull request author.
-    is_draft : bool
-        Whether the pull request is a draft.
-    labels : tuple[str, ...]
-        Labels currently applied to the pull request.
-    node_id : str or None
-        The GraphQL node ID for mutations. None when created from event data.
-    auto_merge_enabled : bool
-        Whether auto-merge is already enabled on this PR.
-    merge_state_status : MergeStateStatus
-        The PR merge state status (e.g. CLEAN, UNSTABLE), or ``UNKNOWN``.
-    mergeable_state : MergeableState
-        The PR mergeable state (e.g. MERGEABLE, CONFLICTING), or ``UNKNOWN``.
-    """
-
-    number: int
-    owner: str
-    repo: str
-    author: str
-    is_draft: bool
-    labels: tuple[str, ...]
-    node_id: str | None = None
-    auto_merge_enabled: bool = False
-    merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
-    mergeable_state: MergeableState = MergeableState.UNKNOWN
-
-
-MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
-    {
-        MergeStateStatus.DIRTY: "merge-state-dirty",
-        MergeStateStatus.BEHIND: "merge-state-behind",
-        MergeStateStatus.MERGED: "already-merged",
-    }
-)
-# States where the PR is already mergeable. GitHub rejects
-# enablePullRequestAutoMerge here ("Pull request is in clean/unstable
-# status"), so the PR is merged directly instead — mirroring what
-# auto-merge would do, since all *required* rules are already satisfied.
-MERGE_STATE_DIRECT_MERGE: frozenset[MergeStateStatus] = frozenset(
-    {
-        MergeStateStatus.CLEAN,
-        MergeStateStatus.HAS_HOOKS,
-        MergeStateStatus.UNSTABLE,
-    }
-)
-MERGEABLE_SKIP_REASONS: typ.Mapping[MergeableState, str] = MappingProxyType(
-    {
-        MergeableState.CONFLICTING: "mergeable-conflicting",
-    }
-)
-MERGE_STATE_RETRYABLE: frozenset[MergeStateStatus] = frozenset(
-    {MergeStateStatus.UNKNOWN}
-)
-MERGEABLE_RETRYABLE: frozenset[MergeableState] = frozenset({MergeableState.UNKNOWN})
-MERGE_STATE_MAX_ATTEMPTS_DEFAULT: int = 3
-MERGE_STATE_BASE_SLEEP_DEFAULT: float = 2.0
-MERGE_STATE_MAX_SLEEP_DEFAULT: float = 30.0
-MERGE_STATE_MAX_ATTEMPTS_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_ATTEMPTS"
-MERGE_STATE_BASE_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_BASE_SLEEP_SECONDS"
-MERGE_STATE_MAX_SLEEP_ENV: str = "AUTOMERGE_MERGE_STATE_MAX_SLEEP_SECONDS"
-
-type MergeStateClassification = typ.Literal["ok", "merge", "skip", "retry"]
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class Decision:
-    """Decision describing whether auto-merge should proceed.
-
-    Attributes
-    ----------
-    status : str
-        The decision status: ``skipped``, ``ready``, ``enabled``, ``merged``,
-        or ``error``.
-    reason : str
-        Human-readable reason for the decision, e.g. ``author-not-dependabot``.
-    """
-
-    status: str
-    reason: str
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class AutomergeConfig:
-    """Configuration for emitting automerge decisions.
-
-    Attributes
-    ----------
-    merge_method : str
-        The normalized merge method (``SQUASH``, ``MERGE``, or ``REBASE``).
-    required_label : str or None
-        Label that must be present on the PR, or None to skip label checks.
-    dry_run : bool
-        If True, decisions are logged without calling the GitHub API.
-    """
-
-    merge_method: str
-    required_label: str | None
-    dry_run: bool
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -431,7 +357,14 @@ def _labels_from_pr(pr: dict[str, JsonValue]) -> tuple[str, ...]:
 def _snapshot_from_event(
     event: dict[str, JsonValue], repo_full_name: str
 ) -> PullRequestContext:
-    """Build a PullRequestContext from a GitHub event payload."""
+    """Build a PullRequestContext from a GitHub event payload.
+
+    The event carries no commit list, so the audit did not run here and
+    the context says so. Leaving ``commits_readable`` at its default
+    would have the dry run report ``automerge_commit_audit=clean``, which
+    claims a check that was never made and does so in the one output
+    meant to be counted.
+    """
     pr = event.get("pull_request")
     if not isinstance(pr, dict):
         fail("Event payload does not include pull_request data.")
@@ -447,251 +380,7 @@ def _snapshot_from_event(
         author=author_login,
         is_draft=is_draft,
         labels=_labels_from_pr(pr),
-    )
-
-
-def _evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
-    """Evaluate a PR against eligibility rules and return a Decision.
-
-    Dependabot eligibility accepts authors ``dependabot[bot]`` and
-    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`, which includes both
-    author variants.
-
-    Parameters
-    ----------
-    pr : PullRequestContext
-        Snapshot of pull request metadata used for eligibility checks.
-    required_label : str or None
-        Label that must be present on the PR, or None to skip label checks.
-
-    Returns
-    -------
-    Decision
-        Outcome indicating whether auto-merge should proceed.
-
-    Notes
-    -----
-    :data:`DEPENDABOT_LOGINS` is the canonical source of eligible Dependabot
-    author logins used by this evaluation.
-
-    """
-    if pr.author not in DEPENDABOT_LOGINS:
-        return Decision(status="skipped", reason="author-not-dependabot")
-    if pr.is_draft:
-        return Decision(status="skipped", reason="draft-pr")
-    if required_label and required_label not in pr.labels:
-        return Decision(status="skipped", reason=f"missing-label:{required_label}")
-    return Decision(status="ready", reason="eligible")
-
-
-def _emit_decision(
-    pr: PullRequestContext,
-    decision: Decision,
-    *,
-    config: AutomergeConfig,
-) -> None:
-    """Emit structured decision output for the automerge workflow."""
-    reason = decision.reason
-    if decision.status == "ready" and config.dry_run:
-        status = "dry-run"
-    else:
-        status = decision.status
-    emit("automerge_status", status)
-    emit("automerge_reason", reason)
-    emit("automerge_merge_method", config.merge_method)
-    emit("automerge_required_label", config.required_label or "")
-    emit("automerge_repository", f"{pr.owner}/{pr.repo}")
-    emit("automerge_pr_number", pr.number)
-    emit("automerge_author", pr.author)
-    emit("automerge_draft", str(pr.is_draft).lower())
-    emit("automerge_labels", pr.labels)
-    emit("automerge_merge_state", pr.merge_state_status.value)
-    emit("automerge_mergeable_state", pr.mergeable_state.value)
-
-
-def _extract_author_login(pull_request: dict[str, JsonValue]) -> str:
-    """Extract author login from PR data, returning empty string if unavailable."""
-    author_obj = pull_request.get("author")
-    if not isinstance(author_obj, dict):
-        return ""
-    login = author_obj.get("login")
-    if not isinstance(login, str):
-        return ""
-    return login
-
-
-def _extract_labels(pull_request: dict[str, JsonValue]) -> tuple[str, ...]:
-    """Extract label names from PR data, returning empty tuple if unavailable."""
-    labels_obj = pull_request.get("labels")
-    if not isinstance(labels_obj, dict):
-        return ()
-    nodes = labels_obj.get("nodes")
-    if not isinstance(nodes, list):
-        return ()
-    labels: list[str] = []
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        name = node.get("name")
-        if isinstance(name, str):
-            labels.append(name)
-    return tuple(labels)
-
-
-def _normalize_enum(value: JsonValue | None) -> str | None:
-    """Normalize a GraphQL enum value to uppercase string form."""
-    if isinstance(value, str):
-        normalized = value.strip().upper()
-        return normalized or None
-    return None
-
-
-def _extract_enum[EnumT](
-    data: dict[str, JsonValue],
-    field: str,
-    enum_type: type[EnumT],
-    default: EnumT,
-) -> EnumT:
-    """Extract and validate an enum field from GraphQL data."""
-    normalized = _normalize_enum(data.get(field))
-    if normalized is None:
-        return default
-    try:
-        return enum_type(normalized)
-    except ValueError:
-        return default
-
-
-def _extract_merge_state_status(
-    pull_request: dict[str, JsonValue],
-) -> MergeStateStatus:
-    """Extract mergeStateStatus from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeStateStatus",
-        MergeStateStatus,
-        MergeStateStatus.UNKNOWN,
-    )
-
-
-def _extract_mergeable_state(pull_request: dict[str, JsonValue]) -> MergeableState:
-    """Extract mergeable state from PR data, normalized."""
-    return _extract_enum(
-        pull_request,
-        "mergeable",
-        MergeableState,
-        MergeableState.UNKNOWN,
-    )
-
-
-def _fetch_pull_request(
-    token: str, owner: str, repo: str, number: int
-) -> PullRequestContext:
-    """Fetch PR metadata from the GitHub GraphQL API."""
-    data = request_graphql(
-        token,
-        PULL_REQUEST_QUERY,
-        {"owner": owner, "name": repo, "number": number},
-    )
-    repository = data.get("repository")
-    if not isinstance(repository, dict):
-        fail(f"Pull request {owner}/{repo}#{number} was not found.")
-    pull_request = repository.get("pullRequest")
-    if not isinstance(pull_request, dict):
-        fail(f"Pull request {owner}/{repo}#{number} was not found.")
-    author_login = _extract_author_login(pull_request)
-    labels = _extract_labels(pull_request)
-    auto_merge_enabled = pull_request.get("autoMergeRequest") is not None
-    node_id = pull_request.get("id")
-    return PullRequestContext(
-        number=number,
-        owner=owner,
-        repo=repo,
-        author=author_login,
-        is_draft=bool(pull_request.get("isDraft", False)),
-        labels=labels,
-        node_id=node_id if isinstance(node_id, str) else None,
-        auto_merge_enabled=auto_merge_enabled,
-        merge_state_status=_extract_merge_state_status(pull_request),
-        mergeable_state=_extract_mergeable_state(pull_request),
-    )
-
-
-def _classify_merge_state(
-    merge_state: MergeStateStatus, mergeable_state: MergeableState
-) -> tuple[MergeStateClassification, str | None]:
-    """Classify merge state as ok, merge, skip, or retry with a reason.
-
-    ``ok`` means auto-merge can be armed (notably ``BLOCKED``, where required
-    checks are still pending). ``merge`` means the PR is already mergeable, so
-    it must be merged directly because GitHub rejects
-    ``enablePullRequestAutoMerge`` on an already-mergeable pull request.
-    """
-    if mergeable_state in MERGEABLE_SKIP_REASONS:
-        return "skip", MERGEABLE_SKIP_REASONS[mergeable_state]
-    if merge_state in MERGE_STATE_SKIP_REASONS:
-        return "skip", MERGE_STATE_SKIP_REASONS[merge_state]
-    if merge_state in MERGE_STATE_DIRECT_MERGE:
-        return "merge", "already-mergeable"
-    if merge_state in MERGE_STATE_RETRYABLE or mergeable_state in MERGEABLE_RETRYABLE:
-        return "retry", "merge-state-unknown"
-    return "ok", None
-
-
-def _parse_env_int(name: str, default: int) -> int:
-    """Parse an integer from the environment, or return the default."""
-    value = os.environ.get(name)
-    if value is None or value == "":
-        return default
-    try:
-        parsed = int(value)
-    except ValueError:
-        fail(f"Invalid value for {name}: {value!r}. Expected an integer.")
-    if parsed < 0:
-        fail(f"Invalid value for {name}: {value!r}. Expected a non-negative integer.")
-    return parsed
-
-
-def _parse_env_float(name: str, default: float) -> float:
-    """Parse a float from the environment, or return the default."""
-    value = os.environ.get(name)
-    if value is None or value == "":
-        return default
-    try:
-        parsed = float(value)
-    except ValueError:
-        fail(f"Invalid value for {name}: {value!r}. Expected a number.")
-    if not math.isfinite(parsed):
-        fail(f"Invalid value for {name}: {value!r}. Expected a finite number.")
-    if parsed < 0:
-        fail(f"Invalid value for {name}: {value!r}. Expected a non-negative number.")
-    return parsed
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class MergeStateRetryConfig:
-    """Configuration for merge state refresh retry behaviour."""
-
-    max_attempts: int
-    base_sleep: float
-    max_sleep: float
-
-
-def _merge_state_retry_config() -> MergeStateRetryConfig:
-    """Return retry configuration for merge state refresh."""
-    max_attempts = _parse_env_int(
-        MERGE_STATE_MAX_ATTEMPTS_ENV, MERGE_STATE_MAX_ATTEMPTS_DEFAULT
-    )
-    base_sleep = _parse_env_float(
-        MERGE_STATE_BASE_SLEEP_ENV, MERGE_STATE_BASE_SLEEP_DEFAULT
-    )
-    max_sleep = _parse_env_float(
-        MERGE_STATE_MAX_SLEEP_ENV, MERGE_STATE_MAX_SLEEP_DEFAULT
-    )
-    return MergeStateRetryConfig(
-        max_attempts=max_attempts,
-        base_sleep=base_sleep,
-        max_sleep=max_sleep,
+        commits_readable=False,
     )
 
 
@@ -703,9 +392,9 @@ def _refresh_merge_state(
 ) -> PullRequestContext:
     """Refresh PR merge state, retrying while mergeability is unknown."""
     current = pr
-    retry_config = config if config is not None else _merge_state_retry_config()
+    retry_config = config if config is not None else merge_state_retry_config()
     for attempt in range(retry_config.max_attempts):
-        state, _reason = _classify_merge_state(
+        state, _reason = classify_merge_state(
             current.merge_state_status,
             current.mergeable_state,
         )
@@ -717,26 +406,93 @@ def _refresh_merge_state(
         )
         time.sleep(sleep_seconds)
         current = _fetch_pull_request(
-            token, current.owner, current.repo, current.number
+            token,
+            PullRequestRef(
+                owner=current.owner, repo=current.repo, number=current.number
+            ),
         )
     return current
 
 
-def _enable_automerge(token: str, pull_request_id: str, merge_method: str) -> None:
-    """Enable auto-merge on a pull request via the GitHub GraphQL API."""
+def _enable_automerge(pr: PullRequestContext, token: str, merge_method: str) -> None:
+    """Enable auto-merge on the head the audit read.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot, carrying the node and head.
+    token : str
+        A GitHub token.
+    merge_method : str
+        The normalized merge method.
+    """
+    _mutate(pr, token, ENABLE_AUTOMERGE_MUTATION, merge_method)
+
+
+def _disable_automerge(token: str, pull_request_id: str) -> None:
+    """Cancel an auto-merge request via the GitHub GraphQL API."""
     request_graphql(
         token,
-        ENABLE_AUTOMERGE_MUTATION,
-        {"pullRequestId": pull_request_id, "mergeMethod": merge_method},
+        DISABLE_AUTOMERGE_MUTATION,
+        {"pullRequestId": pull_request_id},
     )
 
 
-def _merge_pull_request(token: str, pull_request_id: str, merge_method: str) -> None:
-    """Merge a pull request directly via the GitHub GraphQL API."""
+def _merge_pull_request(pr: PullRequestContext, token: str, merge_method: str) -> None:
+    """Merge the head the audit read, directly.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot, carrying the node and head.
+    token : str
+        A GitHub token.
+    merge_method : str
+        The normalized merge method.
+    """
+    _mutate(pr, token, MERGE_PULL_REQUEST_MUTATION, merge_method)
+
+
+def _mutate(
+    pr: PullRequestContext, token: str, mutation: str, merge_method: str
+) -> None:
+    """Send one merge mutation, bound to the head the audit read.
+
+    ``expectedHeadOid`` is what makes the audit binding rather than
+    advisory. A push can land between reading the commits and arming or
+    performing the merge, and GitHub makes no head-match check without
+    it, so the request would be armed on a head nobody looked at. Where
+    the head has moved GitHub refuses the mutation, which fails the run:
+    no merge happens, and the push that moved the head starts a new run
+    that audits it from scratch.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The audited snapshot.
+    token : str
+        A GitHub token.
+    mutation : str
+        The GraphQL document to send.
+    merge_method : str
+        The normalized merge method.
+    """
+    if not pr.node_id:
+        fail("Pull request node ID missing from GitHub response.")
+    if not pr.head_oid:
+        fail(
+            f"Pull request {pr.owner}/{pr.repo}#{pr.number} reported no head "
+            f"commit, so the merge cannot be bound to the head the commit "
+            f"audit read. Refusing to act on an unaudited head."
+        )
     request_graphql(
         token,
-        MERGE_PULL_REQUEST_MUTATION,
-        {"pullRequestId": pull_request_id, "mergeMethod": merge_method},
+        mutation,
+        {
+            "pullRequestId": pr.node_id,
+            "mergeMethod": merge_method,
+            "expectedHeadOid": pr.head_oid,
+        },
     )
 
 
@@ -750,12 +506,62 @@ def _handle_dry_run(
     if event is None:
         fail("Dry-run mode requires GITHUB_EVENT_PATH with pull_request data.")
     snapshot = _snapshot_from_event(event, repo_full_name)
-    decision = _evaluate(snapshot, config.required_label)
-    _emit_decision(
+    decision = evaluate(snapshot, config.required_label)
+    emit_decision(
         snapshot,
         decision,
         config=config,
     )
+
+
+def _stop_unless_eligible(
+    github_token: str,
+    pr: PullRequestContext,
+    *,
+    config: AutomergeConfig,
+) -> bool:
+    """Report the decision and stop when the pull request is not eligible.
+
+    Cancels an auto-merge request that was armed before the branch went
+    foreign. Declining to arm one is not enough on its own: GitHub keeps
+    an existing request alive across a push, so a request armed while the
+    branch was Dependabot's would still merge the commit that made it
+    foreign as soon as the required checks passed. That is the outcome
+    this whole check exists to prevent, so the request is withdrawn.
+
+    Parameters
+    ----------
+    github_token : str
+        A GitHub token.
+    pr : PullRequestContext
+        The snapshot to judge.
+    config : AutomergeConfig
+        The run's configuration.
+
+    Returns
+    -------
+    bool
+        True when the caller must stop.
+    """
+    decision = evaluate(pr, config.required_label)
+    if decision.status == "ready":
+        return False
+    armed = armed_request_to_withdraw(pr)
+    if armed is not None:
+        _disable_automerge(github_token, armed)
+        print(
+            f"::notice title=dependabot-automerge::cancelled the auto-merge "
+            f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "
+            f"branch gained a commit Dependabot did not write; it would "
+            f"otherwise have merged that commit once the required checks "
+            f"passed."
+        )
+        decision = Decision(
+            status="cancelled",
+            reason=decision.reason,
+        )
+    emit_decision(pr, decision, config=config)
+    return True
 
 
 def _handle_live_execution(
@@ -771,18 +577,14 @@ def _handle_live_execution(
         context.event,
     )
 
-    pr = _fetch_pull_request(github_token, owner, repo, pr_number)
-    decision = _evaluate(pr, config.required_label)
-    if decision.status != "ready":
-        _emit_decision(
-            pr,
-            decision,
-            config=config,
-        )
+    pr = _fetch_pull_request(
+        github_token, PullRequestRef(owner=owner, repo=repo, number=pr_number)
+    )
+    if _stop_unless_eligible(github_token, pr, config=config):
         return
 
     if pr.auto_merge_enabled:
-        _emit_decision(
+        emit_decision(
             pr,
             Decision(status="enabled", reason="already-enabled"),
             config=config,
@@ -790,47 +592,50 @@ def _handle_live_execution(
         return
 
     pr = _refresh_merge_state(github_token, pr)
+    # The refresh refetched the pull request, so it also refetched who
+    # wrote the commits. A push landing inside the retry window is
+    # visible in this snapshot and nowhere else, and arming auto-merge on
+    # the strength of the earlier one would merge it unreviewed.
+    if _stop_unless_eligible(github_token, pr, config=config):
+        return
     if pr.auto_merge_enabled:
-        _emit_decision(
+        emit_decision(
             pr,
             Decision(status="enabled", reason="already-enabled"),
             config=config,
         )
         return
 
-    state, reason = _classify_merge_state(
+    state, reason = classify_merge_state(
         pr.merge_state_status,
         pr.mergeable_state,
     )
     if state == "skip":
-        _emit_decision(
+        emit_decision(
             pr,
             Decision(status="skipped", reason=reason or "merge-state-unknown"),
             config=config,
         )
         return
     if state == "retry":
-        _emit_decision(
+        emit_decision(
             pr,
             Decision(status="skipped", reason="merge-state-unknown"),
             config=config,
         )
         return
 
-    if not pr.node_id:
-        fail("Pull request node ID missing from GitHub response.")
-
     if state == "merge":
-        _merge_pull_request(github_token, pr.node_id, config.merge_method)
-        _emit_decision(
+        _merge_pull_request(pr, github_token, config.merge_method)
+        emit_decision(
             pr,
             Decision(status="merged", reason="merged-directly"),
             config=config,
         )
         return
 
-    _enable_automerge(github_token, pr.node_id, config.merge_method)
-    _emit_decision(
+    _enable_automerge(pr, github_token, config.merge_method)
+    emit_decision(
         pr,
         Decision(status="enabled", reason="enabled"),
         config=config,

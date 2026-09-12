@@ -208,15 +208,6 @@ def _resolve_nextest_binary() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _find_nextest_binary() -> Path:
-    """Resolve the installed cargo-nextest executable or fail clearly."""
-    resolved = _resolve_nextest_binary()
-    if resolved is not None:
-        return resolved
-    typer.echo("cargo-nextest not found after installation", err=True)
-    raise typer.Exit(1)
-
-
 class _ArchiveTooLargeError(Exception):
     """Raised when a downloaded archive exceeds ``_MAX_ARCHIVE_BYTES``."""
 

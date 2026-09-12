@@ -1,0 +1,27 @@
+name: Install Makefile parser
+description: Install the pinned Makeutil parser used by the Python contract suite
+
+inputs:
+  makeutil-revision:
+    description: Immutable Makeutil Git revision to install
+    required: true
+  makeutil-toolchain:
+    description: Rust nightly toolchain used to build Makeutil
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Makefile parser
+      shell: bash
+      env:
+        MAKEUTIL_REVISION: ${{ inputs.makeutil-revision }}
+        MAKEUTIL_TOOLCHAIN: ${{ inputs.makeutil-toolchain }}
+      run: |
+        rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+        RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+          --git https://github.com/leynos/makeutil \
+          --rev "${MAKEUTIL_REVISION}" \
+          --locked \
+          --force \
+          makeutil

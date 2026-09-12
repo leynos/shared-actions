@@ -189,52 +189,6 @@ def test_expected_sha_for_unsupported_platform(
     assert "Unsupported platform for cargo-nextest" in capsys.readouterr().err
 
 
-def test_find_nextest_binary_prefers_path(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Binary lookup prefers PATH via shutil.which."""
-    binary = tmp_path / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: str(binary))
-    assert install_nextest_module._find_nextest_binary() == binary
-
-
-def test_find_nextest_binary_falls_back_to_home(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Binary lookup falls back to ~/.cargo/bin when PATH is empty."""
-    monkeypatch.delenv("CARGO_HOME", raising=False)
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-    cargo_bin = tmp_path / ".cargo" / "bin"
-    cargo_bin.mkdir(parents=True, exist_ok=True)
-    binary = cargo_bin / "cargo-nextest"
-    binary.write_bytes(b"payload")
-    assert install_nextest_module._find_nextest_binary() == binary
-
-
-def test_find_nextest_binary_missing_exits(
-    tmp_path: Path,
-    install_nextest_module: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Missing cargo-nextest after install raises a Typer exit."""
-    monkeypatch.delenv("CARGO_HOME", raising=False)
-    monkeypatch.setattr(install_nextest_module.shutil, "which", lambda _: None)
-    monkeypatch.setattr(install_nextest_module.Path, "home", lambda: tmp_path)
-
-    with pytest.raises(install_nextest_module.typer.Exit) as excinfo:
-        install_nextest_module._find_nextest_binary()
-
-    assert _exit_code(excinfo.value) == 1
-    assert "cargo-nextest not found after installation" in capsys.readouterr().err
-
-
 def test_resolve_nextest_binary_returns_none_when_missing(
     tmp_path: Path,
     install_nextest_module: ModuleType,

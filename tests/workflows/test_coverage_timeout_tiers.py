@@ -331,14 +331,24 @@ def _watchdog_of(
     return None
 
 
-def workflow_documents() -> dict[str, WorkflowDocument]:
-    """Return every workflow document, keyed by file name.
+def workflow_documents(
+    directory: Path = WORKFLOWS_DIRECTORY,
+) -> dict[str, WorkflowDocument]:
+    """Return every workflow document in *directory*, keyed by file name.
 
-    This is the one place these tests touch the filesystem or the YAML
-    parser, so an unreadable or unparsable workflow fails here rather
-    than inside an assertion about budgets. Both workflow extensions
-    are read: a lane in the other one would otherwise escape every
-    assertion here without failing anything.
+    This is the only function in these tests that touches the filesystem
+    or the YAML parser, so an unreadable or unparsable workflow fails
+    here rather than inside an assertion about budgets. Nothing below it
+    reaches for a directory of its own: every derivation takes parsed
+    documents, and a caller that wants the repository's own workflows
+    says so by calling this. Both workflow extensions are read: a lane
+    in the other one would otherwise escape every assertion here without
+    failing anything.
+
+    Parameters
+    ----------
+    directory : Path
+        Where the workflows live. Defaults to this repository's.
 
     Returns
     -------
@@ -347,27 +357,39 @@ def workflow_documents() -> dict[str, WorkflowDocument]:
     """
     documents: dict[str, WorkflowDocument] = {}
     for pattern in ("*.yml", "*.yaml"):
-        for path in sorted(WORKFLOWS_DIRECTORY.glob(pattern)):
+        for path in sorted(directory.glob(pattern)):
             document = yaml.safe_load(path.read_text(encoding="utf-8"))
             if isinstance(document, dict):
                 documents[path.name] = document
     return documents
 
 
+#: This repository's own workflows, parsed once. The filesystem read
+#: happens here, at module scope, because ``pytest.mark.parametrize``
+#: needs the lanes before any test runs; every derivation below takes
+#: documents and reads nothing.
+THIS_REPOSITORY: typ.Final[dict[str, WorkflowDocument]] = workflow_documents()
+
+
 def _declared_jobs(
-    documents: dict[str, WorkflowDocument] | None = None,
+    documents: dict[str, WorkflowDocument],
 ) -> list[tuple[str, WorkflowDocument, str, WorkflowJob]]:
     """Return every job in every workflow, with its file and document.
 
-    The documents are a parameter so the reading can be driven with
-    workflows written for a case rather than found in the tree. Reading
-    the repository's own is the default rather than the only option,
-    which keeps the filesystem access at one named boundary instead of
-    inside the derivations.
+    The documents are required rather than defaulted, so this and every
+    derivation above it are pure over what they are handed. Whoever
+    wants the repository's own workflows reads them with
+    :func:`workflow_documents` and says so, which keeps the filesystem
+    at one named boundary instead of behind a default.
 
     The job's identity travels with it rather than being reconstructed
     from an enclosing loop, which is what lets the lane building be a
     single comprehension.
+
+    Parameters
+    ----------
+    documents : dict[str, WorkflowDocument]
+        Parsed workflows keyed by file name.
 
     Returns
     -------
@@ -376,7 +398,7 @@ def _declared_jobs(
     """
     return [
         (workflow, document, str(name), job)
-        for workflow, document in (documents or workflow_documents()).items()
+        for workflow, document in documents.items()
         for name, job in (document.get("jobs") or {}).items()
         if isinstance(job, dict)
     ]
@@ -443,15 +465,14 @@ def _coverage_lane(
 
 
 def _coverage_lanes(
-    documents: dict[str, WorkflowDocument] | None = None,
+    documents: dict[str, WorkflowDocument],
 ) -> tuple[CoverageLane, ...]:
     """Return every job invoking the coverage action, with its budgets.
 
-    This is the one place these tests touch the filesystem or the YAML
-    parser, so an unreadable or unparsable workflow fails here rather
-    than inside an assertion about budgets. Both workflow extensions
-    are read: a lane in the other one would otherwise escape every
-    assertion here without failing anything.
+    Parameters
+    ----------
+    documents : dict[str, WorkflowDocument]
+        Parsed workflows keyed by file name.
 
     Returns
     -------
@@ -466,15 +487,14 @@ def _coverage_lanes(
 
 
 def _manifest_inputs(
-    documents: dict[str, WorkflowDocument] | None = None,
+    documents: dict[str, WorkflowDocument],
 ) -> list[tuple[CoverageLane, str]]:
     """Return each coverage step's ``cargo-manifest`` input, if any.
 
     Parameters
     ----------
-    documents : dict[str, WorkflowDocument] or None
-        Parsed workflows keyed by file name. When None, the
-        repository's own are read.
+    documents : dict[str, WorkflowDocument]
+        Parsed workflows keyed by file name.
 
     Returns
     -------
@@ -526,7 +546,7 @@ class TestCoverageTimeoutTiers:
         otherwise turn every assertion below into a vacuous pass over an
         empty list, and the loss would look exactly like success.
         """
-        assert _coverage_lanes(), (
+        assert _coverage_lanes(THIS_REPOSITORY), (
             f"no workflow job uses {COVERAGE_ACTION_SUFFIX}; either coverage moved "
             f"or this contract stopped recognizing it"
         )
@@ -543,7 +563,7 @@ class TestCoverageTimeoutTiers:
         """
         naming = [
             f"{lane}: {MANIFEST_INPUT}={manifest!r}"
-            for lane, manifest in _manifest_inputs()
+            for lane, manifest in _manifest_inputs(THIS_REPOSITORY)
             if manifest
         ]
         assert not naming, (
@@ -574,7 +594,7 @@ class TestCoverageTimeoutTiers:
             ".github/actions/generate-coverage/README.md in the same change"
         )
 
-    @pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
+    @pytest.mark.parametrize("lane", _coverage_lanes(THIS_REPOSITORY), ids=str)
     def test_a_lane_that_runs_cargo_states_its_watchdog(
         self, lane: CoverageLane
     ) -> None:
@@ -597,7 +617,7 @@ class TestCoverageTimeoutTiers:
             f"{WATCHDOG_VARIABLE} or {WATCHDOG_INPUT} on each from measured runs"
         )
 
-    @pytest.mark.parametrize("lane", _coverage_lanes(), ids=str)
+    @pytest.mark.parametrize("lane", _coverage_lanes(THIS_REPOSITORY), ids=str)
     def test_a_lane_that_runs_cargo_has_a_ceiling_above_its_watchdog(
         self, lane: CoverageLane
     ) -> None:

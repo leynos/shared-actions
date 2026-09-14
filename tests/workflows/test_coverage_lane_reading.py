@@ -17,10 +17,14 @@ from __future__ import annotations
 import typing as typ
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
-from tests.workflows.test_coverage_timeout_tiers import (
+from .test_coverage_timeout_tiers import (
+    CEILING_MARGIN_SECONDS,
     COVERAGE_ACTION_SUFFIX,
     MANIFEST_INPUT,
+    OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS,
     WATCHDOG_DEFAULT_SECONDS,
     WATCHDOG_INPUT,
     WATCHDOG_VARIABLE,
@@ -34,6 +38,9 @@ from tests.workflows.test_coverage_timeout_tiers import (
     ceiling_is_sufficient,
     required_ceiling_seconds,
 )
+
+if typ.TYPE_CHECKING:
+    import random
 
 
 class TestTheWatchdogIsResolvedAsTheActionResolvesIt:
@@ -197,13 +204,17 @@ class TestTheCeilingRequirement:
     """
 
     @staticmethod
-    def _document(*, ceiling: int, watchdogs: tuple[int, ...]) -> WorkflowDocument:
+    def _document(
+        *, ceiling: int | None, watchdogs: tuple[int, ...]
+    ) -> WorkflowDocument:
         """Return one synthetic workflow with a coverage job.
 
         Parameters
         ----------
-        ceiling : int
-            The job's `timeout-minutes`.
+        ceiling : int or None
+            The job's `timeout-minutes`. None omits the key outright,
+            which is what a job declaring no ceiling looks like; writing
+            it as an explicit null would be a shape no workflow has.
         watchdogs : tuple[int, ...]
             One watchdog per coverage step the job runs.
 
@@ -212,23 +223,18 @@ class TestTheCeilingRequirement:
         WorkflowDocument
             A document with a single `build` job.
         """
-        return typ.cast(
-            "WorkflowDocument",
-            {
-                "jobs": {
-                    "build": {
-                        "timeout-minutes": ceiling,
-                        "steps": [
-                            {
-                                "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
-                                "env": {WATCHDOG_VARIABLE: str(watchdog)},
-                            }
-                            for watchdog in watchdogs
-                        ],
-                    }
+        job: dict[str, object] = {
+            "steps": [
+                {
+                    "uses": f"{COVERAGE_ACTION_SUFFIX}@abc",
+                    "env": {WATCHDOG_VARIABLE: str(watchdog)},
                 }
-            },
-        )
+                for watchdog in watchdogs
+            ],
+        }
+        if ceiling is not None:
+            job["timeout-minutes"] = ceiling
+        return typ.cast("WorkflowDocument", {"jobs": {"build": job}})
 
     @pytest.mark.parametrize(
         ("ceiling_minutes", "watchdogs", "sufficient"),
@@ -324,4 +330,135 @@ class TestTheCeilingRequirement:
 
         assert named == ["crates/thing/Cargo.toml"], (
             f"a lane passing {MANIFEST_INPUT} must be seen, got {named!r}"
+        )
+
+
+class TestTheCeilingArithmeticHoldsForAnyBudgets:
+    """The requirement's shape, over watchdog sequences nobody wrote down.
+
+    The parametrised cases above pin the requirement at the handful of
+    budgets this repository might plausibly set. They cannot distinguish
+    a sum from any other function agreeing on those few points: summing
+    the budgets, multiplying the first by their count, and taking the
+    largest all give 1,800 s for a single-step job. These state the
+    shape itself instead, over sequences chosen by Hypothesis.
+    """
+
+    @given(
+        budgets=st.lists(
+            st.integers(min_value=1, max_value=24 * 60 * 60),
+            min_size=1,
+            max_size=8,
+        )
+    )
+    def test_the_requirement_is_the_sum_plus_both_allowances(
+        self, budgets: list[int]
+    ) -> None:
+        """The requirement is the sum, plus the two fixed allowances.
+
+        Stated as the equality rather than as a bound, because a bound
+        is satisfied by any function above it, and the two allowances
+        are the part a later edit is most likely to drop.
+        """
+        assert required_ceiling_seconds(budgets) == (
+            sum(budgets) + OUTSIDE_WATCHDOG_ALLOWANCE_SECONDS + CEILING_MARGIN_SECONDS
+        ), (
+            "the requirement must be the watchdog sum plus the measured work "
+            "outside the windows plus the reporting margin, and nothing else"
+        )
+
+    @given(
+        budgets=st.lists(
+            st.integers(min_value=1, max_value=24 * 60 * 60),
+            min_size=2,
+            max_size=8,
+        ),
+        seed=st.randoms(use_true_random=False),
+    )
+    def test_the_requirement_ignores_the_order_of_the_steps(
+        self, budgets: list[int], seed: random.Random
+    ) -> None:
+        """Reordering the steps of a job cannot change its requirement.
+
+        A job's steps run one after another and each may spend its whole
+        watchdog, so which one is written first is not a fact about the
+        budget. A reading that took the first budget, or the largest,
+        would disagree with itself under a reordering.
+        """
+        shuffled = list(budgets)
+        seed.shuffle(shuffled)
+        assert required_ceiling_seconds(shuffled) == required_ceiling_seconds(
+            budgets
+        ), (
+            f"{shuffled} and {budgets} are the same job written in a different "
+            "order, so they must carry the same requirement"
+        )
+
+    @given(
+        budgets=st.lists(
+            st.integers(min_value=1, max_value=24 * 60 * 60),
+            min_size=1,
+            max_size=8,
+        ),
+        extra=st.integers(min_value=1, max_value=24 * 60 * 60),
+    )
+    def test_another_step_raises_the_requirement_by_its_own_budget(
+        self, budgets: list[int], extra: int
+    ) -> None:
+        """Adding a coverage step raises the requirement by that step.
+
+        Strictly: a job given more watchdog needs more ceiling. A
+        reading that multiplied one budget by the step count would move
+        by the wrong amount here.
+        """
+        assert required_ceiling_seconds([*budgets, extra]) == (
+            required_ceiling_seconds(budgets) + extra
+        ), (
+            f"adding a step of {extra} s must raise the requirement by exactly "
+            "that, since the allowances are per job rather than per step"
+        )
+
+    @given(
+        budgets=st.lists(
+            st.integers(min_value=1, max_value=60 * 60),
+            min_size=1,
+            max_size=4,
+        ),
+        ceiling_minutes=st.integers(min_value=1, max_value=6 * 60),
+    )
+    def test_a_ceiling_suffices_exactly_when_it_is_strictly_above(
+        self, budgets: list[int], ceiling_minutes: int
+    ) -> None:
+        """Sufficiency is strict inequality against the requirement.
+
+        The boundary is the whole point: a ceiling equal to the
+        requirement cancels the job at the moment the watchdog would
+        have reported the overrun, and the cancellation discards the
+        log. An inclusive comparison passes every example that a strict
+        one does except that single point.
+        """
+        expected = ceiling_minutes * 60 > required_ceiling_seconds(budgets)
+        assert ceiling_is_sufficient(ceiling_minutes, budgets) is expected, (
+            f"a ceiling of {ceiling_minutes} min against a requirement of "
+            f"{required_ceiling_seconds(budgets)} s must be judged by strict "
+            "inequality"
+        )
+
+    @given(
+        budgets=st.lists(
+            st.integers(min_value=1, max_value=60 * 60),
+            min_size=1,
+            max_size=4,
+        )
+    )
+    def test_no_declared_ceiling_never_suffices(self, budgets: list[int]) -> None:
+        """A job declaring no ceiling is never sufficient.
+
+        It inherits GitHub's six-hour default, which is not a budget
+        anybody chose, so no sequence of watchdogs makes its absence
+        acceptable.
+        """
+        assert not ceiling_is_sufficient(None, budgets), (
+            "a job with no timeout-minutes inherits six hours nobody chose, so "
+            "it cannot satisfy the rule whatever its watchdogs are"
         )

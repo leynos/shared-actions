@@ -37,6 +37,11 @@ The `installer/Package.wxs` authoring is optional—omit it when using the
 default template and provide the executable (and optional additional files) via
 the `application-path` and `additional-files` inputs.
 
+When `wxs-path` is supplied, the action passes that authoring to WiX unchanged.
+It does not rewrite or migrate the file, so the calling repository remains
+responsible for keeping its custom authoring compatible with the supported WiX
+schema.
+
 ## Inputs
 
 | Name                     | Required | Default                | Description                                                                                                                                                                        |

@@ -101,7 +101,17 @@ auto‑increments patch unless `release‑type` input overrides (`minor`, `major
 - **Static analysis**: ESLint + prettier + `@typescript-eslint` presets.
 - **Change gateways**: After modifying any Python code or GitHub Action logic,
   ensure `make check-fmt`, `make typecheck`, `make lint`, and `make test`
-  complete successfully before requesting review.
+  complete successfully before requesting review. `make lint` includes a
+  blocking Skylos production dead-code scan, which also runs in CI.
+
+  Investigate every Skylos finding. Remove genuine dead code. Prefer a typed
+  `[tool.skylos.dead_code]` entry-point rule for an implicit runtime caller.
+  Only when that cannot model the verified boundary, use
+  `make skylos-allow SYMBOL=<symbol> REASON="<verified runtime caller>"`.
+  Both values must contain non-whitespace text; `SYMBOL` avoids WSL's injected
+  hostname `NAME` variable. The helper serializes its `pyproject.toml` update
+  with `flock` and the ignored repository-local `.skylos-whitelist.lock`. Do not add
+  unexplained exceptions.
 
 CI workflow lives at `.github/workflows/ci.yml` and runs on PR and nightly via
 schedule.

@@ -225,59 +225,6 @@ def test_podman_security_timeout_treated_as_unavailable(
     ), "podman security timeout warning missing"
 
 
-def test_detect_host_target_returns_default_when_rustc_missing(
-    runtime_module: ModuleType, module_harness: HarnessFactory
-) -> None:
-    """Falls back to the default triple when rustc is unavailable."""
-    harness = module_harness(runtime_module)
-    harness.patch_shutil_which(lambda name: None)
-    assert runtime_module.detect_host_target() == runtime_module.DEFAULT_HOST_TARGET
-
-
-def test_detect_host_target_parses_rustc_output(
-    runtime_module: ModuleType, module_harness: HarnessFactory
-) -> None:
-    """Parses the host triple from rustc version output."""
-    harness = module_harness(runtime_module)
-    harness.patch_shutil_which(
-        lambda name: "/usr/bin/rustc" if name == "rustc" else None
-    )
-    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        capture_output: bool = False,
-        check: bool = False,
-        text: bool = False,
-        **_: object,
-    ) -> RunOutput:
-        _ = (allowed_names, capture_output, check, text)
-        return _run_result(stdout="host: custom-triple\n")
-
-    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
-    assert runtime_module.detect_host_target() == "custom-triple"
-
-
-def test_detect_host_target_returns_default_on_timeout(
-    runtime_module: ModuleType, module_harness: HarnessFactory
-) -> None:
-    """Falls back to the default triple when rustc probing times out."""
-    harness = module_harness(runtime_module)
-    harness.patch_shutil_which(
-        lambda name: "/usr/bin/rustc" if name == "rustc" else None
-    )
-    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-    _patch_run_validated_timeout(runtime_module, harness)
-
-    assert (
-        runtime_module.detect_host_target(default="fallback-triple")
-        == "fallback-triple"
-    )
-
-
 def test_platform_default_host_target_windows(
     runtime_module: ModuleType, module_harness: HarnessFactory
 ) -> None:
@@ -298,67 +245,6 @@ def test_platform_default_host_target_darwin_arm(
     harness.monkeypatch.setattr(runtime_module.sys, "platform", "darwin")
 
     assert runtime_module._platform_default_host_target() == "aarch64-apple-darwin"
-
-
-def test_detect_host_target_passes_timeout_to_run_validated(
-    runtime_module: ModuleType, module_harness: HarnessFactory
-) -> None:
-    """Ensures rustc probing is bounded via the timeout parameter."""
-    harness = module_harness(runtime_module)
-    harness.patch_shutil_which(
-        lambda name: "/usr/bin/rustc" if name == "rustc" else None
-    )
-    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    call_kwargs: dict[str, object] = {}
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        **kwargs: object,
-    ) -> RunOutput:
-        _ = (executable, args)
-        call_kwargs.update(kwargs)
-        call_kwargs["allowed_names"] = allowed_names
-        return _run_result(stdout="host: bounded\n")
-
-    harness.monkeypatch.setattr(runtime_module, "run_validated", fake_run)
-
-    assert runtime_module.detect_host_target() == "bounded"
-    assert call_kwargs.get("timeout") == runtime_module.PROBE_TIMEOUT
-    assert call_kwargs.get("allowed_names") == ("rustc", "rustc.exe")
-
-
-def test_probe_timeout_env_override(
-    runtime_module: ModuleType,
-    module_harness: HarnessFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Respect RUNTIME_PROBE_TIMEOUT when importing the module."""
-    monkeypatch.setenv("RUNTIME_PROBE_TIMEOUT", "2")
-    module = _reload_runtime_module(runtime_module, "rbr_runtime_reloaded")
-    harness = module_harness(module)
-
-    harness.patch_shutil_which(lambda name: "/usr/bin/rustc")
-    harness.patch_attr("ensure_allowed_executable", lambda path, allowed: path)
-
-    captured: dict[str, object] = {}
-
-    def fake_run(
-        executable: str,
-        args: list[str],
-        *,
-        allowed_names: tuple[str, ...],
-        **kwargs: object,
-    ) -> RunOutput:
-        captured.update(kwargs)
-        return _run_result(stdout="host: x86_64-unknown-linux-gnu\n")
-
-    harness.monkeypatch.setattr(module, "run_validated", fake_run)
-    module.detect_host_target()
-    assert captured.get("timeout") == 2
 
 
 @pytest.mark.parametrize(

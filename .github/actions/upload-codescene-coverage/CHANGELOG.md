@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fail fast in `check` mode when `access-token` is empty, before installing or
+  invoking the CodeScene CLI.
+- Pin nested third-party action references to immutable commit SHAs.
 - Degrade CodeScene changed-line gate checks to a warning when the pull
   request merge base has no uploaded coverage baseline.
 - Adapt to the rewritten CodeScene installer script, which no longer

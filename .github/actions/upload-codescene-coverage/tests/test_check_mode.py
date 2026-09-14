@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,34 @@ def _run_applicability_check(
         check=False,
         capture_output=True,
         env=env,
+        text=True,
+    )
+
+
+def _run_input_validation(
+    tmp_path: Path,
+    *,
+    access_token: str,
+    project_url: str,
+) -> subprocess.CompletedProcess[str]:
+    """Execute check-mode validation with the supplied required inputs."""
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+
+    step = next(step for step in _steps() if step.get("name") == "Validate inputs")
+    script = str(step["run"])
+    script = script.replace("${{ inputs.format }}", "cobertura")
+    script = script.replace("${{ inputs.mode }}", "check")
+    script = script.replace("${{ inputs.access-token }}", access_token)
+    script = script.replace("${{ inputs.project-url }}", project_url)
+    return subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-e", "-o", "pipefail", "-c", script],
+        check=False,
+        capture_output=True,
+        cwd=tmp_path,
         text=True,
     )
 
@@ -151,6 +180,41 @@ def test_non_stacked_context_remains_applicable(
 def test_gate_applicability_runs_only_in_check_mode() -> None:
     """Upload mode cannot enter the check-mode applicability boundary."""
     assert _gate_applicability_step()["if"] == "inputs.mode == 'check'"
+
+
+def test_check_mode_rejects_an_empty_access_token(tmp_path: Path) -> None:
+    """Check mode fails before installation when its token is unavailable."""
+    result = _run_input_validation(
+        tmp_path,
+        access_token="",
+        project_url="https://api.codescene.io/v2/projects/72004",
+    )
+
+    assert result.returncode == 1
+    assert "mode: check requires a non-empty access-token" in result.stderr
+
+
+def test_check_mode_rejects_a_missing_project_url(tmp_path: Path) -> None:
+    """Check mode requires the CodeScene project endpoint before running."""
+    result = _run_input_validation(
+        tmp_path,
+        access_token=os.environ["PATH"],
+        project_url="",
+    )
+
+    assert result.returncode == 1
+    assert "mode: check requires project-url" in result.stderr
+
+
+def test_external_action_references_are_immutable() -> None:
+    """Every nested third-party action uses a full immutable commit SHA."""
+    for step in _steps():
+        action_reference = str(step.get("uses", ""))
+        if action_reference.startswith("actions/"):
+            matcher = re.fullmatch(
+                r"actions/[\w-]+@[0-9a-f]{40}(?:\s+#.*)?", action_reference
+            )
+            assert matcher, f"external action is not SHA-pinned: {action_reference}"
 
 
 def test_skipped_gate_suppresses_all_following_steps() -> None:

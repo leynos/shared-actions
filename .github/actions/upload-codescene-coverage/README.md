@@ -45,6 +45,11 @@ that changed-line gate to a skipped warning. Other CLI failures print their
 verbose diagnostics and preserve their exit status instead of referring to logs
 that are not exposed by the workflow.
 
+In `check` mode, the action validates that `access-token` is non-empty before
+installing or invoking the CLI and fails immediately with an actionable error
+when it is absent. This keeps a trusted pull-request gate from appearing to
+pass while waiting for a CodeScene check that cannot authenticate.
+
 ## Environment variables
 
 - `CS_ACCESS_TOKEN` – CodeScene project access token (required)
@@ -74,7 +79,7 @@ cache is restored at the start of the job and saved after the job finishes. A
 fallback restore key allows reuse across patch releases:
 
 ```yaml
-uses: actions/cache@v4
+uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
 with:
   path: ~/.local/bin/cs-coverage
   key: cs-coverage-cache-${{ runner.os }}-${{ version }}

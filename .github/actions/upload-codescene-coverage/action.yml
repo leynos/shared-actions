@@ -62,6 +62,10 @@ runs:
         case "${{ inputs.mode }}" in
           upload) ;;
           check)
+            if [ -z "${{ inputs.access-token }}" ]; then
+              echo "mode: check requires a non-empty access-token" >&2
+              exit 1
+            fi
             if [ -z "${{ inputs.project-url }}" ]; then
               echo "mode: check requires project-url" >&2
               exit 1
@@ -126,7 +130,7 @@ runs:
 
     - name: Upload coverage GitHub artefact
       if: steps.gate-applicability.outputs.skip != 'true'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
       with:
         name: coverage
         path: ${{ steps.cov-file.outputs.path }}
@@ -138,7 +142,7 @@ runs:
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
         inputs.cli-version != 'latest'
-      uses: actions/cache@v4
+      uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
       with:
         path: ~/.local/bin/cs-coverage
         key: cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.version }}

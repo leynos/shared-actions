@@ -292,20 +292,25 @@ ARMED: typ.Final[dict[str, object]] = {
 }
 
 
-def install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQLCalls:
-    """Replace the GraphQL client with a scripted one, and record calls.
+def build_graphql(
+    branch: Branch,
+) -> tuple[
+    cabc.Callable[[str, str, dict[str, object]], dict[str, object]], GraphQLCalls
+]:
+    """Build a scripted GraphQL call over one branch, and its record.
+
+    Returned rather than installed, so a test can hand the call to the
+    code under test as an argument instead of replacing a module global.
 
     Parameters
     ----------
-    monkeypatch : pytest.MonkeyPatch
-        The patching fixture.
     branch : Branch
         The pull request GitHub should appear to hold.
 
     Returns
     -------
-    GraphQLCalls
-        The record the test asserts against.
+    tuple
+        The scripted call and the record it appends to.
     """
     calls = GraphQLCalls(enable=[], disable=[], merge=[], cursors=[])
     state = _ServedBranch(branch.pages, branch.later_pages)
@@ -321,6 +326,25 @@ def install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQLC
         served, index = state.page_for(cursor)
         return {"repository": {"pullRequest": pull_request_node(branch, served, index)}}
 
+    return handler, calls
+
+
+def install_graphql(monkeypatch: pytest.MonkeyPatch, branch: Branch) -> GraphQLCalls:
+    """Replace the GraphQL client with a scripted one, and record calls.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The patching fixture.
+    branch : Branch
+        The pull request GitHub should appear to hold.
+
+    Returns
+    -------
+    GraphQLCalls
+        The record the test asserts against.
+    """
+    handler, calls = build_graphql(branch)
     monkeypatch.setattr(dependabot_automerge, "request_graphql", handler)
     return calls
 

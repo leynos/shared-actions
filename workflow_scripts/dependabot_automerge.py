@@ -47,8 +47,12 @@ applied to it.
 The rule itself lives in ``dependabot_commit_audit`` and takes values
 rather than a client, so it can be exercised without a network. The
 GitHub boundary and the branch audit live in ``dependabot_github``,
-whose readers take the GraphQL call as an argument that defaults to the
-live client.
+whose readers require the GraphQL call as an argument and have no
+default for it. Every read and every mutation on the live path takes
+the same call, threaded down from :func:`main`, which is the one place
+that names ``request_graphql``. Nothing below that boundary reaches for
+a client of its own, so a test supplies one call and covers the initial
+read, the retry refreshes, the withdrawal and the merge alike.
 
 Merge-state handling: auto-merge is armed while the PR is blocked by
 required rules (``BLOCKED``). If the PR is already mergeable (``CLEAN``,
@@ -178,36 +182,6 @@ else:
     from output import fail  # type: ignore[import-not-found,no-redef]
 
 
-def _fetch_pull_request(
-    token: str,
-    ref: PullRequestRef,
-    *,
-    query: GraphQLQuery | None = None,
-) -> PullRequestContext:
-    """Read one pull request through the live client by default.
-
-    The adapter in ``dependabot_github`` requires the call rather than
-    naming one, so this module is where the live client is chosen. It is
-    read at call time, so patching this module's ``request_graphql``
-    still redirects the read path.
-
-    Parameters
-    ----------
-    token : str
-        A GitHub token.
-    ref : PullRequestRef
-        Where the pull request lives.
-    query : GraphQLQuery or None
-        A call to use instead of the live client.
-
-    Returns
-    -------
-    PullRequestContext
-        The pull request as the decision layer reads it.
-    """
-    return fetch_pull_request(token, ref, query=query or request_graphql)
-
-
 #: Re-exported so the workflow module remains the single import for
 #: callers and tests that do not care where the audit lives.
 __all__ = [
@@ -226,6 +200,32 @@ MERGE_METHODS = {
 }
 
 app = App()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class LiveRun:
+    """Everything a live run acts through, as one value.
+
+    The token, the GraphQL call and the run's configuration travel
+    together from :func:`main` to every read and every mutation, so
+    carrying them as three parameters made each function along the way
+    restate the same trio. One value keeps the composition root the only
+    place that names a client, without that cost.
+
+    Attributes
+    ----------
+    token : str
+        A GitHub token.
+    query : GraphQLQuery
+        The one GraphQL call this run uses, chosen at the composition
+        root. Nothing below it resolves a client of its own.
+    config : AutomergeConfig
+        The run's configuration, including the normalized merge method.
+    """
+
+    token: str
+    query: GraphQLQuery
+    config: AutomergeConfig
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -385,14 +385,29 @@ def _snapshot_from_event(
 
 
 def _refresh_merge_state(
-    token: str,
     pr: PullRequestContext,
     *,
-    config: MergeStateRetryConfig | None = None,
+    run: LiveRun,
+    retry: MergeStateRetryConfig | None = None,
 ) -> PullRequestContext:
-    """Refresh PR merge state, retrying while mergeability is unknown."""
+    """Refresh PR merge state, retrying while mergeability is unknown.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot to refresh.
+    run : LiveRun
+        The run this refresh belongs to.
+    retry : MergeStateRetryConfig or None
+        Retry bounds, or None to read them from the environment.
+
+    Returns
+    -------
+    PullRequestContext
+        The latest snapshot, which may still be unknown.
+    """
     current = pr
-    retry_config = config if config is not None else merge_state_retry_config()
+    retry_config = retry if retry is not None else merge_state_retry_config()
     for attempt in range(retry_config.max_attempts):
         state, _reason = classify_merge_state(
             current.merge_state_status,
@@ -405,57 +420,34 @@ def _refresh_merge_state(
             retry_config.max_sleep,
         )
         time.sleep(sleep_seconds)
-        current = _fetch_pull_request(
-            token,
+        current = fetch_pull_request(
+            run.token,
             PullRequestRef(
                 owner=current.owner, repo=current.repo, number=current.number
             ),
+            query=run.query,
         )
     return current
 
 
-def _enable_automerge(pr: PullRequestContext, token: str, merge_method: str) -> None:
-    """Enable auto-merge on the head the audit read.
+def _disable_automerge(pull_request_id: str, *, run: LiveRun) -> None:
+    """Cancel an auto-merge request via the GitHub GraphQL API.
 
     Parameters
     ----------
-    pr : PullRequestContext
-        The audited snapshot, carrying the node and head.
-    token : str
-        A GitHub token.
-    merge_method : str
-        The normalized merge method.
+    pull_request_id : str
+        The node ID of the pull request whose request is withdrawn.
+    run : LiveRun
+        The run this withdrawal belongs to.
     """
-    _mutate(pr, token, ENABLE_AUTOMERGE_MUTATION, merge_method)
-
-
-def _disable_automerge(token: str, pull_request_id: str) -> None:
-    """Cancel an auto-merge request via the GitHub GraphQL API."""
-    request_graphql(
-        token,
+    run.query(
+        run.token,
         DISABLE_AUTOMERGE_MUTATION,
         {"pullRequestId": pull_request_id},
     )
 
 
-def _merge_pull_request(pr: PullRequestContext, token: str, merge_method: str) -> None:
-    """Merge the head the audit read, directly.
-
-    Parameters
-    ----------
-    pr : PullRequestContext
-        The audited snapshot, carrying the node and head.
-    token : str
-        A GitHub token.
-    merge_method : str
-        The normalized merge method.
-    """
-    _mutate(pr, token, MERGE_PULL_REQUEST_MUTATION, merge_method)
-
-
-def _mutate(
-    pr: PullRequestContext, token: str, mutation: str, merge_method: str
-) -> None:
+def _mutate(pr: PullRequestContext, mutation: str, *, run: LiveRun) -> None:
     """Send one merge mutation, bound to the head the audit read.
 
     ``expectedHeadOid`` is what makes the audit binding rather than
@@ -470,12 +462,13 @@ def _mutate(
     ----------
     pr : PullRequestContext
         The audited snapshot.
-    token : str
-        A GitHub token.
     mutation : str
-        The GraphQL document to send.
-    merge_method : str
-        The normalized merge method.
+        The GraphQL document to send. ``ENABLE_AUTOMERGE_MUTATION``
+        arms the request; ``MERGE_PULL_REQUEST_MUTATION`` merges now.
+        The two differ only in the document, so they share this body
+        rather than each having a wrapper of its own.
+    run : LiveRun
+        The run this mutation belongs to.
     """
     if not pr.node_id:
         fail("Pull request node ID missing from GitHub response.")
@@ -485,12 +478,12 @@ def _mutate(
             f"commit, so the merge cannot be bound to the head the commit "
             f"audit read. Refusing to act on an unaudited head."
         )
-    request_graphql(
-        token,
+    run.query(
+        run.token,
         mutation,
         {
             "pullRequestId": pr.node_id,
-            "mergeMethod": merge_method,
+            "mergeMethod": run.config.merge_method,
             "expectedHeadOid": pr.head_oid,
         },
     )
@@ -514,12 +507,7 @@ def _handle_dry_run(
     )
 
 
-def _stop_unless_eligible(
-    github_token: str,
-    pr: PullRequestContext,
-    *,
-    config: AutomergeConfig,
-) -> bool:
+def _stop_unless_eligible(pr: PullRequestContext, *, run: LiveRun) -> bool:
     """Report the decision and stop when the pull request is not eligible.
 
     Cancels an auto-merge request that was armed before the branch went
@@ -531,24 +519,22 @@ def _stop_unless_eligible(
 
     Parameters
     ----------
-    github_token : str
-        A GitHub token.
     pr : PullRequestContext
         The snapshot to judge.
-    config : AutomergeConfig
-        The run's configuration.
+    run : LiveRun
+        The run this judgement belongs to.
 
     Returns
     -------
     bool
         True when the caller must stop.
     """
-    decision = evaluate(pr, config.required_label)
+    decision = evaluate(pr, run.config.required_label)
     if decision.status == "ready":
         return False
     armed = armed_request_to_withdraw(pr)
     if armed is not None:
-        _disable_automerge(github_token, armed)
+        _disable_automerge(armed, run=run)
         print(
             f"::notice title=dependabot-automerge::cancelled the auto-merge "
             f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "
@@ -560,86 +546,134 @@ def _stop_unless_eligible(
             status="cancelled",
             reason=decision.reason,
         )
-    emit_decision(pr, decision, config=config)
+    emit_decision(pr, decision, config=run.config)
     return True
 
 
-def _handle_live_execution(
-    github_token: str,
-    context: RuntimeContext,
-    *,
-    config: AutomergeConfig,
-) -> None:
-    """Handle the live execution path that talks to the GitHub API."""
+def _report(pr: PullRequestContext, status: str, reason: str, *, run: LiveRun) -> None:
+    """Say one decision out loud and stop there.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot the decision is about.
+    status : str
+        The ``automerge_status`` value.
+    reason : str
+        The ``automerge_reason`` value.
+    run : LiveRun
+        The run this decision belongs to.
+    """
+    emit_decision(pr, Decision(status=status, reason=reason), config=run.config)
+
+
+def _run_is_over(pr: PullRequestContext, *, run: LiveRun) -> bool:
+    """Report and return True when this snapshot ends the run.
+
+    A snapshot ends the run when the pull request is not eligible, or
+    when auto-merge is already armed on it and there is nothing to do.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot to judge.
+    run : LiveRun
+        The run this judgement belongs to.
+
+    Returns
+    -------
+    bool
+        True when the caller must stop, having reported why.
+    """
+    if _stop_unless_eligible(pr, run=run):
+        return True
+    if pr.auto_merge_enabled:
+        _report(pr, "enabled", "already-enabled", run=run)
+        return True
+    return False
+
+
+def _settled_snapshot(
+    context: RuntimeContext, *, run: LiveRun
+) -> PullRequestContext | None:
+    """Read the pull request until its merge state is worth acting on.
+
+    Parameters
+    ----------
+    context : RuntimeContext
+        Where the run is, and which pull request it is about.
+    run : LiveRun
+        The run this read belongs to.
+
+    Returns
+    -------
+    PullRequestContext or None
+        The snapshot to act on, or None when the run is already over,
+        having reported why.
+    """
     owner, repo = _split_repo(context.repo_full_name)
     pr_number = _resolve_pull_request_number(
         context.pull_request_number,
         context.event,
     )
-
-    pr = _fetch_pull_request(
-        github_token, PullRequestRef(owner=owner, repo=repo, number=pr_number)
+    pr = fetch_pull_request(
+        run.token,
+        PullRequestRef(owner=owner, repo=repo, number=pr_number),
+        query=run.query,
     )
-    if _stop_unless_eligible(github_token, pr, config=config):
-        return
-
-    if pr.auto_merge_enabled:
-        emit_decision(
-            pr,
-            Decision(status="enabled", reason="already-enabled"),
-            config=config,
-        )
-        return
-
-    pr = _refresh_merge_state(github_token, pr)
+    if _run_is_over(pr, run=run):
+        return None
+    pr = _refresh_merge_state(pr, run=run)
     # The refresh refetched the pull request, so it also refetched who
     # wrote the commits. A push landing inside the retry window is
     # visible in this snapshot and nowhere else, and arming auto-merge on
     # the strength of the earlier one would merge it unreviewed.
-    if _stop_unless_eligible(github_token, pr, config=config):
-        return
-    if pr.auto_merge_enabled:
-        emit_decision(
-            pr,
-            Decision(status="enabled", reason="already-enabled"),
-            config=config,
-        )
-        return
+    if _run_is_over(pr, run=run):
+        return None
+    return pr
 
+
+def _act_on_merge_state(pr: PullRequestContext, *, run: LiveRun) -> None:
+    """Arm auto-merge, merge outright, or skip, on the merge state.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The eligible snapshot, carrying the head the audit read.
+    run : LiveRun
+        The run this action belongs to.
+    """
     state, reason = classify_merge_state(
         pr.merge_state_status,
         pr.mergeable_state,
     )
-    if state == "skip":
-        emit_decision(
-            pr,
-            Decision(status="skipped", reason=reason or "merge-state-unknown"),
-            config=config,
-        )
+    if state in {"skip", "retry"}:
+        skipped = reason if state == "skip" and reason else "merge-state-unknown"
+        _report(pr, "skipped", skipped, run=run)
         return
-    if state == "retry":
-        emit_decision(
-            pr,
-            Decision(status="skipped", reason="merge-state-unknown"),
-            config=config,
-        )
-        return
-
     if state == "merge":
-        _merge_pull_request(pr, github_token, config.merge_method)
-        emit_decision(
-            pr,
-            Decision(status="merged", reason="merged-directly"),
-            config=config,
-        )
+        _mutate(pr, MERGE_PULL_REQUEST_MUTATION, run=run)
+        _report(pr, "merged", "merged-directly", run=run)
         return
+    _mutate(pr, ENABLE_AUTOMERGE_MUTATION, run=run)
+    _report(pr, "enabled", "enabled", run=run)
 
-    _enable_automerge(pr, github_token, config.merge_method)
-    emit_decision(
-        pr,
-        Decision(status="enabled", reason="enabled"),
-        config=config,
-    )
+
+def _handle_live_execution(context: RuntimeContext, *, run: LiveRun) -> None:
+    """Handle the live execution path that talks to the GitHub API.
+
+    Parameters
+    ----------
+    context : RuntimeContext
+        Where the run is, and which pull request it is about.
+    run : LiveRun
+        The run, carrying the token, the one GraphQL call every read and
+        mutation below here uses, and the configuration.
+    """
+    pr = _settled_snapshot(context, run=run)
+    if pr is None:
+        return
+    _act_on_merge_state(pr, run=run)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -754,9 +788,8 @@ def main(
         pull_request_number=options.pull_request_number,
     )
     _handle_live_execution(
-        github_token,
         context,
-        config=config,
+        run=LiveRun(token=github_token, query=request_graphql, config=config),
     )
 
 

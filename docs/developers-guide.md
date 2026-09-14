@@ -1566,12 +1566,13 @@ precedes toolchain setup.
 
 `workflow_scripts/dependabot_automerge.py` decides whether a Dependabot pull
 request may merge unattended. Since 2026-09-06 that decision includes who wrote
-each commit on the branch, and the helper is split into six modules so that no
-one of them carries several concerns.
+each commit on the branch, and the helper is split into seven modules so that
+no one of them carries several concerns.
 
 | Module                       | Owns                                              |
 | ---------------------------- | ------------------------------------------------- |
-| `dependabot_automerge.py`    | The run: fetching, paging, the API calls, the CLI |
+| `dependabot_automerge.py`    | The run: orchestration, the mutations and the CLI |
+| `dependabot_github.py`       | The GitHub transport boundary: reading and paging |
 | `dependabot_commit_audit.py` | Reading commit authorship, and the rule over it   |
 | `dependabot_decision.py`     | The snapshot and the eligibility rules            |
 | `dependabot_report.py`       | The `key=value` lines, notices and warnings       |
@@ -1602,8 +1603,36 @@ what stops a schema change from quietly meaning a different rule.
 `foreign_commits` holds the rule itself, over `CommitRecord` values alone:
 every credited login must be in `DEPENDABOT_LOGINS`, and the credit list must
 have been read to its end. `audit_commits` composes the two over a single
-response. `_audit_whole_branch`, in the workflow module, pages the connection
+response. `audit_whole_branch`, in `dependabot_github.py`, pages the connection
 first and is what the production path uses.
+
+### The GitHub transport boundary
+
+`dependabot_github.py` is the only module that talks to GitHub on the read
+path. It owns four things:
+
+| Name                 | Role                                                                         |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `GraphQLQuery`       | The call signature every reader takes: token, document, variables            |
+| `PullRequestRef`     | Where a pull request lives: `owner`, `repo`, `number`                        |
+| `fetch_pull_request` | One pull request read into a `PullRequestContext` the decision layer accepts |
+| `audit_whole_branch` | The commit connection paged to its end, returning a `CommitAudit`            |
+
+Every reader here **requires** its `GraphQLQuery` and defaults none. Choosing
+the live client is `main`'s job in `dependabot_automerge.py`, which builds one
+`LiveRun` holding the token, that call and the run's configuration. `LiveRun`
+then travels to the initial read, each merge-state retry refresh, the
+auto-merge withdrawal, and the arming and merge mutations alike, so the three
+values that go everywhere together are one parameter rather than three. Nothing
+below `main` reaches for a client of its own.
+
+That rule is what makes the boundary testable rather than merely tidy: a
+fallback to the module-global client is invisible while a test patches that
+global, because the run still passes and the argument it was handed is silently
+unused on whichever path fell back. `test_dependabot_graphql_injection.py`
+poisons the module global and supplies the call as an argument, so any such
+fallback raises and names itself; it also asserts on `fetch_pull_request`'s
+signature that the default has not come back.
 
 ### The two fields on `PullRequestContext`
 
@@ -1680,19 +1709,25 @@ Consumers upgrading to the next major tag should read
 
 ### Tests
 
-Three files, because a scripted GitHub, a behavioural suite and a set of
-properties are three things:
+Four files, because a scripted GitHub, a behavioural suite, a set of properties
+and a boundary contract are four things:
 
 - `dependabot_graphql_double.py` is the scripted GitHub. It answers with a
   branch of a given shape, spread over pages, with or without an armed request,
   and can answer differently on the second fetch so a push inside the
-  merge-state retry window is describable.
+  merge-state retry window is describable. `build_graphql` returns that call
+  for a test to pass as an argument; `install_graphql` is the same call put on
+  the module global instead.
 - `test_dependabot_commit_audit.py` drives the production path: a foreign
   commit on the second page, a truncated credit list, a commit crediting
   nobody, the page ceiling, both merge mutations naming the audited head, a
   withdrawal, and the skip that must not withdraw.
 - `test_dependabot_audit_rule.py` states the rule's invariants as Hypothesis
   properties over arbitrary branches, since a loop that stops at the first
-  offender or skips the commit after a match passes any handful of examples.
-  It restates the rule rather than importing it, so two readings are compared
+  offender or skips the commit after a match passes any handful of examples. It
+  restates the rule rather than importing it, so two readings are compared
   rather than one reading with itself.
+- `test_dependabot_graphql_injection.py` holds the boundary to its contract.
+  It poisons the module-global client and supplies the call as an argument, so
+  arming, withdrawal and direct merge each prove they used what they were
+  given, and asserts that `fetch_pull_request` still defaults no call.

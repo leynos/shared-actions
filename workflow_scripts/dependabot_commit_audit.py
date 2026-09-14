@@ -436,7 +436,7 @@ def _judge(record: CommitRecord) -> ForeignCommit | None:
 def audit_commits(pull_request: dict[str, JsonValue]) -> CommitAudit:
     """Find the commits on one page that Dependabot did not write.
 
-    Callers that must cover a whole branch use :func:`_fetch_pull_request`,
+    Callers that must cover a whole branch use :func:`fetch_pull_request`,
     which pages the connection first. This composes the adapter and the
     rule over a single response.
 

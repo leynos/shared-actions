@@ -486,7 +486,7 @@ def test_the_read_path_uses_the_query_it_is_given() -> None:
             "repository": {"pullRequest": pull_request_node(branch, pages, page_index)}
         }
 
-    pull_request = dependabot_automerge._fetch_pull_request(
+    pull_request = dependabot_automerge.fetch_pull_request(
         "token",
         dependabot_automerge.PullRequestRef(
             owner="leynos", repo="shared-actions", number=1

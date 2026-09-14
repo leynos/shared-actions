@@ -173,48 +173,57 @@ MUTATING_PATHS = (
 )
 
 
-@pytest.mark.parametrize("path", MUTATING_PATHS)
-def test_every_mutating_path_uses_the_injected_call(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    path: MutatingPath,
-) -> None:
-    """Each mutating path sends its mutation through the supplied call.
+class TestGraphQLInjection:
+    """The boundary holds: nothing below `main` resolves a client itself.
 
-    Arming, withdrawal and direct merge are three separate paths, and a
-    fallback on any one of them would be hidden by the module-global
-    patch the rest of the suite relies on.
-
-    Parameters
-    ----------
-    monkeypatch : pytest.MonkeyPatch
-        The patching fixture.
-    capsys : pytest.CaptureFixture[str]
-        Captures the decision the run reports.
-    path : MutatingPath
-        The path under test, and what it must produce.
+    Grouped because both tests are about the same contract from two
+    sides. One drives every mutating path with a poisoned module global
+    and an injected call, so a fallback raises. The other reads the
+    signature the fallback would have to come back through.
     """
-    calls = _run_live(monkeypatch, path.branch)
 
-    assert _mutation_counts(calls) == path.counts, (
-        "the mutation must reach the injected call, and no other mutation "
-        f"with it; expected {path.counts}, got {_mutation_counts(calls)}"
-    )
-    assert f"automerge_status={path.status}" in capsys.readouterr().out, (
-        f"the run must report {path.status}"
-    )
+    @pytest.mark.parametrize("path", MUTATING_PATHS)
+    def test_every_mutating_path_uses_the_injected_call(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        path: MutatingPath,
+    ) -> None:
+        """Each mutating path sends its mutation through the supplied call.
 
+        Arming, withdrawal and direct merge are three separate paths, and a
+        fallback on any one of them would be hidden by the module-global
+        patch the rest of the suite relies on.
 
-def test_the_boundary_reader_takes_no_default_call() -> None:
-    """The GitHub reader requires the call; it names no client itself.
+        Parameters
+        ----------
+        monkeypatch : pytest.MonkeyPatch
+            The patching fixture.
+        capsys : pytest.CaptureFixture[str]
+            Captures the decision the run reports.
+        path : MutatingPath
+            The path under test, and what it must produce.
+        """
+        calls = _run_live(monkeypatch, path.branch)
 
-    The default is what a fallback would reintroduce, so its absence is
-    asserted on the signature rather than inferred from behaviour.
-    """
-    parameter = inspect.signature(dependabot_automerge.fetch_pull_request).parameters[
-        "query"
-    ]
-    assert parameter.default is inspect.Parameter.empty, (
-        "fetch_pull_request must require its GraphQL call, so that choosing "
-        "the live client stays at the composition root"
-    )
+        assert _mutation_counts(calls) == path.counts, (
+            "the mutation must reach the injected call, and no other mutation "
+            f"with it; expected {path.counts}, got {_mutation_counts(calls)}"
+        )
+        assert f"automerge_status={path.status}" in capsys.readouterr().out, (
+            f"the run must report {path.status}"
+        )
+
+    def test_the_boundary_reader_takes_no_default_call(self) -> None:
+        """The GitHub reader requires the call; it names no client itself.
+
+        The default is what a fallback would reintroduce, so its absence is
+        asserted on the signature rather than inferred from behaviour.
+        """
+        parameter = inspect.signature(
+            dependabot_automerge.fetch_pull_request
+        ).parameters["query"]
+        assert parameter.default is inspect.Parameter.empty, (
+            "fetch_pull_request must require its GraphQL call, so that choosing "
+            "the live client stays at the composition root"
+        )

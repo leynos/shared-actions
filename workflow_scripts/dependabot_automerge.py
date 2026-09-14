@@ -122,8 +122,8 @@ if __package__:
         AutomergeConfig,
         Decision,
         PullRequestContext,
-        armed_request_to_withdraw,
         evaluate,
+        judge,
     )
     from .dependabot_github import (
         GraphQLQuery,
@@ -140,7 +140,7 @@ if __package__:
         ENABLE_AUTOMERGE_MUTATION,
         MERGE_PULL_REQUEST_MUTATION,
     )
-    from .dependabot_report import emit_decision
+    from .dependabot_report import emit_decision, emit_withdrawal_notice
     from .graphql_client import JsonValue, request_graphql
     from .output import fail
 else:
@@ -154,8 +154,8 @@ else:
         AutomergeConfig,
         Decision,
         PullRequestContext,
-        armed_request_to_withdraw,
         evaluate,
+        judge,
     )
     from dependabot_github import (  # type: ignore[import-not-found,no-redef]
         GraphQLQuery,
@@ -174,6 +174,7 @@ else:
     )
     from dependabot_report import (  # type: ignore[import-not-found,no-redef]
         emit_decision,
+        emit_withdrawal_notice,
     )
     from graphql_client import (  # type: ignore[import-not-found,no-redef]
         JsonValue,
@@ -508,14 +509,21 @@ def _handle_dry_run(
 
 
 def _stop_unless_eligible(pr: PullRequestContext, *, run: LiveRun) -> bool:
-    """Report the decision and stop when the pull request is not eligible.
+    """Carry out the judgement, and stop when the branch is ineligible.
 
-    Cancels an auto-merge request that was armed before the branch went
-    foreign. Declining to arm one is not enough on its own: GitHub keeps
-    an existing request alive across a push, so a request armed while the
-    branch was Dependabot's would still merge the commit that made it
-    foreign as soon as the required checks passed. That is the outcome
-    this whole check exists to prevent, so the request is withdrawn.
+    Three things happen here and none of them is decided here. `judge`
+    in :mod:`dependabot_decision` works out both the decision and whether
+    a request should be withdrawn, and executes nothing.
+    `_disable_automerge` performs the withdrawal through the injected
+    call and decides nothing. `emit_withdrawal_notice` and
+    `emit_decision` in :mod:`dependabot_report` say what happened. What
+    is left here is the order the three go in, which is the only part
+    that is genuinely about running.
+
+    Withdrawal matters because declining to arm a request is not enough
+    on its own: GitHub keeps an existing request alive across a push, so
+    one armed while the branch was still Dependabot's would merge the
+    commit that made it foreign as soon as the required checks passed.
 
     Parameters
     ----------
@@ -529,23 +537,14 @@ def _stop_unless_eligible(pr: PullRequestContext, *, run: LiveRun) -> bool:
     bool
         True when the caller must stop.
     """
-    decision = evaluate(pr, run.config.required_label)
-    if decision.status == "ready":
+    judgement = judge(pr, run.config.required_label)
+    if judgement.decision.status == "ready":
         return False
-    armed = armed_request_to_withdraw(pr)
-    if armed is not None:
-        _disable_automerge(armed, run=run)
-        print(
-            f"::notice title=dependabot-automerge::cancelled the auto-merge "
-            f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "
-            f"branch gained a commit Dependabot did not write; it would "
-            f"otherwise have merged that commit once the required checks "
-            f"passed."
-        )
-        decision = Decision(
-            status="cancelled",
-            reason=decision.reason,
-        )
+    decision = judgement.decision
+    if judgement.withdraw is not None:
+        _disable_automerge(judgement.withdraw, run=run)
+        emit_withdrawal_notice(pr)
+        decision = Decision(status="cancelled", reason=decision.reason)
     emit_decision(pr, decision, config=run.config)
     return True
 

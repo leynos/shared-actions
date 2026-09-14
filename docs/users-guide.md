@@ -653,21 +653,76 @@ The watchdog belongs to `generate-coverage` and defaults to 1,800 seconds.
 Nothing in a caller's nextest configuration mentions it, which is how it comes
 to sit underneath a larger nextest budget without anyone noticing.
 
+If a repository has set no value it is on 1,800 seconds and nothing in the
+repository says so. That is not a budget anybody chose, and it is the state
+that killed a dependency bump in `rstest-bdd` with 1,894 of its 1,897 tests
+complete.
+
+### Choosing a value
+
+1. **Read several recent runs, not one, and not only the green ones.** Take
+   the longest the coverage step has taken and note the run ids. One run is
+   the coldest seen so far rather than a measurement of the cold case. Include
+   runs a timeout ended: those are the strongest evidence an allowance was too
+   small, and sizing from the successful ones alone reproduces the failure
+   they recorded.
+2. **Add what the watchdog covers and the inner timers do not.** Under nextest
+   that is its `global-timeout`, plus a termination allowance, plus a cold
+   build. Without nextest, the observed step duration is the whole of it.
+3. **Set it where the whole job can see it**, as
+   `RUN_RUST_CARGO_WAIT_TIMEOUT` at job level or `cargo-wait-timeout` on the
+   step, and record beside it what it was sized against.
+4. **Check the job ceiling above it**, or the job is cancelled before the
+   watchdog can report the overrun and the log that would have explained it
+   is discarded.
+
+### The arithmetic
+
 The four clocks do not start together, so comparing the configured numbers is
 not enough. The watchdog starts with `cargo` and covers the build; nextest's
 global timeout starts only when tests begin; hitting that timeout starts a
 termination procedure rather than stopping the run instantly; and the job timer
-runs from job start through everything either side of coverage. The rule
-therefore has three terms on each side:
+runs from job start through everything either side of coverage.
 
 ```text
-watchdog     >= nextest global-timeout + termination allowance + cold build
-job ceiling  >= watchdog + measured work outside the watchdog's window
+termination  =  configured slow-timeout.grace-period on Linux and macOS
+                0 on Windows
+watchdog     >= nextest global-timeout + termination + safety margin
+                + cold build
+job ceiling  >  sum of every coverage step's watchdog in that job
+                + measured work outside those steps
+                + a stated margin above that sum
 ```
 
+Four details of that arithmetic are easy to read past, and each has been got
+wrong in this estate.
+
+- **The job ceiling contains a sum, not a multiple.** Each invocation of the
+  action gets its own watchdog, so a job running coverage twice for two
+  feature sets can legitimately spend both, and the two need not agree.
+- **The comparison is strict, by a margin stated in the workflow.** A ceiling
+  equal to the sum it contains cancels the job at the moment the watchdog
+  would have reported the overrun, which converts a legible failure into a
+  cancellation with no log. This estate carries fifteen minutes.
+- **The termination allowance is platform-dependent, and is two terms.**
+  nextest's own grace-period default is ten seconds, but configurations
+  generated from this estate's template carry five, so read the value. On
+  Windows termination is immediate and the term is zero. Any floor added on
+  top is a safety margin against a grace period nobody has read, not time
+  nextest is known to need, so keep it separate.
+- **The per-test budget is `period` multiplied by `terminate-after`.** A
+  `{ period = "60s", terminate-after = 10 }` allows ten minutes, not one.
+  Reading the period alone understated netsuke's largest allowance tenfold.
+
+Measure the outside allowance per lane rather than once. A pull-request lane
+and a trunk lane can differ by an order of magnitude in what they do around the
+coverage step, so give each its own figure with its own run id, and hold a lane
+nobody has measured to the largest until somebody does.
+
 State both allowances and where they were measured. `generate-coverage`'s
-README carries the full account, the exact text the watchdog prints, and the
-shape of the contract that asserts the ordering by value.
+README carries the rest: the exact text the watchdog prints, the precondition
+that no `cargo` runs without a root manifest, and the shape of the contract
+that asserts the ordering by value.
 
 ## Mutation testing and workspace shape
 

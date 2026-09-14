@@ -331,6 +331,19 @@ stopped advancing.
 seconds, defaulting to 1800. The watchdog is there to catch a hang, and its
 budget is sized so that a build which is merely cold does not look like one.
 
+**If your repository has not set a value, it is on 1,800 s and nothing in
+your repository says so.** That is not a budget anyone chose for your suite,
+and it is the state that killed a dependency bump in `rstest-bdd` with 1,894
+of its 1,897 tests complete.
+
+Choosing one is caller guidance rather than action reference, so it lives in
+the users' guide, under
+[Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last):
+the four-step procedure for arriving at a value, the arithmetic relating the
+four timers, and the four details of it that have each been got wrong here.
+What follows below is about this action: what the watchdog prints, when
+`cargo` runs at all, and how to assert the ordering in a contract.
+
 That distinction is the whole reason for the number. A lane that archives its
 `target` tree runs a mostly incremental instrumented build, and a few hundred
 seconds covers little more than test execution. A lane that has stopped
@@ -363,68 +376,58 @@ cold compiler cache that is the expected outcome rather than a symptom.
 ### Sizing the budget against the timers around it
 
 The watchdog is one of four timers that can end a test run, and it is the one
-nobody expects because nothing in a caller's `.config/nextest.toml` mentions
-it. They only work if each sits above the one inside it.
+nobody expects, because nothing in a caller's `.config/nextest.toml` mentions
+it. They only work if each sits above the one inside it, and comparing the
+configured numbers is not enough, because the four clocks do not start together
+and do not cover the same work.
 
-| Tier | What it bounds | Where a caller sets it |
-| --- | --- | --- |
-| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
-| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
-| This watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
-| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+That arithmetic, the four-step procedure for arriving at a value, and the four
+details of it that have each been got wrong in this estate are caller guidance
+and live in the users' guide, under
+[Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last).
+They are stated once, there, because a second copy here would drift from the
+contract that enforces them.
 
-Comparing the configured numbers is not enough because the four clocks do not
-start together and do not cover the same work.
-
-- **The watchdog starts when `cargo` starts**, so it covers the build as well
-  as the test run. nextest's global timeout starts only once tests begin. A
-  watchdog merely larger than the global timeout still pre-empts it whenever
-  the build takes longer than the difference.
-- **A run that hits the global timeout does not stop instantly.** nextest
-  follows its usual termination procedure: on Unix it signals the process group
-  and waits a grace period, ten seconds by default and set by
-  `slow-timeout.grace-period`, before killing it. On Windows, termination is
-  immediate, and the grace period is ignored for timeouts.
-- **The job timer starts when the job starts**, before the formatting, linting
-  and other steps that precede coverage, and it is still running through
-  whatever follows.
-
-So the rule has three terms on each side:
-
-```text
-watchdog     >= nextest global-timeout + termination allowance + cold build
-job ceiling  >= watchdog + measured work outside the watchdog's window
-```
-
-A caller states both allowances, where it measured them, and how many runs it
-read. One run is not a measurement of the cold case, it is the coldest run seen
-so far, and the difference matters: rstest-bdd's allowances were sized three
-times from successive "cold" runs of 22, 30 and finally 42 minutes, each of
-which had looked like the worst until the next one arrived. Take the allowance
-from the worst of several, and say how many were read, so the next person
-sizing it knows what the number rests on.
-
-The failure this prevents is not hypothetical. rstest-bdd had a 30-minute
-watchdog under a 75-minute nextest budget; on 2026-09-05 a dependabot bump
-served 9 % of Rust compile requests from cache and was killed at 1,800 s with
-1,894 of its 1,897 tests complete. The run immediately before it took 1,833 s
-and passed, because the watchdog times `cargo` rather than the step. That lane
-was not near its budget, it was straddling it, and whether a run survived was
-decided by a few seconds of job setup.
-
-The job ceiling matters as much as the watchdog, and is easier to forget. On a
-genuinely cold run of that same lane the coverage step took 42 minutes and the
-whole job took 1 h 50 m, because the work either side of coverage ran cold too:
-37 minutes before and 31 after, against 14 and 37 on a warmer run. A larger
-watchdog alone would not have saved it. The job would have been cancelled at
-its 90-minute ceiling, and a cancellation discards the log that explains the
-overrun.
+The part that belongs to this action is what its own budget covers. A run that
+hits the global timeout does not stop instantly on Linux or macOS, and the
+watchdog is still running through that termination. One run is not a
+measurement of the cold case, it is the coldest run seen so far, and the
+difference matters: `rstest-bdd`'s allowances were sized three times from
+successive "cold" runs of 22, 30 and finally 42 minutes, each of which had
+looked like the worst until the next one arrived. Take the allowance from the
+worst run in the sample and say how many runs that sample held.
 
 ### Asserting the ordering
 
 A comment goes stale; a contract does not. Consumers that carry this mechanism
-assert the ordering by value, and two details of that shape are worth copying
-rather than reinventing.
+assert the ordering by value, and several details of that shape are worth
+copying rather than reinventing.
+
+**Check that `cargo` runs at all before comparing anything to the watchdog.**
+The action detects the project's language and gates every Rust step on it, so
+a caller with no root `Cargo.toml` never invokes `cargo` and the watchdog and
+both nextest tiers are inert however its lanes are configured. This
+repository's own coverage lanes are that case: their 30 minute ceiling equals
+the 1,800 second default, which is the inverted shape, and it means nothing
+because no `cargo` runs. A rule that compares the two numbers without checking
+the precondition reports that as a defect. What is worth asserting there is
+the precondition itself, so that adding the manifest, a change about
+packaging, fails until the budgets are set; `tests/workflows/test_coverage_timeout_tiers.py`
+in this repository is that assertion.
+
+**Read the watchdog from the step, then the job, then the workflow**, as GitHub
+resolves it. stilyagi sets the value at workflow level, so a contract reading
+only the job found nothing and would have reported every lane as inheriting the
+default, which is exactly backwards.
+
+**Assert an absent tier rather than assuming it.** A caller that passes
+`use-cargo-nextest: 'false'`, or does not use this action at all, has no
+per-test and no whole-run budget. That is a coherent shape, and turning nextest
+on introduces both tiers at once with nothing setting either. A contract that
+fails on the input change is what makes the guide move with it. Where a tier is
+missing rather than declined, say so as a gap and bind the value the moment one
+appears, so it lands above and below the right neighbours rather than merely
+somewhere.
 
 **Enumerate every step that invokes this action**, not only the steps that
 already set a budget. A contract that reads the variable where it finds it will

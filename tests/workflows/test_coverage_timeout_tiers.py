@@ -21,8 +21,10 @@ So this module asserts the precondition and the consequence together. If
 the manifest appears, the lanes must already carry a written watchdog
 and a ceiling above it, and this file's failure says so.
 
-See "The cargo watchdog" in
-`.github/actions/generate-coverage/README.md` for the canonical rule.
+The canonical rule is "Test timeouts: four tiers, outermost last" in
+`docs/users-guide.md`; "The cargo watchdog" in
+`.github/actions/generate-coverage/README.md` covers what the action
+itself does with the budget.
 """
 
 from __future__ import annotations
@@ -119,9 +121,9 @@ def ceiling_is_sufficient(
     """Return whether a job's ceiling clears its requirement.
 
     Strictly above, not at: a ceiling sitting exactly on the requirement
-    is the case the README rejects by name, because the job is cancelled
-    at the moment the watchdog would have reported the overrun and a
-    cancellation discards the log.
+    is the case the users' guide rejects by name, because the job is
+    cancelled at the moment the watchdog would have reported the overrun
+    and a cancellation discards the log.
 
     The rule lives here rather than inline in an assertion so it can be
     exercised against lanes this repository does not have. Its own lanes
@@ -591,7 +593,7 @@ class TestCoverageTimeoutTiers:
             "each job's timeout-minutes above that plus the work outside the "
             "watchdog's window, set a per-test slow-timeout and a global-timeout "
             "in .config/nextest.toml, and update the four-tier section in "
-            ".github/actions/generate-coverage/README.md in the same change"
+            "docs/users-guide.md in the same change"
         )
 
     @pytest.mark.parametrize("lane", _coverage_lanes(THIS_REPOSITORY), ids=str)

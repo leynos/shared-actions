@@ -200,7 +200,8 @@ class TestTheCeilingRequirement:
     The assertion over this repository's own lanes is skipped while
     there is no root manifest, so it certifies nothing about the
     arithmetic today. These drive that arithmetic with workflows written
-    for the case, including the equality the README explicitly rejects.
+    for the case, including the equality the users' guide explicitly
+    rejects.
     """
 
     @staticmethod
@@ -260,7 +261,7 @@ class TestTheCeilingRequirement:
         ``Cargo.toml`` exists, so the arithmetic behind them is exercised
         by nothing there. These drive the same predicate the contract
         calls, over documents parsed the same way, so the equality case
-        the README rejects by name is checked rather than restated.
+        the users' guide rejects by name is checked rather than restated.
 
         The 55-minute case is the one that matters: 1,800 s of watchdog,
         600 s of measured work outside it and a 900 s margin is exactly

@@ -332,33 +332,15 @@ budget is sized so that a build which is merely cold does not look like one.
 **If your repository has not set a value, it is on 1,800 s and nothing in
 your repository says so.** That is not a budget anyone chose for your suite,
 and it is the state that killed a dependency bump in `rstest-bdd` with 1,894
-of its 1,897 tests complete. Choosing one takes four steps, in this order:
+of its 1,897 tests complete.
 
-1. **Read your own runs, not one of them, and not only the green ones.**
-   Take the longest your coverage step has taken across several recent runs,
-   and note the run ids. One run is the coldest seen so far, not a
-   measurement of the cold case. Include runs that a timeout ended:
-   a run killed by the watchdog or cancelled by the job ceiling is the
-   strongest evidence the allowance was too small, and sizing from the
-   successful ones alone reproduces the failure it recorded. Where the
-   sample contains none, say so, because that is a fact about the sample
-   rather than about the budget.
-2. **Add what the watchdog covers and the inner timers do not.** If you run
-   nextest, that is its `global-timeout` plus a termination allowance read
-   from the largest configured `slow-timeout.grace-period`, with a floor of
-   about a minute, plus a cold build. If you do not, the observed step
-   duration is the whole of it.
-3. **Set the value where the whole job can see it**, as
-   `RUN_RUST_CARGO_WAIT_TIMEOUT` at job level or the `cargo-wait-timeout`
-   input on the step, and write down beside it what it was sized against.
-4. **Check the job ceiling above it.** It must clear the watchdog plus the
-   measured work outside the watchdog's window, or the job is cancelled
-   before the watchdog can report the overrun and the log that would have
-   explained it is discarded.
-
-The subsections below give the reasoning behind each step. A caller adopting
-this for the first time can stop at the four above and come back for the
-rest when a number is questioned.
+Choosing one is caller guidance rather than action reference, so it lives in
+the users' guide, under
+[Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last):
+the four-step procedure for arriving at a value, the arithmetic relating the
+four timers, and the four details of it that have each been got wrong here.
+What follows below is about this action: what the watchdog prints, when
+`cargo` runs at all, and how to assert the ordering in a contract.
 
 That distinction is the whole reason for the number. A lane that archives its
 `target` tree runs a mostly incremental instrumented build, and a few hundred
@@ -392,123 +374,26 @@ cold compiler cache that is the expected outcome rather than a symptom.
 ### Sizing the budget against the timers around it
 
 The watchdog is one of four timers that can end a test run, and it is the one
-nobody expects because nothing in a caller's `.config/nextest.toml` mentions
-it. They only work if each sits above the one inside it.
+nobody expects, because nothing in a caller's `.config/nextest.toml` mentions
+it. They only work if each sits above the one inside it, and comparing the
+configured numbers is not enough, because the four clocks do not start together
+and do not cover the same work.
 
-| Tier | What it bounds | Where a caller sets it |
-| --- | --- | --- |
-| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
-| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
-| This watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
-| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+That arithmetic, the four-step procedure for arriving at a value, and the four
+details of it that have each been got wrong in this estate are caller guidance
+and live in the users' guide, under
+[Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last).
+They are stated once, there, because a second copy here would drift from the
+contract that enforces them.
 
-Comparing the configured numbers is not enough because the four clocks do not
-start together and do not cover the same work.
-
-- **The watchdog starts when `cargo` starts**, so it covers the build as well
-  as the test run. nextest's global timeout starts only once tests begin. A
-  watchdog merely larger than the global timeout still pre-empts it whenever
-  the build takes longer than the difference.
-- **A run that hits the global timeout does not stop instantly, on some
-  platforms.** nextest follows its usual termination procedure. On Linux and
-  macOS it signals the process group and waits `slow-timeout.grace-period`
-  before killing it; nextest's own default is ten seconds, but a caller that
-  generated its configuration from this estate's template has five, so read
-  the value rather than assuming either. On Windows termination is immediate
-  and the grace period is ignored for timeouts, so the term is zero there.
-
-  Two numbers, not one, and they are added for different reasons. The
-  termination allowance is what nextest will actually spend, and it is
-  platform-dependent. Any floor a caller adds on top, a minute is a common
-  choice, is a safety margin against a grace period nobody has read rather
-  than time nextest is known to need. Keep them separate in the arithmetic
-  and in the writing, so a caller on Windows can see that the first term is
-  zero and the second is theirs to justify.
-- **The job timer starts when the job starts**, before the formatting, linting
-  and other steps that precede coverage, and it is still running through
-  whatever follows.
-
-So the rule has three terms on each side:
-
-```text
-termination  =  configured slow-timeout.grace-period on Linux and macOS
-                0 on Windows
-watchdog     >= nextest global-timeout + termination + safety margin
-                + cold build
-job ceiling  >  sum of every coverage step's watchdog in that job
-                + measured work outside those steps
-                + a stated margin above that sum
-```
-
-A caller states both allowances, where it measured them, and how many runs it
-read.
-
-The last line is a sum rather than a multiplication, and a strict comparison
-rather than an inclusive one. Two coverage steps in a job need not carry the
-same watchdog: the variable resolves per step, so one lane can raise it for the
-feature set that builds more. Multiplying one step's value by the number of
-steps describes that job only when they happen to agree.
-
-The comparison is strict, and by a margin the caller states, because a ceiling
-equal to the sum it contains cancels the job at the moment the watchdog would
-have reported the overrun. The report is the only thing that makes an overrun
-actionable, so a ceiling that merely reaches its requirement buys nothing: it
-converts a legible failure into a cancellation with no log. Fifteen minutes is
-the margin this estate carries.
-
-Three details of that arithmetic are easy to read past, and each has been got
-wrong in this estate.
-
-**Count the coverage steps in the job, not the jobs, and sum their budgets.**
-Each invocation of this action gets its own watchdog, so a job that runs it
-twice, once per feature set, can legitimately spend both. Its ceiling has to
-contain the sum, and a contract that resolves one step's watchdog and
-multiplies is a contract that stops describing the job the moment the two
-differ. ortho-config runs it twice per job and was sized as though it ran it
-once.
-
-**Measure the outside allowance per lane, not once.** A pull-request lane and a
-trunk lane can differ by an order of magnitude in what they do around the
-coverage step: ortho-config's Windows leg spends 2,717 s on cache saving and
-its trunk lane spends 68 s. One allowance taken from the larger demands a
-ceiling the smaller lane's runs cannot justify. Give each lane its own figure
-with its own run id, and hold a lane nobody has measured to the largest until
-somebody does.
-
-**The per-test budget is `period` multiplied by `terminate-after`.** nextest
-warns once per period and terminates after that many of them, so a
-`{ period = "60s", terminate-after = 10 }` allows ten minutes, not one. Reading
-the period alone understated netsuke's largest allowance tenfold and
-ortho-config's fivefold. Whatever compares the whole-run budget against the
-per-test one has to read the product.
-
-**And a ceiling on its requirement is not above it.** Satisfying the rule with
-`>=` leaves no slack, so the first cold run that spends the full watchdog is
-cancelled with budget left, and the cancellation discards the log that would
-have explained it. Leave the lane a margin and say what it is.
-
-One run is not a measurement of the cold case, it is the coldest run seen
-so far, and the difference matters: rstest-bdd's allowances were sized three
-times from successive "cold" runs of 22, 30 and finally 42 minutes, each of
-which had looked like the worst until the next one arrived. Take the allowance
-from the worst of several, and say how many were read, so the next person
-sizing it knows what the number rests on.
-
-The failure this prevents is not hypothetical. rstest-bdd had a 30-minute
-watchdog under a 75-minute nextest budget; on 2026-09-05 a dependabot bump
-served 9 % of Rust compile requests from cache and was killed at 1,800 s with
-1,894 of its 1,897 tests complete. The run immediately before it took 1,833 s
-and passed, because the watchdog times `cargo` rather than the step. That lane
-was not near its budget, it was straddling it, and whether a run survived was
-decided by a few seconds of job setup.
-
-The job ceiling matters as much as the watchdog, and is easier to forget. On a
-genuinely cold run of that same lane the coverage step took 42 minutes and the
-whole job took 1 h 50 m, because the work either side of coverage ran cold too:
-37 minutes before and 31 after, against 14 and 37 on a warmer run. A larger
-watchdog alone would not have saved it. The job would have been cancelled at
-its 90-minute ceiling, and a cancellation discards the log that explains the
-overrun.
+The part that belongs to this action is what its own budget covers. A run that
+hits the global timeout does not stop instantly on Linux or macOS, and the
+watchdog is still running through that termination. One run is not a
+measurement of the cold case, it is the coldest run seen so far, and the
+difference matters: `rstest-bdd`'s allowances were sized three times from
+successive "cold" runs of 22, 30 and finally 42 minutes, each of which had
+looked like the worst until the next one arrived. Take the allowance from the
+worst run in the sample and say how many runs that sample held.
 
 ### Asserting the ordering
 

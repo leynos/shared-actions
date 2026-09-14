@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Compile a custom WiX v4 authoring fixture with the supported WiX CLI and UI
+  extension on the Windows CI lane, preserving callers' authoring unchanged.
 - Strip semver pre-release identifiers and build metadata (for example
   `0.1.0-beta1` → `0.1.0`) when resolving the MSI ProductVersion, logging a
   warning instead of failing the build (#405); malformed SemVer suffixes

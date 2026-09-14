@@ -1581,8 +1581,18 @@ no one of them carries several concerns.
 
 `dependabot_decision.py` writes nothing and calls nothing: every function is a
 value in and a value out, so a rule can be exercised without a response, a
-runner or a captured stream. Saying the decision out loud is
-`dependabot_report.py`, the only one of the two that imports `output`.
+runner or a captured stream. `judge` is the one to reach for: it returns both
+the decision and the node ID of any auto-merge request that should be
+withdrawn, as a single `Judgement`, because whether to withdraw is meaningful
+only alongside the decision that declined the branch. Saying the decision out
+loud is `dependabot_report.py`, the only one of the two that imports `output`,
+and every notice and warning lives there, including the one that explains a
+withdrawal.
+
+The withdrawal path shows the split at its narrowest. `judge` decides and
+executes nothing; `_disable_automerge` executes and decides nothing;
+`emit_withdrawal_notice` and `emit_decision` say what happened. What is left in
+`_stop_unless_eligible` is the order the three go in.
 
 ### Where the GitHub shape stops
 
@@ -1731,3 +1741,8 @@ and a boundary contract are four things:
   It poisons the module-global client and supplies the call as an argument, so
   arming, withdrawal and direct merge each prove they used what they were
   given, and asserts that `fetch_pull_request` still defaults no call.
+- `test_dependabot_report_snapshots.py` pins the whole of what a run writes:
+  the `key=value` block, the foreign-commit notice, the unreadable-commit
+  warning and the withdrawal notice. Every other test asserts on the one line
+  it cares about, and so passes while a neighbouring line is renamed or
+  dropped; dropping `automerge_commit_pages_read` fails four of these.

@@ -114,6 +114,29 @@ def emit_decision(
         )
 
 
+def emit_withdrawal_notice(pr: PullRequestContext) -> None:
+    """Say that an armed auto-merge request was withdrawn, and why.
+
+    Presentation, so it lives here rather than beside the mutation that
+    performed the withdrawal. Declining to arm a request is not enough on
+    its own: GitHub keeps an existing request alive across a push, so one
+    armed while the branch was still Dependabot's would merge the commit
+    that made it foreign as soon as the required checks passed.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The pull request whose request was withdrawn.
+    """
+    print(
+        f"::notice title=dependabot-automerge::cancelled the auto-merge "
+        f"request armed on {pr.owner}/{pr.repo}#{pr.number} before the "
+        f"branch gained a commit Dependabot did not write; it would "
+        f"otherwise have merged that commit once the required checks "
+        f"passed."
+    )
+
+
 def _announce_foreign_commits(pr: PullRequestContext) -> None:
     """Name the commits that stopped the branch merging unattended."""
     named = ", ".join(str(commit) for commit in pr.foreign_commits)

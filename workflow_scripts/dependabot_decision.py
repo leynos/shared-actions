@@ -170,6 +170,56 @@ def armed_request_to_withdraw(pr: PullRequestContext) -> str | None:
     return pr.node_id
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class Judgement:
+    """What the rules say about one pull request, and nothing else.
+
+    A value rather than a pair of calls, because the two answers are one
+    judgement: whether to withdraw is meaningful only alongside the
+    decision that declined the branch. Holding them together keeps the
+    caller from acting on a withdrawal while reporting a decision that
+    was computed separately.
+
+    Attributes
+    ----------
+    decision : Decision
+        What the rules concluded.
+    withdraw : str or None
+        The node ID of an auto-merge request armed before the branch
+        stopped qualifying, or None when there is nothing to withdraw.
+    """
+
+    decision: Decision
+    withdraw: str | None
+
+
+def judge(pr: PullRequestContext, required_label: str | None) -> Judgement:
+    """Return the decision and any armed request that should be withdrawn.
+
+    Pure: values in, a value out. It executes nothing and says nothing,
+    so the rule can be exercised without a client or a captured stream.
+    Withdrawal is only ever proposed for a pull request the rules have
+    already declined, which is what makes it a withdrawal rather than a
+    cancellation of a merge somebody wanted.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot to judge.
+    required_label : str or None
+        The label the pull request must carry, or None to skip the check.
+
+    Returns
+    -------
+    Judgement
+        The decision, and the request to withdraw if there is one.
+    """
+    decision = evaluate(pr, required_label)
+    if decision.status == "ready":
+        return Judgement(decision=decision, withdraw=None)
+    return Judgement(decision=decision, withdraw=armed_request_to_withdraw(pr))
+
+
 def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     """Evaluate a PR against eligibility rules and return a Decision.
 

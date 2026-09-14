@@ -1,0 +1,85 @@
+# serializer version: 1
+# name: TestTheDecisionBlock.test_a_dry_run_never_claims_a_merge
+  '''
+  automerge_status=dry-run
+  automerge_reason=eligible
+  automerge_merge_method=SQUASH
+  automerge_required_label=dependencies
+  automerge_repository=acme/example
+  automerge_pr_number=7
+  automerge_author=dependabot[bot]
+  automerge_draft=false
+  automerge_labels=["dependencies"]
+  automerge_merge_state=BLOCKED
+  automerge_mergeable_state=MERGEABLE
+  automerge_commit_audit=clean
+  automerge_commit_pages_read=1
+  automerge_commits_audited=3
+  
+  '''
+# ---
+# name: TestTheDecisionBlock.test_an_armed_branch_reports_every_field
+  '''
+  automerge_status=enabled
+  automerge_reason=enabled
+  automerge_merge_method=SQUASH
+  automerge_required_label=dependencies
+  automerge_repository=acme/example
+  automerge_pr_number=7
+  automerge_author=dependabot[bot]
+  automerge_draft=false
+  automerge_labels=["dependencies"]
+  automerge_merge_state=BLOCKED
+  automerge_mergeable_state=MERGEABLE
+  automerge_commit_audit=clean
+  automerge_commit_pages_read=1
+  automerge_commits_audited=3
+  
+  '''
+# ---
+# name: TestTheNotices.test_a_foreign_commit_is_named
+  '''
+  automerge_status=skipped
+  automerge_reason=foreign-commit:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  automerge_merge_method=SQUASH
+  automerge_required_label=dependencies
+  automerge_repository=acme/example
+  automerge_pr_number=7
+  automerge_author=dependabot[bot]
+  automerge_draft=false
+  automerge_labels=["dependencies"]
+  automerge_merge_state=BLOCKED
+  automerge_mergeable_state=MERGEABLE
+  automerge_commit_audit=foreign
+  automerge_commit_pages_read=1
+  automerge_commits_audited=3
+  ::notice title=dependabot-automerge::acme/example#7 carries 1 commit(s) Dependabot did not write (aaaaaaaa by maintainer), so it will not merge unattended. A change pushed onto a Dependabot branch needs its own pull request and its own review.
+  
+  '''
+# ---
+# name: TestTheNotices.test_a_withdrawal_says_what_it_undid
+  '''
+  ::notice title=dependabot-automerge::cancelled the auto-merge request armed on acme/example#7 before the branch gained a commit Dependabot did not write; it would otherwise have merged that commit once the required checks passed.
+  
+  '''
+# ---
+# name: TestTheNotices.test_an_unreadable_audit_warns_instead
+  '''
+  automerge_status=skipped
+  automerge_reason=commits-unreadable
+  automerge_merge_method=SQUASH
+  automerge_required_label=dependencies
+  automerge_repository=acme/example
+  automerge_pr_number=7
+  automerge_author=dependabot[bot]
+  automerge_draft=false
+  automerge_labels=["dependencies"]
+  automerge_merge_state=BLOCKED
+  automerge_mergeable_state=MERGEABLE
+  automerge_commit_audit=unreadable
+  automerge_commit_pages_read=0
+  automerge_commits_audited=0
+  ::warning title=dependabot-automerge::could not read the commits of acme/example#7, so the commit-authorship check did not run and eligibility rests on the pull request's author alone. A change pushed onto this branch by someone other than Dependabot would not be detected.
+  
+  '''
+# ---

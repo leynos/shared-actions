@@ -45,7 +45,7 @@ WORKFLOWS_DIRECTORY: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "workflows"
 #: The Ubicloud shape every migrated Linux lane starts on. The recipe
 #: allows a larger shape only on measured disk or wall-time evidence, and
 #: this repository has produced none, so the larger labels are absent
-#: from the recognised set below and a move to one would fail here.
+#: from the recognized set below and a move to one would fail here.
 UBICLOUD_LINUX: typ.Final[str] = "ubicloud-standard-2"
 
 #: The GitHub-hosted Linux label. Present only where an exemption below
@@ -53,14 +53,14 @@ UBICLOUD_LINUX: typ.Final[str] = "ubicloud-standard-2"
 HOSTED_LINUX: typ.Final[str] = "ubuntu-latest"
 
 #: Every runner label this repository is allowed to name, as exact
-#: tokens. An unrecognised label fails rather than being classified by
+#: tokens. An unrecognized label fails rather than being classified by
 #: the shape of its name, because "starts with ubicloud" would accept a
 #: shape nobody measured and "contains ubuntu" would accept
 #: `ubicloud-standard-2-ubuntu-2404` as a GitHub-hosted runner.
-RECOGNISED_LINUX_LABELS: typ.Final[frozenset[str]] = frozenset(
+RECOGNIZED_LINUX_LABELS: typ.Final[frozenset[str]] = frozenset(
     {UBICLOUD_LINUX, HOSTED_LINUX}
 )
-RECOGNISED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
+RECOGNIZED_OTHER_LABELS: typ.Final[frozenset[str]] = frozenset(
     {"macos-15", "windows-latest", "windows-11-arm"}
 )
 
@@ -99,7 +99,7 @@ TIMEOUT_TIERS: typ.Final[cabc.Mapping[str, int]] = {
     # Downloads and verifies a pinned release archive. Longest observed:
     # 5 min 40 s, on the Windows Whitaker leg.
     "install": 15,
-    # Cross-compiles the toy application. Longest observed: 4 min 37 s,
+    # Cross-compiles the toy application. Longest observed: 4 min 36 s,
     # on a Windows leg.
     "build": 20,
     # Runs the Python suite uninstrumented. Longest observed: 12 min 45 s.
@@ -270,7 +270,7 @@ def _linux_arms() -> list[tuple[str, str, str]]:
             arms.extend(
                 (name, job_id, label)
                 for label in sorted(_runner_labels(job))
-                if label in RECOGNISED_LINUX_LABELS
+                if label in RECOGNIZED_LINUX_LABELS
             )
     return arms
 
@@ -334,21 +334,21 @@ def test_a_job_either_calls_a_workflow_or_names_a_runner(
 
 
 @pytest.mark.parametrize(("workflow", "job_id"), _runner_job_ids())
-def test_every_runner_label_is_recognised(workflow: str, job_id: str) -> None:
+def test_every_runner_label_is_recognized(workflow: str, job_id: str) -> None:
     """Each arm names a label this repository has decided about.
 
-    The recognised sets hold exact tokens, so a shape nobody measured,
+    The recognized sets hold exact tokens, so a shape nobody measured,
     such as `ubicloud-standard-8`, fails here instead of being read as
     "an Ubicloud runner".
     """
     job = dict(_jobs(workflow))[job_id]
     labels = _runner_labels(job)
     assert labels, f"{_identifier(workflow, job_id)} resolves to no runner label"
-    recognised = RECOGNISED_LINUX_LABELS | RECOGNISED_OTHER_LABELS
-    unrecognised = labels - recognised
-    assert not unrecognised, (
-        f"{_identifier(workflow, job_id)} names unrecognised runner labels "
-        f"{sorted(unrecognised)}; add the label to the recognised sets with a "
+    recognized = RECOGNIZED_LINUX_LABELS | RECOGNIZED_OTHER_LABELS
+    unrecognized = labels - recognized
+    assert not unrecognized, (
+        f"{_identifier(workflow, job_id)} names unrecognized runner labels "
+        f"{sorted(unrecognized)}; add the label to the recognized sets with a "
         "reason, or use one already there"
     )
 
@@ -434,7 +434,7 @@ def test_no_step_condition_names_a_runner_label(workflow: str, job_id: str) -> N
         (step.get("name", "<unnamed>"), condition)
         for step in job.get("steps") or []
         if isinstance(condition := str(step.get("if", "")), str)
-        for label in RECOGNISED_LINUX_LABELS | RECOGNISED_OTHER_LABELS
+        for label in RECOGNIZED_LINUX_LABELS | RECOGNIZED_OTHER_LABELS
         if _label_token(label).search(condition)
     ]
     assert not offenders, (

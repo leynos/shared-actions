@@ -72,21 +72,20 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff
         with:
           globs: '**/*.md'
-      - name: Set up isolated Rust for Merman
-        if: runner.os == 'Linux'
-        run: rustup toolchain install 1.95.0 --profile minimal
-        shell: bash
-      - name: Cache Merman CLI
-        if: runner.os == 'Linux'
-        id: cache-merman-cli
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.cargo/bin/merman-cli
-          key: merman-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.MERMAN_CLI_VERSION }}
+      # From a pinned, digest-verified release archive, like every other tool
+      # here. This replaced a `cargo install` that ran on every pull request:
+      # its actions/cache entry saved and then never restored, so the build was
+      # not occasional but constant, and at 5m 42s it was the largest single
+      # step in the repository's slowest job. See issue #483 for the log
+      # extracts. The isolated Rust 1.95.0 toolchain went with it, because it
+      # existed only to build this one tool; the `setup-rust` step below is
+      # what the rest of the job uses.
       - name: Install Merman CLI
-        if: runner.os == 'Linux' && steps.cache-merman-cli.outputs.cache-hit != 'true'
-        run: cargo +1.95.0 install merman-cli --version "=${MERMAN_CLI_VERSION}" --locked
-        shell: bash
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/install-tool
+        with:
+          tool: merman-cli
+          version: ${{ env.MERMAN_CLI_VERSION }}
       - name: Install Nixie
         if: runner.os == 'Linux'
         run: uv tool install --python 3.14 nixie-cli==1.1.0

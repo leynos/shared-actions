@@ -1719,8 +1719,9 @@ Consumers upgrading to the next major tag should read
 
 ### Tests
 
-Four files, because a scripted GitHub, a behavioural suite, a set of properties
-and a boundary contract are four things:
+Five files, because a scripted GitHub, a behavioural suite, a set of
+properties, a boundary contract and a snapshot of everything a run writes are
+five things:
 
 - `dependabot_graphql_double.py` is the scripted GitHub. It answers with a
   branch of a given shape, spread over pages, with or without an armed request,

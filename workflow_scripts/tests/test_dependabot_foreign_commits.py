@@ -290,7 +290,7 @@ class TestForeignCommitsBlockAutomerge:
         """The ordinary bump is unaffected."""
         decision = dependabot_decision.evaluate(_pr(), None)
 
-        assert decision.status == "ready", decision
+        assert decision.status is dependabot_decision.DecisionStatus.READY, decision
         assert decision.reason == "eligible", decision
 
     def test_a_foreign_commit_skips_and_names_it(self) -> None:
@@ -303,7 +303,7 @@ class TestForeignCommitsBlockAutomerge:
 
         decision = dependabot_decision.evaluate(pr, None)
 
-        assert decision.status == "skipped", decision
+        assert decision.status is dependabot_decision.DecisionStatus.SKIPPED, decision
         assert decision.reason == "foreign-commit:cccccccc", decision
 
     def test_the_annotation_names_the_commit_and_the_remedy(
@@ -319,7 +319,8 @@ class TestForeignCommitsBlockAutomerge:
         dependabot_report.emit_decision(
             pr,
             dependabot_decision.Decision(
-                status="skipped", reason="foreign-commit:cccccccc"
+                status=dependabot_decision.DecisionStatus.SKIPPED,
+                reason="foreign-commit:cccccccc",
             ),
             config=dependabot_decision.AutomergeConfig(
                 merge_method="squash", required_label=None, dry_run=False
@@ -343,7 +344,9 @@ def test_an_unreadable_commit_list_is_announced(
     """
     dependabot_report.emit_decision(
         _pr(commits_readable=False),
-        dependabot_decision.Decision(status="ready", reason="eligible"),
+        dependabot_decision.Decision(
+            status=dependabot_decision.DecisionStatus.READY, reason="eligible"
+        ),
         config=dependabot_decision.AutomergeConfig(
             merge_method="squash", required_label=None, dry_run=False
         ),

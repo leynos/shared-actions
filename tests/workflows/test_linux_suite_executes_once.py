@@ -16,7 +16,10 @@ deleting the second is not an option.
 
 The steps are matched by what they invoke, not by their names. A step
 named "Run tests" that no longer runs any is not what this rule is
-about, and a differently named step that runs `pytest` is.
+about, and a differently named step that runs the suite is. That
+includes reaching it through a make target: `make test` and `make all`
+both run the whole suite here, so a step calling either repeats the run
+just as plainly as one calling `pytest`.
 """
 
 from __future__ import annotations
@@ -50,6 +53,33 @@ _PYTEST_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
     re.MULTILINE,
 )
 
+#: Make targets that run the whole suite. `test` is the suite itself and
+#: `all` runs it among the other gates, so a step reaching for either
+#: repeats the run whatever it is named. Without this, adding
+#: `run: make test` beside the guarded step would put the suite back on
+#: Linux while both assertions below still passed.
+SUITE_MAKE_TARGETS: typ.Final[frozenset[str]] = frozenset({"test", "all"})
+
+#: A `make` invocation, with its arguments captured. Options and
+#: variable assignments are left in the capture and filtered by token,
+#: so `make TEST_ARGS=-x lint` is not read as running the suite.
+_MAKE_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[;&|]\s*)make(?:\s+(?P<arguments>[^\n;&|]*))?",
+    re.MULTILINE,
+)
+
+
+def _make_runs_the_suite(script: str) -> bool:
+    """Return True when *script* invokes a make target that runs the suite."""
+    for match in _MAKE_INVOCATION.finditer(script):
+        tokens = (match.group("arguments") or "").split()
+        targets = [
+            token for token in tokens if not token.startswith("-") and "=" not in token
+        ]
+        if SUITE_MAKE_TARGETS.intersection(targets):
+            return True
+    return False
+
 
 @pytest.fixture(scope="module")
 def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
@@ -59,11 +89,15 @@ def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
 
 
 def _suite_steps(job: cabc.Mapping[str, typ.Any]) -> list[dict[str, typ.Any]]:
-    """Return the steps of *job* that invoke `pytest` directly."""
+    """Return the steps of *job* that run the suite.
+
+    Directly, through `pytest`, or through a make target that wraps it.
+    """
     return [
         step
         for step in job.get("steps") or []
-        if _PYTEST_INVOCATION.search(str(step.get("run", "")))
+        if _PYTEST_INVOCATION.search(script := str(step.get("run", "")))
+        or _make_runs_the_suite(script)
     ]
 
 

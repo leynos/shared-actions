@@ -5,7 +5,9 @@ on:
 
 jobs:
   test-action-setup-root:
-    runs-on: ubicloud-standard-2
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read

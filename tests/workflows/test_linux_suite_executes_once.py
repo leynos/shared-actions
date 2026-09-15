@@ -60,11 +60,31 @@ _PYTEST_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
 #: Linux while both assertions below still passed.
 SUITE_MAKE_TARGETS: typ.Final[frozenset[str]] = frozenset({"test", "all"})
 
+#: Shell keywords a command can sit behind without being any less run.
+#: `if make test; then ...; fi` executes the suite exactly as plainly as
+#: `make test` does, and matching only after a line start or a separator
+#: would let it through.
+_SHELL_PREFIX_KEYWORDS: typ.Final[tuple[str, ...]] = (
+    "if",
+    "then",
+    "else",
+    "elif",
+    "do",
+    "while",
+    "until",
+)
+
 #: A `make` invocation, with its arguments captured. Options and
 #: variable assignments are left in the capture and filtered by token,
 #: so `make TEST_ARGS=-x lint` is not read as running the suite.
+#:
+#: The keywords are matched as whole words, so a target named
+#: `verify-something` cannot be read as a keyword ending in one, and a
+#: `make` inside a longer word such as `remake` is not matched at all.
 _MAKE_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[;&|]\s*)make(?:\s+(?P<arguments>[^\n;&|]*))?",
+    r"(?:^|[;&|]\s*|(?:!\s*)|\b(?:"
+    + "|".join(_SHELL_PREFIX_KEYWORDS)
+    + r")\s+)make\b(?:\s+(?P<arguments>[^\n;&|]*))?",
     re.MULTILINE,
 )
 

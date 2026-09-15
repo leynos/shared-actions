@@ -90,6 +90,29 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ),
 }
 
+#: Lanes that answer the fork problem by skipping rather than falling
+#: back, with the reason and the guard that has to be there.
+#:
+#: Falling back is the default because a skip leaves an external
+#: contribution with no Linux CI. It is the wrong answer only where the
+#: hosted runner cannot prove what the job exists to prove, in which
+#: case a fallback would make the job pass while testing nothing.
+FORK_FALLBACK_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("test-ubicloud-sccache-proxy.yml", "reaches-the-proxy"): (
+        "The job exists to prove sccache reaches Ubicloud's cache proxy, "
+        "which is observable on an Ubicloud runner and nowhere else. A "
+        "fallback to a GitHub-hosted runner would leave it green and "
+        "proving nothing, so it skips a fork's pull request instead."
+    ),
+}
+
+#: The head-repository comparison an exempt lane must guard itself with.
+#: Keyed on the head repository rather than on `github.repository`,
+#: which is the base repository and matches a fork's pull request too.
+FORK_SKIP_GUARD: typ.Final[str] = (
+    "github.event.pull_request.head.repo.full_name == github.repository"
+)
+
 #: Job ceilings by tier, in minutes, with the measurement each was sized
 #: against recorded in the developers' guide.
 TIMEOUT_TIERS: typ.Final[cabc.Mapping[str, int]] = {
@@ -206,6 +229,44 @@ _MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
     r"^\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}$"
 )
 
+#: The sanctioned fork fallback, parsed rather than string-compared so
+#: that each part can be asserted on its own.
+#:
+#: A fork's pull request cannot obtain an Ubicloud runner and would
+#: queue until the job ceiling, so a lane reachable by `pull_request`
+#: selects its label from the head repository. Skipping instead would
+#: leave an external contribution with no Linux CI at all.
+#:
+#: The field path is matched exactly. Swapping `fork` for a sibling such
+#: as `private` changes which pull requests fall back and matches
+#: nothing here, which is the point: the rule is about forks, not about
+#: whichever boolean sits next to it.
+_FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
+    r"^\$\{\{\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"\s*&&\s*'(?P<fork_arm>[^']+)'"
+    r"\s*\|\|\s*'(?P<base_arm>[^']+)'\s*\}\}$"
+)
+
+
+def _triggers(name: str) -> set[str]:
+    """Return the event names the workflow *name* is triggered by."""
+    document = _load_workflow(name)
+    # PyYAML reads the bare key `on` as the boolean True.
+    on = document.get(True, document.get("on"))
+    if isinstance(on, dict):
+        return set(on)
+    if isinstance(on, list):
+        return set(on)
+    return {on} if isinstance(on, str) else set()
+
+
+def _fork_arms(runs_on: str) -> tuple[str, str] | None:
+    """Return the (fork, non-fork) labels of a fork-aware `runs-on`."""
+    match = _FORK_AWARE_RUNS_ON.match(" ".join(runs_on.split()))
+    if match is None:
+        return None
+    return match.group("fork_arm"), match.group("base_arm")
+
 
 def _load_workflow(name: str) -> dict[str, typ.Any]:
     """Return the parsed workflow named *name*."""
@@ -256,8 +317,50 @@ def _runner_labels(job: cabc.Mapping[str, typ.Any]) -> set[str]:
     if not isinstance(runs_on, str):
         return set()
     if match := _MATRIX_REFERENCE.match(runs_on):
+        values = _matrix_values(job, match.group(1))
+        return {label for value in values for label in _expand(value)}
+    return _expand(runs_on)
+
+
+def _expand(value: str) -> set[str]:
+    """Return every label a single `runs-on` value can resolve to."""
+    if arms := _fork_arms(value):
+        return set(arms)
+    return {value}
+
+
+def _runs_on_values(job: cabc.Mapping[str, typ.Any]) -> set[str]:
+    """Return *job*'s `runs-on` values before any fork arm is expanded.
+
+    The placement rule is about the shape a lane declares, not only the
+    labels it can reach, so it has to see the expression rather than its
+    arms.
+    """
+    runs_on = job.get("runs-on")
+    if not isinstance(runs_on, str):
+        return set()
+    if match := _MATRIX_REFERENCE.match(runs_on):
         return _matrix_values(job, match.group(1))
     return {runs_on}
+
+
+def _is_unparsed_expression(value: str) -> bool:
+    """Return True for a `runs-on` expression this module cannot read.
+
+    An expression that is not the sanctioned fork selector could resolve
+    to anything, including a paid label on a fork. Treating it as "not a
+    Linux lane" and skipping is how the rule gets defeated by a change
+    that merely renames the field it keys on, so it is treated as a
+    Linux lane and fails.
+    """
+    return value.strip().startswith("${{") and _fork_arms(value) is None
+
+
+def _reaches_linux(value: str) -> bool:
+    """Return True when a `runs-on` value can land on a Linux runner."""
+    if _is_unparsed_expression(value):
+        return True
+    return bool(_expand(value) & RECOGNIZED_LINUX_LABELS)
 
 
 def _all_jobs() -> list[tuple[str, str]]:
@@ -270,19 +373,6 @@ def _all_jobs() -> list[tuple[str, str]]:
 def _runner_job_ids() -> list[tuple[str, str]]:
     """Return every pair for a job that occupies a runner."""
     return [pair for pair in _all_jobs() if pair not in CALLER_JOBS]
-
-
-def _linux_arms() -> list[tuple[str, str, str]]:
-    """Return every (workflow, job id, label) arm on a Linux label."""
-    arms: list[tuple[str, str, str]] = []
-    for name in _workflow_names():
-        for job_id, job in _jobs(name):
-            arms.extend(
-                (name, job_id, label)
-                for label in sorted(_runner_labels(job))
-                if label in RECOGNIZED_LINUX_LABELS
-            )
-    return arms
 
 
 def _label_token(label: str) -> re.Pattern[str]:
@@ -363,29 +453,72 @@ def test_every_runner_label_is_recognized(workflow: str, job_id: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("workflow", "job_id", "label"),
-    _linux_arms(),
-    ids=lambda value: value,
-)
-def test_a_linux_arm_runs_on_ubicloud_unless_exempt(
-    workflow: str, job_id: str, label: str
+@pytest.mark.parametrize(("workflow", "job_id"), _runner_job_ids())
+def test_a_linux_lane_declares_the_placement_its_triggers_require(
+    workflow: str, job_id: str
 ) -> None:
-    """Linux work runs on Ubicloud unless an exemption says otherwise.
+    """Linux work runs on Ubicloud, with a fork fallback where forks reach it.
 
-    The exemption is keyed on the job, so moving the rule's subject to a
-    new job id fails here rather than carrying the old permission along.
+    Three shapes, and which one a lane must use is decided by its
+    triggers rather than by preference. A lane an exemption names stays
+    GitHub-hosted. A lane a fork's pull request can reach selects its
+    label from the head repository, because a fork cannot obtain an
+    Ubicloud runner and would otherwise queue until the ceiling.
+    Everything else names Ubicloud outright.
     """
+    job = dict(_jobs(workflow))[job_id]
+    values = {value for value in _runs_on_values(job) if _reaches_linux(value)}
+    if not values:
+        pytest.skip("no Linux arm")
     if (workflow, job_id) in HOSTED_LINUX_EXEMPTIONS:
-        assert label == HOSTED_LINUX, (
+        assert values == {HOSTED_LINUX}, (
             f"{_identifier(workflow, job_id)} is exempt from the Ubicloud "
-            f"rule but runs on {label!r}; remove the exemption or restore "
-            f"{HOSTED_LINUX!r}"
+            f"rule but declares {sorted(values)}; remove the exemption or "
+            f"restore {HOSTED_LINUX!r}"
         )
         return
-    assert label == UBICLOUD_LINUX, (
-        f"{_identifier(workflow, job_id)} runs Linux work on {label!r}; "
-        f"use {UBICLOUD_LINUX!r} or add an exemption naming the reason"
+    if (
+        "pull_request" in _triggers(workflow)
+        and (workflow, job_id) not in FORK_FALLBACK_EXEMPTIONS
+    ):
+        for value in values:
+            arms = _fork_arms(value)
+            assert arms is not None, (
+                f"{_identifier(workflow, job_id)} can be reached by a fork's "
+                f"pull request but declares {value!r}; key the label on "
+                "github.event.pull_request.head.repo.fork so that a fork "
+                "falls back rather than queueing for a runner it cannot have"
+            )
+            assert arms == (HOSTED_LINUX, UBICLOUD_LINUX), (
+                f"{_identifier(workflow, job_id)} falls back to {arms[0]!r} "
+                f"and otherwise runs on {arms[1]!r}; the fork arm must be "
+                f"{HOSTED_LINUX!r} and the other {UBICLOUD_LINUX!r}, so that "
+                "a fork never lands on a paid runner"
+            )
+        return
+    assert values == {UBICLOUD_LINUX}, (
+        f"{_identifier(workflow, job_id)} neither falls back for forks nor "
+        f"needs to, so it must name {UBICLOUD_LINUX!r} outright rather than "
+        f"{sorted(values)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job_id"), sorted(FORK_FALLBACK_EXEMPTIONS), ids=_identifier
+)
+def test_a_fork_skipping_lane_really_skips_forks(workflow: str, job_id: str) -> None:
+    """A lane excused the fallback carries the guard that replaces it.
+
+    Without this the exemption is a note, and deleting the `if` leaves a
+    fork's pull request queueing for a runner it cannot have, which is
+    the outcome the whole rule exists to prevent.
+    """
+    job = dict(_jobs(workflow))[job_id]
+    condition = " ".join(str(job.get("if", "")).split())
+    assert FORK_SKIP_GUARD in condition, (
+        f"{_identifier(workflow, job_id)} is excused the fork fallback "
+        "because it skips forks, but its condition does not compare the head "
+        f"repository: {condition!r}"
     )
 
 

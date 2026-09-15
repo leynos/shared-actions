@@ -54,6 +54,19 @@ def _tarball(tmp_path: Path, member: str, binary: Path) -> Path:
     return archive
 
 
+def _tar_xz(tmp_path: Path, member: str, binary: Path) -> Path:
+    """Build a tar.xz placing the stub at a given member path.
+
+    merman-cli publishes only this shape for Linux and macOS, and it joins
+    the `tar.gz` extraction arm rather than getting its own, because both GNU
+    tar and bsdtar detect xz compression from the archive itself.
+    """
+    archive = tmp_path / "widget.tar.xz"
+    with tarfile.open(archive, "w:xz") as handle:
+        handle.add(binary, arcname=member)
+    return archive
+
+
 def _zip(tmp_path: Path, member: str, binary: Path) -> Path:
     """Build a zip placing the stub at a given member path."""
     archive = tmp_path / "widget.zip"
@@ -354,6 +367,25 @@ class TestDownloadAndVerify:
         _probe, install = _install(tmp_path, Archive(archive, "widget", "tar.gz"))
 
         assert install.returncode == 0, install.stderr
+        assert (tmp_path / "bin" / "widget").is_file()
+
+    def test_installs_from_a_tar_xz_under_a_directory(self, tmp_path: Path) -> None:
+        """The shape merman-cli publishes for Linux and macOS.
+
+        `tar.xz` shares the `tar.gz` extraction arm rather than getting its
+        own, because both GNU tar and bsdtar detect xz compression from the
+        archive itself, so this proves that arm actually reaches an xz file
+        rather than only ever seeing gzip.
+        """
+        binary = _stub_binary(_source_dir(tmp_path))
+        archive = _tar_xz(tmp_path, "widget-1.2.3/widget", binary)
+
+        _probe, install = _install(
+            tmp_path, Archive(archive, "widget-1.2.3/widget", "tar.xz")
+        )
+
+        assert install.returncode == 0, install.stderr
+        assert install.metrics["install-tool.install"] == "ok"
         assert (tmp_path / "bin" / "widget").is_file()
 
     def test_installs_from_a_zip(self, tmp_path: Path) -> None:

@@ -58,3 +58,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   The action installs into `bin-dir` and archives nothing; a lane that wants an
   installed tool to survive between jobs owns that cache step and its key.
+
+- Extract `.tar.xz` archives, joining the existing `.tar.gz` extraction arm
+  rather than gaining a separate one. Both GNU tar and bsdtar detect xz
+  compression from the archive itself, the same property the `.tar.gz` arm
+  already relied on for gzip, so no new extraction code was needed.

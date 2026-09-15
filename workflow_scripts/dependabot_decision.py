@@ -11,6 +11,7 @@ out loud belongs to :mod:`dependabot_report`, and acting on it to
 from __future__ import annotations
 
 import dataclasses
+import enum
 
 if __package__:
     from .dependabot_commit_audit import DEPENDABOT_LOGINS, ForeignCommit
@@ -86,23 +87,47 @@ class PullRequestContext:
     commits_audited: int = 0
 
 
+class DecisionStatus(enum.StrEnum):
+    """Every value ``automerge_status`` can take.
+
+    A closed set rather than a bare `str`, because the value crosses the
+    output boundary into a caller's workflow, and is also compared
+    against in :func:`judge`: a misspelt literal there would silently
+    take the non-ready branch and propose a withdrawal. `StrEnum` keeps
+    the emitted text identical to the literals it replaces.
+
+    ``CANCELLED`` is a skip that also withdrew an auto-merge request
+    armed earlier, reported separately because the run changed the pull
+    request rather than merely declining to. ``DRY_RUN`` is what
+    :mod:`dependabot_report` says in place of ``READY`` when the run is
+    not allowed to act, so it is a reported status without ever being a
+    judged one. ``ERROR`` is emitted by :func:`output.fail`, which
+    cannot import this enum without a cycle; the member is declared here
+    so the vocabulary is complete in one place.
+    """
+
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+    READY = "ready"
+    ENABLED = "enabled"
+    MERGED = "merged"
+    DRY_RUN = "dry-run"
+    ERROR = "error"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class Decision:
     """Decision describing whether auto-merge should proceed.
 
     Attributes
     ----------
-    status : str
-        The decision status: ``skipped``, ``cancelled``, ``ready``,
-        ``enabled``, ``merged``, or ``error``. ``cancelled`` is a skip that
-        also withdrew an auto-merge request armed earlier, and is reported
-        separately because the run changed the pull request rather than
-        merely declining to.
+    status : DecisionStatus
+        What the run decided.
     reason : str
         Human-readable reason for the decision, e.g. ``author-not-dependabot``.
     """
 
-    status: str
+    status: DecisionStatus
     reason: str
 
 
@@ -215,7 +240,7 @@ def judge(pr: PullRequestContext, required_label: str | None) -> Judgement:
         The decision, and the request to withdraw if there is one.
     """
     decision = evaluate(pr, required_label)
-    if decision.status == "ready":
+    if decision.status is DecisionStatus.READY:
         return Judgement(decision=decision, withdraw=None)
     return Judgement(decision=decision, withdraw=armed_request_to_withdraw(pr))
 
@@ -246,21 +271,23 @@ def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
 
     """
     if pr.author not in DEPENDABOT_LOGINS:
-        return Decision(status="skipped", reason="author-not-dependabot")
+        return Decision(status=DecisionStatus.SKIPPED, reason="author-not-dependabot")
     if pr.foreign_commits:
         # Opening the pull request is not the same as writing what is in
         # it. Once Dependabot opens one, anything pushed to that branch
         # would otherwise merge under this rule without review, which is
         # how a workflow edit reached a trunk unreviewed.
         return Decision(
-            status="skipped",
+            status=DecisionStatus.SKIPPED,
             reason=f"foreign-commit:{pr.foreign_commits[0].oid[:8]}",
         )
     if pr.is_draft:
-        return Decision(status="skipped", reason="draft-pr")
+        return Decision(status=DecisionStatus.SKIPPED, reason="draft-pr")
     if required_label and required_label not in pr.labels:
-        return Decision(status="skipped", reason=f"missing-label:{required_label}")
-    return Decision(status="ready", reason="eligible")
+        return Decision(
+            status=DecisionStatus.SKIPPED, reason=f"missing-label:{required_label}"
+        )
+    return Decision(status=DecisionStatus.READY, reason="eligible")
 
 
 def commit_audit_outcome(pr: PullRequestContext) -> str:

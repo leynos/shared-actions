@@ -15,17 +15,20 @@ from __future__ import annotations
 
 import typing as typ
 
+import pytest
+
 from workflow_scripts.dependabot_commit_audit import ForeignCommit
 from workflow_scripts.dependabot_decision import (
     AutomergeConfig,
     Decision,
+    DecisionStatus,
     PullRequestContext,
 )
 from workflow_scripts.dependabot_merge_state import MergeableState, MergeStateStatus
 from workflow_scripts.dependabot_report import emit_decision, emit_withdrawal_notice
+from workflow_scripts.output import fail
 
 if typ.TYPE_CHECKING:
-    import pytest
     from syrupy.assertion import SnapshotAssertion
 
 #: Neutral stand-ins, so a snapshot names nothing real.
@@ -42,34 +45,53 @@ CONFIG = AutomergeConfig(
 )
 
 
-def _context(**overrides: object) -> PullRequestContext:
+def _context(
+    *,
+    foreign_commits: tuple[ForeignCommit, ...] = (),
+    commits_readable: bool = True,
+    commit_pages_read: int = 1,
+    commits_audited: int = 3,
+) -> PullRequestContext:
     """Return a pull request snapshot with the fields a test varies.
+
+    The four the snapshots vary are named parameters rather than
+    ``**overrides``. A ``dict[str, object]`` splatted into the
+    constructor takes a misspelt field name and a wrongly typed value
+    from every caller, and needs a suppression on the constructor that
+    would hide a real mismatch as readily as the false one.
 
     Parameters
     ----------
-    **overrides : object
-        Fields to replace on the default snapshot.
+    foreign_commits : tuple of ForeignCommit
+        Commits on the branch that Dependabot did not write.
+    commits_readable : bool
+        Whether the commit list could be read at all.
+    commit_pages_read : int
+        How many pages of the commit connection were fetched.
+    commits_audited : int
+        How many commits were judged.
 
     Returns
     -------
     PullRequestContext
         The snapshot.
     """
-    defaults: dict[str, object] = {
-        "node_id": "PR_node",
-        "number": NUMBER,
-        "owner": OWNER,
-        "repo": REPO,
-        "author": AUTHOR,
-        "is_draft": False,
-        "labels": ("dependencies",),
-        "head_oid": OID,
-        "merge_state_status": MergeStateStatus.BLOCKED,
-        "mergeable_state": MergeableState.MERGEABLE,
-        "commit_pages_read": 1,
-        "commits_audited": 3,
-    }
-    return PullRequestContext(**(defaults | overrides))  # type: ignore[arg-type]
+    return PullRequestContext(
+        node_id="PR_node",
+        number=NUMBER,
+        owner=OWNER,
+        repo=REPO,
+        author=AUTHOR,
+        is_draft=False,
+        labels=("dependencies",),
+        head_oid=OID,
+        merge_state_status=MergeStateStatus.BLOCKED,
+        mergeable_state=MergeableState.MERGEABLE,
+        foreign_commits=foreign_commits,
+        commits_readable=commits_readable,
+        commit_pages_read=commit_pages_read,
+        commits_audited=commits_audited,
+    )
 
 
 class TestTheDecisionBlock:
@@ -85,7 +107,9 @@ class TestTheDecisionBlock:
         notices a field being dropped; an assertion on one line does not.
         """
         emit_decision(
-            _context(), Decision(status="enabled", reason="enabled"), config=CONFIG
+            _context(),
+            Decision(status=DecisionStatus.ENABLED, reason="enabled"),
+            config=CONFIG,
         )
 
         assert capsys.readouterr().out == snapshot
@@ -100,7 +124,7 @@ class TestTheDecisionBlock:
         """
         emit_decision(
             _context(),
-            Decision(status="ready", reason="eligible"),
+            Decision(status=DecisionStatus.READY, reason="eligible"),
             config=AutomergeConfig(
                 merge_method="SQUASH", required_label="dependencies", dry_run=True
             ),
@@ -124,7 +148,9 @@ class TestTheNotices:
             _context(
                 foreign_commits=(ForeignCommit(oid="a" * 40, author="maintainer"),)
             ),
-            Decision(status="skipped", reason=f"foreign-commit:{'a' * 40}"),
+            Decision(
+                status=DecisionStatus.SKIPPED, reason=f"foreign-commit:{'a' * 40}"
+            ),
             config=CONFIG,
         )
 
@@ -141,7 +167,7 @@ class TestTheNotices:
         """
         emit_decision(
             _context(commits_readable=False, commit_pages_read=0, commits_audited=0),
-            Decision(status="skipped", reason="commits-unreadable"),
+            Decision(status=DecisionStatus.SKIPPED, reason="commits-unreadable"),
             config=CONFIG,
         )
 
@@ -158,3 +184,27 @@ class TestTheNotices:
         emit_withdrawal_notice(_context())
 
         assert capsys.readouterr().out == snapshot
+
+
+class TestTheFailurePath:
+    """The one status emitted from outside the decision module."""
+
+    def test_a_failure_reports_the_error_status(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`fail` emits exactly the text `DecisionStatus.ERROR` carries.
+
+        `output.fail` sits below the decision module and cannot import
+        the enum without closing a cycle, so it writes the literal. That
+        makes the two free to drift, and a caller's workflow branching on
+        `automerge_status` would be the first to notice. This holds them
+        equal: the assertion is on what `fail` actually writes to stderr,
+        so deleting or misspelling the literal fails it.
+        """
+        with pytest.raises(SystemExit):
+            fail("anything")
+
+        assert (
+            f"automerge_status={DecisionStatus.ERROR.value}\n"
+            in capsys.readouterr().err
+        ), "output.fail must emit the status DecisionStatus.ERROR names"

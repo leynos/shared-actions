@@ -121,6 +121,7 @@ if __package__:
     from .dependabot_decision import (
         AutomergeConfig,
         Decision,
+        DecisionStatus,
         PullRequestContext,
         evaluate,
         judge,
@@ -153,6 +154,7 @@ else:
     from dependabot_decision import (  # type: ignore[import-not-found,no-redef]
         AutomergeConfig,
         Decision,
+        DecisionStatus,
         PullRequestContext,
         evaluate,
         judge,
@@ -538,25 +540,27 @@ def _stop_unless_eligible(pr: PullRequestContext, *, run: LiveRun) -> bool:
         True when the caller must stop.
     """
     judgement = judge(pr, run.config.required_label)
-    if judgement.decision.status == "ready":
+    if judgement.decision.status is DecisionStatus.READY:
         return False
     decision = judgement.decision
     if judgement.withdraw is not None:
         _disable_automerge(judgement.withdraw, run=run)
         emit_withdrawal_notice(pr)
-        decision = Decision(status="cancelled", reason=decision.reason)
+        decision = Decision(status=DecisionStatus.CANCELLED, reason=decision.reason)
     emit_decision(pr, decision, config=run.config)
     return True
 
 
-def _report(pr: PullRequestContext, status: str, reason: str, *, run: LiveRun) -> None:
+def _report(
+    pr: PullRequestContext, status: DecisionStatus, reason: str, *, run: LiveRun
+) -> None:
     """Say one decision out loud and stop there.
 
     Parameters
     ----------
     pr : PullRequestContext
         The snapshot the decision is about.
-    status : str
+    status : DecisionStatus
         The ``automerge_status`` value.
     reason : str
         The ``automerge_reason`` value.
@@ -587,7 +591,7 @@ def _run_is_over(pr: PullRequestContext, *, run: LiveRun) -> bool:
     if _stop_unless_eligible(pr, run=run):
         return True
     if pr.auto_merge_enabled:
-        _report(pr, "enabled", "already-enabled", run=run)
+        _report(pr, DecisionStatus.ENABLED, "already-enabled", run=run)
         return True
     return False
 
@@ -648,14 +652,14 @@ def _act_on_merge_state(pr: PullRequestContext, *, run: LiveRun) -> None:
     )
     if state in {"skip", "retry"}:
         skipped = reason if state == "skip" and reason else "merge-state-unknown"
-        _report(pr, "skipped", skipped, run=run)
+        _report(pr, DecisionStatus.SKIPPED, skipped, run=run)
         return
     if state == "merge":
         _mutate(pr, MERGE_PULL_REQUEST_MUTATION, run=run)
-        _report(pr, "merged", "merged-directly", run=run)
+        _report(pr, DecisionStatus.MERGED, "merged-directly", run=run)
         return
     _mutate(pr, ENABLE_AUTOMERGE_MUTATION, run=run)
-    _report(pr, "enabled", "enabled", run=run)
+    _report(pr, DecisionStatus.ENABLED, "enabled", run=run)
 
 
 def _handle_live_execution(context: RuntimeContext, *, run: LiveRun) -> None:

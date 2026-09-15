@@ -19,6 +19,7 @@ import typing as typ
 import pytest
 
 from workflow_scripts import dependabot_automerge
+from workflow_scripts.dependabot_decision import DecisionStatus
 from workflow_scripts.tests.dependabot_graphql_double import (
     ARMED,
     DEPENDABOT,
@@ -131,13 +132,13 @@ class MutatingPath(typ.NamedTuple):
         The pull request GitHub should appear to hold to reach it.
     counts : tuple[int, int, int]
         The enable, disable and merge counts the path must produce.
-    status : str
+    status : DecisionStatus
         The ``automerge_status`` the run must report.
     """
 
     branch: Branch
     counts: tuple[int, int, int]
-    status: str
+    status: DecisionStatus
 
 
 #: Every mutating path the live run has. Exhaustive rather than
@@ -148,7 +149,7 @@ MUTATING_PATHS = (
         MutatingPath(
             branch=Branch(pages=[list(DEPENDABOT_ONLY)]),
             counts=(1, 0, 0),
-            status="enabled",
+            status=DecisionStatus.ENABLED,
         ),
         id="arming",
     ),
@@ -158,7 +159,7 @@ MUTATING_PATHS = (
                 pages=[list(WITH_A_FOREIGN_COMMIT)], auto_merge_request=ARMED
             ),
             counts=(0, 1, 0),
-            status="cancelled",
+            status=DecisionStatus.CANCELLED,
         ),
         id="withdrawal",
     ),
@@ -166,7 +167,7 @@ MUTATING_PATHS = (
         MutatingPath(
             branch=Branch(pages=[list(DEPENDABOT_ONLY)], merge_state="CLEAN"),
             counts=(0, 0, 1),
-            status="merged",
+            status=DecisionStatus.MERGED,
         ),
         id="direct-merge",
     ),
@@ -210,8 +211,8 @@ class TestGraphQLInjection:
             "the mutation must reach the injected call, and no other mutation "
             f"with it; expected {path.counts}, got {_mutation_counts(calls)}"
         )
-        assert f"automerge_status={path.status}" in capsys.readouterr().out, (
-            f"the run must report {path.status}"
+        assert f"automerge_status={path.status.value}" in capsys.readouterr().out, (
+            f"the run must report {path.status.value}"
         )
 
     def test_the_boundary_reader_takes_no_default_call(self) -> None:

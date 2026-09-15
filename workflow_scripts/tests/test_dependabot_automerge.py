@@ -32,7 +32,15 @@ class DryRunTestCase:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class LiveExecutionTestCase:
-    """Test case parameters for live execution scenarios."""
+    """Test case parameters for live execution scenarios.
+
+    ``expected_status`` and ``merge_state_status`` are `str`, not the
+    enums the production code uses. These are the wire values the run
+    must write and the run must read, asserted against captured output,
+    so writing them out here compares two readings rather than comparing
+    one reading with itself. Importing `DecisionStatus` would make a
+    renamed member pass this suite unchanged.
+    """
 
     pr_number: int
     merge_state_status: str | None

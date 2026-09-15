@@ -12,10 +12,11 @@ from __future__ import annotations
 import typing as typ
 
 if __package__:
-    from .dependabot_decision import commit_audit_outcome
+    from .dependabot_decision import DecisionStatus, commit_audit_outcome
     from .output import emit
 else:
     from dependabot_decision import (  # type: ignore[import-not-found,no-redef]
+        DecisionStatus,
         commit_audit_outcome,
     )
     from output import emit  # type: ignore[import-not-found,no-redef]
@@ -81,11 +82,11 @@ def emit_decision(
     author alone, which is a degradation someone has to fix.
     """
     reason = decision.reason
-    if decision.status == "ready" and config.dry_run:
-        status = "dry-run"
+    if decision.status is DecisionStatus.READY and config.dry_run:
+        status = DecisionStatus.DRY_RUN
     else:
         status = decision.status
-    emit("automerge_status", status)
+    emit("automerge_status", status.value)
     emit("automerge_reason", reason)
     emit("automerge_merge_method", config.merge_method)
     emit("automerge_required_label", config.required_label or "")

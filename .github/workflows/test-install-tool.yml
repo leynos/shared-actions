@@ -27,7 +27,9 @@ jobs:
       matrix:
         include:
           # A tarball with the binary under one directory, GNU tar.
-          - runner: ubuntu-latest
+          - runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+                 && 'ubuntu-latest' || 'ubicloud-standard-2' }}
             tool: sccache
             version: 0.17.0
             expected: sccache 0.17.0
@@ -117,7 +119,9 @@ jobs:
   refuses-an-unpinned-version:
     # A version outside the manifest must fail closed rather than reach for
     # whatever is newest, which is the failure mode this action exists to end.
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

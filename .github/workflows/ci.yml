@@ -108,6 +108,12 @@ jobs:
         run: make lint
         shell: bash
       - name: Run tests
+        # Not on Linux. The coverage job below runs this same suite under
+        # the coverage action on the same trigger, and its own comment says
+        # it installs nfpm and Rust so that the same tests execute there
+        # rather than skip. Running them twice cost 5 minutes 14 seconds a
+        # pull request and told us nothing the coverage run did not.
+        if: runner.os == 'macOS'
         run: |
           uv sync --group dev
           uv run pytest

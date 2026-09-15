@@ -1,0 +1,120 @@
+"""Contract that the Python suite executes once per platform on a pull request.
+
+`ci.yml` used to run the suite twice on Linux for every pull request:
+once uninstrumented in the `python-tests` matrix leg, and again under
+the coverage action in the `coverage` job. The coverage job's own
+comment says it installs nfpm and the Rust toolchain precisely so that
+the same tests execute there rather than skip, so the two runs covered
+the same ground. The uninstrumented one cost 5 minutes 14 seconds on
+the run measured and reported nothing the instrumented one did not.
+
+The rule is the estate's: the coverage job is the only Linux test
+execution. This module holds `ci.yml` to it from both sides. One test
+says the matrix leg's suite step cannot reach Linux; the other says the
+coverage job really does run a suite, so that satisfying the first by
+deleting the second is not an option.
+
+The steps are matched by what they invoke, not by their names. A step
+named "Run tests" that no longer runs any is not what this rule is
+about, and a differently named step that runs `pytest` is.
+"""
+
+from __future__ import annotations
+
+import re
+import typing as typ
+from pathlib import Path
+
+import pytest
+import yaml
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
+REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
+CI_WORKFLOW: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+
+#: The condition that keeps a step off every Linux runner in this
+#: repository's matrix, whose only other arm is macOS.
+NON_LINUX_CONDITION: typ.Final[str] = "runner.os == 'macOS'"
+
+#: The action the coverage job delegates the instrumented run to.
+COVERAGE_ACTION: typ.Final[str] = "./.github/actions/generate-coverage"
+
+#: A `pytest` invocation as a command, anchored to a line start or a
+#: shell separator so that the word inside a path such as
+#: `.pytest_cache` or an option such as `--pytest-workers` does not
+#: count as running the suite.
+_PYTEST_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
+    r"(?:^|[;&|]\s*|\buv run\s+(?:--[^\s]+\s+)*)pytest(?:\s|$)",
+    re.MULTILINE,
+)
+
+
+@pytest.fixture(scope="module")
+def ci_jobs() -> cabc.Mapping[str, dict[str, typ.Any]]:
+    """Return the jobs of `ci.yml`."""
+    document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    return document["jobs"]
+
+
+def _suite_steps(job: cabc.Mapping[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return the steps of *job* that invoke `pytest` directly."""
+    return [
+        step
+        for step in job.get("steps") or []
+        if _PYTEST_INVOCATION.search(str(step.get("run", "")))
+    ]
+
+
+def test_the_matrix_leg_runs_the_suite_somewhere(
+    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+) -> None:
+    """The matrix leg still has a suite step to constrain.
+
+    Without this, deleting the step would satisfy the Linux rule below
+    while quietly ending macOS coverage of the suite too.
+    """
+    steps = _suite_steps(ci_jobs["python-tests"])
+    assert steps, (
+        "ci.yml::python-tests runs pytest in no step; the macOS leg has "
+        "stopped running the suite"
+    )
+
+
+def test_the_matrix_leg_cannot_run_the_suite_on_linux(
+    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+) -> None:
+    """Every suite step in the matrix leg is confined to macOS.
+
+    An unconditional step is the defect this rule exists to prevent: it
+    reads as harmless and repeats the whole suite on the leg that has
+    already been measured running it.
+    """
+    offenders = [
+        (step.get("name", "<unnamed>"), step.get("if"))
+        for step in _suite_steps(ci_jobs["python-tests"])
+        if str(step.get("if", "")).strip() != NON_LINUX_CONDITION
+    ]
+    assert not offenders, (
+        "ci.yml::python-tests runs pytest on Linux in "
+        f"{offenders}; the coverage job is the only Linux test execution, so "
+        f"guard each with `if: {NON_LINUX_CONDITION}`"
+    )
+
+
+def test_the_coverage_job_executes_the_suite(
+    ci_jobs: cabc.Mapping[str, dict[str, typ.Any]],
+) -> None:
+    """The coverage job delegates to the coverage action.
+
+    This is the other half of the rule. The Linux leg gives up its own
+    run of the suite on the understanding that this job makes it, so
+    the moment this step goes the repository has no Linux test
+    execution at all.
+    """
+    uses = [step.get("uses") for step in ci_jobs["coverage"].get("steps") or []]
+    assert COVERAGE_ACTION in uses, (
+        f"ci.yml::coverage no longer uses {COVERAGE_ACTION}; nothing runs the "
+        "Python suite on Linux"
+    )

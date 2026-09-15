@@ -5,7 +5,8 @@ on:
 
 jobs:
   test-upload-assets-dry-run:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -36,7 +37,8 @@ jobs:
           [[ "${{ steps.upload.outputs.upload-error }}" == "false" ]]
 
   test-upload-assets-env-overrides:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

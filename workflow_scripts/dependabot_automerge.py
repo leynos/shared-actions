@@ -118,6 +118,9 @@ from types import MappingProxyType
 
 from cyclopts import App, Parameter
 
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    import collections.abc as cabc
+
 if __package__:
     from .dependabot_commit_audit import (
         CommitAudit,
@@ -208,7 +211,7 @@ __all__ = [
 #: The workflow's input spelling for each merge method. Derived from
 #: `MergeMethod` rather than restated, so a member added there cannot be
 #: silently unreachable from the input.
-MERGE_METHODS: typ.Mapping[str, MergeMethod] = MappingProxyType(
+MERGE_METHODS: cabc.Mapping[str, MergeMethod] = MappingProxyType(
     {method.value.lower(): method for method in MergeMethod}
 )
 

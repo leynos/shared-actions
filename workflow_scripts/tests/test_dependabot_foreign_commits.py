@@ -307,7 +307,7 @@ class TestForeignCommitsBlockAutomerge:
         assert decision.reason == "foreign-commit:cccccccc", decision
 
     def test_the_annotation_names_the_commit_and_the_remedy(
-        self, capsys: pytest.CaptureFixture
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A maintainer must learn why, not merely that it stopped."""
         pr = _pr(
@@ -335,7 +335,7 @@ class TestForeignCommitsBlockAutomerge:
         assert "its own pull request" in out, out
 
     def test_an_unreadable_commit_list_is_announced(
-        self, capsys: pytest.CaptureFixture
+        self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Failing open must be loud.
 

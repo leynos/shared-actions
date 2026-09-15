@@ -16,12 +16,13 @@ import os
 import typing as typ
 from types import MappingProxyType
 
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    import collections.abc as cabc
+
 if __package__:
     from .output import fail
 else:
     from output import fail  # type: ignore[import-not-found,no-redef]
-
-MergeStateClassification = typ.Literal["ok", "merge", "skip", "retry"]
 
 
 class MergeStateStatus(enum.StrEnum):
@@ -46,7 +47,7 @@ class MergeableState(enum.StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
-MERGE_STATE_SKIP_REASONS: typ.Mapping[MergeStateStatus, str] = MappingProxyType(
+MERGE_STATE_SKIP_REASONS: cabc.Mapping[MergeStateStatus, str] = MappingProxyType(
     {
         MergeStateStatus.DIRTY: "merge-state-dirty",
         MergeStateStatus.BEHIND: "merge-state-behind",
@@ -64,7 +65,7 @@ MERGE_STATE_DIRECT_MERGE: frozenset[MergeStateStatus] = frozenset(
         MergeStateStatus.UNSTABLE,
     }
 )
-MERGEABLE_SKIP_REASONS: typ.Mapping[MergeableState, str] = MappingProxyType(
+MERGEABLE_SKIP_REASONS: cabc.Mapping[MergeableState, str] = MappingProxyType(
     {
         MergeableState.CONFLICTING: "mergeable-conflicting",
     }

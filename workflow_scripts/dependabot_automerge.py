@@ -609,10 +609,15 @@ def _run_is_over(pr: PullRequestContext, *, run: LiveRun) -> bool:
     return False
 
 
-def _settled_snapshot(
-    context: RuntimeContext, *, run: LiveRun
-) -> PullRequestContext | None:
-    """Read the pull request until its merge state is worth acting on.
+def _read_snapshot(context: RuntimeContext, *, run: LiveRun) -> PullRequestContext:
+    """Read the pull request once, and do nothing else with it.
+
+    A read, and only a read. It judges nothing, reports nothing and
+    withdraws nothing, so a caller can obtain a snapshot without
+    thereby having acted on one. The version this replaces returned an
+    optional snapshot and reached the `None` by reporting a decision
+    and, on one path, withdrawing an armed request: a name that
+    promised a value and delivered consequences.
 
     Parameters
     ----------
@@ -623,30 +628,19 @@ def _settled_snapshot(
 
     Returns
     -------
-    PullRequestContext or None
-        The snapshot to act on, or None when the run is already over,
-        having reported why.
+    PullRequestContext
+        The snapshot, whatever it says.
     """
     owner, repo = _split_repo(context.repo_full_name)
     pr_number = _resolve_pull_request_number(
         context.pull_request_number,
         context.event,
     )
-    pr = fetch_pull_request(
+    return fetch_pull_request(
         run.token,
         PullRequestRef(owner=owner, repo=repo, number=pr_number),
         query=run.query,
     )
-    if _run_is_over(pr, run=run):
-        return None
-    pr = _refresh_merge_state(pr, run=run)
-    # The refresh refetched the pull request, so it also refetched who
-    # wrote the commits. A push landing inside the retry window is
-    # visible in this snapshot and nowhere else, and arming auto-merge on
-    # the strength of the earlier one would merge it unreviewed.
-    if _run_is_over(pr, run=run):
-        return None
-    return pr
 
 
 def _act_on_merge_state(pr: PullRequestContext, *, run: LiveRun) -> None:
@@ -685,9 +679,23 @@ def _handle_live_execution(context: RuntimeContext, *, run: LiveRun) -> None:
     run : LiveRun
         The run, carrying the token, the one GraphQL call every read and
         mutation below here uses, and the configuration.
+
+    Notes
+    -----
+    The order is the content: read, judge, refresh, judge again, act.
+    Both judgements sit here rather than inside the read, because each
+    can report a decision and withdraw an armed request, and a helper
+    that acquires a snapshot must not also be the place those happen.
     """
-    pr = _settled_snapshot(context, run=run)
-    if pr is None:
+    pr = _read_snapshot(context, run=run)
+    if _run_is_over(pr, run=run):
+        return
+    pr = _refresh_merge_state(pr, run=run)
+    # The refresh refetched the pull request, so it also refetched who
+    # wrote the commits. A push landing inside the retry window is
+    # visible in this snapshot and nowhere else, and arming auto-merge on
+    # the strength of the earlier one would merge it unreviewed.
+    if _run_is_over(pr, run=run):
         return
     _act_on_merge_state(pr, run=run)
 

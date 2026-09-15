@@ -19,7 +19,7 @@ import typing as typ
 import pytest
 
 from workflow_scripts import dependabot_automerge
-from workflow_scripts.dependabot_decision import DecisionStatus
+from workflow_scripts.dependabot_decision import DecisionStatus, MergeMethod
 from workflow_scripts.tests.dependabot_graphql_double import (
     ARMED,
     DEPENDABOT,
@@ -91,7 +91,7 @@ def _run_live(
             token=TEST_TOKEN,
             query=handler,
             config=dependabot_automerge.AutomergeConfig(
-                merge_method="SQUASH",
+                merge_method=MergeMethod.SQUASH,
                 required_label="dependencies",
                 dry_run=False,
             ),

@@ -323,7 +323,9 @@ class TestForeignCommitsBlockAutomerge:
                 reason="foreign-commit:cccccccc",
             ),
             config=dependabot_decision.AutomergeConfig(
-                merge_method="squash", required_label=None, dry_run=False
+                merge_method=dependabot_decision.MergeMethod.SQUASH,
+                required_label=None,
+                dry_run=False,
             ),
         )
 
@@ -332,27 +334,28 @@ class TestForeignCommitsBlockAutomerge:
         assert "cccccccc by leynos" in out, out
         assert "its own pull request" in out, out
 
+    def test_an_unreadable_commit_list_is_announced(
+        self, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Failing open must be loud.
 
-def test_an_unreadable_commit_list_is_announced(
-    capsys: pytest.CaptureFixture,
-) -> None:
-    """Failing open must be loud.
+        The check is allowed to pass a branch it cannot inspect, because
+        refusing on unknown would stop every consumer's automerge at once.
+        What it may not do is lose the protection quietly.
+        """
+        dependabot_report.emit_decision(
+            _pr(commits_readable=False),
+            dependabot_decision.Decision(
+                status=dependabot_decision.DecisionStatus.READY, reason="eligible"
+            ),
+            config=dependabot_decision.AutomergeConfig(
+                merge_method=dependabot_decision.MergeMethod.SQUASH,
+                required_label=None,
+                dry_run=False,
+            ),
+        )
 
-    The check is allowed to pass a branch it cannot inspect, because
-    refusing on unknown would stop every consumer's automerge at once.
-    What it may not do is lose the protection quietly.
-    """
-    dependabot_report.emit_decision(
-        _pr(commits_readable=False),
-        dependabot_decision.Decision(
-            status=dependabot_decision.DecisionStatus.READY, reason="eligible"
-        ),
-        config=dependabot_decision.AutomergeConfig(
-            merge_method="squash", required_label=None, dry_run=False
-        ),
-    )
-
-    out = capsys.readouterr().out
-    assert "::warning title=dependabot-automerge::" in out, out
-    assert "did not run" in out, out
-    assert "author alone" in out, out
+        out = capsys.readouterr().out
+        assert "::warning title=dependabot-automerge::" in out, out
+        assert "did not run" in out, out
+        assert "author alone" in out, out

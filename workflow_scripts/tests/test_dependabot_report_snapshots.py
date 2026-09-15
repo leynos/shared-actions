@@ -22,6 +22,7 @@ from workflow_scripts.dependabot_decision import (
     AutomergeConfig,
     Decision,
     DecisionStatus,
+    MergeMethod,
     PullRequestContext,
 )
 from workflow_scripts.dependabot_merge_state import MergeableState, MergeStateStatus
@@ -39,7 +40,7 @@ AUTHOR = "dependabot[bot]"
 OID = "0" * 40
 
 CONFIG = AutomergeConfig(
-    merge_method="SQUASH",
+    merge_method=MergeMethod.SQUASH,
     required_label="dependencies",
     dry_run=False,
 )
@@ -126,7 +127,9 @@ class TestTheDecisionBlock:
             _context(),
             Decision(status=DecisionStatus.READY, reason="eligible"),
             config=AutomergeConfig(
-                merge_method="SQUASH", required_label="dependencies", dry_run=True
+                merge_method=MergeMethod.SQUASH,
+                required_label="dependencies",
+                dry_run=True,
             ),
         )
 

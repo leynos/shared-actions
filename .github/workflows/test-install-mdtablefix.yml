@@ -18,10 +18,11 @@ jobs:
     # the same fragments against a stubbed cargo and cannot see any of those.
     name: Install and reuse mdtablefix (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, macos-15, windows-latest]
+        runner: [ubicloud-standard-2, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -90,6 +91,7 @@ jobs:
     # platform the action has simply not been taught.
     name: Fail closed where no prebuilt release exists
     runs-on: windows-11-arm
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

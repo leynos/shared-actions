@@ -20,7 +20,8 @@ concurrency:
 jobs:
   # The caller's value reaches a step that runs after the action.
   rust-build-release-exports:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +39,8 @@ jobs:
 
   # An inherited value wins over the input, and nothing is overwritten.
   rust-build-release-defers-to-inherited:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     env:
       RUSTFLAGS: -D warnings
     steps:
@@ -60,7 +62,8 @@ jobs:
   # the local action. These two do, via an explicit toolchain so exactly one
   # of setup-rust's three install paths is taken.
   setup-rust-exports:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,7 +80,8 @@ jobs:
         run: echo "setup_rust_rustflags=[${RUSTFLAGS-unset}]"
 
   setup-rust-with-inherited:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     env:
       RUSTFLAGS: -D warnings
     steps:
@@ -99,7 +103,8 @@ jobs:
   # this supported Linux path can prove that setup-rust makes the Rust tools
   # available to downstream steps through the composite-action boundary.
   setup-rust-toolchain-available:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

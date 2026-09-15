@@ -2272,6 +2272,46 @@ larger labels are deliberately absent from the contract's recognized
 set, so adopting one is a change to this guide and to that set rather
 than a one-line edit nobody reads.
 
+### Forks
+
+A fork's pull request cannot obtain an Ubicloud runner. Left alone it
+would queue until the job ceiling, so an external contribution would
+lose its Linux CI and take a quarter of an hour to find out. A lane a
+fork's pull request can reach therefore selects its label from the head
+repository:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+     && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+On every other event `github.event.pull_request` is absent, so the
+expression yields the Ubicloud label and a push, dispatch or tag lane is
+unaffected. A lane with no `pull_request` trigger names the label
+outright, because no fork can reach it and the expression would be
+decoration.
+
+Falling back rather than skipping is the point. A guard that skips
+leaves a fork with no Linux CI at all, which is a worse answer to the
+same problem. The one exception is a lane whose subject is the Ubicloud
+runner itself: `test-ubicloud-sccache-proxy.yml` proves that sccache
+reaches Ubicloud's cache proxy, which a GitHub-hosted runner cannot
+show, so a fallback would leave it green and proving nothing. That lane
+skips forks instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
+`test_a_fork_skipping_lane_really_skips_forks` checks the guard is
+actually there.
+
+The contract parses the expression rather than comparing it as a
+string, so each part is asserted on its own: the field path exactly, the
+fork arm as the hosted label, the other arm as the Ubicloud one. An
+expression it cannot parse is treated as a Linux lane and fails, rather
+than being waved through as something it does not recognize. That
+matters more than it looks: keying on a sibling field such as
+`head.repo.private` changes which pull requests fall back, and an
+earlier draft of the contract let exactly that mutation past by
+concluding the lane was no longer a Linux lane at all.
+
 Four kinds of Linux job stay GitHub-hosted, each recorded with its
 reason in `HOSTED_LINUX_EXEMPTIONS`:
 

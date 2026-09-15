@@ -17,8 +17,14 @@ Auto-merge is enabled only when all conditions are met:
 - The PR author is ``dependabot[bot]`` or ``dependabot``
 - The PR is not a draft
 - The required label (default: ``dependencies``) is present
-- Every commit on the branch is Dependabot's, and the whole branch was
-  read
+- Every commit the audit could read is Dependabot's
+
+An unreadable commit list does not block eligibility. :func:`evaluate`
+never consults ``commits_readable``: refusing on unknown would stop
+every consumer's auto-merge the moment a query change stopped returning
+commits, which is a worse failure than the one being prevented. The run
+fails open and says so, and :func:`emit_decision` prints a warning
+naming what did not run.
 
 Commit Audit
 ------------
@@ -108,6 +114,7 @@ import os
 import time
 import typing as typ
 from pathlib import Path
+from types import MappingProxyType
 
 from cyclopts import App, Parameter
 
@@ -122,6 +129,7 @@ if __package__:
         AutomergeConfig,
         Decision,
         DecisionStatus,
+        MergeMethod,
         PullRequestContext,
         evaluate,
         judge,
@@ -155,6 +163,7 @@ else:
         AutomergeConfig,
         Decision,
         DecisionStatus,
+        MergeMethod,
         PullRequestContext,
         evaluate,
         judge,
@@ -196,11 +205,12 @@ __all__ = [
 ]
 
 
-MERGE_METHODS = {
-    "merge": "MERGE",
-    "rebase": "REBASE",
-    "squash": "SQUASH",
-}
+#: The workflow's input spelling for each merge method. Derived from
+#: `MergeMethod` rather than restated, so a member added there cannot be
+#: silently unreachable from the input.
+MERGE_METHODS: typ.Mapping[str, MergeMethod] = MappingProxyType(
+    {method.value.lower(): method for method in MergeMethod}
+)
 
 app = App()
 
@@ -272,8 +282,8 @@ def _normalize_label(required_label: str | None) -> str | None:
     return label or None
 
 
-def _normalize_merge_method(merge_method: str) -> str:
-    """Validate and normalize a merge method to its GraphQL enum value."""
+def _normalize_merge_method(merge_method: str) -> MergeMethod:
+    """Validate a workflow input and return the merge method it names."""
     normalized = merge_method.strip().lower()
     if normalized not in MERGE_METHODS:
         allowed = ", ".join(sorted(MERGE_METHODS))
@@ -486,7 +496,7 @@ def _mutate(pr: PullRequestContext, mutation: str, *, run: LiveRun) -> None:
         mutation,
         {
             "pullRequestId": pr.node_id,
-            "mergeMethod": run.config.merge_method,
+            "mergeMethod": run.config.merge_method.value,
             "expectedHeadOid": pr.head_oid,
         },
     )

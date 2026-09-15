@@ -131,21 +131,53 @@ class Decision:
     reason: str
 
 
+class MergeMethod(enum.StrEnum):
+    """The merge methods GitHub's auto-merge mutation accepts.
+
+    The members carry GitHub's own spelling, because the value is sent
+    as the ``mergeMethod`` argument of a GraphQL enum and is not ours to
+    choose. Typing the configuration with this rather than `str` is what
+    makes an un-normalized value impossible to hold: the workflow's
+    input arrives in any case, and only :func:`_normalize_merge_method`
+    turns it into a member.
+    """
+
+    MERGE = "MERGE"
+    REBASE = "REBASE"
+    SQUASH = "SQUASH"
+
+
+class CommitAuditOutcome(enum.StrEnum):
+    """What the commit audit concluded, as one of three fixed words.
+
+    Bounded on purpose and carrying no commit identifier, so the
+    ``automerge_commit_audit`` line can be counted across repositories
+    without becoming high-cardinality.
+    """
+
+    #: Every commit was read, and every one was Dependabot's.
+    CLEAN = "clean"
+    #: At least one commit was not Dependabot's.
+    FOREIGN = "foreign"
+    #: The check did not run, so eligibility rests on the author alone.
+    UNREADABLE = "unreadable"
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class AutomergeConfig:
     """Configuration for emitting automerge decisions.
 
     Attributes
     ----------
-    merge_method : str
-        The normalized merge method (``SQUASH``, ``MERGE``, or ``REBASE``).
+    merge_method : MergeMethod
+        The normalized merge method.
     required_label : str or None
         Label that must be present on the PR, or None to skip label checks.
     dry_run : bool
         If True, decisions are logged without calling the GitHub API.
     """
 
-    merge_method: str
+    merge_method: MergeMethod
     required_label: str | None
     dry_run: bool
 
@@ -290,14 +322,12 @@ def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
     return Decision(status=DecisionStatus.READY, reason="eligible")
 
 
-def commit_audit_outcome(pr: PullRequestContext) -> str:
-    """Return the commit audit's outcome as one of three fixed words.
+def commit_audit_outcome(pr: PullRequestContext) -> CommitAuditOutcome:
+    """Return what the commit audit concluded about this branch.
 
-    ``clean`` means every commit was read and every one was Dependabot's;
-    ``foreign`` that at least one was not; ``unreadable`` that the check
-    did not run. The value is bounded on purpose and carries no commit
-    identifier, so the log line can be counted across repositories
-    without becoming high-cardinality.
+    Unreadable is tested first, because a branch whose commits could not
+    be read has no foreign commits to find and would otherwise report
+    clean, which is the one answer it must never give.
 
     Parameters
     ----------
@@ -306,9 +336,11 @@ def commit_audit_outcome(pr: PullRequestContext) -> str:
 
     Returns
     -------
-    str
-        ``clean``, ``foreign`` or ``unreadable``.
+    CommitAuditOutcome
+        The outcome.
     """
     if not pr.commits_readable:
-        return "unreadable"
-    return "foreign" if pr.foreign_commits else "clean"
+        return CommitAuditOutcome.UNREADABLE
+    if pr.foreign_commits:
+        return CommitAuditOutcome.FOREIGN
+    return CommitAuditOutcome.CLEAN

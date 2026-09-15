@@ -88,7 +88,7 @@ def emit_decision(
         status = decision.status
     emit("automerge_status", status.value)
     emit("automerge_reason", reason)
-    emit("automerge_merge_method", config.merge_method)
+    emit("automerge_merge_method", config.merge_method.value)
     emit("automerge_required_label", config.required_label or "")
     emit("automerge_repository", f"{pr.owner}/{pr.repo}")
     emit("automerge_pr_number", pr.number)
@@ -97,7 +97,7 @@ def emit_decision(
     emit("automerge_labels", pr.labels)
     emit("automerge_merge_state", pr.merge_state_status.value)
     emit("automerge_mergeable_state", pr.mergeable_state.value)
-    emit("automerge_commit_audit", commit_audit_outcome(pr))
+    emit("automerge_commit_audit", commit_audit_outcome(pr).value)
     # What the audit actually read, so a run that saw one page of a
     # longer branch is distinguishable from one that saw the branch.
     # Counts rather than identifiers, so the lines stay countable.

@@ -1561,3 +1561,98 @@ the manifest's declared shape instead: the `rustflags` input's empty default,
 the export step's `if` condition and `RBR_RUSTFLAGS` wiring, the
 `${RUSTFLAGS+x}` guard's presence in the run script, and that the export step
 precedes toolchain setup.
+
+## Runner placement and job ceilings
+
+Two decisions sit in every job header here, and both disappear from view
+once the workflow is green: which runner the job takes, and how long it
+may take it. `tests/workflows/test_runner_placement.py` holds the answers
+and fails when a workflow drifts from them.
+
+### Where Linux work runs
+
+Linux work runs on `ubicloud-standard-2`. Windows and macOS legs stay on
+GitHub-hosted runners, because Ubicloud offers neither.
+
+For the per-action self-tests this is the point rather than a saving. A
+self-test is the only place an action meets a real runner, and the
+runners that consume these actions are Ubicloud. An action proved only
+on GitHub's image is proved somewhere nobody ships: the image differs,
+the cache service differs, and the difference is exactly what a
+self-test exists to find.
+
+Start at `ubicloud-standard-2` and move to a larger shape only on
+measured disk or wall-time evidence from a run in this repository. The
+larger labels are deliberately absent from the contract's recognized
+set, so adopting one is a change to this guide and to that set rather
+than a one-line edit nobody reads.
+
+Four kinds of Linux job stay GitHub-hosted, each recorded with its
+reason in `HOSTED_LINUX_EXEMPTIONS`:
+
+| Job | Why it stays hosted |
+| --- | --- |
+| `test-export-ubicloud-cache-credentials.yml::refuses-a-github-hosted-runner` | The job proves the action fails closed against a real GitHub-hosted cache endpoint. On Ubicloud that endpoint is the one the action accepts, so the job would pass while testing nothing. |
+| `mutation-cargo.yml` and `mutation-mutmut.yml` | Scheduled, never developer-blocking, and free on public-repository minutes. |
+| `dependabot-automerge.yml::automerge` | A delayed-comment lane that waits on other checks rather than computing anything. |
+| Caller jobs that only `uses:` another workflow | They occupy no runner of their own. |
+
+An exemption whose job has been renamed or deleted fails the contract.
+That is deliberate: without it the mapping accumulates permissions for
+jobs that no longer exist, and the next job to take one of those names
+inherits a decision nobody made about it.
+
+Step conditions select a platform with `runner.os`, never by naming a
+runner label. Fourteen conditions in `ci.yml` once read
+`matrix.os == 'ubuntu-latest'`. Changing the label would have switched
+off formatting, spelling, Markdown lint, diagram validation and the
+whole lint target on the only leg that runs them, leaving a green job
+that did almost nothing.
+
+### How long a job may take
+
+A job without `timeout-minutes` inherits GitHub's six-hour default. That
+is not a budget anybody chose; it is the absence of one, and it turns an
+overrun into six hours of a runner and no diagnosis. Every job this
+repository owns carries a ceiling from one of five tiers, each sized
+from run history rather than from a round number that looked safe.
+
+| Tier | Minutes | What it covers | Longest observed |
+| --- | --- | --- | --- |
+| Assertion | 10 | Checkout, run an action, assert its outputs. No release archive, no compilation. | 13 s |
+| Install | 15 | Downloads and verifies a pinned release archive. | 5 min 40 s (Windows Whitaker leg) |
+| Build | 20 | Cross-compiles the toy application. | 4 min 36 s (a Windows leg) |
+| Suite | 20 | Runs the Python suite uninstrumented. | 12 min 45 s |
+| Coverage | 30 | Runs the same suite under `generate-coverage`. | 6 min 53 s |
+
+The figures come from the five most recent successful runs of each
+workflow as of 2026-09-15, measured as job busy time, which excludes
+queueing. The headroom is deliberate and uneven: the assertion tier sits
+far above its measurement because `ubicloud-standard-2` has half the
+vCPUs of a GitHub-hosted runner and because a cold cache on a new store
+makes the first run of any lane unrepresentative.
+
+These ceilings are the outermost of the four timers described under
+"Test timeouts: four tiers, outermost last" in the users' guide. Nothing
+in this repository runs `cargo` under `generate-coverage`, so the
+watchdog and the two nextest timers do not apply; see
+`tests/workflows/test_coverage_timeout_tiers.py` for what happens to
+that if a root `Cargo.toml` ever appears.
+
+### Changing a decision
+
+Both the runner and the ceiling of every job are enumerated in the
+contract, and a job in neither the tier table nor one of the two
+exclusion sets fails it. So a new workflow cannot inherit both defaults
+quietly: adding one means saying where it runs and how long it may run,
+with the measurement that says so.
+
+### The suite runs once per platform
+
+The coverage job is the only Linux test execution. `ci.yml` used to run
+the pytest suite twice for every pull request, once uninstrumented in
+the `python-tests` matrix leg and once under `generate-coverage`, at a
+measured cost of 5 minutes 14 seconds a run for no information.
+`tests/workflows/test_linux_suite_executes_once.py` holds both halves of
+the rule, because forbidding the Linux run alone would be satisfied by
+deleting the coverage run instead.

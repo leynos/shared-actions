@@ -212,9 +212,19 @@ def _load_workflow(name: str) -> dict[str, typ.Any]:
     return yaml.safe_load((WORKFLOWS_DIRECTORY / name).read_text(encoding="utf-8"))
 
 
+#: Both extensions GitHub accepts for a workflow file. Scanning only
+#: `.yml` would let a `.yaml` workflow past every rule in this module
+#: while the module still claimed to be exhaustive.
+WORKFLOW_SUFFIXES: typ.Final[tuple[str, ...]] = (".yml", ".yaml")
+
+
 def _workflow_names() -> list[str]:
     """Return every workflow file name, sorted."""
-    return sorted(path.name for path in WORKFLOWS_DIRECTORY.glob("*.yml"))
+    return sorted(
+        path.name
+        for path in WORKFLOWS_DIRECTORY.iterdir()
+        if path.suffix in WORKFLOW_SUFFIXES and path.is_file()
+    )
 
 
 def _jobs(name: str) -> cabc.Iterator[tuple[str, dict[str, typ.Any]]]:

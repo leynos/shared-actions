@@ -2326,6 +2326,14 @@ that if a root `Cargo.toml` ever appears.
 
 ### Changing a decision
 
+`pytest.ini` names `tests/workflows` as a `testpaths` entry rather than
+listing the modules inside it. A contract module is only a gate if
+something collects it, and an enumeration exists to be forgotten: six
+modules here were never listed, twelve of their assertions ran nowhere,
+and two contracts added in #480 were in the same state until they were
+added to the list. `test_contracts_are_collected.py` keeps the
+enumeration from coming back.
+
 Both the runner and the ceiling of every job are enumerated in the
 contract, and a job in neither the tier table nor one of the two
 exclusion sets fails it. So a new workflow cannot inherit both defaults

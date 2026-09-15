@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        os: [ubicloud-standard-2, macos-15]
     steps:
       - name: Checkout repository
         # v4
@@ -39,14 +39,14 @@ jobs:
             **/uv.lock
             **/scripts/*.py
       - name: Install nfpm
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-nfpm
       - name: Setup Bun
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         # v2.0.2
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Setup Bun (macOS)
-        if: matrix.os == 'macos-15'
+        if: runner.os == 'macOS'
         # v2.0.2
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Install action-validator
@@ -60,51 +60,51 @@ jobs:
           version: "0.6.0"
 
       - name: Check formatting
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make check-fmt
         shell: bash
       - name: Enforce en-GB-oxendict spelling
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make spelling
         shell: bash
       - name: Markdown lint
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff
         with:
           globs: '**/*.md'
       - name: Set up isolated Rust for Merman
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: rustup toolchain install 1.95.0 --profile minimal
         shell: bash
       - name: Cache Merman CLI
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         id: cache-merman-cli
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ~/.cargo/bin/merman-cli
           key: merman-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.MERMAN_CLI_VERSION }}
       - name: Install Merman CLI
-        if: matrix.os == 'ubuntu-latest' && steps.cache-merman-cli.outputs.cache-hit != 'true'
+        if: runner.os == 'Linux' && steps.cache-merman-cli.outputs.cache-hit != 'true'
         run: cargo +1.95.0 install merman-cli --version "=${MERMAN_CLI_VERSION}" --locked
         shell: bash
       - name: Install Nixie
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: uv tool install --python 3.14 nixie-cli==1.1.0
         shell: bash
       - name: Validate Mermaid diagrams
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make nixie
         shell: bash
       - name: Setup Rust
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/setup-rust
       - name: Install Whitaker
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-whitaker
         with:
           installer-version: ${{ env.WHITAKER_INSTALLER_VERSION }}
       - name: Run lint checks
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make lint
         shell: bash
       - name: Run tests
@@ -120,7 +120,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - name: Checkout repository
         # v4

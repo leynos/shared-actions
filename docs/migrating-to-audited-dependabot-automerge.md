@@ -18,12 +18,12 @@ bump whose title and author were Dependabot's throughout.
 be read.** What the workflow now guarantees is not that every merged branch was
 audited, but that no branch merges over a foreign commit the audit saw.
 
-## What this means for your repository
+## What this means for a consuming repository
 
-**A branch you have pushed to will no longer merge unattended.** It skips with
-`automerge_reason=foreign-commit:<sha>`, and the run logs a notice naming each
-such commit and its author. The remedy is to open that change as its own pull
-request with its own review, not to remove the check.
+**A branch a maintainer has pushed to will no longer merge unattended.** It
+skips with `automerge_reason=foreign-commit:<sha>`, and the run logs a notice
+naming each such commit and its author. The remedy is to open that change as
+its own pull request with its own review, not to remove the check.
 
 **A co-authored commit counts as the co-author's.** A commit Dependabot pushed
 but a person co-wrote carries that person's change, so it makes the branch
@@ -37,9 +37,10 @@ required checks passed. Those runs report `automerge_status=cancelled`.
 
 **Maintaining an edited branch becomes manual work.** Dependabot stops rebasing
 a branch once it carries commits Dependabot did not write, so keeping it
-current against the base branch is yours from then on. `@dependabot recreate`
-still works, but it rebuilds the branch from scratch and discards everything
-pushed onto it, so it abandons the manual edits rather than preserving them.
+current against the base branch falls to the maintainer from then on.
+`@dependabot recreate` still works, but it rebuilds the branch from scratch and
+discards everything pushed onto it, so it abandons the manual edits rather than
+preserving them.
 
 The practical advice is to stop treating a Dependabot branch as somewhere to
 put a fix. Where a bump needs a code change to land, make that change on its
@@ -76,7 +77,7 @@ truncated, and a commit crediting nobody at all, are both reported as foreign.
 A partial or absent credit list certifies nothing, and the whole point of the
 check is evidence.
 
-## Nothing to change in your caller
+## Nothing to change in the caller
 
 No inputs are added, removed, or renamed, and no permissions change. The
 workflow still needs `contents: write` and `pull-requests: write`, required

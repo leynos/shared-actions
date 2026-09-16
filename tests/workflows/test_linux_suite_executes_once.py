@@ -81,8 +81,17 @@ _SHELL_PREFIX_KEYWORDS: typ.Final[tuple[str, ...]] = (
 #: The keywords are matched as whole words, so a target named
 #: `verify-something` cannot be read as a keyword ending in one, and a
 #: `make` inside a longer word such as `remake` is not matched at all.
+#:
+#: Leading whitespace is consumed after the line anchor. A `make test`
+#: indented inside a loop or a conditional body runs the suite exactly
+#: as plainly as one at column zero, and requiring `make` immediately
+#: after the line start would have let every indented one through.
+#:
+#: The pattern is assembled from the module-level literal above rather
+#: than from anything a workflow supplies, so there is no input here to
+#: drive backtracking.
 _MAKE_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[;&|]\s*|(?:!\s*)|\b(?:"
+    r"(?:^[ \t]*|[;&|]\s*|(?:!\s*)|\b(?:"
     + "|".join(_SHELL_PREFIX_KEYWORDS)
     + r")\s+)make\b(?:\s+(?P<arguments>[^\n;&|]*))?",
     re.MULTILINE,
@@ -172,3 +181,36 @@ def test_the_coverage_job_executes_the_suite(
         f"ci.yml::coverage no longer uses {COVERAGE_ACTION}; nothing runs the "
         "Python suite on Linux"
     )
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param("make test", True, id="column-zero"),
+        pytest.param("    make test", True, id="indented"),
+        pytest.param("\tmake test", True, id="tab-indented"),
+        pytest.param(
+            "for d in a b; do\n    make test\ndone",
+            True,
+            id="indented-in-a-loop-body",
+        ),
+        pytest.param("if true; then\n  make all\nfi", True, id="indented-make-all"),
+        pytest.param("    make lint", False, id="indented-other-target"),
+        pytest.param("    remake test", False, id="indented-longer-word"),
+        pytest.param("    make TEST_ARGS=-x lint", False, id="indented-assignment"),
+    ],
+)
+def test_an_indented_make_still_runs_the_suite(
+    script: str,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """Indentation does not stop a command running.
+
+    The line anchor used to require `make` immediately after the line
+    start, so a suite run indented inside a loop or a conditional body
+    was invisible to this rule while reading as plainly as any other.
+    The negative cases are here for the same reason the positive ones
+    are: consuming leading whitespace must not turn an indented
+    `make lint` or a `remake` into a suite run.
+    """
+    assert bool(_make_runs_the_suite(script)) is expected

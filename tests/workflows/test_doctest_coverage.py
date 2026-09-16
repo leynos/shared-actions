@@ -21,31 +21,20 @@ list is non-empty too, since a target that collects nothing passes.
 from __future__ import annotations
 
 import re
+import subprocess
 import typing as typ
 from pathlib import Path
 
 import pytest
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 MAKEFILE: typ.Final[Path] = REPOSITORY_ROOT / "Makefile"
 
 #: The Makefile variable naming what the `doctest` target collects.
 DOCTEST_PATHS_VARIABLE: typ.Final[str] = "DOCTEST_PATHS"
-
-#: Directories that hold no source of this repository's own, so a `>>>`
-#: inside one is somebody else's example and not ours to execute.
-EXCLUDED_DIRECTORIES: typ.Final[frozenset[str]] = frozenset(
-    {
-        ".git",
-        ".venv",
-        ".uv-cache",
-        ".uv-tools",
-        "__pycache__",
-        "node_modules",
-        "target",
-        "dist",
-    }
-)
 
 #: A prompt at the start of a line, which is what makes a docstring example
 #: an example. Matched with leading whitespace consumed, because an example
@@ -70,15 +59,41 @@ def _makefile_variable(name: str) -> list[str]:
     raise AssertionError(msg)
 
 
+def _tracked_python_files() -> list[Path]:
+    """Return every tracked Python file, relative to the repository root.
+
+    Tracked rather than everything on disk, and that is the whole point.
+    Walking the tree meant deciding which directories were somebody else's,
+    and no deny-list stays complete: the coverage action builds a
+    throwaway environment at `.venv-coverage` in the working directory,
+    full of third-party examples, and a list naming `.venv` did not cover
+    it. What git tracks is exactly this repository's own source.
+    """
+    completed = subprocess.run(  # noqa: TID251 - a fixed, argument-free command.
+        ["git", "ls-files", "-z", "--", "*.py"],  # noqa: S607 - git is on PATH.
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    )
+    return [Path(entry) for entry in completed.stdout.split("\0") if entry]
+
+
+def _files_with_examples(candidates: cabc.Iterable[Path]) -> list[Path]:
+    """Return those *candidates* whose text holds a docstring example."""
+    return sorted(
+        path
+        for path in candidates
+        if _PROMPT.search(
+            (REPOSITORY_ROOT / path).read_text(encoding="utf-8", errors="ignore")
+        )
+    )
+
+
 def _python_files_with_examples() -> list[Path]:
-    """Return every Python file of this repository holding an example."""
-    found: list[Path] = []
-    for path in REPOSITORY_ROOT.rglob("*.py"):
-        if EXCLUDED_DIRECTORIES.intersection(path.relative_to(REPOSITORY_ROOT).parts):
-            continue
-        if _PROMPT.search(path.read_text(encoding="utf-8", errors="ignore")):
-            found.append(path.relative_to(REPOSITORY_ROOT))
-    return sorted(found)
+    """Return every tracked Python file of this repository holding an example."""
+    return _files_with_examples(_tracked_python_files())
 
 
 def _is_covered(candidate: Path, collected: list[str]) -> bool:
@@ -91,6 +106,27 @@ def _is_covered(candidate: Path, collected: list[str]) -> bool:
         candidate == Path(entry) or Path(entry) in candidate.parents
         for entry in collected
     )
+
+
+@pytest.fixture
+def untracked_example_file() -> cabc.Iterator[Path]:
+    """Create an untracked module with an example, and remove it after.
+
+    Written inside the repository on purpose: the point is what the
+    listing does with a file git does not track, and a file outside the
+    repository would never be a candidate in the first place.
+    """
+    directory = REPOSITORY_ROOT / ".venv-coverage" / "lib"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "third_party_example.py"
+    path.write_text('def f():\n    """Doc.\n\n    >>> f()\n    1\n    """\n')
+    try:
+        yield path.relative_to(REPOSITORY_ROOT)
+    finally:
+        path.unlink(missing_ok=True)
+        for parent in (directory, directory.parent):
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +148,24 @@ class TestDoctestCoverage:
             f"{MAKEFILE} sets {DOCTEST_PATHS_VARIABLE} to nothing, so the "
             "doctest target would collect no examples and pass"
         )
+
+    def test_an_untracked_file_is_not_this_repository_s(
+        self, untracked_example_file: Path
+    ) -> None:
+        """A file git does not track is not ours to execute.
+
+        This is the regression. The listing used to walk the tree behind a
+        deny-list of directory names, and the coverage action builds a
+        throwaway environment at `.venv-coverage` in the working
+        directory, full of third-party examples. The deny-list named
+        `.venv` and did not cover it, so the rule failed in CI on
+        somebody else's docstring.
+        """
+        assert (
+            untracked_example_file.exists()
+            or (REPOSITORY_ROOT / untracked_example_file).exists()
+        )
+        assert untracked_example_file not in _python_files_with_examples()
 
     def test_the_tree_still_has_examples(self) -> None:
         """Some file in the tree carries an example.

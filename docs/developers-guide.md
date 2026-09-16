@@ -1831,12 +1831,20 @@ never running. So the list does not stand alone.
 
 ### The rule that keeps the list honest
 
-`tests/workflows/test_doctest_coverage.py` finds every Python file in the
-tree carrying a `>>>` and fails, naming the file, when the `doctest`
+`tests/workflows/test_doctest_coverage.py` finds every tracked Python
+file carrying a `>>>` and fails, naming the file, when the `doctest`
 target would not collect it. It also asserts that the list is non-empty,
 that every path in it exists, and that a directory covers what is beneath
 it rather than what merely shares a prefix, so `pkg` does not read as
 covering `pkgx`.
+
+Tracked, via `git ls-files`, rather than a walk of the working tree. That
+distinction is load-bearing and was learned the hard way: the coverage
+action builds a throwaway environment at `.venv-coverage` in the working
+directory, and a walk behind a deny-list naming `.venv` did not exclude
+it, so the rule failed in CI on a third-party docstring. No deny-list of
+directory names stays complete. What git tracks is exactly this
+repository's own source.
 
 Adding a module with examples therefore needs one line in
 `DOCTEST_PATHS`, and forgetting it fails a test that says which file and

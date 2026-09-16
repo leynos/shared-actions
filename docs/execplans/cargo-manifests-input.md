@@ -246,35 +246,35 @@ Stage D: update docs/changelog and run full gateways.
    - Edit `.github/actions/generate-coverage/tests/test_scripts.py`.
    - Run targeted tests first:
 
-```sh
-uv run --with pytest pytest .github/actions/generate-coverage/tests/test_detect.py -v
-uv run --with pytest pytest .github/actions/generate-coverage/tests/test_scripts.py -v
-```
+   ```sh
+   uv run --with pytest pytest .github/actions/generate-coverage/tests/test_detect.py -v
+   uv run --with pytest pytest .github/actions/generate-coverage/tests/test_scripts.py -v
+   ```
 
-1. Implement detection and wiring.
+2. Implement detection and wiring.
 
    - Edit `.github/actions/generate-coverage/scripts/detect.py`.
    - Edit `.github/actions/generate-coverage/action.yml`.
 
-2. Implement Rust command changes.
+3. Implement Rust command changes.
 
    - Edit `.github/actions/generate-coverage/scripts/run_rust.py`.
 
-3. Update docs.
+4. Update docs.
 
    - Edit `.github/actions/generate-coverage/README.md`.
    - Edit `.github/actions/generate-coverage/CHANGELOG.md`.
 
-4. Run required gateways from repository root (with logs).
+5. Run required gateways from repository root (with logs).
 
-```sh
-set -o pipefail; make check-fmt 2>&1 | tee /tmp/shared-actions-check-fmt.log
-set -o pipefail; make typecheck 2>&1 | tee /tmp/shared-actions-typecheck.log
-set -o pipefail; make lint 2>&1 | tee /tmp/shared-actions-lint.log
-set -o pipefail; make test 2>&1 | tee /tmp/shared-actions-test.log
-```
+   ```sh
+   set -o pipefail; make check-fmt 2>&1 | tee /tmp/shared-actions-check-fmt.log
+   set -o pipefail; make typecheck 2>&1 | tee /tmp/shared-actions-typecheck.log
+   set -o pipefail; make lint 2>&1 | tee /tmp/shared-actions-lint.log
+   set -o pipefail; make test 2>&1 | tee /tmp/shared-actions-test.log
+   ```
 
-1. If any gateway fails, fix and rerun the failed gateway(s) until green, then
+6. If any gateway fails, fix and rerun the failed gateway(s) until green, then
    rerun full sequence if failures touched shared logic.
 
 ## Validation and Acceptance

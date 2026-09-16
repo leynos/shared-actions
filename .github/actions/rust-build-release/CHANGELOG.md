@@ -18,10 +18,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   toolchain setup.
 
 - Add a `rustflags` input exported before the toolchain setup step so
-  builds that require specific flags (for example `-Zpolonius=next`) are
-  not stripped by the nested setup step's `-D warnings` default, which
-  shadows the project's `build.rustflags` configuration. A pre-existing
-  `RUSTFLAGS` environment variable still takes precedence.
+  builds that require specific flags (for example `-Zpolonius=next`) are not
+  stripped by the nested setup step's `-D warnings` default, which shadows the
+  project's `build.rustflags` configuration. A pre-existing `RUSTFLAGS`
+  environment variable still takes precedence.
 
 - Cross-compile and stage `x86_64-unknown-illumos` artefacts from Linux runners.
 - Provide shared packaging fixtures and helpers that build the sample project
@@ -40,8 +40,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Inherit the nested `setup-rust` step's sccache server start and its restore
   of a caller's `ACTIONS_CACHE_SERVICE_V2`. `use-sccache: 'true'` therefore
-  works on Ubicloud, where it previously sent every cache write to a service the
-  proxy does not serve. This action still adds no caches of its own.
+  works on Ubicloud, where it previously sent every cache write to a service
+  the proxy does not serve. This action still adds no caches of its own.
 
 - Bump the nested `setup-rust` pin to
   `7c9d66030879b504365202df90f439ea419e72bd`, which carries the

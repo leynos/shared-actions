@@ -16,12 +16,11 @@ Upload coverage reports to CodeScene and cache the CLI for faster runs.
 
 If `path` is empty or `__auto__`, the action looks for `lcov.info` when
 `format` is `lcov`, or `coverage.xml` when `format` is `cobertura`. The
-installer accepts the CLI version as an argument; `cli-version` selects it.
-The CLI is cached only when `cli-version` pins a concrete version — with
-`latest`, a fresh copy is fetched on every run so the cache can never pin a
-stale binary. If the optional `installer-checksum` input is set, the
-installer is validated before execution. Any other value for `format`
-results in an error.
+installer accepts the CLI version as an argument; `cli-version` selects it. The
+CLI is cached only when `cli-version` pins a concrete version — with `latest`,
+a fresh copy is fetched on every run so the cache can never pin a stale binary.
+If the optional `installer-checksum` input is set, the installer is validated
+before execution. Any other value for `format` results in an error.
 
 The action exports the `access-token` and `installer-checksum` inputs as
 `CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.
@@ -29,13 +28,12 @@ The action exports the `access-token` and `installer-checksum` inputs as
 ## Modes
 
 `upload` sends the report to CodeScene for an analysed branch; CodeScene
-rejects uploads for branches the project does not analyse (typically
-anything but `main`), so it belongs in push/main workflows. `check` runs
-the pull-request changed-line coverage gate (`cs-coverage check`), which
-diffs the PR against its merge base — the job must check out with
-`fetch-depth: 0`, pass `project-url`
-(`https://api.codescene.io/v2/projects/<id>`), and, for LCOV, name the
-report file `*.info` because the CLI infers the format from the file
+rejects uploads for branches the project does not analyse (typically anything
+but `main`), so it belongs in push/main workflows. `check` runs the
+pull-request changed-line coverage gate (`cs-coverage check`), which diffs the
+PR against its merge base — the job must check out with `fetch-depth: 0`, pass
+`project-url` (`https://api.codescene.io/v2/projects/<id>`), and, for LCOV,
+name the report file `*.info` because the CLI infers the format from the file
 extension. When a pull request targets a branch other than the repository's
 default branch, the action skips this gate with a warning because CodeScene has
 no uploaded baseline for that merge base. If the CLI fails, the action prints

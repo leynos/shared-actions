@@ -18,7 +18,15 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
 ACT ?= $(or $(firstword $(wildcard $(HOME)/go/bin/act) $(wildcard $(HOME)/.local/bin/act)),act)
-MDLINT ?= $(if $(wildcard $(HOME)/.bun/bin/markdownlint-cli2),$(HOME)/.bun/bin/markdownlint-cli2,markdownlint-cli2)
+MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")
+# `make fmt` and `make check-fmt` call mdtablefix directly. `--git` selects the
+# Markdown files Git tracks and `--include-untracked` adds the untracked files
+# Git does not ignore, so a new document is formatted before it is staged.
+# Both modes need mdtablefix 0.6.0 or later; CI pins the version at the
+# install-mdtablefix step.
+MDTABLEFIX ?= mdtablefix
+MDTABLEFIX_SELECT = --git --include-untracked
+MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 NIXIE ?= nixie
 RUFF_FIX_RULES ?= D202,I001
 UV ?= $(if $(wildcard $(HOME)/.local/bin/uv),$(HOME)/.local/bin/uv,uv)
@@ -88,11 +96,13 @@ typecheck: .venv ## Run static type checking with Ty
 fmt: ## Format Python files and auto-fix selected lint rules
 	$(UV) tool run ruff format
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES) --fix
-	mdformat-all
+	$(MDTABLEFIX) --in-place $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
+	@unset FORCE_COLOR; $(MDLINT) --fix "**/*.md"
 
 check-fmt: ## Check Python formatting without modifying files
 	$(UV) tool run ruff format --check
 	$(UV) tool run ruff check --select $(RUFF_FIX_RULES)
+	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
 markdownlint: spelling ## Lint Markdown files and enforce spelling
 	$(MDLINT) "**/*.md" "#.uv-cache" "#.uv-tools"

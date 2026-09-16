@@ -4,13 +4,13 @@
 
 ## Context
 
-The `setup-rust` and `generate-coverage` composite actions each archived a
-Cargo `target` tree with `actions/cache` whenever the caller used the default
-`github` cache provider. `setup-rust` archived `target/${{ env.BUILD_PROFILE }}`
-and keyed the archive by the same placeholder. `BUILD_PROFILE` is never set
-anywhere in this repository, so that path resolved to a bare `target/` and the
-key never varied by profile. `generate-coverage` archived the whole `target`
-tree.
+The `setup-rust` and `generate-coverage` composite actions each archived a Cargo
+`target` tree with `actions/cache` whenever the caller used the default
+`github` cache provider. `setup-rust` archived
+`target/${{ env.BUILD_PROFILE }}` and keyed the archive by the same placeholder.
+`BUILD_PROFILE` is never set anywhere in this repository, so that path
+resolved to a bare `target/` and the key never varied by profile.
+`generate-coverage` archived the whole `target` tree.
 
 Repositories across this estate build in at least two shapes. Lint and test
 builds produce a debug or dev-fast tree built with the Cranelift backend and
@@ -35,8 +35,8 @@ keyed by compiler flags.
 Neither Rust action archives a `target` tree. sccache is the sole owner of
 compiler output.
 
-`setup-rust` caches the Cargo registry and Git index under the
-profile-agnostic key
+`setup-rust` caches the Cargo registry and Git index under the profile-agnostic
+key
 `${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', '**/Cargo.lock') }}`,
 with a matching `${{ runner.os }}-cargo-` restore prefix. `generate-coverage`
 caches the `cargo-binstall`, `cargo-llvm-cov`, and `cargo-nextest` binaries
@@ -49,11 +49,11 @@ paths under their separate GitHub cache.
 
 That decision changed no sccache wiring; the addendum below records what had to
 change afterwards. `SCCACHE_CACHE_SIZE` remains documentation rather than a
-manifest input, because the actions select the GitHub Actions sccache backend by
-default (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
-per-repository limit rather than by the local-disk value. A caller who sets that
-variable, or who points `SCCACHE_DIR` at their own storage, keeps their choice
-and with it the local-disk limit.
+manifest input, because the actions select the GitHub Actions sccache backend
+by default (`SCCACHE_GHA_ENABLED=true`), which GitHub bounds by its own
+per-repository limit rather than by the local-disk value. A caller who sets
+that variable, or who points `SCCACHE_DIR` at their own storage, keeps their
+choice and with it the local-disk limit.
 
 ## Consequences
 
@@ -99,9 +99,9 @@ measured zero compile requests, then 3,836 requests at a 0.18 % hit rate once
 the wrapper landed.
 
 `setup-rust` now exports both. The positions are load-bearing:
-`SCCACHE_GHA_ENABLED` before the sccache-action steps and `RUSTC_WRAPPER`
-after them, because it needs `SCCACHE_PATH`, which they produce. Neither can
-move. A caller's own values win in both cases.
+`SCCACHE_GHA_ENABLED` before the sccache-action steps and `RUSTC_WRAPPER` after
+them, because it needs `SCCACHE_PATH`, which they produce. Neither can move. A
+caller's own values win in both cases.
 
 The backend export sits first because `GITHUB_ENV` reaches only the next step,
 and sccache binds its backend once, at server start. The action now starts that

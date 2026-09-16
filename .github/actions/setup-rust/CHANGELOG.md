@@ -4,19 +4,18 @@
 
 - Pin `mozilla-actions/sccache-action` to sccache v0.17.0. Left unset, the
   action asks the GitHub API for the latest release on every job: a floating
-  dependency and a network call in the critical path. That call timed out on
-  PR #440 and failed the job with
-  `Unable to locate executable file: undefined`, a red check with no step log
-  behind it. A manifest test now holds that every invocation names a version.
-  The x86_64 macOS invocation stays on v0.12.0, the last release to ship that
-  target. Consumers pinning a prebuilt sccache of their own are unaffected and
-  choose independently.
+  dependency and a network call in the critical path. That call timed out on PR
+  #440 and failed the job with `Unable to locate executable file: undefined`, a
+  red check with no step log behind it. A manifest test now holds that every
+  invocation names a version. The x86_64 macOS invocation stays on v0.12.0, the
+  last release to ship that target. Consumers pinning a prebuilt sccache of
+  their own are unaffected and choose independently.
 
 - Start the sccache server from a `run:` step of the action's own, last of the
   sccache steps, and restore the caller's `ACTIONS_CACHE_SERVICE_V2`,
   `ACTIONS_RESULTS_URL` and `ACTIONS_RUNTIME_TOKEN` after
-  `mozilla-actions/sccache-action` overwrites them. That action's final act is to
-  write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is right on a
+  `mozilla-actions/sccache-action` overwrites them. That action's final act is
+  to write `ACTIONS_CACHE_SERVICE_V2=on` to `GITHUB_ENV`, which is right on a
   GitHub-hosted runner and wrong on Ubicloud, where it overrode the empty value
   `export-ubicloud-cache-credentials` published and sent every cache write to a
   service the proxy does not serve. The caller's value is now read before those
@@ -69,10 +68,9 @@
 ## v1.0.15 - 2026-07-29
 
 - Add `rustflags` input forwarded to `actions-rust-lang/setup-rust-toolchain`.
-  The default keeps the existing `-D warnings` behaviour; pass extra flags
-  (for example `-D warnings -Zpolonius=next`) or the empty string to leave
-  `RUSTFLAGS` unset, so the project's `build.rustflags` configuration
-  applies.
+  The default keeps the existing `-D warnings` behaviour; pass extra flags (for
+  example `-D warnings -Zpolonius=next`) or the empty string to leave
+  `RUSTFLAGS` unset, so the project's `build.rustflags` configuration applies.
 
 ## v1.0.14 - 2026-01-16
 

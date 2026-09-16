@@ -9,11 +9,10 @@ this file.
   later. The platform gate admitted Linux `x86_64` and `aarch64` only, which
   was correct for 0.5.0 and left consumers with a macOS or Windows formatter
   lane carrying their own source-build exception. 0.5.1 publishes Linux and
-  macOS on both architectures and Windows on `x86_64`
-  (leynos/mdtablefix#459), so those consumers can now retire the exception.
-  Windows on `aarch64` still fails closed, because no such archive exists; a
-  FreeBSD archive is published but has no entry, because GitHub offers no
-  FreeBSD runner label to gate on.
+  macOS on both architectures and Windows on `x86_64` (leynos/mdtablefix#459),
+  so those consumers can now retire the exception. Windows on `aarch64` still
+  fails closed, because no such archive exists; a FreeBSD archive is published
+  but has no entry, because GitHub offers no FreeBSD runner label to gate on.
 
 - Accept a native Windows `bin-dir`. `${{ runner.temp }}/...` is the natural
   value for a Windows caller and arrives as `D:\a\_temp\bin`, which Git Bash

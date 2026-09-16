@@ -18,9 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when one exists and could not be read. The pinned digest, computed from an
   independent download, is the trust anchor either way.
 
-  Seeded with cargo-audit 0.22.2,
-  cargo-nextest 0.9.143, cargo-llvm-cov 0.9.0, cargo-dylint and dylint-link
-  6.0.4, and sccache 0.17.0, across five targets.
+  Seeded with cargo-audit 0.22.2, cargo-nextest 0.9.143, cargo-llvm-cov 0.9.0,
+  cargo-dylint and dylint-link 6.0.4, and sccache 0.17.0, across five targets.
 
   `version` is required and must name a manifest entry. There is no floating
   version and no lookup of a latest release: that is a network call in the

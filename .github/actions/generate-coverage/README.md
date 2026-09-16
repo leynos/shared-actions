@@ -10,9 +10,9 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` is installed from
-the repository's tool manifest (`.github/tool-manifest.toml`): the entry names
-the release archive and its SHA-256 digest per target, and the installer
+are required. When Rust coverage is required, `cargo-llvm-cov` is installed
+from the repository's tool manifest (`.github/tool-manifest.toml`): the entry
+names the release archive and its SHA-256 digest per target, and the installer
 extracts only the named member. `cargo-nextest` is downloaded directly from its
 pinned official release; both the archive and extracted binary have fixed
 SHA-256 digests. Neither has a Cargo source-build fallback. If both
@@ -205,8 +205,8 @@ With the default `cache-provider: github`, setup-uv retains its historical
 automatic policy: its GitHub cache is enabled on GitHub-hosted runners and
 disabled on self-hosted runners. The action also caches Cargo artefacts and
 Python dependencies with `actions/cache`. The Cargo cache covers the
-`cargo-llvm-cov` and `cargo-nextest` binaries, the Cargo
-registry, and the Cargo Git index. It no longer archives the `target` tree.
+`cargo-llvm-cov` and `cargo-nextest` binaries, the Cargo registry, and the
+Cargo Git index. It no longer archives the `target` tree.
 
 Coverage builds an instrumented `target/llvm-cov-target` tree, whereas lint and
 test builds use a debug or dev-fast tree built with Cranelift and linked with
@@ -331,18 +331,18 @@ stopped advancing.
 seconds, defaulting to 1800. The watchdog is there to catch a hang, and its
 budget is sized so that a build which is merely cold does not look like one.
 
-**If your repository has not set a value, it is on 1,800 s and nothing in
-your repository says so.** That is not a budget anyone chose for your suite,
-and it is the state that killed a dependency bump in `rstest-bdd` with 1,894
-of its 1,897 tests complete.
+**If your repository has not set a value, it is on 1,800 s and nothing in your
+repository says so.** That is not a budget anyone chose for your suite, and it
+is the state that killed a dependency bump in `rstest-bdd` with 1,894 of its
+1,897 tests complete.
 
 Choosing one is caller guidance rather than action reference, so it lives in
 the users' guide, under
 [Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last):
 the four-step procedure for arriving at a value, the arithmetic relating the
 four timers, and the four details of it that have each been got wrong here.
-What follows below is about this action: what the watchdog prints, when
-`cargo` runs at all, and how to assert the ordering in a contract.
+What follows below is about this action: what the watchdog prints, when `cargo`
+runs at all, and how to assert the ordering in a contract.
 
 That distinction is the whole reason for the number. A lane that archives its
 `target` tree runs a mostly incremental instrumented build, and a few hundred
@@ -404,16 +404,17 @@ assert the ordering by value, and several details of that shape are worth
 copying rather than reinventing.
 
 **Check that `cargo` runs at all before comparing anything to the watchdog.**
-The action detects the project's language and gates every Rust step on it, so
-a caller with no root `Cargo.toml` never invokes `cargo` and the watchdog and
+The action detects the project's language and gates every Rust step on it, so a
+caller with no root `Cargo.toml` never invokes `cargo` and the watchdog and
 both nextest tiers are inert however its lanes are configured. This
 repository's own coverage lanes are that case: their 30 minute ceiling equals
 the 1,800 second default, which is the inverted shape, and it means nothing
 because no `cargo` runs. A rule that compares the two numbers without checking
-the precondition reports that as a defect. What is worth asserting there is
-the precondition itself, so that adding the manifest, a change about
-packaging, fails until the budgets are set; `tests/workflows/test_coverage_timeout_tiers.py`
-in this repository is that assertion.
+the precondition reports that as a defect. What is worth asserting there is the
+precondition itself, so that adding the manifest, a change about packaging,
+fails until the budgets are set;
+`tests/workflows/test_coverage_timeout_tiers.py` in this repository is that
+assertion.
 
 **Read the watchdog from the step, then the job, then the workflow**, as GitHub
 resolves it. stilyagi sets the value at workflow level, so a contract reading
@@ -434,15 +435,15 @@ already set a budget. A contract that reads the variable where it finds it will
 pass when a step loses its override, and that step silently inherits the 1,800
 second default.
 
-**Compare the job ceiling per job**, not against the tightest
-`timeout-minutes` in the file. An unrelated job's ceiling has nothing to say
-about the coverage lane's, and comparing them either fails an honestly sized
-job or forces unrelated budgets to move together.
+**Compare the job ceiling per job**, not against the tightest `timeout-minutes`
+in the file. An unrelated job's ceiling has nothing to say about the coverage
+lane's, and comparing them either fails an honestly sized job or forces
+unrelated budgets to move together.
 
 Take the termination allowance from `slow-timeout.grace-period` where a
 repository sets one, rather than assuming the ten-second default. Scan both
-`*.yml` and `*.yaml`: a coverage lane in the other extension
-would otherwise inherit the default without failing anything.
+`*.yml` and `*.yaml`: a coverage lane in the other extension would otherwise
+inherit the default without failing anything.
 
 One portability note, because this contract gets copied. Module-level
 annotations are evaluated at import below Python 3.14 and deferred from 3.14

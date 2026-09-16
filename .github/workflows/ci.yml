@@ -47,6 +47,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Install action-validator
         run: bun install -g @action-validator/core @action-validator/cli
+      - name: Install mdtablefix
+        # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
+        # first release with `--check` and `--git`.
+        if: matrix.os == 'ubuntu-latest'
+        uses: ./.github/actions/install-mdtablefix
+        with:
+          version: "0.6.0"
+
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
         run: make check-fmt
@@ -59,12 +67,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff
         with:
-          globs: |
-            **/*.md
-            !**/target/**
-            !**/dist/**
-            !**/.uv-cache/**
-            !**/.uv-tools/**
+          globs: '**/*.md'
       - name: Set up isolated Rust for Merman
         if: matrix.os == 'ubuntu-latest'
         run: rustup toolchain install 1.95.0 --profile minimal

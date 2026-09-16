@@ -100,9 +100,9 @@ jobs:
   every mutant was caught and when its filters matched nothing, so an empty run
   used to be recorded as `all mutants caught`. Four consumers were passing that
   way, one of them for weeks, which is why the default is closed rather than
-  staged. Set `allow-no-mutants: true` where an empty run is genuinely expected;
-  the outcome still reports that nothing was found, so the lane cannot be
-  mistaken for a working one.
+  staged. Set `allow-no-mutants: true` where an empty run is genuinely
+  expected; the outcome still reports that nothing was found, so the lane
+  cannot be mistaken for a working one.
 - The check reads the mutant inventory cargo-mutants writes to
   `mutants.out/mutants.json`. A missing or unreadable inventory is treated as
   unknown rather than empty, so a tool version that stops writing it does not

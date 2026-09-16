@@ -90,11 +90,11 @@ nowhere else.
 
 ### Counting the outcome
 
-Every run logs `automerge_commit_audit=` with one of three fixed words:
-`clean` when every commit was read and every one was Dependabot's, `foreign`
-when at least one was not, and `unreadable` when the check could not run. The
-value carries no commit identifier, so it stays countable across repositories
-without becoming high-cardinality.
+Every run logs `automerge_commit_audit=` with one of three fixed words: `clean`
+when every commit was read and every one was Dependabot's, `foreign` when at
+least one was not, and `unreadable` when the check could not run. The value
+carries no commit identifier, so it stays countable across repositories without
+becoming high-cardinality.
 
 Note: The helper reads `DEPENDABOT_LOGINS` (defined in
 `workflow_scripts/dependabot_automerge.py`) to support both author login

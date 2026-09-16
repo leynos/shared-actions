@@ -49,11 +49,11 @@ own branch, get it reviewed, and let Dependabot rebase onto it.
 
 Every run emits three new lines alongside the existing `automerge_*` outputs:
 
-| Output | Values |
-| --- | --- |
-| `automerge_commit_audit` | `clean`, `foreign`, or `unreadable` |
+| Output                        | Values                                 |
+| ----------------------------- | -------------------------------------- |
+| `automerge_commit_audit`      | `clean`, `foreign`, or `unreadable`    |
 | `automerge_commit_pages_read` | Pages of the commit connection fetched |
-| `automerge_commits_audited` | Commits judged |
+| `automerge_commits_audited`   | Commits judged                         |
 
 `automerge_commit_audit` is bounded and carries no commit identifier, so it can
 be counted across repositories. The two counts distinguish a run that read one

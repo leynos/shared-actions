@@ -642,12 +642,12 @@ Four independent timers can end a coverage run, and a caller sets them in four
 different places. A run that dies without an obvious cause is nearly always one
 of them.
 
-| Tier | What it bounds | Where it is set |
-| --- | --- | --- |
-| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
-| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
-| Cargo watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
-| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+| Tier                     | What it bounds                     | Where it is set                                        |
+| ------------------------ | ---------------------------------- | ------------------------------------------------------ |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                                 |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                                 |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                      |
 
 The watchdog belongs to `generate-coverage` and defaults to 1,800 seconds.
 Nothing in a caller's nextest configuration mentions it, which is how it comes

@@ -18,6 +18,9 @@ import typing as typ
 import pytest
 
 from workflow_scripts import dependabot_automerge
+
+if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
+    from workflow_scripts.dependabot_github import GraphQLQuery
 from workflow_scripts.dependabot_decision import MergeMethod
 from workflow_scripts.dependabot_metrics import (
     LATENCY_BUCKETS,
@@ -40,11 +43,11 @@ REPO = "acme/example"
 PR_NUMBER = 7
 
 
-def _run(handler: object) -> dependabot_automerge.LiveRun:
+def _run(handler: GraphQLQuery) -> dependabot_automerge.LiveRun:
     """Return a live run over ``handler`` with the ordinary configuration."""
     return dependabot_automerge.LiveRun(
         token=TEST_TOKEN,
-        query=typ.cast("typ.Any", handler),
+        query=handler,
         config=dependabot_automerge.AutomergeConfig(
             merge_method=MergeMethod.SQUASH,
             required_label="dependencies",

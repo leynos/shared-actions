@@ -28,16 +28,17 @@ from workflow_scripts.tests.dependabot_graphql_double import (
 if typ.TYPE_CHECKING:  # pragma: no cover - imported for annotations only
     import pytest
 
+    from workflow_scripts.dependabot_github import GraphQLQuery
     from workflow_scripts.tests.dependabot_graphql_double import GraphQLCalls
 
 TEST_TOKEN = "test-token"  # noqa: S105 - a stand-in, not a credential
 
 
-def _run(handler: object) -> dependabot_automerge.LiveRun:
+def _run(handler: GraphQLQuery) -> dependabot_automerge.LiveRun:
     """Return a live run over ``handler`` with the ordinary configuration."""
     return dependabot_automerge.LiveRun(
         token=TEST_TOKEN,
-        query=typ.cast("typ.Any", handler),
+        query=handler,
         config=dependabot_automerge.AutomergeConfig(
             merge_method=MergeMethod.SQUASH,
             required_label="dependencies",

@@ -20,8 +20,10 @@ from workflow_scripts import dependabot_automerge
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
-if typ.TYPE_CHECKING:
     import pytest
+
+    from workflow_scripts.dependabot_github import GraphQLQuery
+    from workflow_scripts.graphql_client import JsonValue
 
 TEST_TOKEN = "test-token"  # noqa: S105
 
@@ -44,12 +46,12 @@ class Mutation(typ.NamedTuple):
     ----------
     document : str
         The GraphQL document.
-    variables : dict[str, object]
+    variables : dict[str, JsonValue]
         The variables sent with it.
     """
 
     document: str
-    variables: dict[str, object]
+    variables: dict[str, JsonValue]
 
     def binds(self, name: str) -> bool:
         """Return whether the document passes ``name`` into its input.
@@ -90,7 +92,9 @@ class GraphQLCalls(typ.NamedTuple):
     cursors: list[object]
 
 
-def commit_node(oid: str, *logins: str, total: int | None = None) -> dict[str, object]:
+def commit_node(
+    oid: str, *logins: str, total: int | None = None
+) -> dict[str, JsonValue]:
     """Build one commit node as the GraphQL query returns it.
 
     Parameters
@@ -122,9 +126,9 @@ def commit_node(oid: str, *logins: str, total: int | None = None) -> dict[str, o
 
 def pull_request_node(
     branch: Branch,
-    served: cabc.Sequence[cabc.Sequence[dict[str, object]]],
+    served: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]],
     page_index: int,
-) -> dict[str, object]:
+) -> dict[str, JsonValue]:
     """Build the pull request node for one page of commits.
 
     The scalar fields come from the branch and the commits from the page
@@ -136,7 +140,7 @@ def pull_request_node(
     ----------
     branch : Branch
         The pull request GitHub should appear to hold.
-    served : cabc.Sequence[cabc.Sequence[dict[str, object]]]
+    served : cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]]
         The commit pages this fetch is serving.
     page_index : int
         Which of those pages this response carries.
@@ -170,22 +174,22 @@ def pull_request_node(
 
 
 def mutation_response(
-    query: str, variables: dict[str, object], calls: GraphQLCalls
-) -> dict[str, object] | None:
+    query: str, variables: dict[str, JsonValue], calls: GraphQLCalls
+) -> dict[str, JsonValue] | None:
     """Record and answer a mutation, or return None for a query.
 
     Parameters
     ----------
     query : str
         The GraphQL document.
-    variables : dict[str, object]
+    variables : dict[str, JsonValue]
         Its variables, recorded so a test can assert on them.
     calls : GraphQLCalls
         The record to append to.
 
     Returns
     -------
-    dict[str, object] or None
+    dict[str, JsonValue] or None
         The mutation's response, or None when this is not a mutation.
     """
     mutations = (
@@ -214,8 +218,8 @@ class _ServedBranch:
 
     def __init__(
         self,
-        pages: cabc.Sequence[cabc.Sequence[dict[str, object]]],
-        later_pages: cabc.Sequence[cabc.Sequence[dict[str, object]]] | None,
+        pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]],
+        later_pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]] | None,
     ) -> None:
         self._pages = pages
         self._later_pages = later_pages
@@ -223,7 +227,7 @@ class _ServedBranch:
 
     def page_for(
         self, cursor: object
-    ) -> tuple[cabc.Sequence[cabc.Sequence[dict[str, object]]], int]:
+    ) -> tuple[cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]], int]:
         """Return the page set to serve and the index within it.
 
         Parameters
@@ -242,12 +246,12 @@ class _ServedBranch:
         return self._served, int(str(cursor).rsplit("-", 1)[1])
 
     @property
-    def _served(self) -> cabc.Sequence[cabc.Sequence[dict[str, object]]]:
+    def _served(self) -> cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]]:
         """Return the page set the current fetch should see.
 
         Returns
         -------
-        cabc.Sequence[cabc.Sequence[dict[str, object]]]
+        cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]]
             The commit pages.
         """
         if self._later_pages is not None and self._fetches > 1:
@@ -264,13 +268,13 @@ class Branch(typ.NamedTuple):
 
     Attributes
     ----------
-    pages : cabc.Sequence[cabc.Sequence[dict[str, object]]]
+    pages : cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]]
         Commit pages served to the first fetch of the pull request.
     auto_merge_request : dict or None
         The ``autoMergeRequest`` field. Not None means already armed.
     merge_state : str
         The ``mergeStateStatus`` to report.
-    later_pages : cabc.Sequence[cabc.Sequence[dict[str, object]]] or None
+    later_pages : cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]] or None
         Commit pages served from the second fetch onward, for the case of
         a push landing inside the merge-state retry window.
     is_draft : bool
@@ -278,15 +282,15 @@ class Branch(typ.NamedTuple):
         than a foreign commit.
     """
 
-    pages: cabc.Sequence[cabc.Sequence[dict[str, object]]]
-    auto_merge_request: dict[str, object] | None = None
+    pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]]
+    auto_merge_request: dict[str, JsonValue] | None = None
     merge_state: str = "BLOCKED"
-    later_pages: cabc.Sequence[cabc.Sequence[dict[str, object]]] | None = None
+    later_pages: cabc.Sequence[cabc.Sequence[dict[str, JsonValue]]] | None = None
     is_draft: bool = False
 
 
 #: An auto-merge request already armed when the run starts.
-ARMED: typ.Final[dict[str, object]] = {
+ARMED: typ.Final[dict[str, JsonValue]] = {
     "enabledAt": "2026-09-06T00:00:00Z",
     "mergeMethod": "SQUASH",
 }
@@ -294,9 +298,7 @@ ARMED: typ.Final[dict[str, object]] = {
 
 def build_graphql(
     branch: Branch,
-) -> tuple[
-    cabc.Callable[[str, str, dict[str, object]], dict[str, object]], GraphQLCalls
-]:
+) -> tuple[GraphQLQuery, GraphQLCalls]:
     """Build a scripted GraphQL call over one branch, and its record.
 
     Returned rather than installed, so a test can hand the call to the
@@ -316,8 +318,8 @@ def build_graphql(
     state = _ServedBranch(branch.pages, branch.later_pages)
 
     def handler(
-        _token: str, query: str, variables: dict[str, object]
-    ) -> dict[str, object]:
+        _token: str, query: str, variables: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
         mutation = mutation_response(query, variables, calls)
         if mutation is not None:
             return mutation

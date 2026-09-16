@@ -21,8 +21,11 @@ list is non-empty too, since a target that collects nothing passes.
 from __future__ import annotations
 
 import ast
+import doctest
 import re
 import subprocess
+import textwrap
+import types
 import typing as typ
 from pathlib import Path
 
@@ -113,20 +116,165 @@ def _python_files_with_examples() -> list[Path]:
     return _files_with_examples(_tracked_python_files())
 
 
+#: Definitions whose docstring the finder reads but whose body it never
+#: enters. Anything defined inside one is a local name, bound when the
+#: call runs and unreachable from the module afterwards.
+_OPAQUE: typ.Final = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+#: Definitions whose docstring the finder reads and whose body it walks,
+#: because their contents are attributes it can reach by name.
+_TRANSPARENT: typ.Final = (ast.Module, ast.ClassDef)
+
+
 def _docstrings(tree: ast.Module) -> list[str]:
     """Return every docstring `doctest.DocTestFinder` can reach in *tree*.
 
-    Module, class and function docstrings, which is exactly the set the
-    finder walks. A string literal sitting after an assignment is an
-    attribute docstring: Sphinx renders it, Python does not bind it, and
-    the finder never sees it.
+    The finder starts at the module and walks names it can reach by
+    attribute: classes, their methods, nested classes, and functions
+    bound at module level, including ones defined inside an `if` or a
+    `try`. It never enters a function body, so a function or class
+    defined inside a function is invisible to it, and a string literal
+    after an assignment is an attribute docstring that Sphinx renders
+    and Python never binds.
     """
-    carriers = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-    return [
-        text
-        for node in ast.walk(tree)
-        if isinstance(node, carriers) and (text := ast.get_docstring(node, clean=False))
-    ]
+    found: list[str] = []
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, _OPAQUE + _TRANSPARENT) and (
+            text := ast.get_docstring(node, clean=False)
+        ):
+            found.append(text)
+        if isinstance(node, _OPAQUE):
+            return
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(tree)
+    return found
+
+
+#: Probe modules for the reachability rule, each holding one example.
+#: Their docstrings use single quotes so the sources nest inside this
+#: module's literals, and the prompt is a placeholder: a literal one at
+#: the start of a line would make this file's fixtures look like examples
+#: to the very rule they exercise.
+_PROBE_PROMPT: typ.Final[str] = "<prompt>"
+_REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
+    "module": (
+        """
+        '''Mod.
+
+        <prompt> 1
+        1
+        '''
+        """,
+        1,
+        "the module docstring",
+    ),
+    "class": (
+        """
+        class C:
+            '''C.
+
+            <prompt> 1
+            1
+            '''
+        """,
+        1,
+        "a class docstring",
+    ),
+    "method": (
+        """
+        class C:
+            def m(self):
+                '''M.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        1,
+        "a method docstring",
+    ),
+    "function": (
+        """
+        def f():
+            '''F.
+
+            <prompt> 1
+            1
+            '''
+        """,
+        1,
+        "a module-level function docstring",
+    ),
+    "conditionally-defined": (
+        """
+        if True:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        1,
+        "a function bound inside a module-level if",
+    ),
+    "nested-function": (
+        """
+        def outer():
+            def inner():
+                '''Inner.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        0,
+        "a function defined inside another function",
+    ),
+    "local-class": (
+        """
+        def outer():
+            class Local:
+                '''Local.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        0,
+        "a class defined inside a function",
+    ),
+    "attribute-docstring": (
+        """
+        X = 1
+        '''X.
+
+        <prompt> 1
+        1
+        '''
+        """,
+        0,
+        "an attribute docstring after an assignment",
+    ),
+}
+
+
+def _finder_prompt_count(source: str) -> int:
+    """Return how many examples `doctest.DocTestFinder` finds in *source*.
+
+    The oracle for the reachability rule. It executes the module, which
+    is what the finder needs, so it is used only on the short sources
+    written in this file.
+    """
+    module = types.ModuleType("reachability_probe")
+    exec(compile(source, "<probe>", "exec"), module.__dict__)  # noqa: S102
+    return sum(
+        len(test.examples)
+        for test in doctest.DocTestFinder().find(module, name="reachability_probe")
+    )
 
 
 def _prompt_counts(path: Path) -> tuple[int, int]:
@@ -296,6 +444,39 @@ class TestDoctestCoverage:
             f"(prompts, reachable): {unreachable}; move each example into a "
             "module, class or function docstring"
         )
+
+    @pytest.mark.parametrize(
+        ("source", "expected", "reason"),
+        [
+            pytest.param(source, expected, reason, id=name)
+            for name, (source, expected, reason) in _REACHABILITY_CASES.items()
+        ],
+    )
+    def test_reachability_matches_the_finder(
+        self,
+        source: str,
+        expected: int,
+        reason: str,
+    ) -> None:
+        """Reachability is what `DocTestFinder` walks, not what `ast` can see.
+
+        The finder starts at the module and follows attributes, so it
+        reads a class, its methods and a function bound at module level
+        even inside an `if`, and it never enters a function body. A
+        traversal that simply walked every node would count a nested
+        function's examples as reachable while the gate could not run
+        them, which is the same "listed but never executed" hole this
+        module exists to close. Each case is checked against the
+        finder's own verdict, so the rule cannot drift from it.
+        """
+        module_source = textwrap.dedent(source).replace(_PROBE_PROMPT, ">" * 3)
+        reachable = sum(
+            len(_PROMPT.findall(docstring))
+            for docstring in _docstrings(ast.parse(module_source))
+        )
+
+        assert reachable == expected, reason
+        assert reachable == _finder_prompt_count(module_source), reason
 
     def test_every_collected_path_exists(self, collected_paths: list[str]) -> None:
         """A path named in the target is a path that is there.

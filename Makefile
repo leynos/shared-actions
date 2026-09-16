@@ -1,5 +1,5 @@
-.PHONY: all clean help test lint lint-whitaker markdownlint nixie fmt check-fmt \
-	typecheck spelling spelling-config spelling-config-write \
+.PHONY: all clean help test doctest lint lint-whitaker markdownlint nixie fmt \
+	check-fmt typecheck spelling spelling-config spelling-config-write \
 	spelling-phrase-check spelling-helper-test
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
@@ -47,7 +47,27 @@ SPELLING_HELPER_PYTEST = PYTHONPATH=scripts $(UV_ENV) $(UV) run --no-project \
 	--python 3.14 --with pathspec==$(PATHSPEC_VERSION) --with pytest==9.0.2 \
 	--with pytest-cov==7.0.0 python -m pytest
 
-test: .venv ## Run tests
+# Modules whose docstring examples are executed.
+#
+# A named list rather than the whole tree, because `--doctest-modules`
+# imports every module it collects and many action scripts are importable
+# only with the `sys.path` their action sets up: collecting all of them
+# fails at import in twenty-one places.
+#
+# A list is itself a trap, the same one `pytest.ini`'s testpaths used to be,
+# where a module added to it ran nowhere and passed by never running. So
+# `tests/workflows/test_doctest_coverage.py` asserts that every file
+# carrying a `>>>` is named here, and fails naming the file when one is not.
+DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.py \
+	test_support \
+	.github/actions/determine-release-modes/scripts/determine_release_modes.py \
+	.github/actions/upload-release-assets/scripts/upload_release_assets.py \
+	tests/workflows/test_coverage_timeout_tiers.py
+
+doctest: .venv ## Execute the examples in docstrings
+	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-bdd --with syrupy --with hypothesis pytest --doctest-modules -p no:cacheprovider -q $(DOCTEST_PATHS)
+
+test: .venv doctest ## Run tests, docstring examples first
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
 ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)

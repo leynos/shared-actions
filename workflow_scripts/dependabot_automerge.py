@@ -147,6 +147,7 @@ if __package__:
         classify_merge_state,
         merge_state_retry_config,
     )
+    from .dependabot_metrics import Operation, measured
     from .dependabot_queries import (
         DISABLE_AUTOMERGE_MUTATION,
         ENABLE_AUTOMERGE_MUTATION,
@@ -180,6 +181,10 @@ else:
         MergeStateRetryConfig,
         classify_merge_state,
         merge_state_retry_config,
+    )
+    from dependabot_metrics import (  # type: ignore[import-not-found,no-redef]
+        Operation,
+        measured,
     )
     from dependabot_queries import (  # type: ignore[import-not-found,no-redef]
         DISABLE_AUTOMERGE_MUTATION,
@@ -424,26 +429,37 @@ def _refresh_merge_state(
     """
     current = pr
     retry_config = retry if retry is not None else merge_state_retry_config()
-    for attempt in range(retry_config.max_attempts):
-        state, _reason = classify_merge_state(
-            current.merge_state_status,
-            current.mergeable_state,
-        )
-        if state != "retry":
-            return current
-        sleep_seconds = min(
-            retry_config.base_sleep * (2**attempt),
-            retry_config.max_sleep,
-        )
-        time.sleep(sleep_seconds)
-        current = fetch_pull_request(
-            run.token,
-            PullRequestRef(
-                owner=current.owner, repo=current.repo, number=current.number
-            ),
-            query=run.query,
-        )
-    return current
+    # Read back by `measured` after the body. One attempt is the happy
+    # path: the first classification was not `retry` and nothing was
+    # refetched. How often this exceeds one is the whole reason the
+    # refresh has a metric.
+    reads = 1
+
+    def _reads() -> int:
+        return reads
+
+    with measured(Operation.REFRESH, attempts=_reads):
+        for attempt in range(retry_config.max_attempts):
+            state, _reason = classify_merge_state(
+                current.merge_state_status,
+                current.mergeable_state,
+            )
+            if state != "retry":
+                return current
+            sleep_seconds = min(
+                retry_config.base_sleep * (2**attempt),
+                retry_config.max_sleep,
+            )
+            time.sleep(sleep_seconds)
+            reads += 1
+            current = fetch_pull_request(
+                run.token,
+                PullRequestRef(
+                    owner=current.owner, repo=current.repo, number=current.number
+                ),
+                query=run.query,
+            )
+        return current
 
 
 def _disable_automerge(pull_request_id: str, *, run: LiveRun) -> None:
@@ -456,11 +472,12 @@ def _disable_automerge(pull_request_id: str, *, run: LiveRun) -> None:
     run : LiveRun
         The run this withdrawal belongs to.
     """
-    run.query(
-        run.token,
-        DISABLE_AUTOMERGE_MUTATION,
-        {"pullRequestId": pull_request_id},
-    )
+    with measured(Operation.DISABLE):
+        run.query(
+            run.token,
+            DISABLE_AUTOMERGE_MUTATION,
+            {"pullRequestId": pull_request_id},
+        )
 
 
 def _mutate(pr: PullRequestContext, mutation: str, *, run: LiveRun) -> None:
@@ -494,15 +511,22 @@ def _mutate(pr: PullRequestContext, mutation: str, *, run: LiveRun) -> None:
             f"commit, so the merge cannot be bound to the head the commit "
             f"audit read. Refusing to act on an unaudited head."
         )
-    run.query(
-        run.token,
-        mutation,
-        {
-            "pullRequestId": pr.node_id,
-            "mergeMethod": run.config.merge_method.value,
-            "expectedHeadOid": pr.head_oid,
-        },
+    # Named from the document rather than reported as one, because the
+    # two callers differ only in that argument and a shared metric would
+    # make arming and merging indistinguishable in the log.
+    operation = (
+        Operation.MERGE if mutation is MERGE_PULL_REQUEST_MUTATION else Operation.ENABLE
     )
+    with measured(operation):
+        run.query(
+            run.token,
+            mutation,
+            {
+                "pullRequestId": pr.node_id,
+                "mergeMethod": run.config.merge_method.value,
+                "expectedHeadOid": pr.head_oid,
+            },
+        )
 
 
 def _handle_dry_run(
@@ -636,11 +660,12 @@ def _read_snapshot(context: RuntimeContext, *, run: LiveRun) -> PullRequestConte
         context.pull_request_number,
         context.event,
     )
-    return fetch_pull_request(
-        run.token,
-        PullRequestRef(owner=owner, repo=repo, number=pr_number),
-        query=run.query,
-    )
+    with measured(Operation.LOOKUP):
+        return fetch_pull_request(
+            run.token,
+            PullRequestRef(owner=owner, repo=repo, number=pr_number),
+            query=run.query,
+        )
 
 
 def _act_on_merge_state(pr: PullRequestContext, *, run: LiveRun) -> None:

@@ -80,7 +80,9 @@ action and the evolution of its supporting scripts.
   environment exists. Slipcover splits the value on commas and strips nothing,
   so each entry is checked as Slipcover will read it; an empty or
   whitespace-only entry names no directory and fails with exit status 2
-  instead of reaching Slipcover. The value itself is still forwarded verbatim.
+  instead of reaching Slipcover, as does an entry that is absolute or resolves
+  outside the repository through `..` or a symlink. The value itself is still
+  forwarded verbatim.
   This folds the separate `python-coverage-source` input proposed alongside it
   into the one input, so callers have a single source scope.
 - *2026-09-03* — The ratchet baseline cache moved from the full `actions/cache`
@@ -339,13 +341,16 @@ coverage tool from the action's coverage environment while the repository's
 `.venv` remains visible on the import path. Without an explicit boundary,
 dependencies installed in that other environment's `site-packages` directory
 can be selected for instrumentation. This can expose third-party source to
-Slipcover's pre-instrumentation and make coverage collection fail before
-pytest starts.
+Slipcover's pre-instrumentation and make coverage collection fail before pytest
+starts.
 
 The optional `python-source` action input defines the inclusion boundary for
 this case. `_resolve_python_source()` reads it and `_python_source_entries()`
 splits it on commas exactly as Slipcover will, refusing an empty or
-whitespace-only entry. The value is then passed unchanged to `_coverage_args()`,
+whitespace-only entry. `_sources_outside_repository()` then refuses any entry
+that is absolute or resolves outside the repository root through `..` or a
+symlink; it resolves each entry against the root it is given, so the escape
+rule is testable without changing directory. The value is then passed unchanged to `_coverage_args()`,
 which places one `--source` argument before `--branch`. The paths are
 repository-relative and are interpreted by Slipcover from the repository
 working directory.
@@ -353,7 +358,12 @@ working directory.
 An unset input, an empty string, or whitespace-only input produces no
 `--source` option and keeps Slipcover's automatic source discovery. A non-empty
 input containing an empty item, such as `femtologging,,generated`, is rejected
-before coverage-venv setup or the Slipcover subprocess. This distinction keeps
+before coverage-venv setup or the Slipcover subprocess, as is an entry that
+resolves outside the repository. Containing the boundary matters because
+Slipcover resolves both the configured source and each candidate filename
+before deciding whether a module is instrumentable, so a source that escaped
+the repository would make a foreign environment's dependencies eligible for
+instrumentation again. This distinction keeps
 the default backwards-compatible while allowing callers to make the coverage
 scope explicit when their environment contains foreign packages.
 

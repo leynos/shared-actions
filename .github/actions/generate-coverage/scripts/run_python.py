@@ -575,6 +575,32 @@ def _python_source_entries(raw: str) -> tuple[str, ...]:
     return entries
 
 
+def _sources_outside_repository(
+    entries: tuple[str, ...], repository_root: Path
+) -> tuple[str, ...]:
+    """Return the entries that resolve outside ``repository_root``.
+
+    Slipcover resolves both the configured source and each candidate filename
+    before deciding whether a module is instrumentable, so an absolute entry,
+    a ``..`` escape, or a symlink pointing out of the repository would make a
+    foreign environment's dependencies eligible for instrumentation again.
+    Each entry is resolved against the root rather than the working
+    directory, so the judgement does not depend on where it is asked.
+
+    Examples
+    --------
+    >>> _sources_outside_repository(("src", "../elsewhere"), Path("/repo"))
+    ('../elsewhere',)
+    """
+    root = repository_root.resolve()
+    return tuple(
+        entry
+        for entry in entries
+        if Path(entry).is_absolute()
+        or not (root / entry).resolve().is_relative_to(root)
+    )
+
+
 def _resolve_python_source(python_source: str | None) -> str:
     """Resolve the optional Python source scope from the CLI or action env.
 
@@ -586,13 +612,22 @@ def _resolve_python_source(python_source: str | None) -> str:
     Raises
     ------
     ValueError
-        When the value contains an empty entry.
+        When the value contains an empty entry, or an entry that is absolute
+        or resolves outside the repository through ``..`` or a symlink.
     """
     if python_source is None:
         python_source = os.getenv("INPUT_PYTHON_SOURCE", "")
     if not python_source.strip():
         return ""
-    _python_source_entries(python_source)
+    entries = _python_source_entries(python_source)
+    outside = _sources_outside_repository(entries, Path.cwd())
+    if outside:
+        message = (
+            f"Invalid python-source value: {python_source!r}. Source directories "
+            "must resolve inside the repository; these do not: "
+            f"{', '.join(outside)}."
+        )
+        raise ValueError(message)
     return python_source
 
 

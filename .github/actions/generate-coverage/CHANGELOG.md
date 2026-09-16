@@ -5,6 +5,13 @@
 - Add the optional `python-source` input for preserving a deliberate Slipcover
   source scope. Its comma-separated value is passed unchanged as one `--source`
   argument before `--branch`; empty values preserve default source discovery.
+- Validate a non-empty `python-source` before the coverage environment is
+  created. The scope is an inclusion boundary: it keeps dependencies installed
+  in a foreign virtual environment's `site-packages` directory out of
+  Slipcover's instrumentation. An empty entry is refused, as is an entry that
+  is absolute or resolves outside the repository through `..` or a symlink,
+  since Slipcover resolves the source and would otherwise admit those
+  dependencies again.
 - Prepend the coverage environment's scripts directory to `PATH` while running
   Python coverage, passing it as the run's explicit environment because
   `run_cmd` re-applies the process environment and would otherwise overwrite a

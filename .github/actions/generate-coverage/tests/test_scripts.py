@@ -2174,6 +2174,78 @@ def test_python_source_entries_are_what_slipcover_reads(
     assert entries == ("femtologging", " generated"), entries
 
 
+@pytest.mark.parametrize(
+    "escape", ["parent", "absolute"], ids=["parent-directory", "absolute"]
+)
+def test_resolve_python_source_rejects_paths_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    escape: str,
+) -> None:
+    """A source that escapes the repository cannot become a Slipcover boundary."""
+    project = tmp_path / "project"
+    project.mkdir()
+    foreign = tmp_path / "foreign-venv" / "site-packages"
+    foreign.mkdir(parents=True)
+    monkeypatch.chdir(project)
+    raw = "../foreign-venv/site-packages" if escape == "parent" else str(foreign)
+
+    with pytest.raises(ValueError, match="must resolve inside the repository"):
+        run_python_module._resolve_python_source(raw)
+
+
+def test_resolve_python_source_rejects_symlink_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """A repository-local symlink is judged by the directory it resolves to."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (tmp_path / "foreign-venv").mkdir()
+    (project / "linked").symlink_to(tmp_path / "foreign-venv")
+    monkeypatch.chdir(project)
+
+    with pytest.raises(ValueError, match="must resolve inside the repository"):
+        run_python_module._resolve_python_source("linked")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["femtologging", "./lading", "episodic,alembic", "src/../femtologging", "linked"],
+)
+def test_resolve_python_source_accepts_paths_inside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """Paths that stay inside, including a ``..`` or a symlink that does, pass.
+
+    The containment rule refuses a resolved location, not a spelling, so the
+    same forms that escape above are accepted when they land inside.
+    """
+    project = tmp_path / "project"
+    (project / "femtologging").mkdir(parents=True)
+    (project / "linked").symlink_to(project / "femtologging")
+    monkeypatch.chdir(project)
+
+    resolved = run_python_module._resolve_python_source(raw)
+    assert resolved == raw, resolved
+
+
+def test_the_outside_entries_are_named(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """Only the escaping entries are reported, judged against the given root."""
+    outside = run_python_module._sources_outside_repository(
+        ("femtologging", "../elsewhere", "/abs"), tmp_path
+    )
+    assert outside == ("../elsewhere", "/abs"), outside
+
+
 def test_python_source_excludes_foreign_venv_site_packages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

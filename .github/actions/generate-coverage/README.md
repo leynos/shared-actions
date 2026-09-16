@@ -618,9 +618,11 @@ deliberately part of the measured product source.
 
 Slipcover splits the value on commas and strips nothing, so each entry is
 checked exactly as Slipcover will read it. An empty or whitespace-only entry
-(for example, `femtologging,,generated`) is refused: the action reports the
-invalid input and exits before creating the coverage environment or starting
-the coverage subprocess.
+(for example, `femtologging,,generated`) is refused, and so is any entry that
+does not resolve inside the repository: an absolute path, a path that escapes
+through `..`, or a symlink pointing outside the repository. The action names
+the offending entries and exits before creating the coverage environment or
+starting the coverage subprocess.
 
 ### Parallel Python tests via pytest-xdist
 

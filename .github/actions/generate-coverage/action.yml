@@ -120,7 +120,8 @@ inputs:
   python-source:
     description: >-
       Optional comma-separated Python source scope passed unchanged to
-      Slipcover as one `--source` argument.
+      Slipcover as one `--source` argument. Empty entries are invalid, and
+      every entry must resolve inside the repository.
     required: false
     default: ""
   cache-provider:

@@ -1,0 +1,346 @@
+"""What the auto-merge run decided.
+
+The snapshot a decision is taken from and the rules that judge it. This
+module writes nothing and calls nothing: every function here is a value
+in and a value out, so a rule can be read as a rule and exercised
+without a response, a runner or a captured stream. Saying the decision
+out loud belongs to :mod:`dependabot_report`, and acting on it to
+:mod:`dependabot_automerge`.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import enum
+
+if __package__:
+    from .dependabot_commit_audit import DEPENDABOT_LOGINS, ForeignCommit
+    from .dependabot_merge_state import MergeableState, MergeStateStatus
+else:
+    from dependabot_commit_audit import (  # type: ignore[import-not-found,no-redef]
+        DEPENDABOT_LOGINS,
+        ForeignCommit,
+    )
+    from dependabot_merge_state import (  # type: ignore[import-not-found,no-redef]
+        MergeableState,
+        MergeStateStatus,
+    )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PullRequestContext:
+    """Snapshot of the pull request metadata used for gating.
+
+    Attributes
+    ----------
+    number : int
+        The pull request number.
+    owner : str
+        The repository owner (organization or user).
+    repo : str
+        The repository name.
+    author : str
+        The login of the pull request author.
+    is_draft : bool
+        Whether the pull request is a draft.
+    labels : tuple[str, ...]
+        Labels currently applied to the pull request.
+    node_id : str or None
+        The GraphQL node ID for mutations. None when created from event data.
+    head_oid : str or None
+        The head commit the audit read, named to every mutation so GitHub
+        refuses to act on a head that moved since. None when created from
+        event data, where no mutation follows.
+    auto_merge_enabled : bool
+        Whether auto-merge is already enabled on this PR.
+    merge_state_status : MergeStateStatus
+        The PR merge state status (e.g. CLEAN, UNSTABLE), or ``UNKNOWN``.
+    mergeable_state : MergeableState
+        The PR mergeable state (e.g. MERGEABLE, CONFLICTING), or ``UNKNOWN``.
+    foreign_commits : tuple[ForeignCommit, ...]
+        Commits on the branch that Dependabot did not write.
+    commits_readable : bool
+        Whether the commit list could be read. False means the check did
+        not run and eligibility rests on the author alone.
+    commit_pages_read : int
+        How many pages of the commit connection were fetched. Reported so
+        a run that read one page of a longer branch is distinguishable in
+        the log from one that read the branch.
+    commits_audited : int
+        How many commits were judged.
+    """
+
+    number: int
+    owner: str
+    repo: str
+    author: str
+    is_draft: bool
+    labels: tuple[str, ...]
+    node_id: str | None = None
+    head_oid: str | None = None
+    auto_merge_enabled: bool = False
+    merge_state_status: MergeStateStatus = MergeStateStatus.UNKNOWN
+    mergeable_state: MergeableState = MergeableState.UNKNOWN
+    foreign_commits: tuple[ForeignCommit, ...] = ()
+    commits_readable: bool = True
+    commit_pages_read: int = 0
+    commits_audited: int = 0
+
+
+class DecisionStatus(enum.StrEnum):
+    """Every value ``automerge_status`` can take.
+
+    A closed set rather than a bare `str`, because the value crosses the
+    output boundary into a caller's workflow, and is also compared
+    against in :func:`judge`: a misspelt literal there would silently
+    take the non-ready branch and propose a withdrawal. `StrEnum` keeps
+    the emitted text identical to the literals it replaces.
+
+    ``CANCELLED`` is a skip that also withdrew an auto-merge request
+    armed earlier, reported separately because the run changed the pull
+    request rather than merely declining to. ``DRY_RUN`` is what
+    :mod:`dependabot_report` says in place of ``READY`` when the run is
+    not allowed to act, so it is a reported status without ever being a
+    judged one. ``ERROR`` is emitted by :func:`output.fail`, which
+    cannot import this enum without a cycle; the member is declared here
+    so the vocabulary is complete in one place.
+    """
+
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+    READY = "ready"
+    ENABLED = "enabled"
+    MERGED = "merged"
+    DRY_RUN = "dry-run"
+    ERROR = "error"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Decision:
+    """Decision describing whether auto-merge should proceed.
+
+    Attributes
+    ----------
+    status : DecisionStatus
+        What the run decided.
+    reason : str
+        Human-readable reason for the decision, e.g. ``author-not-dependabot``.
+    """
+
+    status: DecisionStatus
+    reason: str
+
+
+class MergeMethod(enum.StrEnum):
+    """The merge methods GitHub's auto-merge mutation accepts.
+
+    The members carry GitHub's own spelling, because the value is sent
+    as the ``mergeMethod`` argument of a GraphQL enum and is not ours to
+    choose. Typing the configuration with this rather than `str` is what
+    makes an un-normalized value impossible to hold: the workflow's
+    input arrives in any case, and only :func:`_normalize_merge_method`
+    turns it into a member.
+    """
+
+    MERGE = "MERGE"
+    REBASE = "REBASE"
+    SQUASH = "SQUASH"
+
+
+class CommitAuditOutcome(enum.StrEnum):
+    """What the commit audit concluded, as one of three fixed words.
+
+    Bounded on purpose and carrying no commit identifier, so the
+    ``automerge_commit_audit`` line can be counted across repositories
+    without becoming high-cardinality.
+    """
+
+    #: Every commit was read, and every one was Dependabot's.
+    CLEAN = "clean"
+    #: At least one commit was not Dependabot's.
+    FOREIGN = "foreign"
+    #: The check did not run, so eligibility rests on the author alone.
+    UNREADABLE = "unreadable"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class AutomergeConfig:
+    """Configuration for emitting automerge decisions.
+
+    Attributes
+    ----------
+    merge_method : MergeMethod
+        The normalized merge method.
+    required_label : str or None
+        Label that must be present on the PR, or None to skip label checks.
+    dry_run : bool
+        If True, decisions are logged without calling the GitHub API.
+    """
+
+    merge_method: MergeMethod
+    required_label: str | None
+    dry_run: bool
+
+
+def armed_request_to_withdraw(pr: PullRequestContext) -> str | None:
+    """Return the node of an auto-merge request that must be withdrawn.
+
+    Three things have to hold at once, and each rules out a different
+    case: the branch must carry a commit Dependabot did not write, a
+    request must already be armed, and the pull request's node must be
+    known so a mutation can name it. A branch skipped for any other
+    reason keeps its request, since cancelling there would undo the
+    arming this workflow exists to do.
+
+    The node is returned rather than a flag so the caller has the value
+    the mutation needs, and cannot ask for it a second way.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot the decision was taken from.
+
+    Returns
+    -------
+    str or None
+        The pull request's node id, or None when nothing is to be
+        withdrawn.
+
+    Examples
+    --------
+    >>> armed_request_to_withdraw(
+    ...     PullRequestContext(
+    ...         number=1,
+    ...         owner="acme",
+    ...         repo="example",
+    ...         author="dependabot[bot]",
+    ...         is_draft=False,
+    ...         labels=(),
+    ...     )
+    ... ) is None
+    True
+    """
+    if not pr.foreign_commits:
+        return None
+    if not pr.auto_merge_enabled:
+        return None
+    return pr.node_id
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Judgement:
+    """What the rules say about one pull request, and nothing else.
+
+    A value rather than a pair of calls, because the two answers are one
+    judgement: whether to withdraw is meaningful only alongside the
+    decision that declined the branch. Holding them together keeps the
+    caller from acting on a withdrawal while reporting a decision that
+    was computed separately.
+
+    Attributes
+    ----------
+    decision : Decision
+        What the rules concluded.
+    withdraw : str or None
+        The node ID of an auto-merge request armed before the branch
+        stopped qualifying, or None when there is nothing to withdraw.
+    """
+
+    decision: Decision
+    withdraw: str | None
+
+
+def judge(pr: PullRequestContext, required_label: str | None) -> Judgement:
+    """Return the decision and any armed request that should be withdrawn.
+
+    Pure: values in, a value out. It executes nothing and says nothing,
+    so the rule can be exercised without a client or a captured stream.
+    Withdrawal is only ever proposed for a pull request the rules have
+    already declined, which is what makes it a withdrawal rather than a
+    cancellation of a merge somebody wanted.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot to judge.
+    required_label : str or None
+        The label the pull request must carry, or None to skip the check.
+
+    Returns
+    -------
+    Judgement
+        The decision, and the request to withdraw if there is one.
+    """
+    decision = evaluate(pr, required_label)
+    if decision.status is DecisionStatus.READY:
+        return Judgement(decision=decision, withdraw=None)
+    return Judgement(decision=decision, withdraw=armed_request_to_withdraw(pr))
+
+
+def evaluate(pr: PullRequestContext, required_label: str | None) -> Decision:
+    """Evaluate a PR against eligibility rules and return a Decision.
+
+    Dependabot eligibility accepts authors ``dependabot[bot]`` and
+    ``dependabot`` as defined by :data:`DEPENDABOT_LOGINS`, which includes both
+    author variants.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        Snapshot of pull request metadata used for eligibility checks.
+    required_label : str or None
+        Label that must be present on the PR, or None to skip label checks.
+
+    Returns
+    -------
+    Decision
+        Outcome indicating whether auto-merge should proceed.
+
+    Notes
+    -----
+    :data:`DEPENDABOT_LOGINS` is the canonical source of eligible Dependabot
+    author logins used by this evaluation.
+
+    """
+    if pr.author not in DEPENDABOT_LOGINS:
+        return Decision(status=DecisionStatus.SKIPPED, reason="author-not-dependabot")
+    if pr.foreign_commits:
+        # Opening the pull request is not the same as writing what is in
+        # it. Once Dependabot opens one, anything pushed to that branch
+        # would otherwise merge under this rule without review, which is
+        # how a workflow edit reached a trunk unreviewed.
+        return Decision(
+            status=DecisionStatus.SKIPPED,
+            reason=f"foreign-commit:{pr.foreign_commits[0].oid[:8]}",
+        )
+    if pr.is_draft:
+        return Decision(status=DecisionStatus.SKIPPED, reason="draft-pr")
+    if required_label and required_label not in pr.labels:
+        return Decision(
+            status=DecisionStatus.SKIPPED, reason=f"missing-label:{required_label}"
+        )
+    return Decision(status=DecisionStatus.READY, reason="eligible")
+
+
+def commit_audit_outcome(pr: PullRequestContext) -> CommitAuditOutcome:
+    """Return what the commit audit concluded about this branch.
+
+    Unreadable is tested first, because a branch whose commits could not
+    be read has no foreign commits to find and would otherwise report
+    clean, which is the one answer it must never give.
+
+    Parameters
+    ----------
+    pr : PullRequestContext
+        The snapshot the decision was taken from.
+
+    Returns
+    -------
+    CommitAuditOutcome
+        The outcome.
+    """
+    if not pr.commits_readable:
+        return CommitAuditOutcome.UNREADABLE
+    if pr.foreign_commits:
+        return CommitAuditOutcome.FOREIGN
+    return CommitAuditOutcome.CLEAN

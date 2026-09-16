@@ -22,6 +22,14 @@ Examples
 >>> strip_ansi("\x1b[31mfailed\x1b[0m")
 'failed'
 
+The compiled pattern is public too, and matches the Control Sequence
+Introducer forms this module exists to strip::
+
+    >>> bool(ANSI_ESCAPE_RE.search("\x1b[32mok\x1b[0m"))
+    True
+    >>> ANSI_ESCAPE_RE.sub("", "\x1b[1mready\x1b[0m")
+    'ready'
+
 Public API
 ----------
 strip_ansi
@@ -52,10 +60,11 @@ re.Pattern[str]
 
 Examples
 --------
->>> bool(ANSI_ESCAPE_RE.search("\x1b[32mok\x1b[0m"))
-True
->>> ANSI_ESCAPE_RE.sub("", "\x1b[1mready\x1b[0m")
-'ready'
+Shown in this module's own docstring rather than here. A string after an
+assignment is an attribute docstring: Sphinx reads it, Python does not bind
+it, and `doctest.DocTestFinder` never reaches it. Examples left here would
+have looked checked and been inert, which is the defect this repository's
+doctest gate exists to end.
 """
 
 

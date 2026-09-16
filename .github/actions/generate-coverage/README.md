@@ -153,6 +153,7 @@ Known limitations:
 | cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                     | no       |                             |
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                       | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                   | no       | `auto`                      |
+| python-coverage-source| Optional comma-separated, repository-relative Python source directories passed to Slipcover's `--source` option. Empty entries are invalid.                                                        | no       |                             |
 | cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                               | no       | `github`                    |
 <!-- markdownlint-enable MD013 -->
 
@@ -565,6 +566,34 @@ Run pytest serially (disable pytest-xdist):
     output-path: coverage.xml
     pytest-workers: ""
 ```
+
+### Restricting Python coverage to project sources
+
+Set `python-coverage-source` when the repository's Python environment contains
+dependencies outside the project source tree. The value is a comma-separated
+list of repository-relative source directories. Surrounding whitespace is
+removed from each entry, so `femtologging, generated` passes
+`--source femtologging,generated` to Slipcover.
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    python-coverage-source: femtologging
+```
+
+When the input is unset or empty, the action preserves Slipcover's historical
+unrestricted instrumentation. A non-empty value may not contain empty entries
+(for example, `femtologging,,generated`); the action reports the invalid input
+and exits before creating the coverage environment or starting the coverage
+subprocess.
+
+The source list is an inclusion boundary, not an omission filter. It keeps
+third-party packages installed in a foreign virtual environment's
+`site-packages` directory out of instrumentation, even when uv selects that
+environment while starting the coverage tool. Use project-relative paths such
+as `femtologging`; do not include `tests` unless test files are deliberately
+part of the measured product source.
 
 ### Parallel Python tests via pytest-xdist
 

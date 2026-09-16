@@ -2107,6 +2107,107 @@ def test_coverage_args_omits_workers_when_empty(
     assert "-n" not in args
 
 
+def test_coverage_args_omits_source_when_unset(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+) -> None:
+    """An empty source tuple retains Slipcover's unrestricted behaviour."""
+    args = run_python_module._coverage_args("cobertura", tmp_path / "cov.xml")
+    assert "--source" not in args
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (("femtologging",), "femtologging"),
+        (("femtologging", "generated"), "femtologging,generated"),
+    ],
+)
+def test_coverage_args_adds_one_source_pair_before_pytest(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    source: tuple[str, ...],
+    expected: str,
+) -> None:
+    """Configured sources become one Slipcover option before pytest arguments."""
+    args = run_python_module._coverage_args(
+        "cobertura", tmp_path / "cov.xml", source=source
+    )
+    source_index = args.index("--source")
+    pytest_index = args.index("pytest")
+    assert args[source_index : source_index + 2] == ["--source", expected]
+    assert args.count("--source") == 1
+    assert source_index < pytest_index
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, ()),
+        ("", ()),
+        ("   ", ()),
+        ("femtologging", ("femtologging",)),
+        (" femtologging , generated ", ("femtologging", "generated")),
+    ],
+)
+def test_parse_python_coverage_source_normalizes_optional_input(
+    run_python_module: ModuleType,
+    raw: str | None,
+    expected: tuple[str, ...],
+) -> None:
+    """Optional source input trims entries and leaves blank input unrestricted."""
+    assert run_python_module._parse_python_coverage_source(raw) == expected
+
+
+@pytest.mark.parametrize("raw", [",femtologging", "femtologging,", "one,,two"])
+def test_parse_python_coverage_source_rejects_empty_entries(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """A non-empty source input cannot contain ambiguous empty entries."""
+    with pytest.raises(ValueError, match="Empty entries are not allowed"):
+        run_python_module._parse_python_coverage_source(raw)
+
+
+def test_python_coverage_source_excludes_foreign_venv_site_packages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """Slipcover's source boundary rejects dependencies from a foreign venv."""
+    project = tmp_path / "project"
+    source_root = project / "femtologging"
+    source_root.mkdir(parents=True)
+    foreign_module = (
+        tmp_path
+        / "foreign-venv"
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "dependency"
+        / "module.py"
+    )
+    foreign_module.parent.mkdir(parents=True)
+    foreign_module.touch()
+    monkeypatch.chdir(project)
+    source = run_python_module._parse_python_coverage_source("femtologging")
+    script = (
+        "from pathlib import Path\n"
+        "from slipcover.importer import FileMatcher\n"
+        f"matcher = FileMatcher(sources={source!r})\n"
+        "assert matcher.matches(Path('femtologging/module.py'))\n"
+        f"assert not matcher.matches(Path({str(foreign_module)!r}))\n"
+    )
+
+    result = run_plumbum_command(
+        local["uv"]["run", "--with", "slipcover==1.1.0", "python", "-c", script],
+        method="run",
+    )
+
+    assert source == ("femtologging",)
+    assert result[0] == 0, result[2]
+
+
 @pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
 def test_coverage_args_appends_workers_flag(
     tmp_path: Path,
@@ -2352,6 +2453,28 @@ def test_main_translates_invalid_workers_into_typer_exit(
     assert "Invalid pytest-workers value" in capsys.readouterr().err
 
 
+def test_main_rejects_invalid_source_before_coverage_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """Malformed source input stops before Slipcover or venv setup can execute."""
+    output = tmp_path / "cov.xml"
+    github_output = tmp_path / "gh.txt"
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when source validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", "femtologging,,tests")
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(output, "python", "cobertura", github_output)
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid python-coverage-source value" in capsys.readouterr().err
+
+
 def test_tmp_coveragepy_xml_invokes_venv_python(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -2400,6 +2523,7 @@ def test_run_python_cobertura_passes_out_flag(
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTHON_COVERAGE_SOURCE", raising=False)
 
     run_python_module.main(output, "python", "cobertura", github_output, None)
 
@@ -2419,13 +2543,14 @@ def _run_main_with_workers(
     monkeypatch: pytest.MonkeyPatch,
     run_python_module: ModuleType,
     workers: str,
+    source: str = "",
 ) -> list[str]:
     """Invoke ``main`` under a fake coverage command and return the recorded argv.
 
     Sets up the Cobertura XML stub, patches ``run_cmd`` to record the invocation,
-    patches the coverage-venv Python command, and clears ``INPUT_PYTEST_WORKERS``
-    so the supplied *workers* value is the sole source of truth. Stdout capture
-    is left to the caller via ``capsys``.
+    patches the coverage-venv Python command, and supplies the requested worker
+    and source-boundary inputs. Stdout capture is left to the caller via
+    ``capsys``.
     """
     output = tmp_path / "cov.xml"
     output.write_text(
@@ -2441,6 +2566,7 @@ def _run_main_with_workers(
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
     monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", source)
 
     run_python_module.main(output, "python", "cobertura", github_output, None, workers)
 
@@ -2463,6 +2589,29 @@ def test_main_threads_pytest_workers_into_slipcover_argv(
         f"workers value must reach slipcover's pytest argv, got {parts!r}"
     )
     assert "Pytest workers: 3 (parallel via pytest-xdist)" in stdout
+
+
+def test_main_threads_source_boundary_into_slipcover_argv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """``main`` forwards the configured source boundary before pytest arguments."""
+    parts = _run_main_with_workers(
+        tmp_path,
+        monkeypatch,
+        run_python_module,
+        "",
+        "femtologging, generated",
+    )
+    source_index = parts.index("--source")
+    assert parts[source_index : source_index + 2] == [
+        "--source",
+        "femtologging,generated",
+    ]
+    assert source_index < parts.index("pytest")
+    assert "Python coverage source: femtologging, generated" in capsys.readouterr().out
 
 
 def test_main_logs_serial_run_when_workers_disabled(
@@ -2762,6 +2911,19 @@ def _python_step_env_contract() -> dict[str, str]:
     return typ.cast("dict[str, str]", env)
 
 
+def test_generate_coverage_declares_python_coverage_source_input() -> None:
+    """The action documents the optional Slipcover source-boundary input."""
+    inputs = _generate_coverage_action().get("inputs")
+    assert isinstance(inputs, dict)
+    source_input = inputs.get("python-coverage-source")
+    assert isinstance(source_input, dict)
+    assert source_input.get("required") is False
+    description = source_input.get("description")
+    assert isinstance(description, str)
+    assert "comma-separated" in description
+    assert "--source" in description
+
+
 def _write_fake_uv(
     tmp_path: Path,
     *,
@@ -2816,6 +2978,10 @@ def _python_integration_env(
     assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
     assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
     assert python_env["INPUT_PYTEST_WORKERS"] == "${{ inputs.pytest-workers }}"
+    assert (
+        python_env["INPUT_PYTHON_COVERAGE_SOURCE"]
+        == "${{ inputs.python-coverage-source }}"
+    )
     out = tmp_path / "cov.xml"
     gh = tmp_path / "gh.txt"
     out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
@@ -2829,6 +2995,7 @@ def _python_integration_env(
         # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
         # also makes the test independent of the action.yml default.
         "INPUT_PYTEST_WORKERS": "2",
+        "INPUT_PYTHON_COVERAGE_SOURCE": "",
     }
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
     return env

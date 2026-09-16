@@ -14,71 +14,81 @@ if typ.TYPE_CHECKING:
 from . import conftest
 
 
-def test_command_available_accepts_absolute_executable() -> None:
-    """Absolute executable paths are reported as available."""
-    assert conftest._command_available(sys.executable)
+class TestExecutableDetection:
+    """How the harness decides a path names a runnable command.
 
-
-def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
-    """Absolute non-executable files are not reported as available."""
-    path = tmp_path / "not-executable"
-    path.write_text("#!/bin/sh\n", encoding="utf-8")
-
-    assert not conftest._command_available(str(path))
-
-
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        pytest.param("tool.exe", True, id="pathext-suffix"),
-        pytest.param("tool.EXE", True, id="pathext-suffix-upper-case"),
-        pytest.param("tool", False, id="no-suffix"),
-        pytest.param("tool.sh", False, id="suffix-outside-pathext"),
-    ],
-)
-def test_is_executable_file_uses_pathext_on_windows(
-    tmp_path: Path,
-    name: str,
-    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
-) -> None:
-    """Windows executability follows PATHEXT, not a permission bit.
-
-    The file is given no execute permission on any platform, so a
-    permission-bit probe would reject every case. Only the suffix rule
-    accepts the two PATHEXT names, which is what Windows itself does.
+    Grouped because they answer one question between them, and
+    because the POSIX and Windows rules are different answers to it:
+    a permission bit on one, a PATHEXT suffix on the other.
     """
-    path = tmp_path / name
-    path.write_text("#!/bin/sh\n", encoding="utf-8")
-    path.chmod(0o600)
 
-    assert conftest._is_executable_file(path, on_windows=True) is expected
+    def test_command_available_accepts_absolute_executable(self) -> None:
+        """Absolute executable paths are reported as available."""
+        assert conftest._command_available(sys.executable)
 
+    def test_command_available_rejects_non_executable_file(
+        self, tmp_path: Path
+    ) -> None:
+        """Absolute non-executable files are not reported as available."""
+        path = tmp_path / "not-executable"
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
 
-def test_is_executable_file_rejects_a_directory_on_windows(tmp_path: Path) -> None:
-    """A directory whose name carries a PATHEXT suffix is not a command."""
-    directory = tmp_path / "tool.exe"
-    directory.mkdir()
+        assert not conftest._command_available(str(path))
 
-    assert not conftest._is_executable_file(directory, on_windows=True)
-
-
-def test_windows_executable_suffixes_reads_the_environment() -> None:
-    """PATHEXT is split on the path separator and lower-cased."""
-    suffixes = conftest._windows_executable_suffixes(
-        {"PATHEXT": ".EXE;.Cmd;; "},
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param("tool.exe", True, id="pathext-suffix"),
+            pytest.param("tool.EXE", True, id="pathext-suffix-upper-case"),
+            pytest.param("tool", False, id="no-suffix"),
+            pytest.param("tool.sh", False, id="suffix-outside-pathext"),
+        ],
     )
+    def test_is_executable_file_uses_pathext_on_windows(
+        self,
+        tmp_path: Path,
+        name: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """Windows executability follows PATHEXT, not a permission bit.
 
-    assert suffixes == frozenset({".exe", ".cmd"})
+        The file is given no execute permission on any platform, so a
+        permission-bit probe would reject every case. Only the suffix rule
+        accepts the two PATHEXT names, which is what Windows itself does.
+        """
+        path = tmp_path / name
+        path.write_text("#!/bin/sh\n", encoding="utf-8")
+        path.chmod(0o600)
 
+        assert conftest._is_executable_file(path, on_windows=True) is expected
 
-def test_windows_executable_suffixes_falls_back_when_pathext_is_empty() -> None:
-    """An absent or empty PATHEXT falls back to the documented defaults."""
-    assert conftest._windows_executable_suffixes(
-        {}
-    ) == conftest._windows_executable_suffixes(
-        {"PATHEXT": ""},
-    )
-    assert ".exe" in conftest._windows_executable_suffixes({})
+    def test_is_executable_file_rejects_a_directory_on_windows(
+        self, tmp_path: Path
+    ) -> None:
+        """A directory whose name carries a PATHEXT suffix is not a command."""
+        directory = tmp_path / "tool.exe"
+        directory.mkdir()
+
+        assert not conftest._is_executable_file(directory, on_windows=True)
+
+    def test_windows_executable_suffixes_reads_the_environment(self) -> None:
+        """PATHEXT is split on the path separator and lower-cased."""
+        suffixes = conftest._windows_executable_suffixes(
+            {"PATHEXT": ".EXE;.Cmd;; "},
+        )
+
+        assert suffixes == frozenset({".exe", ".cmd"})
+
+    def test_windows_executable_suffixes_falls_back_when_pathext_is_empty(
+        self,
+    ) -> None:
+        """An absent or empty PATHEXT falls back to the documented defaults."""
+        assert conftest._windows_executable_suffixes(
+            {}
+        ) == conftest._windows_executable_suffixes(
+            {"PATHEXT": ""},
+        )
+        assert ".exe" in conftest._windows_executable_suffixes({})
 
 
 @pytest.mark.parametrize(

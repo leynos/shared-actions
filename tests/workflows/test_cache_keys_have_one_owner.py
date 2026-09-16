@@ -95,12 +95,59 @@ def ci_document() -> Workflow:
     return _as_workflow(yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8")))
 
 
+#: The only two values `setup-rust` accepts for the input. Its own
+#: "Validate cache ownership" step refuses anything else and fails the
+#: job, rather than reading a typo as "not false" and quietly making a
+#: second writer, so this contract must read the input as strictly as
+#: the action does.
+ACCEPTED_SAVE_VALUES: typ.Final[frozenset[str]] = frozenset({"true", "false"})
+
+
+def _input_value(given: object) -> str:
+    """Return the string an action input carries for a parsed YAML scalar.
+
+    A YAML boolean reaches an action as "true" or "false", so `false`
+    and `'false'` are the same input. Every other spelling reaches the
+    action unchanged, which is why nothing here strips or lowercases.
+    """
+    if isinstance(given, bool):
+        return "true" if given else "false"
+    return str(given)
+
+
 def _saves_cache(step: WorkflowStep) -> bool:
-    """Return True when a `setup-rust` step writes the cargo archive key."""
+    """Return True when a `setup-rust` step writes the cargo archive key.
+
+    Raises
+    ------
+    ValueError
+        If the step declares a value `setup-rust` would refuse. Reading
+        it as a writer or as a reader would both be guesses about a
+        workflow that cannot run.
+    """
     given = step.get("with", {}).get(SAVE_INPUT)
     if given is None:
         return SAVES_BY_DEFAULT
-    return str(given).strip().lower() == "true"
+    value = _input_value(given)
+    if value not in ACCEPTED_SAVE_VALUES:
+        msg = (
+            f"{SAVE_INPUT}: {given!r} is not a value setup-rust accepts; "
+            f"it takes {sorted(ACCEPTED_SAVE_VALUES)} exactly"
+        )
+        raise ValueError(msg)
+    return value == "true"
+
+
+def _rejected_save_values(document: Workflow) -> dict[str, object]:
+    """Return the jobs declaring a `save-cache` value the action refuses."""
+    return {
+        name: step["with"][SAVE_INPUT]
+        for name, job in document.get("jobs", {}).items()
+        for step in job.get("steps", [])
+        if step.get("uses") == SETUP_RUST
+        and (given := step.get("with", {}).get(SAVE_INPUT)) is not None
+        and _input_value(given) not in ACCEPTED_SAVE_VALUES
+    }
 
 
 def _cargo_archive_writers(document: Workflow) -> list[str]:
@@ -174,9 +221,12 @@ class TestCacheKeyOwnership:
                 {"uses": SETUP_RUST, "with": {SAVE_INPUT: "false"}}, False, id="false"
             ),
             pytest.param(
-                {"uses": SETUP_RUST, "with": {SAVE_INPUT: " TRUE "}},
-                True,
-                id="padded-and-capitalised",
+                {"uses": SETUP_RUST, "with": {SAVE_INPUT: True}}, True, id="yaml-true"
+            ),
+            pytest.param(
+                {"uses": SETUP_RUST, "with": {SAVE_INPUT: False}},
+                False,
+                id="yaml-false",
             ),
         ],
     )
@@ -193,6 +243,45 @@ class TestCacheKeyOwnership:
         exists for.
         """
         assert _saves_cache(step) is expected
+
+    @pytest.mark.parametrize(
+        "given",
+        [
+            pytest.param("TRUE", id="capitalised"),
+            pytest.param(" true ", id="padded"),
+            pytest.param("yes", id="a-different-word-for-true"),
+            pytest.param("", id="empty"),
+        ],
+    )
+    def test_a_value_the_action_refuses_is_not_read_as_either(self, given: str) -> None:
+        """A value setup-rust rejects is not silently read as true or false.
+
+        The action's own validation takes `true` and `false` exactly and
+        fails the job otherwise, so a capitalised or padded spelling is
+        not a writer and not a reader: it is a workflow that cannot run.
+        Reading it as a writer would report an owner that never saves,
+        leaving the key cold, and reading it as a reader would report no
+        owner at all.
+        """
+        with pytest.raises(ValueError, match=SAVE_INPUT):
+            _saves_cache({"uses": SETUP_RUST, "with": {SAVE_INPUT: given}})
+
+    def test_every_declared_value_is_one_the_action_accepts(
+        self, ci_document: Workflow
+    ) -> None:
+        """Every `save-cache` in `ci.yml` is a value the action will take.
+
+        The action validates its own input, but only once the job is
+        running. A wrong spelling here would red the lane at the first
+        step of a job that had already claimed a runner, and the
+        ownership rules above would have judged a workflow that cannot
+        run, so it is worth catching in the workflow text.
+        """
+        rejected = _rejected_save_values(ci_document)
+        assert not rejected, (
+            f"these jobs declare a {SAVE_INPUT} value setup-rust refuses: "
+            f"{rejected}; it takes {sorted(ACCEPTED_SAVE_VALUES)} exactly"
+        )
 
     def test_two_jobs_writing_different_keys_are_not_contended(self) -> None:
         """The rule is about one key with two owners, not about two keys.

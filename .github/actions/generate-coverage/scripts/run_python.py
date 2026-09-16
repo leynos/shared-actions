@@ -547,16 +547,53 @@ def _resolve_pytest_workers(pytest_workers: str | None) -> str:
     return _parse_pytest_workers(raw)
 
 
+def _python_source_entries(raw: str) -> tuple[str, ...]:
+    """Return the entries Slipcover will read from a ``--source`` value.
+
+    Slipcover splits the value on commas and strips nothing, so the entries
+    are returned exactly as it will see them. An empty or whitespace-only
+    entry names no source directory and is refused rather than passed on.
+
+    Raises
+    ------
+    ValueError
+        When any entry is empty or whitespace-only.
+
+    Examples
+    --------
+    >>> _python_source_entries("episodic,alembic")
+    ('episodic', 'alembic')
+    """
+    entries = tuple(raw.split(","))
+    if any(not entry.strip() for entry in entries):
+        message = (
+            f"Invalid python-source value: {raw!r}. Empty entries are not "
+            "allowed; provide comma-separated repository-relative source "
+            "directories."
+        )
+        raise ValueError(message)
+    return entries
+
+
 def _resolve_python_source(python_source: str | None) -> str:
     """Resolve the optional Python source scope from the CLI or action env.
 
     The raw non-empty value is preserved so a comma-separated Slipcover source
     list reaches the subprocess as one argument. Empty and whitespace-only
-    values disable source scoping.
+    values disable source scoping. A non-empty value is validated before any
+    coverage environment or subprocess exists.
+
+    Raises
+    ------
+    ValueError
+        When the value contains an empty entry.
     """
     if python_source is None:
         python_source = os.getenv("INPUT_PYTHON_SOURCE", "")
-    return python_source if python_source.strip() else ""
+    if not python_source.strip():
+        return ""
+    _python_source_entries(python_source)
+    return python_source
 
 
 def _resolve_inputs(
@@ -643,10 +680,10 @@ def main(
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     try:
         workers = _resolve_pytest_workers(pytest_workers)
+        source = _resolve_python_source(python_source)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
-    source = _resolve_python_source(python_source)
     if workers:
         typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
     else:

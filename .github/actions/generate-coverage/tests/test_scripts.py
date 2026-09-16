@@ -2156,6 +2156,63 @@ def test_coverage_args_preserves_python_source_before_branch(
     assert args[2:5] == ["--source", python_source, "--branch"]
 
 
+@pytest.mark.parametrize("raw", [",femtologging", "femtologging,", "one,,two", "a, ,b"])
+def test_resolve_python_source_rejects_empty_entries(
+    run_python_module: ModuleType,
+    raw: str,
+) -> None:
+    """A non-empty source scope cannot contain an entry naming no directory."""
+    with pytest.raises(ValueError, match="Empty entries are not allowed"):
+        run_python_module._resolve_python_source(raw)
+
+
+def test_python_source_entries_are_what_slipcover_reads(
+    run_python_module: ModuleType,
+) -> None:
+    """Entries are split on commas and not stripped, as Slipcover splits them."""
+    entries = run_python_module._python_source_entries("femtologging, generated")
+    assert entries == ("femtologging", " generated"), entries
+
+
+def test_python_source_excludes_foreign_venv_site_packages(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """Slipcover's source boundary rejects dependencies from a foreign venv."""
+    project = tmp_path / "project"
+    source_root = project / "femtologging"
+    source_root.mkdir(parents=True)
+    foreign_module = (
+        tmp_path
+        / "foreign-venv"
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "dependency"
+        / "module.py"
+    )
+    foreign_module.parent.mkdir(parents=True)
+    foreign_module.touch()
+    monkeypatch.chdir(project)
+    source = run_python_module._python_source_entries("femtologging")
+    script = (
+        "from pathlib import Path\n"
+        "from slipcover.importer import FileMatcher\n"
+        f"matcher = FileMatcher(sources={list(source)!r})\n"
+        "assert matcher.matches(Path('femtologging/module.py'))\n"
+        f"assert not matcher.matches(Path({str(foreign_module)!r}))\n"
+    )
+
+    result = run_plumbum_command(
+        local["uv"]["run", "--with", "slipcover==1.1.0", "python", "-c", script],
+        method="run",
+    )
+
+    assert source == ("femtologging",), source
+    assert result[0] == 0, result[2]
+
+
 @pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
 def test_coverage_args_appends_workers_flag(
     tmp_path: Path,
@@ -2421,6 +2478,28 @@ def test_main_translates_invalid_workers_into_typer_exit(
     assert "Invalid pytest-workers value" in capsys.readouterr().err
 
 
+def test_main_rejects_invalid_source_before_coverage_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    run_python_module: ModuleType,
+) -> None:
+    """Malformed source input stops before Slipcover or venv setup can execute."""
+    output = tmp_path / "cov.xml"
+    github_output = tmp_path / "gh.txt"
+
+    def fake_run_cmd(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("run_cmd must not be invoked when source validation fails")
+
+    monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
+    monkeypatch.setenv("INPUT_PYTHON_SOURCE", "femtologging,,tests")
+
+    with pytest.raises(run_python_module.typer.Exit) as excinfo:
+        run_python_module.main(output, "python", "cobertura", github_output)
+    assert _exit_code(excinfo.value) == 2
+    assert "Invalid python-source value" in capsys.readouterr().err
+
+
 def test_tmp_coveragepy_xml_invokes_venv_python(
     tmp_path: Path,
     run_python_module: ModuleType,
@@ -2469,6 +2548,7 @@ def test_run_python_cobertura_passes_out_flag(
 
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
+    monkeypatch.delenv("INPUT_PYTHON_SOURCE", raising=False)
 
     run_python_module.main(output, "python", "cobertura", github_output, None)
 

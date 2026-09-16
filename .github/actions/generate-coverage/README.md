@@ -609,6 +609,19 @@ For a repository whose Python package is rooted at `lading`, use:
     python-source: ./lading
 ```
 
+The scope is an inclusion boundary, not an omission filter. It keeps
+third-party packages installed in a foreign virtual environment's
+`site-packages` directory out of instrumentation, even when uv selects that
+environment while starting the coverage tool. Name project source directories
+such as `femtologging`; do not include `tests` unless test files are
+deliberately part of the measured product source.
+
+Slipcover splits the value on commas and strips nothing, so each entry is
+checked exactly as Slipcover will read it. An empty or whitespace-only entry
+(for example, `femtologging,,generated`) is refused: the action reports the
+invalid input and exits before creating the coverage environment or starting
+the coverage subprocess.
+
 ### Parallel Python tests via pytest-xdist
 
 Python coverage runs through `pytest-xdist` by default

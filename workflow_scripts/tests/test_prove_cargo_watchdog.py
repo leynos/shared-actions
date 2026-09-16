@@ -9,6 +9,7 @@ and one that fails on a healthy run stops the repository.
 from __future__ import annotations
 
 import shutil
+import sys
 import typing as typ
 from pathlib import Path
 
@@ -173,6 +174,10 @@ def test_each_way_a_refusal_can_be_wrong_is_named(
     assert any(expected in failure for failure in failures), failures
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="the fake cargo is a POSIX shell script, and the lane is Linux",
+)
 def test_the_proof_passes_against_the_real_runner() -> None:
     """The lane's own command succeeds against the action as it stands.
 
@@ -180,6 +185,12 @@ def test_the_proof_passes_against_the_real_runner() -> None:
     runner's manifest gate, that the fake cargo is the one it finds, and
     that the watchdog really terminates the run. Its sleep is shortened
     so the test costs seconds; the lane uses the full one.
+
+    Skipped on Windows. The fake cargo carries a shebang and an
+    executable bit, neither of which Windows honours, so the runner
+    would find the real cargo or none at all and the proof would fail
+    for a reason that says nothing about the watchdog. The lane itself
+    is Linux, so nothing goes unproved.
     """
     if shutil.which("uv") is None:
         pytest.skip("uv is not on PATH")

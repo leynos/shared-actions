@@ -28,11 +28,14 @@ inputs:
   save-cache:
     description: >
       Whether this job writes the cargo archive cache, as opposed to only
-      reading it. A cache key must have exactly one owner: when two jobs in
-      a workflow write the same key, one reserves it and the other is
-      refused, and the entry can end up written but not readable. Set this
-      to "false" in every job but the owner. Reading is unaffected either
-      way, so a reader still gets a warm registry.
+      reading it. Each resolved cache key must have exactly one owner:
+      when two jobs write the same key, one reserves it and the other is
+      refused, and the entry can end up written but not readable. The key
+      is "<runner os>-cargo-<hash of rust-toolchain.toml and Cargo.lock>",
+      so jobs on different runner operating systems resolve different keys
+      and each of those keys needs its own owner. Set this to "false" in
+      every job but the one owning the key that job resolves. Reading is
+      unaffected either way, so a reader still gets a warm registry.
     required: false
     default: "true"
   install-binstall:

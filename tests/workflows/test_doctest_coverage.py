@@ -20,6 +20,7 @@ list is non-empty too, since a target that collects nothing passes.
 
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import typing as typ
@@ -94,6 +95,37 @@ def _files_with_examples(candidates: cabc.Iterable[Path]) -> list[Path]:
 def _python_files_with_examples() -> list[Path]:
     """Return every tracked Python file of this repository holding an example."""
     return _files_with_examples(_tracked_python_files())
+
+
+def _docstrings(tree: ast.Module) -> list[str]:
+    """Return every docstring `doctest.DocTestFinder` can reach in *tree*.
+
+    Module, class and function docstrings, which is exactly the set the
+    finder walks. A string literal sitting after an assignment is an
+    attribute docstring: Sphinx renders it, Python does not bind it, and
+    the finder never sees it.
+    """
+    carriers = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    return [
+        text
+        for node in ast.walk(tree)
+        if isinstance(node, carriers) and (text := ast.get_docstring(node, clean=False))
+    ]
+
+
+def _prompt_counts(path: Path) -> tuple[int, int]:
+    """Return how many prompts *path* holds, and how many are reachable.
+
+    The first number counts every prompt in the file. The second counts
+    only those inside a docstring the finder walks. They differ exactly
+    when an example is written somewhere nothing will run it.
+    """
+    text = (REPOSITORY_ROOT / path).read_text(encoding="utf-8", errors="ignore")
+    total = len(_PROMPT.findall(text))
+    reachable = sum(
+        len(_PROMPT.findall(docstring)) for docstring in _docstrings(ast.parse(text))
+    )
+    return total, reachable
 
 
 def _is_covered(candidate: Path, collected: list[str]) -> bool:
@@ -196,6 +228,29 @@ class TestDoctestCoverage:
         assert not uncovered, (
             f"these files carry docstring examples that nothing executes: "
             f"{uncovered}; add each to {DOCTEST_PATHS_VARIABLE} in {MAKEFILE}"
+        )
+
+    def test_every_prompt_sits_where_doctest_can_reach_it(self) -> None:
+        """An example outside a docstring is not collected, only listed.
+
+        Naming a file proves the file has a prompt; it does not prove
+        pytest will run it. `test_support/ansi.py` carried two examples
+        in an attribute docstring, a string after an assignment, which
+        Sphinx renders and `DocTestFinder` never walks. The path rule
+        called that file covered and both examples were inert, which is
+        the very defect this whole change exists to end, hiding inside
+        the change meant to end it.
+        """
+        unreachable = {
+            str(path): (total, reachable)
+            for path in _python_files_with_examples()
+            if (counts := _prompt_counts(path))[0] != counts[1]
+            for total, reachable in (counts,)
+        }
+        assert not unreachable, (
+            "these files hold prompts that doctest cannot reach, shown as "
+            f"(prompts, reachable): {unreachable}; move each example into a "
+            "module, class or function docstring"
         )
 
     def test_every_collected_path_exists(self, collected_paths: list[str]) -> None:

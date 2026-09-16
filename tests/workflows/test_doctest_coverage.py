@@ -27,15 +27,31 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+import yaml
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 MAKEFILE: typ.Final[Path] = REPOSITORY_ROOT / "Makefile"
+CI_WORKFLOW: typ.Final[Path] = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 
 #: The Makefile variable naming what the `doctest` target collects.
 DOCTEST_PATHS_VARIABLE: typ.Final[str] = "DOCTEST_PATHS"
+
+#: The target that runs the examples. Asserted as a command rather than as
+#: a step name, because a step named "Run docstring examples" that runs
+#: something else is not this rule, and a differently named one that runs
+#: this target is.
+DOCTEST_TARGET: typ.Final[str] = "doctest"
+
+#: A `make` invocation naming a target, anchored so that the word inside a
+#: longer one is not matched.
+_MAKE_TARGET: typ.Final[re.Pattern[str]] = re.compile(
+    r"(?:^[ \t]*|[;&|]\s*)make\b(?P<arguments>[^\n;&|]*)",
+    re.MULTILINE,
+)
+
 
 #: A prompt at the start of a line, which is what makes a docstring example
 #: an example. Matched with leading whitespace consumed, because an example
@@ -228,6 +244,34 @@ class TestDoctestCoverage:
         assert not uncovered, (
             f"these files carry docstring examples that nothing executes: "
             f"{uncovered}; add each to {DOCTEST_PATHS_VARIABLE} in {MAKEFILE}"
+        )
+
+    def test_the_pull_request_lane_runs_the_examples(self) -> None:
+        """A pull request runs them, not only a developer's machine.
+
+        `make test` depends on the doctest target, and no job here runs
+        `make test`: the macOS and Windows legs run `uv run pytest`, and
+        the Linux suite runs under the coverage action, which builds its
+        own invocation. Wiring the target to `test` alone would leave a
+        wrong example passing every job on a pull request while failing
+        locally, which is the wrong way round and is what review found.
+        """
+        document = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+        runners = [
+            step.get("name", "<unnamed>")
+            for job in (document.get("jobs") or {}).values()
+            for step in (job.get("steps") or [])
+            for match in _MAKE_TARGET.finditer(str(step.get("run", "")))
+            if DOCTEST_TARGET
+            in [
+                token
+                for token in match.group("arguments").split()
+                if not token.startswith("-") and "=" not in token
+            ]
+        ]
+        assert runners, (
+            f"no step in ci.yml runs `make {DOCTEST_TARGET}`, so a wrong "
+            "docstring example would pass every job on a pull request"
         )
 
     def test_every_prompt_sits_where_doctest_can_reach_it(self) -> None:

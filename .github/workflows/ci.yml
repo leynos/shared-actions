@@ -54,7 +54,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-mdtablefix
         with:
           version: "0.6.0"

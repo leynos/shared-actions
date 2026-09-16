@@ -636,6 +636,41 @@ the archive or the extracted executable -- is a hard failure: the installer
 exits non-zero and the action stops. There is no fallback to
 `cargo install cargo-nextest` in any of these cases.
 
+### Restricting Python coverage to project sources
+
+Set `python-coverage-source` when the Python environment a job measures
+contains code the project does not own -- typically dependencies installed in a
+virtual environment that lives beside the repository. Slipcover instruments
+everything it can import by default, so those dependencies land in the report
+and move the coverage percentage for reasons unrelated to the project. The
+input is an inclusion boundary: only the directories it names are instrumented,
+so a foreign `site-packages` stops contributing to the number.
+
+The value is a comma-separated list of repository-relative source directories.
+
+```yaml
+- uses: leynos/shared-actions/.github/actions/generate-coverage@v1
+  with:
+    output-path: coverage.xml
+    python-coverage-source: femtologging,generated
+```
+
+White space around each entry is removed, so `femtologging, generated` is the
+same as `femtologging,generated`. The input is optional and additive within
+`v1`: leave it unset or empty and instrumentation stays unrestricted exactly as
+before, so a workflow already pinned to `v1` needs no edit to keep its current
+behaviour.
+
+A non-empty value is validated before any coverage work begins, and the action
+fails rather than measuring something other than what was asked for. An empty
+entry such as `femtologging,,generated` is refused, and every entry must
+resolve inside the repository. An absolute path, a path that escapes through
+`..`, and a symbolic link that resolves outside the repository are each
+rejected, and the error names the offending entries. The coverage log then
+reports the boundary it applied -- `Python coverage source: femtologging` -- or
+`Python coverage source: unrestricted` when the input is empty, before the
+coverage run starts.
+
 ## Test timeouts: four tiers, outermost last
 
 Four independent timers can end a coverage run, and a caller sets them in four

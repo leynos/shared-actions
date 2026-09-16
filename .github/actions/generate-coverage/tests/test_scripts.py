@@ -13,6 +13,7 @@ import dataclasses
 import io
 import itertools
 import os
+import shutil
 import sys
 import typing as typ
 from pathlib import Path
@@ -22,6 +23,7 @@ import yaml
 from _coverage_test_support import _exit_code, _load_module
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from lxml import etree
 from plumbum import local
 
 from cmd_utils_importer import import_cmd_utils
@@ -2351,6 +2353,52 @@ _PYTEST_PARSER_SETTINGS = settings(
 
 _WHITESPACE_ST = st.text(alphabet=" \t", max_size=4)
 
+_SOURCE_NAME_ST = st.text(
+    alphabet=st.characters(
+        blacklist_characters=",",
+        blacklist_categories=("Cs", "Cc"),
+    ),
+    min_size=1,
+    max_size=12,
+).filter(lambda name: name.strip())
+
+
+_PADDED_SOURCE_ST = st.tuples(_SOURCE_NAME_ST, _WHITESPACE_ST, _WHITESPACE_ST)
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(entries=st.lists(_PADDED_SOURCE_ST, min_size=1, max_size=6))
+def test_parse_python_coverage_source_preserves_trimmed_entries(
+    run_python_module: ModuleType,
+    entries: list[tuple[str, str, str]],
+) -> None:
+    """Every non-empty entry survives parsing trimmed and in order."""
+    padded = [f"{leading}{name}{trailing}" for name, leading, trailing in entries]
+
+    parsed = run_python_module._parse_python_coverage_source(",".join(padded))
+
+    assert parsed == tuple(name.strip() for name, _, _ in entries)
+
+
+@_PYTEST_PARSER_SETTINGS
+@given(
+    entries=st.lists(_PADDED_SOURCE_ST, min_size=1, max_size=5),
+    blank=_WHITESPACE_ST,
+    position=st.integers(min_value=0, max_value=5),
+)
+def test_parse_python_coverage_source_rejects_generated_empty_entries(
+    run_python_module: ModuleType,
+    entries: list[tuple[str, str, str]],
+    blank: str,
+    position: int,
+) -> None:
+    """An empty or whitespace-only entry is refused wherever it appears."""
+    padded = [f"{leading}{name}{trailing}" for name, leading, trailing in entries]
+    padded.insert(min(position, len(padded)), blank)
+
+    with pytest.raises(ValueError, match="Empty entries are not allowed"):
+        run_python_module._parse_python_coverage_source(",".join(padded))
+
 
 @_PYTEST_PARSER_SETTINGS
 @given(
@@ -2986,12 +3034,25 @@ def _write_fake_uv(
     *,
     venv_exit: int = 0,
     sync_exit: int = 0,
+    venv_python: Path | None = None,
 ) -> tuple[Path, Path]:
-    """Write a fake uv executable and return its bin directory and log path."""
+    """Write a fake uv executable and return its bin directory and log path.
+
+    ``venv_python`` lets ``uv venv`` symlink a prepared coverage interpreter
+    into the throwaway venv instead of installing an inert stub, so a test can
+    observe the argv that ``run_python.py`` hands to the coverage tool.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "uv-calls.log"
     uv = bin_dir / "uv"
+    if venv_python is None:
+        install_python = """cat > "$2/bin/python" <<'PY'
+#!/usr/bin/env sh
+exit 0
+PY"""
+    else:
+        install_python = f"""ln -s '{venv_python}' "$2/bin/python\""""
     uv.write_text(
         f"""#!/usr/bin/env sh
 printf '%s\\n' "$*" >> '{log}'
@@ -3001,10 +3062,7 @@ if [ "$1" = "venv" ]; then
         exit {venv_exit}
     fi
     mkdir -p "$2/bin"
-    cat > "$2/bin/python" <<'PY'
-#!/usr/bin/env sh
-exit 0
-PY
+    {install_python}
     chmod +x "$2/bin/python"
     exit 0
 fi
@@ -3069,6 +3127,126 @@ def _run_integration_script(
     monkeypatch.chdir(tmp_path)
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
     return run_script(script, env)
+
+
+def _write_boundary_project(tmp_path: Path) -> Path:
+    """Write a project whose test imports both local and foreign modules.
+
+    ``femtologging`` stands in for project source and ``dependency`` for a
+    third-party module reached through a sibling virtual environment, which is
+    the shape ``python-coverage-source`` exists to keep out of the report.
+    """
+    project = tmp_path / "project"
+    (project / "femtologging").mkdir(parents=True)
+    (project / "femtologging" / "__init__.py").write_text(
+        "def double(value: int) -> int:\n    return value * 2\n", encoding="utf-8"
+    )
+    foreign = (
+        project / "foreign-venv" / "lib" / "python3.14" / "site-packages" / "dependency"
+    )
+    foreign.mkdir(parents=True)
+    (foreign / "__init__.py").write_text('PACKAGE = "dependency"\n', encoding="utf-8")
+    (foreign / "module.py").write_text('VALUE = "foreign"\n', encoding="utf-8")
+    tests = project / "tests"
+    tests.mkdir()
+    (tests / "test_double.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "SITE_PACKAGES = (\n"
+        "    Path(__file__).resolve().parents[1]\n"
+        '    / "foreign-venv" / "lib" / "python3.14" / "site-packages"\n'
+        ")\n"
+        "sys.path.insert(0, str(SITE_PACKAGES))\n"
+        "\n"
+        "import dependency.module as foreign\n"
+        "import femtologging\n"
+        "\n"
+        "\n"
+        "def test_double() -> None:\n"
+        "    assert femtologging.double(2) == 4\n"
+        '    assert foreign.VALUE == "foreign"\n',
+        encoding="utf-8",
+    )
+    return project
+
+
+def _write_coverage_python(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a venv Python that records its argv and runs real slipcover.
+
+    ``run_python.py`` invokes the coverage venv's Python, so a script here is
+    the process boundary that observes the coverage argv while still executing
+    a genuine Slipcover run. The interpreter is supplied by ``uv`` with the
+    same pinned Slipcover the action installs. Returns the script and the argv
+    log it appends to.
+
+    The delegated ``uv run`` scrubs the variables this test harness leaks from
+    its enclosing session before delegating. A test session started through
+    ``uv run --with`` exports its overlay as ``VIRTUAL_ENV`` and exports its
+    site-packages through ``PYTHONPATH``; an inherited ``PYTHONPATH`` would
+    otherwise resolve pytest from the enclosing environment while Slipcover
+    came from this one, mixing two site-packages in a single process. An
+    inherited ``PYTEST_XDIST_WORKER`` is worse: Slipcover's pytest plugin
+    treats the variable's mere presence as "this process is an xdist worker",
+    so the fresh inner pytest would double-activate and abort. The real action
+    runs the coverage venv's interpreter from a plain shell, so scrubbing these
+    restores that isolation.
+    """
+    real_uv = shutil.which("uv")
+    assert real_uv is not None, "the test suite requires uv on PATH"
+    argv_log = tmp_path / "coverage-argv.log"
+    python = tmp_path / "fake-coverage-python"
+    python.write_text(
+        f"""#!/usr/bin/env sh
+printf '%s\\n' "$@" >> '{argv_log}'
+exec env -u PYTHONPATH -u VIRTUAL_ENV \\
+    -u PYTEST_XDIST_WORKER -u PYTEST_XDIST_WORKER_COUNT \\
+    -u PYTEST_XDIST_TESTRUNUID \\
+    '{real_uv}' run --no-project --quiet \\
+    --with 'slipcover==1.1.0' --with pytest --with pytest-xdist \\
+    python "$@"
+""",
+        encoding="utf-8",
+    )
+    python.chmod(0o755)
+    return python, argv_log
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_threads_source_boundary_to_slipcover(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_python.py bounds the coverage report through the action's env path.
+
+    Exercises the real Slipcover process boundary: the source input selected by
+    ``INPUT_PYTHON_COVERAGE_SOURCE`` must reach the coverage argv, and the
+    report must cover project files while the foreign virtual-environment
+    module stays out of it.
+    """
+    project = _write_boundary_project(tmp_path)
+    coverage_python, argv_log = _write_coverage_python(project)
+    bin_dir, _log = _write_fake_uv(project, venv_python=coverage_python)
+    env = _python_integration_env(project, shell_stubs, bin_dir)
+    env["INPUT_PYTHON_COVERAGE_SOURCE"] = "femtologging"
+    out = Path(env["INPUT_OUTPUT_PATH"])
+    monkeypatch.chdir(project)
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
+
+    returncode, stdout, stderr = run_script(script, env)
+
+    assert returncode == 0, stderr
+    argv = argv_log.read_text(encoding="utf-8").splitlines()
+    assert "--source" in argv, f"slipcover argv lacks --source: {argv!r}"
+    source_index = argv.index("--source")
+    assert argv[source_index + 1] == "femtologging"
+    filenames = [str(name) for name in etree.parse(str(out)).xpath("//class/@filename")]
+    assert "femtologging/__init__.py" in filenames
+    assert not [name for name in filenames if "foreign-venv" in name], (
+        f"foreign site-packages leaked into the report: {filenames!r}"
+    )
+    assert "Python coverage source: femtologging" in stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")

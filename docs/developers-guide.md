@@ -1248,11 +1248,78 @@ Internals for maintainers:
 ## Running the Test Suite
 
 ```bash
-make test          # full suite
+make test          # docstring examples, then the full suite
+make doctest       # docstring examples alone
 make check-fmt     # Ruff formatting check
 make typecheck     # Ty, resolving imports through .venv
 make lint          # Ruff lint + action-validator + markdownlint
 ```
+
+## Docstring examples are executed
+
+Every `>>>` in this repository is run, and a wrong one stops the gate.
+
+Before this, nothing collected them. `pytest.ini` names its testpaths
+explicitly and the `test` target passed no doctest flag, so 63 example
+lines across nine files were inert. Nine had never been true: two
+referenced names the example never imported, two depended on a
+`Cargo.toml` beside the working directory, and one carried a
+continuation marker left inside its expected output by a formatter that
+reflowed a docstring nobody was checking.
+
+### What runs, and why it is a list
+
+`make doctest` runs `pytest --doctest-modules` over `DOCTEST_PATHS` in
+the Makefile. `make test` depends on it, so the examples run first and a
+broken one stops the gate before the suite.
+
+The variable names modules rather than the whole tree, which looks like
+the beginning of a maintenance problem and is a deliberate trade. Running
+`--doctest-modules` across the repository fails at import in twenty-one
+places, because many action scripts are importable only with the
+`sys.path` their own action sets up. Collecting them all is not
+available.
+
+A list is itself a trap, and this repository has already been caught by
+it once: `pytest.ini` used to name workflow contract modules one at a
+time, and six modules that were never listed ran nowhere and passed by
+never running. So the list does not stand alone.
+
+### The rule that keeps the list honest
+
+`tests/workflows/test_doctest_coverage.py` finds every Python file in the
+tree carrying a `>>>` and fails, naming the file, when the `doctest`
+target would not collect it. It also asserts that the list is non-empty,
+that every path in it exists, and that a directory covers what is beneath
+it rather than what merely shares a prefix, so `pkg` does not read as
+covering `pkgx`.
+
+Adding a module with examples therefore needs one line in
+`DOCTEST_PATHS`, and forgetting it fails a test that says which file and
+which variable, rather than passing quietly.
+
+### Writing an example that can run
+
+Three habits account for every failure found here.
+
+- **Import what the example uses.** A docstring is not inside its
+  module's namespace for the reader following it, so `Path` needs its
+  import shown.
+- **Build what the example reads.** A function that reads a manifest
+  needs one on disk. `tempfile.mkdtemp()` in the example is honest and
+  costs two lines; assuming a file in the working directory is neither.
+- **Make host-dependent output elided, not asserted.** `run_cmd` echoes
+  the absolute path it resolved on `PATH`, which differs between a
+  laptop and a runner, so those examples use `# doctest: +ELLIPSIS`.
+
+A docstring whose examples use `\n` must be a raw string. Otherwise
+Python turns the escape into a real newline when it parses the module,
+and doctest then reads the rest of the example as prose.
+
+`# doctest: +SKIP` is available and is not a way out of a wrong example.
+It is for an example that would do something a gate must not, and the
+reason belongs in the prose beside it. There is one here: the `run_fg`
+example in `cmd_utils`, which would run the whole test suite.
 
 ## `install-nixie` Action Maintenance
 

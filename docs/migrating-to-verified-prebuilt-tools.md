@@ -192,10 +192,10 @@ The two actions differ here, so the consumed action determines the required
 change. `ratchet-coverage` never provisioned or cached `cargo-binstall`: it
 invoked whichever one the job already had on `PATH`, and it left nothing
 behind. Its change is the other direction. It no longer needs a
-`cargo-binstall` on `PATH` at all, so a job that installed one solely to
-satisfy `ratchet-coverage`, or that ran `generate-coverage` first to obtain
-one, can drop that step. A later step in such a job that used that
-`cargo-binstall` for its own purposes still needs one installed explicitly.
+`cargo-binstall` on `PATH` at all, so a job that installed one solely to satisfy
+`ratchet-coverage`, or that ran `generate-coverage` first to obtain one, can
+drop that step. A later step in such a job that used that `cargo-binstall` for
+its own purposes still needs one installed explicitly.
 
 ## Checklist
 
@@ -205,7 +205,8 @@ one, can drop that step. A later step in such a job that used that
 - [ ] If you pin `installer-version` explicitly, confirm it is one of the
       versions listed in `installer-digests.sha256`, or supply a verified
       `installer-sha256`.
-- [ ] If a later workflow step used the `cargo-binstall` that `generate-coverage`
+- [ ] If a later workflow step used the `cargo-binstall` that
+      `generate-coverage`
       used to leave on `PATH`, install one in that workflow; the action no
       longer does.
 - [ ] For a workflow that runs `ratchet-coverage`, drop any step that

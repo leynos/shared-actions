@@ -257,24 +257,24 @@ Stage D: Validation
 
 1. Audit call sites:
 
-```sh
-cd /home/user/project/.github/actions/validate-linux-packages/scripts
-grep -n "_trim_output(" validate_packages.py
-```
+   ```sh
+   cd /home/user/project/.github/actions/validate-linux-packages/scripts
+   grep -n "_trim_output(" validate_packages.py
+   ```
 
    Expected: lines showing calls to both variants.
 
-1. Rename the single-line variant (line 385) to `_trim_output_single_line()`:
+2. Rename the single-line variant (line 385) to `_trim_output_single_line()`:
 
    - Edit validate_packages.py line 385.
    - Update call sites at lines 419, 426 to use new name.
 
-2. Verify compilation:
+3. Verify compilation:
 
-```sh
-cd /home/user/project
-python3 -m py_compile .github/actions/validate-linux-packages/scripts/validate_packages.py
-```
+   ```sh
+   cd /home/user/project
+   python3 -m py_compile .github/actions/validate-linux-packages/scripts/validate_packages.py
+   ```
 
    Expected: no syntax errors.
 
@@ -341,44 +341,44 @@ Functions to extract:
 1. Remove extracted functions.
 2. Add imports at top:
 
-```python
-from validate_arch import (
-    _HOST_ARCH_ALIAS_MAP,
-    _host_architectures,
-    _should_skip_sandbox,
-    acceptable_rpm_architectures,
-    rpm_expected_architecture,
-)
-from validate_formatters import (
-    _extract_process_stderr,
-    _trim_output,
-    _trim_output_single_line,
-)
-from validate_locators import (
-    ensure_subset,
-    locate_deb,
-    locate_rpm,
-)
-from validate_path_checks import (
-    _PATH_CHECK_TIMEOUT_SECONDS,
-    _combine_fallback_errors,
-    _iter_python_fallback_commands,
-    _make_path_diagnostics_fn,
-    _try_python_fallback,
-    _validate_paths_executable,
-    _validate_paths_exist,
-)
-from validate_sandbox_diagnostics import (
-    _build_path_diagnostic_commands,
-    _collect_diagnostics_safely,
-    _collect_environment_details,
-    _collect_host_path_details,
-    _execute_diagnostic_command,
-    _format_path_diagnostics,
-)
-```
+   ```python
+   from validate_arch import (
+       _HOST_ARCH_ALIAS_MAP,
+       _host_architectures,
+       _should_skip_sandbox,
+       acceptable_rpm_architectures,
+       rpm_expected_architecture,
+   )
+   from validate_formatters import (
+       _extract_process_stderr,
+       _trim_output,
+       _trim_output_single_line,
+   )
+   from validate_locators import (
+       ensure_subset,
+       locate_deb,
+       locate_rpm,
+   )
+   from validate_path_checks import (
+       _PATH_CHECK_TIMEOUT_SECONDS,
+       _combine_fallback_errors,
+       _iter_python_fallback_commands,
+       _make_path_diagnostics_fn,
+       _try_python_fallback,
+       _validate_paths_executable,
+       _validate_paths_exist,
+   )
+   from validate_sandbox_diagnostics import (
+       _build_path_diagnostic_commands,
+       _collect_diagnostics_safely,
+       _collect_environment_details,
+       _collect_host_path_details,
+       _execute_diagnostic_command,
+       _format_path_diagnostics,
+   )
+   ```
 
-1. Update `__all__` to re-export public functions:
+3. Update `__all__` to re-export public functions:
 
 ```python
 __all__ = [

@@ -3,11 +3,11 @@
 Install pinned Nixie and a checksum-verified Merman command-line interface
 (CLI) release for Mermaid validation.
 
-The action installs Nixie through `uv` and obtains Merman only from the
-official `Latias94/merman` v0.7.0 release assets. It verifies the downloaded
-archive against an embedded Secure Hash Algorithm 256-bit (SHA-256) digest
-before installing the executable.
-It never uses Cargo, `cargo binstall`, or a source-build fallback.
+The action installs Nixie through `uv` and obtains Merman only from the official
+`Latias94/merman` v0.7.0 release assets. It verifies the downloaded archive
+against an embedded Secure Hash Algorithm 256-bit (SHA-256) digest before
+installing the executable. It never uses Cargo, `cargo binstall`, or a
+source-build fallback.
 
 ## Inputs
 
@@ -19,9 +19,9 @@ It never uses Cargo, `cargo binstall`, or a source-build fallback.
 
 ## Outputs
 
-| Name   | Description                                             |
-| ------ | ------------------------------------------------------- |
-| _None_ | The action emits no outputs.                            |
+| Name   | Description                  |
+| ------ | ---------------------------- |
+| _None_ | The action emits no outputs. |
 
 ## Usage
 
@@ -70,8 +70,7 @@ To override the Nixie and Python pins:
   The action recognizes `Linux/X64`, `macOS/X64`, `macOS/ARM64`, and
   `Windows/X64`; every supported pair maps to one official release archive and
   an embedded SHA-256 digest. Any other version or platform fails before a
-  download is attempted.
-  The action stores Merman under
+  download is attempted. The action stores Merman under
   `${XDG_CACHE_HOME:-${HOME}/.cache}/merman/0.7.0/bin` (`.exe` on Windows) and
   verifies the pinned executable digest before every reuse. Cache callers must
   include `~/.cache/merman` in their persisted paths.

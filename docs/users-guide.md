@@ -601,9 +601,9 @@ projects and, by default, drives it through `cargo nextest`.
 the runner's operating system and architecture (x86_64 and aarch64 Linux,
 x86_64 and aarch64 macOS, x86_64 Windows), verifies its SHA-256 digest against
 the manifest, extracts only the named executable into `CARGO_HOME/bin`, and
-reuses an installed binary that already reports the pinned version. There is
-no `cargo binstall` or `cargo install` fallback. 0.9.0 is the first release
-that reads Cargo's new build-dir layout, which cargo 1.100 nightlies enable by
+reuses an installed binary that already reports the pinned version. There is no
+`cargo binstall` or `cargo install` fallback. 0.9.0 is the first release that
+reads Cargo's new build-dir layout, which cargo 1.100 nightlies enable by
 default; the previous 0.6.24 searched `target/llvm-cov-target/debug/deps` and
 failed with `failed to collect object files` on those toolchains after every
 test had passed. The same installer serves `ratchet-coverage`. The optional
@@ -642,12 +642,12 @@ Four independent timers can end a coverage run, and a caller sets them in four
 different places. A run that dies without an obvious cause is nearly always one
 of them.
 
-| Tier | What it bounds | Where it is set |
-| --- | --- | --- |
-| Per-test `slow-timeout` | one test | `.config/nextest.toml` |
-| nextest `global-timeout` | the whole test run | `.config/nextest.toml` |
-| Cargo watchdog | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
-| Job `timeout-minutes` | the whole job | the job holding the coverage step |
+| Tier                     | What it bounds                     | Where it is set                                        |
+| ------------------------ | ---------------------------------- | ------------------------------------------------------ |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                                 |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                                 |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `cargo-wait-timeout`, or `RUN_RUST_CARGO_WAIT_TIMEOUT` |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                      |
 
 The watchdog belongs to `generate-coverage` and defaults to 1,800 seconds.
 Nothing in a caller's nextest configuration mentions it, which is how it comes
@@ -661,11 +661,11 @@ complete.
 ### Choosing a value
 
 1. **Read several recent runs, not one, and not only the green ones.** Take
-   the longest the coverage step has taken and note the run ids. One run is
-   the coldest seen so far rather than a measurement of the cold case. Include
-   runs a timeout ended: those are the strongest evidence an allowance was too
-   small, and sizing from the successful ones alone reproduces the failure
-   they recorded.
+   the longest the coverage step has taken and note the run ids. One run is the
+   coldest seen so far rather than a measurement of the cold case. Include runs
+   a timeout ended: those are the strongest evidence an allowance was too
+   small, and sizing from the successful ones alone reproduces the failure they
+   recorded.
 2. **Add what the watchdog covers and the inner timers do not.** Under nextest
    that is its `global-timeout`, plus a termination allowance, plus a cold
    build. Without nextest, the observed step duration is the whole of it.
@@ -673,8 +673,8 @@ complete.
    `RUN_RUST_CARGO_WAIT_TIMEOUT` at job level or `cargo-wait-timeout` on the
    step, and record beside it what it was sized against.
 4. **Check the job ceiling above it**, or the job is cancelled before the
-   watchdog can report the overrun and the log that would have explained it
-   is discarded.
+   watchdog can report the overrun and the log that would have explained it is
+   discarded.
 
 ### The arithmetic
 
@@ -698,18 +698,18 @@ Four details of that arithmetic are easy to read past, and each has been got
 wrong in this estate.
 
 - **The job ceiling contains a sum, not a multiple.** Each invocation of the
-  action gets its own watchdog, so a job running coverage twice for two
-  feature sets can legitimately spend both, and the two need not agree.
+  action gets its own watchdog, so a job running coverage twice for two feature
+  sets can legitimately spend both, and the two need not agree.
 - **The comparison is strict, by a margin stated in the workflow.** A ceiling
-  equal to the sum it contains cancels the job at the moment the watchdog
-  would have reported the overrun, which converts a legible failure into a
+  equal to the sum it contains cancels the job at the moment the watchdog would
+  have reported the overrun, which converts a legible failure into a
   cancellation with no log. This estate carries fifteen minutes.
 - **The termination allowance is platform-dependent, and is two terms.**
   nextest's own grace-period default is ten seconds, but configurations
   generated from this estate's template carry five, so read the value. On
-  Windows termination is immediate and the term is zero. Any floor added on
-  top is a safety margin against a grace period nobody has read, not time
-  nextest is known to need, so keep it separate.
+  Windows termination is immediate and the term is zero. Any floor added on top
+  is a safety margin against a grace period nobody has read, not time nextest
+  is known to need, so keep it separate.
 - **The per-test budget is `period` multiplied by `terminate-after`.** A
   `{ period = "60s", terminate-after = 10 }` allows ten minutes, not one.
   Reading the period alone understated netsuke's largest allowance tenfold.

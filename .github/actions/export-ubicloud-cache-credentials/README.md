@@ -12,10 +12,10 @@ later shell steps can reach it.
 
 A GitHub Actions runner exposes `ACTIONS_CACHE_URL` and `ACTIONS_RUNTIME_TOKEN`
 to **action steps only**. A `run:` step never sees them, so a shell step that
-starts an sccache server has no way to learn where the cache lives. On
-Ubicloud, `ACTIONS_CACHE_URL` points at a proxy on the runner's private
-network, something like `http://10.1.2.3:51123/<token>/`, which stores objects
-in Ubicloud's own cache rather than GitHub's.
+starts an sccache server has no way to learn where the cache lives. On Ubicloud,
+`ACTIONS_CACHE_URL` points at a proxy on the runner's private network,
+something like `http://10.1.2.3:51123/<token>/`, which stores objects in
+Ubicloud's own cache rather than GitHub's.
 
 This action reads those values where they are visible and republishes them
 through `GITHUB_ENV`, where every later step can read them.
@@ -27,11 +27,11 @@ None.
 ## What it exports
 
 <!-- markdownlint-disable MD013 -->
-| Variable | Value |
-| --- | --- |
-| `ACTIONS_CACHE_URL` | The proxy URL, unchanged |
-| `ACTIONS_RUNTIME_TOKEN` | The runtime token, unchanged |
-| `ACTIONS_CACHE_SERVICE_V2` | Empty |
+| Variable                   | Value                        |
+| -------------------------- | ---------------------------- |
+| `ACTIONS_CACHE_URL`        | The proxy URL, unchanged     |
+| `ACTIONS_RUNTIME_TOKEN`    | The runtime token, unchanged |
+| `ACTIONS_CACHE_SERVICE_V2` | Empty                        |
 <!-- markdownlint-enable MD013 -->
 
 `ACTIONS_CACHE_SERVICE_V2` is cleared deliberately. sccache's GitHub Actions
@@ -55,14 +55,13 @@ Private means an RFC 1918 IPv4 range, IPv4 loopback, `localhost`, or an IPv6
 unique-local or loopback address.
 
 `localhost` is the one name accepted; every other host must be a complete
-address literal, not merely start like one. A DNS
-name such as `10.attacker.example` is refused: matching a private-range prefix
-against the host would classify it as private and hand it the runtime token. A
-name that happens to resolve to a private address is refused as well, because
-resolution is not the action's to trust and Ubicloud's proxy URL carries a
-literal. Legacy IPv4 forms are accepted where the URL parser has already
-normalized them, so `http://2130706433/` is treated as the `127.0.0.1` it
-denotes.
+address literal, not merely start like one. A DNS name such as
+`10.attacker.example` is refused: matching a private-range prefix against the
+host would classify it as private and hand it the runtime token. A name that
+happens to resolve to a private address is refused as well, because resolution
+is not the action's to trust and Ubicloud's proxy URL carries a literal. Legacy
+IPv4 forms are accepted where the URL parser has already normalized them, so
+`http://2130706433/` is treated as the `127.0.0.1` it denotes.
 
 ## Secrets
 

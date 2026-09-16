@@ -24,20 +24,20 @@ tag, so the action code cannot change without the reference changing:
 
 ## Inputs
 
-| Name | Type | Default | Description | Required |
-| --- | --- | --- | --- | --- |
-| tool | string | | Manifest tool name, for example `sccache` | yes |
-| version | string | | Exact manifest version; there is no `latest` | yes |
-| bin-dir | string | `~/.cargo/bin` | Directory installed into and added to `PATH` | no |
+| Name    | Type   | Default        | Description                                  | Required |
+| ------- | ------ | -------------- | -------------------------------------------- | -------- |
+| tool    | string |                | Manifest tool name, for example `sccache`    | yes      |
+| version | string |                | Exact manifest version; there is no `latest` | yes      |
+| bin-dir | string | `~/.cargo/bin` | Directory installed into and added to `PATH` | no       |
 
 ## Outputs
 
-| Name | Description |
-| --- | --- |
-| path | Absolute path of the installed binary, in the runner's native form |
-| posix-path | The same path in POSIX form, for `bash` steps on Windows |
-| version | Version installed, as named in the manifest |
-| cache-hit | `true` when the requested version was already installed |
+| Name       | Description                                                        |
+| ---------- | ------------------------------------------------------------------ |
+| path       | Absolute path of the installed binary, in the runner's native form |
+| posix-path | The same path in POSIX form, for `bash` steps on Windows           |
+| version    | Version installed, as named in the manifest                        |
+| cache-hit  | `true` when the requested version was already installed            |
 
 ## What it installs, and what it will not
 
@@ -70,10 +70,10 @@ records the result in `sidecar-verified`: `true` when it agreed, `absent` when
 upstream publishes none, `false` when one exists and could not be read. The
 sidecar corroborates the pin's provenance and is never its source.
 
-The archive is hashed by feeding it to `sha256sum` on **stdin**,
-never by file name, because GNU `sha256sum` escapes its output line when the
-name contains a backslash and a Windows path therefore produced a leading
-backslash that rejected a correct archive.
+The archive is hashed by feeding it to `sha256sum` on **stdin**, never by file
+name, because GNU `sha256sum` escapes its output line when the name contains a
+backslash and a Windows path therefore produced a leading backslash that
+rejected a correct archive.
 
 The **member path** from the manifest says where the binary sits inside the
 archive. Upstreams disagree: cargo-nextest and cargo-llvm-cov put it at the
@@ -110,16 +110,16 @@ the wrong version counts as a miss, not a hit.
 Each run emits bounded `metric` lines, to the log for a scraper and to the job
 summary for a reader:
 
-| Metric | Values |
-| --- | --- |
-| `install-tool.resolve` | `ok`, `no-python`, `manifest-unreadable`, `unknown-tool`, `unknown-version`, `unsupported-runner`, `unsupported-target`, `unsupported-extension` |
-| `install-tool.sidecar-verified` | `true`, `false`, `absent` |
-| `install-tool.cache` | `hit`, `hit-unverified`, `miss`, `stale` |
-| `install-tool.download` | `ok`, `failed` |
-| `install-tool.digest` | `verified`, `mismatch` |
-| `install-tool.install` | `ok`, `failed`, `missing-member`, `unsupported-extension` |
-| `install-tool.verify` | `ok`, `mismatch`, `missing`, `unsupported` |
-| `install-tool.result` | `installed`, `cached` |
+| Metric                          | Values                                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `install-tool.resolve`          | `ok`, `no-python`, `manifest-unreadable`, `unknown-tool`, `unknown-version`, `unsupported-runner`, `unsupported-target`, `unsupported-extension` |
+| `install-tool.sidecar-verified` | `true`, `false`, `absent`                                                                                                                        |
+| `install-tool.cache`            | `hit`, `hit-unverified`, `miss`, `stale`                                                                                                         |
+| `install-tool.download`         | `ok`, `failed`                                                                                                                                   |
+| `install-tool.digest`           | `verified`, `mismatch`                                                                                                                           |
+| `install-tool.install`          | `ok`, `failed`, `missing-member`, `unsupported-extension`                                                                                        |
+| `install-tool.verify`           | `ok`, `mismatch`, `missing`, `unsupported`                                                                                                       |
+| `install-tool.result`           | `installed`, `cached`                                                                                                                            |
 
 Keep the names fixed and the values inside those sets. A value that varies with
 the run gives the series unbounded cardinality and makes it useless to

@@ -35,31 +35,30 @@ The action reports the anchor it used in the job summary as
 
 The action separates the release lifecycle into explicit steps.
 
-`Resolve Whitaker release` is a thin adapter over
-`scripts/resolve-release.sh`, which holds the resolution itself. That script is
-a pure query: it selects the platform asset, looks up the pinned digest,
-applies the precedence rule, and decides whether the cache already holds an
-executable installer of the requested version, then prints what it computed.
-It writes no file, emits no metric, prints no annotation, and reports an
-expected resolution failure as a printed record rather than by exiting
-non-zero. The step captures that record and writes it to a step output, which
-is the only way to carry a value across a composite step boundary.
+`Resolve Whitaker release` is a thin adapter over `scripts/resolve-release.sh`,
+which holds the resolution itself. That script is a pure query: it selects the
+platform asset, looks up the pinned digest, applies the precedence rule, and
+decides whether the cache already holds an executable installer of the
+requested version, then prints what it computed. It writes no file, emits no
+metric, prints no annotation, and reports an expected resolution failure as a
+printed record rather than by exiting non-zero. The step captures that record
+and writes it to a step output, which is the only way to carry a value across a
+composite step boundary.
 
 `Publish Whitaker resolution` owns every externally visible effect of that
 resolution. It writes the step outputs, emits the metrics, prints the notices,
 and fails the job when resolution recorded an error.
 
-`Download Whitaker release`, `Verify Whitaker release`, `Extract Whitaker
-installer`, and `Install Whitaker installer` each perform one of those actions
-and nothing else. The staging directory lives under `RUNNER_TEMP` and is
-removed once the installer is in place.
+`Download Whitaker release`, `Verify Whitaker release`,
+`Extract Whitaker installer`, and `Install Whitaker installer` each perform one
+of those actions and nothing else. The staging directory lives under
+`RUNNER_TEMP` and is removed once the installer is in place.
 
 ## Transfer telemetry
 
-The archive transfer and the `.sha256` sidecar transfer each report one
-bounded record, through a `::notice` and a job-summary metric naming the
-outcome, the HTTP status, the byte count, the elapsed seconds, and the number
-of attempts:
+The archive transfer and the `.sha256` sidecar transfer each report one bounded
+record, through a `::notice` and a job-summary metric naming the outcome, the
+HTTP status, the byte count, the elapsed seconds, and the number of attempts:
 
 ```text
 whitaker-installer.transfer.archive=ok http=200 bytes=2469093 seconds=1.204 attempts=1
@@ -74,11 +73,10 @@ the other fields.
 The action writes `.whitaker-installer-version` beside the installer, recording
 which `installer-version` it installed, and caches that marker with the
 installer. A cached installer is reused only when the marker names the
-requested version. A marker naming another version, or no marker at all,
-reports `whitaker-installer.cache-entry=stale` and falls through to the
-verified download. This matters for `cache-provider: external`, where a
-persistent Cargo home would otherwise keep serving an installer built for an
-older version.
+requested version. A marker naming another version, or no marker at all, reports
+`whitaker-installer.cache-entry=stale` and falls through to the verified
+download. This matters for `cache-provider: external`, where a persistent Cargo
+home would otherwise keep serving an installer built for an older version.
 
 ## Inputs
 
@@ -96,8 +94,7 @@ older version.
 ## What is pinned, and what is not
 
 The installer is pinned thoroughly: a release archive verified against
-[`installer-digests.sha256`](installer-digests.sha256), never built from
-source.
+[`installer-digests.sha256`](installer-digests.sha256), never built from source.
 
 **The lint suite is a separate decision.** By default the installer builds it
 from the Whitaker default branch tip, so a change on that branch alters lint
@@ -127,18 +124,16 @@ move the working tree.
 
 CI pins the installer and never the suite. Whitaker publishes prebuilt lint
 libraries for its branch tip on every merge, and a pin forces a source build
-because those libraries exist only for the tip, so `ci-mode` rejects a
-non-empty `suite-version` unless `allow-suite-pin: true` says the cost is
-deliberate.
+because those libraries exist only for the tip, so `ci-mode` rejects a non-empty
+`suite-version` unless `allow-suite-pin: true` says the cost is deliberate.
 
 `ci-mode` also refuses a silent source build. Before the installer runs, the
-action checks that the rolling release carries this target's manifest, the
-lint archive that manifest names, and both Dylint tool archives, retrying five
-times over about thirty seconds because a republish takes six or seven. If an
-asset is still absent the step fails with the URL rather than letting the
-installer build from source. Afterwards the action reads the installer's own
-output and records
-`whitaker-installer.suite-source=<prebuilt|source>`, failing the step on
+action checks that the rolling release carries this target's manifest, the lint
+archive that manifest names, and both Dylint tool archives, retrying five times
+over about thirty seconds because a republish takes six or seven. If an asset
+is still absent the step fails with the URL rather than letting the installer
+build from source. Afterwards the action reads the installer's own output and
+records `whitaker-installer.suite-source=<prebuilt|source>`, failing the step on
 `source`. A source build succeeds, which is the difficulty: without this the
 run is slower, tests something else, and looks fine.
 
@@ -179,13 +174,12 @@ The repository must be checked out before invoking this local action; use the
 relative path without a version suffix. The runner must provide Bash, curl, an
 SHA-256 utility, and `tar`. Both archive formats are extracted with `tar`:
 bsdtar, the bundled `tar` on Windows and macOS runners, reads zip as well as
-gzip, and `unzip` is not present on every runner image. Missing
-official release assets are hard failures; there is no Cargo or source-build
-fallback.
+gzip, and `unzip` is not present on every runner image. Missing official
+release assets are hard failures; there is no Cargo or source-build fallback.
 
-The `cargo-home` input defaults to `~/.cargo`; it controls the cached
-installer location. In `github` mode, the same cache also owns
-`~/.local/share/whitaker`, keyed by `dylint.toml`.
+The `cargo-home` input defaults to `~/.cargo`; it controls the cached installer
+location. In `github` mode, the same cache also owns `~/.local/share/whitaker`,
+keyed by `dylint.toml`.
 
 Set `cache-provider: external` when the caller mounts these paths through a
 Namespace cache volume; the action then skips its GitHub cache and reports the

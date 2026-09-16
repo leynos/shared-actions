@@ -44,8 +44,8 @@ file.
   protection the lane does not have.
 
   The default `installer-version` moves to 0.2.8, whose digests are pinned for
-  all five targets, each computed from an independent download and cross-checked
-  against the release sidecar.
+  all five targets, each computed from an independent download and
+  cross-checked against the release sidecar.
 
 - Run the action's Bash fragments from a file in the test harness, as a
   runner does, instead of passing them to `bash -c`. The two are not the same

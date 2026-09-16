@@ -135,8 +135,8 @@ Example using an external cache owner:
 When the workflow is not triggered by a `release` event and `use-sccache` is
 enabled, the action also runs [sccache](https://github.com/mozilla/sccache) to
 cache compiler output. The sccache action exports `SCCACHE_PATH`, naming the
-binary it installed. It sets neither `RUSTC_WRAPPER` nor
-`SCCACHE_GHA_ENABLED`, so this action sets both:
+binary it installed. It sets neither `RUSTC_WRAPPER` nor `SCCACHE_GHA_ENABLED`,
+so this action sets both:
 
 - `RUSTC_WRAPPER`, naming the installed binary, because Cargo routes
   compilation through sccache only when that variable is set. Without it
@@ -163,11 +163,11 @@ this step existed the server started as a side effect of the first client
 command, and no step in the log named the moment the cache was bound.
 
 Because the server is fresh, its counters begin at zero, and a caller's later
-`sccache --show-stats` measures their own build. The step only restarts a server
-the action's own wrapper export owns, which it learns from that step's output
-rather than from the environment: an inherited `RUSTC_WRAPPER` may name this
-very binary, when a caller ran `setup-rust` earlier in the job or nested it
-through `rust-build-release`, and stopping that server would discard the
+`sccache --show-stats` measures their own build. The step only restarts a
+server the action's own wrapper export owns, which it learns from that step's
+output rather than from the environment: an inherited `RUSTC_WRAPPER` may name
+this very binary, when a caller ran `setup-rust` earlier in the job or nested
+it through `rust-build-release`, and stopping that server would discard the
 statistics of everything compiled so far. Each run reports
 `metric setup-rust.sccache.server=<started|start-failed|caller-set|missing-sccache-path>`.
 
@@ -176,11 +176,11 @@ Some exports have to be put back rather than made. The last thing
 `GITHUB_ENV`, along with the runner's own `ACTIONS_RESULTS_URL` and
 `ACTIONS_RUNTIME_TOKEN`. On a GitHub-hosted runner that is what a caller wants.
 On Ubicloud the v2 flag overrides the empty value
-`export-ubicloud-cache-credentials` published, and the proxy serves v1, so every
-write goes to a service that is not the one holding the cache.
+`export-ubicloud-cache-credentials` published, and the proxy serves v1, so
+every write goes to a service that is not the one holding the cache.
 
-The action therefore reads all three before those steps and writes back any that
-changed, reporting
+The action therefore reads all three before those steps and writes back any
+that changed, reporting
 `metric setup-rust.sccache.cache-service=<restored|unchanged|absent>` and the
 same over `results-url` and `runtime-token`. Only the v2 flag does harm today;
 the other two are recorded because they belong to the sccache-action, and a
@@ -198,17 +198,16 @@ past the sccache steps. It is what makes `use-sccache: 'true'` reach the proxy
 at all.
 
 Where the compiled objects go follows from the backend. On the GitHub Actions
-backend, the `ghac` arm, sccache stores them through the cache service; there is
-no local directory and no cache key of this action's own. The local backend is
-everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like, which
-includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`. sccache
-reads that variable as a boolean and treats empty as false, so a caller who
-clears it gets local disk exactly as one who wrote `false` does. Objects then go
-to that directory, defaulting to `~/.cache/sccache`. This action does not
-archive that directory; a lane that wants it to survive between jobs owns the
-cache step and its key, which must be
-separate from the Rust dependency cache above, because the two hold unrelated
-data.
+backend, the `ghac` arm, sccache stores them through the cache service; there
+is no local directory and no cache key of this action's own. The local backend
+is everything else: an explicit `SCCACHE_GHA_ENABLED` that is not true-like,
+which includes `false` and an empty value, or a caller-selected `SCCACHE_DIR`.
+sccache reads that variable as a boolean and treats empty as false, so a caller
+who clears it gets local disk exactly as one who wrote `false` does. Objects
+then go to that directory, defaulting to `~/.cache/sccache`. This action does
+not archive that directory; a lane that wants it to survive between jobs owns
+the cache step and its key, which must be separate from the Rust dependency
+cache above, because the two hold unrelated data.
 
 On Ubicloud, run the
 [`export-ubicloud-cache-credentials`](../export-ubicloud-cache-credentials)
@@ -230,25 +229,23 @@ let one designated job save it on a push to `main`. The wrapper is the step
 that is easy to leave out and impossible to notice: `use-sccache: 'false'`
 turns off this action's export along with its installation, so without it Cargo
 never routes through the sccache the lane just installed and cached. That is
-the failure #437 was. Ubicloud is the opposite
-case: its proxy is on the runner's own network, so the GitHub Actions arm is
-the fast one there.
+the failure #437 was. Ubicloud is the opposite case: its proxy is on the
+runner's own network, so the GitHub Actions arm is the fast one there.
 
-The revised
-Node.js-backed actions are pinned to specific commits for reproducibility:
-`actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
-`mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba`
-and `msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884`.
+The revised Node.js-backed actions are pinned to specific commits for
+reproducibility: `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`,
+`mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba` and
+`msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884`.
 
 ### Sizing `SCCACHE_CACHE_SIZE`
 
 Repositories across this estate build in two shapes: a debug or dev-fast tree
-built with Cranelift and linked with mold for lint and test, and an
-instrumented `target/llvm-cov-target` tree built with the LLVM backend for
-coverage. Both shapes coexist in one sccache store because sccache keys entries
-by compiler flags, so objects from the two shapes never collide. Measured runs
-confirm this: Whitaker run 33744418209 (coverage under `-C instrument-coverage`)
-and Cuprum run 33677926269 (Cranelift-built Whitaker lints) each report
+built with Cranelift and linked with mold for lint and test, and an instrumented
+`target/llvm-cov-target` tree built with the LLVM backend for coverage. Both
+shapes coexist in one sccache store because sccache keys entries by compiler
+flags, so objects from the two shapes never collide. Measured runs confirm
+this: Whitaker run 33744418209 (coverage under `-C instrument-coverage`) and
+Cuprum run 33677926269 (Cranelift-built Whitaker lints) each report
 `Non-cacheable compilations 0`.
 
 sccache defaults to a 10 GiB store. Under this action's GitHub Actions backend

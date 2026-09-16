@@ -55,9 +55,8 @@ jobs:
 - **Namespaced tags**: The action strips a leading `tag-prefix` (default `v`).
   For tags like `my-action-v1.2.3`, set `tag-prefix: my-action-v`.
 - **Workspace-inherited versions**: When a crate sets
-  `version.workspace = true`,
-  the action resolves the version from the workspace root manifest's
-  `[workspace.package].version` entry.
+  `version.workspace = true`, the action resolves the version from the
+  workspace root manifest's `[workspace.package].version` entry.
 - **uv provisioning**: The composite action runs `astral-sh/setup-uv` and
   provisions Python 3.13 via `uv python install`, so downstream workflows do
   not need a separate `uv` installation step. This addresses the review request
@@ -65,8 +64,7 @@ jobs:
 - **Failure behaviour**: Any parse error or version mismatch emits GitHub
   Actions `::error` annotations and exits with status `1`, failing the job.
 - **Optional tag validation**: If `check-tag` is set to `false`, the action
-  still
-  reads and outputs the manifest version without enforcing a match against the
-  tag-derived version. The script keeps attempting to read the tag to emit the
-  `version` output; when no tag reference is available, the `version` output is
-  omitted while `crate-version` remains populated.
+  still reads and outputs the manifest version without enforcing a match
+  against the tag-derived version. The script keeps attempting to read the tag
+  to emit the `version` output; when no tag reference is available, the
+  `version` output is omitted while `crate-version` remains populated.

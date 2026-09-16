@@ -78,13 +78,14 @@ action and the evolution of its supporting scripts.
   `main` publishes every outcome as a bounded metric.
 - *2026-09-16* — Python coverage accepts an optional
   `python-coverage-source` input containing comma-separated,
-  repository-relative source directories. When configured, the action passes
-  one `--source` boundary to Slipcover so instrumentation includes only the
+  repository-relative source directories. When configured, the action passes one
+  `--source` boundary to Slipcover so instrumentation includes only the
   selected project paths. This prevents dependencies discovered in a foreign
   virtual environment's `site-packages` directory from entering the coverage
   report. An unset or empty input retains Slipcover's unrestricted behaviour;
   empty entries in a non-empty value fail validation before the coverage
-  subprocess starts.
+  subprocess starts, as does an entry that is absolute or resolves outside the
+  repository through `..` or a symlink.
 - *2026-09-03* — The ratchet baseline cache moved from the full `actions/cache`
   action to the `actions/cache/restore` and `actions/cache/save` sub-actions at
   one pinned revision. The full action registers a post-job save of its own, so
@@ -316,23 +317,32 @@ coverage tool from the action's coverage environment while the repository's
 `.venv` remains visible on the import path. Without an explicit boundary,
 dependencies installed in that other environment's `site-packages` directory
 can be selected for instrumentation. This can expose third-party source to
-Slipcover's pre-instrumentation and make coverage collection fail before
-pytest starts.
+Slipcover's pre-instrumentation and make coverage collection fail before pytest
+starts.
 
 The optional `python-coverage-source` action input defines the inclusion
 boundary for this case. `_parse_python_coverage_source()` splits the input on
-commas, strips surrounding whitespace, and rejects empty entries. The validated
-tuple is passed to `_coverage_args()`, which appends exactly one
-`--source path1,path2` pair before the pytest module arguments. The paths are
-repository-relative and are interpreted by Slipcover from the repository
-working directory.
+commas, strips surrounding whitespace, and rejects empty entries.
+`_resolve_python_coverage_source()` then reads the input and refuses any entry
+that is absolute or that resolves outside the repository root through `..` or a
+symlink. The containment check is a pure predicate,
+`_sources_outside_repository()`, so the escape rule is testable without
+touching the environment. The validated tuple is passed to `_coverage_args()`,
+which appends exactly one `--source path1,path2` pair before the pytest module
+arguments. The paths are repository-relative and are interpreted by Slipcover
+from the repository working directory.
 
 An unset input, an empty string, or whitespace-only input produces no
 `--source` option and keeps the previous unrestricted behaviour. A non-empty
-input containing an empty item, such as `femtologging,,generated`, is rejected
-before coverage-venv setup or the Slipcover subprocess. This distinction keeps
-the default backwards-compatible while allowing callers to make the coverage
-scope explicit when their environment contains foreign packages.
+input that contains an empty item, such as `femtologging,,generated`, or an
+entry that resolves outside the repository, is rejected before coverage-venv
+setup or the Slipcover subprocess. Containing the boundary to the repository
+matters because Slipcover resolves both the configured source and each
+candidate filename before deciding whether a module is instrumentable, so a
+source that escaped the repository would make a foreign environment's
+dependencies eligible for instrumentation again. This distinction keeps the
+default backwards-compatible while allowing callers to make the coverage scope
+explicit when their environment contains foreign packages.
 
 The boundary is intentionally an inclusion list rather than an `--omit` list.
 It therefore remains effective for third-party dependencies selected from a

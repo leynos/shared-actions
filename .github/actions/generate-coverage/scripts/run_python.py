@@ -342,9 +342,31 @@ def _parse_python_coverage_source(raw: str | None) -> tuple[str, ...]:
     return sources
 
 
+def _sources_outside_repository(
+    sources: tuple[str, ...], repository_root: Path
+) -> tuple[str, ...]:
+    """Return the requested sources that resolve outside ``repository_root``."""
+    return tuple(
+        source
+        for source in sources
+        if Path(source).is_absolute()
+        or not Path(source).resolve().is_relative_to(repository_root)
+    )
+
+
 def _resolve_python_coverage_source() -> tuple[str, ...]:
     """Read and validate the optional Python coverage source boundary."""
-    return _parse_python_coverage_source(os.getenv("INPUT_PYTHON_COVERAGE_SOURCE"))
+    raw = os.getenv("INPUT_PYTHON_COVERAGE_SOURCE")
+    sources = _parse_python_coverage_source(raw)
+    outside = _sources_outside_repository(sources, Path.cwd().resolve())
+    if outside:
+        message = (
+            f"Invalid python-coverage-source value: {raw!r}. Source directories "
+            "must resolve inside the repository; these do not: "
+            f"{', '.join(outside)}."
+        )
+        raise ValueError(message)
+    return sources
 
 
 def _coverage_args(

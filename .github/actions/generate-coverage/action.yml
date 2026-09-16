@@ -111,7 +111,8 @@ inputs:
   python-coverage-source:
     description: |
       Optional comma-separated repository-relative Python source directories
-      passed to Slipcover's `--source` option. Empty entries are invalid.
+      passed to Slipcover's `--source` option. Empty entries are invalid, and
+      every entry must resolve inside the repository.
     required: false
   cache-provider:
     description: >

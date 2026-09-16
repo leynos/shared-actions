@@ -2169,6 +2169,45 @@ def test_parse_python_coverage_source_rejects_empty_entries(
         run_python_module._parse_python_coverage_source(raw)
 
 
+@pytest.mark.parametrize(
+    "escape", ["parent", "absolute"], ids=["parent-directory", "absolute"]
+)
+def test_resolve_python_coverage_source_rejects_paths_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    escape: str,
+) -> None:
+    """A source that escapes the repository cannot become a Slipcover boundary."""
+    project = tmp_path / "project"
+    project.mkdir()
+    foreign = tmp_path / "foreign-venv" / "site-packages"
+    foreign.mkdir(parents=True)
+    monkeypatch.chdir(project)
+    raw = "../foreign-venv/site-packages" if escape == "parent" else str(foreign)
+    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", raw)
+
+    with pytest.raises(ValueError, match="must resolve inside the repository"):
+        run_python_module._resolve_python_coverage_source()
+
+
+def test_resolve_python_coverage_source_rejects_symlink_outside_repository(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """A repository-local symlink is judged by the directory it resolves to."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (tmp_path / "foreign-venv").mkdir()
+    (project / "linked").symlink_to(tmp_path / "foreign-venv")
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", "linked")
+
+    with pytest.raises(ValueError, match="must resolve inside the repository"):
+        run_python_module._resolve_python_coverage_source()
+
+
 def test_python_coverage_source_excludes_foreign_venv_site_packages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2538,12 +2577,19 @@ def test_run_python_cobertura_passes_out_flag(
     assert "percent=100.00" in data
 
 
-def _run_main_with_workers(
+@dataclasses.dataclass(frozen=True, slots=True)
+class PythonMainConfig:
+    """Configuration for ``_run_python_main`` test helper."""
+
+    workers: str
+    source: str = ""
+
+
+def _run_python_main(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_python_module: ModuleType,
-    workers: str,
-    source: str = "",
+    config: PythonMainConfig,
 ) -> list[str]:
     """Invoke ``main`` under a fake coverage command and return the recorded argv.
 
@@ -2566,9 +2612,11 @@ def _run_main_with_workers(
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
     monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
-    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", source)
+    monkeypatch.setenv("INPUT_PYTHON_COVERAGE_SOURCE", config.source)
 
-    run_python_module.main(output, "python", "cobertura", github_output, None, workers)
+    run_python_module.main(
+        output, "python", "cobertura", github_output, None, config.workers
+    )
 
     assert len(recorded) == 1, (
         f"expected exactly one coverage invocation, got {len(recorded)}"
@@ -2583,7 +2631,12 @@ def test_main_threads_pytest_workers_into_slipcover_argv(
     run_python_module: ModuleType,
 ) -> None:
     """``main`` forwards the resolved workers value to slipcover's pytest argv."""
-    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "3")
+    parts = _run_python_main(
+        tmp_path,
+        monkeypatch,
+        run_python_module,
+        PythonMainConfig(workers="3"),
+    )
     stdout = capsys.readouterr().out
     assert parts[-2:] == ["-n", "3"], (
         f"workers value must reach slipcover's pytest argv, got {parts!r}"
@@ -2598,12 +2651,11 @@ def test_main_threads_source_boundary_into_slipcover_argv(
     run_python_module: ModuleType,
 ) -> None:
     """``main`` forwards the configured source boundary before pytest arguments."""
-    parts = _run_main_with_workers(
+    parts = _run_python_main(
         tmp_path,
         monkeypatch,
         run_python_module,
-        "",
-        "femtologging, generated",
+        PythonMainConfig(workers="", source="femtologging, generated"),
     )
     source_index = parts.index("--source")
     assert parts[source_index : source_index + 2] == [
@@ -2621,7 +2673,12 @@ def test_main_logs_serial_run_when_workers_disabled(
     run_python_module: ModuleType,
 ) -> None:
     """An empty workers value logs the serial-run notice and omits ``-n``."""
-    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "")
+    parts = _run_python_main(
+        tmp_path,
+        monkeypatch,
+        run_python_module,
+        PythonMainConfig(workers=""),
+    )
     stdout = capsys.readouterr().out
     assert "-n" not in parts
     assert "Pytest workers: disabled (serial pytest run)" in stdout

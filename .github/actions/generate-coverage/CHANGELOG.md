@@ -20,6 +20,19 @@
   action restores anything, rather than treating an unrecognized value as
   `auto`.
 
+- Add an optional `python-coverage-source` input, a comma-separated list of
+  repository-relative source directories passed to Slipcover as a single
+  `--source` option. A dependency installed in a foreign virtual environment's
+  `site-packages` directory can be selected for instrumentation when uv starts
+  the coverage tool from one environment while the repository's `.venv` remains
+  importable, and pre-instrumenting that third-party source fails the run
+  before pytest starts. The input is an inclusion boundary rather than an
+  omission filter, so it also excludes such dependencies. Leaving it unset or
+  empty keeps the previous unrestricted behaviour; a non-empty value with an
+  empty entry is refused before the coverage environment is created, as is an
+  entry that is absolute or that resolves outside the repository through `..`
+  or a symlink.
+
 - By default, publish the ratchet baseline only on a push to
   `refs/heads/main`. The save step had no event guard, so a `workflow_dispatch`
   gathering warm-cache evidence published a new baseline instead of reading the

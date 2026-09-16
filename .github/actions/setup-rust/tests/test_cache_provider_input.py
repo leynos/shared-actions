@@ -36,6 +36,24 @@ def _run_validation(cache_provider: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _cache_ownership_validation_script() -> str:
+    """Return the save-cache validation shell fragment."""
+    script = get_step("Validate cache ownership").get("run")
+    assert isinstance(script, str), "save-cache validator must be a script"
+    return script
+
+
+def _run_save_cache_validation(save_cache: str) -> subprocess.CompletedProcess[str]:
+    """Run the save-cache validator with ``save_cache``."""
+    return subprocess.run(  # noqa: S603,TID251 - exercise the action fragment.
+        [requires_bash(), "-c", _cache_ownership_validation_script()],
+        env={**os.environ, "SR_SAVE_CACHE": save_cache},
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
 def _cache_report_script() -> str:
     """Return the bounded cache-decision reporting shell fragment."""
     script = get_step("Report archive cache decisions").get("run")
@@ -111,7 +129,9 @@ def test_external_cache_disables_nested_archive_caches() -> None:
     cargo_cache = get_step("Cache cargo registry")
     setup_uv = get_step("Install uv")
 
-    assert cargo_cache.get("if") == "${{ inputs.cache-provider == 'github' }}"
+    assert cargo_cache.get("if") == (
+        "${{ inputs.cache-provider == 'github' && inputs.save-cache == 'true' }}"
+    )
     setup_uv_inputs = setup_uv.get("with")
     assert isinstance(setup_uv_inputs, dict)
     assert setup_uv_inputs.get("enable-cache") == (
@@ -170,10 +190,41 @@ def test_cargo_cache_key_is_profile_agnostic() -> None:
                 "SR_RUNNER_ENVIRONMENT": "github-hosted",
                 "SR_UV_STEP_OUTCOME": "success",
                 "SR_UV_CACHE_HIT": "false",
+                "SR_SAVE_CACHE": "true",
                 "SR_CARGO_STEP_OUTCOME": "success",
                 "SR_CARGO_CACHE_HIT": "true",
             },
             "provider=github cargo=hit uv=miss",
+        ),
+        (
+            # A restore-only job reports the restore step's result. Reading
+            # the skipped save step instead would call every such job
+            # "disabled" and hide whether its registry was warm.
+            {
+                "SR_CACHE_PROVIDER": "github",
+                "SR_RUNNER_ENVIRONMENT": "github-hosted",
+                "SR_UV_STEP_OUTCOME": "success",
+                "SR_UV_CACHE_HIT": "true",
+                "SR_SAVE_CACHE": "false",
+                "SR_CARGO_STEP_OUTCOME": "skipped",
+                "SR_CARGO_CACHE_HIT": "",
+                "SR_CARGO_RESTORE_OUTCOME": "success",
+                "SR_CARGO_RESTORE_CACHE_HIT": "true",
+            },
+            "provider=github cargo=hit uv=hit",
+        ),
+        (
+            # An absent flag means the action's default, which is to save,
+            # so the save step's result is the one reported.
+            {
+                "SR_CACHE_PROVIDER": "github",
+                "SR_RUNNER_ENVIRONMENT": "github-hosted",
+                "SR_UV_STEP_OUTCOME": "success",
+                "SR_UV_CACHE_HIT": "true",
+                "SR_CARGO_STEP_OUTCOME": "success",
+                "SR_CARGO_CACHE_HIT": "false",
+            },
+            "provider=github cargo=miss uv=hit",
         ),
         (
             {
@@ -181,6 +232,7 @@ def test_cargo_cache_key_is_profile_agnostic() -> None:
                 "SR_RUNNER_ENVIRONMENT": "github-hosted",
                 "SR_UV_STEP_OUTCOME": "failure",
                 "SR_UV_CACHE_HIT": "",
+                "SR_SAVE_CACHE": "true",
                 "SR_CARGO_STEP_OUTCOME": "failure",
                 "SR_CARGO_CACHE_HIT": "",
             },
@@ -196,3 +248,54 @@ def test_cache_report_uses_bounded_outcomes(
 
     assert result.returncode == 0, result.stderr
     assert expected_notice in result.stdout
+
+
+def test_a_restore_only_call_uses_the_restore_action() -> None:
+    """The two cache steps are mutually exclusive and read the same key.
+
+    A job that does not own the key still wants a warm registry, so it
+    restores rather than skipping the cache entirely. Reading a different
+    key would warm nothing; saving from both steps would put the
+    contention back.
+    """
+    saving = get_step("Cache cargo registry")
+    restoring = get_step("Restore the cargo registry cache")
+
+    assert str(saving.get("uses", "")).startswith("actions/cache@")
+    assert str(restoring.get("uses", "")).startswith("actions/cache/restore@")
+    assert restoring.get("if") == (
+        "${{ inputs.cache-provider == 'github' && inputs.save-cache == 'false' }}"
+    )
+
+    saving_inputs = saving.get("with")
+    restoring_inputs = restoring.get("with")
+    assert isinstance(saving_inputs, dict)
+    assert isinstance(restoring_inputs, dict)
+    assert restoring_inputs["key"] == saving_inputs["key"]
+    assert restoring_inputs["path"] == saving_inputs["path"]
+
+
+def test_save_cache_defaults_to_saving() -> None:
+    """An existing caller keeps writing the key it wrote before.
+
+    The input is additive. Any default but "true" would silently make
+    every current consumer a reader, and the cache would stop being
+    written at all.
+    """
+    save_cache = _load_inputs()["save-cache"]
+    assert isinstance(save_cache, dict)
+    assert save_cache.get("default") == "true"
+
+
+@pytest.mark.parametrize("value", ["yes", "TRUE", "1", ""])
+def test_save_cache_rejects_values_that_are_not_true_or_false(value: str) -> None:
+    """A near miss fails rather than being read as "not false".
+
+    Reading an unrecognised value as saving would make a second writer of
+    a key that must have one owner, which is the defect this input exists
+    to prevent.
+    """
+    result = _run_save_cache_validation(value)
+
+    assert result.returncode != 0
+    assert "save-cache must be true or false" in result.stderr

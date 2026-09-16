@@ -1,4 +1,4 @@
-"""Utilities for reading Cargo.toml manifest files.
+r"""Utilities for reading Cargo.toml manifest files.
 
 This module provides functions for parsing Cargo manifest files and
 extracting package metadata such as name, version, and binary targets.
@@ -7,29 +7,43 @@ manifests gracefully.
 
 Examples
 --------
-Basic usage to read package name and version::
+The examples below build a small workspace on disk, because every function
+here reads one. A manifest is a file, and an example that pretended
+otherwise could not be checked against the code it describes.
 
+    >>> import tempfile
     >>> from pathlib import Path
-    >>> manifest_path = Path("Cargo.toml")
+    >>> workspace = Path(tempfile.mkdtemp())
+    >>> _ = (workspace / "Cargo.toml").write_text(
+    ...     '[workspace]\nmembers = ["crates/member"]\n'
+    ...     '[workspace.package]\nversion = "2.0.0"\n'
+    ... )
+    >>> member = workspace / "crates" / "member"
+    >>> member.mkdir(parents=True)
+    >>> manifest_path = member / "Cargo.toml"
+    >>> _ = manifest_path.write_text(
+    ...     '[package]\nname = "my-package"\nversion = "1.2.3"\n'
+    ...     '[[bin]]\nname = "my-binary"\n'
+    ... )
+
+Reading the package name and version::
+
     >>> manifest = read_manifest(manifest_path)
     >>> get_package_field(manifest, "name", manifest_path)
     'my-package'
     >>> get_package_field(manifest, "version", manifest_path)
     '1.2.3'
 
-Extracting the binary name with [[bin]] fallback::
+Extracting the binary name from the ``[[bin]]`` table::
 
-    >>> bin_name = get_bin_name(manifest, manifest_path)
-    >>> bin_name
+    >>> get_bin_name(manifest, manifest_path)
     'my-binary'
 
 Resolving workspace-inherited versions::
 
-    >>> root = find_workspace_root(Path("crates/member"))
-    >>> if root:
-    ...     version = get_workspace_version(root)
-    ...     print(f"Workspace version: {version}")
-    Workspace version: 2.0.0
+    >>> root = find_workspace_root(member)
+    >>> get_workspace_version(root)
+    '2.0.0'
 """
 
 from __future__ import annotations
@@ -58,9 +72,10 @@ class ManifestError(Exception):
 
     Examples
     --------
+    >>> from pathlib import Path
     >>> raise ManifestError(Path("Cargo.toml"), "Missing [package] table")
     Traceback (most recent call last):
-    ManifestError: Missing [package] table
+    cargo_utils.ManifestError: Missing [package] table
     """
 
     def __init__(self, path: Path, message: str) -> None:
@@ -69,7 +84,7 @@ class ManifestError(Exception):
 
 
 def read_manifest(path: Path) -> dict[str, typ.Any]:
-    """Load and parse a Cargo.toml manifest file.
+    r"""Load and parse a Cargo.toml manifest file.
 
     Parameters
     ----------
@@ -88,10 +103,19 @@ def read_manifest(path: Path) -> dict[str, typ.Any]:
 
     Examples
     --------
+    >>> import tempfile
     >>> from pathlib import Path
-    >>> manifest = read_manifest(Path("Cargo.toml"))
+    >>> path = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> _ = path.write_text('[package]\nname = "pkg"\nversion = "1.0.0"\n')
+    >>> manifest = read_manifest(path)
     >>> "package" in manifest
     True
+
+    A missing file is an error rather than an empty manifest::
+
+    >>> read_manifest(Path(tempfile.mkdtemp()) / "Cargo.toml")
+    Traceback (most recent call last):
+    cargo_utils.ManifestError: Manifest not found: ...
     """
     if not path.is_file():
         msg = f"Manifest not found: {path}"
@@ -213,7 +237,7 @@ def get_bin_name(manifest: dict[str, typ.Any], manifest_path: Path) -> str:
 
 
 def find_workspace_root(start_dir: Path) -> Path | None:
-    """Locate the nearest ancestor Cargo.toml that declares a workspace.
+    r"""Locate the nearest ancestor Cargo.toml that declares a workspace.
 
     Searches upward from ``start_dir`` for a ``Cargo.toml`` containing
     a ``[workspace]`` table.
@@ -230,9 +254,19 @@ def find_workspace_root(start_dir: Path) -> Path | None:
 
     Examples
     --------
-    >>> root = find_workspace_root(Path("crates/member"))
-    >>> root
-    PosixPath('/project/Cargo.toml')
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> workspace = Path(tempfile.mkdtemp())
+    >>> _ = (workspace / "Cargo.toml").write_text('[workspace]\n')
+    >>> member = workspace / "crates" / "member"
+    >>> member.mkdir(parents=True)
+    >>> find_workspace_root(member) == (workspace / "Cargo.toml").resolve()
+    True
+
+    A directory outside any workspace resolves to nothing::
+
+    >>> find_workspace_root(Path(tempfile.mkdtemp())) is None
+    True
     """
     directory = start_dir.resolve()
     while True:
@@ -251,7 +285,7 @@ def find_workspace_root(start_dir: Path) -> Path | None:
 
 
 def get_workspace_version(root_manifest: Path) -> str | None:
-    """Read the version from [workspace.package] in a workspace manifest.
+    r"""Read the version from [workspace.package] in a workspace manifest.
 
     Parameters
     ----------
@@ -265,9 +299,19 @@ def get_workspace_version(root_manifest: Path) -> str | None:
 
     Examples
     --------
-    >>> version = get_workspace_version(Path("Cargo.toml"))
-    >>> version
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> root = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> _ = root.write_text('[workspace.package]\nversion = "2.0.0"\n')
+    >>> get_workspace_version(root)
     '2.0.0'
+
+    A root that declares no workspace version resolves to nothing::
+
+    >>> bare = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> _ = bare.write_text('[workspace]\n')
+    >>> get_workspace_version(bare) is None
+    True
     """
     try:
         with root_manifest.open("rb") as handle:
@@ -328,7 +372,7 @@ def resolve_version(
     manifest: dict[str, typ.Any],
     manifest_path: Path,
 ) -> str:
-    """Resolve the package version, handling workspace inheritance.
+    r"""Resolve the package version, handling workspace inheritance.
 
     If ``[package].version`` is set to ``{ workspace = true }``, searches
     for the workspace root and reads the version from there.
@@ -354,14 +398,23 @@ def resolve_version(
     --------
     Direct version::
 
+        >>> from pathlib import Path
         >>> manifest = {"package": {"name": "pkg", "version": "1.0.0"}}
         >>> resolve_version(manifest, Path("Cargo.toml"))
         '1.0.0'
 
-    Workspace-inherited version::
+    Workspace-inherited version, which is read from the workspace root the
+    member sits under, so the member has to be on disk::
 
+        >>> import tempfile
+        >>> workspace = Path(tempfile.mkdtemp())
+        >>> _ = (workspace / "Cargo.toml").write_text(
+        ...     '[workspace]\n[workspace.package]\nversion = "2.0.0"\n'
+        ... )
+        >>> member = workspace / "crates" / "member"
+        >>> member.mkdir(parents=True)
         >>> manifest = {"package": {"name": "pkg", "version": {"workspace": True}}}
-        >>> resolve_version(manifest, Path("crates/member/Cargo.toml"))
+        >>> resolve_version(manifest, member / "Cargo.toml")
         '2.0.0'
     """
     package = _require_package_table(manifest, manifest_path)

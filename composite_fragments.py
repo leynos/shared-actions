@@ -358,17 +358,14 @@ def run_lifecycle(
     --------
     >>> import tempfile
     >>> from pathlib import Path
-    >>> workspace = Path(tempfile.mkdtemp())
+    >>> scratch = tempfile.TemporaryDirectory()
+    >>> workspace = Path(scratch.name)
     >>> context = ActionContext(
-    ...     inputs={},
-    ...     runner_os="Linux",
-    ...     runner_arch="X64",
+    ...     inputs={}, runner_os="Linux", runner_arch="X64",
     ...     action_path=str(workspace),
     ... )
     >>> environment = FragmentEnvironment(
-    ...     base_env={},
-    ...     cwd=workspace,
-    ...     output_dir=workspace / "outputs",
+    ...     base_env={}, cwd=workspace, output_dir=workspace / "outputs"
     ... )
     >>> steps = [
     ...     {"name": "probe", "run": "true"},
@@ -381,9 +378,11 @@ def run_lifecycle(
     ('probe', 'install', 'report')
     >>> result.returncode
     1
+    >>> scratch.cleanup()
 
     ``verify`` is skipped because its absent condition implies ``success()``,
-    and ``report`` runs because it asked for the opposite.
+    and ``report`` runs because it asked for the opposite. The steps wrote
+    into a real directory, and the last line takes it away again.
     """
     results: list[StepResult] = []
     for index, step in enumerate(steps):

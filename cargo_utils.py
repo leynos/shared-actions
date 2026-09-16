@@ -13,7 +13,8 @@ otherwise could not be checked against the code it describes.
 
     >>> import tempfile
     >>> from pathlib import Path
-    >>> workspace = Path(tempfile.mkdtemp())
+    >>> scratch = tempfile.TemporaryDirectory()
+    >>> workspace = Path(scratch.name)
     >>> _ = (workspace / "Cargo.toml").write_text(
     ...     '[workspace]\nmembers = ["crates/member"]\n'
     ...     '[workspace.package]\nversion = "2.0.0"\n'
@@ -44,6 +45,12 @@ Resolving workspace-inherited versions::
     >>> root = find_workspace_root(member)
     >>> get_workspace_version(root)
     '2.0.0'
+
+The workspace was real, so it is removed when the narrative ends. Every
+example here owns its directory and takes it away again; a
+``tempfile.mkdtemp`` would leave one behind on every run of the gate::
+
+    >>> scratch.cleanup()
 """
 
 from __future__ import annotations
@@ -105,7 +112,8 @@ def read_manifest(path: Path) -> dict[str, typ.Any]:
     --------
     >>> import tempfile
     >>> from pathlib import Path
-    >>> path = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> scratch = tempfile.TemporaryDirectory()
+    >>> path = Path(scratch.name) / "Cargo.toml"
     >>> _ = path.write_text('[package]\nname = "pkg"\nversion = "1.0.0"\n')
     >>> manifest = read_manifest(path)
     >>> "package" in manifest
@@ -113,9 +121,10 @@ def read_manifest(path: Path) -> dict[str, typ.Any]:
 
     A missing file is an error rather than an empty manifest::
 
-    >>> read_manifest(Path(tempfile.mkdtemp()) / "Cargo.toml")
+    >>> read_manifest(Path(scratch.name) / "elsewhere" / "Cargo.toml")
     Traceback (most recent call last):
     cargo_utils.ManifestError: Manifest not found: ...
+    >>> scratch.cleanup()
     """
     if not path.is_file():
         msg = f"Manifest not found: {path}"
@@ -256,17 +265,22 @@ def find_workspace_root(start_dir: Path) -> Path | None:
     --------
     >>> import tempfile
     >>> from pathlib import Path
-    >>> workspace = Path(tempfile.mkdtemp())
+    >>> scratch = tempfile.TemporaryDirectory()
+    >>> workspace = Path(scratch.name) / "workspace"
+    >>> (workspace / "crates" / "member").mkdir(parents=True)
     >>> _ = (workspace / "Cargo.toml").write_text('[workspace]\n')
     >>> member = workspace / "crates" / "member"
-    >>> member.mkdir(parents=True)
     >>> find_workspace_root(member) == (workspace / "Cargo.toml").resolve()
     True
 
-    A directory outside any workspace resolves to nothing::
+    A directory outside any workspace resolves to nothing. It has to sit
+    outside the one above, so it is a sibling rather than a child::
 
-    >>> find_workspace_root(Path(tempfile.mkdtemp())) is None
+    >>> outside = Path(scratch.name) / "outside"
+    >>> outside.mkdir()
+    >>> find_workspace_root(outside) is None
     True
+    >>> scratch.cleanup()
     """
     directory = start_dir.resolve()
     while True:
@@ -301,17 +315,21 @@ def get_workspace_version(root_manifest: Path) -> str | None:
     --------
     >>> import tempfile
     >>> from pathlib import Path
-    >>> root = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> scratch = tempfile.TemporaryDirectory()
+    >>> root = Path(scratch.name) / "Cargo.toml"
     >>> _ = root.write_text('[workspace.package]\nversion = "2.0.0"\n')
     >>> get_workspace_version(root)
     '2.0.0'
 
     A root that declares no workspace version resolves to nothing::
 
-    >>> bare = Path(tempfile.mkdtemp()) / "Cargo.toml"
+    >>> bare_root = Path(scratch.name) / "bare"
+    >>> bare_root.mkdir()
+    >>> bare = bare_root / "Cargo.toml"
     >>> _ = bare.write_text('[workspace]\n')
     >>> get_workspace_version(bare) is None
     True
+    >>> scratch.cleanup()
     """
     try:
         with root_manifest.open("rb") as handle:
@@ -407,7 +425,8 @@ def resolve_version(
     member sits under, so the member has to be on disk::
 
         >>> import tempfile
-        >>> workspace = Path(tempfile.mkdtemp())
+        >>> scratch = tempfile.TemporaryDirectory()
+        >>> workspace = Path(scratch.name)
         >>> _ = (workspace / "Cargo.toml").write_text(
         ...     '[workspace]\n[workspace.package]\nversion = "2.0.0"\n'
         ... )
@@ -416,6 +435,7 @@ def resolve_version(
         >>> manifest = {"package": {"name": "pkg", "version": {"workspace": True}}}
         >>> resolve_version(manifest, member / "Cargo.toml")
         '2.0.0'
+        >>> scratch.cleanup()
     """
     package = _require_package_table(manifest, manifest_path)
     version = package.get("version")

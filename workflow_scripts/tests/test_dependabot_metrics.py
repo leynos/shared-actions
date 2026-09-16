@@ -185,59 +185,63 @@ def _metric_values(captured: str) -> list[str]:
     return [line.split("=", 1)[1] for line in _metric_lines(captured)]
 
 
-@pytest.mark.parametrize(
-    ("branch", "forbidden"),
-    [
-        pytest.param(
-            CLEAN,
-            (TEST_TOKEN, REPO, "acme", str(PR_NUMBER)),
-            id="arming",
-        ),
-        pytest.param(
-            FOREIGN_AND_ARMED,
-            (TEST_TOKEN, REPO, "someone-else", "dependabot"),
-            id="withdrawing",
-        ),
-    ],
-)
-def test_no_metric_value_carries_a_secret_or_an_unbounded_label(
-    branch: Branch,
-    forbidden: tuple[str, ...],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A metric is a label, not a log line.
+class TestNoMetricValueLeaks:
+    """A metric value is a bounded label, never a log line."""
 
-    A token in a workflow log is a leak, and a repository name, a pull
-    request number or a commit author as a value is an unbounded series:
-    every run becomes its own, and the rate that matters is countable in
-    none of them. Both are easy to add by accident and neither is
-    visible in the value a test happens to assert, so every emitted line
-    is read rather than the ones a test names.
+    @pytest.mark.parametrize(
+        ("branch", "forbidden"),
+        [
+            pytest.param(
+                CLEAN,
+                (TEST_TOKEN, REPO, "acme", str(PR_NUMBER)),
+                id="arming",
+            ),
+            pytest.param(
+                FOREIGN_AND_ARMED,
+                (TEST_TOKEN, REPO, "someone-else", "dependabot"),
+                id="withdrawing",
+            ),
+        ],
+    )
+    def test_no_metric_value_carries_a_secret_or_an_unbounded_label(
+        self,
+        branch: Branch,
+        forbidden: tuple[str, ...],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A metric is a label, not a log line.
 
-    Both paths are covered because they carry different material. The
-    refusing run has a commit author in hand and the arming run does
-    not, and the run that refuses is the one under most pressure to say
-    why in the metric.
+        A token in a workflow log is a leak, and a repository name, a pull
+        request number or a commit author as a value is an unbounded series:
+        every run becomes its own, and the rate that matters is countable in
+        none of them. Both are easy to add by accident and neither is
+        visible in the value a test happens to assert, so every emitted line
+        is read rather than the ones a test names.
 
-    Parameters
-    ----------
-    branch : Branch
-        The pull request GitHub appears to hold.
-    forbidden : tuple[str, ...]
-        What must not appear in any metric value.
-    capsys : pytest.CaptureFixture[str]
-        Captured output.
-    """
-    handler, _calls = build_graphql(branch)
+        Both paths are covered because they carry different material. The
+        refusing run has a commit author in hand and the arming run does
+        not, and the run that refuses is the one under most pressure to say
+        why in the metric.
 
-    dependabot_automerge._handle_live_execution(_context(), run=_run(handler))
+        Parameters
+        ----------
+        branch : Branch
+            The pull request GitHub appears to hold.
+        forbidden : tuple[str, ...]
+            What must not appear in any metric value.
+        capsys : pytest.CaptureFixture[str]
+            Captured output.
+        """
+        handler, _calls = build_graphql(branch)
 
-    captured = capsys.readouterr().out
-    values = _metric_values(captured)
-    assert values, "the run reported no metric at all"
-    for value in values:
-        for secret in forbidden:
-            assert secret not in value, (
-                f"the metric value {value!r} carries {secret!r}, which is "
-                "either a secret or an unbounded label"
-            )
+        dependabot_automerge._handle_live_execution(_context(), run=_run(handler))
+
+        captured = capsys.readouterr().out
+        values = _metric_values(captured)
+        assert values, "the run reported no metric at all"
+        for value in values:
+            for secret in forbidden:
+                assert secret not in value, (
+                    f"the metric value {value!r} carries {secret!r}, which is "
+                    "either a secret or an unbounded label"
+                )

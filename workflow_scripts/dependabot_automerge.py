@@ -35,10 +35,13 @@ otherwise be merged unattended. Every commit is therefore audited.
 The commit connection is paged to the end rather than read once: a
 connection read to its page size looks complete, and a foreign commit
 past that limit would be certified as Dependabot's. A branch longer
-than the page cap, a page carrying no commit list, or an author list
-the connection could not account for is reported unreadable rather than
-clean, because the check exists to certify the branch and a partial
-read certifies nothing.
+than the page cap, or a page carrying no commit list, is reported
+unreadable rather than clean, because the check exists to certify the
+branch and a partial read certifies nothing. An author list the
+connection could not account for is reported foreign instead: the audit
+reached that commit, so the incomplete credit is a fact about the
+commit rather than a gap in the branch read, and
+``dependabot_commit_audit`` fails closed on it.
 
 A foreign commit does more than withhold a merge. Auto-merge already
 armed on the pull request is withdrawn, since arming it was a decision

@@ -52,7 +52,6 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 prepend_to_syspath(SRC_DIR)
 
 runtime_module = importlib.import_module("runtime")
-detect_host_target = runtime_module.detect_host_target
 runtime_available = runtime_module.runtime_available
 
 _packaging_utils = _import_packaging_utils()
@@ -76,7 +75,7 @@ WINDOWS_KNOWN_FAILURE = pytest.mark.xfail(
 )
 
 
-HOST_TARGET = detect_host_target()
+HOST_TARGET = runtime_module.DEFAULT_HOST_TARGET
 
 _targets: list[str] = [HOST_TARGET]
 

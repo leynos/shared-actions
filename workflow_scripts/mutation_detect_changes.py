@@ -330,12 +330,9 @@ def full_run_matrix(config: DetectionConfig) -> list[MatrixEntry]:
     return entries
 
 
-def scoped_run_matrix(
-    buckets: dict[str, list[str]], config: DetectionConfig
-) -> list[MatrixEntry]:
+def scoped_run_matrix(buckets: dict[str, list[str]]) -> list[MatrixEntry]:
     """Build the single-shard matrix for a scoped (scheduled) run."""
     ordered = sorted(buckets.items(), key=lambda item: (item[0] != ".", item[0]))
-    del config  # scoped runs never shard; kept for signature symmetry
     return [
         MatrixEntry(
             dir=target_dir,
@@ -417,7 +414,7 @@ def detect(event_name: str, config: DetectionConfig) -> Detection:
     # baseline, enumerate nothing, and now fail for it.
     buckets = bucket_files(mutable, config)
     return Detection(
-        scoped_run_matrix(buckets, config),
+        scoped_run_matrix(buckets),
         buckets,
         nothing_to_mutate=bool(changed) and not mutable,
     )

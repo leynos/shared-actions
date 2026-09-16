@@ -288,7 +288,8 @@ def _parse_pytest_workers(raw: str | None) -> str:
     """Parse and validate the pytest-workers value; raise ValueError on bad input.
 
     This function is pure: it performs no I/O and has no side-effects.
-    Callers that need CLI error handling should use _normalize_pytest_workers.
+    Callers that need CLI error handling should convert ``ValueError`` into
+    their preferred command-line diagnostic.
     """
     if raw is None:
         return ""
@@ -310,21 +311,6 @@ def _parse_pytest_workers(raw: str | None) -> str:
         '"auto", "logical", or "" to disable parallelism.'
     )
     raise ValueError(message)
-
-
-def _normalize_pytest_workers(raw: str | None) -> str:
-    """Validate and normalize the pytest-workers value, exiting on invalid input.
-
-    Delegates pure validation to _parse_pytest_workers.  Any ValueError
-    raised there is converted into a CLI error message on stderr and
-    typer.Exit with code 2 — making this function's side-effects explicit
-    by design.
-    """
-    try:
-        return _parse_pytest_workers(raw)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(2) from exc
 
 
 def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:

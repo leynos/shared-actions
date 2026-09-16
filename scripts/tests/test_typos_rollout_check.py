@@ -1,13 +1,15 @@
 """Test exact phrase-policy enforcement."""
 
 import importlib
-from pathlib import Path
 import subprocess
+import tomllib
 import types
+from pathlib import Path
 
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = SCRIPTS.parent
 PROHIBITED = "hand" + "-written"
 TITLE_PROHIBITED = "Hand" + "-written"
 
@@ -73,6 +75,15 @@ class TestPhrasePolicyChecker:
         (tmp_path / ".typos-oxendict-base.toml").unlink()
         with pytest.raises(FileNotFoundError, match=r"docs/developers-guide\.md"):
             checker.load_policy(tmp_path)
+
+    def test_committed_policy_preserves_inline_code_exemption(self) -> None:
+        """Load the committed local policy rather than recreating its pattern."""
+        with (REPOSITORY_ROOT / "typos.toml").open("rb") as policy_file:
+            policy = tomllib.load(policy_file)
+
+        assert r"`[^`\n]+`" in policy["default"]["extend-ignore-re"], (
+            "the committed spelling policy must preserve its inline-code exemption"
+        )
 
     def test_checker_preserves_boundaries_masking_and_exclusions(
         self, checker: types.ModuleType, tmp_path: Path

@@ -113,6 +113,62 @@ FORK_SKIP_GUARD: typ.Final[str] = (
     "github.event.pull_request.head.repo.full_name == github.repository"
 )
 
+
+#: The one disjunct that may sit beside the guard. A workflow serving a
+#: dispatch as well as a pull request has to let the dispatch through,
+#: and a dispatch runs on the base repository, so there is no fork to
+#: keep out on that arm. Written out exactly rather than matched loosely,
+#: because this is the single escape the rule allows and a near miss
+#: should fail rather than be accepted as close enough.
+FORK_GUARD_EVENT_ESCAPE: typ.Final[str] = "github.event_name != 'pull_request'"
+
+
+def _strip_expression_wrapper(condition: str) -> str:
+    """Return *condition* without its `${{ }}` wrapper and extra spacing.
+
+    A job condition may carry the wrapper or omit it, and the two mean
+    the same thing to GitHub.
+    """
+    text = " ".join(condition.split())
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2].strip()
+    return text
+
+
+def _disjunct_skips_forks(disjunct: str) -> bool:
+    """Return True when one arm of a condition cannot admit a fork.
+
+    Either it requires the head-repository comparison, or it is the
+    dispatch escape, which no fork reaches.
+    """
+    operands = [operand.strip(" ()") for operand in disjunct.split("&&")]
+    operands = [operand for operand in operands if operand]
+    if FORK_SKIP_GUARD in operands:
+        return True
+    return operands == [FORK_GUARD_EVENT_ESCAPE]
+
+
+def _skips_forks(condition: str) -> bool:
+    """Return True when *condition* genuinely keeps a fork's run away.
+
+    Containing the comparison is not enough, which is what the substring
+    check that preceded this helper tested. `true || <guard>` holds the
+    comparison and runs on every fork, because the arm beside it is
+    always taken.
+
+    So every arm of the condition has to be unreachable by a fork, not
+    just one of them. An arm qualifies by requiring the comparison, or
+    by being the dispatch escape. A condition with no arms, which is an
+    absent `if`, qualifies as nothing: an unguarded job is the default
+    this rule exists to refuse.
+    """
+    text = _strip_expression_wrapper(condition)
+    disjuncts = [disjunct for disjunct in text.split("||") if disjunct.strip()]
+    if not disjuncts:
+        return False
+    return all(_disjunct_skips_forks(disjunct) for disjunct in disjuncts)
+
+
 #: Job ceilings by tier, in minutes, with the measurement each was sized
 #: against recorded in the developers' guide.
 TIMEOUT_TIERS: typ.Final[cabc.Mapping[str, int]] = {
@@ -515,11 +571,60 @@ def test_a_fork_skipping_lane_really_skips_forks(workflow: str, job_id: str) -> 
     """
     job = dict(_jobs(workflow))[job_id]
     condition = " ".join(str(job.get("if", "")).split())
-    assert FORK_SKIP_GUARD in condition, (
+    assert _skips_forks(condition), (
         f"{_identifier(workflow, job_id)} is excused the fork fallback "
-        "because it skips forks, but its condition does not compare the head "
-        f"repository: {condition!r}"
+        "because it skips forks, but its condition does not effectively "
+        "compare the head repository. Every arm of the condition must "
+        "either require the comparison or be the dispatch escape "
+        f"{FORK_GUARD_EVENT_ESCAPE!r}, because an unguarded arm beside the "
+        f"comparison lets a fork through: {condition!r}"
     )
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        pytest.param(FORK_SKIP_GUARD, True, id="bare"),
+        pytest.param("${{ " + FORK_SKIP_GUARD + " }}", True, id="wrapped"),
+        pytest.param(
+            f"github.event_name == 'push' && {FORK_SKIP_GUARD}",
+            True,
+            id="conjunction",
+        ),
+        pytest.param(
+            f"{FORK_GUARD_EVENT_ESCAPE} || {FORK_SKIP_GUARD}",
+            True,
+            id="dispatch-escape-beside-the-guard",
+        ),
+        pytest.param(f"true || {FORK_SKIP_GUARD}", False, id="always-true-disjunction"),
+        pytest.param(
+            f"{FORK_SKIP_GUARD} || github.event_name == 'push'",
+            False,
+            id="unguarded-arm-beside-the-guard",
+        ),
+        pytest.param(
+            f"{FORK_GUARD_EVENT_ESCAPE} || true",
+            False,
+            id="escape-beside-an-unguarded-arm",
+        ),
+        pytest.param("github.event_name == 'push'", False, id="no-guard"),
+        pytest.param("", False, id="empty"),
+    ],
+)
+def test_the_fork_guard_is_judged_by_effect_not_by_substring(
+    condition: str,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """A guard inside a disjunction does not by itself skip forks.
+
+    `true || <guard>` contains the comparison and runs on every fork, so
+    a substring check calls it guarded and it is not. That is the
+    mutation that defeated the previous assertion. The narrow direction
+    matters just as much: this repository's own exempt lane writes
+    `<dispatch escape> || <guard>`, which is correct, and a rule that
+    refused every disjunction would reject it.
+    """
+    assert _skips_forks(condition) is expected
 
 
 @pytest.mark.parametrize(

@@ -50,6 +50,8 @@ ignore = [
   '(?m)^          \(e\.g\. installing a linker such as mold, or system packages$',
   '(?m)^          CARGO_TERM_COLOR: always$',
   '(?m)^    assert decode_stream\(b"caf\\xc3\\xa9"\) == "café"$',
+  # Inline code spans are masked; the shared dictionary does not mask them yet.
+  '`[^`\n]+`',
 ]
 
 [files]

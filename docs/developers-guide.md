@@ -7,18 +7,19 @@ assumptions, and Makefile tool-resolution strategy.
 
 ## Spelling policy
 
-Run `make spelling` to enforce en-GB-oxendict spelling. The dictionary-based
-Typos scan checks tracked Markdown, while the phrase-correction check covers
-the whole tracked repository, including Python, PowerShell, Rust and workflow
-files. The generated and tracked `typos.toml` starts from the shared Oxford
-dictionary. Its builder refreshes the untracked `.typos-oxendict-base.toml`
-cache and metadata only when the shared dictionary is newer, so the last
-fetched base remains usable in a network-restricted checkout.
+Run `make spelling` to enforce en-GB-oxendict spelling. The gate regenerates
+`typos.toml` from the live shared dictionary and the `typos.local.toml`
+overlay, scans tracked Markdown with the pinned Typos release, and applies the
+shared phrase corrections that Typos cannot express. Because the dictionary is
+live, `typos.toml` must never be drift checked in continuous integration.
+
+The builder refreshes the untracked `.typos-oxendict-base.toml` cache and its
+metadata only when the shared dictionary is newer, so the last fetched base
+remains usable in a network-restricted checkout.
 
 Keep repository-specific identifiers and deliberate quotations in
-`typos.local.toml`. Run `make spelling-config-write` to regenerate the tracked
-configuration and `make spelling-config` to verify it. Never edit generated
-entries by hand.
+`typos.local.toml`. Never edit generated entries by hand; add narrow
+repository-specific entries to the overlay instead.
 
 ## Architecture Decision Records
 

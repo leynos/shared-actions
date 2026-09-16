@@ -76,6 +76,26 @@
   the CLI version; the CLI cache participates only when a version is pinned, so
   `latest` always fetches a fresh copy.
 
+## Unreleased (CLI pin)
+
+- Pin the CodeScene Coverage CLI to build
+  `ce87259e704bde6038d1a6904ce4dbf56359e5ee` (release 1.0.103) and verify the
+  installer script against SHA-256
+  `ec9279ce87b523b6e958a8d551283484c391d3de9f5dd2ba2b4f784ecf19b1e4`. CodeScene
+  publishes the CLI only as `latest` and under each build's commit SHA, and
+  rewrites the installer script in place, so an unverified `latest` install
+  changed the coverage gate's verdict across the estate with no commit
+  anywhere: on 2026-09-16 a release stopped parsing Cobertura reports and
+  failed every changed-line gate with
+  `No matching field found: close for class java.io.InputStreamReader`.
+- Fall back to the pinned digest when `installer-checksum` is empty.
+  Consumers pass that input from a repository variable that is usually unset,
+  so an empty value used to switch verification off entirely.
+- Refuse to install when no digest is available from either source.
+- Drop the CLI cache's restore-keys and key the cache on the resolved
+  build. A prefix restore could return a different build and silently defeat
+  the pin.
+
 ## Unreleased (check mode)
 
 - Skip the changed-line coverage gate with a warning when a pull request

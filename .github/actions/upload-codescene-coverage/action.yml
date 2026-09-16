@@ -14,15 +14,18 @@ inputs:
     description: CodeScene project access token
     required: true
   installer-checksum:
-    description: SHA-256 checksum of the installer script
+    description: >-
+      SHA-256 checksum of the installer script. Leave unset to use the
+      digest pinned by this action; set it only to move ahead of that pin.
     required: false
   cli-version:
     description: >-
-      cs-coverage CLI version to install (e.g. "2.1.0"). Defaults to
-      "latest", which skips the CLI cache so a fresh copy is always
-      fetched; pin a version to enable caching.
+      cs-coverage CLI build to install. CodeScene publishes the CLI only
+      as "latest" and under each build's commit SHA; release numbers such
+      as "1.0.103" are not downloadable. Leave unset to use the build
+      pinned by this action, which is cached; "latest" floats and skips
+      the cache.
     required: false
-    default: latest
   mode:
     description: >-
       "upload" sends coverage for an analysed branch (CodeScene accepts
@@ -103,25 +106,43 @@ runs:
         echo "path=$file" >> "$GITHUB_OUTPUT"
       shell: bash
 
-    # The installer no longer embeds a version literal; it takes the
-    # version as its first positional argument (defaulting to "latest"),
-    # so the version comes from the cli-version input rather than being
-    # extracted from the script.
+    # The installer takes the build to install as its first positional
+    # argument and serves that argument straight into the artefact URL.
+    # CodeScene publishes only "latest" and per-build commit SHAs there,
+    # so PINNED_CLI_VERSION is a build SHA: it names one immutable
+    # artefact, where "latest" changes under the whole estate without a
+    # commit. PINNED_INSTALLER_SHA256 is the installer script's digest at
+    # that pin. Both are overridable, and an empty override falls back to
+    # the pin rather than switching verification off.
     - name: Download installer
       id: installer
       if: steps.gate-applicability.outputs.skip != 'true'
       env:
         CLI_VERSION: ${{ inputs.cli-version }}
+        PINNED_CLI_VERSION: ce87259e704bde6038d1a6904ce4dbf56359e5ee
+        PINNED_INSTALLER_SHA256: ec9279ce87b523b6e958a8d551283484c391d3de9f5dd2ba2b4f784ecf19b1e4
       run: |
+        version="${CLI_VERSION:-$PINNED_CLI_VERSION}"
+        expected="${CODESCENE_CLI_SHA256:-$PINNED_INSTALLER_SHA256}"
+        if [ -z "$expected" ]; then
+          echo "No SHA-256 to verify the CodeScene installer against" >&2
+          exit 1
+        fi
         script=$(mktemp)
         curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
-        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-          echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
+        if ! echo "${expected}  $script" | sha256sum -c -; then
+          printf '%s\n' \
+            "The CodeScene installer script does not match SHA-256 ${expected}. CodeScene publishes no versioned installer, so the script changes in place; review the new script, then update the pin in this action or pass installer-checksum." >&2
+          exit 1
         fi
-        major_minor=${CLI_VERSION%.*}
+        if [ "$version" = "latest" ]; then
+          cacheable=false
+        else
+          cacheable=true
+        fi
         echo "script=$script" >> "$GITHUB_OUTPUT"
-        echo "version=${CLI_VERSION}" >> "$GITHUB_OUTPUT"
-        echo "major_minor=${major_minor}" >> "$GITHUB_OUTPUT"
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
+        echo "cacheable=${cacheable}" >> "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Upload coverage GitHub artefact
@@ -131,20 +152,20 @@ runs:
         name: coverage
         path: ${{ steps.cov-file.outputs.path }}
 
-    # Caching a "latest" binary would pin whatever version was first
-    # cached, so the cache only participates when a version is pinned.
+    # Caching a "latest" binary would pin whatever build was cached
+    # first, so the cache only participates when a build is pinned. The
+    # key is exact and carries no restore-keys: a prefix restore would
+    # hand back a different build and silently defeat the pin.
     - name: Cache CodeScene Coverage CLI
       id: cs-cache
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        inputs.cli-version != 'latest'
+        steps.installer.outputs.cacheable == 'true'
       # v6.1.0
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.local/bin/cs-coverage
         key: cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.version }}
-        restore-keys: |
-          cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.major_minor }}
 
     - name: Install CodeScene Coverage CLI
       if: >-
@@ -152,7 +173,7 @@ runs:
         env.CS_ACCESS_TOKEN != '' &&
         steps.cs-cache.outputs.cache-hit != 'true'
       env:
-        CLI_VERSION: ${{ inputs.cli-version }}
+        CLI_VERSION: ${{ steps.installer.outputs.version }}
       run: |
         script="${{ steps.installer.outputs.script }}"
         bash "$script" -y "${CLI_VERSION}"

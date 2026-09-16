@@ -1,0 +1,60 @@
+name: Test coverage watchdog
+
+# What only a runner can prove about generate-coverage's cargo watchdog:
+# that an overrunning cargo is actually terminated, that the step then
+# fails rather than passing with the work unfinished, that the log
+# written before the watchdog fired survives, and that a budget which is
+# not a positive number is refused before cargo starts.
+#
+# Proved here rather than in each consumer. A consumer lane that
+# deliberately overruns its own job ceiling proves GitHub's cancellation
+# and not the value we chose; it passes identically whether that ceiling
+# is right or wrong, and it costs runner minutes on every pull request to
+# say so. Twelve repositories would otherwise each be asked for the same
+# lane and none of them owns the watchdog. See issue #485.
+#
+# Unfiltered on pull_request on purpose. A paths filter would leave the
+# watchdog unproved on the pull request that breaks it from somewhere
+# else, and a lane that reports on some pull requests and not others
+# cannot become a required check. It costs seconds: a fake cargo on PATH
+# and no toolchain.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terminates-an-overrunning-cargo:
+    timeout-minutes: 10
+    # A pull request from a fork cannot obtain an Ubicloud runner, so
+    # those fall back to a GitHub-hosted one. The continuation stays at
+    # this indent: a deeper one keeps its line break in a folded scalar
+    # and puts a newline inside the expression, which GitHub evaluates
+    # regardless, so a green run is not evidence that it parsed as one
+    # line. The workflow contract reads the raw value and refuses one
+    # carrying a break.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    steps:
+      - name: Checkout repository
+        # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          python-version: '3.13'
+      - name: Prove the cargo watchdog
+        shell: bash
+        run: >-
+          uv run --script workflow_scripts/prove_cargo_watchdog.py
+          --runner .github/actions/generate-coverage/scripts/run_rust.py

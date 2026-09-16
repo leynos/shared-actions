@@ -213,4 +213,7 @@ def test_an_indented_make_still_runs_the_suite(
     are: consuming leading whitespace must not turn an indented
     `make lint` or a `remake` into a suite run.
     """
-    assert bool(_make_runs_the_suite(script)) is expected
+    assert bool(_make_runs_the_suite(script)) is expected, (
+        f"{script!r} should {'' if expected else 'not '}be read as running the "
+        f"suite; the targets that do are {sorted(SUITE_MAKE_TARGETS)}"
+    )

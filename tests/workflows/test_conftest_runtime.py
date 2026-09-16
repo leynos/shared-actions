@@ -24,7 +24,10 @@ class TestExecutableDetection:
 
     def test_command_available_accepts_absolute_executable(self) -> None:
         """Absolute executable paths are reported as available."""
-        assert conftest._command_available(sys.executable)
+        assert conftest._command_available(sys.executable), (
+            f"the running interpreter {sys.executable!r} is an absolute path to "
+            "an executable file and must be reported as available"
+        )
 
     def test_command_available_rejects_non_executable_file(
         self, tmp_path: Path
@@ -33,7 +36,10 @@ class TestExecutableDetection:
         path = tmp_path / "not-executable"
         path.write_text("#!/bin/sh\n", encoding="utf-8")
 
-        assert not conftest._command_available(str(path))
+        assert not conftest._command_available(str(path)), (
+            f"{path} has no execute permission, so it must not be reported as "
+            "a runnable command"
+        )
 
     @pytest.mark.parametrize(
         ("name", "expected"),
@@ -60,7 +66,12 @@ class TestExecutableDetection:
         path.write_text("#!/bin/sh\n", encoding="utf-8")
         path.chmod(0o600)
 
-        assert conftest._is_executable_file(path, on_windows=True) is expected
+        assert conftest._is_executable_file(path, on_windows=True) is expected, (
+            f"on Windows, {name!r} carries the suffix "
+            f"{path.suffix.lower()!r}, so it should "
+            f"{'be' if expected else 'not be'} treated as executable; PATHEXT "
+            f"here is {sorted(conftest._windows_executable_suffixes())}"
+        )
 
     def test_is_executable_file_rejects_a_directory_on_windows(
         self, tmp_path: Path
@@ -69,7 +80,10 @@ class TestExecutableDetection:
         directory = tmp_path / "tool.exe"
         directory.mkdir()
 
-        assert not conftest._is_executable_file(directory, on_windows=True)
+        assert not conftest._is_executable_file(directory, on_windows=True), (
+            f"{directory} is a directory, not a file, so its .exe suffix must "
+            "not make it a command"
+        )
 
     def test_windows_executable_suffixes_reads_the_environment(self) -> None:
         """PATHEXT is split on the path separator and lower-cased."""
@@ -77,18 +91,25 @@ class TestExecutableDetection:
             {"PATHEXT": ".EXE;.Cmd;; "},
         )
 
-        assert suffixes == frozenset({".exe", ".cmd"})
+        assert suffixes == frozenset({".exe", ".cmd"}), (
+            f"PATHEXT '.EXE;.Cmd;; ' should lower-case, drop the empty entry "
+            f"and drop the blank one, giving {{'.exe', '.cmd'}}, got {suffixes}"
+        )
 
     def test_windows_executable_suffixes_falls_back_when_pathext_is_empty(
         self,
     ) -> None:
         """An absent or empty PATHEXT falls back to the documented defaults."""
-        assert conftest._windows_executable_suffixes(
-            {}
-        ) == conftest._windows_executable_suffixes(
-            {"PATHEXT": ""},
+        absent = conftest._windows_executable_suffixes({})
+        empty = conftest._windows_executable_suffixes({"PATHEXT": ""})
+
+        assert absent == empty, (
+            "an absent PATHEXT and an empty one are the same absence of a "
+            f"caller preference, but gave {absent} and {empty}"
         )
-        assert ".exe" in conftest._windows_executable_suffixes({})
+        assert ".exe" in absent, (
+            f"the documented fallback must include '.exe', got {absent}"
+        )
 
 
 @pytest.mark.parametrize(

@@ -356,6 +356,20 @@ def run_lifecycle(
 
     Examples
     --------
+    >>> import tempfile
+    >>> from pathlib import Path
+    >>> workspace = Path(tempfile.mkdtemp())
+    >>> context = ActionContext(
+    ...     inputs={},
+    ...     runner_os="Linux",
+    ...     runner_arch="X64",
+    ...     action_path=str(workspace),
+    ... )
+    >>> environment = FragmentEnvironment(
+    ...     base_env={},
+    ...     cwd=workspace,
+    ...     output_dir=workspace / "outputs",
+    ... )
     >>> steps = [
     ...     {"name": "probe", "run": "true"},
     ...     {"name": "install", "run": "false"},

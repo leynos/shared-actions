@@ -112,6 +112,19 @@ jobs:
         if: runner.os == 'Linux'
         run: make lint
         shell: bash
+      # Its own step rather than a prerequisite nothing reaches. `make test`
+      # depends on this target, but no job here runs `make test`: the macOS
+      # and Windows legs run `uv run pytest`, and the Linux suite runs under
+      # the coverage action, which builds its own `pytest` invocation. So a
+      # wrong example would have passed every job on a pull request while the
+      # local gate caught it, which is the wrong way round.
+      #
+      # Linux only, like the other whole-repository checks in this job. The
+      # examples are platform-independent and take about a second.
+      - name: Run docstring examples
+        if: runner.os == 'Linux'
+        run: make doctest
+        shell: bash
       - name: Run tests
         # Not on Linux. The coverage job below runs this same suite under
         # the coverage action on the same trigger, and its own comment says

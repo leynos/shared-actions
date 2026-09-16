@@ -1801,7 +1801,10 @@ make lint          # Ruff lint + action-validator + markdownlint
 
 ## Docstring examples are executed
 
-Every `>>>` in this repository is run, and a wrong one stops the gate.
+Every `>>>` in this repository is collected, and every collected example is run
+unless it carries `# doctest: +SKIP`, so a wrong one stops the gate. A skipped
+example is collected and deliberately not executed; there is one, and the
+reason is below.
 
 Before this, nothing collected them. `pytest.ini` names its testpaths
 explicitly and the `test` target passed no doctest flag, so 63 example lines

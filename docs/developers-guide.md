@@ -1327,9 +1327,17 @@ Three habits account for every failure found here.
 - **Import what the example uses.** A docstring is not inside its
   module's namespace for the reader following it, so `Path` needs its import
   shown.
-- **Build what the example reads.** A function that reads a manifest
-  needs one on disk. `tempfile.mkdtemp()` in the example is honest and costs
-  two lines; assuming a file in the working directory is neither.
+- **Build what the example reads, and take it away again.** A function
+  that reads a manifest needs one on disk; assuming a file in the working
+  directory is neither honest nor checkable. Use
+  `tempfile.TemporaryDirectory()`, bound to a name, and call `cleanup()` on it
+  as the example's last line. `tempfile.mkdtemp()` leaves removal to the caller
+  and nothing here is the caller, so every run of the gate would leave a
+  directory behind. The explicit `cleanup()` rather than a `with` block because
+  a narrative spanning several prompt blocks with prose between them cannot sit
+  inside one block; where two scenarios share a docstring and their paths allow
+  it, give the second a subdirectory of the first rather than a second
+  temporary root.
 - **Make host-dependent output elided, not asserted.** `run_cmd` echoes
   the absolute path it resolved on `PATH`, which differs between a laptop and a
   runner, so those examples use `# doctest: +ELLIPSIS`.

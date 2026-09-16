@@ -102,6 +102,30 @@ argument, placed before `--branch`, in the slipcover command that
 `coverage_cmd_for_fmt` builds. `main` then runs slipcover, parses coverage, and
 writes `GITHUB_OUTPUT`.
 
+### `python-source` validation
+
+`main` reads the scope from its `--python-source` option or, failing that,
+`INPUT_PYTHON_SOURCE`, which the composite action wires from its
+`python-source` input. An unset, empty, or whitespace-only value disables
+source scoping. A non-empty value is forwarded to Slipcover unchanged, as one
+`--source` argument before `--branch`, but it is validated first.
+
+Validation is split along the module's parse/resolve boundary.
+`_python_source_entries()` is pure: it splits the value on commas exactly as
+Slipcover does, stripping nothing, and raises `ValueError` naming the raw value
+when any entry is empty or whitespace-only. `_resolve_python_source()` adds the
+check that needs the working directory: it calls the pure
+`_sources_outside_repository(entries, repository_root)` predicate, which
+resolves each entry against the root it is given, and raises `ValueError` when
+an entry is absolute or resolves outside the repository through `..` or a
+symlink. Because Slipcover resolves both the configured source and every
+candidate filename before deciding whether a module is instrumentable, an
+escaping source re-admits the foreign dependencies the boundary exists to
+exclude; containment is therefore enforced rather than advisory.
+
+Both failures are reported on stderr and exit with code 2, before the coverage
+venv is created and before any coverage subprocess starts.
+
 ### Concurrency Model
 
 `run_python.py` runs as a single-threaded GitHub Actions step. The

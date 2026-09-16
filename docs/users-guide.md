@@ -660,6 +660,19 @@ immediately before Slipcover's `--branch` flag, so a comma-separated scope such
 as `episodic,alembic` reaches Slipcover as one value rather than several paths.
 Two scopes in use in the estate are `episodic,alembic` and `./lading`.
 
+The scope is an inclusion boundary. Slipcover instruments everything it can
+import by default, so dependencies installed in a virtual environment beside
+the repository land in the report and move the percentage for reasons unrelated
+to the project; naming the project's directories keeps a foreign
+`site-packages` out of the number.
+
+A non-empty value is validated before any coverage work begins, and the action
+fails rather than measuring something other than what was asked for. An empty
+entry such as `femtologging,,generated` is refused, and every entry must
+resolve inside the repository: an absolute path, a path that escapes through
+`..`, and a symbolic link that resolves outside the repository are each
+rejected, and the error names the offending entries.
+
 ```yaml
 - name: Generate coverage
   uses: ./.github/actions/generate-coverage

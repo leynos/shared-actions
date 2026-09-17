@@ -2012,6 +2012,8 @@ def test_coverage_python_cmd_prepares_tools_once(
     assert first is second
     parts = list(first.formulate())
     _assert_coverage_python_path(parts[0], str(python_path.resolve()))
+    path_entries = first.env["PATH"].split(os.pathsep)
+    assert path_entries[0] == str(python_path.resolve().parent)
     assert len(recorded) == 3
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
     assert recorded[1][1:] == [

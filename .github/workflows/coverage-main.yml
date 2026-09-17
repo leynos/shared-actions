@@ -1,13 +1,7 @@
 name: Coverage (main)
 
-# CodeScene accepts `cs-coverage upload` only for analysed branches, so
-# main-branch coverage is uploaded here on push; pull requests generate
-# coverage (and, in a future fast-follow, run the changed-line
-# `cs-coverage check` gate) in ci.yml instead. This workflow also advances
-# the coverage ratchet baseline: caches saved on main are readable by every
-# pull-request run, so the baseline written here is the one PR ratchet
-# checks compare against. workflow_dispatch allows re-running the upload on
-# demand (a run's secret context is fixed at dispatch).
+# Pull requests use the coverage baseline saved by this main-push workflow.
+# They do not contact CodeScene or receive its credentials.
 
 on:
   push:
@@ -32,9 +26,6 @@ jobs:
         # v4
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          # Match ci.yml's coverage checkout: full history keeps the ratchet
-          # and any future gate consistent with pull-request runs.
-          fetch-depth: 0
           # This job runs third-party tooling (uv, nfpm, the Rust toolchain)
           # and never pushes back to the repository, so drop the checkout
           # credential rather than persisting GITHUB_TOKEN in .git/config.
@@ -63,6 +54,8 @@ jobs:
       - name: Generate coverage
         uses: ./.github/actions/generate-coverage
         with:
+          language: python
+          python-source: workflow_scripts
           output-path: coverage.xml
           format: cobertura
           use-cargo-nextest: 'false'

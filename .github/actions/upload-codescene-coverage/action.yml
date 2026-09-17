@@ -11,7 +11,8 @@ inputs:
     default: cobertura
   access-token:
     description: CodeScene project access token
-    required: true
+    required: false
+    default: ""
   cli-version:
     description: Approved cs-coverage version from cli-manifest.json
     required: false
@@ -31,16 +32,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Export env for later steps
-      env:
-        INPUT_ACCESS_TOKEN: ${{ inputs.access-token }}
-        INPUT_PROJECT_URL: ${{ inputs.project-url }}
-      run: |
-        printf 'CS_ACCESS_TOKEN=%s\n' "$INPUT_ACCESS_TOKEN" >>"$GITHUB_ENV"
-        if [ -n "$INPUT_PROJECT_URL" ]; then
-          printf 'CS_PROJECT_URL=%s\n' "$INPUT_PROJECT_URL" >>"$GITHUB_ENV"
-        fi
-      shell: bash
     - name: Validate inputs
       env:
         INPUT_FORMAT: ${{ inputs.format }}
@@ -162,10 +153,11 @@ runs:
     - name: Upload coverage to CodeScene
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'upload'
+        inputs.access-token != '' && inputs.mode == 'upload'
       env:
         COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
         INPUT_FORMAT: ${{ inputs.format }}
+        CS_ACCESS_TOKEN: ${{ inputs.access-token }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="$COVERAGE_FILE"
@@ -175,10 +167,12 @@ runs:
     - name: Check coverage against CodeScene gates
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'check'
+        inputs.access-token != '' && inputs.mode == 'check'
       env:
         COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
         INPUT_FORMAT: ${{ inputs.format }}
+        CS_ACCESS_TOKEN: ${{ inputs.access-token }}
+        CS_PROJECT_URL: ${{ inputs.project-url }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
         file="$COVERAGE_FILE"

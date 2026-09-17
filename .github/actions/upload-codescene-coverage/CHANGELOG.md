@@ -72,6 +72,8 @@
   reproduce the `java.io.InputStreamReader.close` failure in 1.0.103.
 - Do not pass `--verbose` to `cs-coverage check`, because it can expose
   Authorization request headers in logs while adding no required gate evidence.
+- Scope CodeScene credentials to the upload and check processes instead of
+  writing caller input to `GITHUB_ENV`; `install` no longer needs a token.
 
 - Pin every `actions/cache` reference to the v6.1.0 commit
   `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.

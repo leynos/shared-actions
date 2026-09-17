@@ -26,7 +26,6 @@ jobs:
         uses: ./.github/actions/upload-codescene-coverage
         with:
           mode: install
-          access-token: unused-for-install
           cli-version: "1.0.101"
       - name: Verify resolved version and parse Slipcover reports
         env:

@@ -212,6 +212,37 @@ def test_shell_steps_bind_caller_inputs_through_environment() -> None:
         assert "${{ inputs." not in run, step["name"]
 
 
+def test_cli_steps_scope_inputs_without_github_environment_exports() -> None:
+    """Caller values stay in individual process environments, never GITHUB_ENV."""
+    action = ACTION_YML.read_text(encoding="utf-8")
+    upload = next(
+        step for step in _steps() if step["name"] == "Upload coverage to CodeScene"
+    )
+    check = next(
+        step
+        for step in _steps()
+        if step["name"] == "Check coverage against CodeScene gates"
+    )
+    upload_env = upload["env"]
+    check_env = check["env"]
+    input_key = "access" + "-" + "token"
+
+    assert "GITHUB_ENV" not in action
+    assert isinstance(upload_env, dict)
+    assert isinstance(check_env, dict)
+    assert str(upload_env["CS_ACCESS_TOKEN"]).endswith(input_key + " }}")
+    assert str(check_env["CS_ACCESS_TOKEN"]).endswith(input_key + " }}")
+    assert check_env["CS_PROJECT_URL"] == "${{ inputs.project-url }}"
+    assert "inputs.access-token != ''" in str(upload["if"])
+    assert "inputs.access-token != ''" in str(check["if"])
+    manifest = yaml.safe_load(action)
+    assert manifest["inputs"]["access-token"] == {
+        "description": "CodeScene project access token",
+        "required": False,
+        "default": "",
+    }
+
+
 def test_malicious_input_is_not_executed_before_validation(tmp_path: Path) -> None:
     """Shell metacharacters remain data when input validation rejects them."""
     if sys.platform == "win32":
@@ -234,6 +265,51 @@ def test_malicious_input_is_not_executed_before_validation(tmp_path: Path) -> No
     )
 
     assert result.returncode == 1
+    assert not marker.exists()
+
+
+def test_newline_token_remains_one_environment_value(tmp_path: Path) -> None:
+    """A newline token cannot add GITHUB_ENV records or become shell syntax."""
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text("<coverage/>\n", encoding="utf-8")
+    marker = tmp_path / "executed"
+    captured = tmp_path / "token"
+    token = f"line-one\n$(touch {marker})"
+    cli = tmp_path / "cs-coverage"
+    cli.write_text(
+        '#!/usr/bin/env bash\nprintf \'%s\' "$CS_ACCESS_TOKEN" > "$TOKEN_CAPTURE"\n',
+        encoding="utf-8",
+    )
+    cli.chmod(0o755)
+    step = next(
+        step
+        for step in _steps()
+        if step.get("name") == "Check coverage against CodeScene gates"
+    )
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-c", str(step["run"])],
+        check=False,
+        capture_output=True,
+        cwd=tmp_path,
+        env=os.environ
+        | {
+            "COVERAGE_FILE": coverage.name,
+            "INPUT_FORMAT": "cobertura",
+            "CS_ACCESS_TOKEN": token,
+            "CS_PROJECT_URL": "https://example.invalid/project",
+            "TOKEN_CAPTURE": str(captured),
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        },
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert captured.read_text(encoding="utf-8") == token
     assert not marker.exists()
 
 

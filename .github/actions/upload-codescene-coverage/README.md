@@ -9,7 +9,7 @@ changed-line gate.
 | ------------------ | --------------------------------------------------- | -------- | ----------- |
 | `path`             | Coverage file path; blank or `__auto__` is inferred | no       | `__auto__`  |
 | `format`           | `cobertura` or `lcov`                               | no       | `cobertura` |
-| `access-token`     | CodeScene project access token                      | yes      |             |
+| `access-token`     | CodeScene project access token                      | no       |             |
 | `cli-version`      | Approved `cs-coverage` version                      | no       | `1.0.101`   |
 | `archive-checksum` | Optional digest that must equal the manifest digest | no       |             |
 | `mode`             | `install`, `upload`, or `check`                     | no       | `upload`    |
@@ -53,9 +53,8 @@ run logs the resolved version, build, platform, and digest.
 
 `check` needs a `fetch-depth: 0` checkout and an analysed pull-request base.
 `install` performs only the trusted installation, which is useful for a
-cold-runner contract or a workflow that invokes the CLI itself. Its required
-`access-token` input is unused in `install` mode; provide a non-secret
-placeholder when the workflow has no CodeScene operation to perform.
+cold-runner contract or a workflow that invokes the CLI itself. Its
+`access-token` input is unused in `install` mode and may be omitted.
 
 The check command deliberately omits `--verbose`: CodeScene's verbose output
 can include Authorization request headers. Normal command diagnostics remain in

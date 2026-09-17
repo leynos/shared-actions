@@ -61,13 +61,11 @@ def _windows_executable_suffixes(
     )
 
 
+# Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
+# True for every readable file there. Executability on that platform is carried
+# by the suffix, which is what PATHEXT enumerates.
 def _is_executable_file(path: Path, *, on_windows: bool = _ON_WINDOWS) -> bool:
-    """Return True when *path* is a file the operating system would run.
-
-    Windows has no execute permission bit, so ``os.access(path, os.X_OK)``
-    answers True for every readable file there. Executability on that platform
-    is carried by the suffix, which is what PATHEXT enumerates.
-    """
+    """Return True when *path* is a file the operating system would run."""
     if not path.is_file():
         return False
     if on_windows:

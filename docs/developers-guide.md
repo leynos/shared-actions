@@ -850,8 +850,8 @@ it with diagnostic handling. The behavioural contract is covered by the
 
 The CodeScene archive manifest is the sole trust anchor for the coverage CLI.
 It records the logical version, immutable build identifier, official HTTPS
-archive URL, target platform, expected archive members, and SHA-256 digest.
-The resolver rejects unreadable or malformed manifests, any version or runner
+archive URL, target platform, expected archive members, and SHA-256 digest. The
+resolver rejects unreadable or malformed manifests, any version or runner
 outside that manifest, absent digests, and caller digest conflicts. The caller
 may repeat the digest as an assertion but cannot override it.
 

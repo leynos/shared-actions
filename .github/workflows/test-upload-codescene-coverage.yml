@@ -15,6 +15,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Confirm the runner has no preinstalled CodeScene CLI
+        shell: bash
+        run: |
+          if command -v cs-coverage >/dev/null 2>&1; then
+            echo 'cs-coverage was unexpectedly preinstalled on this runner' >&2
+            exit 1
+          fi
       - name: Install pinned CodeScene CLI without a preinstalled dependency
         uses: ./.github/actions/upload-codescene-coverage
         with:
@@ -29,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CS_ACCESS_TOKEN" || { echo 'CS_ACCESS_TOKEN is required for parser proof' >&2; exit 1; }
-          cs-coverage version | tee /tmp/cs-coverage-version.log
+          CS_DISABLE_VERSION_CHECK=1 cs-coverage version | tee /tmp/cs-coverage-version.log
           grep -F 'cs-coverage version 1.0.101 (ca2b95180eff32b5072e81f20d718d7b747650be)' /tmp/cs-coverage-version.log
           for report in .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml; do
             log="/tmp/$(basename "$report").log"

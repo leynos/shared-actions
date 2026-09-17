@@ -32,27 +32,34 @@ runs:
   using: composite
   steps:
     - name: Export env for later steps
+      env:
+        INPUT_ACCESS_TOKEN: ${{ inputs.access-token }}
+        INPUT_PROJECT_URL: ${{ inputs.project-url }}
       run: |
-        printf 'CS_ACCESS_TOKEN=%s\n' "${{ inputs.access-token }}" >>"${GITHUB_ENV}"
-        if [ -n "${{ inputs.project-url }}" ]; then
-          printf 'CS_PROJECT_URL=%s\n' "${{ inputs.project-url }}" >>"${GITHUB_ENV}"
+        printf 'CS_ACCESS_TOKEN=%s\n' "$INPUT_ACCESS_TOKEN" >>"$GITHUB_ENV"
+        if [ -n "$INPUT_PROJECT_URL" ]; then
+          printf 'CS_PROJECT_URL=%s\n' "$INPUT_PROJECT_URL" >>"$GITHUB_ENV"
         fi
       shell: bash
     - name: Validate inputs
+      env:
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_PROJECT_URL: ${{ inputs.project-url }}
       run: |
-        case "${{ inputs.format }}" in
+        case "$INPUT_FORMAT" in
           cobertura|lcov) ;;
-          *) echo "Unsupported format: ${{ inputs.format }}" >&2; exit 1 ;;
+          *) echo "Unsupported format: $INPUT_FORMAT" >&2; exit 1 ;;
         esac
-        case "${{ inputs.mode }}" in
+        case "$INPUT_MODE" in
           install|upload) ;;
           check)
-            if [ -z "${{ inputs.project-url }}" ]; then
+            if [ -z "$INPUT_PROJECT_URL" ]; then
               echo "mode: check requires project-url" >&2
               exit 1
             fi
             ;;
-          *) echo "Unsupported mode: ${{ inputs.mode }}" >&2; exit 1 ;;
+          *) echo "Unsupported mode: $INPUT_MODE" >&2; exit 1 ;;
         esac
       shell: bash
     - name: Check coverage gate applicability
@@ -69,27 +76,40 @@ runs:
       shell: bash
     - name: Determine coverage file
       id: cov-file
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        inputs.mode != 'install' &&
+        steps.gate-applicability.outputs.skip != 'true'
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
       run: |
-        file="${{ inputs.path }}"
+        file="$INPUT_PATH"
         if [ -z "$file" ] || [ "$file" = "__auto__" ]; then
-          if [ "${{ inputs.format }}" = "lcov" ]; then file="lcov.info"; else file="coverage.xml"; fi
+          if [ "$INPUT_FORMAT" = "lcov" ]; then file="lcov.info"; else file="coverage.xml"; fi
         fi
-        echo "path=$file" >> "$GITHUB_OUTPUT"
+        echo "path=$file" >>"$GITHUB_OUTPUT"
       shell: bash
     - name: Resolve trusted CodeScene CLI
       id: cli
       if: steps.gate-applicability.outputs.skip != 'true'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "${{ github.action_path }}/scripts/install_cs_coverage.py" resolve \
-          --manifest "${{ github.action_path }}/cli-manifest.json" \
-          --version "${{ inputs.cli-version }}" \
-          --runner-os "${{ runner.os }}" --runner-arch "${{ runner.arch }}" \
-          --archive-checksum "${{ inputs.archive-checksum }}" \
+        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" resolve \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
           --github-output "$GITHUB_OUTPUT"
       shell: bash
     - name: Upload coverage GitHub artefact
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        inputs.mode != 'install' &&
+        steps.gate-applicability.outputs.skip != 'true'
       uses: actions/upload-artifact@v4
       with:
         name: coverage
@@ -105,22 +125,34 @@ runs:
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
         steps.cs-cache.outputs.cache-hit != 'true'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "${{ github.action_path }}/scripts/install_cs_coverage.py" install \
-          --manifest "${{ github.action_path }}/cli-manifest.json" \
-          --version "${{ inputs.cli-version }}" \
-          --runner-os "${{ runner.os }}" --runner-arch "${{ runner.arch }}" \
-          --archive-checksum "${{ inputs.archive-checksum }}" \
+        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" install \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
           --binary "$HOME/.local/bin/cs-coverage"
       shell: bash
     - name: Verify CodeScene Coverage CLI
       if: steps.gate-applicability.outputs.skip != 'true'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "${{ github.action_path }}/scripts/install_cs_coverage.py" verify \
-          --manifest "${{ github.action_path }}/cli-manifest.json" \
-          --version "${{ inputs.cli-version }}" \
-          --runner-os "${{ runner.os }}" --runner-arch "${{ runner.arch }}" \
-          --archive-checksum "${{ inputs.archive-checksum }}" \
+        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" verify \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
           --binary "$HOME/.local/bin/cs-coverage"
       shell: bash
     - name: Add cs-coverage to PATH
@@ -131,25 +163,31 @@ runs:
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
         env.CS_ACCESS_TOKEN != '' && inputs.mode == 'upload'
+      env:
+        COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
-        file="${{ steps.cov-file.outputs.path }}"
+        file="$COVERAGE_FILE"
         [ -f "$file" ] || { echo "Coverage file not found: $file" >&2; exit 1; }
-        cs-coverage upload --format "${{ inputs.format }}" --metric "line-coverage" "$file"
+        cs-coverage upload --format "$INPUT_FORMAT" --metric "line-coverage" "$file"
       shell: bash
     - name: Check coverage against CodeScene gates
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
         env.CS_ACCESS_TOKEN != '' && inputs.mode == 'check'
+      env:
+        COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
-        file="${{ steps.cov-file.outputs.path }}"
+        file="$COVERAGE_FILE"
         [ -f "$file" ] || { echo "Coverage file not found: $file" >&2; exit 1; }
-        if [ "${{ inputs.format }}" = "lcov" ] && [[ "$file" != *.info ]]; then
+        if [ "$INPUT_FORMAT" = "lcov" ] && [[ "$file" != *.info ]]; then
           echo "cs-coverage check requires LCOV files to end in .info (got: $file)" >&2
           exit 1
         fi
-        if cs-coverage check --verbose --coverage-files "$file"; then :; else
+        if cs-coverage check --coverage-files "$file"; then :; else
           status=$?
           if [ "$status" -eq 2 ]; then
             printf '%s\n' "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2

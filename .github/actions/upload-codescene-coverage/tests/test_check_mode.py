@@ -25,6 +25,11 @@ def _gate_applicability_step() -> dict[str, object]:
     return next(step for step in _steps() if step.get("id") == "gate-applicability")
 
 
+def _validation_step() -> dict[str, object]:
+    """Return the action's caller-input validation step."""
+    return next(step for step in _steps() if step.get("name") == "Validate inputs")
+
+
 def _run_applicability_check(
     tmp_path: Path,
     *,
@@ -73,8 +78,6 @@ def _run_gate_check(
         if step.get("name") == "Check coverage against CodeScene gates"
     )
     script = str(step["run"])
-    script = script.replace("${{ steps.cov-file.outputs.path }}", "coverage.xml")
-    script = script.replace("${{ inputs.format }}", "cobertura")
 
     (tmp_path / "coverage.xml").write_text("<coverage/>\n", encoding="utf-8")
     cli = tmp_path / "cs-coverage"
@@ -93,6 +96,8 @@ def _run_gate_check(
     env = os.environ | {
         "GITHUB_BASE_REF": "main",
         "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        "COVERAGE_FILE": "coverage.xml",
+        "INPUT_FORMAT": "cobertura",
     }
     return subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
         [bash, "-c", script],
@@ -169,14 +174,14 @@ def test_skipped_gate_suppresses_all_following_steps() -> None:
         ]
 
 
-def test_gate_success_streams_verbose_diagnostic(
+def test_gate_success_streams_diagnostic_without_verbose(
     tmp_path: Path,
 ) -> None:
-    """A successful CLI check streams its verbose diagnostic to stdout."""
+    """A successful CLI check streams diagnostics without leaking headers."""
     result = _run_gate_check(tmp_path, exit_status=0)
 
     assert result.returncode == 0
-    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
+    assert "arguments: check --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
     assert result.stderr == ""
 
@@ -190,7 +195,7 @@ def test_gate_failure_streams_diagnostic_and_preserves_status(
     result = _run_gate_check(tmp_path, exit_status=exit_status)
 
     assert result.returncode == exit_status
-    assert "arguments: check --verbose --coverage-files coverage.xml" in result.stdout
+    assert "arguments: check --coverage-files coverage.xml" in result.stdout
     assert "detailed gate diagnostic" in result.stdout
     assert "detailed gate stderr diagnostic" in result.stderr
     hint = "pull request base 'main' must have coverage uploaded"
@@ -198,3 +203,43 @@ def test_gate_failure_streams_diagnostic_and_preserves_status(
         assert hint in result.stderr
     else:
         assert hint not in result.stderr
+
+
+def test_shell_steps_bind_caller_inputs_through_environment() -> None:
+    """Caller-controlled values never become shell source in a run fragment."""
+    for step in _steps():
+        run = str(step.get("run", ""))
+        assert "${{ inputs." not in run, step["name"]
+
+
+def test_malicious_input_is_not_executed_before_validation(tmp_path: Path) -> None:
+    """Shell metacharacters remain data when input validation rejects them."""
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+    marker = tmp_path / "executed"
+    result = subprocess.run(  # noqa: S603,TID251 - execute the action's bash.
+        [bash, "-c", str(_validation_step()["run"])],
+        check=False,
+        capture_output=True,
+        env=os.environ
+        | {
+            "INPUT_FORMAT": f"$(touch {marker})",
+            "INPUT_MODE": "install",
+            "INPUT_PROJECT_URL": "",
+        },
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert not marker.exists()
+
+
+def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
+    """Install mode does not derive or upload a coverage report."""
+    steps = _steps()
+    for name in ("Determine coverage file", "Upload coverage GitHub artefact"):
+        step = next(step for step in steps if step["name"] == name)
+        assert "inputs.mode != 'install'" in str(step["if"])

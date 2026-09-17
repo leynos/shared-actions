@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: EM101, EM102, S310, S603, TID251, TRY003
 """Resolve, verify, and install a trusted CodeScene coverage CLI archive."""
 
 from __future__ import annotations
@@ -14,10 +13,14 @@ import ssl
 import stat
 import sys
 import tempfile
+import typing as typ
 import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+
+if typ.TYPE_CHECKING:
+    import http.client as http_client
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _BUILD = re.compile(r"[0-9a-f]{40}\Z")
@@ -29,6 +32,26 @@ _DOWNLOAD_HOST = "downloads.codescene.io"
 
 class InstallError(RuntimeError):
     """Raised when a coverage CLI installation cannot be trusted."""
+
+
+class _ApprovedRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow only same-host HTTPS redirects from CodeScene's archive host."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: typ.IO[bytes],
+        code: int,
+        msg: str,
+        headers: http_client.HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        """Reject a redirect before urllib can request an unapproved URL."""
+        parsed = urllib.parse.urlsplit(newurl)
+        if parsed.scheme != "https" or parsed.hostname != _DOWNLOAD_HOST:
+            error = "archive download redirect is not approved HTTPS"
+            raise InstallError(error)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 @dc.dataclass(frozen=True)
@@ -49,7 +72,8 @@ def _required_string(data: dict[str, object], key: str) -> str:
     """Return a non-empty string field or fail without a fallback."""
     value = data.get(key)
     if not isinstance(value, str) or not value:
-        raise InstallError(f"manifest entry has no usable {key!r}")
+        error = f"manifest entry has no usable {key!r}"
+        raise InstallError(error)
     return value
 
 
@@ -58,20 +82,25 @@ def load_manifest(path: Path) -> tuple[Release, ...]:
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise InstallError(f"cannot read CLI manifest {path}: {error}") from error
+        message = f"cannot read CLI manifest {path}: {error}"
+        raise InstallError(message) from error
     if not isinstance(loaded, dict) or loaded.get("schema_version") != 1:
-        raise InstallError("CLI manifest has an unsupported schema")
+        message = "CLI manifest has an unsupported schema"
+        raise InstallError(message)
     entries = loaded.get("releases")
     if not isinstance(entries, list) or not entries:
-        raise InstallError("CLI manifest has no releases")
+        message = "CLI manifest has no releases"
+        raise InstallError(message)
     releases: list[Release] = []
     for entry in entries:
         if not isinstance(entry, dict):
-            raise InstallError("CLI manifest contains a non-object release")
+            message = "CLI manifest contains a non-object release"
+            raise InstallError(message)
         platform = entry.get("platform")
         members = entry.get("archive_members")
         if not isinstance(platform, dict) or not isinstance(members, list):
-            raise InstallError("manifest release has invalid platform or members")
+            message = "manifest release has invalid platform or members"
+            raise InstallError(message)
         release = Release(
             version=_required_string(entry, "version"),
             build=_required_string(entry, "build"),
@@ -85,22 +114,25 @@ def load_manifest(path: Path) -> tuple[Release, ...]:
             ),
         )
         if not _BUILD.fullmatch(release.build):
-            raise InstallError("manifest release has an invalid build identifier")
+            message = "manifest release has an invalid build identifier"
+            raise InstallError(message)
         if not _SHA256.fullmatch(release.archive_sha256):
-            raise InstallError(
-                "manifest release has a missing or invalid archive digest"
-            )
+            message = "manifest release has a missing or invalid archive digest"
+            raise InstallError(message)
         parsed = urllib.parse.urlsplit(release.archive_url)
         if parsed.scheme != "https" or parsed.hostname != _DOWNLOAD_HOST:
-            raise InstallError("manifest archive URL is not an approved HTTPS download")
+            message = "manifest archive URL is not an approved HTTPS download"
+            raise InstallError(message)
         if (
             len(release.archive_members) != len(members)
             or len(set(release.archive_members)) != len(release.archive_members)
             or any(not _safe_member(member) for member in release.archive_members)
         ):
-            raise InstallError("manifest release has an invalid archive member")
+            message = "manifest release has an invalid archive member"
+            raise InstallError(message)
         if not release.member or release.member not in release.archive_members:
-            raise InstallError("manifest release has no expected archive member")
+            message = "manifest release has no expected archive member"
+            raise InstallError(message)
         releases.append(release)
     return tuple(releases)
 
@@ -115,7 +147,8 @@ def resolve(
     """Select exactly one approved release and reject caller disagreement."""
     requested = version.strip()
     if not requested:
-        raise InstallError("cli-version must name a manifest version")
+        message = "cli-version must name a manifest version"
+        raise InstallError(message)
     matches = [
         entry
         for entry in load_manifest(manifest)
@@ -124,23 +157,32 @@ def resolve(
         and entry.arch == runner_arch.lower()
     ]
     if not matches:
-        raise InstallError(
+        message = (
             f"no approved cs-coverage archive for version {requested!r} on "
             f"{runner_os}/{runner_arch}"
         )
+        raise InstallError(message)
     if len(matches) != 1:
-        raise InstallError("CLI manifest resolves ambiguously")
+        message = "CLI manifest resolves ambiguously"
+        raise InstallError(message)
     release = matches[0]
     supplied = caller_checksum.strip().lower()
     if supplied and supplied != release.archive_sha256:
-        raise InstallError("caller archive checksum conflicts with the manifest")
+        message = "caller archive checksum conflicts with the manifest"
+        raise InstallError(message)
     return release
 
 
 def _safe_member(name: str) -> bool:
     """Return whether a zip member is a single safe file name."""
     path = Path(name)
-    return not path.is_absolute() and ".." not in path.parts and len(path.parts) == 1
+    return (
+        "\\" not in name
+        and name not in {".", ".."}
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and len(path.parts) == 1
+    )
 
 
 def extract_cli(archive: Path, release: Release, destination: Path) -> None:
@@ -155,14 +197,17 @@ def extract_cli(archive: Path, release: Release, destination: Path) -> None:
                 or set(names) != allowed
                 or len(names) != len(allowed)
             ):
-                raise InstallError("archive has unexpected or missing members")
+                message = "archive has unexpected or missing members"
+                raise InstallError(message)
             for entry in entries:
                 mode = entry.external_attr >> 16
                 if not _safe_member(entry.filename) or stat.S_ISLNK(mode):
-                    raise InstallError("archive member has an unsafe path or link")
+                    message = "archive member has an unsafe path or link"
+                    raise InstallError(message)
             binary = bundle.read(release.member)
     except (OSError, zipfile.BadZipFile, KeyError) as error:
-        raise InstallError(f"cannot extract trusted CLI archive: {error}") from error
+        message = f"cannot extract trusted CLI archive: {error}"
+        raise InstallError(message) from error
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".new")
     temporary.write_bytes(binary)
@@ -170,35 +215,46 @@ def extract_cli(archive: Path, release: Release, destination: Path) -> None:
     temporary.replace(destination)
 
 
+def _download_opener() -> urllib.request.OpenerDirector:
+    """Build the strict HTTPS opener used for immutable CLI archives."""
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=context), _ApprovedRedirect()
+    )
+
+
 def download_verified(release: Release, target: Path) -> None:
     """Download an approved archive over verified HTTPS and check its digest."""
-    context = ssl.create_default_context()
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310 - manifest URL is validated.
         release.archive_url, headers={"User-Agent": "shared-actions"}
     )
     digest = hashlib.sha256()
     try:
         with (
-            urllib.request.urlopen(request, context=context, timeout=60) as response,
+            _download_opener().open(request, timeout=60) as response,
             target.open("wb") as output,
         ):
             resolved = urllib.parse.urlsplit(response.geturl())
             if resolved.scheme != "https" or resolved.hostname != _DOWNLOAD_HOST:
-                raise InstallError("archive download redirected outside approved HTTPS")
+                message = "archive download redirected outside approved HTTPS"
+                raise InstallError(message)
             while chunk := response.read(1024 * 1024):
                 digest.update(chunk)
                 output.write(chunk)
     except OSError as error:
-        raise InstallError(f"cannot download CLI archive: {error}") from error
+        message = f"cannot download CLI archive: {error}"
+        raise InstallError(message) from error
     if digest.hexdigest() != release.archive_sha256:
-        raise InstallError("downloaded CLI archive digest does not match the manifest")
+        message = "downloaded CLI archive digest does not match the manifest"
+        raise InstallError(message)
 
 
 def verify_version(binary: Path, release: Release) -> None:
     """Require the installed binary to report the selected logical/build pair."""
-    from subprocess import run
+    import subprocess
 
-    completed = run(
+    completed = subprocess.run(  # noqa: S603, TID251 - execute the action-owned verified CLI.
         [str(binary), "version"],
         capture_output=True,
         check=False,
@@ -206,15 +262,15 @@ def verify_version(binary: Path, release: Release) -> None:
         text=True,
     )
     if completed.returncode:
-        raise InstallError(
-            f"cs-coverage version failed with exit status {completed.returncode}"
-        )
+        message = f"cs-coverage version failed with exit status {completed.returncode}"
+        raise InstallError(message)
     observed = _VERSION.search(completed.stdout + completed.stderr)
     if observed is None or observed.groupdict() != {
         "version": release.version,
         "build": release.build,
     }:
-        raise InstallError("installed cs-coverage version does not match the manifest")
+        message = "installed cs-coverage version does not match the manifest"
+        raise InstallError(message)
 
 
 def write_outputs(release: Release, output_path: Path) -> None:

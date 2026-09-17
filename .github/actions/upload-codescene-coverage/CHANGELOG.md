@@ -70,6 +70,8 @@
   logical/build version on both a cache hit and a fresh runner.
 - Add byte-exact Slipcover 1.0.18 and 1.1.0 Cobertura parser fixtures that
   reproduce the `java.io.InputStreamReader.close` failure in 1.0.103.
+- Do not pass `--verbose` to `cs-coverage check`, because it can expose
+  Authorization request headers in logs while adding no required gate evidence.
 
 - Pin every `actions/cache` reference to the v6.1.0 commit
   `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` in place of the moving `v4` tag.

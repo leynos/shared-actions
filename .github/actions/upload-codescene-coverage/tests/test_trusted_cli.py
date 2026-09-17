@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses as dc
 import hashlib
 import importlib.util
 import io
@@ -115,6 +116,31 @@ def test_extract_rejects_unsafe_archive_members(tmp_path: Path) -> None:
         installer.extract_cli(archive, release, tmp_path / "cs-coverage")
 
 
+@pytest.mark.parametrize("unsafe_name", ["../escape", "/escape", r"..\escape"])
+def test_extract_rejects_unsafe_expected_archive_paths(
+    tmp_path: Path, unsafe_name: str
+) -> None:
+    """Path validation rejects unsafe names even when the manifest lists them."""
+    resolved = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    release = dc.replace(
+        resolved,
+        archive_members=(*resolved.archive_members, unsafe_name),
+    )
+    archive = tmp_path / "unsafe-expected.zip"
+    _archive(
+        archive,
+        {
+            "cs-coverage": b"binary",
+            "cs-coverage.sha256": b"digest",
+            "cs-coverage.sha256.asc": b"signature",
+            unsafe_name: b"bad",
+        },
+    )
+
+    with pytest.raises(installer.InstallError, match="unsafe path"):
+        installer.extract_cli(archive, release, tmp_path / "cs-coverage")
+
+
 def test_extract_rejects_duplicate_archive_members(tmp_path: Path) -> None:
     """Duplicate ZIP names cannot hide a substituted executable payload."""
     release = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
@@ -169,11 +195,43 @@ def test_download_digest_mismatch_is_rejected(
         def geturl(self) -> str:
             return release.archive_url
 
-    monkeypatch.setattr(
-        installer.urllib.request, "urlopen", lambda *_, **__: Response(b"wrong")
-    )
+    class Opener:
+        def open(self, *_: object, **__: object) -> Response:
+            return Response(b"wrong")
+
+    monkeypatch.setattr(installer, "_download_opener", Opener)
     with pytest.raises(installer.InstallError, match="digest"):
         installer.download_verified(release, tmp_path / "archive.zip")
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "http://downloads.codescene.io/archive.zip",
+        "https://example.invalid/archive.zip",
+    ],
+)
+def test_download_redirect_rejects_non_https_or_foreign_host(redirect: str) -> None:
+    """The downloader rejects a redirect before it can fetch a new host."""
+    handler = installer._ApprovedRedirect()
+    request = installer.urllib.request.Request(
+        "https://downloads.codescene.io/archive.zip"
+    )
+
+    with pytest.raises(installer.InstallError, match="redirect"):
+        handler.redirect_request(request, None, 302, "Found", None, redirect)
+
+
+def test_download_opener_requires_tls_1_2_or_newer() -> None:
+    """The action never lowers HTTPS transport below TLS 1.2."""
+    opener = installer._download_opener()
+    https_handler = next(
+        handler
+        for handler in opener.handlers
+        if isinstance(handler, installer.urllib.request.HTTPSHandler)
+    )
+
+    assert https_handler._context.minimum_version >= installer.ssl.TLSVersion.TLSv1_2
 
 
 def test_version_mismatch_and_failure_are_rejected(tmp_path: Path) -> None:

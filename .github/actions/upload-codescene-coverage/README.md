@@ -85,16 +85,28 @@ None
 
 The CodeScene Coverage CLI is stored in `~/.local/bin/cs-coverage` and cached
 with [actions/cache](https://github.com/actions/cache). The cache key combines
-the runner OS and the resolved CLI build. The cache is restored at the start of
-the job and saved after the job finishes. There is no fallback restore key: a
-prefix match would return a different build and silently defeat the pin.
+the runner OS, the runner architecture and the resolved CLI build. The cache is
+restored at the start of the job and saved after the job finishes. There is no
+fallback restore key: a prefix match would return a different build and
+silently defeat the pin.
+
+The architecture is in the key because the installer fetches a different
+artefact for aarch64 and for amd64 and places both at the same path. GitHub's
+cache version covers the path and the compression tool, not the CPU, so without
+it a same-OS runner of another architecture restores a binary it cannot execute
+and only finds out when the CLI is invoked.
 
 ```yaml
 uses: actions/cache@v4
 with:
   path: ~/.local/bin/cs-coverage
-  key: cs-coverage-cache-${{ runner.os }}-${{ version }}
+  key: cs-coverage-cache-${{ runner.os }}-${{ runner.arch }}-${{ version }}
 ```
+
+The build is resolved in its own step before the cache is consulted, and the
+installer is downloaded and checksum-verified only when that lookup misses. A
+cached binary therefore needs no network, and a download failure cannot stop a
+run that already had the pinned build.
 
 ### Requirements
 

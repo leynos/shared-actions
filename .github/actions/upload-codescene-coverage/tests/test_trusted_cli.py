@@ -45,20 +45,28 @@ def _release() -> dict[str, object]:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))["releases"][0]
 
 
-def _resolve(
-    manifest: Path,
-    version: str = "1.0.101",
-    runner_os: str = "Linux",
-    runner_arch: str = "X64",
-    checksum: str = "",
-) -> installer.Release:
+@dc.dataclass(frozen=True)
+class _ResolutionCase:
+    """Capture the manifest and requested platform for one resolution test."""
+
+    manifest: Path
+    version: str = "1.0.101"
+    runner_os: str = "Linux"
+    runner_arch: str = "X64"
+    checksum: str = ""
+
+
+_DEFAULT_RESOLUTION = _ResolutionCase(MANIFEST)
+
+
+def _resolve(case: _ResolutionCase) -> installer.Release:
     """Resolve a test release through the public request value object."""
     request = installer.ResolutionRequest(
-        version,
-        installer.RunnerPlatform(runner_os, runner_arch),
-        checksum,
+        case.version,
+        installer.RunnerPlatform(case.runner_os, case.runner_arch),
+        case.checksum,
     )
-    return installer.resolve(manifest, request)
+    return installer.resolve(case.manifest, request)
 
 
 def _archive(
@@ -75,7 +83,7 @@ def _archive(
 
 def test_manifest_resolves_the_recorded_linux_release() -> None:
     """The committed trust anchor records the known-good immutable archive."""
-    resolved = _resolve(MANIFEST)
+    resolved = _resolve(_DEFAULT_RESOLUTION)
 
     assert resolved.build == "ca2b95180eff32b5072e81f20d718d7b747650be"
     assert (
@@ -98,7 +106,7 @@ def test_unknown_or_unsupported_resolution_fails_closed(
 ) -> None:
     """A floating version, absent pin, or unsupported runner cannot install."""
     with pytest.raises(installer.InstallError):
-        _resolve(MANIFEST, version, runner_os, runner_arch)
+        _resolve(_ResolutionCase(MANIFEST, version, runner_os, runner_arch))
 
 
 def test_invalid_manifest_missing_digest_and_conflicting_checksum_fail(
@@ -107,18 +115,18 @@ def test_invalid_manifest_missing_digest_and_conflicting_checksum_fail(
     """No malformed trust anchor or caller override can weaken the digest."""
     unreadable = tmp_path / "missing.json"
     with pytest.raises(installer.InstallError):
-        _resolve(unreadable)
+        _resolve(_ResolutionCase(unreadable))
     release = _release()
     release["archive_sha256"] = ""
     with pytest.raises(installer.InstallError):
-        _resolve(_manifest(tmp_path, release))
+        _resolve(_ResolutionCase(_manifest(tmp_path, release)))
     with pytest.raises(installer.InstallError, match="conflicts"):
-        _resolve(MANIFEST, checksum="0" * 64)
+        _resolve(dc.replace(_DEFAULT_RESOLUTION, checksum="0" * 64))
 
 
 def test_extract_rejects_unsafe_archive_members(tmp_path: Path) -> None:
     """Traversal, unexpected members, and symlinks never reach the executable path."""
-    release = _resolve(MANIFEST)
+    release = _resolve(_DEFAULT_RESOLUTION)
     archive = tmp_path / "unsafe.zip"
     _archive(
         archive,
@@ -138,7 +146,7 @@ def test_extract_rejects_unsafe_expected_archive_paths(
     tmp_path: Path, unsafe_name: str
 ) -> None:
     """Path validation rejects unsafe names even when the manifest lists them."""
-    resolved = _resolve(MANIFEST)
+    resolved = _resolve(_DEFAULT_RESOLUTION)
     release = dc.replace(
         resolved,
         archive_members=(*resolved.archive_members, unsafe_name),
@@ -160,7 +168,7 @@ def test_extract_rejects_unsafe_expected_archive_paths(
 
 def test_extract_rejects_duplicate_archive_members(tmp_path: Path) -> None:
     """Duplicate ZIP names cannot hide a substituted executable payload."""
-    release = _resolve(MANIFEST)
+    release = _resolve(_DEFAULT_RESOLUTION)
     archive = tmp_path / "duplicate.zip"
     _archive(
         archive,
@@ -194,7 +202,7 @@ def test_download_digest_mismatch_is_rejected(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Bytes whose hash differs from the manifest never reach extraction."""
-    release = _resolve(MANIFEST)
+    release = _resolve(_DEFAULT_RESOLUTION)
 
     class Response(io.BytesIO):
         def __enter__(self) -> Response:
@@ -256,7 +264,7 @@ def test_download_opener_requires_tls_1_2_or_newer() -> None:
 
 def test_version_mismatch_and_failure_are_rejected(tmp_path: Path) -> None:
     """A cache hit still has to identify as the selected logical/build pair."""
-    release = _resolve(MANIFEST)
+    release = _resolve(_DEFAULT_RESOLUTION)
     binary = tmp_path / "cs-coverage"
     wrong_version = "1.0.102"
     expected_build = "ca2b95180eff32b5072e81f20d718d7b747650be"

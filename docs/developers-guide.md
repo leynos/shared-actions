@@ -893,6 +893,19 @@ every workflow with a `.yml` or `.yaml` extension in any case:
 synthetic workflows. Raising the floor is a decision, because every lane and
 every consumer has to move with it.
 
+## This repository's coverage publication
+
+The `coverage` pull-request job generates serial, source-scoped coverage and
+compares it with the ratchet baseline written by the latest `main` push. It
+does not invoke CodeScene, receive `CS_ACCESS_TOKEN`, or require full Git
+history.
+
+`coverage-main.yml` regenerates the same coverage after every push to `main`,
+saves the next baseline, and explicitly uploads it to CodeScene. That workflow
+alone receives CodeScene credentials. The reusable upload action retains its
+`check` mode for external callers, but this repository does not use it in
+pull-request CI.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It

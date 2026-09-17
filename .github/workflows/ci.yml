@@ -11,6 +11,14 @@ concurrency:
 
 jobs:
   python-tests:
+    # Named by platform word rather than by runner label. The default
+    # check name for a matrix job interpolates its matrix values, so the
+    # Linux leg would report as `python-tests (ubicloud-standard-2)` on an
+    # internal pull request and `python-tests (ubuntu-latest)` on a fork's:
+    # two names for one lane, neither of which a required-check list can
+    # hold. `matrix.platform` names the lane instead, and it is stable
+    # across both arms of the fork fallback.
+    name: python-tests (${{ matrix.platform }})
     timeout-minutes: 20
     permissions:
       contents: read
@@ -25,11 +33,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - >-
+        include:
+          - platform: linux
+            os: >-
               ${{ github.event.pull_request.head.repo.fork
-                 && 'ubuntu-latest' || 'ubicloud-standard-2' }}
-          - macos-15
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: macos
+            os: macos-15
     steps:
       - name: Checkout repository
         # v4
@@ -132,7 +142,7 @@ jobs:
       contents: read
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     steps:
       - name: Checkout repository
         # v4

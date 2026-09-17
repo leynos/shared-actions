@@ -2377,6 +2377,60 @@ formatting, spelling, Markdown lint, diagram validation and the whole lint
 target on the only leg that runs them, leaving a green job that did almost
 nothing.
 
+### What a job is called
+
+A required status check is matched by name, so a check name that moves takes
+every required context with it. A matrix job with no `name:` gets one composed
+from its matrix values, which means the runner label lands in the check name.
+Under the fork fallback that label is not even constant: the Linux leg of
+`python-tests` reports as `python-tests (ubicloud-standard-2)` for an internal
+pull request and `python-tests (ubuntu-latest)` for a fork's. No required-check
+list can hold a name that depends on who opened the pull request.
+
+So every job whose runner comes from its matrix declares a `name:` keyed on a
+platform word:
+
+```yaml
+name: build-release (${{ matrix.platform }}, ${{ matrix.target }})
+runs-on: ${{ matrix.runner }}
+```
+
+`matrix.platform` is the runner's platform word rather than the target's
+operating system, and it is the same on both arms of the fork fallback.
+`matrix.target` stays in the name because it is what distinguishes one leg from
+another and nothing about the runner decides it.
+
+`test_no_job_name_interpolates_its_runner` refuses a name that interpolates the
+matrix dimension supplying `runs-on`, that writes a runner label out in full,
+or that reaches for a `runner.*` context.
+`test_a_matrix_runner_job_declares_its_own_name` refuses the absent `name:`
+that would compose one anyway. The reader is asserted in both directions: a
+name carrying `matrix.target` beside the platform word passes, and a
+hypothetical `ubuntu-latest-arm64` is not read as `ubuntu-latest`.
+
+Renaming these jobs changes the required contexts in `main-required-checks`,
+which is a repository setting rather than a file in the tree. Ten contexts move
+when this rule is applied here, and a branch carrying the rename is blocked
+until they do.
+
+### A folded expression that keeps its line break
+
+The fork fallback is written as a folded scalar, and folding only joins lines
+that share the first line's indent. A continuation indented deeper keeps its
+break, so this:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+     && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+parses to a value with a newline in the middle of the expression. GitHub
+evaluates it regardless, so a green run says nothing about it, and all
+twenty-five fork fallbacks on this branch were written that way before
+`test_no_runner_declaration_carries_a_line_break` read them from the parsed
+document. Keep the continuation at the same indent as the line it continues.
+
 ### How long a job may take
 
 A job without `timeout-minutes` inherits GitHub's six-hour default. That is not

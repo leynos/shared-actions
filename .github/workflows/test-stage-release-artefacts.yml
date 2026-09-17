@@ -7,7 +7,7 @@ jobs:
   test-stage-artefacts:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -61,7 +61,7 @@ jobs:
   test-stage-artefacts-env-overrides:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -120,7 +120,7 @@ jobs:
   test-stage-artefacts-powershell-help:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -193,7 +193,7 @@ jobs:
   test-stage-artefacts-binstall:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read

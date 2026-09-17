@@ -273,9 +273,12 @@ def _ensure_coverage_venv() -> str:
 # use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
-    """Return the coverage venv Python command, creating it on first use."""
+    """Return coverage Python with its scripts available to child processes."""
     python = _ensure_coverage_venv()
-    return local[python]
+    scripts_dir = str(Path(python).parent)
+    inherited_path = os.environ.get("PATH", "")
+    child_path = os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
+    return local[python].with_env(PATH=child_path)
 
 
 _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})

@@ -10,9 +10,11 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` is installed
-from the repository's tool manifest (`.github/tool-manifest.toml`): the entry
-names the release archive and its SHA-256 digest per target, and the installer
+are required. Its scripts directory is prepended to `PATH` for the coverage
+process, so child executables created by tests use the same project
+environment. When Rust coverage is required, `cargo-llvm-cov` is installed from
+the repository's tool manifest (`.github/tool-manifest.toml`): the entry names
+the release archive and its SHA-256 digest per target, and the installer
 extracts only the named member. `cargo-nextest` is downloaded directly from its
 pinned official release; both the archive and extracted binary have fixed
 SHA-256 digests. Neither has a Cargo source-build fallback. If both

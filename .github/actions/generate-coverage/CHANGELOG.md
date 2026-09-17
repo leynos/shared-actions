@@ -5,6 +5,9 @@
 - Add the optional `python-source` input for preserving a deliberate Slipcover
   source scope. Its comma-separated value is passed unchanged as one `--source`
   argument before `--branch`; empty values preserve default source discovery.
+- Prepend the coverage environment's scripts directory to `PATH` while running
+  Python coverage. Test-created child executables now use the same environment
+  and can import project development dependencies installed by `uv sync`.
 
 - Correct the canonical timeout arithmetic for this action's own watchdog.
   The requirement was stated as three terms and one window per coverage step;

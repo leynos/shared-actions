@@ -2107,6 +2107,33 @@ def test_coverage_args_omits_workers_when_empty(
     assert "-n" not in args
 
 
+@pytest.mark.parametrize("python_source", ["", "   ", "\t"])
+def test_coverage_args_omits_empty_python_source(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    python_source: str,
+) -> None:
+    """Empty and whitespace-only source scopes leave Slipcover unscoped."""
+    args = run_python_module._coverage_args(
+        "cobertura", tmp_path / "cov.xml", python_source=python_source
+    )
+    assert "--source" not in args
+    assert args[2] == "--branch"
+
+
+@pytest.mark.parametrize("python_source", ["episodic,alembic", "./lading"])
+def test_coverage_args_preserves_python_source_before_branch(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    python_source: str,
+) -> None:
+    """Source scopes remain one unchanged Slipcover argument before branching."""
+    args = run_python_module._coverage_args(
+        "cobertura", tmp_path / "cov.xml", python_source=python_source
+    )
+    assert args[2:5] == ["--source", python_source, "--branch"]
+
+
 @pytest.mark.parametrize("workers", ["auto", "logical", "4", "1"])
 def test_coverage_args_appends_workers_flag(
     tmp_path: Path,
@@ -2323,6 +2350,26 @@ def test_resolve_pytest_workers_raises_value_error_on_invalid_env(
         run_python_module._resolve_pytest_workers(None)
 
 
+def test_resolve_python_source_defaults_to_empty(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset action input preserves the unscoped Slipcover default."""
+    monkeypatch.delenv("INPUT_PYTHON_SOURCE", raising=False)
+    assert run_python_module._resolve_python_source(None) == ""
+
+
+@pytest.mark.parametrize("python_source", ["episodic,alembic", "./lading"])
+def test_resolve_python_source_reads_action_env_unchanged(
+    run_python_module: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    python_source: str,
+) -> None:
+    """The named action environment value is preserved for Slipcover."""
+    monkeypatch.setenv("INPUT_PYTHON_SOURCE", python_source)
+    assert run_python_module._resolve_python_source(None) == python_source
+
+
 def test_main_translates_invalid_workers_into_typer_exit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2419,6 +2466,8 @@ def _run_main_with_workers(
     monkeypatch: pytest.MonkeyPatch,
     run_python_module: ModuleType,
     workers: str,
+    *,
+    python_source: str | None = None,
 ) -> list[str]:
     """Invoke ``main`` under a fake coverage command and return the recorded argv.
 
@@ -2441,6 +2490,10 @@ def _run_main_with_workers(
     monkeypatch.setattr(run_python_module, "run_cmd", fake_run_cmd)
     _set_fake_coverage_python_cmd(monkeypatch, run_python_module)
     monkeypatch.delenv("INPUT_PYTEST_WORKERS", raising=False)
+    if python_source is None:
+        monkeypatch.delenv("INPUT_PYTHON_SOURCE", raising=False)
+    else:
+        monkeypatch.setenv("INPUT_PYTHON_SOURCE", python_source)
 
     run_python_module.main(output, "python", "cobertura", github_output, None, workers)
 
@@ -2463,6 +2516,24 @@ def test_main_threads_pytest_workers_into_slipcover_argv(
         f"workers value must reach slipcover's pytest argv, got {parts!r}"
     )
     assert "Pytest workers: 3 (parallel via pytest-xdist)" in stdout
+
+
+@pytest.mark.parametrize("python_source", ["episodic,alembic", "./lading"])
+def test_main_threads_python_source_from_action_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+    python_source: str,
+) -> None:
+    """The action environment source reaches Slipcover before ``--branch``."""
+    parts = _run_main_with_workers(
+        tmp_path,
+        monkeypatch,
+        run_python_module,
+        "",
+        python_source=python_source,
+    )
+    assert parts[3:6] == ["--source", python_source, "--branch"]
 
 
 def test_main_logs_serial_run_when_workers_disabled(

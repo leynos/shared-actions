@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add the optional `python-source` input for preserving a deliberate Slipcover
+  source scope. Its comma-separated value is passed unchanged as one `--source`
+  argument before `--branch`; empty values preserve default source discovery.
+
 - Correct the canonical timeout arithmetic for this action's own watchdog.
   The requirement was stated as three terms and one window per coverage step;
   both were wrong. The watchdog now carries a report-phase allowance, covering

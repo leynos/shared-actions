@@ -100,86 +100,124 @@ def _raw_runs_on(job_name: str) -> str:
     return declaration.group("value")
 
 
-def test_the_lane_runs_the_proof_script() -> None:
-    """Some step runs the proof, and points it at the coverage runner.
+#: Every key that can stop the trigger firing on some pull requests. A
+#: branch filter excludes just as effectively as a path one and is
+#: easier to add without thinking about it, so both kinds are named
+#: here rather than only the pair this lane was written against.
+TRIGGER_FILTERS: typ.Final[frozenset[str]] = frozenset(
+    {"paths", "paths-ignore", "branches", "branches-ignore"}
+)
 
-    Asserted as the command. A step that kept the name and ran something
-    else would leave the watchdog unproved while the lane stayed green.
-    """
-    commands = [
-        str(step.get("run", ""))
-        for job in _jobs().values()
-        for step in job.get("steps", [])
-    ]
-    running_the_proof = [command for command in commands if PROOF_SCRIPT in command]
-
-    assert running_the_proof, (
-        f"no step in {WORKFLOW.name} runs {PROOF_SCRIPT}, so the cargo "
-        "watchdog is not proved anywhere"
-    )
-    assert any(COVERAGE_RUNNER in command for command in running_the_proof), (
-        f"the proof is not pointed at {COVERAGE_RUNNER}, so it would not "
-        "exercise the watchdog the coverage action uses"
-    )
+#: The fork fallback, parsed rather than searched for tokens, so that
+#: each arm can be tied to the case it serves. The field path is matched
+#: exactly: swapping `fork` for a sibling such as `private` changes which
+#: pull requests fall back and must not match here.
+_FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
+    r"^\$\{\{\s*github\.event\.pull_request\.head\.repo\.fork"
+    r"\s*&&\s*'(?P<fork_arm>[^']+)'"
+    r"\s*\|\|\s*'(?P<base_arm>[^']+)'\s*\}\}$"
+)
 
 
-def test_the_lane_runs_on_every_pull_request() -> None:
-    """The lane has no paths filter.
+class TestCoverageWatchdogLane:
+    """The lane that carries the proof, and the ways it could stop running."""
 
-    A filtered lane falls silent on the pull request that breaks the
-    watchdog from somewhere the filter does not name, and a check that
-    reports on some pull requests and not others cannot be required.
-    """
-    triggers = _triggers()
+    def test_the_lane_runs_the_proof_script(self) -> None:
+        """Some step runs the proof, and points it at the coverage runner.
 
-    assert "pull_request" in triggers, f"{WORKFLOW.name} does not run on pull_request"
-    filters = triggers["pull_request"] or {}
-    declared = sorted(set(filters) & {"paths", "paths-ignore"})
+        Asserted as the command. A step that kept the name and ran something
+        else would leave the watchdog unproved while the lane stayed green.
+        """
+        commands = [
+            str(step.get("run", ""))
+            for job in _jobs().values()
+            for step in job.get("steps", [])
+        ]
+        running_the_proof = [command for command in commands if PROOF_SCRIPT in command]
 
-    assert not declared, (
-        f"{WORKFLOW.name} filters its pull_request trigger by {declared}, so "
-        "the watchdog would go unproved on a change outside those paths"
-    )
+        assert running_the_proof, (
+            f"no step in {WORKFLOW.name} runs {PROOF_SCRIPT}, so the cargo "
+            "watchdog is not proved anywhere"
+        )
+        assert any(COVERAGE_RUNNER in command for command in running_the_proof), (
+            f"the proof is not pointed at {COVERAGE_RUNNER}, so it would not "
+            "exercise the watchdog the coverage action uses"
+        )
 
+    def test_the_lane_runs_on_every_pull_request(self) -> None:
+        """The lane filters its pull_request trigger by nothing at all.
 
-@pytest.mark.parametrize("job_name", sorted(_jobs()))
-def test_runs_on_is_one_line(job_name: str) -> None:
-    """No job's `runs-on` carries a line break.
+        A filtered lane falls silent on the pull request that breaks the
+        watchdog from somewhere the filter does not name, and a check that
+        reports on some pull requests and not others cannot be required.
+        Branch filters do this as surely as path ones: `branches: [main]`
+        on a `pull_request` trigger matches the base branch, and a pull
+        request against any other base then never runs the proof.
+        """
+        triggers = _triggers()
 
-    A folded scalar keeps the break when its continuation is indented
-    more deeply than its first line, putting a newline inside the
-    expression. GitHub evaluates it regardless and the run goes green,
-    so the defect is invisible in CI and has to be refused here.
-    """
-    raw = _raw_runs_on(job_name)
-    folded = " ".join(part.strip() for part in raw.strip().splitlines() if part.strip())
-    parsed = _jobs()[job_name]["runs-on"]
+        assert "pull_request" in triggers, (
+            f"{WORKFLOW.name} does not run on pull_request"
+        )
+        filters = triggers["pull_request"] or {}
+        declared = sorted(set(filters) & TRIGGER_FILTERS)
 
-    assert "\n" not in str(parsed).strip(), (
-        f"{job_name}'s runs-on parses to more than one line: {parsed!r}; keep "
-        "the continuation at the same indent as the first line"
-    )
-    assert folded, f"{job_name} declares an empty runs-on"
+        assert not declared, (
+            f"{WORKFLOW.name} filters its pull_request trigger by {declared}, so "
+            "the watchdog would go unproved on the pull requests it excludes"
+        )
 
+    @pytest.mark.parametrize("job_name", sorted(_jobs()))
+    def test_runs_on_is_one_line(self, job_name: str) -> None:
+        """No job's `runs-on` carries a line break.
 
-@pytest.mark.parametrize("job_name", sorted(_jobs()))
-def test_runs_on_offers_both_arms(job_name: str) -> None:
-    """A fork gets a GitHub-hosted runner and everything else Ubicloud.
+        A folded scalar keeps the break when its continuation is indented
+        more deeply than its first line, putting a newline inside the
+        expression. GitHub evaluates it regardless and the run goes green,
+        so the defect is invisible in CI and has to be refused here.
+        """
+        raw = _raw_runs_on(job_name)
+        folded = " ".join(
+            part.strip() for part in raw.strip().splitlines() if part.strip()
+        )
+        parsed = _jobs()[job_name]["runs-on"]
 
-    A pull request from a fork cannot obtain an Ubicloud runner, so a
-    lane naming only the Ubicloud label would queue forever on exactly
-    the contribution it is meant to check.
-    """
-    parsed = str(_jobs()[job_name]["runs-on"])
+        assert "\n" not in str(parsed).strip(), (
+            f"{job_name}'s runs-on parses to more than one line: {parsed!r}; keep "
+            "the continuation at the same indent as the first line"
+        )
+        assert folded, f"{job_name} declares an empty runs-on"
 
-    assert FORK_RUNNER in parsed, (
-        f"{job_name} names no GitHub-hosted fallback, so a fork's pull "
-        "request cannot run it"
-    )
-    assert OWN_RUNNER in parsed, (
-        f"{job_name} does not use {OWN_RUNNER} for this repository's own pull requests"
-    )
-    assert "pull_request.head.repo.fork" in parsed, (
-        f"{job_name} chooses its runner on something other than whether the "
-        "pull request came from a fork"
-    )
+    @pytest.mark.parametrize("job_name", sorted(_jobs()))
+    def test_runs_on_maps_each_case_to_its_runner(self, job_name: str) -> None:
+        """A fork gets the GitHub-hosted runner and everything else Ubicloud.
+
+        A pull request from a fork cannot obtain an Ubicloud runner, so a
+        lane naming only the Ubicloud label would queue forever on exactly
+        the contribution it is meant to check.
+
+        Which arm is which is the whole assertion. Checking that both labels
+        and the field path appear somewhere in the expression is satisfied
+        just as well by the reversal, which sends forks to the paid runner
+        they cannot have and this repository's own pull requests to the
+        hosted one. So the expression is parsed and each arm is tied to its
+        case.
+        """
+        parsed = " ".join(str(_jobs()[job_name]["runs-on"]).split())
+        match = _FORK_AWARE_RUNS_ON.match(parsed)
+
+        assert match is not None, (
+            f"{job_name} declares runs-on {parsed!r}, which is not the fork "
+            "fallback: it must select its label on "
+            "github.event.pull_request.head.repo.fork with a literal label in "
+            "each arm"
+        )
+        assert match.group("fork_arm") == FORK_RUNNER, (
+            f"{job_name} sends a fork's pull request to "
+            f"{match.group('fork_arm')!r}; it must be {FORK_RUNNER!r}, because a "
+            "fork cannot obtain an Ubicloud runner"
+        )
+        assert match.group("base_arm") == OWN_RUNNER, (
+            f"{job_name} sends this repository's own pull requests to "
+            f"{match.group('base_arm')!r}; it must be {OWN_RUNNER!r}"
+        )

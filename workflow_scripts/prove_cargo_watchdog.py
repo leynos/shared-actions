@@ -96,9 +96,40 @@ def _uv() -> str:
     return found
 
 
+#: Every class of budget `_read_wait_timeout` documents as invalid, with
+#: the name of the class, so that a report says which one was accepted.
+#: Zero alone proved only the non-positive branch; a validator that lost
+#: its finiteness check or its `float()` guard would have kept passing.
+#:
+#: A blank value is deliberately absent. The runner reads blank as "not
+#: set" and falls back to the default budget, so a lane carrying one is
+#: guarded rather than unguarded, and demanding a refusal here would
+#: contradict the runner's documented behaviour.
+INVALID_BUDGETS: typ.Final[tuple[tuple[str, str], ...]] = (
+    ("0", "a zero budget"),
+    ("-1", "a negative budget"),
+    ("nan", "a budget that is not a number"),
+    ("inf", "an infinite budget"),
+    ("soon", "a budget that is not a number at all"),
+)
+
+
 @dc.dataclass(frozen=True, slots=True)
 class Outcome:
-    """What one invocation of the coverage runner did."""
+    """What one invocation of the coverage runner did.
+
+    Attributes
+    ----------
+    returncode : int
+        The runner's exit status.
+    seconds : float
+        Wall time from launching the runner to its exit. The proof turns
+        on this: a run that ends at the budget is the watchdog firing,
+        and one that ends at the fake cargo's sleep is not.
+    output : str
+        Standard output and standard error, concatenated, because which
+        stream a message arrived on says nothing about the watchdog.
+    """
 
     returncode: int
     seconds: float
@@ -110,10 +141,27 @@ def check_termination(
 ) -> list[str]:
     """Return the ways *outcome* fails to prove the watchdog terminated cargo.
 
-    An empty list is the proof. Each of the three properties is checked
+    An empty list is the proof. Each of the properties is checked
     separately so a partial regression names itself: a watchdog that
     kills but reports success, or one that reports failure only once
     cargo finished of its own accord, are different defects.
+
+    Parameters
+    ----------
+    outcome : Outcome
+        What the run under an overrunning cargo did.
+    budget : float
+        The seconds the watchdog was given. A run shorter than this
+        never reached cargo.
+    sleep_seconds : float
+        How long the fake cargo sleeps. A run at least this long waited
+        cargo out instead of terminating it.
+
+    Returns
+    -------
+    list[str]
+        One sentence for each property the outcome fails, empty when it
+        proves the watchdog fired.
     """
     failures: list[str] = []
     if outcome.returncode == 0:
@@ -149,10 +197,24 @@ def check_termination(
 def check_refusal(outcome: Outcome, *, value: str) -> list[str]:
     """Return the ways *outcome* fails to prove a bad budget is refused.
 
-    A budget of zero must be refused before cargo starts. Read instead
-    as "no watchdog", a lane carrying zero would run unguarded while
+    An invalid budget must be refused before cargo starts. Read instead
+    as "no watchdog", a lane carrying one would run unguarded while
     appearing to declare a budget, which is the failure this rule is
     for.
+
+    Parameters
+    ----------
+    outcome : Outcome
+        What the run under the invalid budget did.
+    value : str
+        The budget the run was given, named in the failure sentences so
+        that a report says which class of invalid value was accepted.
+
+    Returns
+    -------
+    list[str]
+        One sentence for each property the outcome fails, empty when it
+        proves the budget was refused and cargo never started.
     """
     failures: list[str] = []
     if outcome.returncode == 0:
@@ -290,12 +352,19 @@ def main(
         )
         verdicts.append(not failures)
 
-        zero_root = Path(raw) / "zero"
-        zero_root.mkdir()
-        zero = _run_case(runner, zero_root, budget="0", sleep_seconds=sleep_seconds)
-        failures = check_refusal(zero, value="0")
-        _report("a zero budget is refused before cargo starts", failures, zero)
-        verdicts.append(not failures)
+        for index, (value, label) in enumerate(INVALID_BUDGETS):
+            case_root = Path(raw) / f"invalid-{index}"
+            case_root.mkdir()
+            outcome = _run_case(
+                runner, case_root, budget=value, sleep_seconds=sleep_seconds
+            )
+            failures = check_refusal(outcome, value=value)
+            _report(
+                f"{label} ({value!r}) is refused before cargo starts",
+                failures,
+                outcome,
+            )
+            verdicts.append(not failures)
 
     if not all(verdicts):
         raise SystemExit(1)

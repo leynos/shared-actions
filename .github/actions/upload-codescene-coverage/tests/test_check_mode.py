@@ -12,6 +12,9 @@ import pytest
 import yaml
 
 ACTION_YML = Path(__file__).resolve().parents[1] / "action.yml"
+WORKFLOW_YML = (
+    ACTION_YML.parents[3] / ".github/workflows/test-upload-codescene-coverage.yml"
+)
 
 
 def _steps() -> list[dict[str, object]]:
@@ -268,6 +271,32 @@ def test_malicious_input_is_not_executed_before_validation(tmp_path: Path) -> No
     assert not marker.exists()
 
 
+def test_legacy_installer_checksum_fails_closed(tmp_path: Path) -> None:
+    """The retired installer checksum cannot authorize a CLI installation."""
+    if sys.platform == "win32":
+        pytest.skip("bash integration tests are not supported on Windows")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not found on PATH")
+    result = subprocess.run(  # noqa: S603,TID251 - exercise the action's bash.
+        [bash, "-c", str(_validation_step()["run"])],
+        check=False,
+        capture_output=True,
+        env=os.environ
+        | {
+            "INPUT_FORMAT": "cobertura",
+            "INPUT_MODE": "install",
+            "INPUT_PROJECT_URL": "",
+            "INPUT_INSTALLER_CHECKSUM": "legacy-checksum",
+        },
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "installer-checksum is deprecated" in result.stderr
+    assert "archive-checksum" in result.stderr
+
+
 def test_newline_token_remains_one_environment_value(tmp_path: Path) -> None:
     """A newline token cannot add GITHUB_ENV records or become shell syntax."""
     if sys.platform == "win32":
@@ -319,3 +348,22 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
     for name in ("Determine coverage file", "Upload coverage GitHub artefact"):
         step = next(step for step in steps if step["name"] == name)
         assert "inputs.mode != 'install'" in str(step["if"])
+
+
+def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
+    """The secret-backed parser proof skips forks and rejects the known failure."""
+    workflow = WORKFLOW_YML.read_text(encoding="utf-8")
+
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert (
+        "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+    )
+    assert "! grep -F 'No matching field found" not in workflow
+    assert "git fetch --no-tags --depth=1" in workflow
+    assert "git fetch --no-tags --unshallow" in workflow
+    assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
+    assert (
+        "if grep -F 'No matching field found: close for class "
+        "java.io.InputStreamReader'" in workflow
+    )
+    assert "cs-coverage 1.0.101 reported the known parser failure" in workflow

@@ -5,15 +5,16 @@ changed-line gate.
 
 ## Inputs
 
-| Name               | Description                                         | Required | Default     |
-| ------------------ | --------------------------------------------------- | -------- | ----------- |
-| `path`             | Coverage file path; blank or `__auto__` is inferred | no       | `__auto__`  |
-| `format`           | `cobertura` or `lcov`                               | no       | `cobertura` |
-| `access-token`     | CodeScene project access token                      | no       |             |
-| `cli-version`      | Approved `cs-coverage` version                      | no       | `1.0.101`   |
-| `archive-checksum` | Optional digest that must equal the manifest digest | no       |             |
-| `mode`             | `install`, `upload`, or `check`                     | no       | `upload`    |
-| `project-url`      | CodeScene project API URL, required for `check`     | no       |             |
+| Name                 | Description                                         | Required | Default     |
+| -------------------- | --------------------------------------------------- | -------- | ----------- |
+| `path`               | Coverage file path; blank or `__auto__` is inferred | no       | `__auto__`  |
+| `format`             | `cobertura` or `lcov`                               | no       | `cobertura` |
+| `access-token`       | CodeScene project access token                      | no       |             |
+| `cli-version`        | Approved `cs-coverage` version                      | no       | `1.0.101`   |
+| `archive-checksum`   | Optional digest that must equal the manifest digest | no       |             |
+| `installer-checksum` | Deprecated; non-empty values are rejected           | no       |             |
+| `mode`               | `install`, `upload`, or `check`                     | no       | `upload`    |
+| `project-url`        | CodeScene project API URL, required for `check`     | no       |             |
 
 ## Trusted installation
 
@@ -27,12 +28,16 @@ digests, and an `archive-checksum` that disagrees with the manifest. A caller
 cannot replace the committed digest.
 
 The archive is downloaded over verified HTTPS from `downloads.codescene.io`,
-hashed before extraction, rejects non-HTTPS or cross-host redirects, checks an
-exact safe member list, and installs only `cs-coverage`. The action then runs
-`cs-coverage version` and requires both the logical version and immutable build
-identifier to match the manifest. There is no source-build fallback and no
-`latest` route: adding a new CLI requires reviewing an official archive URL and
-digest in the manifest.
+hashed before extraction, rejects redirects, checks an exact safe member list,
+and installs only `cs-coverage`. The action then runs `cs-coverage version` and
+requires both the logical version and immutable build identifier to match the
+manifest. There is no source-build fallback and no `latest` route: adding a new
+CLI requires reviewing an official archive URL and digest in the manifest.
+
+`installer-checksum` remains only for a fail-closed migration. Omit it; any
+non-empty value fails before installation with an instruction to use
+`archive-checksum`. The committed manifest digest stays authoritative, and an
+`archive-checksum` can only repeat that digest as a caller assertion.
 
 The cache key includes the resolved version, platform, and archive digest. It
 has no restore prefix, so a different build can never satisfy a cache hit. Each
@@ -66,7 +71,10 @@ from cs-coverage 1.0.103; their digests are asserted in the focused contracts.
 The cold-runner workflow exercises the installed 1.0.101 CLI against both
 fixtures. The licensed CLI has no offline parser entrypoint, so byte-exact
 parser proof uses the repository `CS_ACCESS_TOKEN` in same-repository pull
-requests and manual dispatches. The workflow fails closed when that secret is
-unavailable.
+requests and manual dispatches. It skips untrusted fork pull requests because
+GitHub does not expose repository secrets there, and it fails closed when a
+trusted run lacks the secret. The workflow fetches the default branch at depth
+one for the CLI's `origin/<default-branch>` merge-base lookup, and unshallows
+only when that shallow history has no merge base.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

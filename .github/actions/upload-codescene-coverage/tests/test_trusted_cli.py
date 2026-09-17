@@ -24,6 +24,7 @@ SCRIPT = ACTION / "scripts" / "install_cs_coverage.py"
 MANIFEST = ACTION / "cli-manifest.json"
 FIXTURES = ACTION / "tests" / "fixtures"
 
+sys.path.insert(0, str(SCRIPT.parent))
 _SPEC = importlib.util.spec_from_file_location("install_cs_coverage", SCRIPT)
 assert _SPEC is not None
 assert _SPEC.loader is not None
@@ -44,6 +45,22 @@ def _release() -> dict[str, object]:
     return json.loads(MANIFEST.read_text(encoding="utf-8"))["releases"][0]
 
 
+def _resolve(
+    manifest: Path,
+    version: str = "1.0.101",
+    runner_os: str = "Linux",
+    runner_arch: str = "X64",
+    checksum: str = "",
+) -> installer.Release:
+    """Resolve a test release through the public request value object."""
+    request = installer.ResolutionRequest(
+        version,
+        installer.RunnerPlatform(runner_os, runner_arch),
+        checksum,
+    )
+    return installer.resolve(manifest, request)
+
+
 def _archive(
     path: Path, entries: dict[str, bytes], *, symlink: str | None = None
 ) -> None:
@@ -58,7 +75,7 @@ def _archive(
 
 def test_manifest_resolves_the_recorded_linux_release() -> None:
     """The committed trust anchor records the known-good immutable archive."""
-    resolved = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    resolved = _resolve(MANIFEST)
 
     assert resolved.build == "ca2b95180eff32b5072e81f20d718d7b747650be"
     assert (
@@ -81,7 +98,7 @@ def test_unknown_or_unsupported_resolution_fails_closed(
 ) -> None:
     """A floating version, absent pin, or unsupported runner cannot install."""
     with pytest.raises(installer.InstallError):
-        installer.resolve(MANIFEST, version, runner_os, runner_arch)
+        _resolve(MANIFEST, version, runner_os, runner_arch)
 
 
 def test_invalid_manifest_missing_digest_and_conflicting_checksum_fail(
@@ -90,18 +107,18 @@ def test_invalid_manifest_missing_digest_and_conflicting_checksum_fail(
     """No malformed trust anchor or caller override can weaken the digest."""
     unreadable = tmp_path / "missing.json"
     with pytest.raises(installer.InstallError):
-        installer.resolve(unreadable, "1.0.101", "Linux", "X64")
+        _resolve(unreadable)
     release = _release()
     release["archive_sha256"] = ""
     with pytest.raises(installer.InstallError):
-        installer.resolve(_manifest(tmp_path, release), "1.0.101", "Linux", "X64")
+        _resolve(_manifest(tmp_path, release))
     with pytest.raises(installer.InstallError, match="conflicts"):
-        installer.resolve(MANIFEST, "1.0.101", "Linux", "X64", "0" * 64)
+        _resolve(MANIFEST, checksum="0" * 64)
 
 
 def test_extract_rejects_unsafe_archive_members(tmp_path: Path) -> None:
     """Traversal, unexpected members, and symlinks never reach the executable path."""
-    release = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    release = _resolve(MANIFEST)
     archive = tmp_path / "unsafe.zip"
     _archive(
         archive,
@@ -121,7 +138,7 @@ def test_extract_rejects_unsafe_expected_archive_paths(
     tmp_path: Path, unsafe_name: str
 ) -> None:
     """Path validation rejects unsafe names even when the manifest lists them."""
-    resolved = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    resolved = _resolve(MANIFEST)
     release = dc.replace(
         resolved,
         archive_members=(*resolved.archive_members, unsafe_name),
@@ -143,7 +160,7 @@ def test_extract_rejects_unsafe_expected_archive_paths(
 
 def test_extract_rejects_duplicate_archive_members(tmp_path: Path) -> None:
     """Duplicate ZIP names cannot hide a substituted executable payload."""
-    release = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    release = _resolve(MANIFEST)
     archive = tmp_path / "duplicate.zip"
     _archive(
         archive,
@@ -177,7 +194,7 @@ def test_download_digest_mismatch_is_rejected(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Bytes whose hash differs from the manifest never reach extraction."""
-    release = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    release = _resolve(MANIFEST)
 
     class Response(io.BytesIO):
         def __enter__(self) -> Response:
@@ -205,21 +222,24 @@ def test_download_digest_mismatch_is_rejected(
 
 
 @pytest.mark.parametrize(
-    "redirect",
+    "status",
     [
-        "http://downloads.codescene.io/archive.zip",
-        "https://example.invalid/archive.zip",
+        301,
+        302,
+        303,
+        307,
+        308,
     ],
 )
-def test_download_redirect_rejects_non_https_or_foreign_host(redirect: str) -> None:
-    """The downloader rejects a redirect before it can fetch a new host."""
-    handler = installer._ApprovedRedirect()
+def test_download_rejects_redirects_before_following(status: int) -> None:
+    """The downloader rejects every redirect before it can fetch a new URL."""
+    handler = installer._RejectRedirect()
     request = installer.urllib.request.Request(
         "https://downloads.codescene.io/archive.zip"
     )
 
     with pytest.raises(installer.InstallError, match="redirect"):
-        handler.redirect_request(request, None, 302, "Found", None, redirect)
+        handler.http_error_302(request, None, status)
 
 
 def test_download_opener_requires_tls_1_2_or_newer() -> None:
@@ -236,7 +256,7 @@ def test_download_opener_requires_tls_1_2_or_newer() -> None:
 
 def test_version_mismatch_and_failure_are_rejected(tmp_path: Path) -> None:
     """A cache hit still has to identify as the selected logical/build pair."""
-    release = installer.resolve(MANIFEST, "1.0.101", "Linux", "X64")
+    release = _resolve(MANIFEST)
     binary = tmp_path / "cs-coverage"
     wrong_version = "1.0.102"
     expected_build = "ca2b95180eff32b5072e81f20d718d7b747650be"

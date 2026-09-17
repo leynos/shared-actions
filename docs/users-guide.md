@@ -943,8 +943,9 @@ merge base to evaluate the gate. For LCOV, the report path must end in `.info`.
 
 The pull request's base must already have coverage uploaded to CodeScene. If
 that baseline is unavailable, `cs-coverage` cannot evaluate the gate; the
-action prints the CLI's verbose diagnostic, adds the uploaded-base explanation
-for status 2, and preserves the CLI's original exit status.
+action preserves the CLI's normal diagnostics, adds the uploaded-base
+explanation for status 2, and preserves the CLI's original exit status. It does
+not use verbose diagnostics because they can expose Authorization headers.
 
 Checks for stacked pull requests are intentionally skipped. When the pull
 request base is not the repository's default branch, the action emits a warning

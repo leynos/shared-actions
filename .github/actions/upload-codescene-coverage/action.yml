@@ -21,6 +21,10 @@ inputs:
     description: Optional SHA-256 which must equal the manifest archive digest
     required: false
     default: ""
+  installer-checksum:
+    description: Deprecated; non-empty values are rejected, use archive-checksum
+    required: false
+    default: ""
   mode:
     description: Install, upload an analysed branch report, or check pull-request coverage
     required: false
@@ -37,7 +41,12 @@ runs:
         INPUT_FORMAT: ${{ inputs.format }}
         INPUT_MODE: ${{ inputs.mode }}
         INPUT_PROJECT_URL: ${{ inputs.project-url }}
+        INPUT_INSTALLER_CHECKSUM: ${{ inputs.installer-checksum }}
       run: |
+        if [ -n "$INPUT_INSTALLER_CHECKSUM" ]; then
+          echo "installer-checksum is deprecated; remove it or use archive-checksum" >&2
+          exit 1
+        fi
         case "$INPUT_FORMAT" in
           cobertura|lcov) ;;
           *) echo "Unsupported format: $INPUT_FORMAT" >&2; exit 1 ;;

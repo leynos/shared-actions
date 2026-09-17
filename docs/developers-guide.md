@@ -838,12 +838,13 @@ skipped pull requests.
 
 The check command is an observable diagnostic contract. After validating the
 CLI, coverage file, and LCOV suffix, run
-`cs-coverage check --verbose --coverage-files "$file"` directly so its native
-standard-output and standard-error streams remain intact. Put the invocation in
-an `if` condition; in the failure branch, capture `$?` as the first command,
-add the uploaded-base explanation when the status is `2`, then
-`exit "$status"`. This preserves every CLI failure status rather than masking
-it with diagnostic handling. The behavioural contract is covered by the
+`cs-coverage check --coverage-files "$file"` directly so its native
+standard-output and standard-error streams remain intact without emitting
+Authorization headers. Put the invocation in an `if` condition; in the failure
+branch, capture `$?` as the first command, add the uploaded-base explanation
+when the status is `2`, then `exit "$status"`. This preserves every CLI failure
+status rather than masking it with diagnostic handling. The behavioural
+contract is covered by the
 [check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
 
 ## `upload-codescene-coverage` trusted CLI installation
@@ -863,6 +864,8 @@ restores and fresh installation. Never add a source-build fallback or a moving
 `latest` default. The exact version/platform/digest cache key has no restore
 prefix. The resolver and extractor contracts live in
 [`test_trusted_cli.py`](../.github/actions/upload-codescene-coverage/tests/test_trusted_cli.py).
+The retired `installer-checksum` input only fails closed for legacy callers;
+use `archive-checksum` to assert the manifest digest.
 
 ## `setup-rust` cargo-binstall Pinning
 

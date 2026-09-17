@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   cold-runner-contract:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -22,6 +25,20 @@ jobs:
             echo 'cs-coverage was unexpectedly preinstalled on this runner' >&2
             exit 1
           fi
+      - name: Fetch the parser's default-branch merge base
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_url="https://github.com/$REPOSITORY.git"
+          refspec="refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git fetch --no-tags --depth=1 "$repository_url" "$refspec"
+          if ! git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null; then
+            git fetch --no-tags --unshallow "$repository_url" "$refspec"
+          fi
+          git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null
       - name: Install pinned CodeScene CLI without a preinstalled dependency
         uses: ./.github/actions/upload-codescene-coverage
         with:
@@ -41,7 +58,10 @@ jobs:
             log="/tmp/$(basename "$report").log"
             CS_DISABLE_VERSION_CHECK=1 cs-coverage check --coverage-files "$report" 2>&1 | tee "$log"
             grep -F 'Code coverage gates: PASS' "$log"
-            ! grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"
+            if grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"; then
+              echo 'cs-coverage 1.0.101 reported the known parser failure' >&2
+              exit 1
+            fi
           done
       - name: Reject unpinned version and checksum conflict
         shell: bash

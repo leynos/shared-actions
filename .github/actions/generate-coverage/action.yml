@@ -83,6 +83,15 @@ inputs:
   artefact-name-suffix:
     description: Optional suffix appended to the coverage artefact name
     required: false
+  publish-artefact:
+    description: >
+      Upload the generated coverage report as a workflow artefact. A caller
+      whose own workflow already owns publication, or which must not publish
+      the report at all, sets this to "false". The step keeps running with
+      `always()`, so an opted-out caller simply skips the upload rather than
+      changing when the rest of the action runs.
+    required: false
+    default: "true"
   baseline-rust-file:
     description: Path to store the Rust coverage baseline
     required: false
@@ -469,7 +478,14 @@ runs:
         RUNNER_ARCH: ${{ runner.arch }}
       shell: bash
     - name: Archive coverage
-      if: always()
+      # `always()` keeps the report reachable after a later step fails, which
+      # is what makes a tripped ratchet diagnosable. The opt-out is a separate
+      # conjunct rather than a replacement, so a caller that sets it still gets
+      # the same run for every other step; only the upload is skipped. A caller
+      # that must not publish the report at all sets `publish-artefact: false`,
+      # because the file the action generates is otherwise readable by any step
+      # in the job.
+      if: always() && inputs.publish-artefact == 'true'
       uses: actions/upload-artifact@v4
       with:
         # Fall back to a run-scoped name when `out` could not compute one (for

@@ -87,3 +87,35 @@ def test_archive_step_always_runs_with_name_fallback() -> None:
         "archive name has no fallback; a skipped out step yields an empty name "
         "and fails the upload"
     )
+
+
+def test_archive_step_honours_the_publication_opt_out() -> None:
+    """`publish-artefact: false` must suppress the upload.
+
+    The whole condition is asserted, not the presence of its two parts. A
+    presence check passes for `always() || inputs.publish-artefact == 'true'`,
+    which uploads precisely when a caller disabled publishing — the opposite
+    of the intended behaviour, and undetectable from either operand alone.
+
+    The guard is a conjunct on the existing `always()`, not a replacement: a
+    caller that opts out still runs the rest of the action, and the archive
+    step still "runs" in the sense that its condition is evaluated, so the
+    masking fix above is unaffected.
+    """
+    archive = _step_by_name("Archive coverage")
+    assert str(archive["if"]) == ("always() && inputs.publish-artefact == 'true'"), (
+        "the archive step must upload only when always() holds and the caller "
+        "did not opt out; any other expression either ignores the opt-out or "
+        "inverts it"
+    )
+
+
+def test_publish_artefact_input_defaults_to_true() -> None:
+    """Omitting the input must preserve the historical upload behaviour."""
+    data = yaml.safe_load(ACTION_YML.read_text())
+    declared = data["inputs"]["publish-artefact"]
+    assert declared.get("default") == "true", (
+        "publish-artefact must default to true; otherwise every existing "
+        "caller silently stops uploading its coverage report"
+    )
+    assert declared.get("required") is False

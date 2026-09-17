@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add a `publish-artefact` input, defaulting to `true`, which suppresses the
+  `Archive coverage` upload when set to `false`. The step kept its `always()`
+  condition, since a caller that opts out still needs the rest of the action to
+  run and the always-run condition is what keeps a tripped ratchet diagnosable;
+  the opt-out is an added conjunct. A repository that forbids coverage
+  artefacts on pull-request-reachable workflows can now call the action without
+  publishing one, while every existing caller keeps uploading because the
+  default is unchanged.
+
 - Install `cargo-llvm-cov` from the tool manifest at 0.9.0, replacing the
   `cargo-binstall` of 0.6.24. cargo 1.100 nightlies (from 2026-08-22) use
   Cargo's new build-dir layout, which places test executables under

@@ -147,6 +147,7 @@ Known limitations:
 | cargo-wait-timeout    | Seconds cargo may run before the watchdog kills it                                                                                                                                                 | no       | `1800`                      |
 | publish-baseline      | When the baseline may be published: `auto` or `always`                                                                                                                                             | no       | `auto`                      |
 | artefact-name-suffix  | Additional suffix appended to the uploaded coverage artefact                                                                                                                                       | no       |                             |
+| publish-artefact      | Upload the generated coverage report as a workflow artefact; `false` suppresses the upload                                                                                                         | no       | `true`                      |
 | baseline-rust-file    | Rust baseline path                                                                                                                                                                                 | no       | `.coverage-baseline.rust`   |
 | baseline-python-file  | Python baseline path                                                                                                                                                                               | no       | `.coverage-baseline.python` |
 | with-cucumber-rs      | Run cucumber-rs scenarios under coverage                                                                                                                                                           | no       | `false`                     |
@@ -613,6 +614,13 @@ step that also always runs; if that step cannot compute one, the archive falls
 back to a run-scoped ``coverage-<job>-<index>-<run-id>`` name. This ensures a
 failing run surfaces its real error (for example, "Coverage decreased") rather
 than a confusing empty-artefact-name error from the upload.
+
+Set `publish-artefact: false` to suppress the upload entirely. A caller uses
+this when it owns publication itself, or when a job must not publish the report
+at all — for example a pull-request job that only needs the local ratchet and
+whose repository forbids coverage artefacts on pull-request-reachable
+workflows. The file is still generated on the runner and remains readable by
+any later step in the same job; this input controls publication, not generation.
 
 Developer-facing design notes, including the rationale for Cranelift coverage
 environment overrides, are available in

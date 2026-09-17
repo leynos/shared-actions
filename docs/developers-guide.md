@@ -65,16 +65,19 @@ command for `<venv_python>` thereafter.
 ### Public API
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                 | Signature                                                                     | Role                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `coverage_cmd_for_fmt` | `(fmt, out, workers="")`                                                      | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist. |
-| `tmp_coveragepy_xml`   | `(out)`                                                                       | Generate temporary Cobertura XML.                                           |
-| `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None)` | Run.                                                                        |
+| Symbol                 | Signature                                                                     | Role                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `coverage_cmd_for_fmt` | `(fmt, out, workers="", source=())`                                           | Build a slipcover command, optionally with `-n <workers>` and `--source <dirs>`. |
+| `tmp_coveragepy_xml`   | `(out)`                                                                       | Generate temporary Cobertura XML.                                                |
+| `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None)` | Run.                                                                             |
 <!-- markdownlint-enable MD013 -->
 
 `coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format. When
 `workers` is non-empty, it appends `-n <workers>` so pytest-xdist parallelizes
-the run; an empty string preserves the historical serial pytest invocation.
+the run; an empty string preserves the historical serial pytest invocation. When
+`source` is non-empty it appends `--source <comma-joined directories>` before
+the pytest arguments, which bounds Slipcover's instrumentation to those
+directories; an empty tuple preserves Slipcover's unrestricted behaviour.
 `tmp_coveragepy_xml` yields a temporary XML path and removes it on exit. `main`
 resolves `pytest_workers` from the CLI option, falling back to the
 `INPUT_PYTEST_WORKERS` environment variable and finally to `"auto"`. Accepted
@@ -82,6 +85,31 @@ values are `"auto"`, `"logical"`, a positive integer string, or `""` to disable
 parallelism — `"0"` is rejected so that `""` stays the single canonical disable
 mechanism. `main` then runs slipcover, parses coverage, and writes
 `GITHUB_OUTPUT`.
+
+### `python-coverage-source` environment contract
+
+`main` reads `INPUT_PYTHON_COVERAGE_SOURCE`, which the composite action wires
+from its `python-coverage-source` input through the coverage step's
+environment. The value is a comma-separated list of repository-relative source
+directories, or unset/empty for unrestricted instrumentation.
+
+Validation is split along the module's parse/resolve boundary.
+`_parse_python_coverage_source()` is pure: it trims each entry, returns `()` for
+`None` or blank input, and raises `ValueError` naming the raw value when any
+entry is empty. `_resolve_python_coverage_source()` adds the ambient check that
+needs the working directory: it calls the pure
+`_sources_outside_repository(sources, repository_root)` predicate and raises
+`ValueError` when an entry is absolute or resolves outside `Path.cwd()`.
+Because Slipcover resolves both the configured source and every candidate
+filename before deciding whether a module is instrumentable, an escaping source
+re-admits the foreign dependencies the boundary exists to exclude; containment
+is therefore enforced rather than advisory.
+
+Both failures are reported on stderr and exit with code 2, before the coverage
+venv is created and before any coverage subprocess starts. The resolved
+boundary is then logged as `Python coverage source: <dirs>` or
+`Python coverage source: unrestricted` and threaded through
+`coverage_cmd_for_fmt` into the Slipcover argv.
 
 ### Concurrency Model
 

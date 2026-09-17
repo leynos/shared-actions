@@ -108,6 +108,12 @@ inputs:
       disable parallelism and keep the historical serial pytest behaviour.
     required: false
     default: auto
+  python-coverage-source:
+    description: |
+      Optional comma-separated repository-relative Python source directories
+      passed to Slipcover's `--source` option. Empty entries are invalid, and
+      every entry must resolve inside the repository.
+    required: false
   cache-provider:
     description: >
       Cache owner for Cargo and uv state. Use "github" for the action's
@@ -333,6 +339,7 @@ runs:
         INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
         BASELINE_PYTHON_FILE: ${{ inputs.baseline-python-file }}
         INPUT_PYTEST_WORKERS: ${{ inputs.pytest-workers }}
+        INPUT_PYTHON_COVERAGE_SOURCE: ${{ inputs.python-coverage-source }}
       shell: bash
     - if: steps.detect.outputs.lang == 'mixed'
       run: uv run --script "${{ github.action_path }}/scripts/merge_cobertura.py"

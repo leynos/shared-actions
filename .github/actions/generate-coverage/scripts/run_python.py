@@ -327,19 +327,73 @@ def _normalize_pytest_workers(raw: str | None) -> str:
         raise typer.Exit(2) from exc
 
 
-def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:
+def _parse_python_coverage_source(raw: str | None) -> tuple[str, ...]:
+    """Parse repository-relative Slipcover source directories from an input."""
+    if raw is None or not raw.strip():
+        return ()
+    sources = tuple(source.strip() for source in raw.split(","))
+    if any(not source for source in sources):
+        message = (
+            f"Invalid python-coverage-source value: {raw!r}. Empty entries are "
+            "not allowed; provide comma-separated repository-relative source "
+            "directories."
+        )
+        raise ValueError(message)
+    return sources
+
+
+def _sources_outside_repository(
+    sources: tuple[str, ...], repository_root: Path
+) -> tuple[str, ...]:
+    """Return the requested sources that resolve outside ``repository_root``."""
+    return tuple(
+        source
+        for source in sources
+        if Path(source).is_absolute()
+        or not Path(source).resolve().is_relative_to(repository_root)
+    )
+
+
+def _resolve_python_coverage_source() -> tuple[str, ...]:
+    """Read and validate the optional Python coverage source boundary."""
+    raw = os.getenv("INPUT_PYTHON_COVERAGE_SOURCE")
+    sources = _parse_python_coverage_source(raw)
+    outside = _sources_outside_repository(sources, Path.cwd().resolve())
+    if outside:
+        message = (
+            f"Invalid python-coverage-source value: {raw!r}. Source directories "
+            "must resolve inside the repository; these do not: "
+            f"{', '.join(outside)}."
+        )
+        raise ValueError(message)
+    return sources
+
+
+def _coverage_args(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    source: tuple[str, ...] = (),
+) -> list[str]:
     """Return the slipcover/pytest argv for the requested format."""
     args: list[str] = [*SLIPCOVER_ARGS]
     if fmt == "cobertura":
         # slipcover treats --xml as a boolean flag; --out sets the report path
         args.extend(["--xml", "--out", str(out)])
+    if source:
+        args.extend(["--source", ",".join(source)])
     args.extend(PYTEST_ARGS)
     if workers:
         args.extend(["-n", workers])
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand:
+def coverage_cmd_for_fmt(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    source: tuple[str, ...] = (),
+) -> BoundCommand:
     """Return the slipcover command for the requested coverage format.
 
     Parameters
@@ -355,6 +409,10 @@ def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand
         Worker count for pytest-xdist's ``-n`` flag. Empty disables xdist;
         otherwise must already be a validated value such as ``"auto"`` or a
         non-negative integer string.
+    source : tuple[str, ...]
+        Validated repository-relative directories that bound Slipcover's
+        instrumentation to project source. An empty tuple retains
+        Slipcover's unrestricted behaviour.
 
     Returns
     -------
@@ -362,7 +420,7 @@ def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd()
-    return python_cmd[_coverage_args(fmt, out, workers)]
+    return python_cmd[_coverage_args(fmt, out, workers, source)]
 
 
 @contextlib.contextmanager
@@ -427,7 +485,12 @@ def _resolve_output_path(output_path: Path, lang: str) -> Path:
     return output_path
 
 
-def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
+def _run_coverage(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    source: tuple[str, ...] = (),
+) -> str:
     """Run slipcover and return the line coverage percentage.
 
     Parameters
@@ -438,6 +501,9 @@ def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
         Destination path for the coverage output file.
     workers : str
         Worker count for pytest-xdist's ``-n`` flag; empty disables xdist.
+    source : tuple[str, ...]
+        Validated repository-relative directories that bound Slipcover's
+        instrumentation. An empty tuple retains unrestricted instrumentation.
 
     Returns
     -------
@@ -452,7 +518,7 @@ def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
         ``coveragepy`` format mode.
     """
     try:
-        cmd = coverage_cmd_for_fmt(fmt, out, workers)
+        cmd = coverage_cmd_for_fmt(fmt, out, workers, source)
         run_cmd(cmd, method="run_fg")
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
@@ -562,6 +628,7 @@ def main(
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     try:
         workers = _resolve_pytest_workers(pytest_workers)
+        source = _resolve_python_coverage_source()
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
@@ -569,8 +636,12 @@ def main(
         typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
     else:
         typer.echo("Pytest workers: disabled (serial pytest run)")
+    if source:
+        typer.echo(f"Python coverage source: {', '.join(source)}")
+    else:
+        typer.echo("Python coverage source: unrestricted")
     out.parent.mkdir(parents=True, exist_ok=True)
-    percent = _run_coverage(fmt, out, workers)
+    percent = _run_coverage(fmt, out, workers, source)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:

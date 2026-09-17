@@ -57,7 +57,13 @@ VERSION_INPUT: typ.Final[str] = "version"
 # has many more.
 WorkflowStep = typ.TypedDict(
     "WorkflowStep",
-    {"name": str, "uses": str, "run": str, "with": "dict[str, str]"},
+    {
+        "name": str,
+        "uses": str,
+        "run": str,
+        "with": "dict[str, str]",
+        "env": "dict[str, object]",
+    },
     total=False,
 )
 
@@ -66,12 +72,14 @@ class WorkflowJob(typ.TypedDict, total=False):
     """One job of a workflow, as much of it as these tests read."""
 
     steps: list[WorkflowStep]
+    env: dict[str, object]
 
 
 class Workflow(typ.TypedDict, total=False):
     """A parsed workflow document."""
 
     jobs: dict[str, WorkflowJob]
+    env: dict[str, object]
 
 
 #: A `cargo install` of this tool, as a command.
@@ -91,11 +99,29 @@ class Workflow(typ.TypedDict, total=False):
 #: ends on a lookahead so that a command terminated by `;` counts as much as
 #: one terminated by a space.
 #:
+#: Shell keywords a command can sit behind without being any less run.
+#: `if true; then cargo install merman-cli; fi` compiles the crate exactly
+#: as plainly as a bare command does, and the separator alternative above
+#: stops at the `;`, which leaves `then` between it and `cargo`. The
+#: keywords are matched as whole words, so a crate or a path ending in one
+#: of them is not read as a keyword.
+_SHELL_PREFIX_KEYWORDS: typ.Final[tuple[str, ...]] = (
+    "if",
+    "then",
+    "else",
+    "elif",
+    "do",
+    "while",
+    "until",
+)
+
 #: The pattern is assembled from module-level literals rather than from
 #: anything a workflow supplies, so there is no input here to drive
 #: backtracking.
 _CARGO_INSTALL: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^[ \t]*|[;&|]\s*)cargo(?:\s+\+\S+)?\s+install\s+(?:-\S+(?:\s+\S+)?\s+)*"
+    r"(?:^[ \t]*|[;&|]\s*|\b(?:"
+    + "|".join(_SHELL_PREFIX_KEYWORDS)
+    + r")\s+)cargo(?:\s+\+\S+)?\s+install\s+(?:-\S+(?:\s+\S+)?\s+)*"
     + re.escape(TOOL_NAME)
     + r"(?:@[^\s;&|]+)?(?=\s|[;&|]|$)",
     re.MULTILINE,
@@ -146,33 +172,66 @@ def _all_steps(document: Workflow) -> list[WorkflowStep]:
     ]
 
 
-def _install_tool_steps(document: Workflow) -> list[WorkflowStep]:
-    """Return the steps that install this tool through `install-tool`."""
+def _install_tool_steps(
+    document: Workflow,
+) -> list[tuple[WorkflowJob, WorkflowStep]]:
+    """Return each `install-tool` step for this tool, with its owning job.
+
+    The job travels with the step because an `env.NAME` in the step's
+    inputs resolves in that job and nowhere else.
+    """
     return [
-        step
-        for step in _all_steps(document)
+        (job, step)
+        for job in document.get("jobs", {}).values()
+        for step in job.get("steps", [])
         if step.get("uses") == INSTALL_TOOL_ACTION
         and str(step.get("with", {}).get(TOOL_INPUT, "")) == TOOL_NAME
     ]
 
 
-def _resolve_workflow_expression(value: str, document: Workflow) -> str:
-    """Resolve a bare `env.NAME` expression against the workflow's job envs.
+#: A bare `env.NAME`, the one expression shape this workflow uses.
+_ENV_EXPRESSION: typ.Final[re.Pattern[str]] = re.compile(
+    r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"
+)
+
+
+def _environment(scope: object) -> dict[str, object]:
+    """Return the `env` mapping *scope* declares, or an empty one."""
+    environment = typ.cast("dict[str, object]", scope).get("env")
+    return environment if isinstance(environment, dict) else {}
+
+
+def _resolve_workflow_expression(
+    value: str,
+    *,
+    step: WorkflowStep,
+    job: WorkflowJob,
+    workflow: Workflow,
+) -> str:
+    """Resolve a bare `env.NAME` against the scopes GitHub would search.
+
+    Step, then job, then workflow, and no further. Searching every job's
+    environment, which this helper used to do, lets a name defined in an
+    unrelated job satisfy the version check while `install-tool` receives
+    nothing and fails closed on a real run.
+
+    Presence decides, not truth: a declaration at a scope masks the outer
+    ones even when its value is blank, and a valueless `NAME:` parses to
+    `None` rather than to the empty string.
 
     Only the one shape the workflow uses is resolved. Anything else is
     returned unchanged, so an unrecognised expression fails the version
     check loudly rather than being quietly accepted.
     """
-    match = re.fullmatch(
-        r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}", value.strip()
-    )
+    match = _ENV_EXPRESSION.fullmatch(value.strip())
     if match is None:
         return value
     name = match.group(1)
-    for job in document.get("jobs", {}).values():
-        environment = typ.cast("dict[str, object]", job).get("env")
-        if isinstance(environment, dict) and name in environment:
-            return str(environment[name])
+    for scope in (step, job, workflow):
+        environment = _environment(scope)
+        if name in environment:
+            resolved = environment[name]
+            return "" if resolved is None else str(resolved)
     return value
 
 
@@ -225,9 +284,12 @@ class TestMermanReleaseArchive:
         pinned = manifest_versions.get(TOOL_NAME, frozenset())
         requested = {
             _resolve_workflow_expression(
-                str(step.get("with", {}).get(VERSION_INPUT, "")), ci_document
+                str(step.get("with", {}).get(VERSION_INPUT, "")),
+                step=step,
+                job=job,
+                workflow=ci_document,
             )
-            for step in _install_tool_steps(ci_document)
+            for job, step in _install_tool_steps(ci_document)
         }
         unpinned = requested - pinned
         assert not unpinned, (
@@ -251,6 +313,31 @@ class TestMermanReleaseArchive:
                 f"if true; then\n  cargo install {TOOL_NAME}\nfi",
                 True,
                 id="indented-in-a-conditional-body",
+            ),
+            pytest.param(
+                f"if true; then cargo install {TOOL_NAME}; fi",
+                True,
+                id="inline-behind-then",
+            ),
+            pytest.param(
+                f"while true; do cargo install {TOOL_NAME}; done",
+                True,
+                id="inline-behind-do",
+            ),
+            pytest.param(
+                f"if false; then :; else cargo install {TOOL_NAME}; fi",
+                True,
+                id="inline-behind-else",
+            ),
+            pytest.param(
+                f"until cargo install {TOOL_NAME}; do sleep 1; done",
+                True,
+                id="inline-behind-until",
+            ),
+            pytest.param(
+                f"echo redo cargo install {TOOL_NAME}",
+                False,
+                id="a-word-merely-ending-in-a-keyword",
             ),
             pytest.param(f"cargo install {TOOL_NAME}@0.7.0", True, id="version-pinned"),
             pytest.param(
@@ -285,4 +372,118 @@ class TestMermanReleaseArchive:
         with this one, would survive its own mutation while
         discriminating nothing.
         """
-        assert bool(_CARGO_INSTALL.search(script)) is expected
+        assert bool(_CARGO_INSTALL.search(script)) is expected, (
+            f"{script!r} should {'' if expected else 'not '}be read as a "
+            f"source build of {TOOL_NAME}"
+        )
+
+
+class TestVersionResolutionScope:
+    """Which `env` an `env.NAME` in an `install-tool` input resolves against.
+
+    GitHub searches the step, then the job, then the workflow, and stops.
+    The helper used to search every job's environment, so a name declared
+    anywhere in the file satisfied the version check while `install-tool`
+    on a real run received an unresolved expression and failed closed.
+    """
+
+    @staticmethod
+    def _document(
+        *,
+        job_env: dict[str, object] | None = None,
+        step_env: dict[str, object] | None = None,
+        workflow_env: dict[str, object] | None = None,
+        other_job_env: dict[str, object] | None = None,
+    ) -> Workflow:
+        """Return a two-job workflow with `env` placed at chosen scopes."""
+        step: WorkflowStep = {
+            "uses": INSTALL_TOOL_ACTION,
+            "with": {TOOL_INPUT: TOOL_NAME, VERSION_INPUT: "${{ env.THE_VERSION }}"},
+        }
+        if step_env is not None:
+            step["env"] = step_env
+        installing: WorkflowJob = {"steps": [step]}
+        if job_env is not None:
+            installing["env"] = job_env
+        elsewhere: WorkflowJob = {"steps": []}
+        if other_job_env is not None:
+            elsewhere["env"] = other_job_env
+        document: Workflow = {"jobs": {"installs": installing, "elsewhere": elsewhere}}
+        if workflow_env is not None:
+            document["env"] = workflow_env
+        return document
+
+    def _resolve(self, document: Workflow) -> str:
+        """Resolve the version input of the document's install step."""
+        job, step = _install_tool_steps(document)[0]
+        return _resolve_workflow_expression(
+            str(step.get("with", {}).get(VERSION_INPUT, "")),
+            step=step,
+            job=job,
+            workflow=document,
+        )
+
+    def test_another_jobs_environment_does_not_resolve_it(self) -> None:
+        """A name defined only in an unrelated job leaves the value unresolved.
+
+        This is the mutation that defeated the earlier helper. The value
+        must come back as the expression, so that the version check reads
+        it as unpinned and fails, exactly as `install-tool` would.
+        """
+        document = self._document(other_job_env={"THE_VERSION": "0.7.0"})
+
+        assert self._resolve(document) == "${{ env.THE_VERSION }}", (
+            "a THE_VERSION declared in another job must not resolve here; "
+            "GitHub resolves env.* within the current job"
+        )
+
+    @pytest.mark.parametrize(
+        "scope",
+        ["step_env", "job_env", "workflow_env"],
+    )
+    def test_the_scopes_github_searches_do_resolve_it(self, scope: str) -> None:
+        """Step, job and workflow environments each resolve the name.
+
+        The narrow direction. A helper that only read the job's `env`
+        would refuse the workflow-level declaration that GitHub accepts,
+        and would fail a workflow that is perfectly correct.
+        """
+        document = self._document(**{scope: {"THE_VERSION": "0.7.0"}})
+
+        assert self._resolve(document) == "0.7.0", (
+            f"a THE_VERSION declared at the {scope} scope must resolve"
+        )
+
+    def test_the_nearest_scope_wins(self) -> None:
+        """A step declaration masks the job's, and the job's the workflow's."""
+        document = self._document(
+            step_env={"THE_VERSION": "0.7.0"},
+            job_env={"THE_VERSION": "0.6.0"},
+            workflow_env={"THE_VERSION": "0.5.0"},
+        )
+
+        assert self._resolve(document) == "0.7.0", (
+            "the step's declaration is nearest and must win"
+        )
+
+    @pytest.mark.parametrize(
+        "blank",
+        [pytest.param("", id="empty-string"), pytest.param(None, id="valueless")],
+    )
+    def test_a_blank_declaration_still_masks_the_outer_one(self, blank: object) -> None:
+        """A blank `env` entry is a declaration and masks the scope outside it.
+
+        Both spellings are here because they parse differently: `NAME: ""`
+        gives the empty string and a valueless `NAME:` gives `None`. A
+        reader that tested truth rather than presence would fall through
+        to the job's value on both, and one that tested `is not None`
+        would fall through on the second.
+        """
+        document = self._document(
+            step_env={"THE_VERSION": blank},
+            job_env={"THE_VERSION": "0.7.0"},
+        )
+
+        assert self._resolve(document) == "", (
+            f"a blank step declaration ({blank!r}) masks the job's 0.7.0"
+        )

@@ -10,9 +10,11 @@ manifest, set `cargo-manifest` to point to a nested `Cargo.toml`. It installs
 the project dependencies plus `slipcover`, `pytest`, and `coverage`
 automatically via `uv` into an isolated throwaway virtual environment
 (`.venv-coverage`) before running the tests, so no system-level Python installs
-are required. When Rust coverage is required, `cargo-llvm-cov` is installed
-from the repository's tool manifest (`.github/tool-manifest.toml`): the entry
-names the release archive and its SHA-256 digest per target, and the installer
+are required. Its scripts directory is prepended to `PATH` for the coverage
+process, so child executables created by tests use the same project
+environment. When Rust coverage is required, `cargo-llvm-cov` is installed from
+the repository's tool manifest (`.github/tool-manifest.toml`): the entry names
+the release archive and its SHA-256 digest per target, and the installer
 extracts only the named member. `cargo-nextest` is downloaded directly from its
 pinned official release; both the archive and extracted binary have fixed
 SHA-256 digests. Neither has a Cargo source-build fallback. If both
@@ -153,6 +155,7 @@ Known limitations:
 | cucumber-rs-features  | Path to cucumber feature files                                                                                                                                                                     | no       |                             |
 | cucumber-rs-args      | Extra arguments for cucumber                                                                                                                                                                       | no       |                             |
 | pytest-workers        | Value passed to pytest-xdist's `-n` flag. Accepts a positive integer, `auto`, `logical`, or `""` (empty) to disable parallelism.                                                                   | no       | `auto`                      |
+| python-source         | Optional comma-separated Python source scope passed unchanged to Slipcover as one `--source` argument.                                                                                             | no       |                             |
 | cache-provider        | Use the built-in `github` Cargo and uv caches, or `external` when the caller mounts one cache owner.                                                                                               | no       | `github`                    |
 <!-- markdownlint-enable MD013 -->
 
@@ -564,6 +567,32 @@ Run pytest serially (disable pytest-xdist):
   with:
     output-path: coverage.xml
     pytest-workers: ""
+```
+
+### Source-scoped Python coverage
+
+Set `python-source` when a Python project contains multiple importable trees
+but only one should contribute to the coverage report. The value is passed
+unchanged as one Slipcover `--source` argument; comma-separated paths remain a
+single source-scope value. Empty and whitespace-only values keep Slipcover's
+default source discovery.
+
+For example, scope coverage to the application and migration packages:
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    python-source: episodic,alembic
+```
+
+For a repository whose Python package is rooted at `lading`, use:
+
+```yaml
+- uses: ./.github/actions/generate-coverage
+  with:
+    output-path: coverage.xml
+    python-source: ./lading
 ```
 
 ### Parallel Python tests via pytest-xdist

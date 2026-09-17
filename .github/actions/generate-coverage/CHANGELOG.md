@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add the optional `python-source` input for preserving a deliberate Slipcover
+  source scope. Its comma-separated value is passed unchanged as one `--source`
+  argument before `--branch`; empty values preserve default source discovery.
+- Prepend the coverage environment's scripts directory to `PATH` while running
+  Python coverage. Test-created child executables now use the same environment
+  and can import project development dependencies installed by `uv sync`.
+
 - Install `cargo-llvm-cov` from the tool manifest at 0.9.0, replacing the
   `cargo-binstall` of 0.6.24. cargo 1.100 nightlies (from 2026-08-22) use
   Cargo's new build-dir layout, which places test executables under

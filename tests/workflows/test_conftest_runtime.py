@@ -65,6 +65,7 @@ class TestExecutableDetection:
     def test_is_executable_file_uses_pathext_on_windows(
         self,
         tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
         name: str,
         expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
     ) -> None:
@@ -73,7 +74,13 @@ class TestExecutableDetection:
         The file is given no execute permission on any platform, so a
         permission-bit probe would reject every case. Only the suffix rule
         accepts the two PATHEXT names, which is what Windows itself does.
+
+        PATHEXT is pinned rather than inherited. `_is_executable_file` reads
+        the live environment, and a Windows runner whose PATHEXT carried `.SH`
+        would make the `tool.sh` case genuinely executable and fail this test
+        for behaving correctly.
         """
+        monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
         path = tmp_path / name
         path.write_text("#!/bin/sh\n", encoding="utf-8")
         path.chmod(0o600)

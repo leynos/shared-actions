@@ -48,8 +48,14 @@ COVERAGE_ACTION: typ.Final[str] = "./.github/actions/generate-coverage"
 #: shell separator so that the word inside a path such as
 #: `.pytest_cache` or an option such as `--pytest-workers` does not
 #: count as running the suite.
+#:
+#: Leading whitespace is consumed after the line anchor, exactly as
+#: `_MAKE_INVOCATION` does below. An indented `pytest` inside a loop or a
+#: conditional body runs the suite as plainly as one at column zero, and
+#: requiring `pytest` immediately after the line start let every indented
+#: one through.
 _PYTEST_INVOCATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[;&|]\s*|\buv run\s+(?:--[^\s]+\s+)*)pytest(?:\s|$)",
+    r"(?:^[ \t]*|[;&|]\s*|\buv run\s+(?:--[^\s]+\s+)*)pytest(?:\s|$)",
     re.MULTILINE,
 )
 
@@ -216,4 +222,44 @@ def test_an_indented_make_still_runs_the_suite(
     assert bool(_make_runs_the_suite(script)) is expected, (
         f"{script!r} should {'' if expected else 'not '}be read as running the "
         f"suite; the targets that do are {sorted(SUITE_MAKE_TARGETS)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param("pytest", True, id="column-zero"),
+        pytest.param("    pytest", True, id="indented"),
+        pytest.param("\tpytest -q", True, id="tab-indented"),
+        pytest.param(
+            "for d in a b; do\n    pytest\ndone",
+            True,
+            id="indented-in-a-loop-body",
+        ),
+        pytest.param(
+            "if true; then\n  uv run pytest\nfi",
+            True,
+            id="indented-behind-uv-run",
+        ),
+        pytest.param("    cat .pytest_cache", False, id="indented-path-fragment"),
+        pytest.param("    ruff check --pytest-style", False, id="indented-option"),
+        pytest.param("    mypytest", False, id="indented-longer-word"),
+    ],
+)
+def test_an_indented_pytest_still_runs_the_suite(
+    script: str,
+    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+) -> None:
+    """Indentation does not stop a direct `pytest` running either.
+
+    `_MAKE_INVOCATION` already consumed leading whitespace and this
+    pattern did not, so an unguarded step whose script read `    pytest`
+    restored the duplicate Linux run without failing the rule above. The
+    negative cases hold the other direction: consuming the whitespace
+    must not turn `.pytest_cache`, a `--pytest-*` option or a longer word
+    ending in `pytest` into a suite run.
+    """
+    assert bool(_PYTEST_INVOCATION.search(script)) is expected, (
+        f"{script!r} should {'' if expected else 'not '}be read as invoking "
+        "pytest directly"
     )

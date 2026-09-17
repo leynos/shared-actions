@@ -4,7 +4,6 @@ inputs:
   path:
     description: Coverage file path
     required: false
-    # sentinel value, replaced based on format if unchanged
     default: __auto__
   format:
     description: Coverage format (cobertura or lcov)
@@ -12,68 +11,57 @@ inputs:
     default: cobertura
   access-token:
     description: CodeScene project access token
-    required: true
-  installer-checksum:
-    description: SHA-256 checksum of the installer script
     required: false
+    default: ""
   cli-version:
-    description: >-
-      cs-coverage CLI version to install (e.g. "2.1.0"). Defaults to
-      "latest", which skips the CLI cache so a fresh copy is always
-      fetched; pin a version to enable caching.
+    description: Approved cs-coverage version from cli-manifest.json
     required: false
-    default: latest
+    default: "1.0.101"
+  archive-checksum:
+    description: Optional SHA-256 which must equal the manifest archive digest
+    required: false
+    default: ""
+  installer-checksum:
+    description: Deprecated; non-empty values are rejected, use archive-checksum
+    required: false
+    default: ""
   mode:
-    description: >-
-      "upload" sends coverage for an analysed branch (CodeScene accepts
-      uploads only for branches the project analyses, typically main);
-      "check" runs the pull-request changed-line coverage gate, which
-      diffs the PR against its merge base (requires a fetch-depth: 0
-      checkout) and needs project-url.
+    description: Install, upload an analysed branch report, or check pull-request coverage
     required: false
     default: upload
   project-url:
-    description: >-
-      CodeScene project API URL (e.g.
-      "https://api.codescene.io/v2/projects/<id>"). Required when mode
-      is "check".
+    description: CodeScene project API URL; required when mode is check
     required: false
     default: ""
 runs:
   using: composite
   steps:
-    - name: Export env for later steps
-      run: |
-        printf 'CS_ACCESS_TOKEN=%s\n' "${{ inputs.access-token }}" >>"${GITHUB_ENV}"
-        printf 'CODESCENE_CLI_SHA256=%s\n' "${{ inputs.installer-checksum }}" >>"${GITHUB_ENV}"
-        if [ -n "${{ inputs.project-url }}" ]; then
-          printf 'CS_PROJECT_URL=%s\n' "${{ inputs.project-url }}" >>"${GITHUB_ENV}"
-        fi
-      shell: bash
     - name: Validate inputs
+      env:
+        INPUT_FORMAT: ${{ inputs.format }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_PROJECT_URL: ${{ inputs.project-url }}
+        INPUT_INSTALLER_CHECKSUM: ${{ inputs.installer-checksum }}
       run: |
-        case "${{ inputs.format }}" in
+        if [ -n "$INPUT_INSTALLER_CHECKSUM" ]; then
+          echo "installer-checksum is deprecated; remove it or use archive-checksum" >&2
+          exit 1
+        fi
+        case "$INPUT_FORMAT" in
           cobertura|lcov) ;;
-          *)
-            echo "Unsupported format: ${{ inputs.format }}" >&2
-            exit 1
-            ;;
+          *) echo "Unsupported format: $INPUT_FORMAT" >&2; exit 1 ;;
         esac
-        case "${{ inputs.mode }}" in
-          upload) ;;
+        case "$INPUT_MODE" in
+          install|upload) ;;
           check)
-            if [ -z "${{ inputs.project-url }}" ]; then
+            if [ -z "$INPUT_PROJECT_URL" ]; then
               echo "mode: check requires project-url" >&2
               exit 1
             fi
             ;;
-          *)
-            echo "Unsupported mode: ${{ inputs.mode }}" >&2
-            exit 1
-            ;;
+          *) echo "Unsupported mode: $INPUT_MODE" >&2; exit 1 ;;
         esac
       shell: bash
-
     - name: Check coverage gate applicability
       id: gate-applicability
       if: inputs.mode == 'check'
@@ -83,138 +71,161 @@ runs:
       run: |
         if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
           echo "skip=true" >>"$GITHUB_OUTPUT"
-          printf '%s\n' \
-            "::warning title=CodeScene coverage gate skipped::The changed-line coverage gate needs the pull request base to be an analysed branch. This pull request targets '$BASE_REF', not the repository default branch '$DEFAULT_BRANCH'."
+          printf '%s\n' "::warning title=CodeScene coverage gate skipped::The changed-line coverage gate needs the pull request base to be an analysed branch. This pull request targets '$BASE_REF', not the repository default branch '$DEFAULT_BRANCH'."
         fi
       shell: bash
-
     - name: Determine coverage file
       id: cov-file
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        inputs.mode != 'install' &&
+        steps.gate-applicability.outputs.skip != 'true'
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
       run: |
-        file="${{ inputs.path }}"
+        file="$INPUT_PATH"
         if [ -z "$file" ] || [ "$file" = "__auto__" ]; then
-          if [ "${{ inputs.format }}" = "lcov" ]; then
-            file="lcov.info"
-          else
-            file="coverage.xml"
-          fi
+          if [ "$INPUT_FORMAT" = "lcov" ]; then file="lcov.info"; else file="coverage.xml"; fi
         fi
-        echo "path=$file" >> "$GITHUB_OUTPUT"
+        echo "path=$file" >>"$GITHUB_OUTPUT"
       shell: bash
-
-    # The installer no longer embeds a version literal; it takes the
-    # version as its first positional argument (defaulting to "latest"),
-    # so the version comes from the cli-version input rather than being
-    # extracted from the script.
-    - name: Download installer
-      id: installer
+    - name: Resolve trusted CodeScene CLI
+      id: cli
       if: steps.gate-applicability.outputs.skip != 'true'
       env:
+        ACTION_PATH: ${{ github.action_path }}
         CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        script=$(mktemp)
-        curl -fsSL -o "$script" https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh
-        if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-          echo "${CODESCENE_CLI_SHA256}  $script" | sha256sum -c -
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" resolve \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
+          --github-output "$GITHUB_OUTPUT"; then
+          emit_metric "cs-coverage.resolve=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.resolve=failed"
+          exit "$status"
         fi
-        major_minor=${CLI_VERSION%.*}
-        echo "script=$script" >> "$GITHUB_OUTPUT"
-        echo "version=${CLI_VERSION}" >> "$GITHUB_OUTPUT"
-        echo "major_minor=${major_minor}" >> "$GITHUB_OUTPUT"
       shell: bash
-
     - name: Upload coverage GitHub artefact
-      if: steps.gate-applicability.outputs.skip != 'true'
+      if: >-
+        inputs.mode != 'install' &&
+        steps.gate-applicability.outputs.skip != 'true'
       uses: actions/upload-artifact@v4
       with:
         name: coverage
         path: ${{ steps.cov-file.outputs.path }}
-
-    # Caching a "latest" binary would pin whatever version was first
-    # cached, so the cache only participates when a version is pinned.
     - name: Cache CodeScene Coverage CLI
       id: cs-cache
-      if: >-
-        steps.gate-applicability.outputs.skip != 'true' &&
-        inputs.cli-version != 'latest'
-      # v6.1.0
+      if: steps.gate-applicability.outputs.skip != 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
       with:
         path: ~/.local/bin/cs-coverage
-        key: cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.version }}
-        restore-keys: |
-          cs-coverage-cache-${{ runner.os }}-${{ steps.installer.outputs.major_minor }}
-
+        key: cs-coverage-${{ steps.cli.outputs.version }}-${{ steps.cli.outputs.platform }}-${{ steps.cli.outputs.digest }}
     - name: Install CodeScene Coverage CLI
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        env.CS_ACCESS_TOKEN != '' &&
         steps.cs-cache.outputs.cache-hit != 'true'
       env:
+        ACTION_PATH: ${{ github.action_path }}
         CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        script="${{ steps.installer.outputs.script }}"
-        bash "$script" -y "${CLI_VERSION}"
-        rm "$script"
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" install \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
+          --binary "$HOME/.local/bin/cs-coverage"; then
+          emit_metric "cs-coverage.download=verified"
+          emit_metric "cs-coverage.digest=verified"
+          emit_metric "cs-coverage.install=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.install=failed"
+          exit "$status"
+        fi
       shell: bash
-
+    - name: Verify CodeScene Coverage CLI
+      if: steps.gate-applicability.outputs.skip != 'true'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CLI_VERSION: ${{ inputs.cli-version }}
+        ARCHIVE_CHECKSUM: ${{ inputs.archive-checksum }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" verify \
+          --manifest "$ACTION_PATH/cli-manifest.json" \
+          --version "$CLI_VERSION" \
+          --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
+          --archive-checksum "$ARCHIVE_CHECKSUM" \
+          --binary "$HOME/.local/bin/cs-coverage"; then
+          emit_metric "cs-coverage.version=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.version=failed"
+          exit "$status"
+        fi
+      shell: bash
     - name: Add cs-coverage to PATH
       if: steps.gate-applicability.outputs.skip != 'true'
       run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       shell: bash
-
     - name: Upload coverage to CodeScene
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'upload'
+        inputs.access-token != '' && inputs.mode == 'upload'
+      env:
+        COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        CS_ACCESS_TOKEN: ${{ inputs.access-token }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
-        file="${{ steps.cov-file.outputs.path }}"
-        if [ ! -f "$file" ]; then
-          echo "Coverage file not found!" >&2
-          echo "  Expected file: $file" >&2
-          echo "  Current working directory: $(pwd)" >&2
-          echo "  Expected format: ${{ inputs.format }}" >&2
-          exit 1
-        fi
-        cs-coverage upload \
-          --format "${{ inputs.format }}" \
-          --metric "line-coverage" \
-          "$file"
+        file="$COVERAGE_FILE"
+        [ -f "$file" ] || { echo "Coverage file not found: $file" >&2; exit 1; }
+        cs-coverage upload --format "$INPUT_FORMAT" --metric "line-coverage" "$file"
       shell: bash
-
-    # `cs-coverage check` infers the report format from the file
-    # extension and requires LCOV files to end in ".info".
     - name: Check coverage against CodeScene gates
       if: >-
         steps.gate-applicability.outputs.skip != 'true' &&
-        env.CS_ACCESS_TOKEN != '' && inputs.mode == 'check'
+        inputs.access-token != '' && inputs.mode == 'check'
+      env:
+        COVERAGE_FILE: ${{ steps.cov-file.outputs.path }}
+        INPUT_FORMAT: ${{ inputs.format }}
+        CS_ACCESS_TOKEN: ${{ inputs.access-token }}
+        CS_PROJECT_URL: ${{ inputs.project-url }}
       run: |
         command -v cs-coverage >/dev/null 2>&1 || { echo "cs-coverage CLI not found" >&2; exit 1; }
-        file="${{ steps.cov-file.outputs.path }}"
-        if [ ! -f "$file" ]; then
-          echo "Coverage file not found!" >&2
-          echo "  Expected file: $file" >&2
-          echo "  Current working directory: $(pwd)" >&2
+        file="$COVERAGE_FILE"
+        [ -f "$file" ] || { echo "Coverage file not found: $file" >&2; exit 1; }
+        if [ "$INPUT_FORMAT" = "lcov" ] && [[ "$file" != *.info ]]; then
+          echo "cs-coverage check requires LCOV files to end in .info (got: $file)" >&2
           exit 1
         fi
-        if [ "${{ inputs.format }}" = "lcov" ]; then
-          case "$file" in
-            *.info) ;;
-            *)
-              echo "cs-coverage check requires LCOV files to end in .info (got: $file)" >&2
-              exit 1
-              ;;
-          esac
-        fi
-        if cs-coverage check --verbose --coverage-files "$file"; then
-          :
-        else
+        if cs-coverage check --coverage-files "$file"; then :; else
           status=$?
           if [ "$status" -eq 2 ]; then
-            printf '%s\n' \
-              "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2
+            printf '%s\n' "cs-coverage could not evaluate the changed-line gate. The pull request base '${GITHUB_BASE_REF:-unknown}' must have coverage uploaded to CodeScene." >&2
           fi
           exit "$status"
         fi

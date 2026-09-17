@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "cli": "cs-coverage",
+  "releases": [
+    {
+      "version": "1.0.101",
+      "build": "ca2b95180eff32b5072e81f20d718d7b747650be",
+      "platform": {"os": "linux", "arch": "x64"},
+      "archive_url": "https://downloads.codescene.io/enterprise/cli/cs-coverage-linux-amd64-ca2b95180eff32b5072e81f20d718d7b747650be.zip",
+      "archive_sha256": "067503dc646c58c2d62c3315b55541e60e0b6343ef6d898650a9e0ae7cde0929",
+      "member": "cs-coverage",
+      "archive_members": ["cs-coverage", "cs-coverage.sha256", "cs-coverage.sha256.asc"]
+    }
+  ]
+}

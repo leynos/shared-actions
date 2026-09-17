@@ -26,7 +26,9 @@ ______________________________________________________________________
   - uses: org/upload-codescene-coverage@v1
     with:
       access-token: ${{ secrets.CS_TOKEN }}
-      installer-checksum: ${{ vars.CLI_SHA256 }}
+      cli-version: 1.0.101
+      # Optional: must equal the action manifest's authoritative archive digest.
+      archive-checksum: ${{ vars.CS_COVERAGE_ARCHIVE_SHA256 }}
   
   ```
 

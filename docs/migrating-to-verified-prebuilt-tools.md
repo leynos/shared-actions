@@ -52,6 +52,18 @@ before `generate-coverage` runs (see `install_cargo_nextest.py`'s
 `_resolve_nextest_binary` check, which accepts a preinstalled binary that
 already matches the pinned digest).
 
+## `upload-codescene-coverage` changes
+
+The CodeScene coverage action now accepts only explicit `cli-version` values
+listed in its committed `cli-manifest.json`; `latest` is no longer a supported
+route. Replace a floating value with the documented pinned version, currently
+`1.0.101`, and update only after reviewing a new manifest entry.
+
+The former `installer-checksum` input is retained solely to fail closed. Remove
+it from callers. Use `archive-checksum` only when it repeats the manifest
+digest as an assertion; it cannot override the committed digest. The action
+never builds `cs-coverage` from source.
+
 ## `install-whitaker` changes
 
 ### Default version

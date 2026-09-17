@@ -1607,8 +1607,9 @@ def _assert_python_command_structure(parts: list[str]) -> None:
     """Verify common venv Python command structure with slipcover and pytest."""
     assert Path(parts[0]).stem == "python"
     slip_idx = parts.index("-m", 1)
-    assert parts[slip_idx : slip_idx + 3] == ["-m", "slipcover", "--branch"]
+    assert parts[slip_idx : slip_idx + 2] == ["-m", "slipcover"]
     pytest_idx = parts.index("pytest")
+    assert "--branch" in parts[slip_idx + 2 : pytest_idx]
     assert parts[pytest_idx - 1 : pytest_idx + 2] == ["-m", "pytest", "-v"]
 
 

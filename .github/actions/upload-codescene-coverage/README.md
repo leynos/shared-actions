@@ -1,103 +1,63 @@
 # Upload CodeScene Coverage
 
-Upload coverage reports to CodeScene and cache the CLI for faster runs.
+Install a verified CodeScene CLI, then upload a coverage report or run its
+changed-line gate.
 
 ## Inputs
 
-| Name               | Description                                                  | Required | Default     |
-| ------------------ | ------------------------------------------------------------ | -------- | ----------- |
-| path               | Coverage file path; blank or `__auto__` infers automatically | no       | `__auto__`  |
-| format             | Coverage format (`cobertura` or `lcov`)                      | no       | `cobertura` |
-| access-token       | CodeScene project access token                               | yes      |             |
-| installer-checksum | SHA-256 checksum of the installer script                     | no       |             |
-| cli-version        | cs-coverage CLI version to install (`latest` or `x.y.z`)     | no       | `latest`    |
-| mode               | `upload` (analysed branches) or `check` (PR coverage gate)   | no       | `upload`    |
-| project-url        | CodeScene project API URL; required when `mode` is `check`   | no       |             |
+| Name | Description | Required | Default |
+| --- | --- | --- | --- |
+| `path` | Coverage file path; blank or `__auto__` is inferred | no | `__auto__` |
+| `format` | `cobertura` or `lcov` | no | `cobertura` |
+| `access-token` | CodeScene project access token | yes | |
+| `cli-version` | Approved `cs-coverage` version | no | `1.0.101` |
+| `archive-checksum` | Optional digest that must equal the manifest digest | no | |
+| `mode` | `install`, `upload`, or `check` | no | `upload` |
+| `project-url` | CodeScene project API URL, required for `check` | no | |
 
-If `path` is empty or `__auto__`, the action looks for `lcov.info` when
-`format` is `lcov`, or `coverage.xml` when `format` is `cobertura`. The
-installer accepts the CLI version as an argument; `cli-version` selects it. The
-CLI is cached only when `cli-version` pins a concrete version — with `latest`,
-a fresh copy is fetched on every run so the cache can never pin a stale binary.
-If the optional `installer-checksum` input is set, the installer is validated
-before execution. Any other value for `format` results in an error.
+## Trusted installation
 
-The action exports the `access-token` and `installer-checksum` inputs as
-`CS_ACCESS_TOKEN` and `CODESCENE_CLI_SHA256` for use by later steps.
+`cli-manifest.json` is the trust anchor. It pins `cs-coverage` 1.0.101 build
+`ca2b95180eff32b5072e81f20d718d7b747650be` to the official immutable Linux
+x64 archive and its SHA-256
+`067503dc646c58c2d62c3315b55541e60e0b6343ef6d898650a9e0ae7cde0929`.
+The action resolves the requested version and runner platform before it uses
+the cache. It refuses unknown versions, unsupported platforms, malformed
+manifests, missing digests, and an `archive-checksum` that disagrees with the
+manifest. A caller cannot replace the committed digest.
 
-## Modes
+The archive is downloaded over verified HTTPS from `downloads.codescene.io`,
+hashed before extraction, checked for an exact safe member list, and installed
+only as `cs-coverage`. The action then runs `cs-coverage version` and requires
+both the logical version and the immutable build identifier to match the
+manifest. There is no source-build fallback and no `latest` route: adding a
+new CLI requires reviewing an official archive URL and digest in the manifest.
 
-`upload` sends the report to CodeScene for an analysed branch; CodeScene
-rejects uploads for branches the project does not analyse (typically anything
-but `main`), so it belongs in push/main workflows. `check` runs the
-pull-request changed-line coverage gate (`cs-coverage check`), which diffs the
-PR against its merge base — the job must check out with `fetch-depth: 0`, pass
-`project-url` (`https://api.codescene.io/v2/projects/<id>`), and, for LCOV,
-name the report file `*.info` because the CLI infers the format from the file
-extension. When a pull request targets a branch other than the repository's
-default branch, the action skips this gate with a warning because CodeScene has
-no uploaded baseline for that merge base. If the CLI fails, the action prints
-its verbose diagnostic and preserves its exit status instead of referring to
-logs that are not exposed by the workflow.
-
-## Environment variables
-
-- `CS_ACCESS_TOKEN` – CodeScene project access token (required)
-- `CODESCENE_CLI_SHA256` – SHA‑256 checksum for the installer (optional)
-
-## Outputs
-
-None
+The cache key includes the resolved version, platform, and archive digest. It
+has no restore prefix, so a different build can never satisfy a cache hit.
+Each run logs the resolved version, build, platform, and digest.
 
 ## Example
 
 ```yaml
-- uses: ./.github/actions/upload-codescene-coverage@v1
+- uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@<commit>
   with:
     path: coverage.xml
     format: cobertura
+    mode: check
+    project-url: https://api.codescene.io/v2/projects/<id>
     access-token: ${{ secrets.CS_ACCESS_TOKEN }}
-    installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
+    cli-version: 1.0.101
 ```
 
-## Caching
+`check` needs a `fetch-depth: 0` checkout and an analysed pull-request base.
+`install` performs only the trusted installation, which is useful for a
+cold-runner contract or a workflow that invokes the CLI itself.
 
-The CodeScene Coverage CLI is stored in `~/.local/bin/cs-coverage` and cached
-with [actions/cache](https://github.com/actions/cache). The cache key combines
-the runner OS and the CLI version extracted from the installer script. The
-cache is restored at the start of the job and saved after the job finishes. A
-fallback restore key allows reuse across patch releases:
-
-```yaml
-uses: actions/cache@v4
-with:
-  path: ~/.local/bin/cs-coverage
-  key: cs-coverage-cache-${{ runner.os }}-${{ version }}
-  restore-keys: |
-    cs-coverage-cache-${{ runner.os }}-${{ major_minor }}
-```
-
-### Requirements
-
-- Provide an `access-token` so the installer can download the CLI and
-  authenticate uploads.
-- Set `installer-checksum` to the published SHA-256 checksum to guard against
-  tampering (optional).
-
-### Extent and limitations
-
-- GitHub limits each cache to 5 GB per operating system; old entries may be
-  evicted as new ones are created.
-- Caches are scoped to the runner OS, so Windows, macOS, and Linux caches are
-  independent.
-- If the CLI version changes or no cache entry exists, the installer runs again
-  and a new cache entry is created.
-
-### Effective use
-
-- Pin the installer checksum whenever possible to avoid using a compromised
-  download.
-- Keep your coverage file path consistent across jobs so subsequent steps can
-  locate it reliably.
+The action includes byte-exact Cobertura fixtures generated by Slipcover 1.0.18
+and 1.1.0. They reproduce the `java.io.InputStreamReader.close` parser error
+from cs-coverage 1.0.103; their digests are asserted in the focused contracts.
+The cold-runner workflow exercises the installed 1.0.101 CLI against both
+fixtures.
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

@@ -846,6 +846,24 @@ add the uploaded-base explanation when the status is `2`, then
 it with diagnostic handling. The behavioural contract is covered by the
 [check-mode tests](../.github/actions/upload-codescene-coverage/tests/test_check_mode.py).
 
+## `upload-codescene-coverage` trusted CLI installation
+
+The CodeScene archive manifest is the sole trust anchor for the coverage CLI.
+It records the logical version, immutable build identifier, official HTTPS
+archive URL, target platform, expected archive members, and SHA-256 digest.
+The resolver rejects unreadable or malformed manifests, any version or runner
+outside that manifest, absent digests, and caller digest conflicts. The caller
+may repeat the digest as an assertion but cannot override it.
+
+For 1.0.101, update the version, build, URL, digest, and focused fixture proof
+together. The installer downloads only from `downloads.codescene.io` over TLS,
+hashes before it extracts, accepts no traversal, symlink, unexpected, or
+missing archive member, and verifies `cs-coverage version` after both cache
+restores and fresh installation. Never add a source-build fallback or a moving
+`latest` default. The exact version/platform/digest cache key has no restore
+prefix. The resolver and extractor contracts live in
+[`test_trusted_cli.py`](../.github/actions/upload-codescene-coverage/tests/test_trusted_cli.py).
+
 ## `setup-rust` cargo-binstall Pinning
 
 The `setup-rust` action pins `cargo-binstall` by downloading

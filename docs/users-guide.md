@@ -925,6 +925,16 @@ workflow steps can therefore invoke `nixie` and `merman-cli` directly.
 
 ## CodeScene coverage checks
 
+`upload-codescene-coverage` installs its default CLI from the committed
+manifest, rather than from a moving `latest` alias. The current Linux x64 pin
+is cs-coverage 1.0.101 build `ca2b95180eff32b5072e81f20d718d7b747650be`; its
+official archive is verified against SHA-256
+`067503dc646c58c2d62c3315b55541e60e0b6343ef6d898650a9e0ae7cde0929` before
+the action extracts it. The exact version, platform, and digest form the cache
+key with no restore fallback. A requested version outside the manifest, an
+unsupported runner, or a conflicting caller checksum stops before installation.
+There is no source-build fallback.
+
 The [`upload-codescene-coverage` action][codescene-coverage-action] supports
 `upload` mode for analysed branches and `check` mode for the pull-request
 changed-line coverage gate. In `check` mode, check out the full history

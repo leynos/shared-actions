@@ -26,7 +26,6 @@ jobs:
       contents: read
     env:
       CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN || '' }}
-      CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 || '' }}
     steps:
       - name: Checkout repository
         # v4
@@ -76,4 +75,4 @@ jobs:
           path: coverage.xml
           mode: upload
           access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ env.CODESCENE_CLI_SHA256 }}
+          cli-version: "1.0.101"

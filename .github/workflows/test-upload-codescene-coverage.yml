@@ -1,0 +1,47 @@
+name: Test Upload CodeScene Coverage
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cold-runner-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install pinned CodeScene CLI without a preinstalled dependency
+        uses: ./.github/actions/upload-codescene-coverage
+        with:
+          mode: install
+          access-token: unused-for-install
+          cli-version: "1.0.101"
+      - name: Verify resolved version and parse Slipcover reports
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+          CS_PROJECT_URL: https://api.codescene.io/v2/projects/72004
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CS_ACCESS_TOKEN" || { echo 'CS_ACCESS_TOKEN is required for parser proof' >&2; exit 1; }
+          cs-coverage version | tee /tmp/cs-coverage-version.log
+          grep -F 'cs-coverage version 1.0.101 (ca2b95180eff32b5072e81f20d718d7b747650be)' /tmp/cs-coverage-version.log
+          for report in .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml; do
+            log="/tmp/$(basename "$report").log"
+            CS_DISABLE_VERSION_CHECK=1 cs-coverage check --coverage-files "$report" 2>&1 | tee "$log"
+            grep -F 'Code coverage gates: PASS' "$log"
+            ! grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"
+          done
+      - name: Reject unpinned version and checksum conflict
+        shell: bash
+        run: |
+          set -euo pipefail
+          script=.github/actions/upload-codescene-coverage/scripts/install_cs_coverage.py
+          manifest=.github/actions/upload-codescene-coverage/cli-manifest.json
+          if python3 "$script" resolve --manifest "$manifest" --version latest --runner-os Linux --runner-arch X64; then exit 1; fi
+          if python3 "$script" resolve --manifest "$manifest" --version 1.0.101 --runner-os Linux --runner-arch X64 --archive-checksum "$(printf '0%.0s' {1..64})"; then exit 1; fi

@@ -200,7 +200,25 @@ def load_manifest(path: Path) -> tuple[Release, ...]:
 
 
 def resolve(manifest: Path, request: ResolutionRequest) -> Release:
-    """Select exactly one approved release and reject caller disagreement."""
+    """Select one trusted CLI release for an explicit runner request.
+
+    Parameters
+    ----------
+    manifest : Path
+        Committed release manifest to validate and resolve.
+    request : ResolutionRequest
+        Requested version, runner platform, and optional digest assertion.
+
+    Returns
+    -------
+    Release
+        The sole manifest release matching the request.
+
+    Raises
+    ------
+    InstallError
+        If the manifest, version, platform, or caller digest is not trusted.
+    """
     requested = _requested_version(request.version)
     release = _matching_release(load_manifest(manifest), requested, request.platform)
     _validate_caller_checksum(request.caller_checksum, release)
@@ -256,7 +274,8 @@ def safe_member(name: str) -> bool:
     """Return whether a zip member is a single safe file name."""
     path = Path(name)
     return (
-        "\\" not in name
+        "\x00" not in name
+        and "\\" not in name
         and name not in {".", ".."}
         and not path.is_absolute()
         and ".." not in path.parts

@@ -9,6 +9,7 @@ import os
 import re
 import ssl
 import stat
+import subprocess
 import sys
 import tempfile
 import typing as typ
@@ -31,23 +32,18 @@ _VERSION = re.compile(
 )
 
 
-class _RejectRedirect(urllib.request.BaseHandler):
-    """Reject redirects because approved archive URLs are direct and immutable."""
+class _RejectRedirect(urllib.request.HTTPRedirectHandler):
+    """Reject redirects before urllib's default handler can follow them."""
 
-    handler_order = 500
+    handler_order = 100
 
-    def http_error_302(
-        self, request: urllib.request.Request, response: object, *_: object
-    ) -> None:
-        """Refuse a redirect before urllib can issue another request."""
-        del request, response
-        message = "archive download redirects are not allowed"
-        raise InstallError(message)
-
-    http_error_301 = http_error_302
-    http_error_303 = http_error_302
-    http_error_307 = http_error_302
-    http_error_308 = http_error_302
+    def redirect_request(
+        self, *args: object, **kwargs: object
+    ) -> urllib.request.Request | None:
+        """Refuse every 30x response from an immutable direct archive URL."""
+        del args, kwargs
+        error = "archive download redirects are not allowed"
+        raise InstallError(error)
 
 
 def extract_cli(archive: Path, release: Release, destination: Path) -> None:
@@ -176,15 +172,7 @@ def _validate_download_digest(digest: str, release: Release) -> None:
 
 def verify_version(binary: Path, release: Release) -> None:
     """Require the installed binary to report the selected logical/build pair."""
-    import subprocess
-
-    completed = subprocess.run(  # noqa: S603, TID251 - execute the action-owned verified CLI.
-        [str(binary), "version"],
-        capture_output=True,
-        check=False,
-        env=os.environ | {"CS_DISABLE_VERSION_CHECK": "1"},
-        text=True,
-    )
+    completed = _run_version_command(binary)
     if completed.returncode:
         message = f"cs-coverage version failed with exit status {completed.returncode}"
         raise InstallError(message)
@@ -195,6 +183,21 @@ def verify_version(binary: Path, release: Release) -> None:
     }:
         message = "installed cs-coverage version does not match the manifest"
         raise InstallError(message)
+
+
+def _run_version_command(binary: Path) -> subprocess.CompletedProcess[str]:
+    """Run the action-owned CLI with its network version check disabled."""
+    try:
+        return subprocess.run(  # noqa: S603, TID251 - execute the action-owned verified CLI.
+            [str(binary), "version"],
+            capture_output=True,
+            check=False,
+            env=os.environ | {"CS_DISABLE_VERSION_CHECK": "1"},
+            text=True,
+        )
+    except OSError as error:
+        message = "cannot start cs-coverage version command"
+        raise InstallError(message) from error
 
 
 def write_outputs(release: Release, output_path: Path) -> None:

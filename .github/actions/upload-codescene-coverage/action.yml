@@ -99,12 +99,22 @@ runs:
         RUNNER_OS: ${{ runner.os }}
         RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" resolve \
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" resolve \
           --manifest "$ACTION_PATH/cli-manifest.json" \
           --version "$CLI_VERSION" \
           --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
           --archive-checksum "$ARCHIVE_CHECKSUM" \
-          --github-output "$GITHUB_OUTPUT"
+          --github-output "$GITHUB_OUTPUT"; then
+          emit_metric "cs-coverage.resolve=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.resolve=failed"
+          exit "$status"
+        fi
       shell: bash
     - name: Upload coverage GitHub artefact
       if: >-
@@ -132,12 +142,24 @@ runs:
         RUNNER_OS: ${{ runner.os }}
         RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" install \
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" install \
           --manifest "$ACTION_PATH/cli-manifest.json" \
           --version "$CLI_VERSION" \
           --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
           --archive-checksum "$ARCHIVE_CHECKSUM" \
-          --binary "$HOME/.local/bin/cs-coverage"
+          --binary "$HOME/.local/bin/cs-coverage"; then
+          emit_metric "cs-coverage.download=verified"
+          emit_metric "cs-coverage.digest=verified"
+          emit_metric "cs-coverage.install=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.install=failed"
+          exit "$status"
+        fi
       shell: bash
     - name: Verify CodeScene Coverage CLI
       if: steps.gate-applicability.outputs.skip != 'true'
@@ -148,12 +170,22 @@ runs:
         RUNNER_OS: ${{ runner.os }}
         RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        python3 "$ACTION_PATH/scripts/install_cs_coverage.py" verify \
+        emit_metric() {
+          printf '%s\n' "$1"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; fi
+        }
+        if python3 "$ACTION_PATH/scripts/install_cs_coverage.py" verify \
           --manifest "$ACTION_PATH/cli-manifest.json" \
           --version "$CLI_VERSION" \
           --runner-os "$RUNNER_OS" --runner-arch "$RUNNER_ARCH" \
           --archive-checksum "$ARCHIVE_CHECKSUM" \
-          --binary "$HOME/.local/bin/cs-coverage"
+          --binary "$HOME/.local/bin/cs-coverage"; then
+          emit_metric "cs-coverage.version=verified"
+        else
+          status=$?
+          emit_metric "cs-coverage.version=failed"
+          exit "$status"
+        fi
       shell: bash
     - name: Add cs-coverage to PATH
       if: steps.gate-applicability.outputs.skip != 'true'

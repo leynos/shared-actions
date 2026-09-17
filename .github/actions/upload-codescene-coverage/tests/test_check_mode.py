@@ -358,6 +358,7 @@ def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
     assert (
         "github.event.pull_request.head.repo.full_name == github.repository" in workflow
     )
+    assert "github.actor != 'dependabot[bot]'" in workflow
     assert "! grep -F 'No matching field found" not in workflow
     assert "git fetch --no-tags --depth=1" in workflow
     assert "git fetch --no-tags --unshallow" in workflow
@@ -367,3 +368,5 @@ def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
         "java.io.InputStreamReader'" in workflow
     )
     assert "cs-coverage 1.0.101 reported the known parser failure" in workflow
+    assert "status=${PIPESTATUS[0]}" in workflow
+    assert "cs-coverage did not report a PASS result" in workflow

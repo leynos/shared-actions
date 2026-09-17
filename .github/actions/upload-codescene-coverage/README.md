@@ -16,6 +16,11 @@ changed-line gate.
 | `mode`               | `install`, `upload`, or `check`                     | no       | `upload`    |
 | `project-url`        | CodeScene project API URL, required for `check`     | no       |             |
 
+## Outputs
+
+This composite action exposes no public outputs. Its cache and diagnostic data
+are internal implementation details.
+
 ## Trusted installation
 
 `cli-manifest.json` is the trust anchor. It pins `cs-coverage` 1.0.101 build
@@ -76,5 +81,9 @@ GitHub does not expose repository secrets there, and it fails closed when a
 trusted run lacks the secret. The workflow fetches the default branch at depth
 one for the CLI's `origin/<default-branch>` merge-base lookup, and unshallows
 only when that shallow history has no merge base.
+
+Callers migrating from a floating `latest` version or the retired
+`installer-checksum` input should follow the
+[verified-prebuilt migration guide](../../../docs/migrating-to-verified-prebuilt-tools.md).
 
 Release history is available in [CHANGELOG](CHANGELOG.md).

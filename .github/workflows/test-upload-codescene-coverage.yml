@@ -11,7 +11,8 @@ jobs:
   cold-runner-contract:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -56,10 +57,18 @@ jobs:
           grep -F 'cs-coverage version 1.0.101 (ca2b95180eff32b5072e81f20d718d7b747650be)' /tmp/cs-coverage-version.log
           for report in .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml; do
             log="/tmp/$(basename "$report").log"
+            set +e
             CS_DISABLE_VERSION_CHECK=1 cs-coverage check --coverage-files "$report" 2>&1 | tee "$log"
-            grep -F 'Code coverage gates: PASS' "$log"
+            status=${PIPESTATUS[0]}
+            set -e
             if grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"; then
               echo 'cs-coverage 1.0.101 reported the known parser failure' >&2
+              if [ "$status" -eq 0 ]; then exit 1; fi
+              exit "$status"
+            fi
+            if [ "$status" -ne 0 ]; then exit "$status"; fi
+            if ! grep -F 'Code coverage gates: PASS' "$log"; then
+              echo 'cs-coverage did not report a PASS result' >&2
               exit 1
             fi
           done

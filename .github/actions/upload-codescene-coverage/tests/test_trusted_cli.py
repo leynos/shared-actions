@@ -249,7 +249,7 @@ def test_download_rejects_redirects_before_following(status: int) -> None:
     )
 
     with pytest.raises(installer.InstallError, match="redirect"):
-        handler.http_error_302(request, None, status)
+        handler.redirect_request(request, None, status, "redirect", None, "/target")
 
 
 def test_download_opener_requires_tls_1_2_or_newer() -> None:

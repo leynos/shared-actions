@@ -92,19 +92,21 @@ def test_archive_step_always_runs_with_name_fallback() -> None:
 def test_archive_step_honours_the_publication_opt_out() -> None:
     """`publish-artefact: false` must suppress the upload.
 
+    The whole condition is asserted, not the presence of its two parts. A
+    presence check passes for `always() || inputs.publish-artefact == 'true'`,
+    which uploads precisely when a caller disabled publishing — the opposite
+    of the intended behaviour, and undetectable from either operand alone.
+
     The guard is a conjunct on the existing `always()`, not a replacement: a
     caller that opts out still runs the rest of the action, and the archive
     step still "runs" in the sense that its condition is evaluated, so the
     masking fix above is unaffected.
     """
     archive = _step_by_name("Archive coverage")
-    condition = str(archive["if"])
-    assert "inputs.publish-artefact" in condition, (
-        "the archive step ignores publish-artefact; a caller cannot suppress the upload"
-    )
-    assert "always()" in condition, (
-        "the opt-out replaced always() instead of qualifying it; a failed run "
-        "would now skip the archive step entirely and mask its real error"
+    assert str(archive["if"]) == ("always() && inputs.publish-artefact == 'true'"), (
+        "the archive step must upload only when always() holds and the caller "
+        "did not opt out; any other expression either ignores the opt-out or "
+        "inverts it"
     )
 
 

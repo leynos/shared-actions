@@ -69,7 +69,8 @@ def _read_trusted_binary(archive: Path, release: Release) -> bytes:
 
 
 def _validate_archive_members(entries: list[zipfile.ZipInfo], release: Release) -> None:
-    """Require the archive member set to exactly match the manifest."""
+    """Reject unsafe paths before requiring the archive member set to match."""
+    _reject_unsafe_entries(entries)
     names = [entry.filename for entry in entries]
     if len(names) != len(set(names)):
         _raise_unexpected_members()
@@ -77,7 +78,6 @@ def _validate_archive_members(entries: list[zipfile.ZipInfo], release: Release) 
         _raise_unexpected_members()
     if len(names) != len(release.archive_members):
         _raise_unexpected_members()
-    _reject_unsafe_entries(entries)
 
 
 def _raise_unexpected_members() -> None:

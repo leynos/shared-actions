@@ -15,7 +15,7 @@ jobs:
     # result. That end-to-end path is what the unit tests cannot show.
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,7 +51,7 @@ jobs:
     # quietly re-enable a cache they declined.
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     env:
       SCCACHE_GHA_ENABLED: 'false'
@@ -85,7 +85,7 @@ jobs:
   respects_a_caller_wrapper:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     env:
       RUSTC_WRAPPER: /usr/bin/env
@@ -124,7 +124,7 @@ jobs:
     # the variable alone, not about reaching any cache service.
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     env:
       ACTIONS_CACHE_SERVICE_V2: ''

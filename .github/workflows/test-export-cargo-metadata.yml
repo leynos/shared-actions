@@ -7,7 +7,7 @@ jobs:
   test-export-metadata:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -34,7 +34,7 @@ jobs:
   test-export-metadata-env-overrides:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read

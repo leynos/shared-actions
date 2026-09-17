@@ -16,18 +16,24 @@ jobs:
     # the only place the real archive layout, the executable's name, and the
     # release API's rate limits are all exercised at once. The unit suite drives
     # the same fragments against a stubbed cargo and cannot see any of those.
-    name: Install and reuse mdtablefix (${{ matrix.runner }})
+    # Named by platform word, not by runner: the Linux leg's label is an
+    # expression whose value depends on whether the pull request came from
+    # a fork, so a name interpolating it gives the lane two check names.
+    name: Install and reuse mdtablefix (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner:
-          - >-
+        include:
+          - platform: linux
+            runner: >-
               ${{ github.event.pull_request.head.repo.fork
-                 && 'ubuntu-latest' || 'ubicloud-standard-2' }}
-          - macos-15
-          - windows-latest
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: macos
+            runner: macos-15
+          - platform: windows
+            runner: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -7,7 +7,7 @@ jobs:
   test-upload-assets-dry-run:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -41,7 +41,7 @@ jobs:
   test-upload-assets-env-overrides:
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-         && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 10
     permissions:
       contents: read

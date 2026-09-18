@@ -210,6 +210,30 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             **/scripts/*.py
+      - name: Create custom WiX validation application
+        shell: pwsh
+        run: |
+          $applicationPath = Join-Path $env:RUNNER_TEMP 'windows-package-custom-authoring.exe'
+          [System.IO.File]::WriteAllBytes($applicationPath, [byte[]] @(0x4d, 0x5a))
+          "WIX_VALIDATION_APPLICATION_PATH=$applicationPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Compile custom WiX v4 authoring
+        # The action must pass caller-owned WXS through unchanged. Compile the
+        # fixture with the supported WiX CLI and UI extension to expose an
+        # incompatible action toolchain before consumers release an MSI.
+        uses: ./.github/actions/windows-package
+        with:
+          wxs-path: .github/actions/windows-package/tests/fixtures/custom-authoring/Package.wxs
+          application-path: ${{ env.WIX_VALIDATION_APPLICATION_PATH }}
+          product-name: Custom WiX fixture
+          manufacturer: Leynos
+          install-dir-name: custom-wix-fixture
+          license-rtf-path: .github/actions/windows-package/tests/fixtures/custom-authoring/LICENSE.rtf
+          architecture: x64
+          version: 0.1.0
+          output-basename: custom-wix-authoring-validation
+          output-directory: ${{ runner.temp }}/custom-wix-authoring-validation-output
+          upload-artefact: 'false'
+          wix-extension-version: '7'
       - name: Run tests
         run: |
           uv sync --group dev

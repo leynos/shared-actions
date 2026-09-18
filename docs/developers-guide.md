@@ -1071,6 +1071,69 @@ The script emits these `cargo-nextest.` metric names, read from
 - `cargo-nextest.install=ok`, `cargo-nextest.install=failed`,
   `cargo-nextest.install=reused`.
 
+## `generate-coverage` cargo watchdog, and how it is proved
+
+`generate-coverage` wraps `cargo` in a wall-clock watchdog. The budget comes
+from `RUN_RUST_CARGO_WAIT_TIMEOUT` if set, otherwise from the action's
+`cargo-wait-timeout` input, otherwise from the action's own default. The
+variable wins so that a caller setting one budget at job level keeps it when a
+step also passes the input. A blank value in either means "not set" rather than
+zero.
+
+Three properties are load bearing for every consumer:
+
+- a `cargo` invocation exceeding the budget is terminated, rather than
+  waited out;
+- the step then fails, rather than passing with the work unfinished;
+- the output `cargo` wrote before the watchdog fired survives, because
+  the report is the only thing that makes an overrun actionable.
+
+The termination is judged against both ends of a window, not just the top. A
+run shorter than the budget never reached `cargo`; one at least as long as the
+fake `cargo`'s sleep waited it out; and one more than fifteen seconds past the
+budget fired late rather than on the budget. Without that last bound the only
+rejection above the budget is the sleep itself, so a watchdog firing a minute
+late against a two-second budget would have read as a pass. Fifteen seconds is
+sized from measurement: the invalid cases, which refuse before `cargo` runs and
+so measure start-up alone, took 0.6s to 1.2s on a loaded developer host, and
+the overrun case took 2.6s to 2.8s against its 2.0s budget.
+
+A budget that is not a finite positive number is refused before `cargo` starts,
+naming the setting and the value. Zero is refused rather than read as "no
+watchdog": a lane carrying zero would otherwise run unguarded while appearing
+to declare a budget.
+
+### The lane
+
+`.github/workflows/test-coverage-watchdog.yml` proves all four in seconds, with
+no toolchain. `workflow_scripts/prove_cargo_watchdog.py` builds a fixture crate
+and puts a fake `cargo` on `PATH` that announces itself and then sleeps far
+longer than the budget, runs the coverage action's `run_rust.py` against it
+once for the overrun and once for each class of invalid budget, and checks each
+property separately so a partial regression names itself. There are five
+invalid classes, so a full proof is six runs.
+
+It is proved here, once, rather than in each consumer. A consumer lane that
+deliberately overruns its own job ceiling proves GitHub's cancellation and not
+the configured watchdog budget: it passes identically whether that ceiling is
+right or wrong, and costs runner minutes on every pull request to say so. What
+a consumer asserts instead is the static tier shape, which is what a change to
+a consumer can break.
+
+The lane runs on every pull request with no paths filter. A filtered lane falls
+silent on the pull request that breaks the watchdog from somewhere the filter
+does not name, and a check that reports on some pull requests and not others
+cannot become a required check.
+
+`tests/workflows/test_coverage_watchdog_lane.py` holds it to that. It asserts
+the command the step runs rather than the step's name, that the `pull_request`
+trigger carries no paths filter, and that every job's `runs-on` offers both
+arms of the fork fallback and parses to a single line. That last rule reads the
+raw declaration rather than the parsed value: a folded scalar whose
+continuation is indented more deeply keeps its line break, putting a newline
+inside the expression, and GitHub evaluates it anyway, so a green run is not
+evidence.
+
 ## `stage-release-artefacts` Action Architecture
 
 ### Staging Pipeline

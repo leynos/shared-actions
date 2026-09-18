@@ -658,7 +658,11 @@ def test_the_fork_guard_is_judged_by_effect_not_by_substring(
     fork fallback on the grounds that it skips forks: it has stopped
     proving the thing the exemption was written for.
     """
-    assert _skips_forks(condition) is expected
+    assert _skips_forks(condition) is expected, (
+        f"{condition!r} was read as "
+        f"{'skipping' if not expected else 'not skipping'} forks; expected the "
+        f"opposite"
+    )
 
 
 @pytest.mark.parametrize(
@@ -890,7 +894,10 @@ def test_the_name_reader_is_narrow_as_well_as_sufficient(
     matched `ubuntu-latest` as a substring would refuse a hypothetical
     `ubuntu-latest-arm64` lane that merely contains it.
     """
-    assert _name_offences(name, runner_key) == expected
+    assert _name_offences(name, runner_key) == expected, (
+        f"the name {name!r} read against runner dimension {runner_key!r} "
+        f"yielded {_name_offences(name, runner_key)}, expected {expected}"
+    )
 
 
 def _include_entries(
@@ -950,4 +957,82 @@ def test_no_runner_declaration_carries_a_line_break(workflow: str, job_id: str) 
         f"{_identifier(workflow, job_id)} declares {offenders} with an "
         "embedded line break; keep a folded scalar's continuation at the same "
         "indent as its first line, or the break survives into the value"
+    )
+
+
+#: The guide marks a snippet that is deliberately broken by preceding it
+#: with this comment. Without the marker the guide could not show the
+#: defect it warns about, and the contract below could not tell a
+#: prescription from an illustration.
+COUNTER_EXAMPLE_MARKER: typ.Final[str] = "<!-- folding-counter-example:"
+
+DEVELOPERS_GUIDE: typ.Final[Path] = REPOSITORY_ROOT / "docs" / "developers-guide.md"
+
+
+def _guide_runner_snippets() -> cabc.Iterator[tuple[int, bool, str]]:
+    """Yield each guide YAML block that declares a runner, with its marker state.
+
+    The line number is the fence's own, so a failure names the block a
+    reader has to open. The flag says whether the block is introduced by
+    the counter-example marker.
+    """
+    lines = DEVELOPERS_GUIDE.read_text(encoding="utf-8").splitlines()
+    marked = False
+    fence: list[str] | None = None
+    fence_line = 0
+    for number, line in enumerate(lines, start=1):
+        if fence is None:
+            if line.startswith(COUNTER_EXAMPLE_MARKER):
+                marked = True
+            elif line.strip() == "```yaml":
+                fence, fence_line = [], number
+            elif line.strip():
+                marked = False
+            continue
+        if line.strip() == "```":
+            body = "\n".join(fence)
+            if "runs-on:" in body:
+                yield fence_line, marked, body
+            fence, marked = None, False
+            continue
+        fence.append(line)
+
+
+def _guide_snippet_identifier(case: tuple[int, bool, str]) -> str:
+    """Name a guide snippet by its fence line and marker state."""
+    line, marked, _ = case
+    return f"line-{line}-{'counter-example' if marked else 'prescribed'}"
+
+
+@pytest.mark.parametrize(
+    "snippet", list(_guide_runner_snippets()), ids=_guide_snippet_identifier
+)
+def test_the_guide_prescribes_a_runner_snippet_that_folds(
+    snippet: tuple[int, bool, str],
+) -> None:
+    """A snippet the guide prescribes parses to one line; a marked one does not.
+
+    The guide is where the next lane's `runs-on` is copied from, so a
+    prescribed snippet carrying the folding defect reproduces it in every
+    workflow written afterwards, and no workflow contract can catch that
+    because the defect is not yet in a workflow. Both directions are
+    asserted: a counter-example that quietly became correct would stop
+    showing the failure the surrounding prose explains, and the marker
+    would then be a way to exempt a real prescription from the rule.
+    """
+    line, marked, body = snippet
+    value = yaml.safe_load(body)["runs-on"]
+    carries_a_break = "\n" in value
+    if marked:
+        assert carries_a_break, (
+            f"the snippet at docs/developers-guide.md:{line} is marked as a "
+            "folding counter-example but parses to one line; either restore "
+            "the deeper continuation indent or drop the marker"
+        )
+        return
+    assert not carries_a_break, (
+        f"the snippet at docs/developers-guide.md:{line} prescribes a "
+        f"runner declaration that parses to {value!r}, with a line break "
+        "inside the expression; keep the continuation at the same indent as "
+        "its first line"
     )

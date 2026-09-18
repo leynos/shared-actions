@@ -1010,33 +1010,57 @@ COUNTER_EXAMPLE_MARKER: typ.Final[str] = "<!-- folding-counter-example:"
 DEVELOPERS_GUIDE: typ.Final[Path] = REPOSITORY_ROOT / "docs" / "developers-guide.md"
 
 
-def _guide_runner_snippets() -> cabc.Iterator[tuple[int, bool, str]]:
-    """Yield each guide YAML block that declares a runner, with its marker state.
+def _yaml_fences(lines: cabc.Sequence[str]) -> cabc.Iterator[tuple[int, str]]:
+    """Yield each fenced YAML block's opening line number and its body.
 
     The line number is the fence's own, so a failure names the block a
-    reader has to open. The flag says whether the block is introduced by
-    the counter-example marker.
+    reader has to open rather than a line inside it.
     """
-    lines = DEVELOPERS_GUIDE.read_text(encoding="utf-8").splitlines()
-    marked = False
-    fence: list[str] | None = None
-    fence_line = 0
+    opened: int | None = None
+    body: list[str] = []
     for number, line in enumerate(lines, start=1):
-        if fence is None:
-            if line.startswith(COUNTER_EXAMPLE_MARKER):
-                marked = True
-            elif line.strip() == "```yaml":
-                fence, fence_line = [], number
-            elif line.strip():
-                marked = False
-            continue
-        if line.strip() == "```":
-            body = "\n".join(fence)
-            if "runs-on:" in body:
-                yield fence_line, marked, body
-            fence, marked = None, False
-            continue
-        fence.append(line)
+        stripped = line.strip()
+        if opened is None:
+            if stripped == "```yaml":
+                opened, body = number, []
+        elif stripped == "```":
+            yield opened, "\n".join(body)
+            opened = None
+        else:
+            body.append(line)
+
+
+def _marked_fence_lines(lines: cabc.Sequence[str]) -> frozenset[int]:
+    """Return the opening line of each fence a counter-example marker introduces.
+
+    The marker applies to the next fence and to nothing else, so any
+    intervening prose clears it. A blank line does not, because the
+    marker and its fence are separated by one.
+    """
+    marked: set[int] = set()
+    pending = False
+    for number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if line.startswith(COUNTER_EXAMPLE_MARKER):
+            pending = True
+        elif stripped == "```yaml":
+            if pending:
+                marked.add(number)
+            pending = False
+        elif stripped:
+            pending = False
+    return frozenset(marked)
+
+
+def _guide_runner_snippets() -> list[tuple[int, bool, str]]:
+    """Return each guide YAML block declaring a runner, with its marker state."""
+    lines = DEVELOPERS_GUIDE.read_text(encoding="utf-8").splitlines()
+    marked = _marked_fence_lines(lines)
+    return [
+        (number, number in marked, body)
+        for number, body in _yaml_fences(lines)
+        if "runs-on:" in body
+    ]
 
 
 def _guide_snippet_identifier(case: tuple[int, bool, str]) -> str:
@@ -1046,7 +1070,7 @@ def _guide_snippet_identifier(case: tuple[int, bool, str]) -> str:
 
 
 @pytest.mark.parametrize(
-    "snippet", list(_guide_runner_snippets()), ids=_guide_snippet_identifier
+    "snippet", _guide_runner_snippets(), ids=_guide_snippet_identifier
 )
 def test_the_guide_prescribes_a_runner_snippet_that_folds(
     snippet: tuple[int, bool, str],

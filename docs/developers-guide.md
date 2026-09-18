@@ -1635,6 +1635,29 @@ mapping, bypassing the cache.
 be injected into the `act` subprocess - currently used to forward `DOCKER_HOST`
 when a healthy Podman socket is discovered automatically.
 
+### Deciding whether a command is runnable
+
+`_act_command` may name a bare command or a path, and the probe answers the two
+differently. A bare name is resolved through `PATH` by `shutil.which`; a name
+carrying a directory is checked directly, because a path the caller wrote out
+is not on `PATH` and `which` would report it missing.
+
+<!-- markdownlint-disable MD013 -->
+| Symbol                         | Type                             | Role                                                                                        |
+| ------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `_command_available`           | `(str) -> bool`                  | Resolve a bare name through `PATH`, and check a path-bearing name as a file.                |
+| `_is_executable_file`          | `(Path, *, on_windows?) -> bool` | Answer whether the operating system would run the file, by permission bit or by suffix.     |
+| `_windows_executable_suffixes` | `(environ?) -> frozenset[str]`   | Read `PATHEXT` into lower-cased suffixes, falling back to `.COM;.EXE;.BAT;.CMD` when unset. |
+<!-- markdownlint-enable MD013 -->
+
+Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
+`True` for every readable file there and would call a text file runnable.
+Executability is carried by the suffix instead, which is what `PATHEXT`
+enumerates. `PATHEXT` is separated by semicolons on Windows whatever
+`os.pathsep` says on the host reading it, so the separator is written out
+rather than borrowed from the platform, and the tests pin `PATHEXT` rather than
+inheriting it so the outcome does not depend on the developer's shell.
+
 ### Skip Markers
 
 <!-- markdownlint-disable MD013 -->
@@ -2280,7 +2303,7 @@ reach therefore selects its label from the head repository:
 ```yaml
 runs-on: >-
   ${{ github.event.pull_request.head.repo.fork
-     && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
 On every other event `github.event.pull_request` is absent, so the expression
@@ -2370,6 +2393,8 @@ until they do.
 The fork fallback is written as a folded scalar, and folding only joins lines
 that share the first line's indent. A continuation indented deeper keeps its
 break, so this:
+
+<!-- folding-counter-example: this snippet is deliberately broken -->
 
 ```yaml
 runs-on: >-

@@ -381,7 +381,14 @@ dependency that changes underneath the lane, which is how a job on
 `Unable to locate executable file: undefined`.
 
 The manifest currently carries cargo-audit, cargo-nextest, cargo-llvm-cov,
-cargo-dylint, dylint-link and sccache.
+cargo-dylint, dylint-link, sccache and merman-cli 0.7.0.
+
+The archive extensions the manifest's `url` can carry are `.tar.gz`, `.tgz`,
+`.tar.xz` and `.zip`. The extension picks the extractor: `.tar.xz` takes the
+tarball extraction path, the same as `.tar.gz` and `.tgz`, rather than the zip
+one, which only `.zip` takes. A target the manifest does not carry for the
+requested tool fails closed rather than falling back to another target's
+archive.
 
 **Every pinned digest was computed here from an independent download of the
 archive it describes. That is the trust anchor.** Where upstream publishes a

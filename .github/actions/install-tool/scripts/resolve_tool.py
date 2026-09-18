@@ -46,7 +46,7 @@ TARGETS = {
 #: Archive extensions this repository knows how to extract. The extractor is
 #: chosen by extension and never by probing what `tar` resolves to, because Git
 #: Bash puts MSYS GNU tar ahead of the system bsdtar that can read a zip.
-EXTENSIONS = ("tar.gz", "tgz", "zip")
+EXTENSIONS = ("tar.gz", "tgz", "tar.xz", "zip")
 
 #: Every reason resolution can fail. The calling step turns each into a
 #: bounded `install-tool.resolve` metric, so the set is closed here and there.

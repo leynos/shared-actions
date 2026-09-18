@@ -28,7 +28,7 @@ DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 #: Extensions the action can extract. The manifest cannot name another,
 #: because resolution would reject it at the point of use instead.
-EXTENSIONS = (".tar.gz", ".tgz", ".zip")
+EXTENSIONS = (".tar.gz", ".tgz", ".tar.xz", ".zip")
 
 #: Where a release archive may come from. Anything else is either a mirror
 #: nobody owns or a host that can change what it serves.

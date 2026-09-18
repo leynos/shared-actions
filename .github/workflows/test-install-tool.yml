@@ -39,6 +39,18 @@ jobs:
             tool: sccache
             version: 0.17.0
             expected: sccache 0.17.0
+          # An xz-compressed tarball, which is the archive `ci.yml` itself
+          # now installs from. The other Linux leg proves gzip, and the
+          # extractor is chosen by the asset's extension, so a leg that
+          # never sees `.tar.xz` proves nothing about the path this
+          # repository depends on every pull request.
+          - platform: linux
+            runner: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+            tool: merman-cli
+            version: 0.7.0
+            expected: merman-cli 0.7.0
           # A tarball with the binary at the root, bsdtar.
           - platform: macos
             runner: macos-15

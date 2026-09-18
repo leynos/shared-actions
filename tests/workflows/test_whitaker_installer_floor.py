@@ -126,41 +126,83 @@ def _version(raw: str) -> tuple[int, ...]:
     return tuple(parts + [0] * (3 - len(parts)))
 
 
+def _jobs(
+    workflow: cabc.Mapping[str, typ.Any],
+) -> cabc.Iterator[tuple[str, dict[str, typ.Any]]]:
+    """Yield each job the workflow declares as a mapping, with its id."""
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        if isinstance(job, dict):
+            yield str(job_id), job
+
+
+def _steps(job: cabc.Mapping[str, typ.Any]) -> cabc.Iterator[dict[str, typ.Any]]:
+    """Yield each step the job declares as a mapping."""
+    for step in job.get("steps") or []:
+        if isinstance(step, dict):
+            yield step
+
+
+def _supplied_version(step: cabc.Mapping[str, typ.Any]) -> str | None:
+    """Return the installer version this step supplies, or None.
+
+    None covers both a step that installs something else and a step that
+    installs Whitaker without naming a version. The second takes the
+    action's default, which
+    `test_the_action_default_is_at_or_above_the_floor` covers instead.
+    """
+    if step.get("uses") != INSTALL_WHITAKER_ACTION:
+        return None
+    supplied = (step.get("with") or {}).get(VERSION_INPUT)
+    return None if supplied is None else str(supplied)
+
+
 def _install_whitaker_steps() -> list[tuple[str, str, str]]:
     """Return every lane that installs Whitaker, with the version it asks for.
 
     Each entry is the workflow file, the job id, and the resolved
-    `installer-version`. A step that supplies no version is absent: it
-    takes the action's default, which `test_the_action_default_is_at_or_above_the_floor`
-    covers instead.
+    `installer-version`.
     """
     found: list[tuple[str, str, str]] = []
     for name in _workflow_names():
         workflow = _load(WORKFLOWS_DIRECTORY / name)
-        for job_id, job in (workflow.get("jobs") or {}).items():
-            if not isinstance(job, dict):
-                continue
-            for step in job.get("steps") or []:
-                if not isinstance(step, dict):
-                    continue
-                if step.get("uses") != INSTALL_WHITAKER_ACTION:
-                    continue
-                supplied = (step.get("with") or {}).get(VERSION_INPUT)
-                if supplied is None:
-                    continue
-                found.append(
-                    (
-                        name,
-                        str(job_id),
-                        _resolve(str(supplied), step=step, job=job, workflow=workflow),
-                    )
+        for job_id, job in _jobs(workflow):
+            found.extend(
+                (
+                    name,
+                    job_id,
+                    _resolve(supplied, step=step, job=job, workflow=workflow),
                 )
+                for step in _steps(job)
+                if (supplied := _supplied_version(step)) is not None
+            )
     return found
 
 
 def _identifier(*parts: str) -> str:
     """Return a readable pytest id for *parts*."""
     return "::".join(parts)
+
+
+def _assert_at_or_above_floor(requested: str, *, subject: str) -> None:
+    """Fail unless *subject* asks for an installer at or above the floor.
+
+    Shared by the lane rule and the action-default rule, because the
+    reason is the same in both places: a caller that omits the input is
+    exposed by exactly the version the manifest names.
+    """
+    assert _VERSION.fullmatch(requested), (
+        f"{subject} asks for installer-version {requested!r}, which is not a "
+        "version this rule can read; it must be one to three numeric "
+        "components, resolved from a bare env.NAME at most"
+    )
+    floor = ".".join(str(part) for part in INSTALLER_FLOOR)
+    assert _version(requested) >= INSTALLER_FLOOR, (
+        f"{subject} asks for Whitaker installer {requested}, below the "
+        f"{floor} floor. Below {floor} the installer builds dylint-link from "
+        "crates.io instead of taking the published artefact, and that build "
+        "needs a newer rustc than this repository pins. It fails only on a "
+        "cold installer cache, so a green run does not clear it"
+    )
 
 
 def test_some_lane_installs_whitaker() -> None:
@@ -192,21 +234,7 @@ def test_no_lane_asks_for_an_installer_below_the_floor(
     fails only when its installer cache is cold, so the version is
     asserted here rather than waited for.
     """
-    assert _VERSION.fullmatch(requested), (
-        f"{_identifier(workflow, job_id)} asks for installer-version "
-        f"{requested!r}, which is not a version this rule can read; it must "
-        "be one to three numeric components, resolved from a bare env.NAME "
-        "at most"
-    )
-    floor = ".".join(str(part) for part in INSTALLER_FLOOR)
-    assert _version(requested) >= INSTALLER_FLOOR, (
-        f"{_identifier(workflow, job_id)} asks for Whitaker installer "
-        f"{requested}, below the {floor} floor. Below {floor} the installer "
-        "builds dylint-link from crates.io instead of taking the published "
-        "artefact, and that build needs a newer rustc than this repository "
-        "pins. It fails only on a cold installer cache, so a green run does "
-        "not clear it"
-    )
+    _assert_at_or_above_floor(requested, subject=_identifier(workflow, job_id))
 
 
 def test_the_action_default_is_at_or_above_the_floor() -> None:
@@ -219,12 +247,8 @@ def test_the_action_default_is_at_or_above_the_floor() -> None:
     manifest = _load(INSTALL_WHITAKER_MANIFEST)
     default = str(manifest["inputs"][VERSION_INPUT]["default"]).strip()
 
-    assert _VERSION.fullmatch(default), default
-    floor = ".".join(str(part) for part in INSTALLER_FLOOR)
-    assert _version(default) >= INSTALLER_FLOOR, (
-        f"{INSTALL_WHITAKER_MANIFEST.name} defaults installer-version to "
-        f"{default}, below the {floor} floor, so every consumer that omits "
-        "the input builds dylint-link from source"
+    _assert_at_or_above_floor(
+        default, subject=f"{INSTALL_WHITAKER_MANIFEST.name}'s own default"
     )
 
 

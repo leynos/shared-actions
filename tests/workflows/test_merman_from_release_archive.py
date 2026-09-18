@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given
+from hypothesis import strategies as st
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -115,13 +117,24 @@ _SHELL_PREFIX_KEYWORDS: typ.Final[tuple[str, ...]] = (
     "until",
 )
 
+#: A command may carry environment assignments of its own, and they change
+#: nothing about whether it runs. `RUSTUP_TOOLCHAIN=1.95.0 cargo install
+#: merman-cli --locked` is exactly the source build this contract refuses,
+#: written the way a step that wanted a particular toolchain would write
+#: it, and without this allowance the assignment hid the command from the
+#: pattern. The value stops at whitespace or a separator, so the
+#: assignment cannot swallow the rest of the line.
+_SHELL_ASSIGNMENT: typ.Final[str] = r"(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s+)*"
+
 #: The pattern is assembled from module-level literals rather than from
 #: anything a workflow supplies, so there is no input here to drive
 #: backtracking.
 _CARGO_INSTALL: typ.Final[re.Pattern[str]] = re.compile(
     r"(?:^[ \t]*|[;&|]\s*|\b(?:"
     + "|".join(_SHELL_PREFIX_KEYWORDS)
-    + r")\s+)cargo(?:\s+\+\S+)?\s+install\s+(?:-\S+(?:\s+\S+)?\s+)*"
+    + r")\s+)"
+    + _SHELL_ASSIGNMENT
+    + r"cargo(?:\s+\+\S+)?\s+install\s+(?:-\S+(?:\s+\S+)?\s+)*"
     + re.escape(TOOL_NAME)
     + r"(?:@[^\s;&|]+)?(?=\s|[;&|]|$)",
     re.MULTILINE,
@@ -353,6 +366,31 @@ class TestMermanReleaseArchive:
                 f"# cargo install {TOOL_NAME} was removed", False, id="in-a-comment"
             ),
             pytest.param(f"uv tool install {TOOL_NAME}", False, id="not-cargo"),
+            pytest.param(
+                f"RUSTUP_TOOLCHAIN=1.95.0 cargo install {TOOL_NAME} --locked",
+                True,
+                id="behind-an-environment-assignment",
+            ),
+            pytest.param(
+                f"CARGO_NET_OFFLINE=false RUSTFLAGS= cargo install {TOOL_NAME}",
+                True,
+                id="behind-several-assignments-one-empty",
+            ),
+            pytest.param(
+                f"if true; then RUSTUP_TOOLCHAIN=1.95.0 cargo install {TOOL_NAME}; fi",
+                True,
+                id="behind-an-assignment-behind-a-keyword",
+            ),
+            pytest.param(
+                f"echo RUSTUP_TOOLCHAIN=1.95.0 cargo install {TOOL_NAME}",
+                False,
+                id="an-assignment-that-is-only-an-argument",
+            ),
+            pytest.param(
+                f"RUSTUP_TOOLCHAIN=1.95.0 uv tool install {TOOL_NAME}",
+                False,
+                id="an-assignment-in-front-of-another-installer",
+            ),
         ],
     )
     def test_the_source_build_pattern_matches_what_would_break(
@@ -486,4 +524,143 @@ class TestVersionResolutionScope:
 
         assert self._resolve(document) == "", (
             f"a blank step declaration ({blank!r}) masks the job's 0.7.0"
+        )
+
+
+#: A command boundary the pattern must recognise. The empty string is
+#: the start of a line, which the pattern reaches through its
+#: `MULTILINE` anchor.
+_BOUNDARIES: typ.Final[tuple[str, ...]] = (
+    "",
+    "true; ",
+    "true && ",
+    "true || ",
+    "if true; then ",
+    "while true; do ",
+    "until false; do ",
+)
+
+#: A word that leaves what follows it as an argument rather than as a
+#: command. Prefixing a bare command with one of these must hide it.
+_NON_BOUNDARIES: typ.Final[tuple[str, ...]] = (
+    "echo ",
+    "echo redo ",
+    "# ",
+    "printf %s ",
+)
+
+
+def _assignments() -> st.SearchStrategy[str]:
+    """Return zero or more shell environment assignments, trailing space included."""
+    names = st.sampled_from(
+        ("RUSTUP_TOOLCHAIN", "CARGO_NET_OFFLINE", "RUSTFLAGS", "_X1")
+    )
+    values = st.sampled_from(("1.95.0", "false", "", "-Dwarnings"))
+    return st.lists(
+        st.tuples(names, values).map(lambda pair: f"{pair[0]}={pair[1]}"),
+        max_size=3,
+    ).map(lambda parts: "".join(f"{part} " for part in parts))
+
+
+def _options() -> st.SearchStrategy[str]:
+    """Return an option sequence `cargo install` accepts before the crate name."""
+    return st.lists(
+        st.sampled_from(("--locked", "--force", "-q", "--root /tmp/x", "-j 4")),
+        max_size=3,
+    ).map(lambda parts: "".join(f"{part} " for part in parts))
+
+
+def _source_builds(
+    boundaries: tuple[str, ...] = _BOUNDARIES,
+    *,
+    crate: str = TOOL_NAME,
+) -> st.SearchStrategy[str]:
+    """Return commands that really would compile *crate* from source.
+
+    Parameters
+    ----------
+    boundaries : tuple[str, ...]
+        The command boundaries to draw from. The negative properties pass
+        the bare form alone, because prefixing a command that carries its
+        own separator leaves a genuine command after that separator.
+    crate : str
+        The crate the generated command installs.
+    """
+    return st.builds(
+        lambda boundary, assignments, selector, options, spelling: (
+            f"{boundary}{assignments}cargo{selector} install {options}{spelling}"
+        ),
+        boundary=st.sampled_from(boundaries),
+        assignments=_assignments(),
+        selector=st.sampled_from(("", " +1.95.0", " +stable", " +nightly-2026-05-28")),
+        options=_options(),
+        spelling=st.sampled_from((crate, f"{crate}@0.7.0", f"{crate}@1.0")),
+    )
+
+
+class TestTheSourceBuildMatcherOverGeneratedCommands:
+    """The matcher's claim, stated over the space rather than over examples.
+
+    The parametrised cases above pin the requirement at the spellings
+    this repository has actually seen. They cannot show that the claim
+    holds across the dimensions independently: the pattern composes a
+    boundary, any number of environment assignments, an optional
+    toolchain selector, an option sequence and a crate spelling, and a
+    handful of examples touches only a handful of those combinations. A
+    pattern that happened to require an option before the crate name, or
+    that allowed assignments only where no selector followed, would pass
+    every case above.
+    """
+
+    @given(script=_source_builds())
+    def test_every_generated_source_build_is_caught(self, script: str) -> None:
+        """Each command the strategy builds really would compile the crate."""
+        assert _CARGO_INSTALL.search(script) is not None, (
+            f"{script!r} compiles {TOOL_NAME} from source and was not caught; "
+            "the pattern must hold across each dimension independently, not "
+            "only on the combinations written out as cases"
+        )
+
+    @given(
+        script=_source_builds(("",)),
+        prefix=st.sampled_from(_NON_BOUNDARIES),
+    )
+    def test_a_command_that_is_only_an_argument_is_not_caught(
+        self, script: str, prefix: str
+    ) -> None:
+        """A build quoted as an argument to another command is not a build.
+
+        The narrow direction carries the same weight as the wide one. A
+        pattern that fired on the text wherever it appeared would refuse
+        a comment recording why the build was removed, and would survive
+        its own mutation while discriminating nothing.
+
+        Only the bare form is prefixed. A command drawn with its own
+        separator, such as `true; cargo install ...`, still holds a real
+        command after that separator, so prefixing it would assert
+        something false.
+        """
+        quoted = f"{prefix}{script}"
+        assert _CARGO_INSTALL.search(quoted) is None, (
+            f"{quoted!r} passes the command to {prefix.strip()!r} rather than "
+            f"running it, so it does not compile {TOOL_NAME}"
+        )
+
+    @given(
+        script=st.sampled_from(
+            (f"{TOOL_NAME}-extras", f"{TOOL_NAME}x", "merman", "some-other-crate")
+        ).flatmap(lambda crate: _source_builds(crate=crate))
+    )
+    def test_another_crate_is_never_caught(self, script: str) -> None:
+        """Only this crate's own source build is refused.
+
+        A rule firing on every `cargo install` would stop the repository
+        installing anything from source, which is not what the issue this
+        branch closes asked for, and a rule matching the crate name as a
+        prefix would refuse a differently named crate that merely starts
+        with it.
+        """
+        assert _CARGO_INSTALL.search(script) is None, (
+            f"{script!r} does not build {TOOL_NAME} and must not be read as "
+            "this crate's source build"
         )

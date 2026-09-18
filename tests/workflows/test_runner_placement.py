@@ -104,6 +104,12 @@ FORK_FALLBACK_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
         "fallback to a GitHub-hosted runner would leave it green and "
         "proving nothing, so it skips a fork's pull request instead."
     ),
+    ("test-upload-codescene-coverage.yml", "cold-runner-contract"): (
+        "The job reads CS_ACCESS_TOKEN to prove the pinned CLI parses the "
+        "Slipcover fixtures. A fork's pull request cannot read a secret, so "
+        "a fallback would put the lane on a GitHub-hosted runner only to "
+        "fail on the missing token; it skips a fork's pull request instead."
+    ),
 }
 
 #: The head-repository comparison an exempt lane must guard itself with.
@@ -121,6 +127,20 @@ FORK_SKIP_GUARD: typ.Final[str] = (
 #: because this is the single escape the rule allows and a near miss
 #: should fail rather than be accepted as close enough.
 FORK_GUARD_EVENT_ESCAPE: typ.Final[str] = "github.event_name != 'pull_request'"
+
+#: The other way the same arm is written: naming the one event the lane
+#: also serves rather than excluding pull requests. A fork reaches this
+#: repository through a pull request and through nothing else, so an arm
+#: that requires a dispatch admits no fork either. Both spellings are
+#: written out in full, and an arm naming any other event is refused,
+#: because `github.event_name == 'pull_request'` has the same shape and
+#: the opposite meaning.
+FORK_GUARD_DISPATCH_ESCAPE: typ.Final[str] = "github.event_name == 'workflow_dispatch'"
+
+#: The complete set of arms that keep a fork out without the comparison.
+FORK_GUARD_ESCAPES: typ.Final[frozenset[str]] = frozenset(
+    {FORK_GUARD_EVENT_ESCAPE, FORK_GUARD_DISPATCH_ESCAPE}
+)
 
 
 def _strip_expression_wrapper(condition: str) -> str:
@@ -149,12 +169,13 @@ def _disjunct_requires_the_guard(disjunct: str) -> bool:
 def _disjunct_skips_forks(disjunct: str) -> bool:
     """Return True when one arm of a condition cannot admit a fork.
 
-    Either it requires the head-repository comparison, or it is the
+    Either it requires the head-repository comparison, or it is a
     dispatch escape, which no fork reaches.
     """
     if _disjunct_requires_the_guard(disjunct):
         return True
-    return _operands(disjunct) == [FORK_GUARD_EVENT_ESCAPE]
+    operands = _operands(disjunct)
+    return len(operands) == 1 and operands[0] in FORK_GUARD_ESCAPES
 
 
 def _skips_forks(condition: str) -> bool:
@@ -171,10 +192,11 @@ def _skips_forks(condition: str) -> bool:
     absent `if`, qualifies as nothing: an unguarded job is the default
     this rule exists to refuse.
 
-    The dispatch escape cannot stand alone. `github.event_name !=
-    'pull_request'` is false for every pull request, a fork's and the
-    base repository's alike, so a lane carrying it by itself never runs
-    on a pull request at all. That satisfies "no fork gets in" by being
+    A dispatch escape cannot stand alone. Neither `github.event_name !=
+    'pull_request'` nor `github.event_name == 'workflow_dispatch'` is
+    ever true for a pull request, a fork's and the base repository's
+    alike, so a lane carrying one by itself never runs on a pull request
+    at all. That satisfies "no fork gets in" by being
     dead, and the exempt lane exists to prove something on an internal
     pull request. At least one arm has to be the guard.
     """
@@ -248,6 +270,10 @@ JOB_TIERS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ("test-rustflags-export.yml", "setup-rust-with-inherited"): "assertion",
     ("test-rustflags-export.yml", "setup-rust-toolchain-available"): "assertion",
     ("test-setup-rust-sccache.yml", "exports-the-wrapper"): "assertion",
+    (
+        "test-upload-codescene-coverage.yml",
+        "cold-runner-contract",
+    ): "install",
     ("test-setup-rust-sccache.yml", "respects_a_caller_backend_choice"): "assertion",
     ("test-setup-rust-sccache.yml", "respects_a_caller_wrapper"): "assertion",
     (
@@ -593,8 +619,8 @@ def test_a_fork_skipping_lane_really_skips_forks(workflow: str, job_id: str) -> 
         f"{_identifier(workflow, job_id)} is excused the fork fallback "
         "because it skips forks, but its condition does not effectively "
         "compare the head repository. Every arm of the condition must "
-        "either require the comparison or be the dispatch escape "
-        f"{FORK_GUARD_EVENT_ESCAPE!r}, because an unguarded arm beside the "
+        "either require the comparison or be one of the escapes "
+        f"{sorted(FORK_GUARD_ESCAPES)}, because an unguarded arm beside the "
         f"comparison lets a fork through: {condition!r}"
     )
 
@@ -634,6 +660,21 @@ def test_a_fork_skipping_lane_really_skips_forks(workflow: str, job_id: str) -> 
             f"{FORK_GUARD_EVENT_ESCAPE} || true",
             False,
             id="escape-beside-an-unguarded-arm",
+        ),
+        pytest.param(
+            f"{FORK_GUARD_DISPATCH_ESCAPE} || {FORK_SKIP_GUARD}",
+            True,
+            id="named-dispatch-escape-beside-the-guard",
+        ),
+        pytest.param(
+            FORK_GUARD_DISPATCH_ESCAPE,
+            False,
+            id="named-dispatch-escape-alone",
+        ),
+        pytest.param(
+            f"github.event_name == 'pull_request' || {FORK_SKIP_GUARD}",
+            False,
+            id="a-pull-request-arm-wearing-the-escape-shape",
         ),
         pytest.param("github.event_name == 'push'", False, id="no-guard"),
         pytest.param("", False, id="empty"),

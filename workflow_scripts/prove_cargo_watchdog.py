@@ -105,6 +105,22 @@ def _uv() -> str:
 #: set" and falls back to the default budget, so a lane carrying one is
 #: guarded rather than unguarded, and demanding a refusal here would
 #: contradict the runner's documented behaviour.
+#: How far past the budget a run may end and still count as the watchdog
+#: firing. Without an upper bound the only rejection above the budget is
+#: the fake cargo's sleep, so a watchdog that fired a minute late against
+#: a two-second budget proved nothing while the report stayed green.
+#:
+#: Sized from measurement rather than from a round number. The invalid
+#: cases measure start-up alone, because they refuse before cargo runs at
+#: all: they took 0.6s to 1.2s on a developer host at a load average of
+#: 24. The overrun case took 2.6s to 2.8s against the 2.0s budget over
+#: four consecutive runs on that host, so the overhead being allowed for
+#: is under a second. Fifteen seconds is more than ten times that, which
+#: leaves room for a cold runner and for scheduling, and is still an
+#: eighth of the sleep, so the bound discriminates rather than merely
+#: restating the sleep check.
+TERMINATION_OVERHEAD_SECONDS: typ.Final[float] = 15.0
+
 INVALID_BUDGETS: typ.Final[tuple[tuple[str, str], ...]] = (
     ("0", "a zero budget"),
     ("-1", "a negative budget"),
@@ -181,6 +197,14 @@ def check_termination(
             f"{budget:.1f}s budget, so it did not run cargo under the "
             "watchdog at all"
         )
+    ceiling = budget + TERMINATION_OVERHEAD_SECONDS
+    if outcome.seconds > ceiling:
+        failures.append(
+            f"the runner took {outcome.seconds:.1f}s against a {budget:.1f}s "
+            f"budget, more than the {ceiling:.1f}s that budget plus "
+            f"{TERMINATION_OVERHEAD_SECONDS:.0f}s of start-up allows, so the "
+            "watchdog fired late rather than on the budget"
+        )
     if CARGO_MARKER not in outcome.output:
         failures.append(
             "the output cargo wrote before the watchdog fired is missing; an "
@@ -226,6 +250,12 @@ def check_refusal(outcome: Outcome, *, value: str) -> list[str]:
         failures.append(
             f"the refusal does not name {WATCHDOG_VARIABLE}, so a caller "
             "cannot tell which setting was wrong"
+        )
+    if value not in outcome.output:
+        failures.append(
+            f"the refusal does not quote {value!r}, so a caller reading a "
+            "job log cannot tell which of several budgets in the lane was "
+            "the one refused"
         )
     if CARGO_MARKER in outcome.output:
         failures.append(

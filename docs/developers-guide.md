@@ -1836,13 +1836,25 @@ can reach it and the expression would be decoration.
 
 Falling back rather than skipping is the point. A guard that skips leaves a
 fork with no Linux CI at all, which is a worse answer to the same problem. The
-one exception is a lane whose subject is the Ubicloud runner itself:
+exceptions are the lanes a fork could not usefully run at all.
 `test-ubicloud-sccache-proxy.yml` proves that sccache reaches Ubicloud's cache
 proxy, which a GitHub-hosted runner cannot show, so a fallback would leave it
-green and proving nothing. That lane skips forks instead, and
-`FORK_FALLBACK_EXEMPTIONS` records why while
+green and proving nothing. `test-upload-codescene-coverage.yml` reads
+`CS_ACCESS_TOKEN` to prove the pinned CLI parses the Slipcover fixtures, and a
+fork's pull request cannot read a secret, so a fallback would move the lane to
+a hosted runner only to fail on the missing token. Both skip a fork's pull
+request instead, and `FORK_FALLBACK_EXEMPTIONS` records why while
 `test_a_fork_skipping_lane_really_skips_forks` checks the guard is actually
 there.
+
+A lane may write that guard either way round: excluding pull requests with
+`github.event_name != 'pull_request'`, or naming the event it does serve with
+`github.event_name == 'workflow_dispatch'`. Both are read as arms no fork can
+reach, and both are written out in full rather than matched by shape, because
+`github.event_name == 'pull_request'` looks the same and means the opposite.
+Neither stands alone: an arm requiring the head-repository comparison has to be
+present, or the lane never runs on a pull request at all and has stopped
+proving what the exemption was granted for.
 
 The contract parses the expression rather than comparing it as a string, so
 each part is asserted on its own: the field path exactly, the fork arm as the

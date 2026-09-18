@@ -40,11 +40,44 @@ def _act_command(environ: cabc.Mapping[str, str] | None = None) -> str:
     return source.get("ACT", "act")
 
 
+_ON_WINDOWS = os.name == "nt"
+_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+# PATHEXT is semicolon-separated on Windows whatever os.pathsep says on the
+# host running these tests, so the separator is written out rather than
+# borrowed from the platform.
+_PATHEXT_SEPARATOR = ";"
+
+
+def _windows_executable_suffixes(
+    environ: cabc.Mapping[str, str] | None = None,
+) -> frozenset[str]:
+    """Return the lower-cased suffixes Windows treats as executable."""
+    source = os.environ if environ is None else environ
+    raw = source.get("PATHEXT") or _DEFAULT_PATHEXT
+    return frozenset(
+        suffix.strip().lower()
+        for suffix in raw.split(_PATHEXT_SEPARATOR)
+        if suffix.strip()
+    )
+
+
+# Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
+# True for every readable file there. Executability on that platform is carried
+# by the suffix, which is what PATHEXT enumerates.
+def _is_executable_file(path: Path, *, on_windows: bool = _ON_WINDOWS) -> bool:
+    """Return True when *path* is a file the operating system would run."""
+    if not path.is_file():
+        return False
+    if on_windows:
+        return path.suffix.lower() in _windows_executable_suffixes()
+    return os.access(path, os.X_OK)
+
+
 def _command_available(command: str) -> bool:
     """Return True when *command* names an executable file or PATH command."""
     command_path = Path(command)
     if command_path.parent != Path():
-        return command_path.is_file() and os.access(command_path, os.X_OK)
+        return _is_executable_file(command_path)
     return shutil.which(command) is not None
 
 

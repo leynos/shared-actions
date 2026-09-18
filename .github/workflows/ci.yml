@@ -11,6 +11,14 @@ concurrency:
 
 jobs:
   python-tests:
+    # Named by platform word rather than by runner label. The default
+    # check name for a matrix job interpolates its matrix values, so the
+    # Linux leg would report as `python-tests (ubicloud-standard-2)` on an
+    # internal pull request and `python-tests (ubuntu-latest)` on a fork's:
+    # two names for one lane, neither of which a required-check list can
+    # hold. `matrix.platform` names the lane instead, and it is stable
+    # across both arms of the fork fallback.
+    name: python-tests (${{ matrix.platform }})
     timeout-minutes: 20
     permissions:
       contents: read
@@ -21,7 +29,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15]
+        include:
+          - platform: linux
+            os: >-
+              ${{ github.event.pull_request.head.repo.fork
+              && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          - platform: macos
+            os: macos-15
     steps:
       - name: Checkout repository
         # v4
@@ -35,14 +49,14 @@ jobs:
             **/uv.lock
             **/scripts/*.py
       - name: Install nfpm
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-nfpm
       - name: Setup Bun
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         # v2.0.2
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Setup Bun (macOS)
-        if: matrix.os == 'macos-15'
+        if: runner.os == 'macOS'
         # v2.0.2
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       - name: Install action-validator
@@ -50,60 +64,66 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-mdtablefix
         with:
           version: "0.6.0"
 
       - name: Check formatting
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make check-fmt
         shell: bash
       - name: Enforce en-GB-oxendict spelling
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make spelling
         shell: bash
       - name: Markdown lint
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff
         with:
           globs: '**/*.md'
       - name: Set up isolated Rust for Merman
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: rustup toolchain install 1.95.0 --profile minimal
         shell: bash
       - name: Cache Merman CLI
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         id: cache-merman-cli
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ~/.cargo/bin/merman-cli
           key: merman-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.MERMAN_CLI_VERSION }}
       - name: Install Merman CLI
-        if: matrix.os == 'ubuntu-latest' && steps.cache-merman-cli.outputs.cache-hit != 'true'
+        if: runner.os == 'Linux' && steps.cache-merman-cli.outputs.cache-hit != 'true'
         run: cargo +1.95.0 install merman-cli --version "=${MERMAN_CLI_VERSION}" --locked
         shell: bash
       - name: Install Nixie
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: uv tool install --python 3.14 nixie-cli==1.1.0
         shell: bash
       - name: Validate Mermaid diagrams
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make nixie
         shell: bash
       - name: Setup Rust
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/setup-rust
       - name: Install Whitaker
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: ./.github/actions/install-whitaker
         with:
           installer-version: ${{ env.WHITAKER_INSTALLER_VERSION }}
       - name: Run lint checks
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: make lint
         shell: bash
       - name: Run tests
+        # Not on Linux. The coverage job below runs this same suite under
+        # the coverage action on the same trigger, and its own comment says
+        # it installs nfpm and Rust so that the same tests execute there
+        # rather than skip. Running them twice cost 5 minutes 14 seconds a
+        # pull request and told us nothing the coverage run did not.
+        if: runner.os == 'macOS'
         run: |
           uv sync --group dev
           uv run pytest
@@ -116,7 +136,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     steps:
       - name: Checkout repository
         # v4

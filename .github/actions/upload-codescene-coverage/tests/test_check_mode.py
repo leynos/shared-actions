@@ -362,7 +362,13 @@ def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
     assert "! grep -F 'No matching field found" not in workflow
     assert "git fetch --no-tags --depth=1" in workflow
     assert "git fetch --no-tags --unshallow" in workflow
-    assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
+    # The variable is the pull request's base branch, not the repository
+    # default: the two differ on a stacked pull request, and fetching the
+    # default there left cs-coverage with a revision nobody fetched.
+    # `test_codescene_lane_fetches_its_base.py` holds the rule about which
+    # branch it resolves; this line only asserts the merge base is taken
+    # against whatever was fetched.
+    assert 'git merge-base "origin/$BASE_BRANCH" HEAD >/dev/null' in workflow
     assert (
         "if grep -F 'No matching field found: close for class "
         "java.io.InputStreamReader'" in workflow

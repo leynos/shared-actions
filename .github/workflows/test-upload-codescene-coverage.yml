@@ -13,7 +13,12 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    # The lane skips a fork's pull request rather than falling back,
+    # because it reads CS_ACCESS_TOKEN and a fork cannot. It therefore
+    # names the Ubicloud label outright: no arm of it ever runs on a
+    # fork's runner.
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -26,20 +31,28 @@ jobs:
             echo 'cs-coverage was unexpectedly preinstalled on this runner' >&2
             exit 1
           fi
-      - name: Fetch the parser's default-branch merge base
+      # The branch fetched is the one `cs-coverage check` compares against,
+      # which is the pull request's base and not the repository default. On
+      # a stacked pull request those differ, and fetching only the default
+      # branch leaves the base ref absent: the step then failed with
+      # `ambiguous argument 'origin/<base>': unknown revision`. On a
+      # dispatch there is no pull request, so the default branch is the
+      # right answer and the fallback supplies it.
+      - name: Fetch the parser's merge base
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_BRANCH: >-
+            ${{ github.base_ref || github.event.repository.default_branch }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
           repository_url="https://github.com/$REPOSITORY.git"
-          refspec="refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          refspec="refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
           git fetch --no-tags --depth=1 "$repository_url" "$refspec"
-          if ! git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null; then
+          if ! git merge-base "origin/$BASE_BRANCH" HEAD >/dev/null; then
             git fetch --no-tags --unshallow "$repository_url" "$refspec"
           fi
-          git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null
+          git merge-base "origin/$BASE_BRANCH" HEAD >/dev/null
       - name: Install pinned CodeScene CLI without a preinstalled dependency
         uses: ./.github/actions/upload-codescene-coverage
         with:

@@ -22,6 +22,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 WORKFLOW: typ.Final[Path] = (
     REPOSITORY_ROOT / ".github" / "workflows" / "test-coverage-watchdog.yml"
@@ -43,32 +46,124 @@ FORK_RUNNER: typ.Final[str] = "ubuntu-latest"
 OWN_RUNNER: typ.Final[str] = "ubicloud-standard-2"
 
 
-def _document() -> dict[str, typ.Any]:
-    """Return the parsed workflow."""
-    parsed = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    if not isinstance(parsed, dict):
-        msg = f"{WORKFLOW} is not a mapping"
-        raise TypeError(msg)
-    return parsed
+#: The shape of the workflow this contract reads, declared rather than
+#: inferred. `yaml.safe_load` returns `Any`, and an `Any` flowing through
+#: these helpers would switch off every check on every field the
+#: assertions below depend on: a workflow that had lost its `jobs`
+#: mapping, or whose `runs-on` had become a list, would reach an
+#: assertion as something unchecked rather than failing at the boundary.
+#:
+#: Written in the functional form because `runs-on` is not an identifier.
+#: `total=False` throughout, because a step with no `run`, or a job with
+#: no `runs-on`, is a workflow this contract has something to say about
+#: rather than one it cannot read.
+class _Step(typ.TypedDict, total=False):
+    """A workflow step, narrowed to the one field read here."""
+
+    run: str
 
 
-def _jobs() -> dict[str, dict[str, typ.Any]]:
-    """Return the workflow's jobs."""
-    return _document()["jobs"]
+#: `runs-on` is not an identifier, so this one keeps the functional form.
+_Job = typ.TypedDict("_Job", {"runs-on": str, "steps": list[_Step]}, total=False)
 
 
-def _triggers() -> dict[str, typ.Any]:
-    """Return the workflow's `on:` mapping.
+def _as_step(value: object, *, where: str) -> _Step:
+    """Return *value* as a step, or fail naming where it came from."""
+    match value:
+        case {"run": str() as run}:
+            return _Step(run=run)
+        case dict():
+            return _Step()
+        case _:
+            msg = f"{where} is not a mapping: {value!r}"
+            raise TypeError(msg)
+
+
+def _as_job(value: object, *, where: str) -> _Job:
+    """Return *value* as a job, or fail naming where it came from.
+
+    A `runs-on` that is not a string, such as the list form GitHub also
+    accepts, fails here. This lane does not use that form, and reading it
+    as a string downstream would compare an expression against a repr.
+    """
+    match value:
+        case {"steps": list() as steps, **rest}:
+            parsed = [
+                _as_step(step, where=f"{where} step {index}")
+                for index, step in enumerate(steps)
+            ]
+        case dict() as rest:
+            parsed = []
+        case _:
+            msg = f"{where} is not a mapping: {value!r}"
+            raise TypeError(msg)
+    job = _Job(steps=parsed)
+    match rest.get("runs-on"):
+        case None:
+            return job
+        case str() as runner:
+            job["runs-on"] = runner
+            return job
+        case other:
+            msg = f"{where} declares a runs-on that is not a string: {other!r}"
+            raise TypeError(msg)
+
+
+def _document() -> cabc.Mapping[object, object]:
+    """Return the parsed workflow as an unnarrowed mapping.
+
+    The keys are left as `object` because one of them is not a string:
+    `on` is read back as the boolean `True`, since YAML 1.1 says so and
+    `yaml.safe_load` obeys it.
+    """
+    match yaml.safe_load(WORKFLOW.read_text(encoding="utf-8")):
+        case dict() as parsed:
+            return parsed
+        case other:
+            msg = f"{WORKFLOW} is not a mapping: {other!r}"
+            raise TypeError(msg)
+
+
+def _jobs() -> dict[str, _Job]:
+    """Return the workflow's jobs, each narrowed to the shape read here."""
+    match _document().get("jobs"):
+        case dict() as jobs:
+            return {
+                str(name): _as_job(job, where=f"job {name}")
+                for name, job in jobs.items()
+            }
+        case other:
+            msg = f"{WORKFLOW} declares no jobs mapping: {other!r}"
+            raise TypeError(msg)
+
+
+def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
+    """Return the workflow's `on:` mapping, with each event's filters.
 
     `on` is read back from YAML as the boolean True, because YAML 1.1
     says so and `yaml.safe_load` obeys it. Both spellings are looked up
     rather than one, so this does not depend on which the parser hands
     back.
+
+    An event declared with no filters, which YAML gives back as `None`,
+    becomes an empty mapping, so a caller reads "no filters" the same way
+    whether the key was written bare or with an empty body.
     """
     document = _document()
     for key in (True, "on"):
-        if key in document:
-            return document[key] or {}
+        if key not in document:
+            continue
+        match document[key]:
+            case None:
+                return {}
+            case dict() as events:
+                return {
+                    str(event): filters if isinstance(filters, dict) else {}
+                    for event, filters in events.items()
+                }
+            case other:
+                msg = f"{WORKFLOW} declares triggers that are not a mapping: {other!r}"
+                raise TypeError(msg)
     msg = f"{WORKFLOW} declares no triggers"
     raise AssertionError(msg)
 
@@ -221,3 +316,53 @@ class TestCoverageWatchdogLane:
             f"{job_name} sends this repository's own pull requests to "
             f"{match.group('base_arm')!r}; it must be {OWN_RUNNER!r}"
         )
+
+
+class TestTheWorkflowReaders:
+    """What the readers refuse, so that the narrowing is not decoration.
+
+    Every assertion above reads its fields through these helpers. If the
+    helpers accepted whatever the parser handed back, the annotations
+    would describe an intention rather than a fact, and a workflow that
+    had lost its shape would reach an assertion as something unchecked.
+    """
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param("a string", "not a mapping", id="not-a-mapping"),
+            pytest.param(
+                {"runs-on": ["ubuntu-latest"]},
+                "runs-on that is not a string",
+                id="runs-on-as-a-list",
+            ),
+            pytest.param(
+                {"steps": [["not", "a", "mapping"]]},
+                "step 0 is not a mapping",
+                id="a-step-that-is-not-a-mapping",
+            ),
+        ],
+    )
+    def test_a_job_that_is_not_the_expected_shape_is_refused(
+        self, value: object, expected: str
+    ) -> None:
+        """A job the contract cannot read fails here, not at an assertion.
+
+        The list form of `runs-on` is the one to watch. GitHub accepts it,
+        this lane does not use it, and reading it as a string downstream
+        would compare the fork expression against a repr and report a
+        confusing mismatch instead of the real problem.
+        """
+        with pytest.raises(TypeError, match=expected):
+            _as_job(value, where="job under test")
+
+    def test_a_job_without_steps_reads_as_having_none(self) -> None:
+        """A job declaring no steps is a job, not an error.
+
+        It is a job this contract has something to say about: it runs the
+        proof nowhere.
+        """
+        assert _as_job({"runs-on": "ubicloud-standard-2"}, where="job") == {
+            "runs-on": "ubicloud-standard-2",
+            "steps": [],
+        }

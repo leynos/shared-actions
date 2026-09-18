@@ -128,7 +128,12 @@ def test_cargo_watchdog_rejects_a_budget_that_is_not_a_number(
     monkeypatch: pytest.MonkeyPatch,
     name: str,
 ) -> None:
-    """A non-numeric budget is refused, naming the source that supplied it."""
+    """A non-numeric budget is refused, naming the source and the value.
+
+    Naming the source alone is not enough. A job that sets a budget both
+    at job level and on the step gets a message it cannot act on, and the
+    non-finite branch beside this one already quotes what it rejected.
+    """
     mod = _load_module(monkeypatch, "run_rust")
     messages: list[tuple[str, bool]] = []
     monkeypatch.setattr(
@@ -143,7 +148,10 @@ def test_cargo_watchdog_rejects_a_budget_that_is_not_a_number(
     with pytest.raises(mod.typer.Exit):
         mod._cargo_runner._resolve_wait_timeout()
 
-    assert (f"::error::{name} must be a number", True) in messages, messages
+    assert (
+        f"::error::{name} must be a number; got 'not-a-float'",
+        True,
+    ) in messages, messages
 
 
 def test_cargo_watchdog_reports_its_budget(

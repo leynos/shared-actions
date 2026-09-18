@@ -983,7 +983,10 @@ def test_run_cargo_invalid_timeout_does_not_spawn(
 
     assert _exit_code(excinfo.value) == 1
     assert fake_cargo.last_proc is None
-    assert ("::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number", True) in messages
+    assert (
+        "::error::RUN_RUST_CARGO_WAIT_TIMEOUT must be a number; got 'not-a-float'",
+        True,
+    ) in messages
 
 
 def _make_cucumber_spy(

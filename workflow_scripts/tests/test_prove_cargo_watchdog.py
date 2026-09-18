@@ -21,6 +21,7 @@ from workflow_scripts.prove_cargo_watchdog import (
     CARGO_MARKER,
     INVALID_BUDGETS,
     TERMINATION_MESSAGE,
+    TERMINATION_OVERHEAD_SECONDS,
     WATCHDOG_VARIABLE,
     Outcome,
     check_refusal,
@@ -135,6 +136,16 @@ class TestCargoWatchdogProof:
                 "some reason other than the watchdog",
                 id="died-for-another-reason",
             ),
+            pytest.param(
+                {"seconds": BUDGET + TERMINATION_OVERHEAD_SECONDS + 1},
+                "fired late rather than on the budget",
+                id="fired-far-past-the-budget",
+            ),
+            pytest.param(
+                {"seconds": SLEEP - 1},
+                "fired late rather than on the budget",
+                id="fired-just-under-the-sleep",
+            ),
         ],
     )
     def test_each_way_a_termination_can_be_wrong_is_named(
@@ -179,6 +190,16 @@ class TestCargoWatchdogProof:
                 "unguarded rather than stopped",
                 id="cargo-ran-anyway",
             ),
+            pytest.param(
+                {
+                    "output": (
+                        f"::error::{WATCHDOG_VARIABLE} must be a finite "
+                        "number of seconds greater than zero\n"
+                    )
+                },
+                "does not quote",
+                id="refusal-names-the-setting-but-not-the-value",
+            ),
         ],
     )
     def test_each_way_a_refusal_can_be_wrong_is_named(
@@ -189,6 +210,10 @@ class TestCargoWatchdogProof:
         A run that accepts zero, or that refuses without naming the setting,
         or that starts cargo anyway, each leaves a consumer running
         unguarded while appearing to declare a budget.
+
+        Naming the setting without quoting the value is its own defect. A
+        job that sets a budget in more than one place gets a message it
+        cannot act on, and the guide promises both.
         """
         failures = check_refusal(dc.replace(HEALTHY_REFUSAL, **overrides), value="0")
 

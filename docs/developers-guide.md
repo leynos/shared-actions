@@ -1088,6 +1088,16 @@ Three properties are load bearing for every consumer:
 - the output `cargo` wrote before the watchdog fired survives, because
   the report is the only thing that makes an overrun actionable.
 
+The termination is judged against both ends of a window, not just the top. A
+run shorter than the budget never reached `cargo`; one at least as long as the
+fake `cargo`'s sleep waited it out; and one more than fifteen seconds past the
+budget fired late rather than on the budget. Without that last bound the only
+rejection above the budget is the sleep itself, so a watchdog firing a minute
+late against a two-second budget would have read as a pass. Fifteen seconds is
+sized from measurement: the invalid cases, which refuse before `cargo` runs and
+so measure start-up alone, took 0.6s to 1.2s on a loaded developer host, and
+the overrun case took 2.6s to 2.8s against its 2.0s budget.
+
 A budget that is not a finite positive number is refused before `cargo` starts,
 naming the setting and the value. Zero is refused rather than read as "no
 watchdog": a lane carrying zero would otherwise run unguarded while appearing
@@ -1099,14 +1109,16 @@ to declare a budget.
 no toolchain. `workflow_scripts/prove_cargo_watchdog.py` builds a fixture crate
 and puts a fake `cargo` on `PATH` that announces itself and then sleeps far
 longer than the budget, runs the coverage action's `run_rust.py` against it
-twice, and checks each property separately so a partial regression names itself.
+once for the overrun and once for each class of invalid budget, and checks each
+property separately so a partial regression names itself. There are five
+invalid classes, so a full proof is six runs.
 
 It is proved here, once, rather than in each consumer. A consumer lane that
 deliberately overruns its own job ceiling proves GitHub's cancellation and not
-the value we chose: it passes identically whether that ceiling is right or
-wrong, and costs runner minutes on every pull request to say so. What a
-consumer asserts instead is the static tier shape, which is what a change to a
-consumer can break.
+the configured watchdog budget: it passes identically whether that ceiling is
+right or wrong, and costs runner minutes on every pull request to say so. What
+a consumer asserts instead is the static tier shape, which is what a change to
+a consumer can break.
 
 The lane runs on every pull request with no paths filter. A filtered lane falls
 silent on the pull request that breaks the watchdog from somewhere the filter

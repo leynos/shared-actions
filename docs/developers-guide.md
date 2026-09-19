@@ -182,6 +182,70 @@ When updating these Node.js 24 action dependencies:
 The static manifest assertions must remain in place: runner execution proves
 that the action works, but cannot prove that a pin is the intended revision.
 
+## The action pin inventory
+
+A full commit SHA pin fixes a composite action's *own* revision. It says
+nothing about the `uses:` references nested inside that composite, and those
+run too. GitHub can retire a release of a nested dependency — `actions/cache`
+v4.1.2, `6849a6489940f00c2f30c0fb92c6274307ccb58a`, was retired this way — and
+a job that reaches it then fails during **action preparation**, before its
+first step runs, with no commit of the consumer's own in between. Every local
+gate stays green, because nothing local resolves a pin's transitive set.
+
+[`action_pins.py`](../action_pins.py) makes that set explicit and writes it to
+[`.github/action-inventory.json`](../.github/action-inventory.json), which is
+checked in so it travels with the revision it describes. A consumer holding
+`<action>@<sha>` can read the inventory at that same `<sha>` and learn what the
+pin reaches. The file has two sections, because two different questions are
+asked of it:
+
+`actions`: Keyed by action path. What that action reaches as this checkout
+stands, following first-party references transitively. This is the consumer's
+lookup: their pin resolves to a tree, and this is that tree.
+
+`revisions`: Keyed by `<action>@<revision>`. What a specific revision *this
+repository* references reaches. This audits our own pins, and it covers
+revisions that do not resolve in a normal clone: a branch head merged with a
+squash stays out of reach of the default branch even though the commit is real.
+Those are recorded as `unresolved` gaps rather than treated as passes. A gap
+means "this checkout cannot say", which is not the same answer as "nothing
+retired" — callers distinguish the two with
+[`unknown_references`](../action_pins.py).
+
+### Maintaining the inventory
+
+The contract tests fail when the file disagrees with the checkout, so any
+change to a manifest, a workflow, or a pin obliges a regeneration:
+
+```bash
+make action-inventory     # regenerate in place
+make check-action-inventory   # fail if the checked-in file is stale
+```
+
+`make test` runs the contract tests, including the freshness check, so a
+forgotten regeneration fails the pull request rather than landing quietly.
+
+When GitHub retires another release, add it to `RETIRED_REVISIONS` in
+`action_pins.py`. Each entry is a full `<action>@<sha>` reference with the
+reason attached, so the reason travels with the exact object it condemns. The
+contract tests then fail until the reference is gone from every manifest,
+workflow, and inventory.
+
+Two properties of the file are deliberate and should not be "fixed":
+
+- **No timestamp and no `HEAD` revision.** The file ships inside the revision
+  it describes. Recording that revision in the file would be self-referential:
+  committing the file changes the value it stored, so the freshness check would
+  fail forever after the first commit.
+- **A shallow checkout refuses to build.** `build_inventory` raises rather
+  than recording every unresolvable reference as a gap, because a shallow clone
+  cannot read *arbitrary* revisions and the result would describe the clone's
+  depth rather than the repository. The rebuilding contract tests skip on a
+  shallow checkout for the same reason. That skip is only honest while some job
+  still checks out full history; `ci.yml`'s `coverage` job uses
+  `fetch-depth: 0` and runs the same suite, and a test asserts that depth is
+  present so the enforcement cannot disappear unnoticed.
+
 ## `setup-rust` and the rustc wrapper
 
 `mozilla-actions/sccache-action` installs sccache and exports `SCCACHE_PATH`.

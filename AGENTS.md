@@ -131,7 +131,14 @@ make lint UV=uv
 
 ## 5  Security Hardening
 
-1. **Pin third‑party actions** to a full commit SHA (not just `@v1`).
+1. **Pin third‑party actions** to a full commit SHA (not just `@v1`). A SHA
+   pin is not sufficient on its own: it fixes a composite's own revision but
+   not the references nested inside it, which also run, and which GitHub can
+   retire without warning. The checked-in
+   [`action-inventory.json`](.github/action-inventory.json) records each
+   published action's transitive set; regenerate it with
+   `make action-inventory` whenever a pin or manifest changes. See
+   [the action pin inventory](docs/developers-guide.md#the-action-pin-inventory).
 
 2. Request the **minimum permission set** (`permissions:` block) and avoid
    `GITHUB_TOKEN` write unless essential.

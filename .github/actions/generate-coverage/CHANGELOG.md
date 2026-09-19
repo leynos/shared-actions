@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Correct the canonical timeout arithmetic for this action's own watchdog.
+  The requirement was stated as three terms and one window per coverage step;
+  both were wrong. The watchdog now carries a report-phase allowance, covering
+  what `cargo llvm-cov` spends after nextest's clock stops merging profile data
+  and writing the report out, which is distinct from the termination safety
+  margin that applies after a timeout cancellation. The job ceiling is now a
+  sum of watchdog *windows* rather than of coverage steps, because a step
+  passing `doctests: 'true'` runs `cargo llvm-cov nextest` and then an
+  uninstrumented `cargo test --doc --workspace`, arming the watchdog for each.
+  Netsuke measured both faults on its own lanes: run 34914144521's log prints
+  the budget twice, and its report phase was 274 s against 91 s and 86 s on
+  runs 34897199699 and 34920593593. Sizing a doctest-enabled step for one
+  window understates its job's ceiling by a whole watchdog budget, which is the
+  inversion that cancels a job before the watchdog can report the overrun. The
+  arithmetic is stated once, in `docs/users-guide.md` under "Test timeouts:
+  four tiers, outermost last"; this action's README records the two `cargo`
+  invocations it makes and links there rather than restating it.
+
 - Bump the pinned `cargo-nextest` release from 0.9.120 to 0.9.145, which fixes
   the spurious
   `warning: could not find build script output file at …/build/<hash>/output`

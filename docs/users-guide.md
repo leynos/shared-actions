@@ -668,7 +668,8 @@ complete.
    recorded.
 2. **Add what the watchdog covers and the inner timers do not.** Under nextest
    that is its `global-timeout`, plus a termination allowance, plus a cold
-   build. Without nextest, the observed step duration is the whole of it.
+   build, plus the report phase that follows the test run. Without nextest, the
+   observed step duration is the whole of it.
 3. **Set it where the whole job can see it**, as
    `RUN_RUST_CARGO_WAIT_TIMEOUT` at job level or `cargo-wait-timeout` on the
    step, and record beside it what it was sized against.
@@ -685,25 +686,45 @@ termination procedure rather than stopping the run instantly; and the job timer
 runs from job start through everything either side of coverage.
 
 ```text
-termination  =  configured slow-timeout.grace-period on Linux and macOS
-                0 on Windows
-watchdog     >= nextest global-timeout + termination + safety margin
-                + cold build
-job ceiling  >  sum of every coverage step's watchdog in that job
-                + measured work outside those steps
-                + a stated margin above that sum
+termination allowance =  configured slow-timeout.grace-period
+                         on Linux and macOS
+                         0 on Windows
+
+watchdog              >= global-timeout
+                         + termination allowance
+                         + termination safety margin
+                         + cold-build allowance
+                         + report-phase allowance
+
+job ceiling           >  sum of every watchdog window in that job
+                         + measured work outside those windows
+                         + a stated margin above that sum
 ```
 
-Four details of that arithmetic are easy to read past, and each has been got
+Six details of that arithmetic are easy to read past, and each has been got
 wrong in this estate.
 
 - **The job ceiling contains a sum, not a multiple.** Each invocation of the
   action gets its own watchdog, so a job running coverage twice for two feature
   sets can legitimately spend both, and the two need not agree.
-- **The comparison is strict, by a margin stated in the workflow.** A ceiling
-  equal to the sum it contains cancels the job at the moment the watchdog would
-  have reported the overrun, which converts a legible failure into a
-  cancellation with no log. This estate carries fifteen minutes.
+- **The sum is of watchdog windows, not of coverage steps.** A single step can
+  arm the watchdog more than once, because `doctests: 'true'` runs
+  `cargo llvm-cov nextest` and then an uninstrumented
+  `cargo test --doc --workspace`, and each is a separate `cargo` invocation
+  with its own watchdog window. A doctest-enabled coverage step therefore has
+  two watchdog windows, and a job running it must contain both.
+- **The report-phase allowance is not the termination safety margin.** The
+  report-phase allowance covers what `cargo llvm-cov` spends after nextest
+  stops, merging profile data and writing the report out. It is reached after a
+  *normal* test run. The termination safety margin covers nextest's own
+  teardown and report writing after a *timeout cancellation*. A run can do one,
+  the other, or both, so neither term subsumes the other and both belong in the
+  sum.
+- **The comparison is strict, by a margin stated in the workflow.** The
+  ceiling must exceed the sum it contains, not merely reach it. A ceiling equal
+  to that sum cancels the job at the moment the watchdog would have reported
+  the overrun, which converts a legible failure into a cancellation with no
+  log. This estate carries fifteen minutes.
 - **The termination allowance is platform-dependent, and is two terms.**
   nextest's own grace-period default is ten seconds, but configurations
   generated from this estate's template carry five, so read the value. On
@@ -723,6 +744,56 @@ State both allowances and where they were measured. `generate-coverage`'s
 README carries the rest: the exact text the watchdog prints, the precondition
 that no `cargo` runs without a root manifest, and the shape of the contract
 that asserts the ordering by value.
+
+### What the report phase measures
+
+The report phase is the gap between nextest's last test and its `Summary` line,
+during which `cargo llvm-cov` merges the profile data it collected and writes
+the report out. Netsuke measured it by reading that gap out of coverage-step
+logs, in three runs whose lanes carry `doctests: 'true'`:
+
+| Run         | Lane                | Report phase |
+| ----------- | ------------------- | ------------ |
+| 34914144521 | `ci.yml`            | 274 s        |
+| 34897199699 | `ci.yml`            | 91 s         |
+| 34920593593 | `coverage-main.yml` | 86 s         |
+
+*Table: the report phase measured on three Netsuke runs. The worst is 274 s,
+and an allowance is sized above it rather than at it, because each of those
+runs measured a warm profile merge and none measured the cold case.*
+
+### The Netsuke example
+
+Netsuke's coverage lanes exercise every correction above at once, so they are
+worth reading as a worked example. Both lanes pass `doctests: 'true'`, and
+`[profile.ci]` sets `global-timeout = "13m"`, which is 780 s.
+
+```text
+watchdog requirement  =  780 s + 70 s + 600 s + 300 s
+                      =  1,750 s
+
+job ceiling           =  2 x 1,800 s + 900 s + 900 s
+                      =  5,400 s, which is 90 minutes
+```
+
+The first sum is the five-term requirement: the whole-run budget, the
+termination allowance (nextest's ten-second default grace period plus a 60 s
+safety margin, since its configuration names no grace period), a 600 s
+cold-build allowance, and a 300 s report-phase allowance. At 1,750 s it sits
+below the 1,800 s watchdog the lanes carry. The second is the ceiling
+requirement for a doctest-enabled coverage step: **two** 1,800 s watchdog
+windows rather than one, 900 s of measured work outside them, and a 900 s
+margin above that sum. Counting one window per coverage step gives 3,600 s and
+a ceiling equal to the sum, which is the inversion the strict comparison
+rejects.
+
+Both allowances are conservative, and neither is a value Netsuke declares. The
+600 s cold-build allowance is for a compiler cache none of the sampled runs
+had, so it is a figure the sizing chose rather than one a run measured; the
+largest per-test allowance Netsuke actually declares is 420 s, and 600 s
+appears only in synthetic fixtures. The 900 s outside allowance and the 900 s
+margin are likewise sizing decisions, stated here rather than read from a
+configuration file.
 
 ## Mutation testing and workspace shape
 

@@ -726,7 +726,13 @@ wrong in this estate.
   `cargo llvm-cov nextest` and then an uninstrumented
   `cargo test --doc --workspace`, and each is a separate `cargo` invocation
   with its own watchdog window. A doctest-enabled coverage step therefore has
-  two watchdog windows, and a job running it must contain both.
+  two watchdog windows, and a job running it must contain both. The doctest
+  pass is one of two optional invocations rather than the only one:
+  `with-cucumber-rs`, together with a non-empty `cucumber-rs-features`, runs
+  the cucumber.rs scenarios under coverage in a follow-up invocation of its
+  own. So a step asking for both arms *three* windows and one asking for
+  neither arms one, and the count is one per `cargo` invocation the step causes
+  rather than a fixed number.
 - **The report-phase allowance is not the termination safety margin.** The
   report-phase allowance covers what `cargo llvm-cov` spends after nextest
   stops, merging profile data and writing the report out. It is reached after a
@@ -763,8 +769,15 @@ that asserts the ordering by value.
 
 The report phase is the gap between nextest's last test and its `Summary` line,
 during which `cargo llvm-cov` merges the profile data it collected and writes
-the report out. Netsuke measured it by reading that gap out of coverage-step
-logs, in three runs whose lanes carry `doctests: 'true'`:
+the report out. The `Summary` line is where the interval ends, not the
+`Finished report saved to lcov.info` message printed after it: those two are
+adjacent lines in the log, a millisecond or so apart, because nextest reports
+the run and the message is printed almost immediately. The work being measured
+happens before the summary, while nextest's own clock has already stopped, and
+the summary's own figure is what dates the end of the test run. Measuring to
+the later message would report about zero. Netsuke measured the interval by
+reading it out of coverage-step logs, in three runs whose lanes carry
+`doctests: 'true'`:
 
 | Run         | Lane                | Report phase |
 | ----------- | ------------------- | ------------ |
@@ -786,8 +799,8 @@ worth reading as a worked example. Both lanes pass `doctests: 'true'`, and
 watchdog requirement  =  780 s + 70 s + 600 s + 300 s
                       =  1,750 s
 
-job ceiling           =  2 x 1,800 s + 900 s + 900 s
-                      =  5,400 s, which is 90 minutes
+job ceiling           >  2 x 1,800 s + 900 s + 900 s
+                      =  5,400 s, so above 90 minutes
 ```
 
 The first sum is the five-term requirement: the whole-run budget, the
@@ -797,9 +810,12 @@ cold-build allowance, and a 300 s report-phase allowance. At 1,750 s it sits
 below the 1,800 s watchdog the lanes carry. The second is the ceiling
 requirement for a doctest-enabled coverage step: **two** 1,800 s watchdog
 windows rather than one, 900 s of measured work outside them, and a 900 s
-margin above that sum. Counting one window per coverage step gives 3,600 s and
-a ceiling equal to the sum, which is the inversion the strict comparison
-rejects.
+margin above that sum. That last line carries `>` rather than `=`, and the
+difference is the point of the section: 5,400 s is the smallest sum a ceiling
+must exceed, not a ceiling that satisfies it, so a job holding such a step
+declares more than 90 minutes. Counting one window per coverage step gives
+3,600 s and a ceiling equal to the sum, which is the inversion the strict
+comparison rejects.
 
 Both allowances are conservative, and neither is a value Netsuke declares. The
 600 s cold-build allowance is for a compiler cache none of the sampled runs

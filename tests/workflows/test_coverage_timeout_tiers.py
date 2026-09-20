@@ -24,10 +24,12 @@ and a ceiling above it, and this file's failure says so.
 The ceiling requirement sums watchdog *windows* rather than coverage
 steps, because a step can arm the watchdog more than once: one passing
 `doctests: 'true'` runs `cargo llvm-cov nextest` and then an
-uninstrumented `cargo test --doc --workspace`. Both facts were measured
-upstream and are carried here rather than left to a reader; see
-`test_a_doctests_step_arms_the_watchdog_twice`, which exercises the
-window count against workflows written for the case.
+uninstrumented `cargo test --doc --workspace`, and one also passing
+`with-cucumber-rs` with a non-empty `cucumber-rs-features` runs the
+cucumber.rs scenarios under coverage in an invocation of their own. The
+doctest case was measured upstream and is carried here rather than left
+to a reader; see `TestOneStepCanArmTheWatchdogMoreThanOnce`, which
+exercises the window count against workflows written for the case.
 
 The canonical rule is "Test timeouts: four tiers, outermost last" in
 `docs/users-guide.md`; "The cargo watchdog" in
@@ -73,6 +75,12 @@ MANIFEST_INPUT: typ.Final[str] = "cargo-manifest"
 #: for the doctest pass arms it twice and the job ceiling has to contain
 #: both windows.
 DOCTESTS_INPUT: typ.Final[str] = "doctests"
+
+#: The pair of inputs that add a third `cargo` invocation. The action
+#: runs the cucumber.rs scenarios under coverage as a follow-up invocation
+#: of its own, so a step asking for both passes arms three windows.
+WITH_CUCUMBER_RS_INPUT: typ.Final[str] = "with-cucumber-rs"
+CUCUMBER_RS_FEATURES_INPUT: typ.Final[str] = "cucumber-rs-features"
 
 #: The spellings `bool_utils.coerce_bool` reads as true, which is the
 #: gate the action itself applies to `doctests`. GitHub passes an
@@ -143,18 +151,34 @@ def watchdog_windows(step: WorkflowStep) -> int:
     """Return how many watchdog windows one coverage step arms.
 
     One per `cargo` invocation, because the watchdog bounds one
-    invocation rather than one step. A step passing `doctests: 'true'`
-    runs `cargo llvm-cov nextest` and then an uninstrumented
-    `cargo test --doc --workspace`, and the action arms the watchdog for
-    each, printing the budget once per run. So that step has two
-    windows, and a job containing it must carry both in its ceiling.
+    invocation rather than one step. Every coverage step spawns the
+    instrumented run, and two optional follow-ups add one invocation
+    each:
 
-    The gate is the action's own: `bool_utils.coerce_bool` reads `1`,
-    `true`, `yes`, and `on`, case-insensitively, after stripping. A
-    step that declines the input, or writes a spelling the action
-    refuses, runs one `cargo` and has one window. Reading only the
-    literal `"true"` would miss `'on'` and `'True'`, and reading any
-    non-empty value as true would invent a window for `'false'`.
+    * `doctests: 'true'` runs `cargo llvm-cov nextest` and then an
+      uninstrumented `cargo test --doc --workspace`.
+    * `with-cucumber-rs` together with a non-empty `cucumber-rs-features`
+      runs the cucumber.rs scenarios under coverage, in an invocation of
+      its own. Both inputs are needed: the action's
+      ``CucumberSelection.requested`` is the enabled flag *and* a
+      non-empty feature path, so enabling cucumber without naming
+      features runs nothing and arms nothing.
+
+    A step asking for both passes therefore arms three windows, and one
+    asking for neither arms one. The action arms the watchdog inside
+    ``_run_cargo``, on a deadline taken per call, so each invocation
+    gets a full budget of its own and the ceiling has to contain all of
+    them.
+
+    The gates are the action's own. ``coerce_bool`` reads `1`, `true`,
+    `yes`, and `on`, case-insensitively, after stripping, so a step that
+    declines the input, or writes a spelling the action refuses, arms no
+    window for it; reading only the literal `"true"` would miss `'on'`
+    and `'True'`, and reading any non-empty value as true would invent a
+    window for `'false'`. The feature path is tested for emptiness the
+    way the action tests it — ``bool(features)`` on the raw string, not
+    on a stripped one — so a whitespace-only value still counts, and the
+    window it arms is real even though the invocation it names is not.
 
     Parameters
     ----------
@@ -164,7 +188,7 @@ def watchdog_windows(step: WorkflowStep) -> int:
     Returns
     -------
     int
-        One, or two for a step that requests the doctest pass.
+        One, plus one for each optional invocation the step requests.
 
     Examples
     --------
@@ -174,12 +198,67 @@ def watchdog_windows(step: WorkflowStep) -> int:
     1
     >>> watchdog_windows({})
     1
+    >>> watchdog_windows(
+    ...     {
+    ...         "with": {
+    ...             WITH_CUCUMBER_RS_INPUT: "true",
+    ...             CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+    ...         }
+    ...     }
+    ... )
+    2
     """
     inputs = step.get("with")
     if not isinstance(inputs, dict):
         return 1
+    windows = 1
+    if _requests_doctests(inputs):
+        windows += 1
+    if _requests_cucumber_rs(inputs):
+        windows += 1
+    return windows
+
+
+def _requests_doctests(inputs: cabc.Mapping[str, object]) -> bool:
+    """Return whether the action will run a doctest pass for this step.
+
+    Parameters
+    ----------
+    inputs : cabc.Mapping[str, object]
+        The step's ``with`` mapping.
+
+    Returns
+    -------
+    bool
+        True when the input reads as true under the action's own gate.
+    """
     requested = str(inputs.get(DOCTESTS_INPUT, "")).strip().lower()
-    return 2 if requested in _TRUTHY_SPELLINGS else 1
+    return requested in _TRUTHY_SPELLINGS
+
+
+def _requests_cucumber_rs(inputs: cabc.Mapping[str, object]) -> bool:
+    """Return whether the action will run cucumber.rs under coverage.
+
+    Both halves are required. The enabled flag goes through the same
+    truthiness gate as the doctest input; the feature path is read as
+    the action reads it, for emptiness rather than for a stripped
+    non-empty value, because that is the test
+    ``CucumberSelection.requested`` applies.
+
+    Parameters
+    ----------
+    inputs : cabc.Mapping[str, object]
+        The step's ``with`` mapping.
+
+    Returns
+    -------
+    bool
+        True when the step requests a cucumber.rs invocation.
+    """
+    enabled = str(inputs.get(WITH_CUCUMBER_RS_INPUT, "")).strip().lower()
+    if enabled not in _TRUTHY_SPELLINGS:
+        return False
+    return bool(str(inputs.get(CUCUMBER_RS_FEATURES_INPUT, "")))
 
 
 def watchdog_windows_of_job(
@@ -234,7 +313,9 @@ def ceiling_is_sufficient(
         The job's ``timeout-minutes``, or None when it declares none and
         so inherits GitHub's six-hour default.
     budgets : cabc.Sequence[int]
-        One watchdog budget per coverage step, in seconds.
+        One watchdog budget per watchdog *window* the job arms, in
+        seconds. Windows rather than steps, because one step can arm
+        more than one; see :func:`watchdog_windows`.
 
     Returns
     -------
@@ -778,14 +859,16 @@ class TestCoverageTimeoutTiers:
         )
 
 
-class TestADoctestsStepArmsTheWatchdogTwice:
-    """One step is not one window, and the ceiling must contain both.
+class TestOneStepCanArmTheWatchdogMoreThanOnce:
+    """One step is not one window, and the ceiling must contain them all.
 
     The watchdog bounds one `cargo` invocation. A step passing
-    `doctests: 'true'` makes two of them, so a ceiling sized per step
-    understates the job by a whole window. Netsuke measured this on run
-    34914144521, whose log prints `cargo watchdog budget: 1800.0s` once
-    after `cargo llvm-cov nextest` and once after the uninstrumented
+    `doctests: 'true'` makes two of them, and a step also passing
+    `with-cucumber-rs` with a non-empty `cucumber-rs-features` makes
+    three, so a ceiling sized per step understates the job by a whole
+    window per optional invocation. Netsuke measured the doctest case on
+    run 34914144521, whose log prints `cargo watchdog budget: 1800.0s`
+    once after `cargo llvm-cov nextest` and once after the uninstrumented
     `cargo test --doc`, and the rule is stated in the users' guide under
     "Test timeouts: four tiers, outermost last".
 
@@ -825,25 +908,128 @@ class TestADoctestsStepArmsTheWatchdogTwice:
         [
             pytest.param({"doctests": "true"}, 2, id="the-literal"),
             pytest.param({"doctests": "True"}, 2, id="capitalized"),
-            pytest.param({"doctests": "on"}, 2, id="on"),
-            pytest.param({"doctests": "yes"}, 2, id="yes"),
-            pytest.param({"doctests": "1"}, 2, id="one"),
-            pytest.param({"doctests": " true "}, 2, id="padded"),
+            pytest.param({"doctests": "on"}, 2, id="doctests-on"),
+            pytest.param({"doctests": "yes"}, 2, id="doctests-yes"),
+            pytest.param({"doctests": "1"}, 2, id="doctests-one"),
+            pytest.param({"doctests": " true "}, 2, id="doctests-padded"),
             pytest.param({"doctests": "false"}, 1, id="declined"),
             pytest.param({}, 1, id="not-passed"),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "true",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "True",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-capitalized",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "on",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-on",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "yes",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-yes",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "1",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-one",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: " true ",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-padded",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "false",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                1,
+                id="cucumber-declined",
+            ),
+            pytest.param(
+                {WITH_CUCUMBER_RS_INPUT: "true"},
+                1,
+                id="cucumber-without-features",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "true",
+                    CUCUMBER_RS_FEATURES_INPUT: "",
+                },
+                1,
+                id="cucumber-with-empty-features",
+            ),
+            pytest.param(
+                {
+                    WITH_CUCUMBER_RS_INPUT: "true",
+                    CUCUMBER_RS_FEATURES_INPUT: "   ",
+                },
+                2,
+                id="cucumber-with-blank-features",
+            ),
+            pytest.param(
+                {
+                    "doctests": "true",
+                    WITH_CUCUMBER_RS_INPUT: "true",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                3,
+                id="both",
+            ),
+            pytest.param(
+                {
+                    "doctests": "false",
+                    WITH_CUCUMBER_RS_INPUT: "true",
+                    CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+                },
+                2,
+                id="cucumber-without-doctests",
+            ),
         ],
     )
     def test_each_cargo_invocation_is_its_own_window(
         self, inputs: dict[str, str], windows: int
     ) -> None:
-        """The gate is the action's own truthiness reading.
+        """The gates are the action's own readings of its inputs.
 
-        `coerce_bool` reads `1`, `true`, `yes` and `on`, case-insensitively
-        and after stripping, so all four spellings ask for the doctest pass
-        and all four must count as two windows. Reading only the literal
-        `"true"` would understate a step written `'on'`; reading any
-        non-empty value as truthy would invent a window for `'false'`,
-        which runs one `cargo` and has one.
+        Every spelling of a truthy value must count, because `coerce_bool`
+        reads `1`, `true`, `yes` and `on`, case-insensitively and after
+        stripping. Reading only the literal `"true"` would understate a
+        step written `'on'`, and reading any non-empty value as truthy
+        would invent a window for `'false'`, which runs one `cargo` and
+        has one.
+
+        The cucumber gate is a conjunction rather than a single input.
+        Enabling it without naming features runs nothing, so it arms no
+        window; the parametrisation carries both the enabled-and-named
+        rows and the enabled-but-featureless ones that must not add a
+        window. A blank feature path is *not* one of those: the action
+        reads ``bool(features)`` on the raw string, which is true for
+        whitespace, so it does arm a window and the row asserts as much.
         """
         (lane,) = _coverage_lanes({"ci.yml": self._document(**inputs)})
 
@@ -852,7 +1038,7 @@ class TestADoctestsStepArmsTheWatchdogTwice:
             f"window(s), got {lane.watchdogs!r}"
         )
         assert len(set(lane.watchdogs)) == 1, (
-            f"both windows of one step carry the same resolved budget, since "
+            f"every window of one step carries the same resolved budget, since "
             f"the action resolves it once; got {lane.watchdogs!r}"
         )
 
@@ -861,9 +1047,10 @@ class TestADoctestsStepArmsTheWatchdogTwice:
 
         The two readings differ by exactly one watchdog budget: 3,600 s
         against 1,800 s of window here. 5,400 s is the same arithmetic
-        with this estate's fifteen-minute margin and an hour of measured
-        work outside the windows, which is the figure Netsuke carries on
-        its own coverage lanes and the one the users' guide states.
+        with this estate's fifteen-minute margin and fifteen minutes of
+        measured work outside the windows, which is the figure Netsuke
+        carries on its own coverage lanes and the one the users' guide
+        states.
         """
         one_window = _coverage_lanes({"ci.yml": self._document(doctests="false")})[0]
         two_windows = _coverage_lanes({"ci.yml": self._document(doctests="true")})[0]
@@ -885,34 +1072,88 @@ class TestADoctestsStepArmsTheWatchdogTwice:
             "which is 90 minutes"
         )
 
-    def test_the_same_step_is_judged_differently_by_window_count(self) -> None:
-        """A ceiling can clear one reading and fail the other.
+    def test_a_third_window_raises_it_again(self) -> None:
+        """Both optional invocations together arm three windows, not two.
 
-        The readings differ by a whole window, so the defect this guards
-        against is a missing term rather than a wrong magnitude. Netsuke's
-        90-minute ceiling sits exactly on the two-window requirement, so
-        the strict comparison must reject it; the one-window reading is
-        the one it clears.
+        The cucumber.rs run is an invocation of its own, so a step asking
+        for it *and* for the doctest pass arms three. A model that counts
+        one window for cucumber and two for doctests without letting them
+        compose would report two and understate the ceiling by a whole
+        budget, which is the same defect as counting one per step.
+        """
+        three = self._document(
+            ceiling=120,
+            doctests="true",
+            **{
+                WITH_CUCUMBER_RS_INPUT: "true",
+                CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+            },
+        )
+        two = self._document(
+            ceiling=120,
+            **{
+                WITH_CUCUMBER_RS_INPUT: "true",
+                CUCUMBER_RS_FEATURES_INPUT: "tests/features",
+            },
+        )
+
+        (three_lane,) = _coverage_lanes({"ci.yml": three})
+        (two_lane,) = _coverage_lanes({"ci.yml": two})
+
+        assert len(three_lane.watchdogs) == 3, (
+            f"doctests and cucumber.rs together arm three windows, got "
+            f"{three_lane.watchdogs!r}"
+        )
+        assert len(two_lane.watchdogs) == 2, (
+            f"cucumber.rs without doctests arms two windows, got {two_lane.watchdogs!r}"
+        )
+        assert required_ceiling_seconds([1800, 1800, 1800]) == (
+            required_ceiling_seconds([1800, 1800]) + 1800
+        ), "the third window must raise the requirement by its own budget"
+        assert required_ceiling_seconds([1800, 1800, 1800]) == 6900, (
+            "three windows, this repository's ten minutes outside them and its "
+            "fifteen-minute margin sum to 6,900 s, which is 115 minutes"
+        )
+
+    def test_the_same_step_is_judged_differently_by_window_count(self) -> None:
+        """One ceiling can clear one reading and fail the other.
+
+        The two readings differ by a whole window, so the defect this
+        guards against is a missing term rather than a wrong magnitude.
+        The ceiling is held fixed across both assertions — the same lane's
+        ``timeout-minutes`` drives each comparison — because a test that
+        moved the ceiling between readings would pass whether or not the
+        window count was right.
+
+        At 85 minutes the ceiling sits exactly on the 5,100 s two-window
+        requirement, so the strict comparison must reject it while the
+        one-window reading, needing only 3,300 s, clears it.
         """
         (lane,) = _coverage_lanes(
-            {"ci.yml": self._document(ceiling=90, doctests="true")}
+            {"ci.yml": self._document(ceiling=85, doctests="true")}
         )
         budgets = [
             watchdog if watchdog is not None else WATCHDOG_DEFAULT_SECONDS
             for watchdog in lane.watchdogs
         ]
+        ceiling = typ.cast("int", lane.ceiling)
 
-        assert ceiling_is_sufficient(90, [1800]) is True, (
-            "a 90-minute ceiling clears the one-window requirement, which is "
+        assert ceiling_is_sufficient(ceiling, [1800]) is True, (
+            "an 85-minute ceiling clears the one-window requirement, which is "
             "why counting one window per step passes the wrong check"
+        )
+        assert required_ceiling_seconds([1800]) == 3300, (
+            "one window plus this repository's ten minutes outside it and its "
+            "fifteen-minute margin is 3,300 s"
+        )
+        assert ceiling_is_sufficient(ceiling, budgets) is False, (
+            "the same 85-minute ceiling sits exactly on the 5,100 s "
+            "two-window requirement, so the strict comparison must reject it "
+            "rather than accept it"
         )
         assert required_ceiling_seconds([1800, 1800]) == 5100, (
             "two windows, this repository's ten minutes outside them and its "
             "fifteen-minute margin sum to 5,100 s"
-        )
-        assert ceiling_is_sufficient(85, budgets) is False, (
-            "85 minutes sits exactly on the 5,100 s two-window requirement, so "
-            "the strict comparison must reject it rather than accept it"
         )
         assert ceiling_is_sufficient(86, budgets) is True, (
             "one minute above the requirement must pass, so the rejection is "

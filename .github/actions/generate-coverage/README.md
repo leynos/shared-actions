@@ -198,10 +198,14 @@ to make the doc tests fail the job when they break.
 
 Those are two `cargo` invocations, and this action arms the watchdog separately
 for each, so a step with `doctests: 'true'` has two watchdog windows rather
-than one. The log prints `cargo watchdog budget: <seconds>s` twice for such a
-step. Sizing the job ceiling for one window of a doctest-enabled step
-understates it, and the arithmetic that accounts for the second belongs to the
-users' guide rather than here.
+than one. The cucumber.rs run is a third: when `with-cucumber-rs` is set and
+`cucumber-rs-features` names a feature path, the scenarios are measured in an
+invocation of their own, and a step asking for both passes has three windows.
+The log prints `cargo watchdog budget: <seconds>s` once per invocation, so the
+line count is the window count. Sizing the job ceiling for one window
+understates it by a whole budget for every optional invocation the step asks
+for, and the arithmetic that accounts for them belongs to the users' guide
+rather than here.
 
 `RUSTFLAGS` from the calling workflow is inherited by every Cargo invocation
 the action makes, so a job that exports `-D warnings` gets warnings denied

@@ -16,9 +16,11 @@
   runs 34897199699 and 34920593593. Sizing a doctest-enabled step for one
   window understates its job's ceiling by a whole watchdog budget, which is the
   inversion that cancels a job before the watchdog can report the overrun. The
-  arithmetic is stated once, in `docs/users-guide.md` under "Test timeouts:
-  four tiers, outermost last"; this action's README records the two `cargo`
-  invocations it makes and links there rather than restating it.
+  `cucumber-rs` pass is a third such invocation, so a step asking for it as
+  well arms three windows. The arithmetic is stated once, in
+  `docs/users-guide.md` under "Test timeouts: four tiers, outermost last"; this
+  action's README records the `cargo` invocations a step can make, and which
+  inputs add them, and links there rather than restating it.
 
 - Bump the pinned `cargo-nextest` release from 0.9.120 to 0.9.145, which fixes
   the spurious

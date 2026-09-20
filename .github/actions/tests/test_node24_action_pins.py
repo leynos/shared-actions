@@ -28,14 +28,23 @@ def _workflow_documents() -> typ.Iterator[tuple[Path, object]]:
 def _uses_references(value: object) -> typ.Iterator[str]:
     """Yield every GitHub Actions ``uses`` reference from a YAML value."""
     if isinstance(value, dict):
-        uses = value.get("uses")
-        if isinstance(uses, str):
-            yield uses
-        for nested_value in value.values():
-            yield from _uses_references(nested_value)
+        yield from _mapping_uses_references(value)
     elif isinstance(value, list):
-        for nested_value in value:
-            yield from _uses_references(nested_value)
+        yield from _iterable_uses_references(value)
+
+
+def _mapping_uses_references(value: dict[object, object]) -> typ.Iterator[str]:
+    """Yield ``uses`` references in a mapping and its values."""
+    uses = value.get("uses")
+    if isinstance(uses, str):
+        yield uses
+    yield from _iterable_uses_references(value.values())
+
+
+def _iterable_uses_references(values: typ.Iterable[object]) -> typ.Iterator[str]:
+    """Yield ``uses`` references in nested YAML values."""
+    for value in values:
+        yield from _uses_references(value)
 
 
 def test_affected_actions_use_node24_immutable_revisions() -> None:

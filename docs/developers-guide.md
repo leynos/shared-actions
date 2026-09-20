@@ -1318,6 +1318,36 @@ make typecheck     # Ty, resolving imports through .venv
 make lint          # Ruff lint + action-validator + markdownlint
 ```
 
+## Retrying cmd-mox IPC races
+
+The cmd-mox IPC server can print a `BrokenPipeError` traceback and drop a reply
+when a client disconnects mid-request. The defect is server-side
+(leynos/cmd-mox#256) and cannot be fixed here.
+
+The fixture is shared, so any test requesting `shell_stubs` can hit it. The
+retry is therefore attached to those tests, not to the whole suite. A
+`pytest_collection_modifyitems` hook in
+`.github/actions/generate-coverage/tests/conftest.py` keys on `shell_stubs`
+appearing in the item's `fixturenames`; that currently matches 18 collected
+items across `test_scripts.py` and
+`test_generate_coverage_feature_selection.py`.
+
+The retry is `pytest.mark.flaky(reruns=1)`. `flaky` is the marker name
+`pytest-rerunfailures` reads; the plugin registers it itself, so the hook only
+has to attach it. `pytest-rerunfailures` is a `dev` dependency in
+`pyproject.toml` and is passed as `--with pytest-rerunfailures` in the `test`
+target in the `Makefile`, so it is present for both CI's bare `uv run pytest`
+and `make test`.
+
+Two properties make the retry safe: it is capped at one rerun, and pytest
+reports the rerun in its summary (`1 passed, 1 rerun`), so a rerun that hid a
+genuine regression would be visible, not silent. A deterministic assertion
+failure still fails on the second attempt.
+
+The retry exists to absorb a scheduling race, not to normalize flaky
+assertions. Do not widen it to other tests or raise the cap without addressing
+the race.
+
 ## `install-nixie` Action Maintenance
 
 The composite action boundary is `.github/actions/install-nixie/action.yml`. It

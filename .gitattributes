@@ -1,3 +1,9 @@
-# The parser-reproducer reports are integrity-checked immutable inputs.
+# These fixtures are integrity-checked immutable inputs, so they are marked
+# ``-text`` to keep any checkout from normalizing their bytes. The cargo-nextest
+# archive is additionally digest-verified by
+# tests/test_install_cargo_nextest_release.py, which fails if a checkout
+# rewrites it.
 .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-1.0.18-cobertura.xml -text
 .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-1.1.0-cobertura.xml -text
+.github/actions/generate-coverage/tests/fixtures/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.tar.gz -text
+.github/actions/generate-coverage/tests/fixtures/cargo-nextest-0.9.145-x86_64-unknown-linux-gnu.sha256 -text

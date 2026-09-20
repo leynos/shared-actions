@@ -39,23 +39,23 @@ logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(messag
 # digest protects integrity, not disk space, so this cap is enforced first.
 _MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 
-CARGO_NEXTEST_VERSION = "0.9.120"
+CARGO_NEXTEST_VERSION = "0.9.145"
 CARGO_NEXTEST_SHA256 = {
     "linux-x86_64-gnu": (
-        "8d717594668f0ec817405b9526cb657ca40fc888068277004860d0f253837d14"
+        "c4d4f4ad7eb50677b568aae324251e8bd6978e9fc6fe97aa1347a2afdd95e59c"
     ),
     "linux-x86_64-musl": (
-        "b05373ac79d5a1e200627ffd780c9cec96d7547311ac585d6c277d6394c2cd28"
+        "7d632fd6ba5d4769c3de24dd477403e3a56d4dfb6f5159082374bd259754e740"
     ),
     "linux-aarch64-gnu": (
-        "901f10642066a848d4bc4eaee3d91642ad0476bea4a5de26832e838e4c32939e"
+        "58d8f9916aa04d53a31e31b291cd304423b5e1d9042884cbb5f13ba2af806e88"
     ),
-    "mac-universal": "d9f8aa57f88ea948ee68629cfc22a0a86ccd0d0143139983753dcb5f167085b8",
+    "mac-universal": "84882f70f095269a4d89ac2255c4fe7490545d0adf42d8556905401ed4236b33",
     "windows-x86_64": (
-        "8e4160a8d710e753fd21a725e1771d20d948dbfa5d3472b57ee331f16c237af4"
+        "3fca621fe9e9a5bb7461367ea74fba4c85de824fdb77519b5678fbf91f40c86f"
     ),
     "windows-aarch64": (
-        "9a1756ef23dff328f25ebf21c10be5dac7907e111782db63519474ec397f665c"
+        "b054983fd4ec43f9d5bd2ef9ee454a7b90d9d708dfcfcae7ab192c77c247c205"
     ),
 }
 
@@ -77,32 +77,32 @@ CARGO_NEXTEST_RELEASE_ASSETS = {
     "linux-x86_64-gnu": ReleaseAsset(
         "x86_64-unknown-linux-gnu",
         "tar.gz",
-        "a5b1c12500c47e27af4baf533c917bf1b38e9bf2e6ffb063dfa1de6e75aa8726",
+        "32aa82416099eb12fffae9cf1a279ad201fecbd3f74826c613e32e9006b29867",
     ),
     "linux-x86_64-musl": ReleaseAsset(
         "x86_64-unknown-linux-musl",
         "tar.gz",
-        "e00511fc23241ffd3ca1d95b23bde8a9cd0fb96bb691a9957a909ba74e7a5238",
+        "cd3c85194e8b28ad26676d287f41f0d6b4d456cef5bd94700def5dea8e328883",
     ),
     "linux-aarch64-gnu": ReleaseAsset(
         "aarch64-unknown-linux-gnu",
         "tar.gz",
-        "5e13751733a1fc4d26984ad5e1bce10d057d95299b02ed3ac96877b7288c8feb",
+        "0ad2815fd91a7ecec3a7e25c749b584f66729ac688fd26b2fd494f7ff94b7fd0",
     ),
     "mac-universal": ReleaseAsset(
         "universal-apple-darwin",
         "tar.gz",
-        "e2aa5a27bfdac66c913346985a1ceff50ab9590b846798440464410bd5a309b9",
+        "52ecaedb4f5af9267ef7ed02bc937d2a15a94ff96cb663080e81311f798c9905",
     ),
     "windows-x86_64": ReleaseAsset(
         "x86_64-pc-windows-msvc",
         "zip",
-        "ccb22cb26d6816eb39992f276c0f058ea9a5842ee35f70ee48a4ee84fd671538",
+        "5bc4b6789103e9834f596eff2b290cfb5b2b69e5413c78bbaa5acc835ac5baa0",
     ),
     "windows-aarch64": ReleaseAsset(
         "aarch64-pc-windows-msvc",
         "zip",
-        "8b6475c9d6fd6946a8a8cced8213c1e5b1f9df219cab999831905187887003f9",
+        "c1659805ebf3fd21400163e59e2ea5abbe981437d9d2a9e369cf32afe606b816",
     ),
 }
 

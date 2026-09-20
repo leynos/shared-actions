@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Bump the pinned `cargo-nextest` release from 0.9.120 to 0.9.145, which fixes
+  the spurious
+  `warning: could not find build script output file at …/build/<hash>/output`
+  flood that a workspace package with a build script produced under Cargo's new
+  build-directory layout. Before 0.9.131, nextest replayed a build script's
+  `cargo::rustc-env` directives by opening `<out_dir>/../output` by hand, which
+  depends on Cargo's internal build-directory layout; nextest-rs/nextest
+  `#3168` reads those directives from the structured `build_script_info` in
+  Cargo's own JSON build messages instead, and only falls back to the raw-file
+  parse for a nextest archive written by an older release. The fallback does
+  not apply to this action, which always runs a live `cargo llvm-cov nextest`
+  build, so the warnings stop. Both checksum tables are refreshed: each
+  archive's SHA-256 is taken from the checksum file the release itself
+  publishes, and each extracted `cargo-nextest` binary's SHA-256 was computed
+  from the verified archive.
+
 - Add a `publish-artefact` input, defaulting to `true`, which suppresses the
   `Archive coverage` upload when set to `false`. The step kept its `always()`
   condition, since a caller that opts out still needs the rest of the action to

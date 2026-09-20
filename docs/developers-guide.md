@@ -1015,6 +1015,21 @@ by the "Install cargo-nextest" step for Rust or mixed-language runs when
 `cargo-binstall`; a missing or unverifiable official archive is a hard failure
 with no fallback.
 
+`CARGO_NEXTEST_VERSION` is 0.9.145, raised from 0.9.120 to stop the
+`warning: could not find build script output file at …/build/<hash>/output`
+flood that a workspace package with a build script produced under Cargo's new
+build-directory layout. Before 0.9.131, nextest replayed a build script's
+`cargo::rustc-env` directives by opening `<out_dir>/../output` by hand, which
+depends on Cargo's internal build-directory layout; nextest-rs/nextest `#3168`
+reads those directives from the structured `build_script_info` in Cargo's own
+JSON build messages instead, and only falls back to the raw-file parse for a
+nextest archive written by an older release. This action always runs a live
+`cargo llvm-cov nextest` build, so it never takes that fallback and the
+warnings stop. Both checksum tables were refreshed for the bump: each archive
+digest in `CARGO_NEXTEST_RELEASE_ASSETS` is taken from the checksum file the
+release itself publishes, and each executable digest in `CARGO_NEXTEST_SHA256`
+was computed from the corresponding verified archive.
+
 The script pins the `cargo-nextest` release version in `CARGO_NEXTEST_VERSION`
 and resolves the official release target and expected archive and binary
 checksums using `_platform_key()`. On Linux, `_platform_key()` calls
@@ -1042,9 +1057,36 @@ pinned digest in `CARGO_NEXTEST_RELEASE_ASSETS`, extracts only the expected
 executable into a temporary file, verifies that executable against the pinned
 digest in `CARGO_NEXTEST_SHA256`, then replaces the destination atomically.
 
-Keep `CARGO_NEXTEST_VERSION` and both checksum tables
-(`CARGO_NEXTEST_RELEASE_ASSETS` and `CARGO_NEXTEST_SHA256`) in sync: update the
-version and every pinned archive and binary digest together.
+### Updating the cargo-nextest pin
+
+Bumping the pin means updating four things together, in one commit:
+
+1. `CARGO_NEXTEST_VERSION`.
+2. Every archive digest in `CARGO_NEXTEST_RELEASE_ASSETS`, taken from the
+   checksum file the release itself publishes. It is published beside the
+   archive as `cargo-nextest-<version>-<target>.sha256` -- the archive's
+   extension is dropped, so it is not `<archive>.sha256`.
+3. Every executable digest in `CARGO_NEXTEST_SHA256`, computed from the
+   verified archive.
+4. The expectations in
+   `.github/actions/generate-coverage/tests/test_install_cargo_nextest_release.py`,
+   including its `fixtures/` archive, which is a byte-exact copy of the pinned
+   Linux x86_64 GNU release asset.
+
+That test module is what makes a stale pin fail rather than pass. It drives the
+real installation path over the checked-in release archive and compares the
+result against literals written out in the module, not against
+`CARGO_NEXTEST_VERSION`, `CARGO_NEXTEST_RELEASE_ASSETS`, or
+`CARGO_NEXTEST_SHA256`. Reading an expected value from the installer would make
+the assertions vacuous, because the test could no longer disagree with the code
+it is checking; the module asserts that those names appear nowhere in its own
+source so a future "simplification" fails there instead of silently disarming
+it. It runs in CI as part of the required `python-tests (ubuntu-latest)` check,
+since `pytest.ini`'s `testpaths` already covers `.github/actions`.
+
+The archive fixture is excluded from the spelling gate (the gate is
+Markdown-scoped) and marked `-text` in `.gitattributes` so a checkout cannot
+normalize its bytes.
 
 ### `ReleaseAsset` and `emit_metric` boundaries
 

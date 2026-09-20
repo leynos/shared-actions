@@ -311,7 +311,7 @@ def test_verify_nextest_binary_writes_nothing(
 
 
 _EXPECTED_RELEASE_DIRECTORY = (
-    "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.120"
+    "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.145"
 )
 
 
@@ -384,7 +384,7 @@ def test_download_requests_the_expected_release_url(
 
     install_nextest_module._download_archive(asset, tmp_path / "archive")
 
-    expected_filename = f"cargo-nextest-0.9.120-{case.target}.{case.extension}"
+    expected_filename = f"cargo-nextest-0.9.145-{case.target}.{case.extension}"
     assert asset.filename == expected_filename
     assert captured["url"] == f"{_EXPECTED_RELEASE_DIRECTORY}/{expected_filename}"
     assert str(captured["url"]).startswith("https://")

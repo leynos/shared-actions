@@ -1328,9 +1328,14 @@ The fixture is shared, so any test requesting `shell_stubs` can hit it. The
 retry is therefore attached to those tests, not to the whole suite. A
 `pytest_collection_modifyitems` hook in
 `.github/actions/generate-coverage/tests/conftest.py` keys on `shell_stubs`
-appearing in the item's `fixturenames`; that currently matches 18 collected
-items across `test_scripts.py` and
-`test_generate_coverage_feature_selection.py`.
+appearing in the item's `fixturenames`, which marks the tests in
+`test_scripts.py` and `test_generate_coverage_feature_selection.py`.
+
+`test_shell_stubs_retry_policy.py` guards that policy. It pins the marker name
+and its `reruns` value, collects the actions tree to check that the marked set
+is exactly the set of tests requesting the fixture, and runs throwaway suites
+to confirm that a transient failure is retried once while a deterministic one
+still fails.
 
 The retry is `pytest.mark.flaky(reruns=1)`. `flaky` is the marker name
 `pytest-rerunfailures` reads; the plugin registers it itself, so the hook only
@@ -1342,7 +1347,8 @@ and `make test`.
 Two properties make the retry safe: it is capped at one rerun, and pytest
 reports the rerun in its summary (`1 passed, 1 rerun`), so a rerun that hid a
 genuine regression would be visible, not silent. A deterministic assertion
-failure still fails on the second attempt.
+failure still fails on the second attempt. Both properties are pinned by
+`test_shell_stubs_retry_policy.py`.
 
 The retry exists to absorb a scheduling race, not to normalize flaky
 assertions. Do not widen it to other tests or raise the cap without addressing

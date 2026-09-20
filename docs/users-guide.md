@@ -613,7 +613,21 @@ test had passed. The same installer serves `ratchet-coverage`. The optional
 When `use-cargo-nextest` is enabled, the action installs `cargo-nextest` by
 downloading the pinned official release archive published by the
 `nextest-rs/nextest` GitHub project. It never builds `cargo-nextest` from
-source, and there is no `cargo install` fallback of any kind.
+source, and there is no `cargo install` fallback of any kind. The pinned
+release is 0.9.145.
+
+That pin fixes a warning flood under Cargo's new build-directory layout. Older
+`cargo-nextest` releases replayed a build script's `cargo::rustc-env`
+directives by opening `<out_dir>/../output` by hand, which depends on Cargo's
+internal build-directory layout, so every workspace package with a build script
+produced a repeated
+`warning: could not find build script output file at …/build/<hash>/output`.
+From 0.9.131 onward, `cargo-nextest` reads those directives from the structured
+`build_script_info` that Cargo reports in its own JSON build messages instead,
+and only falls back to the raw-file parse for a nextest archive written by an
+older release. This action always runs a live `cargo llvm-cov nextest` build
+rather than a pre-built nextest archive, so it never takes that fallback and
+the warnings stop.
 
 Before installation, the action verifies two separate SHA-256 digests: one for
 the downloaded release archive, and a second for the executable that is

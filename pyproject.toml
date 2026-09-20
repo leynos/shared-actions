@@ -142,6 +142,7 @@ timeout = 30
 
 [tool.setuptools]
 py-modules = [
+    "action_pins",
     "cmd_utils",
     "cmd_utils_importer",
 ]

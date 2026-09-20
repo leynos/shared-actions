@@ -69,6 +69,7 @@ typecheck: .venv ## Run static type checking with Ty
 		--extra-search-path .github/actions/windows-package/scripts \
 		--extra-search-path .github/actions/setup-rust/scripts \
 		--extra-search-path .github/actions/install-mdtablefix/tests \
+		action_pins.py \
 		cmd_utils.py \
 		composite_fragments.py \
 		.github/actions/generate-coverage/scripts \
@@ -101,6 +102,12 @@ spelling: ## Enforce en-GB-oxendict spelling
 
 nixie: ## Validate Mermaid diagrams
 	$(NIXIE) --no-sandbox
+
+action-inventory: ## Regenerate the checked-in action pin inventory
+	$(UV) run --with pyyaml --with plumbum python action_pins.py
+
+check-action-inventory: ## Fail if the action pin inventory is stale
+	$(UV) run --with pyyaml --with plumbum python action_pins.py --check
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

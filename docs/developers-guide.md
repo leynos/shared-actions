@@ -1320,9 +1320,10 @@ make lint          # Ruff lint + action-validator + markdownlint
 
 ## Retrying cmd-mox IPC races
 
-The cmd-mox IPC server can print a `BrokenPipeError` traceback and drop a reply
-when a client disconnects mid-request. The defect is server-side
-(leynos/cmd-mox#256) and cannot be fixed here.
+The cmd-mox inter-process communication (IPC) server can print a
+`BrokenPipeError` traceback and drop a reply when a client disconnects
+mid-request. The defect is server-side (leynos/cmd-mox#256) and cannot be fixed
+here.
 
 The fixture is shared, so any test requesting `shell_stubs` can hit it. The
 retry is therefore attached to those tests, not to the whole suite. A

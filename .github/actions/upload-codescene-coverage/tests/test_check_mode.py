@@ -350,15 +350,28 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
         assert "inputs.mode != 'install'" in str(step["if"])
 
 
+def test_cold_runner_workflow_is_dispatch_only() -> None:
+    """The secret-backed parser proof cannot be started by a pull request.
+
+    It runs ``cs-coverage check``, which reads the CodeScene project
+    configuration over the network and needs ``CS_ACCESS_TOKEN``. Under
+    main-owned coverage no workflow a pull request can start may hold that
+    credential, so the trigger is the guard: the fork and dependabot clauses
+    this job used to carry were only reachable through a pull-request
+    trigger, and a guard that nothing can reach is worse than none.
+    """
+    workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
+    triggers = workflow.get("on", workflow.get(True))
+
+    assert triggers == {"workflow_dispatch": None}
+    job = workflow["jobs"]["cold-runner-contract"]
+    assert "if" not in job, "the job guard is dead once no pull request starts it"
+
+
 def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
-    """The secret-backed parser proof skips forks and rejects the known failure."""
+    """The parser proof rejects the known failure rather than tolerating it."""
     workflow = WORKFLOW_YML.read_text(encoding="utf-8")
 
-    assert "github.event_name == 'workflow_dispatch'" in workflow
-    assert (
-        "github.event.pull_request.head.repo.full_name == github.repository" in workflow
-    )
-    assert "github.actor != 'dependabot[bot]'" in workflow
     assert "! grep -F 'No matching field found" not in workflow
     assert "git fetch --no-tags --depth=1" in workflow
     assert "git fetch --no-tags --unshallow" in workflow

@@ -1,7 +1,13 @@
 name: Test Upload CodeScene Coverage
 
+# The parser proof calls `cs-coverage check`, which reads the CodeScene
+# project configuration over the network and needs CS_ACCESS_TOKEN. Under
+# main-owned coverage no pull-request workflow may contact CodeScene or
+# receive its credentials, so this contract is dispatch-only: run it by hand
+# when `upload-codescene-coverage`, its CLI manifest, or the pinned CLI
+# version changes. The action's offline behaviour stays covered by its own
+# unit tests, which ci.yml runs on every pull request.
 on:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -9,10 +15,6 @@ permissions:
 
 jobs:
   cold-runner-contract:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

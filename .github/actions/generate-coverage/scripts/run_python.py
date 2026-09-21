@@ -377,6 +377,11 @@ def coverage_cmd_for_fmt(
         Worker count for pytest-xdist's ``-n`` flag. Empty disables xdist;
         otherwise must already be a validated value such as ``"auto"`` or a
         non-negative integer string.
+    python_source : str
+        Slipcover source scope. Empty and whitespace-only values leave
+        Slipcover's automatic source discovery in place; any other value is
+        passed through unchanged as one ``--source`` argument before
+        ``--branch``, so a comma-separated scope stays a single value.
 
     Returns
     -------
@@ -470,6 +475,9 @@ def _run_coverage(
         Destination path for the coverage output file.
     workers : str
         Worker count for pytest-xdist's ``-n`` flag; empty disables xdist.
+    python_source : str
+        Slipcover source scope passed to :func:`coverage_cmd_for_fmt`; empty
+        and whitespace-only values leave source discovery automatic.
 
     Returns
     -------

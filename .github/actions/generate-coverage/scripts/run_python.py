@@ -272,18 +272,40 @@ def _ensure_coverage_venv() -> str:
 # single thread, so no synchronization is required; the cache is safe to
 # use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
+def _coverage_venv_python() -> str:
+    """Return the coverage venv interpreter, creating the venv on first use."""
+    return _ensure_coverage_venv()
+
+
+def _coverage_child_path() -> str:
+    """Return ``PATH`` with the coverage environment's scripts directory first."""
+    scripts_dir = str(Path(_coverage_venv_python()).parent)
+    inherited_path = os.environ.get("PATH", "")
+    return os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
+
+
+def coverage_child_env() -> dict[str, str]:
+    """Return the environment a coverage subprocess must run under.
+
+    ``run_cmd`` re-applies the process environment to every command it runs, so
+    a ``PATH`` bound to the command alone would be overwritten before the
+    subprocess starts. The value therefore has to travel as the run's explicit
+    environment.
+    """
+    return {**os.environ, "PATH": _coverage_child_path()}
+
+
+@lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
     """Return coverage Python with its scripts available to child processes."""
-    python = _ensure_coverage_venv()
+    python = _coverage_venv_python()
     scripts_dir = str(Path(python).parent)
-    inherited_path = os.environ.get("PATH", "")
-    child_path = os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
     # Two bounded lines, once per process: which interpreter runs the coverage
     # and which directory child executables resolve against. The composed PATH
     # itself is not reported, because the inherited half is unbounded.
     typer.echo(f"Coverage interpreter: {python}")
     typer.echo(f"Coverage scripts directory prepended to PATH: {scripts_dir}")
-    return local[python].with_env(PATH=child_path)
+    return local[python].with_env(PATH=_coverage_child_path())
 
 
 _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
@@ -390,9 +412,9 @@ def coverage_cmd_for_fmt(
     """
     python_cmd = _coverage_python_cmd()
     scope = "configured" if python_source.strip() else "default"
-    # The scope value itself is a caller-supplied path list; report only the
-    # decision, which is what distinguishes a deliberate scope from the
-    # Slipcover default in a run log.
+    # The decision, not the value: the scope reaches the log once already,
+    # inside the command line the command logger reports. A bounded state line
+    # distinguishes a deliberate scope from the Slipcover default at a glance.
     typer.echo(f"Coverage command: format={fmt}, source scope={scope}")
     return python_cmd[_coverage_args(fmt, out, workers, python_source)]
 
@@ -425,7 +447,7 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     python_cmd = _coverage_python_cmd()
     try:
         cmd = python_cmd["-m", "coverage", "xml", "-o", str(xml_tmp)]
-        run_cmd(cmd)
+        run_cmd(cmd, env=coverage_child_env())
     except ProcessExecutionError as exc:
         typer.echo(
             f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
@@ -493,7 +515,7 @@ def _run_coverage(
     """
     try:
         cmd = coverage_cmd_for_fmt(fmt, out, workers, python_source)
-        run_cmd(cmd, method="run_fg")
+        run_cmd(cmd, method="run_fg", env=coverage_child_env())
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
     except RuntimeError as exc:

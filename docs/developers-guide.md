@@ -67,6 +67,15 @@ directory containing the `.venv-coverage` interpreter -- is prepended to
 creates and then runs therefore resolves against the coverage environment
 rather than against whatever interpreter the runner's `PATH` finds first.
 
+Binding that `PATH` to the command is not sufficient on its own. `run_cmd`
+re-applies the process environment to every command it runs, which would
+overwrite a `PATH` carried by the command before the subprocess starts, so the
+coverage runs pass it explicitly as `env=coverage_child_env()`.
+`coverage_child_env()` returns the process environment with the scripts
+directory prepended, and `_coverage_venv_python()` memoizes the interpreter
+path both it and `_coverage_python_cmd()` derive from, so the venv is created
+once.
+
 ### Public API
 
 <!-- markdownlint-disable MD013 -->

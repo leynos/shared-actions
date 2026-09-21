@@ -1593,6 +1593,13 @@ def _set_fake_coverage_python_cmd(
         "_coverage_python_cmd",
         lambda: local[python],
     )
+    # The run environment is derived from the same interpreter, so the fake has
+    # to stand in for both or the coverage run would build a real venv.
+    monkeypatch.setattr(
+        run_python_module,
+        "_coverage_venv_python",
+        lambda: python,
+    )
     return python
 
 
@@ -2481,10 +2488,13 @@ class _MainInputs:
 
     ``python_source`` of ``None`` means the action environment does not carry
     the input at all, which is distinct from carrying an empty one.
+    ``cli_python_source`` is the value passed as the command-line option, which
+    takes precedence over the environment when both are present.
     """
 
     workers: str
     python_source: str | None = None
+    cli_python_source: str | None = None
 
 
 def _run_main_with_inputs(
@@ -2521,7 +2531,15 @@ def _run_main_with_inputs(
     else:
         monkeypatch.setenv("INPUT_PYTHON_SOURCE", python_source)
 
-    run_python_module.main(output, "python", "cobertura", github_output, None, workers)
+    run_python_module.main(
+        output,
+        "python",
+        "cobertura",
+        github_output,
+        None,
+        workers,
+        inputs.cli_python_source,
+    )
 
     assert len(recorded) == 1, (
         f"expected exactly one coverage invocation, got {len(recorded)}"
@@ -2563,6 +2581,30 @@ def test_main_threads_python_source_from_action_env(
     assert parts[3:6] == ["--source", python_source, "--branch"]
 
 
+def test_main_prefers_the_cli_source_over_the_action_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_python_module: ModuleType,
+) -> None:
+    """An explicit command-line scope wins over the action environment.
+
+    A caller running the script by hand must be able to override what the
+    composite step exported, so the environment value must not appear at all.
+    """
+    parts = _run_main_with_inputs(
+        tmp_path,
+        monkeypatch,
+        run_python_module,
+        _MainInputs(
+            "",
+            python_source="./from-environment",
+            cli_python_source="./from-cli",
+        ),
+    )
+    assert parts[3:6] == ["--source", "./from-cli", "--branch"]
+    assert "./from-environment" not in parts
+
+
 @dataclasses.dataclass(frozen=True)
 class _ScopeReportCase:
     """One source-scope input and the decision the run log must report."""
@@ -2587,9 +2629,11 @@ def test_main_reports_the_source_scope_decision(
     capsys: pytest.CaptureFixture[str],
     case: _ScopeReportCase,
 ) -> None:
-    """The run log says whether a scope was configured, never what it is.
+    """The decision line says whether a scope was configured, not what it is.
 
-    The scope is a caller-supplied path list, so only the decision is reported.
+    The scope reaches the run log once, inside the command line that the
+    command logger already reports. The decision line itself stays bounded so
+    the state is readable without parsing an argv.
     """
     with pytest.MonkeyPatch.context() as patch:
         _run_main_with_inputs(
@@ -2599,9 +2643,12 @@ def test_main_reports_the_source_scope_decision(
             _MainInputs("", python_source=case.python_source),
         )
     stdout = capsys.readouterr().out
-    assert f"source scope={case.expected_scope}" in stdout
+    decision = next(
+        line for line in stdout.splitlines() if line.startswith("Coverage command:")
+    )
+    assert f"source scope={case.expected_scope}" in decision
     if case.python_source and case.python_source.strip():
-        assert case.python_source not in stdout
+        assert case.python_source not in decision
 
 
 def test_main_logs_serial_run_when_workers_disabled(
@@ -2903,6 +2950,9 @@ def _python_step_env_contract() -> dict[str, str]:
     return typ.cast("dict[str, str]", env)
 
 
+_COVERAGE_SENTINEL_MARKER = "coverage-sentinel.out"
+
+
 def _write_fake_uv(
     tmp_path: Path,
     *,
@@ -2914,13 +2964,35 @@ def _write_fake_uv(
 
     When *python_log* is given, the coverage interpreter that the fake
     ``uv venv`` creates records every argument it receives on a line of its
-    own, so a caller can tell one unsplit argument from several.
+    own, so a caller can tell one unsplit argument from several. That
+    interpreter also runs ``coverage-sentinel`` by bare name. The sentinel
+    exists only inside the coverage environment's scripts directory and writes
+    ``_COVERAGE_SENTINEL_MARKER`` under *tmp_path*, so the marker's presence
+    proves a real child process resolved an executable through the prepended
+    directory rather than through the ambient ``PATH``.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "uv-calls.log"
+    marker = tmp_path / _COVERAGE_SENTINEL_MARKER
     record_argv = (
-        "" if python_log is None else f"printf '%s\\n' \"$@\" >> '{python_log}'\n"
+        ""
+        if python_log is None
+        else (
+            f"printf '%s\\n' \"$@\" >> '{python_log}'\n"
+            "coverage-sentinel 2>/dev/null || true\n"
+        )
+    )
+    write_sentinel = (
+        ""
+        if python_log is None
+        else (
+            "    cat > \"$2/bin/coverage-sentinel\" <<'SENTINEL'\n"
+            "#!/usr/bin/env sh\n"
+            f"printf 'ran\\n' > '{marker}'\n"
+            "SENTINEL\n"
+            '    chmod +x "$2/bin/coverage-sentinel"\n'
+        )
     )
     uv = bin_dir / "uv"
     uv.write_text(
@@ -2937,7 +3009,7 @@ if [ "$1" = "venv" ]; then
 {record_argv}exit 0
 PY
     chmod +x "$2/bin/python"
-    exit 0
+{write_sentinel}    exit 0
 fi
 if [ "$1" = "sync" ]; then
     if [ {sync_exit} -ne 0 ]; then
@@ -3278,3 +3350,35 @@ def test_run_python_integration_omits_source_when_the_input_is_unset(
     argv = argv_log.read_text(encoding="utf-8").splitlines()
     assert "--source" not in argv, f"unscoped run must not pass a source: {argv!r}"
     assert argv[:3] == ["-m", "slipcover", "--branch"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_child_resolves_through_the_coverage_environment(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A child launched by the coverage process finds the environment's tools.
+
+    The sentinel executable exists only in the coverage environment's scripts
+    directory, and the coverage interpreter runs it by bare name, so the marker
+    it writes can only appear if that directory reached the child's ``PATH``.
+    """
+    argv_log = tmp_path / "coverage-python-argv.log"
+    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+    sentinel = tmp_path / ".venv-coverage" / "bin" / "coverage-sentinel"
+    marker = tmp_path / _COVERAGE_SENTINEL_MARKER
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
+    )
+
+    assert returncode == 0
+    assert sentinel.exists(), "the sentinel must live only in the coverage venv"
+    assert not (bin_dir / "coverage-sentinel").exists(), (
+        "an ambient copy would make the marker prove nothing"
+    )
+    assert marker.exists(), (
+        "the coverage interpreter's child could not resolve an executable from "
+        "the coverage environment's scripts directory"
+    )

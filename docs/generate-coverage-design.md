@@ -129,10 +129,17 @@ action and the evolution of its supporting scripts.
   interpreter the runner's `PATH` found first, so they could not import the
   project development dependencies `uv sync` had installed into the isolated
   environment; prepending the directory makes the coverage environment the one
-  those children inherit. Both decisions are reported in bounded form, one line
-  each for the interpreter, the prepended directory and whether the scope is
-  `default` or `configured`; the composed `PATH` and the scope value itself are
-  not logged, because one is unbounded and the other is a caller's path list.
+  those children inherit. The value has to travel as the run's explicit
+  environment rather than on the command alone, because `run_cmd` re-applies
+  the process environment to every command it runs and would otherwise
+  overwrite it; `coverage_child_env()` is what the coverage runs pass, and an
+  integration test proves the point by putting a sentinel executable only in
+  the coverage environment's scripts directory and having the interpreter run
+  it by bare name. Both decisions are reported in bounded form, one line each
+  for the interpreter, the prepended directory and whether the scope is
+  `default` or `configured`. The composed `PATH` is not reported, being
+  unbounded, and the decision line carries the state rather than the scope
+  itself, which the command logger already shows in the Slipcover command line.
 
 ## Rust Coverage Environment Overrides
 

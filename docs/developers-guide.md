@@ -895,6 +895,9 @@ every consumer has to move with it.
 
 ## This repository's coverage publication
 
+The decision and what it costs are recorded in
+[ADR 0004](adr/0004-main-owns-codescene-coverage.md).
+
 This repository follows CV-005, main-owned CodeScene coverage. No workflow a
 pull request can start contacts CodeScene, and one push-to-`main` publisher
 owns both the upload and the ratchet baseline.
@@ -915,6 +918,14 @@ about it; without the ref half, a dispatch from a feature branch would publish
 that branch's coverage as the trunk's. The workflow carries a `concurrency`
 group so two overlapping `main` pushes cannot race to write the baseline.
 
+Both lanes name the same ratchet baseline path,
+`.coverage-baseline.workflow-scripts.python`. A lane reading a path the
+publisher never writes ratchets against zero. The path is also how a scope
+change starts a fresh generation: narrowing `python-source` changes the
+measured population, so percentages either side of the change are not
+comparable and the previous baseline has to be left behind rather than compared
+with.
+
 The ratchet baseline is keyed by `runner.os`. Any platform lane that arms the
 ratchet on pull requests must also run on the trunk push, or its baseline is
 never written and the pull-request comparison reads an empty file. This
@@ -924,20 +935,23 @@ repository generates coverage on Linux only, on both sides.
 pinned CLI and that the pinned version parses Slipcover's cobertura reports.
 Its parser proof runs `cs-coverage check`, which reads the CodeScene project
 configuration over the network and needs `CS_ACCESS_TOKEN`, so the workflow is
-**dispatch-only**: run it by hand when `upload-codescene-coverage`, its CLI
-manifest, or the pinned CLI version changes. The action's offline behaviour
-stays covered by its own unit tests, which `ci.yml` runs on every pull request.
-The action keeps its `check` mode for external callers; this repository does
-not use it in pull-request CI.
+**dispatch-only**. Its job also runs only when `github.ref` is
+`refs/heads/main`, because a dispatch selects its own ref and the selected
+ref's workflow content runs with the repository secret. Run it by hand from
+`main` when `upload-codescene-coverage`, its CLI manifest, or the pinned CLI
+version changes. The action's offline behaviour stays covered by its own unit
+tests, which `ci.yml` runs on every pull request. The action keeps its `check`
+mode for external callers; this repository does not use it in pull-request CI.
 
 `tests/workflows/test_main_owned_coverage.py` holds the contract. It enumerates
 `.github/workflows/*.yml` rather than naming files, so a workflow added later
 is covered the day it appears, and it follows job-level `uses:` into local
-reusable workflows, so a CodeScene call one file away from a pull-request
-trigger is still inside the boundary. It reads the `on:` key under both the
-string key and the boolean `True` that PyYAML resolves an unquoted `on:` to; a
-reader that consults only the string key sees no triggers anywhere and every
-boundary drawn from it passes over an empty set.
+reusable workflows, in both the workspace-relative `./` and the self-repository
+`$/` spellings, so a CodeScene call one file away from a pull-request trigger
+is still inside the boundary. It reads the `on:` key under both the string key
+and the boolean `True` that PyYAML resolves an unquoted `on:` to; a reader that
+consults only the string key sees no triggers anywhere and every boundary drawn
+from it passes over an empty set.
 
 ## `upload-codescene-coverage` check-mode contract
 

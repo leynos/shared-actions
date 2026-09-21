@@ -60,6 +60,14 @@ jobs:
           use-cargo-nextest: 'false'
           pytest-workers: ''
           with-ratchet: 'true'
+          # `python-source: workflow_scripts` narrows the measured population, so
+          # the percentages in the unscoped baseline written by earlier main runs
+          # are not comparable with these. The baseline moves to its own path,
+          # which the action seeds at zero when the restored cache does not carry
+          # it, so the first scoped run sets the generation rather than failing
+          # the ratchet against an incompatible number. Both lanes name the same
+          # path, or the pull-request comparison reads a file nothing writes.
+          baseline-python-file: .coverage-baseline.workflow-scripts.python
       # A workflow_dispatch run selects its own ref, and the push filter says
       # nothing about it, so the ref is checked here as well as the credential:
       # a dispatch from a feature branch must never publish that branch's

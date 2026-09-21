@@ -184,6 +184,14 @@ jobs:
           # confirmed.
           pytest-workers: ''
           with-ratchet: 'true'
+          # `python-source: workflow_scripts` narrows the measured population, so
+          # the percentages in the unscoped baseline written by earlier main runs
+          # are not comparable with these. The baseline moves to its own path,
+          # which the action seeds at zero when the restored cache does not carry
+          # it, so the first scoped run sets the generation rather than failing
+          # the ratchet against an incompatible number. Both lanes name the same
+          # path, or the pull-request comparison reads a file nothing writes.
+          baseline-python-file: .coverage-baseline.workflow-scripts.python
           # coverage-main.yml owns publication of this repository's coverage
           # report. A pull-request run keeps the file local to the job so the
           # only published report is the one main uploads to CodeScene.

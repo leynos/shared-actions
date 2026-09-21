@@ -15,6 +15,11 @@ permissions:
 
 jobs:
   cold-runner-contract:
+    # A dispatch selects its own ref, and the selected ref's workflow content
+    # runs with the repository secret, so any write-access account could
+    # otherwise read CS_ACCESS_TOKEN out of a branch it controls. The proof
+    # runs from main only.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

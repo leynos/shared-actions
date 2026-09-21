@@ -350,36 +350,52 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
         assert "inputs.mode != 'install'" in str(step["if"])
 
 
-def test_cold_runner_workflow_is_dispatch_only() -> None:
-    """The secret-backed parser proof cannot be started by a pull request.
+class TestTheColdRunnerParserProof:
+    """The credentialed proof's trigger, its guard, and what it rejects."""
 
-    It runs ``cs-coverage check``, which reads the CodeScene project
-    configuration over the network and needs ``CS_ACCESS_TOKEN``. Under
-    main-owned coverage no workflow a pull request can start may hold that
-    credential, so the trigger is the guard: the fork and dependabot clauses
-    this job used to carry were only reachable through a pull-request
-    trigger, and a guard that nothing can reach is worse than none.
-    """
-    workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
-    triggers = workflow.get("on", workflow.get(True))
+    def test_it_cannot_be_started_by_a_pull_request(self) -> None:
+        """Under main-owned coverage the trigger is half the guard.
 
-    assert triggers == {"workflow_dispatch": None}
-    job = workflow["jobs"]["cold-runner-contract"]
-    assert "if" not in job, "the job guard is dead once no pull request starts it"
+        The job runs ``cs-coverage check``, which reads the CodeScene project
+        configuration over the network and needs ``CS_ACCESS_TOKEN``. No
+        workflow a pull request can start may hold that credential, so the
+        workflow is dispatch-only. The fork and dependabot clauses this job
+        used to carry were reachable only through the pull-request trigger it
+        no longer has, and a guard nothing can reach is worse than none.
+        """
+        workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
+        triggers = workflow.get("on", workflow.get(True))
 
+        assert triggers == {"workflow_dispatch": None}, (
+            f"the parser proof must be dispatch-only; read {triggers!r}"
+        )
 
-def test_cold_runner_workflow_explicitly_handles_parser_failures() -> None:
-    """The parser proof rejects the known failure rather than tolerating it."""
-    workflow = WORKFLOW_YML.read_text(encoding="utf-8")
+    def test_it_runs_only_from_the_trunk_ref(self) -> None:
+        """The trigger alone does not bound which ref's content runs.
 
-    assert "! grep -F 'No matching field found" not in workflow
-    assert "git fetch --no-tags --depth=1" in workflow
-    assert "git fetch --no-tags --unshallow" in workflow
-    assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
-    assert (
-        "if grep -F 'No matching field found: close for class "
-        "java.io.InputStreamReader'" in workflow
-    )
-    assert "cs-coverage 1.0.101 reported the known parser failure" in workflow
-    assert "status=${PIPESTATUS[0]}" in workflow
-    assert "cs-coverage did not report a PASS result" in workflow
+        A dispatch selects its own ref and the selected ref's workflow content
+        runs with the repository secret, so any write-access account could
+        otherwise read the credential out of a branch it controls.
+        """
+        workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
+        guard = str(workflow["jobs"]["cold-runner-contract"].get("if", ""))
+
+        assert "github.ref == 'refs/heads/main'" in guard, (
+            f"the credentialed job is not bound to the trunk ref: {guard!r}"
+        )
+
+    def test_it_rejects_the_known_parser_failure(self) -> None:
+        """A parse break must fail the proof rather than be tolerated."""
+        workflow = WORKFLOW_YML.read_text(encoding="utf-8")
+
+        assert "! grep -F 'No matching field found" not in workflow
+        assert "git fetch --no-tags --depth=1" in workflow
+        assert "git fetch --no-tags --unshallow" in workflow
+        assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
+        assert (
+            "if grep -F 'No matching field found: close for class "
+            "java.io.InputStreamReader'" in workflow
+        )
+        assert "cs-coverage 1.0.101 reported the known parser failure" in workflow
+        assert "status=${PIPESTATUS[0]}" in workflow
+        assert "cs-coverage did not report a PASS result" in workflow

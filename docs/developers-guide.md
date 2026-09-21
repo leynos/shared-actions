@@ -918,6 +918,12 @@ about it; without the ref half, a dispatch from a feature branch would publish
 that branch's coverage as the trunk's. The workflow carries a `concurrency`
 group so two overlapping `main` pushes cannot race to write the baseline.
 
+Every coverage step, on both sides, sets `language: python` and
+`python-source: workflow_scripts`. The scope is half of the baseline contract:
+it fixes the population the percentages describe, so a lane that dropped it
+would compare a whole-repository figure with a scoped baseline while still
+naming the same file.
+
 One workflow advances the baseline, and it serves no pull request.
 `publish-baseline` defaults to `auto`, which saves on a push to `main` whatever
 started the run, so a lane that serves pull requests and also runs on such a

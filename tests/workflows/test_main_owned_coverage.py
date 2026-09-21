@@ -44,6 +44,12 @@ SELF_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 COVERAGE_ACTION: typ.Final[str] = ".github/actions/generate-coverage"
 #: The local CodeScene action; only the publisher may invoke it.
 CODESCENE_ACTION: typ.Final[str] = "upload-codescene-coverage"
+#: The language this repository's coverage measures, and the package the
+#: measurement is scoped to. The scope is half of the baseline contract: it
+#: fixes the population the percentages describe, so a lane that dropped it
+#: would compare a whole-repository figure with a scoped baseline.
+COVERAGE_LANGUAGE: typ.Final[str] = "python"
+COVERAGE_SCOPE: typ.Final[str] = "workflow_scripts"
 #: The CodeScene credential. No pull-request-reachable workflow names it.
 CODESCENE_CREDENTIAL: typ.Final[str] = "CS_ACCESS_TOKEN"
 #: The CodeScene CLI. No pull-request-reachable workflow invokes it.
@@ -501,6 +507,32 @@ class TestTheLanesShareOneBaseline:
         assert writers == [], (
             "these workflows serve pull requests and generate coverage on a "
             f"push to main, so they race the publisher's baseline: {writers}"
+        )
+
+    def test_every_lane_and_the_publisher_measure_the_same_population(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """The scope fixes what the percentages describe, so it is contracted.
+
+        A baseline path alone is not enough. Dropping ``python-source`` from
+        one lane leaves both naming the same file while measuring different
+        populations, which is the incomparable comparison the scoped path was
+        introduced to avoid.
+        """
+        (publisher,) = _publishers(documents)
+        scopes = {
+            f"{name}:{job}[{index}]": (
+                str((step.get("with") or {}).get("language", "")),
+                str((step.get("with") or {}).get("python-source", "")),
+            )
+            for name in sorted({*pull_request_reachable(documents), publisher})
+            for index, (job, step) in enumerate(coverage_steps(documents[name]))
+        }
+        assert scopes, "no coverage step declares a language or a scope"
+        expected = dict.fromkeys(scopes, (COVERAGE_LANGUAGE, COVERAGE_SCOPE))
+        assert scopes == expected, (
+            f"every coverage step must set language: {COVERAGE_LANGUAGE} and "
+            f"python-source: {COVERAGE_SCOPE}; read {scopes}"
         )
 
     def test_every_lane_and_the_publisher_name_the_same_baseline_path(

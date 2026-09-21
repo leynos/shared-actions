@@ -110,12 +110,18 @@ def pushes_to_main(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
     return "main" in [str(branch) for branch in branches]
 
 
-def _called_workflows(job: WorkflowJob) -> list[str]:
-    """Return the local workflow file names a job delegates to."""
+def _called_workflow(job: WorkflowJob) -> str | None:
+    """Return the local workflow file name a job delegates to, if any."""
     uses = str(job.get("uses", ""))
     if not uses.startswith(LOCAL_WORKFLOW_PREFIX):
-        return []
-    return [uses.removeprefix(LOCAL_WORKFLOW_PREFIX).split("@")[0]]
+        return None
+    return uses.removeprefix(LOCAL_WORKFLOW_PREFIX).split("@")[0]
+
+
+def _callees(documents: cabc.Mapping[str, WorkflowDocument], name: str) -> set[str]:
+    """Return the local workflows one workflow's jobs delegate to."""
+    called = (_called_workflow(job) for job in _jobs(documents.get(name, {})).values())
+    return {callee for callee in called if callee in documents}
 
 
 def pull_request_reachable(
@@ -143,14 +149,9 @@ def pull_request_reachable(
     }
     pending = list(reached)
     while pending:
-        document = documents.get(pending.pop(), {})
-        for job in (document.get("jobs") or {}).values():
-            if not isinstance(job, dict):
-                continue
-            for called in _called_workflows(job):
-                if called in documents and called not in reached:
-                    reached.add(called)
-                    pending.append(called)
+        for callee in _callees(documents, pending.pop()) - reached:
+            reached.add(callee)
+            pending.append(callee)
     return reached
 
 
@@ -205,12 +206,46 @@ def upload_steps(
     ]
 
 
-def platforms(document: cabc.Mapping[typ.Any, typ.Any], job_name: str) -> set[str]:
-    """Return the platform keywords a job's runners resolve to.
+def _matrix_labels(job: WorkflowJob) -> list[str]:
+    """Return every value a job's matrix can substitute into ``runs-on``."""
+    matrix = (job.get("strategy") or {}).get("matrix") or {}
+    return [
+        str(value)
+        for values in matrix.values()
+        if isinstance(values, list)
+        for value in values
+    ]
+
+
+def _runner_labels(job: WorkflowJob) -> list[str]:
+    """Return the runner labels a job can run on.
 
     A ``runs-on`` naming a matrix value is resolved through the job's own
-    matrix, so a Windows or macOS lane declared that way is not read as a
-    single indeterminate runner and quietly excused from the ratchet.
+    matrix, so a Windows or macOS lane declared that way is not read as one
+    indeterminate runner and quietly excused from the ratchet.
+    """
+    raw = job.get("runs-on")
+    if isinstance(raw, str) and "${{" in raw:
+        return _matrix_labels(job)
+    if isinstance(raw, list):
+        return [str(value) for value in raw]
+    return [] if raw is None else [str(raw)]
+
+
+def _platform_of(label: str) -> str:
+    """Return the platform keyword a runner label names.
+
+    The label is returned unchanged when it names none of them, so an
+    unrecognised runner is carried into the comparison rather than dropped.
+    """
+    for keyword in ("ubuntu", "linux", "windows", "macos"):
+        if keyword in label:
+            return "ubuntu" if keyword == "linux" else keyword
+    return label
+
+
+def platforms(document: cabc.Mapping[typ.Any, typ.Any], job_name: str) -> set[str]:
+    """Return the platform keywords a job's runners resolve to.
 
     Parameters
     ----------
@@ -232,26 +267,7 @@ def platforms(document: cabc.Mapping[typ.Any, typ.Any], job_name: str) -> set[st
     {'windows'}
     """
     job = _jobs(document).get(job_name, {})
-    raw = job.get("runs-on")
-    candidates: list[str] = []
-    if isinstance(raw, str) and "${{" in raw:
-        matrix = (job.get("strategy") or {}).get("matrix") or {}
-        for values in matrix.values():
-            if isinstance(values, list):
-                candidates.extend(str(value) for value in values)
-    elif isinstance(raw, list):
-        candidates.extend(str(value) for value in raw)
-    elif raw is not None:
-        candidates.append(str(raw))
-    resolved: set[str] = set()
-    for candidate in candidates:
-        for keyword in ("ubuntu", "linux", "windows", "macos"):
-            if keyword in candidate:
-                resolved.add("ubuntu" if keyword == "linux" else keyword)
-                break
-        else:
-            resolved.add(candidate)
-    return resolved
+    return {_platform_of(label) for label in _runner_labels(job)}
 
 
 def _ratcheted_platforms(

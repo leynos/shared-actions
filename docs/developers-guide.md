@@ -163,6 +163,25 @@ act cannot execute the real `setup-uv` path on the local runner, document the
 reason and keep the unit or manifest tests that assert the pinned reference in
 sync with the new SHA.
 
+## Node.js 24 action pins
+
+Executable cache, artefact, and sccache action references must use immutable
+full commit SHAs for revisions that support Node.js 24. The current contract
+covers `actions/cache`, `actions/cache/restore`, and `actions/cache/save` at
+`55cc8345863c7cc4c66a329aec7e433d2d1c52a9`, `actions/upload-artifact` at
+`043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`, and
+`mozilla-actions/sccache-action` at `fc920bf0ec8de6ee65d409111f7ec508035751ba`.
+Cache sub-action paths are checked independently, so each path must remain
+listed when the approved revision map changes.
+
+The repository-wide contract in
+[`test_node24_action_pins.py`](../.github/actions/tests/test_node24_action_pins.py)
+parses every `.yml` and `.yaml` file below `.github`, walks nested mappings
+and lists, and checks each string-valued `uses` reference for the covered
+actions. Update the revision map and this policy together when a supported
+Node.js 24 revision changes; preserve the action's inputs and other manifest
+values.
+
 ## Maintaining `setup-rust` Node.js Action Pins
 
 The [`setup-rust` action manifest](../.github/actions/setup-rust/action.yml)

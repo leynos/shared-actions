@@ -129,7 +129,10 @@ action and the evolution of its supporting scripts.
   interpreter the runner's `PATH` found first, so they could not import the
   project development dependencies `uv sync` had installed into the isolated
   environment; prepending the directory makes the coverage environment the one
-  those children inherit.
+  those children inherit. Both decisions are reported in bounded form, one line
+  each for the interpreter, the prepended directory and whether the scope is
+  `default` or `configured`; the composed `PATH` and the scope value itself are
+  not logged, because one is unbounded and the other is a caller's path list.
 
 ## Rust Coverage Environment Overrides
 

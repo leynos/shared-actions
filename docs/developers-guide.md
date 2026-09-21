@@ -39,13 +39,13 @@ interpreter reference within the same process.
 `run_python.py` manages a dedicated throwaway virtual environment at
 `.venv-coverage` in the working directory.
 
-| Step | Function                    | Description                               |
-| ---- | --------------------------- | ----------------------------------------- |
-| 1    | `_find_coverage_python()`   | Locate the Python executable.             |
-| 2    | `_remove_coverage_venv()`   | Remove the venv or placeholder path.      |
-| 3    | `_recreate_coverage_venv()` | Recreate the venv.                        |
-| 4    | `_ensure_coverage_venv()`   | Sync project deps and install tooling.    |
-| 5    | `_coverage_python_cmd()`    | Return the cached `plumbum.BoundCommand`. |
+| Step | Function                    | Description                                                                                                      |
+| ---- | --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1    | `_find_coverage_python()`   | Locate the Python executable.                                                                                    |
+| 2    | `_remove_coverage_venv()`   | Remove the venv or placeholder path.                                                                             |
+| 3    | `_recreate_coverage_venv()` | Recreate the venv.                                                                                               |
+| 4    | `_ensure_coverage_venv()`   | Sync project deps and install tooling.                                                                           |
+| 5    | `_coverage_python_cmd()`    | Return the cached `plumbum.BoundCommand`, with the coverage environment's scripts directory prepended to `PATH`. |
 
 `_find_coverage_python()` returns `None` when `.venv-coverage` is absent, is a
 symlink, is a non-directory, or lacks a Python executable.
@@ -60,16 +60,21 @@ constraint also forces uv to upgrade any older slipcover installed earlier by
 `uv sync`. `<venv_python>` is the absolute path inside `.venv-coverage`; it is
 not resolved through symlinks before being passed to uv.
 `_coverage_python_cmd()` uses `@lru_cache(maxsize=1)` and returns the cached
-command for `<venv_python>` thereafter.
+command for `<venv_python>` thereafter. The returned command carries an
+environment in which the coverage environment's scripts directory -- the
+directory containing the `.venv-coverage` interpreter -- is prepended to
+`PATH`, with the inherited `PATH` following it. An executable that a test
+creates and then runs therefore resolves against the coverage environment
+rather than against whatever interpreter the runner's `PATH` finds first.
 
 ### Public API
 
 <!-- markdownlint-disable MD013 -->
-| Symbol                 | Signature                                                                     | Role                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `coverage_cmd_for_fmt` | `(fmt, out, workers="")`                                                      | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist. |
-| `tmp_coveragepy_xml`   | `(out)`                                                                       | Generate temporary Cobertura XML.                                           |
-| `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None)` | Run.                                                                        |
+| Symbol                 | Signature                                                                                         | Role                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `coverage_cmd_for_fmt` | `(fmt, out, workers="", python_source="")`                                                        | Build a slipcover command, optionally with `-n <workers>` for pytest-xdist and `--source <python_source>` to scope coverage collection. |
+| `tmp_coveragepy_xml`   | `(out)`                                                                                           | Generate temporary Cobertura XML.                                                                                                       |
+| `main`                 | `(output_path, lang, fmt, github_output, baseline_file, pytest_workers=None, python_source=None)` | Run.                                                                                                                                    |
 <!-- markdownlint-enable MD013 -->
 
 `coverage_cmd_for_fmt` returns a `BoundCommand` for the requested format. When
@@ -80,8 +85,13 @@ resolves `pytest_workers` from the CLI option, falling back to the
 `INPUT_PYTEST_WORKERS` environment variable and finally to `"auto"`. Accepted
 values are `"auto"`, `"logical"`, a positive integer string, or `""` to disable
 parallelism — `"0"` is rejected so that `""` stays the single canonical disable
-mechanism. `main` then runs slipcover, parses coverage, and writes
-`GITHUB_OUTPUT`.
+mechanism. `main` resolves `python_source` the same way, from the
+`--python-source` CLI option, falling back to the `INPUT_PYTHON_SOURCE`
+environment variable and finally to `""`. A whitespace-only value is treated as
+unset. A non-empty value is never split; it is emitted as a single `--source`
+argument, placed before `--branch`, in the slipcover command that
+`coverage_cmd_for_fmt` builds. `main` then runs slipcover, parses coverage, and
+writes `GITHUB_OUTPUT`.
 
 ### Concurrency Model
 

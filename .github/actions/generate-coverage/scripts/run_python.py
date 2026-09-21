@@ -278,6 +278,11 @@ def _coverage_python_cmd() -> BoundCommand:
     scripts_dir = str(Path(python).parent)
     inherited_path = os.environ.get("PATH", "")
     child_path = os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
+    # Two bounded lines, once per process: which interpreter runs the coverage
+    # and which directory child executables resolve against. The composed PATH
+    # itself is not reported, because the inherited half is unbounded.
+    typer.echo(f"Coverage interpreter: {python}")
+    typer.echo(f"Coverage scripts directory prepended to PATH: {scripts_dir}")
     return local[python].with_env(PATH=child_path)
 
 
@@ -379,6 +384,11 @@ def coverage_cmd_for_fmt(
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd()
+    scope = "configured" if python_source.strip() else "default"
+    # The scope value itself is a caller-supplied path list; report only the
+    # decision, which is what distinguishes a deliberate scope from the
+    # Slipcover default in a run log.
+    typer.echo(f"Coverage command: format={fmt}, source scope={scope}")
     return python_cmd[_coverage_args(fmt, out, workers, python_source)]
 
 

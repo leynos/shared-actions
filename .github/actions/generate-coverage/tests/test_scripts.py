@@ -1990,8 +1990,13 @@ def test_coverage_python_cmd_prepares_tools_once(
     tmp_path: Path,
     run_python_module: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The coverage Python command lazily creates and installs tooling once."""
+    """The coverage Python command lazily creates and installs tooling once.
+
+    It also reports the interpreter and the scripts directory it prepends, so a
+    run log says which environment child executables resolve against.
+    """
     coverage_venv = tmp_path / ".venv-coverage"
     python_path = coverage_venv / "bin" / "python"
     recorded: list[list[str]] = []
@@ -2014,6 +2019,13 @@ def test_coverage_python_cmd_prepares_tools_once(
     _assert_coverage_python_path(parts[0], str(python_path.resolve()))
     path_entries = first.env["PATH"].split(os.pathsep)
     assert path_entries[0] == str(python_path.resolve().parent)
+    stdout = capsys.readouterr().out
+    scripts_dir = python_path.resolve().parent
+    assert f"Coverage interpreter: {python_path.resolve()}" in stdout
+    assert f"Coverage scripts directory prepended to PATH: {scripts_dir}" in stdout
+    assert first.env["PATH"] not in stdout, (
+        "the composed PATH is unbounded and must stay out of the log"
+    )
     assert len(recorded) == 3
     assert recorded[0][1:] == ["venv", str(coverage_venv)]
     assert recorded[1][1:] == [
@@ -2463,21 +2475,33 @@ def test_run_python_cobertura_passes_out_flag(
     assert "percent=100.00" in data
 
 
-def _run_main_with_workers(
+@dataclasses.dataclass(frozen=True)
+class _MainInputs:
+    """Action inputs for one ``main`` invocation under a fake coverage command.
+
+    ``python_source`` of ``None`` means the action environment does not carry
+    the input at all, which is distinct from carrying an empty one.
+    """
+
+    workers: str
+    python_source: str | None = None
+
+
+def _run_main_with_inputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     run_python_module: ModuleType,
-    workers: str,
-    *,
-    python_source: str | None = None,
+    inputs: _MainInputs,
 ) -> list[str]:
     """Invoke ``main`` under a fake coverage command and return the recorded argv.
 
     Sets up the Cobertura XML stub, patches ``run_cmd`` to record the invocation,
     patches the coverage-venv Python command, and clears ``INPUT_PYTEST_WORKERS``
-    so the supplied *workers* value is the sole source of truth. Stdout capture
+    so the supplied workers value is the sole source of truth. Stdout capture
     is left to the caller via ``capsys``.
     """
+    workers = inputs.workers
+    python_source = inputs.python_source
     output = tmp_path / "cov.xml"
     output.write_text(
         "<coverage lines-covered='1' lines-valid='1' />",
@@ -2512,7 +2536,9 @@ def test_main_threads_pytest_workers_into_slipcover_argv(
     run_python_module: ModuleType,
 ) -> None:
     """``main`` forwards the resolved workers value to slipcover's pytest argv."""
-    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "3")
+    parts = _run_main_with_inputs(
+        tmp_path, monkeypatch, run_python_module, _MainInputs("3")
+    )
     stdout = capsys.readouterr().out
     assert parts[-2:] == ["-n", "3"], (
         f"workers value must reach slipcover's pytest argv, got {parts!r}"
@@ -2528,14 +2554,54 @@ def test_main_threads_python_source_from_action_env(
     python_source: str,
 ) -> None:
     """The action environment source reaches Slipcover before ``--branch``."""
-    parts = _run_main_with_workers(
+    parts = _run_main_with_inputs(
         tmp_path,
         monkeypatch,
         run_python_module,
-        "",
-        python_source=python_source,
+        _MainInputs("", python_source=python_source),
     )
     assert parts[3:6] == ["--source", python_source, "--branch"]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ScopeReportCase:
+    """One source-scope input and the decision the run log must report."""
+
+    python_source: str | None
+    expected_scope: str
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        _ScopeReportCase(None, "default"),
+        _ScopeReportCase("", "default"),
+        _ScopeReportCase("   ", "default"),
+        _ScopeReportCase("./lading", "configured"),
+    ],
+    ids=["unset", "empty", "whitespace", "configured"],
+)
+def test_main_reports_the_source_scope_decision(
+    tmp_path: Path,
+    run_python_module: ModuleType,
+    capsys: pytest.CaptureFixture[str],
+    case: _ScopeReportCase,
+) -> None:
+    """The run log says whether a scope was configured, never what it is.
+
+    The scope is a caller-supplied path list, so only the decision is reported.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        _run_main_with_inputs(
+            tmp_path,
+            patch,
+            run_python_module,
+            _MainInputs("", python_source=case.python_source),
+        )
+    stdout = capsys.readouterr().out
+    assert f"source scope={case.expected_scope}" in stdout
+    if case.python_source and case.python_source.strip():
+        assert case.python_source not in stdout
 
 
 def test_main_logs_serial_run_when_workers_disabled(
@@ -2545,7 +2611,9 @@ def test_main_logs_serial_run_when_workers_disabled(
     run_python_module: ModuleType,
 ) -> None:
     """An empty workers value logs the serial-run notice and omits ``-n``."""
-    parts = _run_main_with_workers(tmp_path, monkeypatch, run_python_module, "")
+    parts = _run_main_with_inputs(
+        tmp_path, monkeypatch, run_python_module, _MainInputs("")
+    )
     stdout = capsys.readouterr().out
     assert "-n" not in parts
     assert "Pytest workers: disabled (serial pytest run)" in stdout
@@ -2840,11 +2908,20 @@ def _write_fake_uv(
     *,
     venv_exit: int = 0,
     sync_exit: int = 0,
+    python_log: Path | None = None,
 ) -> tuple[Path, Path]:
-    """Write a fake uv executable and return its bin directory and log path."""
+    """Write a fake uv executable and return its bin directory and log path.
+
+    When *python_log* is given, the coverage interpreter that the fake
+    ``uv venv`` creates records every argument it receives on a line of its
+    own, so a caller can tell one unsplit argument from several.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "uv-calls.log"
+    record_argv = (
+        "" if python_log is None else f"printf '%s\\n' \"$@\" >> '{python_log}'\n"
+    )
     uv = bin_dir / "uv"
     uv.write_text(
         f"""#!/usr/bin/env sh
@@ -2857,7 +2934,7 @@ if [ "$1" = "venv" ]; then
     mkdir -p "$2/bin"
     cat > "$2/bin/python" <<'PY'
 #!/usr/bin/env sh
-exit 0
+{record_argv}exit 0
 PY
     chmod +x "$2/bin/python"
     exit 0
@@ -2877,45 +2954,59 @@ exit 0
     return bin_dir, log
 
 
+@dataclasses.dataclass(frozen=True)
+class _PythonIntegrationRun:
+    """Fixtures for one ``run_python.py`` integration invocation."""
+
+    tmp_path: Path
+    shell_stubs: StubManager
+    bin_dir: Path
+    monkeypatch: pytest.MonkeyPatch
+
+
 def _python_integration_env(
-    tmp_path: Path,
-    shell_stubs: StubManager,
-    bin_dir: Path,
+    run: _PythonIntegrationRun,
+    extra_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return environment for run_python.py integration tests."""
+    """Return environment for run_python.py integration tests.
+
+    Each assertion below reads the action manifest, so the integration run is
+    driven through the environment names the composite step actually sets
+    rather than through names invented by the test.
+    """
     python_env = _python_step_env_contract()
     assert python_env["INPUT_OUTPUT_PATH"] == "${{ inputs.output-path }}"
     assert python_env["DETECTED_LANG"] == "${{ steps.detect.outputs.lang }}"
     assert python_env["DETECTED_FMT"] == "${{ steps.detect.outputs.fmt }}"
     assert python_env["BASELINE_PYTHON_FILE"] == "${{ inputs.baseline-python-file }}"
     assert python_env["INPUT_PYTEST_WORKERS"] == "${{ inputs.pytest-workers }}"
-    out = tmp_path / "cov.xml"
-    gh = tmp_path / "gh.txt"
+    assert python_env["INPUT_PYTHON_SOURCE"] == "${{ inputs.python-source }}"
+    out = run.tmp_path / "cov.xml"
+    gh = run.tmp_path / "gh.txt"
     out.write_text("<coverage lines-covered='1' lines-valid='1'/>", encoding="utf-8")
     env = {
-        **shell_stubs.env,
+        **run.shell_stubs.env,
         "INPUT_OUTPUT_PATH": str(out),
         "DETECTED_LANG": "python",
         "DETECTED_FMT": "cobertura",
-        "BASELINE_PYTHON_FILE": str(tmp_path / "baseline-python.txt"),
+        "BASELINE_PYTHON_FILE": str(run.tmp_path / "baseline-python.txt"),
         "GITHUB_OUTPUT": str(gh),
         # Exercise the INPUT_PYTEST_WORKERS path explicitly; a fixed value
         # also makes the test independent of the action.yml default.
         "INPUT_PYTEST_WORKERS": "2",
+        **(extra_env or {}),
     }
-    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env["PATH"] = f"{run.bin_dir}{os.pathsep}{env['PATH']}"
     return env
 
 
 def _run_integration_script(
-    tmp_path: Path,
-    shell_stubs: StubManager,
-    bin_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    run: _PythonIntegrationRun,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
     """Set up env, chdir, and invoke run_python.py; return (rc, stdout, stderr)."""
-    env = _python_integration_env(tmp_path, shell_stubs, bin_dir)
-    monkeypatch.chdir(tmp_path)
+    env = _python_integration_env(run, extra_env)
+    run.monkeypatch.chdir(run.tmp_path)
     script = Path(__file__).resolve().parents[1] / "scripts" / "run_python.py"
     return run_script(script, env)
 
@@ -2934,7 +3025,7 @@ def test_run_python_integration_cobertura_success(
     bin_dir, log = _write_fake_uv(tmp_path)
 
     returncode, _stdout, _stderr = _run_integration_script(
-        tmp_path, shell_stubs, bin_dir, monkeypatch
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
     )
 
     uv_calls = log.read_text(encoding="utf-8").splitlines()
@@ -2973,7 +3064,7 @@ def test_run_python_integration_uses_env_fallbacks_for_omitted_cli_args(
     """Omitted CLI args are resolved from GitHub Actions environment variables."""
     bin_dir, _log = _write_fake_uv(tmp_path)
     returncode, _stdout, _stderr = _run_integration_script(
-        tmp_path, shell_stubs, bin_dir, monkeypatch
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
     )
 
     gh_content = (tmp_path / "gh.txt").read_text(encoding="utf-8").splitlines()
@@ -3050,7 +3141,7 @@ def test_run_python_integration_uv_failure_modes(
     bin_dir, _log = _write_fake_uv(tmp_path, **spec.write_kwargs)
 
     returncode, _stdout, stderr = _run_integration_script(
-        tmp_path, shell_stubs, bin_dir, monkeypatch
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
     )
 
     assert returncode != 0
@@ -3090,7 +3181,7 @@ exit 0
     uv.chmod(0o755)
 
     returncode, _stdout, _stderr = _run_integration_script(
-        tmp_path, shell_stubs, bin_dir, monkeypatch
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch)
     )
 
     uv_calls = log.read_text(encoding="utf-8").splitlines()
@@ -3111,3 +3202,79 @@ exit 0
     assert pip_python == str(expected_python)
     assert sync_python != str(resolved_python)
     assert pip_python != str(resolved_python)
+
+
+def _python_source_input() -> dict[str, object]:
+    """Return the ``python-source`` declaration from the action manifest."""
+    inputs = _generate_coverage_action().get("inputs")
+    assert isinstance(inputs, dict)
+    assert "python-source" in inputs, (
+        "the action must declare python-source; an undeclared input is "
+        "ignored with a warning rather than failing the step"
+    )
+    declaration = inputs["python-source"]
+    assert isinstance(declaration, dict)
+    return typ.cast("dict[str, object]", declaration)
+
+
+def test_action_declares_python_source_as_optional_and_empty_by_default() -> None:
+    """The manifest keeps the new input optional and empty for every caller."""
+    declaration = _python_source_input()
+    assert declaration.get("required") is False
+    assert declaration.get("default") == ""
+
+
+def test_action_maps_python_source_onto_the_coverage_step_environment() -> None:
+    """The Python coverage step reads the input under its documented name."""
+    assert _python_step_env_contract()["INPUT_PYTHON_SOURCE"] == (
+        "${{ inputs.python-source }}"
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+@pytest.mark.parametrize("python_source", ["episodic,alembic", "./lading"])
+def test_run_python_integration_passes_one_unsplit_source_argument(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+    python_source: str,
+) -> None:
+    """The declared action input reaches Slipcover as one value before branching.
+
+    The coverage interpreter records one argument per line, so a scope split on
+    its commas would appear as several lines rather than one.
+    """
+    argv_log = tmp_path / "coverage-python-argv.log"
+    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch),
+        {"INPUT_PYTHON_SOURCE": python_source},
+    )
+
+    assert returncode == 0
+    argv = argv_log.read_text(encoding="utf-8").splitlines()
+    assert "--source" in argv, f"slipcover argv lacks a source scope: {argv!r}"
+    index = argv.index("--source")
+    assert argv[index + 1 : index + 3] == [python_source, "--branch"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fake uv helper emits POSIX sh")
+def test_run_python_integration_omits_source_when_the_input_is_unset(
+    tmp_path: Path,
+    shell_stubs: StubManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unset input leaves the Slipcover argv as it was before the scope."""
+    argv_log = tmp_path / "coverage-python-argv.log"
+    bin_dir, _log = _write_fake_uv(tmp_path, python_log=argv_log)
+
+    returncode, _stdout, _stderr = _run_integration_script(
+        _PythonIntegrationRun(tmp_path, shell_stubs, bin_dir, monkeypatch),
+        {"INPUT_PYTHON_SOURCE": ""},
+    )
+
+    assert returncode == 0
+    argv = argv_log.read_text(encoding="utf-8").splitlines()
+    assert "--source" not in argv, f"unscoped run must not pass a source: {argv!r}"
+    assert argv[:3] == ["-m", "slipcover", "--branch"]

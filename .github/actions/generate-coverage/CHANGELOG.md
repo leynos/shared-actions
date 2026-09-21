@@ -7,7 +7,10 @@
   argument before `--branch`; empty values preserve default source discovery.
 - Prepend the coverage environment's scripts directory to `PATH` while running
   Python coverage. Test-created child executables now use the same environment
-  and can import project development dependencies installed by `uv sync`.
+  and can import project development dependencies installed by `uv sync`. The
+  run reports the coverage interpreter, the prepended scripts directory, and
+  whether the source scope is `default` or `configured`; neither the composed
+  `PATH` nor the scope value is logged.
 
 - Correct the canonical timeout arithmetic for this action's own watchdog.
   The requirement was stated as three terms and one window per coverage step;

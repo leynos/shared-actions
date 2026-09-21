@@ -19,8 +19,20 @@ def test_command_available_accepts_absolute_executable() -> None:
     assert conftest._command_available(sys.executable)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Windows has no execute bit: os.access(..., X_OK) is true for any "
+        "existing file, so the property this asserts does not exist there. "
+        "The reading gates act, which these tests skip on Windows anyway."
+    ),
+)
 def test_command_available_rejects_non_executable_file(tmp_path: Path) -> None:
-    """Absolute non-executable files are not reported as available."""
+    """Absolute non-executable files are not reported as available.
+
+    POSIX only. See the skip reason: the execute bit this depends on has no
+    Windows equivalent, and the reading's only caller gates act.
+    """
     path = tmp_path / "not-executable"
     path.write_text("#!/bin/sh\n", encoding="utf-8")
 

@@ -196,6 +196,17 @@ same feature selection. That run is uninstrumented and contributes no coverage,
 because `cargo llvm-cov`'s nextest path cannot execute doc tests; it is there
 to make the doc tests fail the job when they break.
 
+Those are two `cargo` invocations, and this action arms the watchdog separately
+for each, so a step with `doctests: 'true'` has two watchdog windows rather
+than one. The cucumber.rs run is a third: when `with-cucumber-rs` is set and
+`cucumber-rs-features` names a feature path, the scenarios are measured in an
+invocation of their own, and a step asking for both passes has three windows.
+The log prints `cargo watchdog budget: <seconds>s` once per invocation, so the
+line count is the window count. Sizing the job ceiling for one window
+understates it by a whole budget for every optional invocation the step asks
+for, and the arithmetic that accounts for them belongs to the users' guide
+rather than here.
+
 `RUSTFLAGS` from the calling workflow is inherited by every Cargo invocation
 the action makes, so a job that exports `-D warnings` gets warnings denied
 throughout, including the doc-test run.
@@ -341,9 +352,9 @@ Choosing one is caller guidance rather than action reference, so it lives in
 the users' guide, under
 [Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last):
 the four-step procedure for arriving at a value, the arithmetic relating the
-four timers, and the four details of it that have each been got wrong here.
-What follows below is about this action: what the watchdog prints, when `cargo`
-runs at all, and how to assert the ordering in a contract.
+four timers, and the six details of it that have each been got wrong here. What
+follows below is about this action: what the watchdog prints, when `cargo` runs
+at all, and how to assert the ordering in a contract.
 
 That distinction is the whole reason for the number. A lane that archives its
 `target` tree runs a mostly incremental instrumented build, and a few hundred
@@ -382,12 +393,14 @@ it. They only work if each sits above the one inside it, and comparing the
 configured numbers is not enough, because the four clocks do not start together
 and do not cover the same work.
 
-That arithmetic, the four-step procedure for arriving at a value, and the four
+That arithmetic, the four-step procedure for arriving at a value, and the six
 details of it that have each been got wrong in this estate are caller guidance
 and live in the users' guide, under
 [Test timeouts: four tiers, outermost last](../../../docs/users-guide.md#test-timeouts-four-tiers-outermost-last).
 They are stated once, there, because a second copy here would drift from the
-contract that enforces them.
+contract that enforces them. That includes the term for the report phase this
+action's own invocation spends after nextest stops, and the count of watchdog
+windows a step arms.
 
 The part that belongs to this action is what its own budget covers. A run that
 hits the global timeout does not stop instantly on Linux or macOS, and the

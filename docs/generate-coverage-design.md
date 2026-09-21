@@ -115,6 +115,21 @@ action and the evolution of its supporting scripts.
   parametrized over both actions, so a third action adopting the pattern joins
   it by adding one entry. Each outcome is reported as a bounded log notice, a
   job-summary line, and a fixed `metric ratchet-cache.<half>=<state>` line.
+- *2026-09-17* — Python coverage gained an optional `python-source` input and
+  propagates the coverage environment to child processes. The input defaults to
+  empty, so every existing caller keeps Slipcover's automatic source discovery;
+  a non-empty value is forwarded verbatim as one `--source` argument placed
+  before `--branch`, which keeps a comma-separated scope such as
+  `episodic,alembic` a single Slipcover value rather than several paths. The
+  action needs this because a repository adopting the main-owned coverage
+  ratchet must not silently change which packages contribute to its metric.
+  Separately, `_coverage_python_cmd()` now prepends the `.venv-coverage`
+  scripts directory to `PATH` for the coverage process. Tests that create and
+  then execute child executables previously ran them against whatever
+  interpreter the runner's `PATH` found first, so they could not import the
+  project development dependencies `uv sync` had installed into the isolated
+  environment; prepending the directory makes the coverage environment the one
+  those children inherit.
 
 ## Rust Coverage Environment Overrides
 

@@ -1046,11 +1046,10 @@ class TestOneStepCanArmTheWatchdogMoreThanOnce:
         """The second window adds its whole budget to the requirement.
 
         The two readings differ by exactly one watchdog budget: 3,600 s
-        against 1,800 s of window here. 5,400 s is the same arithmetic
-        with this estate's fifteen-minute margin and fifteen minutes of
-        measured work outside the windows, which is the figure Netsuke
-        carries on its own coverage lanes and the one the users' guide
-        states.
+        against 1,800 s of window here. 5,400 s is Netsuke's two-window
+        figure, from a 900 s outside allowance and a 900 s margin. Those
+        two are not this module's constants, which are 600 s and 900 s,
+        so a step in this estate would need 5,100 s rather than 5,400 s.
         """
         one_window = _coverage_lanes({"ci.yml": self._document(doctests="false")})[0]
         two_windows = _coverage_lanes({"ci.yml": self._document(doctests="true")})[0]

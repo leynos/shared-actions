@@ -105,7 +105,8 @@ def test_affected_actions_reject_mismatched_cache_revisions(
     with pytest.raises(AssertionError) as error:
         test_affected_actions_use_node24_immutable_revisions()
 
-    assert f".github/node24-pin.yml: {uses}" in str(error.value)
+    relative_path = path.relative_to(REPOSITORY_ROOT)
+    assert f"{relative_path}: {uses}" in str(error.value)
 
 
 def test_affected_actions_use_node24_immutable_revisions() -> None:

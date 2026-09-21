@@ -479,6 +479,27 @@ class TestPullRequestCoverageIsRatchetedAndUnpublished:
 class TestTheLanesShareOneBaseline:
     """A ratchet compares against the file the publisher wrote, or nothing."""
 
+    def test_no_pull_request_lane_can_also_write_the_baseline(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """One workflow advances the baseline, and it serves no pull request.
+
+        A lane that serves pull requests and also runs on a push to main is a
+        second writer: ``publish-baseline`` defaults to ``auto``, which saves
+        on a trunk push whatever started the run. Two writers race, and the
+        pull-request comparison then reads whichever won. Measured on lading
+        (#276) where exactly this shape landed.
+        """
+        writers = sorted(
+            name
+            for name in pull_request_reachable(documents)
+            if pushes_to_main(documents[name]) and coverage_steps(documents[name])
+        )
+        assert writers == [], (
+            "these workflows serve pull requests and generate coverage on a "
+            f"push to main, so they race the publisher's baseline: {writers}"
+        )
+
     def test_every_lane_and_the_publisher_name_the_same_baseline_path(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:

@@ -918,6 +918,12 @@ about it; without the ref half, a dispatch from a feature branch would publish
 that branch's coverage as the trunk's. The workflow carries a `concurrency`
 group so two overlapping `main` pushes cannot race to write the baseline.
 
+One workflow advances the baseline, and it serves no pull request.
+`publish-baseline` defaults to `auto`, which saves on a push to `main` whatever
+started the run, so a lane that serves pull requests and also runs on such a
+push becomes a second writer and races the publisher. lading met exactly that
+shape.
+
 Both lanes name the same ratchet baseline path,
 `.coverage-baseline.workflow-scripts.python`. A lane reading a path the
 publisher never writes ratchets against zero. The path is also how a scope

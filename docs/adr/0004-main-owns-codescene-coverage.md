@@ -74,6 +74,11 @@ because it leaves a pull-request-startable file naming the credential, which a
 static contract can only permit by understanding a job guard, and a guard a
 contract has to reason about is the weaker boundary.
 
+One workflow advances the baseline, and it serves no pull request.
+`publish-baseline` defaults to `auto`, which saves on a push to `main` whatever
+started the run, so a pull-request lane that also runs on such a push is a
+second writer and races the publisher. The contract rejects that shape.
+
 Both lanes name the same ratchet baseline path. Scoping the publisher to
 `workflow_scripts` narrows the measured population, so the percentages in the
 baseline earlier unscoped main runs wrote are not comparable with these; the

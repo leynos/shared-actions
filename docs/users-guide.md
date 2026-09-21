@@ -650,6 +650,32 @@ the archive or the extracted executable -- is a hard failure: the installer
 exits non-zero and the action stops. There is no fallback to
 `cargo install cargo-nextest` in any of these cases.
 
+### Python coverage source scope
+
+The action also accepts an optional `python-source` input, which defaults to
+empty. An unset, empty, or whitespace-only value leaves Slipcover's automatic
+source discovery in place, so existing callers are unaffected. A non-empty
+value is passed through unchanged as a single `--source` argument, placed
+immediately before Slipcover's `--branch` flag, so a comma-separated scope such
+as `episodic,alembic` reaches Slipcover as one value rather than several paths.
+Two scopes in use in the estate are `episodic,alembic` and `./lading`.
+
+```yaml
+- name: Generate coverage
+  uses: ./.github/actions/generate-coverage
+  with:
+    language: python
+    output-path: coverage.xml
+    python-source: episodic,alembic
+```
+
+Separately, the action prepends the coverage environment's scripts directory --
+the directory containing the `.venv-coverage` interpreter -- to `PATH` for the
+coverage process, keeping the inherited `PATH` after it. An executable that a
+test creates and then runs therefore resolves against the coverage environment
+and can import the project development dependencies that `uv sync` installed
+there.
+
 ## Test timeouts: four tiers, outermost last
 
 Four independent timers can end a coverage run, and a caller sets them in four

@@ -44,11 +44,8 @@ TOOLING_PACKAGES: tuple[str, ...] = (
 )
 PROJECT_SYNC_ARGS: tuple[str, ...] = ("sync", "--inexact", "--python")
 
-SLIPCOVER_ARGS: tuple[str, ...] = (
-    "-m",
-    "slipcover",
-    "--branch",
-)
+SLIPCOVER_ARGS: tuple[str, ...] = ("-m", "slipcover")
+SLIPCOVER_BRANCH_ARG = "--branch"
 PYTEST_ARGS: tuple[str, ...] = (
     "-m",
     "pytest",
@@ -275,10 +272,40 @@ def _ensure_coverage_venv() -> str:
 # single thread, so no synchronization is required; the cache is safe to
 # use without a lock for the lifetime of this process.
 @lru_cache(maxsize=1)
+def _coverage_venv_python() -> str:
+    """Return the coverage venv interpreter, creating the venv on first use."""
+    return _ensure_coverage_venv()
+
+
+def _coverage_child_path() -> str:
+    """Return ``PATH`` with the coverage environment's scripts directory first."""
+    scripts_dir = str(Path(_coverage_venv_python()).parent)
+    inherited_path = os.environ.get("PATH", "")
+    return os.pathsep.join(part for part in (scripts_dir, inherited_path) if part)
+
+
+def coverage_child_env() -> dict[str, str]:
+    """Return the environment a coverage subprocess must run under.
+
+    ``run_cmd`` re-applies the process environment to every command it runs, so
+    a ``PATH`` bound to the command alone would be overwritten before the
+    subprocess starts. The value therefore has to travel as the run's explicit
+    environment.
+    """
+    return {**os.environ, "PATH": _coverage_child_path()}
+
+
+@lru_cache(maxsize=1)
 def _coverage_python_cmd() -> BoundCommand:
-    """Return the coverage venv Python command, creating it on first use."""
-    python = _ensure_coverage_venv()
-    return local[python]
+    """Return coverage Python with its scripts available to child processes."""
+    python = _coverage_venv_python()
+    scripts_dir = str(Path(python).parent)
+    # Two bounded lines, once per process: which interpreter runs the coverage
+    # and which directory child executables resolve against. The composed PATH
+    # itself is not reported, because the inherited half is unbounded.
+    typer.echo(f"Coverage interpreter: {python}")
+    typer.echo(f"Coverage scripts directory prepended to PATH: {scripts_dir}")
+    return local[python].with_env(PATH=_coverage_child_path())
 
 
 _VALID_NAMED_WORKERS = frozenset({"auto", "logical"})
@@ -327,9 +354,21 @@ def _normalize_pytest_workers(raw: str | None) -> str:
         raise typer.Exit(2) from exc
 
 
-def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:
-    """Return the slipcover/pytest argv for the requested format."""
+def _coverage_args(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    python_source: str = "",
+) -> list[str]:
+    """Return the slipcover/pytest argv for the requested format.
+
+    A non-empty source scope is passed as one unchanged value before
+    Slipcover's branch flag. Whitespace-only scopes are treated as unset.
+    """
     args: list[str] = [*SLIPCOVER_ARGS]
+    if python_source.strip():
+        args.extend(["--source", python_source])
+    args.append(SLIPCOVER_BRANCH_ARG)
     if fmt == "cobertura":
         # slipcover treats --xml as a boolean flag; --out sets the report path
         args.extend(["--xml", "--out", str(out)])
@@ -339,7 +378,12 @@ def _coverage_args(fmt: str, out: Path, workers: str = "") -> list[str]:
     return args
 
 
-def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand:
+def coverage_cmd_for_fmt(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    python_source: str = "",
+) -> BoundCommand:
     """Return the slipcover command for the requested coverage format.
 
     Parameters
@@ -355,6 +399,11 @@ def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand
         Worker count for pytest-xdist's ``-n`` flag. Empty disables xdist;
         otherwise must already be a validated value such as ``"auto"`` or a
         non-negative integer string.
+    python_source : str
+        Slipcover source scope. Empty and whitespace-only values leave
+        Slipcover's automatic source discovery in place; any other value is
+        passed through unchanged as one ``--source`` argument before
+        ``--branch``, so a comma-separated scope stays a single value.
 
     Returns
     -------
@@ -362,7 +411,12 @@ def coverage_cmd_for_fmt(fmt: str, out: Path, workers: str = "") -> BoundCommand
         A plumbum command that runs slipcover via the coverage venv Python.
     """
     python_cmd = _coverage_python_cmd()
-    return python_cmd[_coverage_args(fmt, out, workers)]
+    scope = "configured" if python_source.strip() else "default"
+    # The decision, not the value: the scope reaches the log once already,
+    # inside the command line the command logger reports. A bounded state line
+    # distinguishes a deliberate scope from the Slipcover default at a glance.
+    typer.echo(f"Coverage command: format={fmt}, source scope={scope}")
+    return python_cmd[_coverage_args(fmt, out, workers, python_source)]
 
 
 @contextlib.contextmanager
@@ -393,7 +447,7 @@ def tmp_coveragepy_xml(out: Path) -> cabc.Generator[Path]:
     python_cmd = _coverage_python_cmd()
     try:
         cmd = python_cmd["-m", "coverage", "xml", "-o", str(xml_tmp)]
-        run_cmd(cmd)
+        run_cmd(cmd, env=coverage_child_env())
     except ProcessExecutionError as exc:
         typer.echo(
             f"coverage xml failed with code {exc.retcode}: {exc.stderr}",
@@ -427,7 +481,12 @@ def _resolve_output_path(output_path: Path, lang: str) -> Path:
     return output_path
 
 
-def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
+def _run_coverage(
+    fmt: str,
+    out: Path,
+    workers: str = "",
+    python_source: str = "",
+) -> str:
     """Run slipcover and return the line coverage percentage.
 
     Parameters
@@ -438,6 +497,9 @@ def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
         Destination path for the coverage output file.
     workers : str
         Worker count for pytest-xdist's ``-n`` flag; empty disables xdist.
+    python_source : str
+        Slipcover source scope passed to :func:`coverage_cmd_for_fmt`; empty
+        and whitespace-only values leave source discovery automatic.
 
     Returns
     -------
@@ -452,8 +514,8 @@ def _run_coverage(fmt: str, out: Path, workers: str = "") -> str:
         ``coveragepy`` format mode.
     """
     try:
-        cmd = coverage_cmd_for_fmt(fmt, out, workers)
-        run_cmd(cmd, method="run_fg")
+        cmd = coverage_cmd_for_fmt(fmt, out, workers, python_source)
+        run_cmd(cmd, method="run_fg", env=coverage_child_env())
     except ProcessExecutionError as exc:
         raise typer.Exit(code=exc.retcode or 1) from exc
     except RuntimeError as exc:
@@ -483,6 +545,18 @@ def _resolve_pytest_workers(pytest_workers: str | None) -> str:
     else:
         raw = pytest_workers
     return _parse_pytest_workers(raw)
+
+
+def _resolve_python_source(python_source: str | None) -> str:
+    """Resolve the optional Python source scope from the CLI or action env.
+
+    The raw non-empty value is preserved so a comma-separated Slipcover source
+    list reaches the subprocess as one argument. Empty and whitespace-only
+    values disable source scoping.
+    """
+    if python_source is None:
+        python_source = os.getenv("INPUT_PYTHON_SOURCE", "")
+    return python_source if python_source.strip() else ""
 
 
 def _resolve_inputs(
@@ -548,6 +622,12 @@ _PytestWorkersOption = typ.Annotated[
         ),
     ),
 ]
+_PythonSourceOption = typ.Annotated[
+    str | None,
+    typer.Option(
+        help="Optional comma-separated Python source scope for Slipcover.",
+    ),
+]
 
 
 def main(
@@ -557,6 +637,7 @@ def main(
     github_output: _GithubOutputOption = None,
     baseline_file: _BaselineFileOption = None,
     pytest_workers: _PytestWorkersOption = None,
+    python_source: _PythonSourceOption = None,
 ) -> None:
     """Run slipcover coverage and write the result to ``GITHUB_OUTPUT``."""
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
@@ -565,12 +646,13 @@ def main(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
+    source = _resolve_python_source(python_source)
     if workers:
         typer.echo(f"Pytest workers: {workers} (parallel via pytest-xdist)")
     else:
         typer.echo("Pytest workers: disabled (serial pytest run)")
     out.parent.mkdir(parents=True, exist_ok=True)
-    percent = _run_coverage(fmt, out, workers)
+    percent = _run_coverage(fmt, out, workers, source)
     typer.echo(f"Current coverage: {percent}%")
     previous = read_previous_coverage(baseline_file)
     if previous is not None:

@@ -388,14 +388,28 @@ class TestTheColdRunnerParserProof:
         """A parse break must fail the proof rather than be tolerated."""
         workflow = WORKFLOW_YML.read_text(encoding="utf-8")
 
-        assert "! grep -F 'No matching field found" not in workflow
-        assert "git fetch --no-tags --depth=1" in workflow
-        assert "git fetch --no-tags --unshallow" in workflow
-        assert 'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null' in workflow
-        assert (
-            "if grep -F 'No matching field found: close for class "
-            "java.io.InputStreamReader'" in workflow
+        tolerated = "! grep -F 'No matching field found"
+        assert tolerated not in workflow, (
+            f"{WORKFLOW_YML.name} negates the parser-failure grep, which would "
+            f"turn the known break into a pass: {tolerated!r}"
         )
-        assert "cs-coverage 1.0.101 reported the known parser failure" in workflow
-        assert "status=${PIPESTATUS[0]}" in workflow
-        assert "cs-coverage did not report a PASS result" in workflow
+        required = {
+            "shallow fetch of the merge base": "git fetch --no-tags --depth=1",
+            "unshallow fallback": "git fetch --no-tags --unshallow",
+            "merge-base check": (
+                'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null'
+            ),
+            "parser-failure detection": (
+                "if grep -F 'No matching field found: close for class "
+                "java.io.InputStreamReader'"
+            ),
+            "parser-failure message": (
+                "cs-coverage 1.0.101 reported the known parser failure"
+            ),
+            "pipeline status capture": "status=${PIPESTATUS[0]}",
+            "missing-PASS message": "cs-coverage did not report a PASS result",
+        }
+        missing = [
+            what for what, fragment in required.items() if fragment not in workflow
+        ]
+        assert not missing, f"{WORKFLOW_YML.name} is missing its {missing}"

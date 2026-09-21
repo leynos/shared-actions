@@ -300,10 +300,14 @@ class TestTheDigestScanFindsWhatIsPlanted:
             f"on:\n  workflow_dispatch:\njobs:\n  a:\n    env:\n"
             f"      X: ${{{{ vars.{DIGEST_VARIABLE} }}}}\n",
         )
-        assert digest_offenders(tmp_path) == {name: [DIGEST_VARIABLE]}
+        found = digest_offenders(tmp_path)
+        assert found == {name: [DIGEST_VARIABLE]}, (
+            f"planting {name} should be found as {DIGEST_VARIABLE}; read {found}"
+        )
 
     @pytest.mark.parametrize("suffix", EXTENSIONS)
     def test_the_refresher_is_found(self, tmp_path: Path, suffix: str) -> None:
         """The refresher's only output was that variable (YAGNI, 2026-09-18)."""
         name = _plant(tmp_path, f"get-codescene-sha{suffix}", "{}")
-        assert digest_refreshers(tmp_path) == [name]
+        found = digest_refreshers(tmp_path)
+        assert found == [name], f"planting {name} should be found; read {found}"

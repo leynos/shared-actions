@@ -655,7 +655,8 @@ class TestTheDeletedDigestPathStaysDeleted:
         """``installer-checksum`` is rejected when non-empty; the variable is dead."""
         named = digest_offenders(WORKFLOWS_DIRECTORY)
         assert named == {}, f"the digest path is back in: {named}"
-        assert digest_refreshers(WORKFLOWS_DIRECTORY) == []
+        refreshers = digest_refreshers(WORKFLOWS_DIRECTORY)
+        assert refreshers == [], f"the digest refresher is back: {refreshers}"
 
 
 def test_the_workflow_contracts_are_collected_by_the_default_run() -> None:

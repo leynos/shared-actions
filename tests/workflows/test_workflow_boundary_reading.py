@@ -37,6 +37,7 @@ from .test_main_owned_coverage import (
 )
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
 
@@ -49,46 +50,51 @@ class TestTheTriggerReaderSeesBothKeys:
     """
 
     @pytest.mark.parametrize(
-        ("document", "expected"),
+        ("reader", "document", "expected"),
         [
-            pytest.param({True: {"pull_request": None}}, True, id="boolean-key"),
-            pytest.param({"on": {"pull_request": None}}, True, id="string-key"),
-            pytest.param({True: ["pull_request"]}, True, id="boolean-key-list"),
-            pytest.param({True: "pull_request"}, True, id="boolean-key-string"),
-            pytest.param({True: {"push": {"branches": ["main"]}}}, False, id="push"),
-            pytest.param({}, False, id="no-triggers"),
+            *(
+                pytest.param(starts_on_pull_request, document, expected, id=case)
+                for document, expected, case in (
+                    ({True: {"pull_request": None}}, True, "pr-boolean-key"),
+                    ({"on": {"pull_request": None}}, True, "pr-string-key"),
+                    ({True: ["pull_request"]}, True, "pr-boolean-key-list"),
+                    ({True: "pull_request"}, True, "pr-boolean-key-string"),
+                    ({True: {"push": {"branches": ["main"]}}}, False, "pr-push"),
+                    ({}, False, "pr-no-triggers"),
+                )
+            ),
+            *(
+                pytest.param(pushes_to_main, document, expected, id=case)
+                for document, expected, case in (
+                    ({True: {"push": {"branches": ["main"]}}}, True, "push-main"),
+                    ({True: {"push": None}}, True, "push-unfiltered"),
+                    ({True: {"push": {"branches": ["dev"]}}}, False, "push-other"),
+                    ({True: {"workflow_dispatch": None}}, False, "push-dispatch"),
+                )
+            ),
         ],
     )
-    def test_pull_request_detection(
+    def test_a_trigger_is_read_under_either_key(
         self,
+        reader: cabc.Callable[[dict[typ.Any, typ.Any]], bool],
         document: dict[typ.Any, typ.Any],
         *,
         expected: bool,
     ) -> None:
-        """A pull-request trigger is seen under either key and every spelling."""
-        assert starts_on_pull_request(document) is expected, (
-            f"{document!r} should read as pull-request started={expected}"
+        """Both readers see every spelling, under the string key and ``True``."""
+        assert reader(document) is expected, (
+            f"{reader.__name__}({document!r}) should be {expected}"
         )
 
-    @pytest.mark.parametrize(
-        ("document", "expected"),
-        [
-            pytest.param({True: {"push": {"branches": ["main"]}}}, True, id="main"),
-            pytest.param({True: {"push": None}}, True, id="unfiltered"),
-            pytest.param({True: {"push": {"branches": ["dev"]}}}, False, id="other"),
-            pytest.param({True: {"workflow_dispatch": None}}, False, id="dispatch"),
-        ],
-    )
-    def test_main_push_detection(
-        self,
-        document: dict[typ.Any, typ.Any],
-        *,
-        expected: bool,
-    ) -> None:
-        """A push to main is recognised under a filter and without one."""
-        assert pushes_to_main(document) is expected, (
-            f"{document!r} should read as main-push started={expected}"
-        )
+
+class TestTheSelfReferenceReaderKnowsBothSpellings:
+    """Both prefixes named literally, so narrowing the constant fails.
+
+    Parametrising these over ``SELF_PREFIXES`` would make a reader that forgot
+    ``$/`` pass with fewer cases rather than fail, which is how a rule over a
+    filtered list is satisfied by emptying it. A `$/` reference carrying an
+    `@ref` is invalid to GitHub, so it is rejected rather than stripped.
+    """
 
     @pytest.mark.parametrize(
         ("uses", "expected"),
@@ -102,19 +108,12 @@ class TestTheTriggerReaderSeesBothKeys:
             pytest.param("", None, id="a-step-job"),
         ],
     )
-    def test_the_self_reference_reader_knows_both_spellings(
-        self, uses: str, expected: str | None
-    ) -> None:
-        """Name the two prefixes literally, so narrowing the constant fails.
-
-        Parametrising this over ``SELF_PREFIXES`` would make a reader that
-        forgot ``$/`` pass with three fewer cases rather than fail, which is
-        how a filtered list satisfies a rule by becoming empty.
-        """
+    def test_a_called_workflow_is_named(self, uses: str, expected: str | None) -> None:
+        """What a job delegates to, or nothing when the reference is not local."""
         assert _called_workflow({"uses": uses}) == expected, uses
 
     @pytest.mark.parametrize(
-        ("uses", "expected"),
+        ("uses", "recognised"),
         [
             pytest.param("./.github/actions/generate-coverage", True, id="relative"),
             pytest.param("$/.github/actions/generate-coverage", True, id="self-repo"),
@@ -124,19 +123,15 @@ class TestTheTriggerReaderSeesBothKeys:
             pytest.param("./.github/actions/setup-rust", False, id="another-action"),
         ],
     )
-    def test_the_coverage_action_is_recognised_in_both_spellings(
+    def test_the_coverage_action_is_recognised(
         self,
         uses: str,
         *,
-        expected: bool,
+        recognised: bool,
     ) -> None:
-        """A lane that switched syntax must not escape the coverage rules.
-
-        A `$/` reference carrying an `@ref` is invalid to GitHub, so it is
-        rejected rather than stripped and accepted.
-        """
+        """A lane that switched syntax must not escape the coverage rules."""
         document = {"jobs": {"a": {"steps": [{"uses": uses}]}}}
-        assert bool(coverage_steps(document)) is expected, uses
+        assert bool(coverage_steps(document)) is recognised, uses
 
     def test_reachability_follows_a_called_workflow(self) -> None:
         """A caller a pull request starts drags its callee into the boundary."""
@@ -204,6 +199,25 @@ WORKFLOW_GRAPHS: typ.Final = st.integers(min_value=1, max_value=6).flatmap(
 )
 
 
+def _walk(
+    shapes: list[WorkflowShape], prefix: str
+) -> tuple[dict[str, WorkflowDocument], set[str]]:
+    """Return a generated graph and what the walk reaches in it."""
+    documents = _graph(shapes, prefix)
+    return documents, pull_request_reachable(documents)
+
+
+def over_generated_graphs(test: cabc.Callable[..., None]) -> cabc.Callable[..., None]:
+    """Run *test* over every generated graph and both self-repository prefixes.
+
+    Every invariant below holds for any graph and either prefix, so naming
+    the two decorators once keeps each case to its assertion.
+    """
+    return pytest.mark.parametrize("prefix", SELF_PREFIXES)(
+        given(shapes=WORKFLOW_GRAPHS)(test)
+    )
+
+
 class TestReachabilityOverGeneratedGraphs:
     """The traversal's three invariants, on graphs chosen by Hypothesis.
 
@@ -213,14 +227,12 @@ class TestReachabilityOverGeneratedGraphs:
     what a contract quantifying over "every reachable workflow" relies on.
     """
 
-    @pytest.mark.parametrize("prefix", SELF_PREFIXES)
-    @given(shapes=WORKFLOW_GRAPHS)
+    @over_generated_graphs
     def test_every_pull_request_trigger_is_reached(
         self, shapes: list[WorkflowShape], prefix: str
     ) -> None:
         """A workflow a pull request starts is always inside the boundary."""
-        documents = _graph(shapes, prefix)
-        reached = pull_request_reachable(documents)
+        documents, reached = _walk(shapes, prefix)
         started = {
             name
             for name, document in documents.items()
@@ -230,8 +242,7 @@ class TestReachabilityOverGeneratedGraphs:
             f"pull-request started but unreached: {sorted(started - reached)}"
         )
 
-    @pytest.mark.parametrize("prefix", SELF_PREFIXES)
-    @given(shapes=WORKFLOW_GRAPHS)
+    @over_generated_graphs
     def test_the_boundary_is_closed_under_delegation(
         self, shapes: list[WorkflowShape], prefix: str
     ) -> None:
@@ -239,14 +250,12 @@ class TestReachabilityOverGeneratedGraphs:
 
         This is the half a CodeScene call moved one file away would exploit.
         """
-        documents = _graph(shapes, prefix)
-        reached = pull_request_reachable(documents)
+        documents, reached = _walk(shapes, prefix)
         for name in reached:
             escaped = _callees(documents, name) - reached
             assert not escaped, f"{name} calls unreached workflows: {sorted(escaped)}"
 
-    @pytest.mark.parametrize("prefix", SELF_PREFIXES)
-    @given(shapes=WORKFLOW_GRAPHS)
+    @over_generated_graphs
     def test_nothing_is_reached_without_a_reason(
         self, shapes: list[WorkflowShape], prefix: str
     ) -> None:
@@ -256,13 +265,22 @@ class TestReachabilityOverGeneratedGraphs:
         every workflow in the repository, which would make the boundary
         assertions fail on files no pull request can run.
         """
-        documents = _graph(shapes, prefix)
-        reached = pull_request_reachable(documents)
+        documents, reached = _walk(shapes, prefix)
         callers = {callee for name in reached for callee in _callees(documents, name)}
         for name in reached:
             assert starts_on_pull_request(documents[name]) or name in callers, (
                 f"{name} is reached but nothing starts or calls it"
             )
+
+
+#: The two spellings GitHub reads a workflow from.
+EXTENSIONS: typ.Final[tuple[str, ...]] = (".yml", ".yaml")
+
+
+def _plant(directory: Path, name: str, body: str) -> str:
+    """Write one workflow into *directory* and return its file name."""
+    (directory / name).write_text(body, encoding="utf-8")
+    return name
 
 
 class TestTheDigestScanFindsWhatIsPlanted:
@@ -273,27 +291,19 @@ class TestTheDigestScanFindsWhatIsPlanted:
     a workflow spelled either way.
     """
 
-    @pytest.mark.parametrize("suffix", [".yml", ".yaml"])
-    def test_an_offender_is_found_under_either_extension(
-        self, tmp_path: Path, suffix: str
-    ) -> None:
-        """Drive the scan on a directory built to contain one.
-
-        Over this repository's compliant workflows the scan passes whether or
-        not it reads both extensions, so the reading is exercised here. GitHub
-        runs a workflow spelled either way.
-        """
-        (tmp_path / f"refresh{suffix}").write_text(
+    @pytest.mark.parametrize("suffix", EXTENSIONS)
+    def test_the_dead_variable_is_found(self, tmp_path: Path, suffix: str) -> None:
+        """A workflow reading the variable is named, whatever it is spelled."""
+        name = _plant(
+            tmp_path,
+            f"refresh{suffix}",
             f"on:\n  workflow_dispatch:\njobs:\n  a:\n    env:\n"
             f"      X: ${{{{ vars.{DIGEST_VARIABLE} }}}}\n",
-            encoding="utf-8",
         )
-        assert digest_offenders(tmp_path) == {f"refresh{suffix}": [DIGEST_VARIABLE]}
+        assert digest_offenders(tmp_path) == {name: [DIGEST_VARIABLE]}
 
-    @pytest.mark.parametrize("suffix", [".yml", ".yaml"])
-    def test_a_refresher_is_found_under_either_extension(
-        self, tmp_path: Path, suffix: str
-    ) -> None:
+    @pytest.mark.parametrize("suffix", EXTENSIONS)
+    def test_the_refresher_is_found(self, tmp_path: Path, suffix: str) -> None:
         """The refresher's only output was that variable (YAGNI, 2026-09-18)."""
-        (tmp_path / f"get-codescene-sha{suffix}").write_text("{}", encoding="utf-8")
-        assert digest_refreshers(tmp_path) == [f"get-codescene-sha{suffix}"]
+        name = _plant(tmp_path, f"get-codescene-sha{suffix}", "{}")
+        assert digest_refreshers(tmp_path) == [name]

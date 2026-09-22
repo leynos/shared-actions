@@ -368,6 +368,27 @@ class TestMainOwnsPublication:
             f"through {unstable}, so it serialises nothing"
         )
 
+    def test_the_publisher_queues_rather_than_cancels(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """A cancelled publisher abandons its upload and its baseline write.
+
+        A queued one publishes after the run ahead of it, so the later push's
+        baseline still wins. Only an absent or literally false
+        ``cancel-in-progress`` is accepted: an expression may evaluate true.
+        """
+        (publisher,) = _publishers(documents)
+        concurrency = documents[publisher].get("concurrency")
+        cancels = (
+            concurrency.get("cancel-in-progress", False)
+            if isinstance(concurrency, dict)
+            else False
+        )
+        assert cancels is False or str(cancels).strip().lower() == "false", (
+            f"{publisher} cancels an in-progress publication: "
+            f"cancel-in-progress is {cancels!r}"
+        )
+
     def test_the_publisher_ratchets_every_platform_a_lane_ratchets(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:

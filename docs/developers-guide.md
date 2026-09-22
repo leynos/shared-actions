@@ -921,7 +921,11 @@ it splits the condition on its top-level `&&` and refuses any `||` outside a
 string literal. A substring search is not enough, because appending
 `|| github.event_name == 'workflow_dispatch'` keeps both terms in the text and
 makes neither required. The workflow carries a `concurrency` group so two
-overlapping `main` pushes cannot race to write the baseline.
+overlapping `main` pushes cannot race to write the baseline, and the group
+queues rather than cancels: a cancelled publisher abandons both its upload and
+its baseline write, while a queued one publishes after the run ahead of it. The
+contract accepts `cancel-in-progress` only when it is absent or literally
+false, because an expression may evaluate true.
 
 Every coverage step, on both sides, sets `language: python` and
 `python-source: workflow_scripts`. The scope is half of the baseline contract:

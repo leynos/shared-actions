@@ -8,9 +8,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Overlapping main pushes queue rather than cancel. A cancelled run abandons
+# both its upload and its ratchet baseline write; a queued one publishes after
+# the run ahead of it, so the later push's baseline wins.
 concurrency:
   group: coverage-main-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   coverage-upload:

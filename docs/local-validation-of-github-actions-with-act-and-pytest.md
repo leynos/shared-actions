@@ -210,7 +210,11 @@ forces the opt-in back off, so the lane's modules skip inside it and
 `tests/workflows` is not run twice. `ACT_WORKFLOW_TESTS` is the canonical
 pytest-side gate; `WITH_ACT` is the Make-side alias for the same opt-in, and
 either one asks for the lane. After running with sudo, remove the root-owned
-`.venv` (`sudo rm -rf .venv`) so future non-root commands can recreate it.
+`.venv` (`sudo rm -rf .venv`) so future non-root commands can recreate it. The
+act harness also leaves a `.venv-coverage` directory behind, created inside the
+container by the `generate-coverage` action; `make clean` removes it with the
+other transient artefacts, and you may want the same `sudo` treatment when the
+run was privileged.
 
 ## Record -> replay -> verify (closing the loop)
 

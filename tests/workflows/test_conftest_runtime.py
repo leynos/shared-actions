@@ -58,6 +58,9 @@ class TestExecutableDetection:
         [
             pytest.param("tool.exe", True, id="pathext-suffix"),
             pytest.param("tool.EXE", True, id="pathext-suffix-upper-case"),
+            pytest.param("tool.com", True, id="pathext-com"),
+            pytest.param("tool.bat", True, id="pathext-bat"),
+            pytest.param("tool.cmd", True, id="pathext-cmd"),
             pytest.param("tool", False, id="no-suffix"),
             pytest.param("tool.sh", False, id="suffix-outside-pathext"),
         ],
@@ -144,16 +147,23 @@ class TestExecutableDetection:
     def test_windows_executable_suffixes_falls_back_when_pathext_is_empty(
         self,
     ) -> None:
-        """An absent or empty PATHEXT falls back to the documented defaults."""
+        """An absent or empty PATHEXT falls back to exactly the documented defaults.
+
+        Asserted as the whole set, not one member. A fallback that lost
+        `.cmd` would still contain `.exe`, and a `.cmd` shim would then
+        read as unavailable on a runner with no PATHEXT.
+        """
+        expected = frozenset({".com", ".exe", ".bat", ".cmd"})
         absent = conftest._windows_executable_suffixes({})
         empty = conftest._windows_executable_suffixes({"PATHEXT": ""})
 
-        assert absent == empty, (
-            "an absent PATHEXT and an empty one are the same absence of a "
-            f"caller preference, but gave {absent} and {empty}"
+        assert absent == expected, (
+            f"an absent PATHEXT should fall back to {sorted(expected)}, got "
+            f"{sorted(absent)}"
         )
-        assert ".exe" in absent, (
-            f"the documented fallback must include '.exe', got {absent}"
+        assert empty == expected, (
+            f"an empty PATHEXT should fall back to {sorted(expected)}, got "
+            f"{sorted(empty)}"
         )
 
 

@@ -48,16 +48,34 @@ _DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
 _PATHEXT_SEPARATOR = ";"
 
 
+#: Suffixes `PATHEXT` commonly carries that name a script rather than a
+#: program: Windows runs them by handing them to an interpreter, and the
+#: probe's caller does not. `_run_act` passes the resolved path straight
+#: to `plumbum.local[...]`, which spawns it as a process and does not
+#: select `powershell` or `wscript`, so a `.PS1` here would pass the
+#: availability check and then fail at process creation with a message
+#: about the file rather than about the probe. Refusing them keeps the
+#: check's answer and the caller's behaviour the same thing.
+_INTERPRETED_SUFFIXES: typ.Final[frozenset[str]] = frozenset(
+    {".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc", ".cpl"}
+)
+
+
 def _windows_executable_suffixes(
     environ: cabc.Mapping[str, str] | None = None,
 ) -> frozenset[str]:
-    """Return the lower-cased suffixes Windows treats as executable."""
+    """Return the lower-cased suffixes Windows would spawn directly.
+
+    `PATHEXT` is the list Windows searches, not the list of files a
+    caller can spawn. The interpreted ones are filtered out because the
+    caller spawns the path itself.
+    """
     source = os.environ if environ is None else environ
     raw = source.get("PATHEXT") or _DEFAULT_PATHEXT
     return frozenset(
         suffix.strip().lower()
         for suffix in raw.split(_PATHEXT_SEPARATOR)
-        if suffix.strip()
+        if suffix.strip() and suffix.strip().lower() not in _INTERPRETED_SUFFIXES
     )
 
 

@@ -115,6 +115,32 @@ class TestExecutableDetection:
             f"and drop the blank one, giving {{'.exe', '.cmd'}}, got {suffixes}"
         )
 
+    @pytest.mark.parametrize(
+        "suffix", [".PS1", ".VBS", ".JS", ".WSF", ".MSC"], ids=str.lower
+    )
+    def test_an_interpreted_suffix_is_refused(self, suffix: str) -> None:
+        """A PATHEXT entry Windows runs through an interpreter is not spawnable.
+
+        The probe's answer feeds `_run_act`, which passes the resolved
+        path straight to plumbum and spawns it as a process. Plumbum
+        selects no interpreter, so a `.PS1` accepted here would fail at
+        process creation with a message about the file rather than about
+        the probe, which is the failure this filter removes.
+        """
+        suffixes = conftest._windows_executable_suffixes(
+            {"PATHEXT": f".COM;.EXE;{suffix}"}
+        )
+
+        assert suffix.lower() not in suffixes, (
+            f"{suffix} names a script Windows hands to an interpreter; the "
+            f"caller spawns the path itself, so it must not be reported "
+            f"runnable. Got {sorted(suffixes)}"
+        )
+        assert ".exe" in suffixes, (
+            "filtering the interpreted suffixes must not drop the spawnable "
+            f"ones beside them; got {sorted(suffixes)}"
+        )
+
     def test_windows_executable_suffixes_falls_back_when_pathext_is_empty(
         self,
     ) -> None:

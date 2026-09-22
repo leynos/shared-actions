@@ -1,5 +1,5 @@
-.PHONY: all clean help test lint lint-whitaker markdownlint nixie fmt check-fmt \
-	typecheck spelling
+.PHONY: all clean help test test-act lint lint-whitaker markdownlint nixie fmt \
+	check-fmt typecheck spelling
 
 export GITHUB_ACTION_PATH ?= $(CURDIR)
 
@@ -12,7 +12,8 @@ endif
 all: fmt lint typecheck test spelling ## Run the complete validation suite
 
 clean: ## Remove transient artefacts
-	rm -rf .venv .pytest_cache .ruff_cache workspace/.ruff_cache .uv-cache .uv-tools
+	rm -rf .venv .venv-coverage .pytest_cache .ruff_cache workspace/.ruff_cache \
+		.uv-cache .uv-tools
 
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
@@ -46,13 +47,15 @@ test: .venv ## Run tests
 # `WITH_ACT` is an alias for `ACT_WORKFLOW_TESTS`: `make test WITH_ACT=1` invites
 # the act lane by name, which reads better than naming the suite's own
 # environment variable at the command line. Either variable opts in; the lane
-# itself is still the two pytest invocations the first line runs plus this one,
-# and it still exports `ACT_WORKFLOW_TESTS=1` so the pytest-side opt-in gate
-# agrees with the Makefile-side one.
+# still exports `ACT_WORKFLOW_TESTS=1` so the pytest-side opt-in gate agrees
+# with the Makefile-side one.
 ACT_LANE_REQUESTED := $(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS) $(WITH_ACT)))
 ifneq ($(ACT_LANE_REQUESTED),)
-	ACT='$(ACT)' ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
+test: test-act
 endif
+
+test-act: .venv ## Run the act workflow lane, independently of the plain suite
+	ACT='$(ACT)' ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
 
 .venv:
 	$(UV) venv

@@ -195,10 +195,19 @@ to _run_ it you must opt in:
 ACT_WORKFLOW_TESTS=1 sudo -E make test
 ```
 
-That target first runs the regular test suite as the invoking user, then
-re-runs only the workflow harness when `ACT_WORKFLOW_TESTS=1`. After running
-with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so future
-non-root commands can recreate it.
+`ACT_WORKFLOW_TESTS=1` adds the `test-act` target to `make test`, and
+`WITH_ACT=1` is an accepted alias for the same opt-in. The two targets are
+invoked in sequence but run independently, so a failure in the regular suite
+does not stop the harness lane from running and reporting its own result --
+when reading a combined log, check both outcomes rather than stopping at the
+first failure. To run the harness lane alone, call `make test-act` directly.
+
+After running with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so
+future non-root commands can recreate it. The act harness also leaves a
+`.venv-coverage` directory behind, created inside the container by the
+`generate-coverage` action; `make clean` removes it with the other transient
+artefacts, and you may want the same `sudo` treatment when the run was
+privileged.
 
 ## Record -> replay -> verify (closing the loop)
 

@@ -184,17 +184,19 @@ def _resolve_container_env(
             EnvOverrideTestCase(
                 workflow="test-generate-coverage.yml",
                 job="test-generate-coverage-out-no-suffix",
-                # Both spellings of the suffix input, as act supplies them.
-                # act exports a composite input under its dashed name, and the
-                # step's own `env:` mapping used the underscored one, so a
-                # Cyclopts `Env("INPUT_")` binding resolved one parameter from
-                # two matching variables and aborted the step. The workflow
-                # omits `artefact-name-suffix` entirely, so these keys are
-                # what a default caller's environment actually carries.
-                container_env_template={
-                    "INPUT_ARTEFACT_NAME_SUFFIX": "",
-                    "INPUT_ARTEFACT-NAME-SUFFIX": "",
-                },
+                # Deliberately empty. The collision act causes needs nothing
+                # injected: act exports every declared composite input into the
+                # step environment under its dashed name, and the step's own
+                # `env:` mapping supplied the underscored one, so a Cyclopts
+                # `Env("INPUT_")` binding resolved one parameter from two
+                # matching variables. Verified by running this case against the
+                # state before the fix with the template empty -- it still
+                # fails with "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified
+                # multiple times" -- and against the fix, where it passes. A
+                # populated template would test act's `--env` plumbing rather
+                # than the collision, and would hard-code a pair the workflow
+                # no longer sets.
+                container_env_template={},
                 expected_patterns=[
                     (r'file["\s]*[:=]["\s]*\S+\.xml', "file= missing from logs"),
                     (r'format["\s]*[:=]["\s]*cobertura', "format= missing from logs"),

@@ -15,6 +15,7 @@ newline. GitHub evaluates it regardless, so a green run is not evidence.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import re
 import shlex
 import typing as typ
@@ -110,35 +111,65 @@ def _as_job(value: object, *, where: str) -> _Job:
             raise TypeError(msg)
 
 
-def _document() -> cabc.Mapping[object, object]:
-    """Return the parsed workflow as an unnarrowed mapping.
+@dc.dataclass(frozen=True)
+class _Workflow:
+    """One workflow file, read once: its path, its text, and its parse.
 
-    The keys are left as `object` because one of them is not a string:
-    `on` is read back as the boolean `True`, since YAML 1.1 says so and
-    `yaml.safe_load` obeys it.
+    The text is kept beside the parse because `_raw_runs_on` needs the
+    declaration as written, which the parse is exactly what hides.
     """
-    match yaml.safe_load(WORKFLOW.read_text(encoding="utf-8")):
-        case dict() as parsed:
-            return parsed
+
+    path: Path
+    text: str
+    document: cabc.Mapping[object, object]
+
+
+def _read(path: Path) -> _Workflow:
+    """Read and parse the workflow at *path*, the module's only file access.
+
+    Both failures are reported here, naming the file, so every reader
+    below is a pure function of what this returns. The keys are left as
+    `object` because one of them is not a string: `on` is read back as
+    the boolean `True`, since YAML 1.1 says so and `yaml.safe_load`
+    obeys it.
+
+    Raises
+    ------
+    ValueError
+        If the file cannot be read or is not valid YAML.
+    TypeError
+        If the document is not a mapping.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+        parsed = yaml.safe_load(text)
+    except (OSError, yaml.YAMLError) as error:
+        msg = f"{path} cannot be read as YAML: {error}"
+        raise ValueError(msg) from error
+    match parsed:
+        case dict() as document:
+            return _Workflow(path=path, text=text, document=document)
         case other:
-            msg = f"{WORKFLOW} is not a mapping: {other!r}"
+            msg = f"{path} is not a mapping: {other!r}"
             raise TypeError(msg)
 
 
-def _jobs() -> dict[str, _Job]:
+def _jobs(workflow: _Workflow) -> dict[str, _Job]:
     """Return the workflow's jobs, each narrowed to the shape read here."""
-    match _document().get("jobs"):
+    match workflow.document.get("jobs"):
         case dict() as jobs:
             return {
                 str(name): _as_job(job, where=f"job {name}")
                 for name, job in jobs.items()
             }
         case other:
-            msg = f"{WORKFLOW} declares no jobs mapping: {other!r}"
+            msg = f"{workflow.path} declares no jobs mapping: {other!r}"
             raise TypeError(msg)
 
 
-def _event_filters(event: object, filters: object) -> cabc.Mapping[str, object]:
+def _event_filters(
+    event: object, filters: object, *, path: Path
+) -> cabc.Mapping[str, object]:
     """Return one event's filters, refusing a value that is neither.
 
     `None` is the bare spelling, `on: {pull_request:}`, and means no
@@ -156,13 +187,13 @@ def _event_filters(event: object, filters: object) -> cabc.Mapping[str, object]:
             return declared
         case other:
             msg = (
-                f"{WORKFLOW} declares {event!r} with filters that are neither "
+                f"{path} declares {event!r} with filters that are neither "
                 f"absent nor a mapping: {other!r}"
             )
             raise TypeError(msg)
 
 
-def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
+def _triggers(workflow: _Workflow) -> cabc.Mapping[str, cabc.Mapping[str, object]]:
     """Return the workflow's `on:` mapping, with each event's filters.
 
     `on` is read back from YAML as the boolean True, because YAML 1.1
@@ -174,7 +205,7 @@ def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
     becomes an empty mapping, so a caller reads "no filters" the same way
     whether the key was written bare or with an empty body.
     """
-    document = _document()
+    document = workflow.document
     for key in (True, "on"):
         if key not in document:
             continue
@@ -183,17 +214,20 @@ def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
                 return {}
             case dict() as events:
                 return {
-                    str(event): _event_filters(event, filters)
+                    str(event): _event_filters(event, filters, path=workflow.path)
                     for event, filters in events.items()
                 }
             case other:
-                msg = f"{WORKFLOW} declares triggers that are not a mapping: {other!r}"
+                msg = (
+                    f"{workflow.path} declares triggers that are not a mapping: "
+                    f"{other!r}"
+                )
                 raise TypeError(msg)
-    msg = f"{WORKFLOW} declares no triggers"
+    msg = f"{workflow.path} declares no triggers"
     raise AssertionError(msg)
 
 
-def _raw_runs_on(job_name: str) -> str:
+def _raw_runs_on(workflow: _Workflow, job_name: str) -> str:
     """Return a job's `runs-on` as written, including any line break.
 
     Read from the text rather than the parse, because the parse is what
@@ -201,14 +235,13 @@ def _raw_runs_on(job_name: str) -> str:
     parses to a string containing a newline, and nothing downstream
     complains.
     """
-    text = WORKFLOW.read_text(encoding="utf-8")
     pattern = re.compile(
         rf"^  {re.escape(job_name)}:\n(?P<body>(?:^(?:    .*)?\n)*)",
         re.MULTILINE,
     )
-    match = pattern.search(text)
+    match = pattern.search(workflow.text)
     if match is None:
-        msg = f"{WORKFLOW} declares no job {job_name}"
+        msg = f"{workflow.path} declares no job {job_name}"
         raise AssertionError(msg)
     body = match.group("body")
     declaration = re.search(
@@ -335,13 +368,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     collection error naming it.
     """
     if "job_name" in metafunc.fixturenames:
-        metafunc.parametrize("job_name", sorted(_jobs()))
+        metafunc.parametrize("job_name", sorted(_jobs(_read(WORKFLOW))))
+
+
+@pytest.fixture(scope="module")
+def watchdog() -> _Workflow:
+    """Return the watchdog lane's workflow, read once for the module."""
+    return _read(WORKFLOW)
 
 
 class TestCoverageWatchdogLane:
     """The lane that carries the proof, and the ways it could stop running."""
 
-    def test_the_lane_runs_the_proof_script(self) -> None:
+    def test_the_lane_runs_the_proof_script(self, watchdog: _Workflow) -> None:
         """Some step runs the proof, and points it at the coverage runner.
 
         Asserted as the command. A step that kept the name and ran something
@@ -349,7 +388,7 @@ class TestCoverageWatchdogLane:
         """
         commands = [
             str(step.get("run", ""))
-            for job in _jobs().values()
+            for job in _jobs(watchdog).values()
             for step in job.get("steps", [])
         ]
         invocations = [
@@ -360,7 +399,7 @@ class TestCoverageWatchdogLane:
         ]
 
         assert invocations, (
-            f"no step in {WORKFLOW.name} executes {PROOF_SCRIPT} as a command, "
+            f"no step in {watchdog.path.name} executes {PROOF_SCRIPT} as a command, "
             "either directly or through uv run, so the cargo watchdog is not "
             "proved anywhere. A step that passes the path to another command, "
             "such as true or echo, satisfies a substring check and runs nothing"
@@ -378,7 +417,7 @@ class TestCoverageWatchdogLane:
             "go unproved"
         )
 
-    def test_the_lane_runs_on_every_pull_request(self) -> None:
+    def test_the_lane_runs_on_every_pull_request(self, watchdog: _Workflow) -> None:
         """The lane filters its pull_request trigger by nothing at all.
 
         A filtered lane falls silent on the pull request that breaks the
@@ -388,20 +427,20 @@ class TestCoverageWatchdogLane:
         on a `pull_request` trigger matches the base branch, and a pull
         request against any other base then never runs the proof.
         """
-        triggers = _triggers()
+        triggers = _triggers(watchdog)
 
         assert "pull_request" in triggers, (
-            f"{WORKFLOW.name} does not run on pull_request"
+            f"{watchdog.path.name} does not run on pull_request"
         )
         filters = triggers["pull_request"] or {}
         declared = sorted(set(filters) & TRIGGER_FILTERS)
 
         assert not declared, (
-            f"{WORKFLOW.name} filters its pull_request trigger by {declared}, so "
+            f"{watchdog.path.name} filters its pull_request trigger by {declared}, so "
             "the watchdog would go unproved on the pull requests it excludes"
         )
 
-    def test_runs_on_is_one_line(self, job_name: str) -> None:
+    def test_runs_on_is_one_line(self, watchdog: _Workflow, job_name: str) -> None:
         """No job's `runs-on` carries a line break.
 
         A folded scalar keeps the break when its continuation is indented
@@ -409,11 +448,11 @@ class TestCoverageWatchdogLane:
         expression. GitHub evaluates it regardless and the run goes green,
         so the defect is invisible in CI and has to be refused here.
         """
-        raw = _raw_runs_on(job_name)
+        raw = _raw_runs_on(watchdog, job_name)
         folded = " ".join(
             part.strip() for part in raw.strip().splitlines() if part.strip()
         )
-        parsed = _jobs()[job_name]["runs-on"]
+        parsed = _jobs(watchdog)[job_name]["runs-on"]
 
         assert "\n" not in str(parsed).strip(), (
             f"{job_name}'s runs-on parses to more than one line: {parsed!r}; keep "
@@ -421,7 +460,9 @@ class TestCoverageWatchdogLane:
         )
         assert folded, f"{job_name} declares an empty runs-on"
 
-    def test_runs_on_maps_each_case_to_its_runner(self, job_name: str) -> None:
+    def test_runs_on_maps_each_case_to_its_runner(
+        self, watchdog: _Workflow, job_name: str
+    ) -> None:
         """A fork gets the GitHub-hosted runner and everything else Ubicloud.
 
         A pull request from a fork cannot obtain an Ubicloud runner, so a
@@ -435,7 +476,7 @@ class TestCoverageWatchdogLane:
         hosted one. So the expression is parsed and each arm is tied to its
         case.
         """
-        parsed = " ".join(str(_jobs()[job_name]["runs-on"]).split())
+        parsed = " ".join(str(_jobs(watchdog)[job_name]["runs-on"]).split())
         match = _FORK_AWARE_RUNS_ON.match(parsed)
 
         assert match is not None, (
@@ -452,109 +493,4 @@ class TestCoverageWatchdogLane:
         assert match.group("base_arm") == OWN_RUNNER, (
             f"{job_name} sends this repository's own pull requests to "
             f"{match.group('base_arm')!r}; it must be {OWN_RUNNER!r}"
-        )
-
-
-class TestTheWorkflowReaders:
-    """What the readers refuse, so that the narrowing is not decoration.
-
-    Every assertion above reads its fields through these helpers. If the
-    helpers accepted whatever the parser handed back, the annotations
-    would describe an intention rather than a fact, and a workflow that
-    had lost its shape would reach an assertion as something unchecked.
-    """
-
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param("a string", "not a mapping", id="not-a-mapping"),
-            pytest.param(
-                {"runs-on": ["ubuntu-latest"]},
-                "runs-on that is not a string",
-                id="runs-on-as-a-list",
-            ),
-            pytest.param(
-                {"steps": [["not", "a", "mapping"]]},
-                "step 0 is not a mapping",
-                id="a-step-that-is-not-a-mapping",
-            ),
-        ],
-    )
-    def test_a_job_that_is_not_the_expected_shape_is_refused(
-        self, value: object, expected: str
-    ) -> None:
-        """A job the contract cannot read fails here, not at an assertion.
-
-        The list form of `runs-on` is the one to watch. GitHub accepts it,
-        this lane does not use it, and reading it as a string downstream
-        would compare the fork expression against a repr and report a
-        confusing mismatch instead of the real problem.
-        """
-        with pytest.raises(TypeError, match=expected):
-            _as_job(value, where="job under test")
-
-    def test_a_job_without_steps_reads_as_having_none(self) -> None:
-        """A job declaring no steps is a job, not an error.
-
-        It is a job this contract has something to say about: it runs the
-        proof nowhere.
-        """
-        assert _as_job({"runs-on": "ubicloud-standard-2"}, where="job") == {
-            "runs-on": "ubicloud-standard-2",
-            "steps": [],
-        }
-
-
-class TestTheProofCommand:
-    """Which run blocks count as executing the proof script."""
-
-    @pytest.mark.parametrize(
-        ("script", "expected"),
-        [
-            pytest.param(
-                f"uv run --script {PROOF_SCRIPT} --runner R", True, id="uv-script"
-            ),
-            pytest.param(f"uv run {PROOF_SCRIPT} --runner R", True, id="uv-run"),
-            pytest.param(f"{PROOF_SCRIPT} --runner R", True, id="direct"),
-            pytest.param(f"./{PROOF_SCRIPT} --runner R", True, id="direct-dotted"),
-            pytest.param(
-                f"if uv run --script {PROOF_SCRIPT} --runner R; then :; fi",
-                True,
-                id="behind-if",
-            ),
-            pytest.param(
-                f"RUST_LOG=debug uv run --script {PROOF_SCRIPT} --runner R",
-                True,
-                id="behind-an-assignment",
-            ),
-            pytest.param(f"true {PROOF_SCRIPT} --runner R", False, id="true"),
-            pytest.param(f": {PROOF_SCRIPT} --runner R", False, id="colon"),
-            pytest.param(f"echo {PROOF_SCRIPT} --runner R", False, id="echo"),
-            pytest.param(
-                f"uv run --script other.py {PROOF_SCRIPT} --runner R",
-                False,
-                id="an-argument-to-another-script",
-            ),
-            pytest.param(f"# {PROOF_SCRIPT} --runner R", False, id="comment"),
-        ],
-    )
-    def test_only_a_launcher_in_the_command_position_counts(
-        self,
-        script: str,
-        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
-    ) -> None:
-        """The script runs only when it or `uv run` holds the command position.
-
-        Anything else that names the path, `true` above all, exits zero
-        and proves nothing, so it must not satisfy the lane rule.
-        """
-        arguments = [
-            found
-            for words in _command_lines(script)
-            if (found := _proof_arguments(words)) is not None
-        ]
-
-        assert (arguments == [["--runner", "R"]]) is expected, (
-            f"{script!r} should {'' if expected else 'not '}count as executing "
-            f"the proof; read as {arguments!r}"
         )

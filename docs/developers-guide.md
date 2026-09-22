@@ -1474,6 +1474,13 @@ scalar whose continuation is indented more deeply keeps its line break, putting
 a newline inside the expression, and GitHub evaluates it anyway, so a green run
 is not evidence.
 
+The workflow file is read in exactly one place, and a file that cannot be read
+or parsed fails there, naming the file. Every rule gets the result of that read
+as an argument instead of fetching a fixed path itself, and the `job_name`
+cases are generated at collection, so importing the module reads nothing.
+`tests/workflows/test_coverage_watchdog_readers.py` runs those readers against
+synthetic workflows.
+
 ## `stage-release-artefacts` Action Architecture
 
 ### Staging Pipeline

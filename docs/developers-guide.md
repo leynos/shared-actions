@@ -1432,14 +1432,41 @@ silent on the pull request that breaks the watchdog from somewhere the filter
 does not name, and a check that reports on some pull requests and not others
 cannot become a required check.
 
-`tests/workflows/test_coverage_watchdog_lane.py` holds it to that. It asserts
-the command the step runs rather than the step's name, that the `pull_request`
-trigger carries no paths filter, and that every job's `runs-on` offers both
-arms of the fork fallback and parses to a single line. That last rule reads the
-raw declaration rather than the parsed value: a folded scalar whose
-continuation is indented more deeply keeps its line break, putting a newline
-inside the expression, and GitHub evaluates it anyway, so a green run is not
-evidence.
+`tests/workflows/test_coverage_watchdog_lane.py` holds it to that. Four rules,
+each of which a plausible edit would otherwise break silently:
+
+<!-- markdownlint-disable MD013 -->
+| Rule                       | What it requires                                                                                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The proof runs             | Some step executes `workflow_scripts/prove_cargo_watchdog.py` as a command, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
+| The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches` or `branches-ignore`.                                              |
+| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                 |
+| The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                               |
+<!-- markdownlint-enable MD013 -->
+
+The first is asserted as an executed command rather than as the step's name or
+as a substring of its script. A step reading `echo <proof> --runner <runner>`
+exits zero, proves nothing, and satisfies any check that looks for the path
+anywhere in the text, so the run block is split on line breaks and shell
+separators and each fragment is read as a command line.
+
+The second refuses branch filters as firmly as path ones. `branches: [main]` on
+a `pull_request` trigger matches the base branch, so a pull request against any
+other base would never run the proof, and a check reporting on some pull
+requests and not others cannot be required. A trigger value that is neither
+absent nor a mapping, such as `pull_request: [opened]`, is refused outright: a
+reader treating it as "no filters" would report the lane unfiltered while it
+was filtered hard.
+
+The third asserts which arm is which, not that both labels appear. The reversal
+sends forks to the paid runner they cannot obtain and this repository's own
+pull requests to the hosted one, and it satisfies any check that merely looks
+for both labels and the field path.
+
+The fourth reads the raw declaration rather than the parsed value: a folded
+scalar whose continuation is indented more deeply keeps its line break, putting
+a newline inside the expression, and GitHub evaluates it anyway, so a green run
+is not evidence.
 
 ## `stage-release-artefacts` Action Architecture
 

@@ -16,6 +16,7 @@ newline. GitHub evaluates it regardless, so a green run is not evidence.
 from __future__ import annotations
 
 import re
+import shlex
 import typing as typ
 from pathlib import Path
 
@@ -137,6 +138,30 @@ def _jobs() -> dict[str, _Job]:
             raise TypeError(msg)
 
 
+def _event_filters(event: object, filters: object) -> cabc.Mapping[str, object]:
+    """Return one event's filters, refusing a value that is neither.
+
+    `None` is the bare spelling, `on: {pull_request:}`, and means no
+    filters. A mapping is the filtered spelling. Anything else is
+    malformed, and reading it as "no filters" is the dangerous
+    direction: a `pull_request` written as a list of branch names would
+    filter the lane hard while `test_the_lane_runs_on_every_pull_request`
+    reported it unfiltered, which is the exact claim that rule exists to
+    make.
+    """
+    match filters:
+        case None:
+            return {}
+        case dict() as declared:
+            return declared
+        case other:
+            msg = (
+                f"{WORKFLOW} declares {event!r} with filters that are neither "
+                f"absent nor a mapping: {other!r}"
+            )
+            raise TypeError(msg)
+
+
 def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
     """Return the workflow's `on:` mapping, with each event's filters.
 
@@ -158,7 +183,7 @@ def _triggers() -> cabc.Mapping[str, cabc.Mapping[str, object]]:
                 return {}
             case dict() as events:
                 return {
-                    str(event): filters if isinstance(filters, dict) else {}
+                    str(event): _event_filters(event, filters)
                     for event, filters in events.items()
                 }
             case other:
@@ -214,6 +239,57 @@ _FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
 )
 
 
+#: Words that introduce a command rather than being one. A run block is
+#: shell, so a line may sit behind `then`, inside a pipeline, or after a
+#: separator, and the script's path may equally be an argument to
+#: something that never executes it.
+_SHELL_PREFIXES: typ.Final[frozenset[str]] = frozenset(
+    {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "env"}
+)
+
+#: Words that take a command as an argument instead of running it. A step
+#: reading `echo <proof> --runner <runner>` exits zero, proves nothing,
+#: and satisfies any check that looks for the path anywhere in the text.
+_NOT_EXECUTIONS: typ.Final[frozenset[str]] = frozenset(
+    {"echo", "printf", "cat", "ls", "test", "["}
+)
+
+
+def _command_lines(script: str) -> cabc.Iterator[list[str]]:
+    """Yield the words of each command the run block would execute.
+
+    The block is split on line breaks and on the shell separators that
+    end a command, then each fragment is tokenised. A fragment whose
+    first word takes a command as an argument yields nothing, because
+    nothing in it runs.
+    """
+    fragments = re.split(r"[\n;&|]+", script)
+    for fragment in fragments:
+        try:
+            words = shlex.split(fragment, comments=True)
+        except ValueError:
+            continue
+        while words and words[0] in _SHELL_PREFIXES:
+            words = words[1:]
+        if not words or words[0] in _NOT_EXECUTIONS:
+            continue
+        yield words
+
+
+def _runner_argument(words: cabc.Sequence[str]) -> str | None:
+    """Return the value the command passes to `--runner`, if any.
+
+    Both spellings GitHub Actions authors use are read: `--runner PATH`
+    and `--runner=PATH`.
+    """
+    for index, word in enumerate(words):
+        if word == "--runner" and index + 1 < len(words):
+            return words[index + 1]
+        if word.startswith("--runner="):
+            return word.removeprefix("--runner=")
+    return None
+
+
 class TestCoverageWatchdogLane:
     """The lane that carries the proof, and the ways it could stop running."""
 
@@ -228,15 +304,28 @@ class TestCoverageWatchdogLane:
             for job in _jobs().values()
             for step in job.get("steps", [])
         ]
-        running_the_proof = [command for command in commands if PROOF_SCRIPT in command]
+        invocations = [
+            words
+            for command in commands
+            for words in _command_lines(command)
+            if PROOF_SCRIPT in words
+        ]
 
-        assert running_the_proof, (
-            f"no step in {WORKFLOW.name} runs {PROOF_SCRIPT}, so the cargo "
-            "watchdog is not proved anywhere"
+        assert invocations, (
+            f"no step in {WORKFLOW.name} executes {PROOF_SCRIPT} as a command, "
+            "so the cargo watchdog is not proved anywhere. A step that passes "
+            "the path to another command, such as echo, satisfies a substring "
+            "check and runs nothing"
         )
-        assert any(COVERAGE_RUNNER in command for command in running_the_proof), (
-            f"the proof is not pointed at {COVERAGE_RUNNER}, so it would not "
-            "exercise the watchdog the coverage action uses"
+        pointed = [
+            words for words in invocations if _runner_argument(words) == COVERAGE_RUNNER
+        ]
+
+        assert pointed, (
+            f"no execution of {PROOF_SCRIPT} passes --runner "
+            f"{COVERAGE_RUNNER}; the proof would then exercise some other "
+            "script, or none, and the watchdog the coverage action uses would "
+            "go unproved"
         )
 
     def test_the_lane_runs_on_every_pull_request(self) -> None:

@@ -11,6 +11,22 @@ name: Test generate-coverage
 # deliberately omits `artefact-name-suffix`, which is the omitted-input case a
 # caller hits by default and the exact pairing that aborted.
 #
+# The collision is language-independent — it happens in the `out` step, after
+# coverage has run — but the fixture still takes the Rust leg, against the
+# dependency-free crate under the action's own `tests/fixtures`. That leg is
+# the one that can actually finish: the Python leg would run this repository's
+# whole suite under slipcover inside the act container, where slipcover's
+# loader lacks `get_resource_reader` and 256 module imports fail for reasons
+# unrelated to this action. The Rust fixture builds in seconds and its coverage
+# run is one `cargo llvm-cov`.
+#
+# Reaching cargo without a root `Cargo.toml` is the second route the contract
+# in tests/workflows/test_coverage_timeout_tiers.py watches, so this lane
+# states its budget like any other: it sets `cargo-wait-timeout` and a
+# `timeout-minutes` above the required ceiling. The contract requires that of
+# every lane that names a manifest, so this job satisfies it rather than
+# excepting itself from it.
+#
 # Under act the job doubles as the end-to-end demonstration that no coverage
 # step needs `ACTIONS_RUNTIME_TOKEN`: `publish-artefact: "false"` takes the
 # archive step out, and nothing else in the action talks to the artefact
@@ -28,6 +44,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Sized from the rule rather than picked: one watchdog window at the 600 s
+    # stated below, plus ten minutes of measured work outside the window, plus
+    # a fifteen-minute margin above that sum, is 2,100 s or 35 minutes. The
+    # fixture is a two-minute job on a warm toolchain, so a ceiling sized for
+    # the watchdog's worst case costs nothing and keeps this lane inside the
+    # rule rather than beside it.
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         # v7.0.1
@@ -49,8 +72,7 @@ jobs:
           # `language: rust` rather than `auto`: the repository root carries a
           # pyproject.toml, so auto detection would classify this as mixed and
           # also run the whole Python suite under coverage. Forcing rust keeps
-          # the fixture on the Rust leg while still driving the `out` step the
-          # collision affects.
+          # the fixture on the leg it was written for.
           language: rust
           # The action's dependency-free fixture crate, which builds in
           # seconds. `rust-toy-app` cannot be used here: its manpage assertion
@@ -60,6 +82,11 @@ jobs:
           # it was told to expect. That predates this fixture and is unrelated
           # to the composite-input collision being guarded.
           cargo-manifest: .github/actions/generate-coverage/tests/fixtures/minimal-rust-project/Cargo.toml
+          # A written budget for the one window this step arms, rather than the
+          # action's default. Small because the fixture crate has no
+          # dependencies: a cold build is seconds, not the half-hour a real
+          # cold sccache store takes.
+          cargo-wait-timeout: "600"
           use-cargo-nextest: 'false'
           # act provides no ACTIONS_RUNTIME_TOKEN, so the upload is suppressed
           # rather than left to fail. This is an explicit opt-out available to

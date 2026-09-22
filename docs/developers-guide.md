@@ -1408,6 +1408,21 @@ when a healthy Podman socket is discovered automatically.
 | `skip_unless_workflow_tests` | Skip when `ACT_WORKFLOW_TESTS` is not set to a truthy value. |
 <!-- markdownlint-enable MD013 -->
 
+### Parsing workflows
+
+The workflow contracts parse through `load_workflow` in
+`tests/workflows/workflow_yaml.py`, and `workflow_documents` calls it for every
+file it enumerates. Its loader is a `SafeLoader` that refuses a mapping
+declaring one key twice. PyYAML keeps the last of two identical keys and says
+nothing, so a job declaring `runs-on` twice parses into a document that dropped
+the first value, and a placement contract then judges a runner GitHub never
+schedules. GitHub rejects the duplicate, so the contracts refuse it too. Both a
+duplicate and invalid YAML raise `ValueError` naming the file, which the
+parser's own error does not.
+
+New workflow contracts under `tests/workflows` parse through `load_workflow` or
+`workflow_documents` rather than calling `yaml.safe_load` themselves.
+
 ## Mutation-Testing Reusable Workflows
 
 Two reusable workflows provide scheduled, informational mutation testing for

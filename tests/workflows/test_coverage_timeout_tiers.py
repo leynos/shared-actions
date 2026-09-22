@@ -43,7 +43,8 @@ import typing as typ
 from pathlib import Path
 
 import pytest
-import yaml
+
+from .workflow_yaml import load_workflow
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -531,7 +532,8 @@ def workflow_documents(
     documents, and a caller that wants the repository's own workflows
     says so by calling this. Both workflow extensions are read: a lane
     in the other one would otherwise escape every assertion here without
-    failing anything.
+    failing anything. Parsing refuses a key declared twice, which PyYAML
+    would otherwise resolve silently to the last value.
 
     Parameters
     ----------
@@ -546,7 +548,7 @@ def workflow_documents(
     documents: dict[str, WorkflowDocument] = {}
     for pattern in ("*.yml", "*.yaml"):
         for path in sorted(directory.glob(pattern)):
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            document = load_workflow(path)
             if isinstance(document, dict):
                 documents[path.name] = document
     return documents

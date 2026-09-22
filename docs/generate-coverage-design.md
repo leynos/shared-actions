@@ -37,6 +37,20 @@ action and the evolution of its supporting scripts.
   not for an input, so they have no dashed twin either way. See
   [`docs/local-validation-of-github-actions-with-act-and-pytest.md`](local-validation-of-github-actions-with-act-and-pytest.md)
   for the act-compatibility context.
+
+  The guard is a *pair* of changes, and only the pair is checkable. An argument
+  outranks the environment, so restoring the binding alone does not fail: the
+  command line still satisfies the parameter and the duplicate never surfaces.
+  The regression in
+  `.github/actions/generate-coverage/tests/test_set_outputs.py` therefore
+  carries a poisoned sentinel for both spellings and asserts the composed name
+  contains no trace of it, which catches a reintroduced environment read *by
+  value* rather than by watching for an error. Confirmed by mutation:
+  reinstating the binding makes the flag-free `omitted_suffix` case fail with
+  the original "specified multiple times" message while the `non_empty` case
+  still passes, which is the masking behaviour in miniature; removing it passes
+  both. The act fixture in `.github/workflows/test-generate-coverage.yml` holds
+  the same property end to end.
 - *2026-04-16* — Rust coverage runs now force LLVM via subprocess environment
   overrides instead of outer `cargo --config ...` flags when a repository
   configures the Cranelift backend. This keeps the action compatible with

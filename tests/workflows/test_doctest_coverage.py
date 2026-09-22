@@ -21,11 +21,14 @@ list is non-empty too, since a target that collects nothing passes.
 from __future__ import annotations
 
 import ast
+import contextlib
 import doctest
+import importlib.util
 import re
 import subprocess
+import sys
+import tempfile
 import textwrap
-import types
 import typing as typ
 from pathlib import Path
 
@@ -34,6 +37,7 @@ import yaml
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
+    import types
 
 REPOSITORY_ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]
 MAKEFILE: typ.Final[Path] = REPOSITORY_ROOT / "Makefile"
@@ -123,7 +127,64 @@ _OPAQUE: typ.Final = (ast.FunctionDef, ast.AsyncFunctionDef)
 
 #: Definitions whose docstring the finder reads and whose body it walks,
 #: because their contents are attributes it can reach by name.
-_TRANSPARENT: typ.Final = (ast.Module, ast.ClassDef)
+_NAMED_TRANSPARENT: typ.Final = (ast.ClassDef,)
+
+#: Every definition that binds a name in the scope containing it.
+_DEFINITIONS: typ.Final = _OPAQUE + _NAMED_TRANSPARENT
+
+
+def _constant_truth(test: ast.expr) -> bool | None:
+    """Return the fixed truth of *test*, or None when it is not fixed."""
+    return bool(test.value) if isinstance(test, ast.Constant) else None
+
+
+def _live_children(node: ast.AST) -> cabc.Iterator[ast.AST]:
+    """Yield the children a run of *node* could still reach.
+
+    Only a literally constant condition is decided here. `if False:` binds
+    nothing, ever, so a docstring inside it is as unreachable as one in a
+    function body. A condition that is merely likely, such as a version
+    comparison, is left alone and both arms are walked: over-counting a
+    reachable example is a false alarm somebody can read, and pruning a
+    branch that does run would hide an example nothing executes.
+    """
+    for child in ast.iter_child_nodes(node):
+        if (
+            isinstance(child, ast.If)
+            and (truth := _constant_truth(child.test)) is not None
+        ):
+            yield from (child.body if truth else child.orelse)
+        else:
+            yield child
+
+
+def _bind(node: ast.AST, bound: dict[str, list[str]]) -> None:
+    """Record into *bound* what the scope rooted at *node* finally binds."""
+    for child in _live_children(node):
+        if isinstance(child, _DEFINITIONS):
+            bound[child.name] = _definition_docstrings(child)
+        else:
+            _bind(child, bound)
+
+
+def _definition_docstrings(node: ast.AST) -> list[str]:
+    """Return the docstrings one definition contributes to its scope."""
+    found = [text] if (text := ast.get_docstring(node, clean=False)) else []
+    if isinstance(node, _NAMED_TRANSPARENT):
+        found.extend(_scope_docstrings(node))
+    return found
+
+
+def _scope_docstrings(scope: ast.AST) -> list[str]:
+    """Return the docstrings *scope* binds, in the order it binds them.
+
+    Keyed by name, so a definition that a later one of the same name
+    replaces contributes nothing: only the last binding is an attribute
+    of the finished module or class.
+    """
+    bound: dict[str, list[str]] = {}
+    _bind(scope, bound)
+    return [text for entry in bound.values() for text in entry]
 
 
 def _docstrings(tree: ast.Module) -> list[str]:
@@ -136,20 +197,14 @@ def _docstrings(tree: ast.Module) -> list[str]:
     defined inside a function is invisible to it, and a string literal
     after an assignment is an attribute docstring that Sphinx renders
     and Python never binds.
+
+    What it reaches is the module as it ends up, not every definition the
+    source contains. Two definitions of one name leave only the second
+    bound, and a definition inside `if False:` is never bound at all, so
+    neither is collected however plainly it is written.
     """
-    found: list[str] = []
-
-    def visit(node: ast.AST) -> None:
-        if isinstance(node, _OPAQUE + _TRANSPARENT) and (
-            text := ast.get_docstring(node, clean=False)
-        ):
-            found.append(text)
-        if isinstance(node, _OPAQUE):
-            return
-        for child in ast.iter_child_nodes(node):
-            visit(child)
-
-    visit(tree)
+    found = [text] if (text := ast.get_docstring(tree, clean=False)) else []
+    found.extend(_scope_docstrings(tree))
     return found
 
 
@@ -247,6 +302,88 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
         0,
         "a class defined inside a function",
     ),
+    "shadowed-function": (
+        """
+        def f():
+            '''F, the definition that loses.
+
+            <prompt> 1
+            1
+            '''
+
+
+        def f():  # noqa: F811 - two definitions of one name is the case
+            '''F, the definition that wins.'''
+        """,
+        0,
+        "a docstring on a definition a later one of the same name replaces",
+    ),
+    "shadowed-function-both-with-examples": (
+        """
+        def f():
+            '''F, the definition that loses.
+
+            <prompt> 1
+            1
+            '''
+
+
+        def f():  # noqa: F811 - two definitions of one name is the case
+            '''F, the definition that wins.
+
+            <prompt> 2
+            2
+            '''
+        """,
+        1,
+        "only the surviving definition of a shadowed name",
+    ),
+    "never-defined": (
+        """
+        if False:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        0,
+        "a function inside `if False`, which binds nothing",
+    ),
+    "the-arm-that-runs": (
+        """
+        if False:
+            def f():
+                '''F, unreachable.
+
+                <prompt> 1
+                1
+                '''
+        else:
+            def f():
+                '''F, reachable.
+
+                <prompt> 2
+                2
+                '''
+        """,
+        1,
+        "only the arm a constant condition leaves reachable",
+    ),
+    "condition-that-is-not-constant": (
+        """
+        if len('') == 0:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        """,
+        1,
+        "a function under a condition no reader can decide",
+    ),
     "attribute-docstring": (
         """
         X = 1
@@ -262,19 +399,49 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
 }
 
 
+#: The name the probe module is imported under. It is removed from
+#: `sys.modules` again, so nothing else can import it by accident.
+_PROBE_MODULE: typ.Final[str] = "reachability_probe"
+
+
+@contextlib.contextmanager
+def _probe_module(source: str) -> cabc.Iterator[types.ModuleType]:
+    """Import *source* as a throwaway module, and unregister it afterwards.
+
+    The finder needs a real module object rather than a source string, so
+    the probe is written to a file and imported through `importlib`
+    instead of being handed to `exec`. The registration is undone in a
+    `finally`, so a probe that raises on import leaves nothing behind in
+    `sys.modules` for the next case to pick up.
+    """
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / f"{_PROBE_MODULE}.py"
+        path.write_text(source, encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(_PROBE_MODULE, path)
+        if spec is None or spec.loader is None:
+            msg = f"no import spec for the probe module at {path}"
+            raise RuntimeError(msg)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            yield module
+        finally:
+            sys.modules.pop(spec.name, None)
+
+
 def _finder_prompt_count(source: str) -> int:
     """Return how many examples `doctest.DocTestFinder` finds in *source*.
 
-    The oracle for the reachability rule. It executes the module, which
-    is what the finder needs, so it is used only on the short sources
+    The oracle for the reachability rule. It imports the module, which is
+    what the finder needs, so it is used only on the short sources
     written in this file.
     """
-    module = types.ModuleType("reachability_probe")
-    exec(compile(source, "<probe>", "exec"), module.__dict__)  # noqa: S102
-    return sum(
-        len(test.examples)
-        for test in doctest.DocTestFinder().find(module, name="reachability_probe")
-    )
+    with _probe_module(source) as module:
+        return sum(
+            len(test.examples)
+            for test in doctest.DocTestFinder().find(module, name=_PROBE_MODULE)
+        )
 
 
 def _prompt_counts(path: Path) -> tuple[int, int]:
@@ -443,6 +610,51 @@ class TestDoctestCoverage:
             "these files hold prompts that doctest cannot reach, shown as "
             f"(prompts, reachable): {unreachable}; move each example into a "
             "module, class or function docstring"
+        )
+
+    def test_both_arms_of_an_undecidable_condition_contribute(self) -> None:
+        """An `if` no reader can decide contributes from both arms.
+
+        This one cannot be checked against `DocTestFinder`, and that is
+        the point. The finder imports the module, so the interpreter
+        decides the condition and only one arm ever binds; a static
+        reader cannot know which. Over-counting is the safe direction: a
+        false positive is an example somebody can go and look at, while
+        pruning the arm that does run would hide an example the gate
+        never executes, which is the hole this module exists to close.
+
+        Without this case the fixture set cannot tell the reader apart
+        from one that defaults an undecidable condition to "take the
+        body", because every oracle case has a condition the interpreter
+        decides the same way a defaulting reader would guess.
+        """
+        source = textwrap.dedent(
+            """
+            if len('') == 0:
+                def f():
+                    '''F, the arm that happens to run.
+
+                    <prompt> 1
+                    1
+                    '''
+            else:
+                def g():
+                    '''G, the arm that happens not to.
+
+                    <prompt> 2
+                    2
+                    '''
+            """
+        ).replace(_PROBE_PROMPT, ">" * 3)
+        reachable = sum(
+            len(_PROMPT.findall(docstring))
+            for docstring in _docstrings(ast.parse(source))
+        )
+
+        assert reachable == 2, (
+            "both arms of an undecidable condition must contribute; counting "
+            f"{reachable} means one arm was pruned on a guess, and the arm "
+            "pruned may be the one that runs"
         )
 
     @pytest.mark.parametrize(

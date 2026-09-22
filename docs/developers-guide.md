@@ -1877,9 +1877,9 @@ Three habits account for every failure found here.
   `tempfile.TemporaryDirectory()`, bound to a name, and call `cleanup()` on it
   as the example's last line. `tempfile.mkdtemp()` leaves removal to the caller
   and nothing here is the caller, so every run of the gate would leave a
-  directory behind. The explicit `cleanup()` rather than a `with` block because
+  directory behind. Prefer the explicit `cleanup()` to a `with` block, because
   a narrative spanning several prompt blocks with prose between them cannot sit
-  inside one block; where two scenarios share a docstring and their paths allow
+  inside one block. Where two scenarios share a docstring and their paths allow
   it, give the second a subdirectory of the first rather than a second
   temporary root.
 - **Make host-dependent output elided, not asserted.** `run_cmd` echoes

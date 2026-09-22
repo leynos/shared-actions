@@ -474,11 +474,21 @@ runs:
       # kind this guard removes. Skipping `out` there lets the archive's
       # name fallback carry the upload while the real detection error surfaces.
       if: ${{ always() && steps.detect.outputs.fmt != '' }}
-      run: uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
+      # The two hyphenated inputs are passed as arguments rather than through
+      # ``env:``. nektos/act exports a composite input to the step environment
+      # under its dashed name, so an ``INPUT_*`` assignment here (or the
+      # ``Env("INPUT_")`` lookup this replaced) met act's copy of the same
+      # input and aborted with "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified
+      # multiple times". An argument cannot collide with an environment
+      # variable, so this reads identically under act and on GitHub-hosted
+      # runners. The unflagged reads below are names act does not derive from
+      # an input name, and so have no dashed twin to lose a race with.
+      run: >-
+        uv run --script "${{ github.action_path }}/scripts/set_outputs.py"
+        --output-path "${{ inputs.output-path }}"
+        --artefact-name-suffix "${{ inputs.artefact-name-suffix }}"
       env:
         DETECTED_FMT: ${{ steps.detect.outputs.fmt }}
-        INPUT_OUTPUT_PATH: ${{ inputs.output-path }}
-        INPUT_ARTEFACT_NAME_SUFFIX: ${{ inputs.artefact-name-suffix }}
         GITHUB_JOB: ${{ github.job }}
         STRATEGY_JOB_INDEX: ${{ strategy.job-index }}
         RUNNER_OS: ${{ runner.os }}

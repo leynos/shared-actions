@@ -14,15 +14,18 @@ import re
 import typing as typ
 from pathlib import Path
 
-import cyclopts
 from cyclopts import App, Parameter
 
+# Deliberately no ``cyclopts.config.Env("INPUT_")`` binding. nektos/act exports
+# every composite input to the step environment under its dashed name, so the
+# delimiter input arrives as both ``INPUT_ARTEFACT-NAME-SUFFIX`` (from act) and
+# ``INPUT_ARTEFACT_NAME_SUFFIX`` (from the step's own ``env:`` block). Cyclopts
+# normalizes both spellings onto the same parameter, so an ``INPUT_`` binding
+# resolved that one parameter twice and aborted the run with "Parameter
+# INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". The hyphenated inputs
+# are passed as explicit command-line arguments instead, which leaves no
+# environment lookup to collide.
 app = App()
-_env_config = cyclopts.config.Env("INPUT_", command=False)
-existing_config = getattr(app, "config", ()) or ()
-if not isinstance(existing_config, tuple):
-    existing_config = tuple(existing_config)
-app.config = (*existing_config, _env_config)
 
 
 def _normalize_component(value: str | None, fallback: str) -> str:

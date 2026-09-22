@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Fix the `out` step aborting under nektos/act with "Parameter
+  INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". act exports every
+  composite input into the step environment under its dashed name, so
+  `INPUT_ARTEFACT-NAME-SUFFIX` arrived alongside the underscored
+  `INPUT_ARTEFACT_NAME_SUFFIX` the step's own `env:` block set. Cyclopts
+  normalizes both spellings onto one parameter, so the blanket `Env("INPUT_")`
+  binding resolved that parameter twice and aborted before the outputs were
+  written. The step now passes `output-path` and `artefact-name-suffix` as
+  explicit command-line arguments, and `set_outputs.py` no longer binds
+  `Env("INPUT_")`. An argument cannot collide with an environment variable, so
+  the step behaves identically under act and on GitHub-hosted runners; no
+  exception is caught or suppressed. The `file`, `format`, and `artefact-name`
+  outputs are unchanged, as is the `publish-artefact` default of `"true"`.
 - Add the optional `python-source` input for preserving a deliberate Slipcover
   source scope. Its comma-separated value is passed unchanged as one `--source`
   argument before `--branch`; empty values preserve default source discovery.

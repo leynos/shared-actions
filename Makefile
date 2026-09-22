@@ -17,6 +17,10 @@ clean: ## Remove transient artefacts
 BUILD_JOBS ?=
 ACTION_VALIDATOR ?= $(or $(firstword $(wildcard $(HOME)/.bun/bin/action-validator) $(wildcard $(HOME)/.cargo/bin/action-validator)),action-validator)
 ACT ?= $(or $(firstword $(wildcard $(HOME)/go/bin/act) $(wildcard $(HOME)/.local/bin/act)),act)
+# Opt into the act workflow lane. `ACT_WORKFLOW_TESTS` is the canonical name the
+# pytest suite reads; `WITH_ACT` is an accepted alias so the lane can be asked
+# for by what it is rather than by the variable that gates it.
+WITH_ACT ?=
 MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")
 # `make fmt` and `make check-fmt` call mdtablefix directly. `--git` selects the
 # Markdown files Git tracks and `--include-untracked` adds the untracked files
@@ -39,7 +43,14 @@ TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 test: .venv ## Run tests
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest -n auto --dist worksteal -v
 # Truthy values: 1, true, TRUE, True, yes, YES, Yes, on, ON, On
-ifneq ($(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS))),)
+# `WITH_ACT` is an alias for `ACT_WORKFLOW_TESTS`: `make test WITH_ACT=1` invites
+# the act lane by name, which reads better than naming the suite's own
+# environment variable at the command line. Either variable opts in; the lane
+# itself is still the two pytest invocations the first line runs plus this one,
+# and it still exports `ACT_WORKFLOW_TESTS=1` so the pytest-side opt-in gate
+# agrees with the Makefile-side one.
+ACT_LANE_REQUESTED := $(strip $(filter 1 true TRUE True yes YES Yes on ON On,$(ACT_WORKFLOW_TESTS) $(WITH_ACT)))
+ifneq ($(ACT_LANE_REQUESTED),)
 	ACT='$(ACT)' ACT_WORKFLOW_TESTS=1 $(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-xdist --with pytest-bdd --with syrupy --with hypothesis pytest tests/workflows -v
 endif
 

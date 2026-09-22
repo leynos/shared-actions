@@ -180,6 +180,32 @@ def _resolve_container_env(
             ),
             id="upload-release-assets",
         ),
+        pytest.param(
+            EnvOverrideTestCase(
+                workflow="test-generate-coverage.yml",
+                job="test-generate-coverage-out-no-suffix",
+                # Both spellings of the suffix input, as act supplies them.
+                # act exports a composite input under its dashed name, and the
+                # step's own `env:` mapping used the underscored one, so a
+                # Cyclopts `Env("INPUT_")` binding resolved one parameter from
+                # two matching variables and aborted the step. The workflow
+                # omits `artefact-name-suffix` entirely, so these keys are
+                # what a default caller's environment actually carries.
+                container_env_template={
+                    "INPUT_ARTEFACT_NAME_SUFFIX": "",
+                    "INPUT_ARTEFACT-NAME-SUFFIX": "",
+                },
+                expected_patterns=[
+                    (r'file["\s]*[:=]["\s]*\S+\.xml', "file= missing from logs"),
+                    (r'format["\s]*[:=]["\s]*cobertura', "format= missing from logs"),
+                    (
+                        r'artefact[-_]name["\s]*[:=]["\s]*\S+',
+                        "artefact-name= missing or empty in logs",
+                    ),
+                ],
+            ),
+            id="generate-coverage-out-no-suffix",
+        ),
     ],
 )
 def test_env_overrides_normalize_inputs(

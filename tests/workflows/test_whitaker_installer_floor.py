@@ -80,19 +80,28 @@ def _workflow_names() -> list[str]:
 
 def _load(path: Path) -> dict[str, typ.Any]:
     """Return the parsed YAML document at *path*."""
-    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(parsed, dict):
-        msg = f"{path} is not a mapping"
-        raise TypeError(msg)
-    return parsed
+    match yaml.safe_load(path.read_text(encoding="utf-8")):
+        case dict() as parsed:
+            return parsed
+        case other:
+            msg = f"{path} is not a mapping: {other!r}"
+            raise TypeError(msg)
 
 
 def _environment(scope: object) -> dict[str, object]:
-    """Return the `env` mapping *scope* declares, or an empty one."""
-    if not isinstance(scope, dict):
-        return {}
-    environment = scope.get("env")
-    return environment if isinstance(environment, dict) else {}
+    """Return the `env` mapping *scope* declares, or an empty one.
+
+    A scope that is not a mapping, and one whose `env` is not a mapping,
+    both declare nothing this reader can resolve a name against, so both
+    answer empty rather than failing: an `env` written as a list is a
+    workflow defect for the schema to report, not a reason this rule
+    cannot read the version beside it.
+    """
+    match scope:
+        case {"env": dict() as environment}:
+            return environment
+        case _:
+            return {}
 
 
 def _resolve(
@@ -131,15 +140,21 @@ def _jobs(
 ) -> cabc.Iterator[tuple[str, dict[str, typ.Any]]]:
     """Yield each job the workflow declares as a mapping, with its id."""
     for job_id, job in (workflow.get("jobs") or {}).items():
-        if isinstance(job, dict):
-            yield str(job_id), job
+        match job:
+            case dict():
+                yield str(job_id), job
+            case _:
+                continue
 
 
 def _steps(job: cabc.Mapping[str, typ.Any]) -> cabc.Iterator[dict[str, typ.Any]]:
     """Yield each step the job declares as a mapping."""
     for step in job.get("steps") or []:
-        if isinstance(step, dict):
-            yield step
+        match step:
+            case dict():
+                yield step
+            case _:
+                continue
 
 
 def _supplied_version(step: cabc.Mapping[str, typ.Any]) -> str | None:
@@ -205,77 +220,89 @@ def _assert_at_or_above_floor(requested: str, *, subject: str) -> None:
     )
 
 
-def test_some_lane_installs_whitaker() -> None:
-    """At least one lane installs Whitaker, so the rule below has a subject.
+class TestTheInstallerFloor:
+    """Which installer each lane asks for, and what the action defaults to.
 
-    Without this, deleting every install step would satisfy the floor by
-    having nothing to check, and the lint gate would go with it.
+    The three rules here are one subject: no caller of this repository's
+    Whitaker action may end up on an installer that builds dylint-link
+    rather than installing it. A lane naming a version is covered by the
+    second, a caller naming none by the third, and the first keeps both
+    honest by refusing a repository with no install step at all.
     """
-    assert _install_whitaker_steps(), (
-        "no workflow supplies an installer-version to "
-        f"{INSTALL_WHITAKER_ACTION}; either the lint lane has gone or every "
-        "step now relies on the action default, and this rule is checking "
-        "nothing"
+
+    def test_some_lane_installs_whitaker(self) -> None:
+        """At least one lane installs Whitaker, so the rule below has a subject.
+
+        Without this, deleting every install step would satisfy the floor by
+        having nothing to check, and the lint gate would go with it.
+        """
+        assert _install_whitaker_steps(), (
+            "no workflow supplies an installer-version to "
+            f"{INSTALL_WHITAKER_ACTION}; either the lint lane has gone or every "
+            "step now relies on the action default, and this rule is checking "
+            "nothing"
+        )
+
+    @pytest.mark.parametrize(
+        ("workflow", "job_id", "requested"),
+        _install_whitaker_steps(),
+        ids=lambda value: str(value),
     )
+    def test_no_lane_asks_for_an_installer_below_the_floor(
+        self, workflow: str, job_id: str, requested: str
+    ) -> None:
+        """Every lane asks for an installer that installs dylint-link, not builds it.
+
+        An older installer compiles `dylint-link` from crates.io, which since
+        2026-09-17 needs a rustc newer than this repository pins. The job
+        fails only when its installer cache is cold, so the version is
+        asserted here rather than waited for.
+        """
+        _assert_at_or_above_floor(requested, subject=_identifier(workflow, job_id))
+
+    def test_the_action_default_is_at_or_above_the_floor(self) -> None:
+        """The action's own default carries the floor for callers that omit it.
+
+        A caller supplying no `installer-version` takes this value, and most
+        consumers do. A floor the workflows respect while the default sits
+        below it would leave every such consumer exposed.
+        """
+        manifest = _load(INSTALL_WHITAKER_MANIFEST)
+        default = str(manifest["inputs"][VERSION_INPUT]["default"]).strip()
+
+        _assert_at_or_above_floor(
+            default, subject=f"{INSTALL_WHITAKER_MANIFEST.name}'s own default"
+        )
 
 
-@pytest.mark.parametrize(
-    ("workflow", "job_id", "requested"),
-    _install_whitaker_steps(),
-    ids=lambda value: str(value),
-)
-def test_no_lane_asks_for_an_installer_below_the_floor(
-    workflow: str, job_id: str, requested: str
-) -> None:
-    """Every lane asks for an installer that installs dylint-link, not builds it.
+class TestTheFloorComparison:
+    """How two versions are ordered, which the rules above depend on."""
 
-    An older installer compiles `dylint-link` from crates.io, which since
-    2026-09-17 needs a rustc newer than this repository pins. The job
-    fails only when its installer cache is cold, so the version is
-    asserted here rather than waited for.
-    """
-    _assert_at_or_above_floor(requested, subject=_identifier(workflow, job_id))
-
-
-def test_the_action_default_is_at_or_above_the_floor() -> None:
-    """The action's own default carries the floor for callers that omit it.
-
-    A caller supplying no `installer-version` takes this value, and most
-    consumers do. A floor the workflows respect while the default sits
-    below it would leave every such consumer exposed.
-    """
-    manifest = _load(INSTALL_WHITAKER_MANIFEST)
-    default = str(manifest["inputs"][VERSION_INPUT]["default"]).strip()
-
-    _assert_at_or_above_floor(
-        default, subject=f"{INSTALL_WHITAKER_MANIFEST.name}'s own default"
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param("0.2.7", True, id="the-floor-itself"),
+            pytest.param("0.2.8", True, id="above-it"),
+            pytest.param("0.3", True, id="two-components-above"),
+            pytest.param("1", True, id="one-component-above"),
+            pytest.param("0.2.6", False, id="the-version-that-broke"),
+            pytest.param("0.2", False, id="two-components-below"),
+            pytest.param("0.10.0", True, id="not-compared-as-text"),
+            pytest.param("0.2.10", True, id="patch-not-compared-as-text"),
+        ],
     )
+    def test_the_floor_comparison_is_numeric(
+        self,
+        raw: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """Versions compare component by component, never as strings.
 
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        pytest.param("0.2.7", True, id="the-floor-itself"),
-        pytest.param("0.2.8", True, id="above-it"),
-        pytest.param("0.3", True, id="two-components-above"),
-        pytest.param("1", True, id="one-component-above"),
-        pytest.param("0.2.6", False, id="the-version-that-broke"),
-        pytest.param("0.2", False, id="two-components-below"),
-        pytest.param("0.10.0", True, id="not-compared-as-text"),
-        pytest.param("0.2.10", True, id="patch-not-compared-as-text"),
-    ],
-)
-def test_the_floor_comparison_is_numeric(
-    raw: str,
-    expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
-) -> None:
-    """Versions compare component by component, never as strings.
-
-    Both directions. A string comparison would place `0.10.0` below
-    `0.2.7` and reject a lane that is comfortably ahead of the floor,
-    and padding matters too: `0.2` is `0.2.0`, which is below it.
-    """
-    assert (_version(raw) >= INSTALLER_FLOOR) is expected, (
-        f"{raw} should be read as {'at or above' if expected else 'below'} "
-        f"the floor {INSTALLER_FLOOR}"
-    )
+        Both directions. A string comparison would place `0.10.0` below
+        `0.2.7` and reject a lane that is comfortably ahead of the floor,
+        and padding matters too: `0.2` is `0.2.0`, which is below it.
+        """
+        assert (_version(raw) >= INSTALLER_FLOOR) is expected, (
+            f"{raw} should be read as {'at or above' if expected else 'below'} "
+            f"the floor {INSTALLER_FLOOR}"
+        )

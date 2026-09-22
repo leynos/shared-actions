@@ -14,6 +14,7 @@ scan so a caller can build one.
 from __future__ import annotations
 
 import itertools
+import posixpath
 import typing as typ
 
 from .test_coverage_timeout_tiers import (
@@ -26,10 +27,10 @@ if typ.TYPE_CHECKING:
     import collections.abc as cabc
     from pathlib import Path
 
-#: The two ways a `uses:` names something in this repository. `./` is
-#: workspace-relative and needs a checkout; `$/` resolves to the running
-#: commit and must carry no `@ref` suffix. A reader that knows only `./`
-#: lets a lane escape every boundary below by switching syntax.
+#: Prefixes a `uses:` may carry before a path in this repository. They are
+#: stripped, not enumerated as the only spellings: a reference is local when
+#: what remains resolves under the path being asked about, so a spelling this
+#: list does not name is still read by its shape.
 SELF_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 #: The local coverage action every lane invokes, without its prefix.
 COVERAGE_ACTION: typ.Final[str] = ".github/actions/generate-coverage"
@@ -83,31 +84,41 @@ RUN_UNIQUE_CONTEXTS: typ.Final[tuple[str, ...]] = (
 )
 
 
-def _self_reference(uses: str, path: str) -> bool:
-    """Return whether ``uses`` names ``path`` in this repository.
-
-    A `$/` reference must not carry an `@ref` suffix, so one that does is
-    not a valid self-reference and is not treated as one.
-    """
-    for prefix in SELF_PREFIXES:
-        if not uses.startswith(f"{prefix}{path}"):
-            continue
-        return not (prefix == "$/" and "@" in uses)
-    return False
-
-
 def _self_reference_target(uses: str, path: str) -> str | None:
-    """Return what a self-reference to ``path`` names, or ``None``.
+    """Return what ``uses`` names under ``path`` in this repository, or ``None``.
 
-    The `./` form may carry an `@ref`; the `$/` form may not, and one that
-    does is rejected by :func:`_self_reference` rather than stripped.
+    The reference is matched by its shape. A leading self-repository prefix
+    and any ``@ref`` suffix are dropped, the remainder is normalized, and it
+    is local when it lies under ``path``. An enumerated prefix list, or a
+    refusal of the ``@ref`` a `$/` reference should not carry, is a reader
+    that stops recognizing a call the moment its spelling changes, and an
+    unrecognized call takes its target out of every boundary in silence.
+    Recognizing one spelling too many only adds prohibitions, which fail
+    loudly, so the reading errs that way.
+
+    Examples
+    --------
+    >>> _self_reference_target("./.github/workflows/a.yml@main", ".github/workflows/")
+    'a.yml'
+    >>> _self_reference_target("octo/r/.github/workflows/a.yml", ".github/workflows/")
     """
-    if not _self_reference(uses, path):
-        return None
+    reference = uses.split("@", 1)[0]
     for prefix in SELF_PREFIXES:
-        if uses.startswith(f"{prefix}{path}"):
-            return uses.removeprefix(f"{prefix}{path}").split("@")[0]
+        reference = reference.removeprefix(prefix)
+    if not reference:
+        return None
+    normalized = posixpath.normpath(reference)
+    base = path.rstrip("/")
+    if normalized == base:
+        return ""
+    if normalized.startswith(f"{base}/"):
+        return normalized.removeprefix(f"{base}/")
     return None
+
+
+def _self_reference(uses: str, path: str) -> bool:
+    """Return whether ``uses`` names ``path`` in this repository."""
+    return _self_reference_target(uses, path) is not None
 
 
 #: This repository's own workflows, parsed once.
@@ -121,7 +132,7 @@ def triggers(document: cabc.Mapping[typ.Any, typ.Any]) -> dict[str, typ.Any]:
     reader that consults only the string key sees no triggers at all and
     every boundary drawn from it passes over an empty set. Both keys are
     read here, and the three spellings GitHub accepts (a mapping, a list,
-    and a bare string) are normalised to a mapping.
+    and a bare string) are normalized to a mapping.
 
     Parameters
     ----------
@@ -402,7 +413,7 @@ def _platform_of(label: str) -> str:
     """Return the platform keyword a runner label names.
 
     The label is returned unchanged when it names none of them, so an
-    unrecognised runner is carried into the comparison rather than dropped.
+    unrecognized runner is carried into the comparison rather than dropped.
     """
     for keyword in ("ubuntu", "linux", "windows", "macos"):
         if keyword in label:

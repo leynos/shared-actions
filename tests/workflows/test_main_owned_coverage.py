@@ -27,12 +27,17 @@ from pathlib import Path
 
 import pytest
 
+from .pull_request_boundary import (
+    credential_holders,
+    host_namers,
+    secret_inheritors,
+    service_callers,
+)
 from .test_coverage_timeout_tiers import WORKFLOWS_DIRECTORY, WorkflowDocument
 from .workflow_boundary import (
     CODESCENE_ACTION,
     CODESCENE_CREDENTIAL,
     CODESCENE_HOST,
-    CODESCENE_SERVICE_COMMANDS,
     COVERAGE_LANGUAGE,
     COVERAGE_SCOPE,
     OFFLINE_MODE,
@@ -44,12 +49,11 @@ from .workflow_boundary import (
     coverage_steps,
     digest_offenders,
     digest_refreshers,
-    effective_text,
-    names_the_codescene_host,
     pull_request_reachable,
     pushes_to_main,
     upload_steps,
 )
+from .workflow_expressions import TRUNK_REF_TERM, conjuncts
 
 
 @pytest.fixture(name="documents")
@@ -79,11 +83,7 @@ class TestPullRequestLanesNeverReachCodeScene:
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
         """A lane that holds the token can contact the service by any means."""
-        named = sorted(
-            name
-            for name in pull_request_reachable(documents)
-            if CODESCENE_CREDENTIAL in effective_text(documents[name])
-        )
+        named = credential_holders(documents)
         assert named == [], (
             f"pull-request reachable workflows name {CODESCENE_CREDENTIAL}: {named}"
         )
@@ -102,11 +102,7 @@ class TestPullRequestLanesNeverReachCodeScene:
         name is case-sensitive; the two are deliberately not folded together,
         and the asymmetry is the reason.
         """
-        named = sorted(
-            name
-            for name in pull_request_reachable(documents)
-            if names_the_codescene_host(documents[name])
-        )
+        named = host_namers(documents)
         assert named == [], (
             f"pull-request reachable workflows reach {CODESCENE_HOST}: {named}"
         )
@@ -121,17 +117,23 @@ class TestPullRequestLanesNeverReachCodeScene:
         ``check`` and ``upload`` are the calls that read the project
         configuration.
         """
-        offenders = {
-            name: [
-                command
-                for command in CODESCENE_SERVICE_COMMANDS
-                if command in effective_text(documents[name])
-            ]
-            for name in sorted(pull_request_reachable(documents))
-        }
-        named = {name: found for name, found in offenders.items() if found}
+        named = service_callers(documents)
         assert named == {}, (
             f"pull-request reachable workflows call the service: {named}"
+        )
+
+    def test_no_reachable_job_inherits_every_secret(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """``secrets: inherit`` forwards the credential without naming it.
+
+        A pull-request job forwards what it needs by name, where the
+        credential reading above can see it.
+        """
+        inheritors = secret_inheritors(documents)
+        assert inheritors == [], (
+            "pull-request reachable jobs forward every secret, "
+            f"{CODESCENE_CREDENTIAL} among them: {inheritors}"
         )
 
     def test_no_reachable_workflow_uses_the_action_beyond_install(
@@ -324,15 +326,23 @@ class TestMainOwnsPublication:
         """A dispatch selects its own ref; the push filter says nothing about it.
 
         Without the ref half, a dispatch from a feature branch publishes that
-        branch's coverage as the trunk's.
+        branch's coverage as the trunk's. Both halves are required terms of a
+        conjunction, not substrings of the condition: appending
+        ``|| github.event_name == 'workflow_dispatch'`` keeps both substrings
+        and makes neither required.
         """
         (publisher,) = _publishers(documents)
         (upload,) = upload_steps(documents[publisher])
         guard = str(upload.get("if", ""))
-        assert "github.ref == 'refs/heads/main'" in guard, (
+        terms = conjuncts(guard)
+        assert terms is not None, (
+            f"{publisher}'s upload guard has an unquoted ||, so none of its "
+            f"terms is required: {guard!r}"
+        )
+        assert TRUNK_REF_TERM in terms, (
             f"{publisher}'s upload is not guarded on the trunk ref: {guard!r}"
         )
-        assert f"env.{CODESCENE_CREDENTIAL} != ''" in guard, (
+        assert f"env.{CODESCENE_CREDENTIAL} != ''" in terms, (
             f"{publisher}'s upload is not guarded on the credential: {guard!r}"
         )
 

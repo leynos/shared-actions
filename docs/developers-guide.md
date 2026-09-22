@@ -915,8 +915,13 @@ CodeScene credentials. Its upload step is guarded on
 `github.ref == 'refs/heads/main'` as well as the credential, because a
 `workflow_dispatch` run selects its own ref and the push filter says nothing
 about it; without the ref half, a dispatch from a feature branch would publish
-that branch's coverage as the trunk's. The workflow carries a `concurrency`
-group so two overlapping `main` pushes cannot race to write the baseline.
+that branch's coverage as the trunk's. The contract reads the guard as a
+conjunction, through `conjuncts` in `tests/workflows/workflow_expressions.py`:
+it splits the condition on its top-level `&&` and refuses any `||` outside a
+string literal. A substring search is not enough, because appending
+`|| github.event_name == 'workflow_dispatch'` keeps both terms in the text and
+makes neither required. The workflow carries a `concurrency` group so two
+overlapping `main` pushes cannot race to write the baseline.
 
 Every coverage step, on both sides, sets `language: python` and
 `python-source: workflow_scripts`. The scope is half of the baseline contract:
@@ -932,13 +937,18 @@ shape.
 
 No workflow a pull request can reach may name `codescene.io`, hold
 `CS_ACCESS_TOKEN`, run `cs-coverage check` or `cs-coverage upload`, or use the
-CodeScene action in any mode but `install`. The host clause is the one that
-matters most: a step can reach the project API with a plain `curl` naming none
-of the others, and every remaining assertion would still pass. The host
-comparison is case-insensitive because a DNS name is, while the credential is
-compared exactly because an environment variable name is case-sensitive; the
-fold lives in the reader, so removing it fails a test rather than passing at
-every call site.
+CodeScene action in any mode but `install`, and no job in one may forward
+`secrets: inherit`. The credential is read wherever a reference can sit: a
+`run:` body, an action input, an environment key or value at any scope, and a
+named `secrets:` forward. `inherit` forwards it without naming it, to a callee
+that may live in another repository where no clause here can read it, so it is
+refused where it is written and a pull-request job forwards what it needs by
+name. The host clause is the one that matters most: a step can reach the
+project API with a plain `curl` naming none of the others, and every remaining
+assertion would still pass. The host comparison is case-insensitive because a
+DNS name is, while the credential is compared exactly because an environment
+variable name is case-sensitive; the fold lives in the reader, so removing it
+fails a test rather than passing at every call site.
 
 The scan reads the parse rather than the file text. A comment contacts nothing,
 and explaining in prose why a lane must not name the credential made the lane
@@ -984,12 +994,21 @@ proof outright would satisfy every other rule.
 
 `tests/workflows/test_main_owned_coverage.py` holds the contract, over readings
 that live in `workflow_boundary.py` beside it and are driven on chosen inputs in
-`test_workflow_boundary_reading.py`. It enumerates `.github/workflows/*.yml`
-rather than naming files, so a workflow added later is covered the day it
-appears, and it follows job-level `uses:` into local reusable workflows, in
-both the workspace-relative `./` and the self-repository `$/` spellings, so a
-CodeScene call one file away from a pull-request trigger is still inside the
-boundary. It reads the `on:` key under both the string key and the boolean
+`test_workflow_boundary_reading.py`. The pull-request clauses are functions
+over parsed workflows in `pull_request_boundary.py`, so
+`test_pull_request_boundary.py` can feed them the probe that found the closure
+hole (a `workflow_call`-only file, called with `secrets: inherit`, curling the
+project API with the credential) and prove the contract's own code refuses it.
+It enumerates `.github/workflows/*.yml` rather than naming files, so a workflow
+added later is covered the day it appears, and it follows job-level `uses:`
+into local reusable workflows, so a CodeScene call one file away from a
+pull-request trigger is still inside the boundary. A local call is matched by
+its shape, not by a list of prefixes: a leading `./` or `$/` and any `@ref` are
+dropped, the remainder is normalized, and the call is local when it resolves
+under `.github/workflows/`. A reader that stopped recognizing a call when its
+spelling changed would take the callee out of every clause in silence, while
+recognizing one spelling too many only adds prohibitions, so the reading errs
+that way. It reads the `on:` key under both the string key and the boolean
 `True` that PyYAML resolves an unquoted `on:` to; a reader that consults only
 the string key sees no triggers anywhere and every boundary drawn from it
 passes over an empty set.

@@ -5,9 +5,9 @@ own workflows. Every assertion there quantifies over what it finds, so a
 reading that is wrong would have to be wrong about a file this repository
 happens to contain before anything fails. These drive the readings directly,
 on documents written for the purpose: the `on:` key under both spellings
-PyYAML produces, both self-repository `uses:` prefixes named literally, a
-`$/` reference carrying the `@ref` GitHub forbids, a digest offender under
-each file extension, and generated workflow graphs with cycles, which this
+PyYAML produces, local `uses:` references in every spelling that resolves
+under this repository's workflow directory, a digest offender under each file
+extension, and generated workflow graphs with cycles, which this
 repository's shallow forest of callers cannot exercise.
 
 Run via ``make test``.
@@ -91,13 +91,16 @@ class TestTheTriggerReaderSeesBothKeys:
         )
 
 
-class TestTheSelfReferenceReaderKnowsBothSpellings:
-    """Both prefixes named literally, so narrowing the constant fails.
+class TestTheSelfReferenceReaderMatchesByShape:
+    """Every spelling named literally, so narrowing the reader fails.
 
     Parametrising these over ``SELF_PREFIXES`` would make a reader that forgot
     ``$/`` pass with fewer cases rather than fail, which is how a rule over a
-    filtered list is satisfied by emptying it. A `$/` reference carrying an
-    `@ref` is invalid to GitHub, so it is rejected rather than stripped.
+    filtered list is satisfied by emptying it. A reference is local when it
+    resolves under the workflow directory, whatever it is prefixed with and
+    whatever ``@ref`` it carries: refusing a spelling GitHub might reject
+    takes its target out of the boundary in silence, while recognizing it
+    only adds prohibitions.
     """
 
     @pytest.mark.parametrize(
@@ -106,8 +109,15 @@ class TestTheSelfReferenceReaderKnowsBothSpellings:
             pytest.param("./.github/workflows/a.yml", "a.yml", id="relative"),
             pytest.param("$/.github/workflows/a.yml", "a.yml", id="self-repository"),
             pytest.param("./.github/workflows/a.yml@main", "a.yml", id="relative-ref"),
-            pytest.param("$/.github/workflows/a.yml@main", None, id="self-ref-suffix"),
+            pytest.param(
+                "$/.github/workflows/a.yml@main", "a.yml", id="self-ref-suffix"
+            ),
+            pytest.param(".github/workflows/a.yml", "a.yml", id="unprefixed"),
+            pytest.param(
+                "./.github/actions/../workflows/a.yml", "a.yml", id="non-normal"
+            ),
             pytest.param("other/repo/.github/workflows/a.yml@v1", None, id="foreign"),
+            pytest.param("./.github/workflows-old/a.yml", None, id="sibling-directory"),
             pytest.param("./.github/actions/a", None, id="an-action"),
             pytest.param("", None, id="a-step-job"),
         ],
@@ -122,9 +132,13 @@ class TestTheSelfReferenceReaderKnowsBothSpellings:
             pytest.param("./.github/actions/generate-coverage", True, id="relative"),
             pytest.param("$/.github/actions/generate-coverage", True, id="self-repo"),
             pytest.param(
-                "$/.github/actions/generate-coverage@main", False, id="self-ref-suffix"
+                "$/.github/actions/generate-coverage@main", True, id="self-ref-suffix"
             ),
+            pytest.param(".github/actions/generate-coverage", True, id="unprefixed"),
             pytest.param("./.github/actions/setup-rust", False, id="another-action"),
+            pytest.param(
+                "./.github/actions/generate-coverage-next", False, id="longer-name"
+            ),
         ],
     )
     def test_the_coverage_action_is_recognised(

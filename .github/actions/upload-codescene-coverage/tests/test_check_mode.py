@@ -449,12 +449,16 @@ class TestTheParserProofIsDispatchAndTrunkOnly:
         A dispatch selects its own ref and that ref's workflow content runs
         with the repository secret, so any write-access account could
         otherwise read the credential out of a branch it controls.
+
+        The guard is compared whole, not searched: the ref term is a
+        substring of ``github.ref == 'refs/heads/main' || true``, which
+        binds nothing.
         """
         workflow = yaml.safe_load(PARSER_PROOF_YML.read_text(encoding="utf-8"))
-        guard = str(workflow["jobs"]["parser-proof"].get("if", ""))
+        guard = " ".join(str(workflow["jobs"]["parser-proof"].get("if", "")).split())
 
-        assert "github.ref == 'refs/heads/main'" in guard, (
-            f"the credentialed job is not bound to the trunk ref: {guard!r}"
+        assert guard == "github.ref == 'refs/heads/main'", (
+            f"the credentialed job is not bound to the trunk ref alone: {guard!r}"
         )
 
     def test_it_rejects_the_known_parser_failure(self) -> None:

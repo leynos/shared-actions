@@ -13,6 +13,7 @@ scan so a caller can build one.
 
 from __future__ import annotations
 
+import itertools
 import typing as typ
 
 from .test_coverage_timeout_tiers import (
@@ -213,6 +214,43 @@ def pull_request_reachable(
     return reached
 
 
+def _walk_strings(node: object) -> cabc.Iterator[str]:
+    """Yield every string reachable from *node*, by its YAML shape."""
+    if isinstance(node, dict):
+        return _walk_mapping(node)
+    if isinstance(node, list):
+        return _walk_sequence(node)
+    return _walk_scalar(node)
+
+
+def _walk_mapping(node: cabc.Mapping[typ.Any, typ.Any]) -> cabc.Iterator[str]:
+    """Yield a mapping's keys as well as its values.
+
+    A credential arrives as ``CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}``
+    and the key is the half that names it.
+    """
+    for key, value in node.items():
+        yield str(key)
+        yield from _walk_strings(value)
+
+
+def _walk_sequence(node: cabc.Sequence[typ.Any]) -> cabc.Iterator[str]:
+    """Yield every string reachable from a sequence's items."""
+    for item in node:
+        yield from _walk_strings(item)
+
+
+def _walk_scalar(node: object) -> cabc.Iterator[str]:
+    """Yield a scalar's text, unless it carries none.
+
+    ``None`` is how YAML spells an empty value, and a boolean is what an
+    unquoted ``on:`` or ``true`` becomes; neither is text a step can act on.
+    """
+    if node is None or isinstance(node, bool):
+        return
+    yield str(node)
+
+
 def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
     """Return every string a workflow can act on, comments excluded.
 
@@ -241,22 +279,11 @@ def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
     >>> effective_text({"jobs": {"a": {"steps": [{"run": "echo hi"}]}}})
     'echo hi'
     """
-
-    def walk(node: object) -> cabc.Iterator[str]:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                yield str(key)
-                yield from walk(value)
-        elif isinstance(node, list):
-            for item in node:
-                yield from walk(item)
-        elif node is not None and not isinstance(node, bool):
-            yield str(node)
-
-    return (
-        "\n".join(walk(document.get("jobs") or {}))
-        + "\n"
-        + "\n".join(walk(document.get("env") or {}))
+    return "\n".join(
+        itertools.chain(
+            _walk_strings(document.get("jobs") or {}),
+            _walk_strings(document.get("env") or {}),
+        )
     )
 
 

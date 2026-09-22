@@ -374,6 +374,32 @@ class TestTheEffectiveTextReader:
         document = {"env": {CODESCENE_CREDENTIAL: "${{ secrets.X }}"}, "jobs": {}}
         assert CODESCENE_CREDENTIAL in effective_text(document)
 
+    def test_a_boolean_or_an_empty_value_contributes_no_text(self) -> None:
+        """Neither is text a step can act on, and both are everywhere.
+
+        YAML spells an empty value ``None`` and resolves bare ``true`` to a
+        boolean, so a reader that stringified them would scatter the literals
+        ``None`` and ``True`` through the scanned text. Every clause over
+        this reading is a substring search, and a marker that contained
+        either word would then match a workflow that does nothing of the
+        kind.
+        """
+        document = {
+            "jobs": {
+                "a": {
+                    "steps": [
+                        {"run": "echo hi", "continue-on-error": True},
+                        {"uses": None},
+                    ]
+                }
+            }
+        }
+        text = effective_text(document)
+
+        assert "echo hi" in text, text
+        assert "True" not in text, text
+        assert "None" not in text, text
+
     def test_a_comment_is_not_read(self) -> None:
         """A comment contacts nothing, and the parse has already dropped it.
 

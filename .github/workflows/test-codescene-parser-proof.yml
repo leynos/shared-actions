@@ -1,0 +1,71 @@
+name: Test CodeScene Parser Proof
+
+# The service-touching half of the uploader's contract. `cs-coverage check`
+# reads the CodeScene project configuration over the network and needs
+# CS_ACCESS_TOKEN, so under main-owned coverage it cannot sit on a
+# pull-request path. Run it by hand from main when
+# `upload-codescene-coverage`, its CLI manifest, or the pinned CLI version
+# changes; the offline half runs on every pull request in
+# test-upload-codescene-coverage.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parser-proof:
+    # A dispatch selects its own ref, and the selected ref's workflow content
+    # runs with the repository secret, so any write-access account could
+    # otherwise read CS_ACCESS_TOKEN out of a branch it controls.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Fetch the parser's default-branch merge base
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository_url="https://github.com/$REPOSITORY.git"
+          refspec="refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git fetch --no-tags --depth=1 "$repository_url" "$refspec"
+          if ! git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null; then
+            git fetch --no-tags --unshallow "$repository_url" "$refspec"
+          fi
+          git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null
+      - name: Install pinned CodeScene CLI
+        uses: ./.github/actions/upload-codescene-coverage
+        with:
+          mode: install
+          cli-version: "1.0.101"
+      - name: Parse the Slipcover reports against the project configuration
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+          CS_PROJECT_URL: https://api.codescene.io/v2/projects/72004
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CS_ACCESS_TOKEN" || { echo 'CS_ACCESS_TOKEN is required for parser proof' >&2; exit 1; }
+          for report in .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml; do
+            log="/tmp/$(basename "$report").log"
+            set +e
+            CS_DISABLE_VERSION_CHECK=1 cs-coverage check --coverage-files "$report" 2>&1 | tee "$log"
+            status=${PIPESTATUS[0]}
+            set -e
+            if grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"; then
+              echo 'cs-coverage 1.0.101 reported the known parser failure' >&2
+              if [ "$status" -eq 0 ]; then exit 1; fi
+              exit "$status"
+            fi
+            if [ "$status" -ne 0 ]; then exit "$status"; fi
+            if ! grep -F 'Code coverage gates: PASS' "$log"; then
+              echo 'cs-coverage did not report a PASS result' >&2
+              exit 1
+            fi
+          done

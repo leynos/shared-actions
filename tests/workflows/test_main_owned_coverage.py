@@ -52,8 +52,16 @@ COVERAGE_LANGUAGE: typ.Final[str] = "python"
 COVERAGE_SCOPE: typ.Final[str] = "workflow_scripts"
 #: The CodeScene credential. No pull-request-reachable workflow names it.
 CODESCENE_CREDENTIAL: typ.Final[str] = "CS_ACCESS_TOKEN"
-#: The CodeScene CLI. No pull-request-reachable workflow invokes it.
-CODESCENE_CLI: typ.Final[str] = "cs-coverage"
+#: The CodeScene CLI subcommands that contact the service. `install` and
+#: `version` reach nothing, and the uploader's cold-runner proof needs them
+#: on every pull request that changes it, so the client's name alone is not
+#: the boundary: what it is asked to do is.
+CODESCENE_SERVICE_COMMANDS: typ.Final[tuple[str, ...]] = (
+    "cs-coverage check",
+    "cs-coverage upload",
+)
+#: The one mode of the CodeScene action that contacts nothing.
+OFFLINE_MODE: typ.Final[str] = "install"
 #: The CodeScene service itself. Forbidding the action, the client and the
 #: credential closes the known doors, not the lane: a step can reach the
 #: project API with a plain `curl`, naming none of the three, and nothing
@@ -213,6 +221,87 @@ def pull_request_reachable(
             reached.add(callee)
             pending.append(callee)
     return reached
+
+
+def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
+    """Return every string a workflow can act on, comments excluded.
+
+    The scan used to read the file text, so that a `run:` step could not hide
+    a call the parse would miss. It read comments too, and a comment contacts
+    nothing: explaining in prose why a lane must not name the credential made
+    the lane name it. Walking the parse keeps the `run:` bodies, which is the
+    hiding place that mattered, and drops what GitHub itself drops.
+
+    Environment keys are included as well as values, because a credential
+    arrives as ``CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}`` and the
+    key is the half that names it.
+
+    Parameters
+    ----------
+    document : Mapping
+        One parsed workflow.
+
+    Returns
+    -------
+    str
+        The strings, newline separated.
+
+    Examples
+    --------
+    >>> effective_text({"jobs": {"a": {"steps": [{"run": "echo hi"}]}}})
+    'echo hi'
+    """
+
+    def walk(node: object) -> cabc.Iterator[str]:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield str(key)
+                yield from walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from walk(item)
+        elif node is not None and not isinstance(node, bool):
+            yield str(node)
+
+    return (
+        "\n".join(walk(document.get("jobs") or {}))
+        + "\n"
+        + "\n".join(walk(document.get("env") or {}))
+    )
+
+
+def names_the_codescene_host(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
+    """Return whether a workflow can reach ``codescene.io``.
+
+    The comparison folds case, because a DNS name is case-insensitive and a
+    lane that capitalised the host would otherwise pass. The credential is
+    compared exactly elsewhere, because an environment variable name is
+    case-sensitive; the two are deliberately not folded together, and this is
+    the reason.
+
+    The fold lives here rather than in the assertion so that removing it
+    fails a test. Spelled at the call site, every case would have folded the
+    text itself before comparing, and the rule would have survived its own
+    mutation.
+
+    Parameters
+    ----------
+    document : Mapping
+        One parsed workflow.
+
+    Returns
+    -------
+    bool
+        True when the effective text names the host in any case.
+
+    Examples
+    --------
+    >>> names_the_codescene_host(
+    ...     {"jobs": {"a": {"steps": [{"run": "curl https://CodeScene.IO"}]}}}
+    ... )
+    True
+    """
+    return CODESCENE_HOST in effective_text(document).lower()
 
 
 def _steps(job: WorkflowJob) -> list[dict[str, typ.Any]]:
@@ -422,25 +511,23 @@ class TestPullRequestLanesNeverReachCodeScene:
             f"ci.yml must be pull-request reachable; reached {sorted(reachable)}"
         )
 
-    def test_no_reachable_workflow_names_the_credential_or_the_cli(
+    def test_no_reachable_workflow_names_the_credential(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """Read the file text, not the parse, so a run step cannot hide a call."""
-        offenders = {
-            name: [
-                marker
-                for marker in (CODESCENE_CREDENTIAL, CODESCENE_CLI)
-                if marker in (WORKFLOWS_DIRECTORY / name).read_text(encoding="utf-8")
-            ]
-            for name in sorted(pull_request_reachable(documents))
-        }
-        named = {name: found for name, found in offenders.items() if found}
-        assert named == {}, f"pull-request reachable workflows name CodeScene: {named}"
+        """A lane that holds the token can contact the service by any means."""
+        named = sorted(
+            name
+            for name in pull_request_reachable(documents)
+            if CODESCENE_CREDENTIAL in effective_text(documents[name])
+        )
+        assert named == [], (
+            f"pull-request reachable workflows name {CODESCENE_CREDENTIAL}: {named}"
+        )
 
     def test_no_reachable_workflow_names_the_codescene_host(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """Forbid the service, not only the three ways of reaching it.
+        """Forbid the service, not only the known ways of reaching it.
 
         The action, the client and the credential are the known doors. A step
         can reach the project API with a plain ``curl`` naming none of them,
@@ -454,24 +541,76 @@ class TestPullRequestLanesNeverReachCodeScene:
         named = sorted(
             name
             for name in pull_request_reachable(documents)
-            if CODESCENE_HOST
-            in (WORKFLOWS_DIRECTORY / name).read_text(encoding="utf-8").lower()
+            if names_the_codescene_host(documents[name])
         )
         assert named == [], (
             f"pull-request reachable workflows reach {CODESCENE_HOST}: {named}"
         )
 
-    def test_no_reachable_workflow_invokes_the_codescene_action(
+    def test_no_reachable_workflow_runs_a_service_subcommand(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """A `uses:` is the other way a lane reaches CodeScene."""
+        """The client's name is not the boundary; what it is asked to do is.
+
+        ``install`` and ``version`` reach nothing, and the uploader's
+        cold-runner proof needs them on every pull request that changes it.
+        ``check`` and ``upload`` are the calls that read the project
+        configuration.
+        """
         offenders = {
-            name: len(codescene_steps(documents[name]))
+            name: [
+                command
+                for command in CODESCENE_SERVICE_COMMANDS
+                if command in effective_text(documents[name])
+            ]
             for name in sorted(pull_request_reachable(documents))
-            if codescene_steps(documents[name])
+        }
+        named = {name: found for name, found in offenders.items() if found}
+        assert named == {}, (
+            f"pull-request reachable workflows call the service: {named}"
+        )
+
+    def test_no_reachable_workflow_uses_the_action_beyond_install(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """A `uses:` is the other way a lane reaches CodeScene.
+
+        The action's ``install`` mode downloads the pinned CLI and contacts
+        CodeScene not at all, so it is the one mode a pull-request lane may
+        ask for.
+        """
+        offenders = {
+            f"{name}[{index}]": str((step.get("with") or {}).get("mode", ""))
+            for name in sorted(pull_request_reachable(documents))
+            for index, step in enumerate(codescene_steps(documents[name]))
+            if str((step.get("with") or {}).get("mode", "")) != OFFLINE_MODE
         }
         assert offenders == {}, (
-            f"pull-request reachable workflows invoke {CODESCENE_ACTION}: {offenders}"
+            f"pull-request reachable workflows invoke {CODESCENE_ACTION} in a "
+            f"mode other than {OFFLINE_MODE}: {offenders}"
+        )
+
+    def test_the_cold_runner_proof_still_runs_on_pull_requests(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """The boundary's other half: the offline proof must not drift away.
+
+        Every rule above is satisfied by deleting the uploader's cold-runner
+        proof outright. A pull request that changes the uploader has to keep
+        getting it, so its presence on a pull-request path is contracted too.
+        """
+        reachable = pull_request_reachable(documents)
+        installers = sorted(
+            name
+            for name in reachable
+            if any(
+                str((step.get("with") or {}).get("mode", "")) == OFFLINE_MODE
+                for step in codescene_steps(documents[name])
+            )
+        )
+        assert installers, (
+            "no pull-request reachable workflow proves the uploader installs "
+            f"the pinned CLI; reached {sorted(reachable)}"
         )
 
 

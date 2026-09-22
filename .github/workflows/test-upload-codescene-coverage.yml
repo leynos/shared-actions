@@ -1,13 +1,18 @@
 name: Test Upload CodeScene Coverage
 
-# The parser proof calls `cs-coverage check`, which reads the CodeScene
-# project configuration over the network and needs CS_ACCESS_TOKEN. Under
-# main-owned coverage no pull-request workflow may contact CodeScene or
-# receive its credentials, so this contract is dispatch-only: run it by hand
-# when `upload-codescene-coverage`, its CLI manifest, or the pinned CLI
-# version changes. The action's offline behaviour stays covered by its own
-# unit tests, which ci.yml runs on every pull request.
+# The half of the uploader's contract that contacts nothing. A cold runner
+# installs the pinned CLI through the action's `install` mode, the resolved
+# version is asserted offline, and the installer's refusals are driven
+# directly. None of it holds CS_ACCESS_TOKEN or reaches codescene.io, so it
+# runs on every pull request that touches the uploader.
+#
+# The service-touching half lives in test-codescene-parser-proof.yml, which
+# is dispatch and main only. This file does not name the service, its
+# credential or its gate subcommand anywhere, comments included, so the
+# uploader's own test can scan it as raw text and be stricter than the
+# workflow contract needs to be.
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,11 +20,13 @@ permissions:
 
 jobs:
   cold-runner-contract:
-    # A dispatch selects its own ref, and the selected ref's workflow content
-    # runs with the repository secret, so any write-access account could
-    # otherwise read CS_ACCESS_TOKEN out of a branch it controls. The proof
-    # runs from main only.
-    if: github.ref == 'refs/heads/main'
+    # A fork's pull request cannot reach the repository's own action tree in
+    # the shape this proof needs, and dependabot's branches change no part of
+    # it.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,51 +40,36 @@ jobs:
             echo 'cs-coverage was unexpectedly preinstalled on this runner' >&2
             exit 1
           fi
-      - name: Fetch the parser's default-branch merge base
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          repository_url="https://github.com/$REPOSITORY.git"
-          refspec="refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-          git fetch --no-tags --depth=1 "$repository_url" "$refspec"
-          if ! git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null; then
-            git fetch --no-tags --unshallow "$repository_url" "$refspec"
-          fi
-          git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null
       - name: Install pinned CodeScene CLI without a preinstalled dependency
         uses: ./.github/actions/upload-codescene-coverage
         with:
           mode: install
           cli-version: "1.0.101"
-      - name: Verify resolved version and parse Slipcover reports
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-          CS_PROJECT_URL: https://api.codescene.io/v2/projects/72004
+      - name: Verify the resolved version offline
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$CS_ACCESS_TOKEN" || { echo 'CS_ACCESS_TOKEN is required for parser proof' >&2; exit 1; }
+          # CS_DISABLE_VERSION_CHECK stops the client polling for a newer
+          # release, so this reads the installed binary and nothing else. No
+          # token is set, and none is needed.
           CS_DISABLE_VERSION_CHECK=1 cs-coverage version | tee /tmp/cs-coverage-version.log
           grep -F 'cs-coverage version 1.0.101 (ca2b95180eff32b5072e81f20d718d7b747650be)' /tmp/cs-coverage-version.log
-          for report in .github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml; do
-            log="/tmp/$(basename "$report").log"
-            set +e
-            CS_DISABLE_VERSION_CHECK=1 cs-coverage check --coverage-files "$report" 2>&1 | tee "$log"
-            status=${PIPESTATUS[0]}
-            set -e
-            if grep -F 'No matching field found: close for class java.io.InputStreamReader' "$log"; then
-              echo 'cs-coverage 1.0.101 reported the known parser failure' >&2
-              if [ "$status" -eq 0 ]; then exit 1; fi
-              exit "$status"
-            fi
-            if [ "$status" -ne 0 ]; then exit "$status"; fi
-            if ! grep -F 'Code coverage gates: PASS' "$log"; then
-              echo 'cs-coverage did not report a PASS result' >&2
-              exit 1
-            fi
+      - name: Confirm the Slipcover fixtures the parser proof reads are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The parser proof itself is dispatch-only because it calls the
+          # service. What a pull request can still catch is a fixture deleted
+          # or renamed out from under it, which would otherwise make that
+          # proof pass over an empty loop.
+          shopt -s nullglob
+          fixtures=(.github/actions/upload-codescene-coverage/tests/fixtures/slipcover-*-cobertura.xml)
+          if [ "${#fixtures[@]}" -eq 0 ]; then
+            echo 'no Slipcover cobertura fixtures remain for the parser proof' >&2
+            exit 1
+          fi
+          for fixture in "${fixtures[@]}"; do
+            python3 -c 'import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])' "$fixture"
           done
       - name: Reject unpinned version and checksum conflict
         shell: bash

@@ -43,12 +43,16 @@ dispatch run selects its own ref and the push filter says nothing about it. The
 workflow carries a `concurrency` group so two overlapping pushes cannot race to
 write the baseline.
 
-`test-upload-codescene-coverage.yml` becomes `workflow_dispatch` only, and its
-job runs only from `refs/heads/main`. Its parser proof is the one place this
-repository still calls `cs-coverage check`, and that call is what the second
-outage broke. The trigger alone does not bound which ref's content runs: a
-dispatch selects its own ref, and that ref's workflow file would execute with
-the repository secret, so any write-access account could otherwise read
+The uploader's own contract splits along the same line rather than leaving the
+pull-request lane. `test-upload-codescene-coverage.yml` keeps everything that
+contacts nothing and stays on every pull request: the cold-runner proof, the
+`install` mode, the offline version assertion, the fixture check and the
+installer's refusals. `test-codescene-parser-proof.yml` takes the one call that
+reads the project configuration, `cs-coverage check`, which is what the second
+outage broke. It is dispatch-only and its job runs only from `refs/heads/main`:
+the trigger alone does not bound which ref's content runs, because a dispatch
+selects its own ref, and that ref's workflow file would execute with the
+repository secret, so any write-access account could otherwise read
 `CS_ACCESS_TOKEN` out of a branch it controls.
 
 This is concordat rule CV-005, main-owned-codescene-coverage, adopted here on
@@ -65,26 +69,37 @@ Coverage still reaches CodeScene, once per commit on `main`, from a workflow
 whose secret context is fixed at dispatch or push.
 
 A pull request that changes `upload-codescene-coverage`, its CLI manifest, or
-the pinned CLI version no longer gets the cold-runner install and parse proof
-automatically. Run that workflow by hand when any of those change. The action's
-offline behaviour stays covered by its own unit tests, which `ci.yml` runs on
-every pull request. The alternative considered was splitting the workflow into
-a tokenless pull-request job and a dispatch-only parser job; it was rejected
-because it leaves a pull-request-startable file naming the credential, which a
-static contract can only permit by understanding a job guard, and a guard a
-contract has to reason about is the weaker boundary.
+the pinned CLI version still gets the cold-runner install proof, the offline
+version assertion, the fixture check and the installer's refusals. What it no
+longer gets is the parse of those fixtures against the project configuration,
+because that call is the service contact. Run `test-codescene-parser-proof.yml`
+by hand from `main` when any of those change.
+
+Dispatch-only for the whole workflow was considered first and rejected: it
+takes a proof off the lane that costs nothing to run there. The split needs two
+files rather than one guarded job, because a static contract that had to reason
+about a job guard to decide whether a file holds the credential is the weaker
+boundary; two files keep the rule a property of the file.
 
 One workflow advances the baseline, and it serves no pull request.
 `publish-baseline` defaults to `auto`, which saves on a push to `main` whatever
 started the run, so a pull-request lane that also runs on such a push is a
 second writer and races the publisher. The contract rejects that shape.
 
-No workflow a pull request can reach may name `codescene.io` at all. The
-action, the client and the credential are the known doors; a step can reach the
-project API with a plain `curl` naming none of them, and every other assertion
-would still pass. The host comparison is case-insensitive because a DNS name
-is, while the credential is compared exactly because an environment variable
-name is case-sensitive.
+No workflow a pull request can reach may name `codescene.io`, hold
+`CS_ACCESS_TOKEN`, run `cs-coverage check` or `cs-coverage upload`, or use the
+CodeScene action in any mode but `install`. The host clause is the one that
+matters most: a step can reach the project API with a plain `curl` naming none
+of the others, and every remaining assertion would still pass. The host
+comparison is case-insensitive because a DNS name is, while the credential is
+compared exactly because an environment variable name is case-sensitive; the
+fold lives in the reader, so removing it fails a test rather than passing at
+every call site.
+
+The scan reads the parse rather than the file text. A comment contacts nothing,
+and explaining in prose why a lane must not name the credential made the lane
+name it. Walking the parse keeps the `run:` bodies, which is the hiding place
+that mattered, and drops what GitHub itself drops.
 
 Both lanes name the same ratchet baseline path. Scoping the publisher to
 `workflow_scripts` narrows the measured population, so the percentages in the

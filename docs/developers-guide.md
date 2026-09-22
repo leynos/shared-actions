@@ -930,12 +930,20 @@ started the run, so a lane that serves pull requests and also runs on such a
 push becomes a second writer and races the publisher. lading met exactly that
 shape.
 
-No workflow a pull request can reach may name `codescene.io` at all. The
-action, the client and the credential are the known doors; a step can reach the
-project API with a plain `curl` naming none of them, and every other assertion
-would still pass. The host comparison is case-insensitive because a DNS name
-is, while the credential is compared exactly because an environment variable
-name is case-sensitive.
+No workflow a pull request can reach may name `codescene.io`, hold
+`CS_ACCESS_TOKEN`, run `cs-coverage check` or `cs-coverage upload`, or use the
+CodeScene action in any mode but `install`. The host clause is the one that
+matters most: a step can reach the project API with a plain `curl` naming none
+of the others, and every remaining assertion would still pass. The host
+comparison is case-insensitive because a DNS name is, while the credential is
+compared exactly because an environment variable name is case-sensitive; the
+fold lives in the reader, so removing it fails a test rather than passing at
+every call site.
+
+The scan reads the parse rather than the file text. A comment contacts nothing,
+and explaining in prose why a lane must not name the credential made the lane
+name it. Walking the parse keeps the `run:` bodies, which is the hiding place
+that mattered, and drops what GitHub itself drops.
 
 Both lanes name the same ratchet baseline path,
 `.coverage-baseline.workflow-scripts.python`. A lane reading a path the
@@ -950,17 +958,29 @@ ratchet on pull requests must also run on the trunk push, or its baseline is
 never written and the pull-request comparison reads an empty file. This
 repository generates coverage on Linux only, on both sides.
 
-`test-upload-codescene-coverage.yml` proves that a cold runner can install the
-pinned CLI and that the pinned version parses Slipcover's cobertura reports.
-Its parser proof runs `cs-coverage check`, which reads the CodeScene project
-configuration over the network and needs `CS_ACCESS_TOKEN`, so the workflow is
-**dispatch-only**. Its job also runs only when `github.ref` is
-`refs/heads/main`, because a dispatch selects its own ref and the selected
-ref's workflow content runs with the repository secret. Run it by hand from
-`main` when `upload-codescene-coverage`, its CLI manifest, or the pinned CLI
-version changes. The action's offline behaviour stays covered by its own unit
-tests, which `ci.yml` runs on every pull request. The action keeps its `check`
-mode for external callers; this repository does not use it in pull-request CI.
+The uploader's own contract is split along the same line. What contacts nothing
+stays on the pull-request lane, because a pull request that changes
+`upload-codescene-coverage`, its CLI manifest or the pinned version is the one
+that needs it. `test-upload-codescene-coverage.yml` runs on every such pull
+request: it proves the runner starts cold, installs the pinned CLI through the
+action's `install` mode, asserts the resolved version offline, checks the
+Slipcover fixtures are present and well formed, and drives the installer's
+refusals. It holds no credential and names neither the service nor its gate
+subcommand.
+
+`test-codescene-parser-proof.yml` holds the half that contacts the service.
+`cs-coverage check` reads the CodeScene project configuration over the network
+and needs `CS_ACCESS_TOKEN`, so it is dispatch-only, and its job runs only when
+`github.ref` is `refs/heads/main`, because a dispatch selects its own ref and
+the selected ref's workflow content runs with the repository secret. Run it by
+hand from `main` when the action, its manifest, or the pinned version changes.
+The action keeps its `check` mode for external callers; this repository does
+not use it in pull-request CI.
+
+The boundary therefore has two halves, and the contract asserts both: no
+pull-request-reachable workflow reaches the service, and the offline proof is
+still reachable from a pull request. Without the second half, deleting the
+proof outright would satisfy every other rule.
 
 `tests/workflows/test_main_owned_coverage.py` holds the contract. It enumerates
 `.github/workflows/*.yml` rather than naming files, so a workflow added later

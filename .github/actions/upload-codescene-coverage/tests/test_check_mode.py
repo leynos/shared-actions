@@ -12,8 +12,13 @@ import pytest
 import yaml
 
 ACTION_YML = Path(__file__).resolve().parents[1] / "action.yml"
-WORKFLOW_YML = (
+#: The offline half of the uploader's contract, on every pull request.
+COLD_RUNNER_YML = (
     ACTION_YML.parents[3] / ".github/workflows/test-upload-codescene-coverage.yml"
+)
+#: The service-touching half, dispatch and trunk only.
+PARSER_PROOF_YML = (
+    ACTION_YML.parents[3] / ".github/workflows/test-codescene-parser-proof.yml"
 )
 
 
@@ -350,22 +355,90 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
         assert "inputs.mode != 'install'" in str(step["if"])
 
 
-class TestTheColdRunnerParserProof:
-    """The credentialed proof's trigger, its guard, and what it rejects."""
+def _triggers(path: Path) -> dict[str, object]:
+    """Return a workflow's triggers, read under both spellings of ``on:``."""
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return workflow.get("on", workflow.get(True))
+
+
+class TestTheColdRunnerProofRunsOnPullRequests:
+    """The offline half. It contacts nothing, so it stays on the lane.
+
+    A pull request that changes the uploader, its CLI manifest or the pinned
+    version is the one that needs this proof, so it must be able to start it.
+    """
+
+    def test_a_pull_request_can_start_it(self) -> None:
+        """The proof that costs nothing must not drift behind a dispatch."""
+        triggers = _triggers(COLD_RUNNER_YML)
+        assert "pull_request" in triggers, (
+            f"{COLD_RUNNER_YML.name} must be startable by a pull request; "
+            f"read {triggers!r}"
+        )
+
+    def test_it_installs_the_pinned_cli_on_a_cold_runner(self) -> None:
+        """The install path is what a pull request is here to exercise."""
+        workflow = yaml.safe_load(COLD_RUNNER_YML.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["cold-runner-contract"]["steps"]
+        installs = [
+            step
+            for step in steps
+            if "upload-codescene-coverage" in str(step.get("uses", ""))
+            and str((step.get("with") or {}).get("mode", "")) == "install"
+        ]
+        assert len(installs) == 1, (
+            f"{COLD_RUNNER_YML.name} must install the pinned CLI exactly once; "
+            f"found {len(installs)}"
+        )
+        assert any(
+            "cs-coverage was unexpectedly preinstalled" in str(step.get("run", ""))
+            for step in steps
+        ), f"{COLD_RUNNER_YML.name} no longer proves the runner starts cold"
+
+    def test_it_holds_no_credential_and_calls_no_service_command(self) -> None:
+        """Its whole reason for staying on the lane is that it contacts nothing.
+
+        The scan is raw text, so it sees comments too. That is stricter than
+        the workflow contract, which reads the parse because a comment
+        contacts nothing. Here the strictness is free and worth having: a
+        file on the pull-request lane has no reason to name the gate
+        subcommand even in prose, and the raw reading cannot be fooled by a
+        construction the parse walk has not met.
+        """
+        text = COLD_RUNNER_YML.read_text(encoding="utf-8")
+        offences = [
+            marker
+            for marker in (
+                "secrets.CS_ACCESS_TOKEN",
+                "cs-coverage check",
+                "cs-coverage upload",
+            )
+            if marker in text
+        ]
+        assert not offences, (
+            f"{COLD_RUNNER_YML.name} is on the pull-request lane and must not "
+            f"carry {offences}"
+        )
+
+    def test_it_keeps_the_parser_proof_fixtures_honest(self) -> None:
+        """A deleted fixture would make the parser proof loop over nothing."""
+        text = COLD_RUNNER_YML.read_text(encoding="utf-8")
+        assert "no Slipcover cobertura fixtures remain for the parser proof" in text, (
+            f"{COLD_RUNNER_YML.name} no longer fails when the fixtures vanish"
+        )
+
+
+class TestTheParserProofIsDispatchAndTrunkOnly:
+    """The service-touching half: its trigger and its guard, then what it rejects."""
 
     def test_it_cannot_be_started_by_a_pull_request(self) -> None:
-        """Under main-owned coverage the trigger is half the guard.
+        """It runs ``cs-coverage check``, which reads the project config.
 
-        The job runs ``cs-coverage check``, which reads the CodeScene project
-        configuration over the network and needs ``CS_ACCESS_TOKEN``. No
-        workflow a pull request can start may hold that credential, so the
-        workflow is dispatch-only. The fork and dependabot clauses this job
-        used to carry were reachable only through the pull-request trigger it
-        no longer has, and a guard nothing can reach is worse than none.
+        Under main-owned coverage no workflow a pull request can start may
+        hold ``CS_ACCESS_TOKEN`` or contact the service, so this half is
+        dispatch-only while the offline half stays on the lane.
         """
-        workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
-        triggers = workflow.get("on", workflow.get(True))
-
+        triggers = _triggers(PARSER_PROOF_YML)
         assert triggers == {"workflow_dispatch": None}, (
             f"the parser proof must be dispatch-only; read {triggers!r}"
         )
@@ -373,12 +446,12 @@ class TestTheColdRunnerParserProof:
     def test_it_runs_only_from_the_trunk_ref(self) -> None:
         """The trigger alone does not bound which ref's content runs.
 
-        A dispatch selects its own ref and the selected ref's workflow content
-        runs with the repository secret, so any write-access account could
+        A dispatch selects its own ref and that ref's workflow content runs
+        with the repository secret, so any write-access account could
         otherwise read the credential out of a branch it controls.
         """
-        workflow = yaml.safe_load(WORKFLOW_YML.read_text(encoding="utf-8"))
-        guard = str(workflow["jobs"]["cold-runner-contract"].get("if", ""))
+        workflow = yaml.safe_load(PARSER_PROOF_YML.read_text(encoding="utf-8"))
+        guard = str(workflow["jobs"]["parser-proof"].get("if", ""))
 
         assert "github.ref == 'refs/heads/main'" in guard, (
             f"the credentialed job is not bound to the trunk ref: {guard!r}"
@@ -386,12 +459,12 @@ class TestTheColdRunnerParserProof:
 
     def test_it_rejects_the_known_parser_failure(self) -> None:
         """A parse break must fail the proof rather than be tolerated."""
-        workflow = WORKFLOW_YML.read_text(encoding="utf-8")
+        workflow = PARSER_PROOF_YML.read_text(encoding="utf-8")
 
         tolerated = "! grep -F 'No matching field found"
         assert tolerated not in workflow, (
-            f"{WORKFLOW_YML.name} negates the parser-failure grep, which would "
-            f"turn the known break into a pass: {tolerated!r}"
+            f"{PARSER_PROOF_YML.name} negates the parser-failure grep, which "
+            f"would turn the known break into a pass: {tolerated!r}"
         )
         required = {
             "shallow fetch of the merge base": "git fetch --no-tags --depth=1",
@@ -412,4 +485,4 @@ class TestTheColdRunnerParserProof:
         missing = [
             what for what, fragment in required.items() if fragment not in workflow
         ]
-        assert not missing, f"{WORKFLOW_YML.name} is missing its {missing}"
+        assert not missing, f"{PARSER_PROOF_YML.name} is missing its {missing}"

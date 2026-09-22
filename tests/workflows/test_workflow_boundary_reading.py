@@ -18,10 +18,12 @@ from __future__ import annotations
 import typing as typ
 
 import pytest
+import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
 from .test_main_owned_coverage import (
+    CODESCENE_CREDENTIAL,
     DIGEST_VARIABLE,
     LOCAL_WORKFLOW_PATH,
     SELF_PREFIXES,
@@ -31,6 +33,8 @@ from .test_main_owned_coverage import (
     coverage_steps,
     digest_offenders,
     digest_refreshers,
+    effective_text,
+    names_the_codescene_host,
     pull_request_reachable,
     pushes_to_main,
     starts_on_pull_request,
@@ -311,3 +315,74 @@ class TestTheDigestScanFindsWhatIsPlanted:
         name = _plant(tmp_path, f"get-codescene-sha{suffix}", "{}")
         found = digest_refreshers(tmp_path)
         assert found == [name], f"planting {name} should be found; read {found}"
+
+
+class TestTheEffectiveTextReader:
+    """What a workflow can act on, and what it merely says.
+
+    Every host and credential assertion in the contract quantifies over this
+    reading. Against this repository's compliant workflows it would pass
+    whether or not it read `run:` bodies, and whether or not it folded case,
+    because none of them names the service at all. These drive it on
+    workflows written to name it.
+    """
+
+    @pytest.mark.parametrize(
+        ("host", "case"),
+        [
+            pytest.param("codescene.io", "lower", id="lower-case"),
+            pytest.param("CodeScene.IO", "mixed", id="mixed-case"),
+            pytest.param("CODESCENE.IO", "upper", id="upper-case"),
+        ],
+    )
+    def test_the_host_is_found_whatever_its_case(self, host: str, case: str) -> None:
+        """A DNS name is case-insensitive, so the comparison must be.
+
+        Without the fold, a lane reaches the service by capitalising it.
+        """
+        document = {
+            "jobs": {"a": {"steps": [{"run": f"curl -sf https://api.{host}/v2"}]}}
+        }
+        assert names_the_codescene_host(document), (
+            f"the {case}-case host should be recognised; the fold is in the "
+            "reader so that removing it fails here"
+        )
+
+    def test_a_run_body_is_read(self) -> None:
+        """The `run:` script is where a call hides from a shallower reading."""
+        document = {"jobs": {"a": {"steps": [{"run": "curl https://codescene.io"}]}}}
+        assert "codescene.io" in effective_text(document)
+
+    def test_an_environment_key_is_read(self) -> None:
+        """A credential arrives as a key, with an expression for its value."""
+        document = {
+            "jobs": {
+                "a": {
+                    "steps": [
+                        {
+                            "env": {CODESCENE_CREDENTIAL: "${{ secrets.X }}"},
+                            "run": "true",
+                        }
+                    ]
+                }
+            }
+        }
+        assert CODESCENE_CREDENTIAL in effective_text(document)
+
+    def test_a_workflow_level_environment_is_read(self) -> None:
+        """The outermost scope reaches every job in the file."""
+        document = {"env": {CODESCENE_CREDENTIAL: "${{ secrets.X }}"}, "jobs": {}}
+        assert CODESCENE_CREDENTIAL in effective_text(document)
+
+    def test_a_comment_is_not_read(self) -> None:
+        """A comment contacts nothing, and the parse has already dropped it.
+
+        This is the half that made the reading necessary: explaining in prose
+        why a lane must not name the credential made the lane name it.
+        """
+        document = yaml.safe_load(
+            "# CS_ACCESS_TOKEN must never appear here\n"
+            "on:\n  pull_request:\njobs:\n  a:\n    steps:\n"
+            "      - run: 'true'\n"
+        )
+        assert CODESCENE_CREDENTIAL not in effective_text(document)

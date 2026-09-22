@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 import typing as typ
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -41,8 +41,16 @@ INSTALL_WHITAKER_MANIFEST: typ.Final[Path] = (
     REPOSITORY_ROOT / ".github" / "actions" / "install-whitaker" / "action.yml"
 )
 
-#: The action as a workflow names it.
-INSTALL_WHITAKER_ACTION: typ.Final[str] = "./.github/actions/install-whitaker"
+#: The action's directory, relative to the repository root.
+INSTALL_WHITAKER_PATH: typ.Final[PurePosixPath] = PurePosixPath(
+    ".github/actions/install-whitaker"
+)
+
+#: The two prefixes GitHub reads as this repository: `./` against the
+#: checked-out workspace, and `$/` against the running commit, which
+#: GitHub now recommends. A lane written either way runs this action, so
+#: reading only one would let the other ask for any installer at all.
+LOCAL_ACTION_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 
 #: The input naming the installer version.
 VERSION_INPUT: typ.Final[str] = "installer-version"
@@ -78,17 +86,28 @@ def _workflow_names() -> list[str]:
     )
 
 
-def _load(path: Path) -> dict[str, typ.Any]:
-    """Return the parsed YAML document at *path*."""
-    match yaml.safe_load(path.read_text(encoding="utf-8")):
-        case dict() as parsed:
-            return parsed
-        case other:
-            msg = f"{path} is not a mapping: {other!r}"
+def _mapping(value: object, *, subject: str) -> dict[object, object]:
+    """Return *value* if it is a mapping, and fail naming *subject* if not.
+
+    The one place parsed YAML is narrowed. `yaml.safe_load` returns
+    `Any`, and letting that flow onward would let a reader call a
+    mapping method on a list without any diagnostic, so every value
+    this module indexes into passes through here first.
+    """
+    match value:
+        case dict():
+            return value
+        case _:
+            msg = f"{subject} is not a mapping: {value!r}"
             raise TypeError(msg)
 
 
-def _environment(scope: object) -> dict[str, object]:
+def _load(path: Path) -> dict[object, object]:
+    """Return the parsed YAML document at *path*."""
+    return _mapping(yaml.safe_load(path.read_text(encoding="utf-8")), subject=str(path))
+
+
+def _environment(scope: object) -> dict[object, object]:
     """Return the `env` mapping *scope* declares, or an empty one.
 
     A scope that is not a mapping, and one whose `env` is not a mapping,
@@ -107,9 +126,9 @@ def _environment(scope: object) -> dict[str, object]:
 def _resolve(
     value: str,
     *,
-    step: cabc.Mapping[str, typ.Any],
-    job: cabc.Mapping[str, typ.Any],
-    workflow: cabc.Mapping[str, typ.Any],
+    step: cabc.Mapping[object, object],
+    job: cabc.Mapping[object, object],
+    workflow: cabc.Mapping[object, object],
 ) -> str:
     """Resolve a bare `env.NAME` against the scopes GitHub would search.
 
@@ -136,10 +155,13 @@ def _version(raw: str) -> tuple[int, ...]:
 
 
 def _jobs(
-    workflow: cabc.Mapping[str, typ.Any],
-) -> cabc.Iterator[tuple[str, dict[str, typ.Any]]]:
+    workflow: cabc.Mapping[object, object],
+) -> cabc.Iterator[tuple[str, dict[object, object]]]:
     """Yield each job the workflow declares as a mapping, with its id."""
-    for job_id, job in (workflow.get("jobs") or {}).items():
+    jobs = workflow.get("jobs")
+    if jobs is None:
+        return
+    for job_id, job in _mapping(jobs, subject="the workflow's jobs").items():
         match job:
             case dict():
                 yield str(job_id), job
@@ -147,17 +169,39 @@ def _jobs(
                 continue
 
 
-def _steps(job: cabc.Mapping[str, typ.Any]) -> cabc.Iterator[dict[str, typ.Any]]:
-    """Yield each step the job declares as a mapping."""
-    for step in job.get("steps") or []:
-        match step:
-            case dict():
-                yield step
-            case _:
-                continue
+def _steps(job: cabc.Mapping[object, object]) -> cabc.Iterator[dict[object, object]]:
+    """Yield each step the job declares as a mapping.
+
+    A `steps` value that is not a list fails rather than reading as a job
+    with no steps, which would hide any install step it holds.
+    """
+    match job.get("steps"):
+        case None:
+            return
+        case list() as steps:
+            yield from (step for step in steps if isinstance(step, dict))
+        case other:
+            msg = f"a job's steps are not a list: {other!r}"
+            raise TypeError(msg)
 
 
-def _supplied_version(step: cabc.Mapping[str, typ.Any]) -> str | None:
+def _installs_whitaker(uses: object) -> bool:
+    """Return whether *uses* names this repository's Whitaker action.
+
+    Matched by shape, not by spelling: strip either local prefix and
+    compare what remains as a path, so `./` and `$/` both count and a
+    trailing slash does not hide a lane. A reference to another
+    repository, including this one at a pinned ref, runs whatever that
+    ref holds, which is not the action this contract guards.
+    """
+    match uses:
+        case str() if uses.startswith(LOCAL_ACTION_PREFIXES):
+            return PurePosixPath(uses[2:]) == INSTALL_WHITAKER_PATH
+        case _:
+            return False
+
+
+def _supplied_version(step: cabc.Mapping[object, object]) -> str | None:
     """Return the installer version this step supplies, or None.
 
     None covers both a step that installs something else and a step that
@@ -165,32 +209,38 @@ def _supplied_version(step: cabc.Mapping[str, typ.Any]) -> str | None:
     action's default, which
     `test_the_action_default_is_at_or_above_the_floor` covers instead.
     """
-    if step.get("uses") != INSTALL_WHITAKER_ACTION:
+    if not _installs_whitaker(step.get("uses")):
         return None
-    supplied = (step.get("with") or {}).get(VERSION_INPUT)
+    inputs = step.get("with")
+    if inputs is None:
+        return None
+    supplied = _mapping(inputs, subject="the step's with").get(VERSION_INPUT)
     return None if supplied is None else str(supplied)
 
 
-def _install_whitaker_steps() -> list[tuple[str, str, str]]:
-    """Return every lane that installs Whitaker, with the version it asks for.
+def _lanes(
+    name: str, workflow: cabc.Mapping[object, object]
+) -> cabc.Iterator[tuple[str, str, str]]:
+    """Yield each lane in *workflow* that installs Whitaker naming a version.
 
     Each entry is the workflow file, the job id, and the resolved
     `installer-version`.
     """
-    found: list[tuple[str, str, str]] = []
-    for name in _workflow_names():
-        workflow = _load(WORKFLOWS_DIRECTORY / name)
-        for job_id, job in _jobs(workflow):
-            found.extend(
-                (
-                    name,
-                    job_id,
-                    _resolve(supplied, step=step, job=job, workflow=workflow),
-                )
-                for step in _steps(job)
-                if (supplied := _supplied_version(step)) is not None
-            )
-    return found
+    for job_id, job in _jobs(workflow):
+        yield from (
+            (name, job_id, _resolve(supplied, step=step, job=job, workflow=workflow))
+            for step in _steps(job)
+            if (supplied := _supplied_version(step)) is not None
+        )
+
+
+def _install_whitaker_steps() -> list[tuple[str, str, str]]:
+    """Return every lane in the repository that installs Whitaker."""
+    return [
+        lane
+        for name in _workflow_names()
+        for lane in _lanes(name, _load(WORKFLOWS_DIRECTORY / name))
+    ]
 
 
 def _identifier(*parts: str) -> str:
@@ -238,7 +288,7 @@ class TestTheInstallerFloor:
         """
         assert _install_whitaker_steps(), (
             "no workflow supplies an installer-version to "
-            f"{INSTALL_WHITAKER_ACTION}; either the lint lane has gone or every "
+            f"{INSTALL_WHITAKER_PATH}; either the lint lane has gone or every "
             "step now relies on the action default, and this rule is checking "
             "nothing"
         )
@@ -268,7 +318,9 @@ class TestTheInstallerFloor:
         below it would leave every such consumer exposed.
         """
         manifest = _load(INSTALL_WHITAKER_MANIFEST)
-        default = str(manifest["inputs"][VERSION_INPUT]["default"]).strip()
+        inputs = _mapping(manifest.get("inputs"), subject="the manifest's inputs")
+        version_input = _mapping(inputs.get(VERSION_INPUT), subject=VERSION_INPUT)
+        default = str(version_input.get("default")).strip()
 
         _assert_at_or_above_floor(
             default, subject=f"{INSTALL_WHITAKER_MANIFEST.name}'s own default"
@@ -306,3 +358,106 @@ class TestTheFloorComparison:
             f"{raw} should be read as {'at or above' if expected else 'below'} "
             f"the floor {INSTALLER_FLOOR}"
         )
+
+
+class TestTheActionReference:
+    """Which `uses:` values this contract reads as the Whitaker action."""
+
+    @pytest.mark.parametrize(
+        ("uses", "expected"),
+        [
+            pytest.param("./.github/actions/install-whitaker", True, id="workspace"),
+            pytest.param("$/.github/actions/install-whitaker", True, id="self"),
+            pytest.param("./.github/actions/install-whitaker/", True, id="slash"),
+            pytest.param("$/.github/actions/install-mdtablefix", False, id="other"),
+            pytest.param(
+                "./.github/actions/install-whitaker-next", False, id="longer-name"
+            ),
+            pytest.param(
+                "leynos/shared-actions/.github/actions/install-whitaker@v1",
+                False,
+                id="pinned-remote",
+            ),
+            pytest.param(None, False, id="run-step"),
+        ],
+    )
+    def test_the_action_is_recognized_by_shape(
+        self,
+        uses: str | None,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """Both local prefixes name the action, and nothing else does.
+
+        GitHub runs `$/` and `./` against the same directory, so a lane
+        written either way must be read; a pinned remote reference runs
+        another commit's action and is outside this contract.
+        """
+        assert _installs_whitaker(uses) is expected, (
+            f"{uses!r} should {'' if expected else 'not '}be read as the "
+            "Whitaker action"
+        )
+
+    def test_a_self_reference_below_the_floor_is_refused(self) -> None:
+        """A `$/` lane asking for 0.2.6 reaches the floor rule and fails it.
+
+        The recognition case above could pass while the lane reader
+        compared the spelling some other way, so this drives a whole
+        workflow through the reader and the assertion together.
+        """
+        workflow: dict[object, object] = {
+            "jobs": {
+                "lint": {
+                    "steps": [
+                        {
+                            "uses": "$/.github/actions/install-whitaker",
+                            "with": {VERSION_INPUT: "0.2.6"},
+                        }
+                    ]
+                }
+            }
+        }
+
+        lanes = list(_lanes("ci.yml", workflow))
+
+        assert lanes == [("ci.yml", "lint", "0.2.6")], lanes
+        with pytest.raises(AssertionError, match=re.escape("below the 0.2.7 floor")):
+            _assert_at_or_above_floor(lanes[0][2], subject="ci.yml::lint")
+
+
+class TestTheYamlBoundary:
+    """What the reader does with a document whose shape has drifted."""
+
+    @pytest.mark.parametrize(
+        "workflow",
+        [
+            pytest.param({"jobs": ["lint"]}, id="jobs-as-a-list"),
+            pytest.param(
+                {"jobs": {"lint": {"steps": "make lint"}}}, id="steps-as-text"
+            ),
+            pytest.param(
+                {
+                    "jobs": {
+                        "lint": {
+                            "steps": [
+                                {
+                                    "uses": "./.github/actions/install-whitaker",
+                                    "with": ["installer-version"],
+                                }
+                            ]
+                        }
+                    }
+                },
+                id="with-as-a-list",
+            ),
+        ],
+    )
+    def test_a_drifted_shape_fails_rather_than_reading_as_empty(
+        self, workflow: dict[object, object]
+    ) -> None:
+        """A container of the wrong type raises instead of hiding its lanes.
+
+        Reading any of these as "no jobs", "no steps" or "no inputs" would
+        drop an install step from the floor rule without a word.
+        """
+        with pytest.raises(TypeError):
+            list(_lanes("ci.yml", workflow))

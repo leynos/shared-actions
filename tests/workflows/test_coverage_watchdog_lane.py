@@ -224,8 +224,15 @@ def _raw_runs_on(job_name: str) -> str:
 #: branch filter excludes just as effectively as a path one and is
 #: easier to add without thinking about it, so both kinds are named
 #: here rather than only the pair this lane was written against.
+#:
+#: `types` is here too. Its default, `opened`, `synchronize` and
+#: `reopened`, is what makes the lane a pre-merge check; `types:
+#: [closed]` runs the proof only after the pull request is finished with.
+#: A list that kept all three and added more would be harmless, but
+#: nothing this lane proves needs another event, so any declaration is
+#: refused rather than read for which events it keeps.
 TRIGGER_FILTERS: typ.Final[frozenset[str]] = frozenset(
-    {"paths", "paths-ignore", "branches", "branches-ignore"}
+    {"paths", "paths-ignore", "branches", "branches-ignore", "types"}
 )
 
 #: The fork fallback, parsed rather than searched for tokens, so that
@@ -247,11 +254,28 @@ _SHELL_PREFIXES: typ.Final[frozenset[str]] = frozenset(
     {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "env"}
 )
 
-#: Words that take a command as an argument instead of running it. A step
-#: reading `echo <proof> --runner <runner>` exits zero, proves nothing,
-#: and satisfies any check that looks for the path anywhere in the text.
-_NOT_EXECUTIONS: typ.Final[frozenset[str]] = frozenset(
-    {"echo", "printf", "cat", "ls", "test", "["}
+#: A leading `NAME=value` word, which sets the command's environment
+#: rather than being the command.
+_ASSIGNMENT: typ.Final[re.Pattern[str]] = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
+
+#: What may stand in the command position before the proof script. The
+#: script carries a `uv run` shebang, so it may be named directly, or it
+#: may be handed to `uv run`, with or without `--script`.
+#:
+#: An allowlist rather than a list of commands that do not execute their
+#: argument. `true <proof> --runner <runner>` exits zero and runs
+#: nothing, as do `echo`, `:` and every other command nobody thought to
+#: list, so the command position is matched against what does run the
+#: script and everything else is refused by not being here.
+_LAUNCHERS: typ.Final[tuple[tuple[str, ...], ...]] = (
+    (),
+    ("uv", "run"),
+    ("uv", "run", "--script"),
+)
+
+#: The spellings of the script's path a launcher may name.
+_SCRIPT_SPELLINGS: typ.Final[frozenset[str]] = frozenset(
+    {PROOF_SCRIPT, f"./{PROOF_SCRIPT}"}
 )
 
 
@@ -259,9 +283,8 @@ def _command_lines(script: str) -> cabc.Iterator[list[str]]:
     """Yield the words of each command the run block would execute.
 
     The block is split on line breaks and on the shell separators that
-    end a command, then each fragment is tokenised. A fragment whose
-    first word takes a command as an argument yields nothing, because
-    nothing in it runs.
+    end a command, then each fragment is tokenised, with the words that
+    introduce a command or set its environment stripped from the front.
     """
     fragments = re.split(r"[\n;&|]+", script)
     for fragment in fragments:
@@ -269,11 +292,25 @@ def _command_lines(script: str) -> cabc.Iterator[list[str]]:
             words = shlex.split(fragment, comments=True)
         except ValueError:
             continue
-        while words and words[0] in _SHELL_PREFIXES:
+        while words and (words[0] in _SHELL_PREFIXES or _ASSIGNMENT.match(words[0])):
             words = words[1:]
-        if not words or words[0] in _NOT_EXECUTIONS:
+        if words:
+            yield words
+
+
+def _proof_arguments(words: cabc.Sequence[str]) -> list[str] | None:
+    """Return the arguments given to the proof script, if *words* runs it.
+
+    None means the command runs something else, including a command that
+    merely names the script as one of its own arguments.
+    """
+    for launcher in _LAUNCHERS:
+        width = len(launcher)
+        if tuple(words[:width]) != launcher or len(words) <= width:
             continue
-        yield words
+        if words[width] in _SCRIPT_SPELLINGS:
+            return list(words[width + 1 :])
+    return None
 
 
 def _runner_argument(words: cabc.Sequence[str]) -> str | None:
@@ -288,6 +325,17 @@ def _runner_argument(words: cabc.Sequence[str]) -> str | None:
         if word.startswith("--runner="):
             return word.removeprefix("--runner=")
     return None
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Parametrize every `job_name` test over the workflow's jobs.
+
+    Done at collection rather than in a decorator, so importing this
+    module reads no file and a workflow that cannot be read fails as a
+    collection error naming it.
+    """
+    if "job_name" in metafunc.fixturenames:
+        metafunc.parametrize("job_name", sorted(_jobs()))
 
 
 class TestCoverageWatchdogLane:
@@ -305,20 +353,22 @@ class TestCoverageWatchdogLane:
             for step in job.get("steps", [])
         ]
         invocations = [
-            words
+            arguments
             for command in commands
             for words in _command_lines(command)
-            if PROOF_SCRIPT in words
+            if (arguments := _proof_arguments(words)) is not None
         ]
 
         assert invocations, (
             f"no step in {WORKFLOW.name} executes {PROOF_SCRIPT} as a command, "
-            "so the cargo watchdog is not proved anywhere. A step that passes "
-            "the path to another command, such as echo, satisfies a substring "
-            "check and runs nothing"
+            "either directly or through uv run, so the cargo watchdog is not "
+            "proved anywhere. A step that passes the path to another command, "
+            "such as true or echo, satisfies a substring check and runs nothing"
         )
         pointed = [
-            words for words in invocations if _runner_argument(words) == COVERAGE_RUNNER
+            arguments
+            for arguments in invocations
+            if _runner_argument(arguments) == COVERAGE_RUNNER
         ]
 
         assert pointed, (
@@ -351,7 +401,6 @@ class TestCoverageWatchdogLane:
             "the watchdog would go unproved on the pull requests it excludes"
         )
 
-    @pytest.mark.parametrize("job_name", sorted(_jobs()))
     def test_runs_on_is_one_line(self, job_name: str) -> None:
         """No job's `runs-on` carries a line break.
 
@@ -372,7 +421,6 @@ class TestCoverageWatchdogLane:
         )
         assert folded, f"{job_name} declares an empty runs-on"
 
-    @pytest.mark.parametrize("job_name", sorted(_jobs()))
     def test_runs_on_maps_each_case_to_its_runner(self, job_name: str) -> None:
         """A fork gets the GitHub-hosted runner and everything else Ubicloud.
 
@@ -455,3 +503,58 @@ class TestTheWorkflowReaders:
             "runs-on": "ubicloud-standard-2",
             "steps": [],
         }
+
+
+class TestTheProofCommand:
+    """Which run blocks count as executing the proof script."""
+
+    @pytest.mark.parametrize(
+        ("script", "expected"),
+        [
+            pytest.param(
+                f"uv run --script {PROOF_SCRIPT} --runner R", True, id="uv-script"
+            ),
+            pytest.param(f"uv run {PROOF_SCRIPT} --runner R", True, id="uv-run"),
+            pytest.param(f"{PROOF_SCRIPT} --runner R", True, id="direct"),
+            pytest.param(f"./{PROOF_SCRIPT} --runner R", True, id="direct-dotted"),
+            pytest.param(
+                f"if uv run --script {PROOF_SCRIPT} --runner R; then :; fi",
+                True,
+                id="behind-if",
+            ),
+            pytest.param(
+                f"RUST_LOG=debug uv run --script {PROOF_SCRIPT} --runner R",
+                True,
+                id="behind-an-assignment",
+            ),
+            pytest.param(f"true {PROOF_SCRIPT} --runner R", False, id="true"),
+            pytest.param(f": {PROOF_SCRIPT} --runner R", False, id="colon"),
+            pytest.param(f"echo {PROOF_SCRIPT} --runner R", False, id="echo"),
+            pytest.param(
+                f"uv run --script other.py {PROOF_SCRIPT} --runner R",
+                False,
+                id="an-argument-to-another-script",
+            ),
+            pytest.param(f"# {PROOF_SCRIPT} --runner R", False, id="comment"),
+        ],
+    )
+    def test_only_a_launcher_in_the_command_position_counts(
+        self,
+        script: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """The script runs only when it or `uv run` holds the command position.
+
+        Anything else that names the path, `true` above all, exits zero
+        and proves nothing, so it must not satisfy the lane rule.
+        """
+        arguments = [
+            found
+            for words in _command_lines(script)
+            if (found := _proof_arguments(words)) is not None
+        ]
+
+        assert (arguments == [["--runner", "R"]]) is expected, (
+            f"{script!r} should {'' if expected else 'not '}count as executing "
+            f"the proof; read as {arguments!r}"
+        )

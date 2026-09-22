@@ -1653,7 +1653,17 @@ is not on `PATH` and `which` would report it missing.
 Windows has no execute permission bit, so `os.access(path, os.X_OK)` answers
 `True` for every readable file there and would call a text file runnable.
 Executability is carried by the suffix instead, which is what `PATHEXT`
-enumerates. `PATHEXT` is separated by semicolons on Windows whatever
+enumerates.
+
+`PATHEXT` is the list Windows searches, not the list of files a caller can
+spawn, so the interpreted entries are filtered out: `.ps1`, `.vbs`, `.vbe`,
+`.js`, `.jse`, `.wsf`, `.wsh`, `.msc` and `.cpl`. Windows runs those by handing
+them to an interpreter, and `_run_act` does not: it passes the resolved path
+straight to `plumbum.local[...]`, which spawns it as a process and selects
+neither `powershell` nor `wscript`. A `.ps1` accepted by the availability check
+would therefore fail at process creation, reporting the file rather than the
+probe. Filtering them keeps the check's answer and the caller's behaviour the
+same thing. `PATHEXT` is separated by semicolons on Windows whatever
 `os.pathsep` says on the host reading it, so the separator is written out
 rather than borrowed from the platform, and the tests pin `PATHEXT` rather than
 inheriting it so the outcome does not depend on the developer's shell.
@@ -2274,8 +2284,22 @@ five things:
 
 Two decisions sit in every job header here, and both disappear from view once
 the workflow is green: which runner the job takes, and how long it may take it.
-`tests/workflows/test_runner_placement.py` holds the answers and fails when a
-workflow drifts from them.
+Four modules under `tests/workflows/` hold the answers and fail when a workflow
+drifts from them, one per responsibility:
+
+<!-- markdownlint-disable MD013 -->
+| Module                        | What it holds                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `test_runner_placement.py`    | Which runner each Linux lane takes, and the exemptions that name a reason.         |
+| `test_job_ceilings.py`        | The tier each job belongs to, and the ceiling that tier carries.                   |
+| `test_fork_fallback_guard.py` | The fork fallback, and which lanes are excused it because they skip forks instead. |
+| `test_check_names.py`         | That a matrix job's reported name is stable across both arms of the fallback.      |
+<!-- markdownlint-enable MD013 -->
+
+They share `_workflow_reading.py`, which is not collected: it holds the
+constants, the validated YAML readers and the exemption mappings, so a workflow
+whose shape has drifted fails at the boundary with the file named rather than
+reaching an assertion as something unchecked.
 
 ### Where Linux work runs
 

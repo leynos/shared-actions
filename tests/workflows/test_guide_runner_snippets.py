@@ -63,16 +63,23 @@ def _marked_fence_lines(lines: cabc.Sequence[str]) -> frozenset[int]:
     marked: set[int] = set()
     pending = False
     for number, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if line.startswith(COUNTER_EXAMPLE_MARKER):
-            pending = True
-        elif stripped == "```yaml":
-            if pending:
-                marked.add(number)
-            pending = False
-        elif stripped:
-            pending = False
+        was_pending, pending = pending, _marker_state(line, pending=pending)
+        if was_pending and line.strip() == "```yaml":
+            marked.add(number)
     return frozenset(marked)
+
+
+def _marker_state(line: str, *, pending: bool) -> bool:
+    """Return whether a marker is still pending after reading *line*.
+
+    A marker line sets it. Any other line carrying text clears it,
+    because the marker applies to the next fence and to nothing further.
+    A blank line leaves it alone, since the marker and its fence are
+    separated by one.
+    """
+    if line.startswith(COUNTER_EXAMPLE_MARKER):
+        return True
+    return pending if not line.strip() else False
 
 
 def _guide_runner_snippets() -> list[tuple[int, bool, str]]:

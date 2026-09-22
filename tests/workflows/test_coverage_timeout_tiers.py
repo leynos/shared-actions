@@ -744,25 +744,66 @@ class TestCoverageTimeoutTiers:
             f"or this contract stopped recognizing it"
         )
 
-    def test_no_lane_names_a_manifest_of_its_own(self) -> None:
+    def test_no_lane_reaches_cargo_without_stating_its_budget(self) -> None:
         """The root manifest is not the only route to a `cargo` run.
 
         `detect.py` prefers a root ``Cargo.toml`` but falls back to the
         ``cargo-manifest`` input when one is named and exists. A lane
         passing it runs cargo with no root manifest present, so the
         precondition below would skip the very tiers that had become
-        real. This asserts the second route is closed as well as the
-        first.
+        real.
+
+        The requirement is on the budget, not on the input. Refusing the
+        input outright would be the tighter rule but is not this
+        repository's to impose: `cargo-manifest` is a published route a
+        caller may use. What this repository can require of its own lanes
+        is that a lane reaching cargo by *either* route states what may
+        be spent on it, because the failure the tiers guard against is an
+        unstated budget, whichever input made the run real.
+
+        A lane naming a manifest therefore has to carry a ceiling and a
+        watchdog budget for every window it arms, exactly as a lane would
+        once a root manifest appeared. That is what keeps the tiers inert
+        here: not the absence of the input, but every lane that could run
+        cargo already having said what its budget is.
         """
-        naming = [
-            f"{lane}: {MANIFEST_INPUT}={manifest!r}"
-            for lane, manifest in _manifest_inputs(THIS_REPOSITORY)
-            if manifest
-        ]
-        assert not naming, (
-            f"these lanes pass {MANIFEST_INPUT}, so generate-coverage may run "
-            f"cargo here whatever the repository root holds, and the tiers "
-            f"below stop being inert: {naming}"
+        self._assert_every_cargo_route_states_its_budget()
+
+    def _assert_every_cargo_route_states_its_budget(self) -> None:
+        """Require a written budget on each lane that can reach cargo.
+
+        Read from the lanes rather than from the manifest input, so the
+        assertion covers both routes and stays true as lanes change.
+        """
+        unnamed: list[str] = []
+        for lane, manifest in _manifest_inputs(THIS_REPOSITORY):
+            if not manifest:
+                continue
+            budgets = [
+                watchdog if watchdog is not None else WATCHDOG_DEFAULT_SECONDS
+                for watchdog in lane.watchdogs
+            ]
+            if lane.ceiling is None:
+                unnamed.append(
+                    f"{lane}: {MANIFEST_INPUT}={manifest!r} but no timeout-minutes"
+                )
+            elif not ceiling_is_sufficient(lane.ceiling, budgets):
+                unnamed.append(
+                    f"{lane}: {MANIFEST_INPUT}={manifest!r} with a ceiling of "
+                    f"{lane.ceiling} minutes, below the "
+                    f"{required_ceiling_seconds(budgets) / 60:.0f} needed"
+                )
+            elif any(watchdog is None for watchdog in lane.watchdogs):
+                unnamed.append(
+                    f"{lane}: {MANIFEST_INPUT}={manifest!r} but window(s) "
+                    f"{[i + 1 for i, w in enumerate(lane.watchdogs) if w is None]} "
+                    f"of {len(lane.watchdogs)} inherit the action's "
+                    f"{WATCHDOG_DEFAULT_SECONDS} s default"
+                )
+        assert not unnamed, (
+            f"these lanes reach cargo through {MANIFEST_INPUT} without stating "
+            f"what may be spent on it, so the watchdog bounds a run whose budget "
+            f"nobody chose and the ceiling may pre-empt it: {unnamed}"
         )
 
     def test_the_cargo_tiers_do_not_apply_until_a_manifest_appears(self) -> None:
@@ -770,8 +811,10 @@ class TestCoverageTimeoutTiers:
 
         `detect.py` classifies this project by the presence of a root
         `Cargo.toml`, and the action gates every Rust step on that. Without
-        the manifest no `cargo` runs, so the watchdog and both nextest tiers
-        are inert here however the lanes are configured.
+        the manifest no `cargo` runs by the *first* route, so the watchdog
+        and both nextest tiers are inert here for every lane that names no
+        manifest of its own; the test above holds the second route to the
+        same standard.
 
         The failure message is the point of the test: it fires on the change
         that adds the manifest, which is a change about packaging rather

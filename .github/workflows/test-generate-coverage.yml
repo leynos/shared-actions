@@ -1,0 +1,83 @@
+name: Test generate-coverage
+
+# Fixture for the composite-input collision that nektos/act causes.
+#
+# act exports every declared composite input into the step environment under
+# its dashed name, so `INPUT_ARTEFACT-NAME-SUFFIX` lands next to the
+# underscored `INPUT_ARTEFACT_NAME_SUFFIX` a step's own `env:` mapping would
+# set. Cyclopts resolves both spellings onto one parameter, so the step used
+# to abort with
+# "Parameter INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". This job
+# deliberately omits `artefact-name-suffix`, which is the omitted-input case a
+# caller hits by default and the exact pairing that aborted.
+#
+# Under act the job doubles as the end-to-end demonstration that no coverage
+# step needs `ACTIONS_RUNTIME_TOKEN`: `publish-artefact: "false"` takes the
+# archive step out, and nothing else in the action talks to the artefact
+# service. A GitHub-hosted run of this same workflow leaves publication at its
+# default, so the upload path stays exercised where a runtime token exists.
+on:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-generate-coverage-out-no-suffix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          install-binstall: 'false'
+
+      - name: Generate coverage without an artefact suffix
+        id: coverage
+        uses: ./.github/actions/generate-coverage
+        with:
+          output-path: coverage.xml
+          format: cobertura
+          # `language: rust` rather than `auto`: the repository root carries a
+          # pyproject.toml, so auto detection would classify this as mixed and
+          # also run the whole Python suite under coverage. Forcing rust keeps
+          # the fixture on the Rust leg while still driving the `out` step the
+          # collision affects.
+          language: rust
+          # The action's dependency-free fixture crate, which builds in
+          # seconds. `rust-toy-app` cannot be used here: its manpage assertion
+          # pins the build script's output to `<crate>/target/generated-man/…`
+          # while `cargo llvm-cov` redirects `CARGO_TARGET_DIR` to
+          # `<crate>/target/llvm-cov-target`, so the test cannot find the page
+          # it was told to expect. That predates this fixture and is unrelated
+          # to the composite-input collision being guarded.
+          cargo-manifest: .github/actions/generate-coverage/tests/fixtures/minimal-rust-project/Cargo.toml
+          use-cargo-nextest: 'false'
+          # act provides no ACTIONS_RUNTIME_TOKEN, so the upload is suppressed
+          # rather than left to fail. This is an explicit opt-out available to
+          # any caller, not a workaround for the input collision above: the
+          # collision is fixed by passing the hyphenated inputs as arguments.
+          publish-artefact: "false"
+
+      - name: Verify outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A `name=value` line per output, which is the shape the pytest
+          # harness scrapes from the act logs.
+          echo "file=${{ steps.coverage.outputs.file }}"
+          echo "format=${{ steps.coverage.outputs.format }}"
+          echo "artefact-name=${{ steps.coverage.outputs.artefact-name }}"
+          [[ "${{ steps.coverage.outputs.format }}" == "cobertura" ]]
+          # No suffix was supplied, so the composed name must end in the arch
+          # component rather than a trailing separator. The component is the
+          # normalized platform machine, `x86_64`, not the runner's `X64`.
+          [[ "${{ steps.coverage.outputs.artefact-name }}" == *-linux-x86_64 ]]

@@ -11,6 +11,16 @@ name: Test generate-coverage
 # deliberately omits `artefact-name-suffix`, which is the omitted-input case a
 # caller hits by default and the exact pairing that aborted.
 #
+# The lane is known to discriminate, which is the property that makes it worth
+# its runtime. Run against the state before the fix -- the `Env("INPUT_")`
+# binding restored and the two hyphenated inputs back in the step's `env:` --
+# it fails with the original "specified multiple times" error and a non-zero
+# exit; run against the fix it reports the composed name and succeeds. It is
+# not enough that the fixed action passes here, since a CLI argument outranks
+# the environment and would mask a reintroduced binding: reverting the binding
+# alone still passes. The guard is the pair of changes, so the lane holds the
+# pair.
+#
 # The collision is language-independent — it happens in the `out` step, after
 # coverage has run — but the fixture still takes the Rust leg, against the
 # dependency-free crate under the action's own `tests/fixtures`. That leg is
@@ -27,11 +37,15 @@ name: Test generate-coverage
 # every lane that names a manifest, so this job satisfies it rather than
 # excepting itself from it.
 #
-# Under act the job doubles as the end-to-end demonstration that no coverage
-# step needs `ACTIONS_RUNTIME_TOKEN`: `publish-artefact: "false"` takes the
-# archive step out, and nothing else in the action talks to the artefact
-# service. A GitHub-hosted run of this same workflow leaves publication at its
-# default, so the upload path stays exercised where a runtime token exists.
+# Publication is suppressed under act and left on everywhere else, which is
+# the idiom a caller wanting an act-clean lane should copy. act exports
+# `ACTIONS_RUNTIME_TOKEN` only when it was started with an artifact server;
+# without one the variable is present but empty, and an upload would fail.
+# Whether act has a usable token therefore depends on how act was invoked,
+# which a workflow cannot see, so the lane keys on `env.ACT` -- which act sets
+# to `true` -- rather than on the token itself. A GitHub-hosted run of this
+# same workflow keeps publication at its default, so the upload path stays
+# exercised where a real runtime token exists.
 on:
   workflow_dispatch:
   pull_request:
@@ -46,10 +60,10 @@ jobs:
       contents: read
     # Sized from the rule rather than picked: one watchdog window at the 600 s
     # stated below, plus ten minutes of measured work outside the window, plus
-    # a fifteen-minute margin above that sum, is 2,100 s or 35 minutes. The
-    # fixture is a two-minute job on a warm toolchain, so a ceiling sized for
-    # the watchdog's worst case costs nothing and keeps this lane inside the
-    # rule rather than beside it.
+    # a fifteen-minute margin above that sum, is 2,100 s or 35 minutes. A
+    # measured act run of the whole job took 146 s, of which the coverage step
+    # was 48 s, so a ceiling sized for the watchdog's worst case costs nothing
+    # and keeps this lane inside the rule rather than beside it.
     timeout-minutes: 45
     steps:
       - name: Checkout repository
@@ -82,17 +96,21 @@ jobs:
           # it was told to expect. That predates this fixture and is unrelated
           # to the composite-input collision being guarded.
           cargo-manifest: .github/actions/generate-coverage/tests/fixtures/minimal-rust-project/Cargo.toml
-          # A written budget for the one window this step arms, rather than the
-          # action's default. Small because the fixture crate has no
-          # dependencies: a cold build is seconds, not the half-hour a real
-          # cold sccache store takes.
+          # A written budget for the one window this step arms, rather than
+          # the 1,800 s the action defaults to. That default is sized for a
+          # cold sccache store, which this lane cannot have: the fixture crate
+          # has no dependencies, so its build is seconds either way. Stating
+          # the smaller number keeps the ceiling requirement at 600 s plus the
+          # 600 s allowance and 900 s margin, 35 minutes in all, where the
+          # larger budget would demand 55.
           cargo-wait-timeout: "600"
           use-cargo-nextest: 'false'
-          # act provides no ACTIONS_RUNTIME_TOKEN, so the upload is suppressed
-          # rather than left to fail. This is an explicit opt-out available to
-          # any caller, not a workaround for the input collision above: the
-          # collision is fixed by passing the hyphenated inputs as arguments.
-          publish-artefact: "false"
+          # Suppressed under act only. This is an explicit opt-out available
+          # to any caller, not a workaround for the input collision above: the
+          # collision is fixed by passing the hyphenated inputs as arguments,
+          # and this lane would reach the `out` step either way. The comment
+          # above the job explains why the gate is on `env.ACT`.
+          publish-artefact: ${{ !env.ACT }}
 
       - name: Verify outputs
         shell: bash

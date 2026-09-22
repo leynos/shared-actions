@@ -858,6 +858,37 @@ The job summary carries these metric names, read from `action.yml`:
   `whitaker-installer.failure=execution`.
 - `whitaker-installer.result=success`.
 
+### The installer floor
+
+No lane may ask for a Whitaker installer older than 0.2.7, and the action's own
+`installer-version` default may not sit below it either. Below 0.2.7 the
+installer compiles `dylint-link` from crates.io instead of installing the
+published artefact, and since 2026-09-17 that build needs rustc 1.91 while this
+repository pins 1.89. The failure only shows on a cold installer cache, so a
+green run is no evidence that a lane is safe.
+
+`tests/workflows/test_whitaker_installer_floor.py` enforces the floor, reading
+every workflow with a `.yml` or `.yaml` extension in any case:
+
+- A step runs the action when its `uses:` is `./` or `$/` followed by
+  `.github/actions/install-whitaker`. The match is on the path, so a trailing
+  slash still counts. A pinned reference to another repository runs whatever
+  that ref holds, and is not read.
+- A bare `${{ env.NAME }}` resolves against the step, then the job, then the
+  workflow, which is the order GitHub searches, and never against another job.
+  Any value that is not one to three numeric components after that is refused
+  as unreadable rather than accepted.
+- Versions compare numerically, component by component, so `0.10.0` sits
+  above the floor and `0.2` sits below it.
+- The workflow directory and the action manifest are passed into the readers
+  explicitly. A workflow that cannot be read, cannot be parsed, or has the
+  wrong shape fails and names the file. It does not read as a workflow with no
+  lanes.
+
+`tests/workflows/test_whitaker_floor_readers.py` covers those readers against
+synthetic workflows. Raising the floor is a decision, because every lane and
+every consumer has to move with it.
+
 ## `upload-codescene-coverage` check-mode contract
 
 The `gate-applicability` step runs only when `inputs.mode` is `check`. It

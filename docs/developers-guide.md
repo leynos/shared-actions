@@ -982,15 +982,17 @@ pull-request-reachable workflow reaches the service, and the offline proof is
 still reachable from a pull request. Without the second half, deleting the
 proof outright would satisfy every other rule.
 
-`tests/workflows/test_main_owned_coverage.py` holds the contract. It enumerates
-`.github/workflows/*.yml` rather than naming files, so a workflow added later
-is covered the day it appears, and it follows job-level `uses:` into local
-reusable workflows, in both the workspace-relative `./` and the self-repository
-`$/` spellings, so a CodeScene call one file away from a pull-request trigger
-is still inside the boundary. It reads the `on:` key under both the string key
-and the boolean `True` that PyYAML resolves an unquoted `on:` to; a reader that
-consults only the string key sees no triggers anywhere and every boundary drawn
-from it passes over an empty set.
+`tests/workflows/test_main_owned_coverage.py` holds the contract, over readings
+that live in `workflow_boundary.py` beside it and are driven on chosen inputs in
+`test_workflow_boundary_reading.py`. It enumerates `.github/workflows/*.yml`
+rather than naming files, so a workflow added later is covered the day it
+appears, and it follows job-level `uses:` into local reusable workflows, in
+both the workspace-relative `./` and the self-repository `$/` spellings, so a
+CodeScene call one file away from a pull-request trigger is still inside the
+boundary. It reads the `on:` key under both the string key and the boolean
+`True` that PyYAML resolves an unquoted `on:` to; a reader that consults only
+the string key sees no triggers anywhere and every boundary drawn from it
+passes over an empty set.
 
 ## `upload-codescene-coverage` check-mode contract
 

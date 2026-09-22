@@ -22,7 +22,7 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
-from .test_main_owned_coverage import (
+from .workflow_boundary import (
     CODESCENE_CREDENTIAL,
     DIGEST_VARIABLE,
     LOCAL_WORKFLOW_PATH,

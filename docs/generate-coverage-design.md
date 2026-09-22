@@ -26,15 +26,15 @@ action and the evolution of its supporting scripts.
 
   The `detect`, `rust`, and `python` steps still set underscored `INPUT_*` keys
   in their `env:` blocks and their scripts still read them with a plain
-  `os.environ` lookup, which stays correct because the two reads differ in kind.
-  A plain lookup names one exact key, so it matches only the underscored
-  variable and ignores act's dashed copy; nothing resolves the same input twice.
-  The removed `Env("INPUT_")` binding was a *prefix* search, which Cyclopts
-  resolves by normalizing each spelling onto the parameter, so it matched both
-  copies and treated them as a duplicate. `set_outputs.py` reads `DETECTED_FMT`,
-  `GITHUB_JOB`, `STRATEGY_JOB_INDEX`, `RUNNER_OS`, and `RUNNER_ARCH` for
-  values the step computes or that the runner synthesizes, not for an input, so
-  they have no dashed twin either way. See
+  `os.environ` lookup, which stays correct because the two reads differ in
+  kind. A plain lookup names one exact key, so it matches only the underscored
+  variable and ignores act's dashed copy; nothing resolves the same input
+  twice. The removed `Env("INPUT_")` binding was a *prefix* search, which
+  Cyclopts resolves by normalizing each spelling onto the parameter, so it
+  matched both copies and treated them as a duplicate. `set_outputs.py` reads
+  `DETECTED_FMT`, `GITHUB_JOB`, `STRATEGY_JOB_INDEX`, `RUNNER_OS`, and
+  `RUNNER_ARCH` for values the step computes or that the runner synthesizes,
+  not for an input, so they have no dashed twin either way. See
   [`docs/local-validation-of-github-actions-with-act-and-pytest.md`](local-validation-of-github-actions-with-act-and-pytest.md)
   for the act-compatibility context.
 - *2026-04-16* — Rust coverage runs now force LLVM via subprocess environment

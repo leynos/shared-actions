@@ -50,10 +50,10 @@ from .workflow_boundary import (
     digest_offenders,
     digest_refreshers,
     pull_request_reachable,
-    pushes_to_main,
     upload_steps,
 )
 from .workflow_expressions import TRUNK_REF_TERM, conjuncts
+from .workflow_triggers import pushes_to_main
 
 
 @pytest.fixture(name="documents")

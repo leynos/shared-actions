@@ -36,9 +36,8 @@ from .workflow_boundary import (
     effective_text,
     names_the_codescene_host,
     pull_request_reachable,
-    pushes_to_main,
-    starts_on_pull_request,
 )
+from .workflow_triggers import pushes_to_main, starts_on_pull_request
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -63,6 +62,8 @@ class TestTheTriggerReaderSeesBothKeys:
                     ({"on": {"pull_request": None}}, True, "pr-string-key"),
                     ({True: ["pull_request"]}, True, "pr-boolean-key-list"),
                     ({True: "pull_request"}, True, "pr-boolean-key-string"),
+                    ({"on": ["push", "pull_request"]}, True, "pr-string-key-list"),
+                    ({"on": "pull_request"}, True, "pr-string-key-string"),
                     ({True: {"push": {"branches": ["main"]}}}, False, "pr-push"),
                     ({}, False, "pr-no-triggers"),
                 )
@@ -74,6 +75,36 @@ class TestTheTriggerReaderSeesBothKeys:
                     ({True: {"push": None}}, True, "push-unfiltered"),
                     ({True: {"push": {"branches": ["dev"]}}}, False, "push-other"),
                     ({True: {"workflow_dispatch": None}}, False, "push-dispatch"),
+                    ({True: ["push"]}, True, "push-list"),
+                    ({True: {"push": {"branches": "main"}}}, True, "push-string"),
+                    ({True: {"push": {"branches": ["**"]}}}, True, "push-glob"),
+                    (
+                        {True: {"push": {"branches": ["**", "!main"]}}},
+                        False,
+                        "push-negated",
+                    ),
+                    (
+                        {True: {"push": {"branches": ["!main", "ma*"]}}},
+                        True,
+                        "push-negation-overridden",
+                    ),
+                    (
+                        {True: {"push": {"branches-ignore": ["main"]}}},
+                        False,
+                        "push-ignored",
+                    ),
+                    (
+                        {True: {"push": {"branches-ignore": ["dev"]}}},
+                        True,
+                        "push-other-ignored",
+                    ),
+                    ({True: {"push": {"tags": ["v*"]}}}, False, "push-tags-only"),
+                    (
+                        {True: {"push": {"tags": ["v*"], "branches": ["main"]}}},
+                        True,
+                        "push-tags-and-main",
+                    ),
+                    ({True: {"push": {"paths": ["src/**"]}}}, True, "push-paths"),
                 )
             ),
         ],

@@ -6,6 +6,9 @@ drives them on inputs written for the purpose. They live apart from both so
 that neither module carries a second subject, and so that a clause added to
 the contract does not grow the module that reads YAML.
 
+What starts a workflow is read in `workflow_triggers`, which this module
+builds its closure and its publisher reading on.
+
 Nothing here touches the filesystem except `workflow_documents`, which the
 contract calls once, and the two digest scans, which take the directory to
 scan so a caller can build one.
@@ -22,6 +25,7 @@ from .test_coverage_timeout_tiers import (
     WorkflowJob,
     workflow_documents,
 )
+from .workflow_triggers import pushes_to_main, starts_on_pull_request
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -63,10 +67,6 @@ CODESCENE_HOST: typ.Final[str] = "codescene.io"
 CHECKSUM_INPUT: typ.Final[str] = "installer-checksum"
 #: The repository variable the deleted digest refresher used to write.
 DIGEST_VARIABLE: typ.Final[str] = "CODESCENE_CLI_SHA256"
-#: Triggers a pull request can fire.
-PULL_REQUEST_EVENTS: typ.Final[frozenset[str]] = frozenset(
-    {"pull_request", "pull_request_target"}
-)
 #: The path of a `uses:` naming a workflow in this repository, without its
 #: self-repository prefix.
 LOCAL_WORKFLOW_PATH: typ.Final[str] = ".github/workflows/"
@@ -123,64 +123,6 @@ def _self_reference(uses: str, path: str) -> bool:
 
 #: This repository's own workflows, parsed once.
 THIS_REPOSITORY: typ.Final[dict[str, WorkflowDocument]] = workflow_documents()
-
-
-def triggers(document: cabc.Mapping[typ.Any, typ.Any]) -> dict[str, typ.Any]:
-    """Return a workflow's triggers, keyed by event name.
-
-    PyYAML resolves an unquoted ``on:`` key to the boolean ``True``, so a
-    reader that consults only the string key sees no triggers at all and
-    every boundary drawn from it passes over an empty set. Both keys are
-    read here, and the three spellings GitHub accepts (a mapping, a list,
-    and a bare string) are normalized to a mapping.
-
-    Parameters
-    ----------
-    document : Mapping
-        One parsed workflow.
-
-    Returns
-    -------
-    dict[str, Any]
-        Event name to its configuration, which may be ``None``.
-
-    Examples
-    --------
-    >>> triggers({True: {"pull_request": None}})
-    {'pull_request': None}
-    >>> triggers({"on": ["push", "workflow_dispatch"]})
-    {'push': None, 'workflow_dispatch': None}
-    """
-    raw = document.get("on", document.get(True))
-    if isinstance(raw, str):
-        return {raw: None}
-    if isinstance(raw, list):
-        return {str(event): None for event in raw}
-    if isinstance(raw, dict):
-        return {str(event): value for event, value in raw.items()}
-    return {}
-
-
-def starts_on_pull_request(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
-    """Return whether a pull request can start this workflow directly."""
-    return bool(PULL_REQUEST_EVENTS & set(triggers(document)))
-
-
-def pushes_to_main(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
-    """Return whether a push to ``main`` starts this workflow.
-
-    A ``push`` trigger with no branch filter runs on every branch, ``main``
-    among them, so it counts.
-    """
-    if "push" not in triggers(document):
-        return False
-    configuration = triggers(document)["push"]
-    if not isinstance(configuration, dict):
-        return True
-    branches = configuration.get("branches")
-    if branches is None:
-        return True
-    return "main" in [str(branch) for branch in branches]
 
 
 def _called_workflow(job: WorkflowJob) -> str | None:

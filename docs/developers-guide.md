@@ -1011,7 +1011,17 @@ recognizing one spelling too many only adds prohibitions, so the reading errs
 that way. It reads the `on:` key under both the string key and the boolean
 `True` that PyYAML resolves an unquoted `on:` to; a reader that consults only
 the string key sees no triggers anywhere and every boundary drawn from it
-passes over an empty set.
+passes over an empty set. The trigger readers live in `workflow_triggers.py`,
+and they accept all three shapes GitHub does: a bare event name, a list, and a
+mapping. A list read as a mapping stringifies into one event named after the
+whole list, and the workflow escapes every pull-request clause.
+
+Whether a push reaches `main` is read from the push filter as GitHub applies it.
+`branches` may be a list or a single string, its patterns are globs read in
+order with a later `!` pattern excluding what an earlier one matched,
+`branches-ignore` excludes, and a push filtered on tags alone runs for no
+branch. The publisher and the second-writer rule both rest on this reading, and
+a lane pushing on `'**'` is a second writer as surely as one naming `main`.
 
 ## `upload-codescene-coverage` check-mode contract
 

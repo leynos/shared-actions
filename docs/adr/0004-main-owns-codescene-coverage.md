@@ -79,6 +79,13 @@ One workflow advances the baseline, and it serves no pull request.
 started the run, so a pull-request lane that also runs on such a push is a
 second writer and races the publisher. The contract rejects that shape.
 
+No workflow a pull request can reach may name `codescene.io` at all. The
+action, the client and the credential are the known doors; a step can reach the
+project API with a plain `curl` naming none of them, and every other assertion
+would still pass. The host comparison is case-insensitive because a DNS name
+is, while the credential is compared exactly because an environment variable
+name is case-sensitive.
+
 Both lanes name the same ratchet baseline path. Scoping the publisher to
 `workflow_scripts` narrows the measured population, so the percentages in the
 baseline earlier unscoped main runs wrote are not comparable with these; the

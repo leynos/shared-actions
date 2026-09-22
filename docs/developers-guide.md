@@ -930,6 +930,13 @@ started the run, so a lane that serves pull requests and also runs on such a
 push becomes a second writer and races the publisher. lading met exactly that
 shape.
 
+No workflow a pull request can reach may name `codescene.io` at all. The
+action, the client and the credential are the known doors; a step can reach the
+project API with a plain `curl` naming none of them, and every other assertion
+would still pass. The host comparison is case-insensitive because a DNS name
+is, while the credential is compared exactly because an environment variable
+name is case-sensitive.
+
 Both lanes name the same ratchet baseline path,
 `.coverage-baseline.workflow-scripts.python`. A lane reading a path the
 publisher never writes ratchets against zero. The path is also how a scope

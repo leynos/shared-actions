@@ -54,6 +54,11 @@ COVERAGE_SCOPE: typ.Final[str] = "workflow_scripts"
 CODESCENE_CREDENTIAL: typ.Final[str] = "CS_ACCESS_TOKEN"
 #: The CodeScene CLI. No pull-request-reachable workflow invokes it.
 CODESCENE_CLI: typ.Final[str] = "cs-coverage"
+#: The CodeScene service itself. Forbidding the action, the client and the
+#: credential closes the known doors, not the lane: a step can reach the
+#: project API with a plain `curl`, naming none of the three, and nothing
+#: fails. The host is what the boundary is actually about.
+CODESCENE_HOST: typ.Final[str] = "codescene.io"
 #: The installer-script digest input, rejected by the action when non-empty.
 CHECKSUM_INPUT: typ.Final[str] = "installer-checksum"
 #: The repository variable the deleted digest refresher used to write.
@@ -431,6 +436,30 @@ class TestPullRequestLanesNeverReachCodeScene:
         }
         named = {name: found for name, found in offenders.items() if found}
         assert named == {}, f"pull-request reachable workflows name CodeScene: {named}"
+
+    def test_no_reachable_workflow_names_the_codescene_host(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """Forbid the service, not only the three ways of reaching it.
+
+        The action, the client and the credential are the known doors. A step
+        can reach the project API with a plain ``curl`` naming none of them,
+        and every assertion beside this one would still pass.
+
+        The comparison is case-insensitive because a DNS name is. The
+        credential above is compared exactly, because an environment variable
+        name is case-sensitive; the two are deliberately not folded together,
+        and the asymmetry is the reason.
+        """
+        named = sorted(
+            name
+            for name in pull_request_reachable(documents)
+            if CODESCENE_HOST
+            in (WORKFLOWS_DIRECTORY / name).read_text(encoding="utf-8").lower()
+        )
+        assert named == [], (
+            f"pull-request reachable workflows reach {CODESCENE_HOST}: {named}"
+        )
 
     def test_no_reachable_workflow_invokes_the_codescene_action(
         self, documents: dict[str, WorkflowDocument]

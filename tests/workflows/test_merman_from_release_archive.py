@@ -122,9 +122,22 @@ _SHELL_PREFIX_KEYWORDS: typ.Final[tuple[str, ...]] = (
 #: merman-cli --locked` is exactly the source build this contract refuses,
 #: written the way a step that wanted a particular toolchain would write
 #: it, and without this allowance the assignment hid the command from the
-#: pattern. The value stops at whitespace or a separator, so the
-#: assignment cannot swallow the rest of the line.
-_SHELL_ASSIGNMENT: typ.Final[str] = r"(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*\s+)*"
+#: pattern.
+#:
+#: The value is read the way the shell reads a word: unquoted characters
+#: up to whitespace or a separator, a backslash escaping the next
+#: character, a single-quoted span, or a double-quoted span with its own
+#: escapes, in any sequence. So `RUSTFLAGS='-D warnings' cargo install`
+#: is seen, where a value that simply stopped at whitespace would end at
+#: `'-D` and hide the command, while an unquoted value still cannot
+#: swallow the rest of the line. Each alternative starts on a character
+#: none of the others can, so the repetition cannot backtrack.
+_ASSIGNMENT_VALUE: typ.Final[str] = (
+    r"""(?:[^\s;&|'"\\]|\\.|'[^']*'|"(?:[^"\\]|\\.)*")*"""
+)
+_SHELL_ASSIGNMENT: typ.Final[str] = (
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=" + _ASSIGNMENT_VALUE + r"\s+)*"
+)
 
 #: The pattern is assembled from module-level literals rather than from
 #: anything a workflow supplies, so there is no input here to drive
@@ -382,9 +395,34 @@ class TestMermanReleaseArchive:
                 id="behind-an-assignment-behind-a-keyword",
             ),
             pytest.param(
+                f"RUSTFLAGS='-D warnings' cargo install {TOOL_NAME}",
+                True,
+                id="behind-a-single-quoted-assignment",
+            ),
+            pytest.param(
+                f'RUSTFLAGS="-D warnings" cargo install {TOOL_NAME}',
+                True,
+                id="behind-a-double-quoted-assignment",
+            ),
+            pytest.param(
+                f"RUSTFLAGS=-D\\ warnings cargo install {TOOL_NAME}",
+                True,
+                id="behind-an-escaped-space-assignment",
+            ),
+            pytest.param(
+                f'RUSTFLAGS="-C \\"x y\\"" cargo install {TOOL_NAME}',
+                True,
+                id="behind-a-double-quoted-assignment-with-an-escaped-quote",
+            ),
+            pytest.param(
                 f"echo RUSTUP_TOOLCHAIN=1.95.0 cargo install {TOOL_NAME}",
                 False,
                 id="an-assignment-that-is-only-an-argument",
+            ),
+            pytest.param(
+                f"echo RUSTFLAGS='-D warnings' cargo install {TOOL_NAME}",
+                False,
+                id="a-quoted-assignment-that-is-only-an-argument",
             ),
             pytest.param(
                 f"RUSTUP_TOOLCHAIN=1.95.0 uv tool install {TOOL_NAME}",
@@ -555,7 +593,18 @@ def _assignments() -> st.SearchStrategy[str]:
     names = st.sampled_from(
         ("RUSTUP_TOOLCHAIN", "CARGO_NET_OFFLINE", "RUSTFLAGS", "_X1")
     )
-    values = st.sampled_from(("1.95.0", "false", "", "-Dwarnings"))
+    values = st.sampled_from(
+        (
+            "1.95.0",
+            "false",
+            "",
+            "-Dwarnings",
+            "'-D warnings'",
+            '"-D warnings"',
+            "-D\\ warnings",
+            '"it\'s"',
+        )
+    )
     return st.lists(
         st.tuples(names, values).map(lambda pair: f"{pair[0]}={pair[1]}"),
         max_size=3,

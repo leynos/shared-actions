@@ -51,7 +51,10 @@ DOCTEST_PATHS ?= bool_utils.py cargo_utils.py cmd_utils.py composite_fragments.p
 	test_support \
 	.github/actions/determine-release-modes/scripts/determine_release_modes.py \
 	.github/actions/upload-release-assets/scripts/upload_release_assets.py \
-	tests/workflows/test_coverage_timeout_tiers.py
+	tests/workflows/test_coverage_timeout_tiers.py \
+	workflow_scripts/dependabot_commit_audit.py \
+	workflow_scripts/dependabot_decision.py \
+	workflow_scripts/dependabot_metrics.py
 
 doctest: .venv ## Execute the examples in docstrings
 	$(UV) run --with typer --with packaging --with plumbum --with pyyaml --with pytest-bdd --with syrupy --with hypothesis pytest --doctest-modules -p no:cacheprovider -q $(DOCTEST_PATHS)

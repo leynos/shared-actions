@@ -10,6 +10,19 @@
   off so that a test filter that accidentally selects nothing still fails
   rather than passing silently. The input has no effect when
   `use-cargo-nextest` is `false`.
+- Fix the `out` step aborting under nektos/act with "Parameter
+  INPUT_ARTEFACT_NAME_SUFFIX specified multiple times". act exports every
+  composite input into the step environment under its dashed name, so
+  `INPUT_ARTEFACT-NAME-SUFFIX` arrived alongside the underscored
+  `INPUT_ARTEFACT_NAME_SUFFIX` the step's own `env:` block set. Cyclopts
+  normalizes both spellings onto one parameter, so the blanket `Env("INPUT_")`
+  binding resolved that parameter twice and aborted before the outputs were
+  written. The step now passes `output-path` and `artefact-name-suffix` as
+  explicit command-line arguments, and `set_outputs.py` no longer binds
+  `Env("INPUT_")`. An argument cannot collide with an environment variable, so
+  the step behaves identically under act and on GitHub-hosted runners; no
+  exception is caught or suppressed. The `file`, `format`, and `artefact-name`
+  outputs are unchanged, as is the `publish-artefact` default of `"true"`.
 - Stop a warm Python dependency cache from breaking `uv venv`, on the suspected
   cause that restored `~/.cache/uv/environments-v2` script environments, bound
   to the interpreter and runner that built them, were unusable elsewhere. The

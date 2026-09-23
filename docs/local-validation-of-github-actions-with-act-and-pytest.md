@@ -204,17 +204,25 @@ make test WITH_ACT=1
 ACT_WORKFLOW_TESTS=1 sudo -E make test
 ```
 
-`make test WITH_ACT=1` makes the lane a prerequisite, so the workflow harness
-runs **before** the ordinary suite rather than after it. The plain suite then
-forces the opt-in back off, so the lane's modules skip inside it and
-`tests/workflows` is not run twice. `ACT_WORKFLOW_TESTS` is the canonical
-pytest-side gate; `WITH_ACT` is the Make-side alias for the same opt-in, and
-either one asks for the lane. After running with sudo, remove the root-owned
-`.venv` (`sudo rm -rf .venv`) so future non-root commands can recreate it. The
-act harness also leaves a `.venv-coverage` directory behind, created inside the
-container by the `generate-coverage` action; `make clean` removes it with the
-other transient artefacts, and you may want the same `sudo` treatment when the
-run was privileged.
+`ACT_WORKFLOW_TESTS=1` adds the `test-act` target to `make test`, and
+`WITH_ACT=1` is an accepted alias for the same opt-in; either one asks for the
+lane. The lane runs first, as a prerequisite rather than as a later line of the
+`test` recipe, so a failure in the regular suite no longer prevents it from
+launching: `make test WITH_ACT=1` still reports the harness result when the
+regular suite fails, and still exits non-zero when either target fails. The
+reverse does not hold -- a failing harness lane stops the run before the
+regular suite, so when you need both outcomes and the harness is failing, read
+the earlier `make test` log alongside it, or run the two targets separately
+(`make test` and `make test-act`). The plain suite forces the opt-in back off,
+so the lane's modules skip inside it and `tests/workflows` is not run twice. To
+run the harness lane alone, call `make test-act` directly.
+
+After running with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so
+future non-root commands can recreate it. The act harness also leaves a
+`.venv-coverage` directory behind, created inside the container by the
+`generate-coverage` action; `make clean` removes it with the other transient
+artefacts, and you may want the same `sudo` treatment when the run was
+privileged.
 
 ## Record -> replay -> verify (closing the loop)
 

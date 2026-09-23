@@ -477,32 +477,40 @@ class TestTheParserProofIsDispatchAndTrunkOnly:
             f"the credentialed job is not bound to the trunk ref alone: {guard!r}"
         )
 
-    def test_it_rejects_the_known_parser_failure(self) -> None:
-        """A parse break must fail the proof rather than be tolerated."""
-        workflow = PARSER_PROOF_YML.read_text(encoding="utf-8")
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param(
+                'git fetch --no-tags --unshallow "https://github.com/$REPOSITORY.git"'
+                ' "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"',
+                id="fetch-default-branch",
+            ),
+            pytest.param(
+                'git merge-base "origin/$DEFAULT_BRANCH" HEAD', id="merge-base"
+            ),
+            pytest.param(
+                "python3 .github/actions/upload-codescene-coverage/scripts/"
+                "prove_parser.py",
+                id="parse-the-fixtures",
+            ),
+        ],
+    )
+    def test_each_proof_command_is_a_steps_sole_command(self, command: str) -> None:
+        """A command is required as a whole step, not as text inside one.
 
-        tolerated = "! grep -F 'No matching field found"
-        assert tolerated not in workflow, (
-            f"{PARSER_PROOF_YML.name} negates the parser-failure grep, which "
-            f"would turn the known break into a pass: {tolerated!r}"
-        )
-        required = {
-            "shallow fetch of the merge base": "git fetch --no-tags --depth=1",
-            "unshallow fallback": "git fetch --no-tags --unshallow",
-            "merge-base check": (
-                'git merge-base "origin/$DEFAULT_BRANCH" HEAD >/dev/null'
-            ),
-            "parser-failure detection": (
-                "if grep -F 'No matching field found: close for class "
-                "java.io.InputStreamReader'"
-            ),
-            "parser-failure message": (
-                "cs-coverage 1.0.101 reported the known parser failure"
-            ),
-            "pipeline status capture": "status=${PIPESTATUS[0]}",
-            "missing-PASS message": "cs-coverage did not report a PASS result",
-        }
-        missing = [
-            what for what, fragment in required.items() if fragment not in workflow
+        ``false && git fetch ...`` contains the fetch command's text and runs
+        nothing, and so does a step whose ``if:`` is never true. Each command
+        must therefore be some step's entire ``run:``, on a step with no
+        ``if:``. The parse loop's verdicts live in ``prove_parser.py``, where
+        ``test_prove_parser.py`` drives them.
+        """
+        steps = _workflow(PARSER_PROOF_YML)["jobs"]["parser-proof"]["steps"]
+        sole = [
+            step
+            for step in steps
+            if str(step.get("run", "")).strip() == command and "if" not in step
         ]
-        assert not missing, f"{PARSER_PROOF_YML.name} is missing its {missing}"
+        assert len(sole) == 1, (
+            f"{PARSER_PROOF_YML.name} must run {command!r} as one step's sole "
+            f"command with no if:; read {[s.get('run') for s in steps]!r}"
+        )

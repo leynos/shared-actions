@@ -1096,12 +1096,17 @@ the shape the actions are written for.
   second writer of the baseline; give pull-request lanes no such trigger.
 - One workflow that runs on pushes to `main`, and on no pull request,
   regenerates the same coverage, saves the next baseline, and runs
-  `upload-codescene-coverage` in `upload` mode. Guard the upload step on
-  `github.ref == 'refs/heads/main' && env.CS_ACCESS_TOKEN != ''`, because a
-  `workflow_dispatch` run selects its own ref. Give the workflow a
-  `concurrency` group without `cancel-in-progress: true`: a cancelled run loses
-  its upload and its baseline write. A newer push replaces a pending run, so
-  the newest push's baseline wins.
+  `upload-codescene-coverage` in `upload` mode. Keep `CS_ACCESS_TOKEN` out of
+  every `env`, since the action is composite and would pass a step's `env` on.
+  Add a check step with an `id` whose sole command is
+  `echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+  guard the upload on that output being `'true'` and on
+  `github.ref == 'refs/heads/main'` (a `workflow_dispatch` run selects its own
+  ref), and pass `access-token: ${{ secrets.CS_ACCESS_TOKEN }}` directly. Key
+  the workflow's `concurrency` group on the ref alone, such as
+  `coverage-main-${{ github.ref }}`, with `cancel-in-progress: false`: a
+  cancelled run loses its upload and its baseline write, and one group keeps
+  uploads in commit order.
 - Both sides pass the same `language`, the same `python-source` scope, and the
   same baseline file name, or the pull-request comparison reads a baseline
   measuring a different population, or one nothing writes.

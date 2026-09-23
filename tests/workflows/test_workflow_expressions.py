@@ -14,7 +14,7 @@ import pytest
 from .workflow_expressions import TRUNK_REF_TERM, conjuncts, requires_every
 
 #: The publisher's credential term, as the contract requires it.
-CREDENTIAL_TERM = "env.CS_ACCESS_TOKEN != ''"
+CREDENTIAL_TERM = "steps.codescene-credential.outputs.available == 'true'"
 
 
 @pytest.mark.parametrize(

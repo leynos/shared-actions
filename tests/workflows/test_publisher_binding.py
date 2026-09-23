@@ -1,7 +1,7 @@
-"""The publisher's credential binding, driven on workflows missing one half.
+"""The publisher's credential check and upload, driven on broken shapes.
 
-This repository's publisher carries both halves, so over it the contract
-passes whether or not the reading can tell a binding from its absence.
+This repository's publisher carries every part, so over it the contract
+passes whether or not the readings can tell a part from its absence.
 
 Run via ``make test``.
 """
@@ -12,69 +12,115 @@ import typing as typ
 
 import pytest
 
-from .publisher_binding import missing_bindings
+from .publisher_binding import (
+    ACCESS_TOKEN_VALUE,
+    CHECK_COMMAND,
+    credential_environments,
+    upload_problems,
+)
 
+#: The check step as the publisher writes it.
+CHECK: typ.Final[dict[str, typ.Any]] = {
+    "id": "codescene-credential",
+    "run": CHECK_COMMAND,
+}
 #: The upload step as the publisher writes it.
 UPLOAD: typ.Final[dict[str, typ.Any]] = {
     "uses": "./.github/actions/upload-codescene-coverage",
-    "if": "github.ref == 'refs/heads/main' && env.CS_ACCESS_TOKEN != ''",
-    "with": {"mode": "upload", "access-token": "${{ env.CS_ACCESS_TOKEN }}"},
+    "if": (
+        "steps.codescene-credential.outputs.available == 'true'"
+        " && github.ref == 'refs/heads/main'"
+    ),
+    "with": {"mode": "upload", "access-token": ACCESS_TOKEN_VALUE},
 }
-#: The job-level binding the publisher uses.
-BOUND: typ.Final[dict[str, str]] = {
-    "CS_ACCESS_TOKEN": "${{ secrets.CS_ACCESS_TOKEN || '' }}"
-}
 
 
-def _publisher(
-    *, job_env: dict[str, str] | None, step: dict[str, typ.Any]
-) -> dict[str, typ.Any]:
-    """Return a one-job publisher with the given binding and upload step."""
-    job: dict[str, typ.Any] = {"steps": [step]}
-    if job_env is not None:
-        job["env"] = job_env
-    return {"jobs": {"upload": job}}
+def _publisher(*steps: dict[str, typ.Any]) -> dict[str, typ.Any]:
+    """Return a one-job publisher running *steps* in order."""
+    return {"jobs": {"upload": {"steps": list(steps)}}}
 
 
-def test_the_publisher_shape_is_complete() -> None:
-    """Both halves present: nothing is missing."""
-    missing = missing_bindings(_publisher(job_env=BOUND, step=UPLOAD))
-    assert missing == [], missing
+class TestTheUploadShape:
+    """Every part present passes; each part missing is named."""
+
+    def test_the_publisher_shape_is_complete(self) -> None:
+        """Check before upload, guard on both terms, secret passed directly."""
+        problems = upload_problems(_publisher(CHECK, UPLOAD))
+        assert problems == [], problems
+
+    @pytest.mark.parametrize(
+        ("steps", "expected"),
+        [
+            pytest.param((UPLOAD,), "does not require", id="check-deleted"),
+            pytest.param((UPLOAD, CHECK), "does not require", id="check-after"),
+            pytest.param(
+                ({**CHECK, "run": 'echo "available=true" >> "$GITHUB_OUTPUT"'}, UPLOAD),
+                "does not require",
+                id="command-changed",
+            ),
+            pytest.param(
+                ({**CHECK, "if": "always()"}, UPLOAD),
+                "does not require",
+                id="check-guarded",
+            ),
+            pytest.param(
+                (CHECK, {**UPLOAD, "if": "github.ref == 'refs/heads/main'"}),
+                "does not require",
+                id="output-term-dropped",
+            ),
+            pytest.param(
+                (
+                    CHECK,
+                    {
+                        **UPLOAD,
+                        "with": {
+                            "mode": "upload",
+                            "access-token": "${{ env.CS_ACCESS_TOKEN }}",
+                        },
+                    },
+                ),
+                "access-token",
+                id="token-from-env",
+            ),
+        ],
+    )
+    def test_a_missing_part_is_named(
+        self, steps: tuple[dict[str, typ.Any], ...], expected: str
+    ) -> None:
+        """Deleting the check leaves the upload skipped forever, silently.
+
+        The command is exact because ``false && echo ...`` still contains the
+        text, and the check carries no ``if:`` for the same reason.
+        """
+        problems = upload_problems(_publisher(*steps))
+        assert len(problems) == 1, problems
+        assert expected in problems[0], problems
 
 
 @pytest.mark.parametrize(
-    ("job_env", "step", "expected"),
+    ("document", "expected"),
     [
         pytest.param(
-            None,
-            UPLOAD,
-            "upload: CS_ACCESS_TOKEN is not bound from secrets.CS_ACCESS_TOKEN",
-            id="binding-deleted",
+            {"env": {"CS_ACCESS_TOKEN": "${{ secrets.CS_ACCESS_TOKEN }}"}},
+            ["workflow"],
+            id="workflow-level",
         ),
         pytest.param(
-            {"CS_ACCESS_TOKEN": "${{ vars.SOMETHING }}"},
-            UPLOAD,
-            "upload: CS_ACCESS_TOKEN is not bound from secrets.CS_ACCESS_TOKEN",
-            id="bound-from-elsewhere",
+            {"jobs": {"a": {"env": {"TOKEN": "${{ secrets.CS_ACCESS_TOKEN }}"}}}},
+            ["a"],
+            id="job-level-renamed",
         ),
         pytest.param(
-            BOUND,
-            {**UPLOAD, "with": {"mode": "upload"}},
-            "upload: access-token is not passed the credential",
-            id="input-deleted",
+            {"jobs": {"a": {"steps": [{"env": {"CS_ACCESS_TOKEN": "x"}}]}}},
+            ["a[0]"],
+            id="step-level",
         ),
+        pytest.param(_publisher(CHECK, UPLOAD), [], id="the-publisher-shape"),
     ],
 )
-def test_a_missing_half_is_named(
-    job_env: dict[str, str] | None, step: dict[str, typ.Any], expected: str
+def test_the_credential_is_found_in_any_environment(
+    document: dict[str, typ.Any], expected: list[str]
 ) -> None:
-    """Either half deleted leaves the guard false and the upload skipped."""
-    missing = missing_bindings(_publisher(job_env=job_env, step=step))
-    assert missing == [expected], missing
-
-
-def test_a_step_level_binding_counts() -> None:
-    """The nearest scope binds; a step-level binding is as good as a job's."""
-    step = {**UPLOAD, "env": BOUND}
-    missing = missing_bindings(_publisher(job_env=None, step=step))
-    assert missing == [], missing
+    """A key or a value names it, at any of the three scopes."""
+    found = credential_environments(document)
+    assert found == expected, found

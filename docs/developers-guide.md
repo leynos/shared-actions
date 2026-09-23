@@ -926,20 +926,37 @@ contract permits extra conjuncts that narrow the guard: in
 every required term is still a whole conjunct once the `||` is ignored. That
 case is the one `test_workflow_expressions.py` uses to prove the refusal; an
 appended `|| dispatch` alone also breaks the credential term, so it fails with
-or without the refusal and proves nothing about it. The workflow carries a
-`concurrency` group so two overlapping `main` pushes cannot race to write the
-baseline, and it never cancels a running publisher: a cancelled publisher
-abandons both its upload and its baseline write. It is not a queue either:
-GitHub keeps one pending run per group, a newer push replaces it, and the
-newest push's baseline wins. The contract accepts `cancel-in-progress` only
-when it is absent or literally false, because an expression may evaluate true.
+or without the refusal and proves nothing about it.
 
-The upload step's guard, `env.CS_ACCESS_TOKEN != ''`, is a prohibition: with
-the credential's binding deleted it is simply false, the upload skips on every
-push, and nothing turns red. So the contract asserts the binding positively
-through `missing_bindings` in `publisher_binding.py`: the credential is bound
-from `secrets.CS_ACCESS_TOKEN` in a scope the step sees, and the step passes it
-to the action's `access-token` input.
+The workflow's `concurrency` group is keyed on the ref alone,
+`coverage-main-${{ github.ref }}`, and the contract asserts that expression
+exactly. With one group, publications never overlap, and the survivor of any
+replacement is the newest trigger, whose commit is the newest on `main`, so
+uploads land in commit order; a group keyed on the event as well would let an
+earlier dispatch finish after a newer push and upload older coverage last. It
+never cancels a running publisher, because a cancelled publisher abandons both
+its upload and its baseline write, and the contract accepts
+`cancel-in-progress` only when it is absent or literally false. GitHub keeps
+one pending run per group and a newer trigger replaces it. Two known exceptions
+follow. A dispatch that replaces a pending push uploads the same or a newer
+commit, but `generate-coverage` saves the ratchet baseline only on a push, so
+the baseline stays one commit behind until the next push. And a Dependabot
+automerge made with `GITHUB_TOKEN` fires no push, so its merge reaches the
+publisher only with the next push; there is deliberately no `schedule` trigger.
+
+The credential is in no `env` on the publisher job, at any scope: the upload
+action is composite and would pass a step-level `env` on to its nested artefact
+and cache steps, and it binds the token itself from its `access-token` input.
+Its presence is stated positively instead. A check step with an `id` and no
+`if:` runs the sole command
+`echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+whose expression evaluates to `true` or `false` before the shell runs. The
+upload's `if:` requires that output and the trunk ref, and it passes
+`access-token: ${{ secrets.CS_ACCESS_TOKEN }}` directly. A guard on an `env`
+binding would be a prohibition: with the binding deleted it is simply false,
+the upload skips on every push, and nothing turns red. `publisher_binding.py`
+holds the readings: `upload_problems` for the check, guard and input, and
+`credential_environments` for the refusal.
 
 Every coverage step, on both sides, sets `language: python` and
 `python-source: workflow_scripts`. The scope is half of the baseline contract:
@@ -1012,7 +1029,14 @@ and needs `CS_ACCESS_TOKEN`, so it is dispatch-only, and its job runs only when
 the selected ref's workflow content runs with the repository secret. Run it by
 hand from `main` when the action, its manifest, or the pinned version changes.
 The action keeps its `check` mode for external callers; this repository does
-not use it in pull-request CI.
+not use it in pull-request CI. Each of its commands is a step's sole command
+with no `if:`, and the contract requires them exactly, because a shell block
+holding `false && git fetch ...` still contains the command's text: the default
+branch is fetched with full history, the merge base is checked, and
+`scripts/prove_parser.py` runs `cs-coverage check` on each fixture. The
+script's verdicts (the known 1.0.101 parser break, a failing exit status, and a
+missing `PASS`) are driven directly in `test_prove_parser.py`, and
+`test_cold_runner_parser.py` runs the step's own `run:` against a stand-in CLI.
 
 The boundary therefore has two halves, and the contract asserts both: no
 pull-request-reachable workflow reaches the service, and the offline proof is

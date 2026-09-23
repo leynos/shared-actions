@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from .publisher_binding import missing_bindings
+from .publisher_binding import credential_environments, upload_problems
 from .pull_request_boundary import (
     credential_holders,
     host_namers,
@@ -47,7 +47,6 @@ from .workflow_boundary import (
     COVERAGE_LANGUAGE,
     COVERAGE_SCOPE,
     OFFLINE_MODE,
-    RUN_UNIQUE_CONTEXTS,
     _publishers,
     _ratcheted_platforms,
     codescene_steps,
@@ -57,7 +56,6 @@ from .workflow_boundary import (
     pull_request_reachable,
     upload_steps,
 )
-from .workflow_expressions import TRUNK_REF_TERM, requires_every
 from .workflow_triggers import declares_both_trigger_keys, pushes_to_main
 
 
@@ -357,58 +355,58 @@ class TestMainOwnsPublication:
             f"workflows with a mode: upload step: {uploaders}"
         )
 
-    def test_the_upload_is_guarded_by_ref_and_credential(
+    def test_the_upload_is_gated_on_a_credential_check_and_the_ref(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """A dispatch selects its own ref; the push filter says nothing about it.
+        """The credential's presence is stated positively, and the ref bound.
 
-        Without the ref half, a dispatch from a feature branch publishes that
-        branch's coverage as the trunk's. Both halves are required terms of a
-        conjunction, not substrings of the condition: appending
-        ``|| github.event_name == 'workflow_dispatch'`` keeps both substrings
-        and makes neither required.
+        A dispatch selects its own ref, so without the ref term a dispatch from
+        a feature branch publishes that branch's coverage as the trunk's. The
+        credential term reads an earlier check step's output rather than an
+        ``env`` binding, whose deletion would leave the guard quietly false
+        and the upload skipped on every push. Both are required conjuncts; an
+        unquoted ``||`` makes neither required. The upload is passed the
+        secret directly.
         """
         (publisher,) = _publishers(documents)
-        (upload,) = upload_steps(documents[publisher])
-        guard = str(upload.get("if", ""))
-        required = (TRUNK_REF_TERM, f"env.{CODESCENE_CREDENTIAL} != ''")
-        assert requires_every(guard, required), (
-            f"{publisher}'s upload guard does not require every one of "
-            f"{required}; an unquoted || makes none of them required: {guard!r}"
+        problems = upload_problems(documents[publisher])
+        assert problems == [], f"{publisher}'s upload step: {problems}"
+
+    def test_the_credential_is_in_no_environment(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """The upload action is composite and passes a step ``env`` onward.
+
+        Its nested artefact and cache steps would receive the token, so it
+        binds the token itself from ``access-token`` and no ``env`` on the
+        publisher, at any scope, may name it.
+        """
+        (publisher,) = _publishers(documents)
+        found = credential_environments(documents[publisher])
+        assert found == [], (
+            f"{publisher} binds {CODESCENE_CREDENTIAL} in env at {found}"
         )
 
-    def test_the_upload_step_is_given_the_credential(
+    def test_the_publisher_group_is_keyed_on_the_ref_alone(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
-        """Assert the binding positively; the guard alone would hide its loss.
+        """One group per ref, so publications land in commit order.
 
-        With the binding deleted, ``env.CS_ACCESS_TOKEN != ''`` is simply
-        false, the upload skips on every push, and nothing turns red.
-        """
-        (publisher,) = _publishers(documents)
-        missing = missing_bindings(documents[publisher])
-        assert missing == [], f"{publisher}'s upload step lacks: {missing}"
-
-    def test_the_publisher_is_serialised(
-        self, documents: dict[str, WorkflowDocument]
-    ) -> None:
-        """Two overlapping main pushes must not race to write the baseline.
-
-        The group must also be stable across runs. A group built from
-        ``github.run_id`` is non-empty and unique to its own run, so it
-        serialises nothing while reading as present.
+        With one group runs never overlap, and the survivor of any replacement
+        is the newest trigger, whose commit is the newest on main. A group
+        keyed on the event as well lets an earlier dispatch finish after a
+        newer push and upload older coverage last; a run-unique group
+        serialises nothing. The expression is asserted exactly.
         """
         (publisher,) = _publishers(documents)
         concurrency = documents[publisher].get("concurrency")
         assert isinstance(concurrency, dict), (
             f"{publisher} declares no concurrency mapping: {concurrency!r}"
         )
-        group = str(concurrency.get("group", "")).strip()
-        assert group, f"{publisher}'s concurrency group is empty"
-        unstable = [context for context in RUN_UNIQUE_CONTEXTS if context in group]
-        assert not unstable, (
-            f"{publisher}'s concurrency group {group!r} is unique per run "
-            f"through {unstable}, so it serialises nothing"
+        group = " ".join(str(concurrency.get("group", "")).split())
+        expected = f"{Path(publisher).stem}-${{{{ github.ref }}}}"
+        assert group == expected, (
+            f"{publisher}'s concurrency group is {group!r}, not {expected!r}"
         )
 
     def test_the_publisher_never_cancels_a_running_publication(

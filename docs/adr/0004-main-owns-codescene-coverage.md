@@ -38,13 +38,14 @@ action, runs no `cs-coverage` command, and no longer needs full Git history.
 `coverage-main.yml` is the single publisher. It runs on pushes to `main` and on
 `workflow_dispatch`, regenerates the same coverage, saves the next ratchet
 baseline, and uploads to CodeScene. Its upload step is guarded on
-`github.ref == 'refs/heads/main'` as well as on the credential, because a
-dispatch run selects its own ref and the push filter says nothing about it. The
-workflow carries a `concurrency` group so two overlapping pushes cannot race to
-write the baseline. The group never cancels a running publisher, because a
-cancelled publisher abandons its upload and its baseline write together. It is
-not a queue either: GitHub keeps one pending run per group, a newer push
-replaces it, and the newest push's baseline wins.
+`github.ref == 'refs/heads/main'` as well as on a check step's output stating
+that the credential is present, because a dispatch run selects its own ref and
+the push filter says nothing about it. The credential is in no `env`; the
+upload receives it through `access-token` directly. The workflow's
+`concurrency` group is keyed on the ref alone, so publications never overlap
+and uploads land in commit order. It never cancels a running publisher, because
+a cancelled publisher abandons its upload and its baseline write together; a
+newer trigger replaces a pending run instead.
 
 The uploader's own contract splits along the same line rather than leaving the
 pull-request lane. `test-upload-codescene-coverage.yml` keeps everything that

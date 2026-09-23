@@ -75,15 +75,6 @@ LOCAL_WORKFLOW_PATH: typ.Final[str] = ".github/workflows/"
 _MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
     r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}"
 )
-#: Contexts that make a concurrency group unique to one run. A group built
-#: from any of them serialises nothing, because no two runs ever share it.
-RUN_UNIQUE_CONTEXTS: typ.Final[tuple[str, ...]] = (
-    "github.run_id",
-    "github.run_number",
-    "github.run_attempt",
-    "github.sha",
-    "github.job",
-)
 
 
 def _self_reference_target(uses: str, path: str) -> str | None:

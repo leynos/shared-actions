@@ -191,7 +191,8 @@ themselves when the runtime, socket, or Docker-compatible container listing API
 is unavailable, so they do not fail a machine that has none. Once the lane is
 asked for, that skip becomes a failure instead: a skipped case reports success
 for a run that executed nothing, so `make test-act` would exit zero having run
-none of the fixtures it exists to run. To _run_ the lane, opt in by name:
+none of the fixtures it exists to run. _Running_ the lane requires an explicit
+opt-in, by name:
 
 ```bash
 # The workflow lane alone:

@@ -668,10 +668,13 @@ to the project; naming the project's directories keeps a foreign
 
 A non-empty value is validated before any coverage work begins, and the action
 fails rather than measuring something other than what was asked for. An empty
-entry such as `femtologging,,generated` is refused, and every entry must
-resolve inside the repository: an absolute path, a path that escapes through
-`..`, and a symbolic link that resolves outside the repository are each
-rejected, and the error names the offending entries.
+entry such as `femtologging,,generated` is refused, and so is an entry with
+surrounding whitespace, since `femtologging, generated` names a directory whose
+name begins with a space, which Slipcover would never find: write the list
+without spaces around the commas. Every entry must resolve inside the
+repository: an absolute path, a path that escapes through `..`, and a symbolic
+link that resolves outside the repository are each rejected, and the error
+names the offending entries.
 
 ```yaml
 - name: Generate coverage

@@ -113,8 +113,9 @@ source scoping. A non-empty value is forwarded to Slipcover unchanged, as one
 Validation is split along the module's parse/resolve boundary.
 `_python_source_entries()` is pure: it splits the value on commas exactly as
 Slipcover does, stripping nothing, and raises `ValueError` naming the raw value
-when any entry is empty or whitespace-only. `_resolve_python_source()` adds the
-check that needs the working directory: it calls the pure
+when any entry is empty, whitespace-only, or padded with whitespace, naming the
+padded entries. `_resolve_python_source()` adds the check that needs the
+working directory: it calls the pure
 `_sources_outside_repository(entries, repository_root)` predicate, which
 resolves each entry against the root it is given, and raises `ValueError` when
 an entry is absolute or resolves outside the repository through `..` or a

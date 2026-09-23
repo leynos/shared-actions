@@ -552,12 +552,15 @@ def _python_source_entries(raw: str) -> tuple[str, ...]:
 
     Slipcover splits the value on commas and strips nothing, so the entries
     are returned exactly as it will see them. An empty or whitespace-only
-    entry names no source directory and is refused rather than passed on.
+    entry names no source directory and is refused rather than passed on. So
+    is an entry with leading or trailing whitespace: ``femtologging, tests``
+    names a directory called `` tests``, which Slipcover never finds, and
+    accepting it would silently measure nothing for that path.
 
     Raises
     ------
     ValueError
-        When any entry is empty or whitespace-only.
+        When any entry is empty, whitespace-only, or padded with whitespace.
 
     Examples
     --------
@@ -570,6 +573,15 @@ def _python_source_entries(raw: str) -> tuple[str, ...]:
             f"Invalid python-source value: {raw!r}. Empty entries are not "
             "allowed; provide comma-separated repository-relative source "
             "directories."
+        )
+        raise ValueError(message)
+    padded = [entry for entry in entries if entry != entry.strip()]
+    if padded:
+        message = (
+            f"Invalid python-source value: {raw!r}. These entries have "
+            f"surrounding whitespace: {', '.join(repr(e) for e in padded)}. "
+            "Slipcover reads each entry exactly as written, so remove the "
+            "spaces around the commas."
         )
         raise ValueError(message)
     return entries

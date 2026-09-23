@@ -2168,12 +2168,27 @@ def test_resolve_python_source_rejects_empty_entries(
         run_python_module._resolve_python_source(raw)
 
 
-def test_python_source_entries_are_what_slipcover_reads(
+@pytest.mark.parametrize(
+    ("raw", "named"),
+    [
+        ("femtologging, generated", "' generated'"),
+        ("femtologging ,generated", "'femtologging '"),
+        ("\tfemtologging", "'\\tfemtologging'"),
+    ],
+)
+def test_python_source_entries_refuse_surrounding_whitespace(
     run_python_module: ModuleType,
+    raw: str,
+    named: str,
 ) -> None:
-    """Entries are split on commas and not stripped, as Slipcover splits them."""
-    entries = run_python_module._python_source_entries("femtologging, generated")
-    assert entries == ("femtologging", " generated"), entries
+    """A padded entry names a directory Slipcover will never find.
+
+    Slipcover splits on commas and strips nothing, so accepting the entry
+    would silently measure nothing for that path. The error names it.
+    """
+    with pytest.raises(ValueError, match="surrounding whitespace") as excinfo:
+        run_python_module._python_source_entries(raw)
+    assert named in str(excinfo.value), str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -2215,7 +2230,14 @@ def test_resolve_python_source_rejects_symlink_outside_repository(
 
 @pytest.mark.parametrize(
     "raw",
-    ["femtologging", "./lading", "episodic,alembic", "src/../femtologging", "linked"],
+    [
+        "femtologging",
+        "./lading",
+        "episodic,alembic",
+        "src/../femtologging",
+        "linked",
+        "vendored/my package",
+    ],
 )
 def test_resolve_python_source_accepts_paths_inside_repository(
     tmp_path: Path,
@@ -2410,16 +2432,20 @@ def test_python_source_entries_are_split_as_slipcover_splits(
     run_python_module: ModuleType,
     entries: list[tuple[str, str, str]],
 ) -> None:
-    """Every non-empty entry survives, in order and unstripped.
+    """Unpadded entries survive in order; any padding is refused.
 
     Slipcover splits the value on commas and strips nothing, so the entries
-    validated are the entries it will read, padding included.
+    validated are the entries it will read. A padded one names no directory
+    Slipcover can find.
     """
+    names = [name.strip() for name, _, _ in entries]
+    parsed = run_python_module._python_source_entries(",".join(names))
+    assert parsed == tuple(names), parsed
+
     padded = [f"{leading}{name}{trailing}" for name, leading, trailing in entries]
-
-    parsed = run_python_module._python_source_entries(",".join(padded))
-
-    assert parsed == tuple(padded), parsed
+    if padded != names:
+        with pytest.raises(ValueError, match="surrounding whitespace"):
+            run_python_module._python_source_entries(",".join(padded))
 
 
 @_PYTEST_PARSER_SETTINGS

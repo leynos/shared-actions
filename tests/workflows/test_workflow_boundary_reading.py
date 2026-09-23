@@ -27,7 +27,6 @@ from .workflow_boundary import (
     DIGEST_VARIABLE,
     LOCAL_WORKFLOW_PATH,
     SELF_PREFIXES,
-    WorkflowDocument,
     _called_workflow,
     _callees,
     coverage_steps,
@@ -35,6 +34,7 @@ from .workflow_boundary import (
     digest_refreshers,
     effective_text,
     names_the_codescene_host,
+    platforms,
     pull_request_reachable,
 )
 from .workflow_triggers import pushes_to_main, starts_on_pull_request
@@ -42,6 +42,8 @@ from .workflow_triggers import pushes_to_main, starts_on_pull_request
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
     from pathlib import Path
+
+    from .test_coverage_timeout_tiers import WorkflowDocument
 
 
 class TestTheTriggerReaderSeesBothKeys:
@@ -120,6 +122,34 @@ class TestTheTriggerReaderSeesBothKeys:
         assert reader(document) is expected, (
             f"{reader.__name__}({document!r}) should be {expected}"
         )
+
+
+class TestTheRunnerIsReadFromTheNamedDimension:
+    """``runs-on: ${{ matrix.os }}`` names one dimension of the matrix."""
+
+    def test_only_the_named_dimension_is_a_platform(self) -> None:
+        """A Python version beside the runner dimension is not a platform.
+
+        Read as one, it becomes a platform the publisher would have to
+        ratchet, and no runner has that name. An ``include`` entry that adds a
+        runner is part of the dimension.
+        """
+        document = {
+            "jobs": {
+                "a": {
+                    "runs-on": "${{ matrix.os }}",
+                    "strategy": {
+                        "matrix": {
+                            "os": ["ubuntu-latest", "windows-latest"],
+                            "python-version": ["3.12", "3.13"],
+                            "include": [{"os": "macos-latest"}],
+                        }
+                    },
+                }
+            }
+        }
+        found = platforms(document, "a")
+        assert found == {"ubuntu", "windows", "macos"}, found
 
 
 class TestTheSelfReferenceReaderMatchesByShape:
@@ -396,7 +426,8 @@ class TestTheEffectiveTextReader:
     def test_a_run_body_is_read(self) -> None:
         """The `run:` script is where a call hides from a shallower reading."""
         document = {"jobs": {"a": {"steps": [{"run": "curl https://codescene.io"}]}}}
-        assert "codescene.io" in effective_text(document)
+        text = effective_text(document)
+        assert "codescene.io" in text, text
 
     def test_an_environment_key_is_read(self) -> None:
         """A credential arrives as a key, with an expression for its value."""
@@ -412,12 +443,14 @@ class TestTheEffectiveTextReader:
                 }
             }
         }
-        assert CODESCENE_CREDENTIAL in effective_text(document)
+        text = effective_text(document)
+        assert CODESCENE_CREDENTIAL in text, text
 
     def test_a_workflow_level_environment_is_read(self) -> None:
         """The outermost scope reaches every job in the file."""
         document = {"env": {CODESCENE_CREDENTIAL: "${{ secrets.X }}"}, "jobs": {}}
-        assert CODESCENE_CREDENTIAL in effective_text(document)
+        text = effective_text(document)
+        assert CODESCENE_CREDENTIAL in text, text
 
     def test_a_boolean_or_an_empty_value_contributes_no_text(self) -> None:
         """Neither is text a step can act on, and both are everywhere.
@@ -427,9 +460,11 @@ class TestTheEffectiveTextReader:
         ``None`` and ``True`` through the scanned text. Every clause over
         this reading is a substring search, and a marker that contained
         either word would then match a workflow that does nothing of the
-        kind.
+        kind. The same holds for a key: an unquoted ``on:`` is the boolean
+        ``True``, and the whole document is walked.
         """
         document = {
+            True: {"pull_request": None},
             "jobs": {
                 "a": {
                     "steps": [
@@ -437,7 +472,7 @@ class TestTheEffectiveTextReader:
                         {"uses": None},
                     ]
                 }
-            }
+            },
         }
         text = effective_text(document)
 
@@ -456,4 +491,5 @@ class TestTheEffectiveTextReader:
             "on:\n  pull_request:\njobs:\n  a:\n    steps:\n"
             "      - run: 'true'\n"
         )
-        assert CODESCENE_CREDENTIAL not in effective_text(document)
+        text = effective_text(document)
+        assert CODESCENE_CREDENTIAL not in text, text

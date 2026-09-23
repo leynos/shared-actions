@@ -957,7 +957,16 @@ fails a test rather than passing at every call site.
 The scan reads the parse rather than the file text. A comment contacts nothing,
 and explaining in prose why a lane must not name the credential made the lane
 name it. Walking the parse keeps the `run:` bodies, which is the hiding place
-that mattered, and drops what GitHub itself drops.
+that mattered, and drops what GitHub itself drops. The walk covers the whole
+document rather than a list of sections known to run something: a workflow-level
+`defaults.run.shell` wraps every `run:` step in the file, and a reading of
+`jobs` and `env` alone passed a shell that reaches the host. The readers are
+pure over the documents they are given; the contract's fixture reads this
+repository's workflows when the tests run, not at import.
+
+A `runs-on` of `${{ matrix.os }}` is resolved through that one matrix dimension,
+`include` entries among its values, so a `python-version` beside it is not
+read as a platform the publisher must ratchet.
 
 Both lanes name the same ratchet baseline path,
 `.coverage-baseline.workflow-scripts.python`. A lane reading a path the

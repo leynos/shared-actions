@@ -79,28 +79,32 @@ class TestTheClosureProbe:
     ) -> None:
         """The caller names neither; only the closure brings the callee in."""
         documents = _probe(uses)
+        holders = credential_holders(documents)
+        namers = host_namers(documents)
 
-        assert credential_holders(documents) == ["callee.yml"]
-        assert host_namers(documents) == ["callee.yml"]
+        assert holders == ["callee.yml"], holders
+        assert namers == ["callee.yml"], namers
 
     def test_the_inherit_is_named_on_the_caller(self) -> None:
         """The forward is refused where it is written, whatever it reaches."""
-        assert secret_inheritors(_probe(f"./{LOCAL_WORKFLOW_PATH}callee.yml")) == [
-            "ci.yml:call"
-        ]
+        inheritors = secret_inheritors(_probe(f"./{LOCAL_WORKFLOW_PATH}callee.yml"))
+        assert inheritors == ["ci.yml:call"], inheritors
 
     def test_an_inherit_to_another_repository_is_named(self) -> None:
         """The callee there is code no clause here can read."""
         documents = _probe("octo/tools/.github/workflows/upload.yml@v1")
+        inheritors = secret_inheritors(documents)
+        holders = credential_holders(documents)
 
-        assert secret_inheritors(documents) == ["ci.yml:call"]
-        assert credential_holders(documents) == []
+        assert inheritors == ["ci.yml:call"], inheritors
+        assert holders == [], holders
 
     def test_a_callee_nothing_reachable_calls_is_outside(self) -> None:
         """The closure is not every workflow: an uncalled file stays out."""
         documents = _probe("octo/tools/.github/workflows/upload.yml@v1")
+        namers = host_namers(documents)
 
-        assert host_namers(documents) == []
+        assert namers == [], namers
 
 
 def _pull_request_workflow(job: dict[str, typ.Any]) -> dict[str, WorkflowDocument]:
@@ -149,13 +153,60 @@ class TestTheCredentialIsReadWhereverItIsReferenced:
     )
     def test_the_reference_is_found(self, job: dict[str, typ.Any]) -> None:
         """Each position is a reference the credential clause must see."""
-        assert credential_holders(_pull_request_workflow(job)) == ["ci.yml"]
+        holders = credential_holders(_pull_request_workflow(job))
+        assert holders == ["ci.yml"], holders
 
     def test_a_named_forward_is_not_an_inherit(self) -> None:
         """Forwarding by name is the permitted shape; only ``inherit`` is refused."""
         job = {"uses": "octo/x/.github/workflows/y.yml@v1", "secrets": {"a": "b"}}
 
-        assert secret_inheritors(_pull_request_workflow(job)) == []
+        inheritors = secret_inheritors(_pull_request_workflow(job))
+        assert inheritors == [], inheritors
+
+
+class TestEverySectionOfAWorkflowIsRead:
+    """The reading walks the document, not a list of sections that run things."""
+
+    def test_a_workflow_level_default_shell_is_read(self) -> None:
+        """``defaults.run.shell`` wraps every `run:` step in the file.
+
+        A reading of ``jobs`` and ``env`` alone passed a shell that reaches
+        the host while every step in the file looked inert.
+        """
+        documents = typ.cast(
+            "dict[str, WorkflowDocument]",
+            {
+                "ci.yml": {
+                    True: {"pull_request": None},
+                    "defaults": {
+                        "run": {
+                            "shell": "curl -sf https://api.codescene.io/v2 ; bash {0}"
+                        }
+                    },
+                    "jobs": {"a": {"steps": [{"run": "true"}]}},
+                }
+            },
+        )
+        namers = host_namers(documents)
+        assert namers == ["ci.yml"], namers
+
+    def test_a_declared_reusable_workflow_secret_is_read(self) -> None:
+        """A reachable callee declaring the credential asks to receive it."""
+        documents = typ.cast(
+            "dict[str, WorkflowDocument]",
+            {
+                "ci.yml": {
+                    True: {"pull_request": None},
+                    "jobs": {"call": {"uses": f"./{LOCAL_WORKFLOW_PATH}callee.yml"}},
+                },
+                "callee.yml": {
+                    True: {"workflow_call": {"secrets": {CODESCENE_CREDENTIAL: None}}},
+                    "jobs": {},
+                },
+            },
+        )
+        holders = credential_holders(documents)
+        assert holders == ["callee.yml"], holders
 
 
 def test_a_service_subcommand_in_a_callee_is_found() -> None:
@@ -174,4 +225,5 @@ def test_a_service_subcommand_in_a_callee_is_found() -> None:
         },
     )
 
-    assert service_callers(documents) == {"callee.yml": ["cs-coverage check"]}
+    callers = service_callers(documents)
+    assert callers == {"callee.yml": ["cs-coverage check"]}, callers

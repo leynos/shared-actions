@@ -33,7 +33,11 @@ from .pull_request_boundary import (
     secret_inheritors,
     service_callers,
 )
-from .test_coverage_timeout_tiers import WORKFLOWS_DIRECTORY, WorkflowDocument
+from .test_coverage_timeout_tiers import (
+    WORKFLOWS_DIRECTORY,
+    WorkflowDocument,
+    workflow_documents,
+)
 from .workflow_boundary import (
     CODESCENE_ACTION,
     CODESCENE_CREDENTIAL,
@@ -42,7 +46,6 @@ from .workflow_boundary import (
     COVERAGE_SCOPE,
     OFFLINE_MODE,
     RUN_UNIQUE_CONTEXTS,
-    THIS_REPOSITORY,
     _publishers,
     _ratcheted_platforms,
     codescene_steps,
@@ -56,10 +59,17 @@ from .workflow_expressions import TRUNK_REF_TERM, conjuncts
 from .workflow_triggers import pushes_to_main
 
 
-@pytest.fixture(name="documents")
+@pytest.fixture(name="documents", scope="module")
 def documents_fixture() -> dict[str, WorkflowDocument]:
-    """Return this repository's parsed workflows."""
-    return THIS_REPOSITORY
+    """Return this repository's parsed workflows, read when the tests run.
+
+    The read belongs here rather than at import, so the readers stay pure over
+    what they are given. A workflow that cannot be read (``OSError``), is not
+    valid YAML, or declares a key twice (``ValueError``) fails every case in
+    this module as a setup error naming the file, rather than stopping
+    collection of the whole directory.
+    """
+    return workflow_documents()
 
 
 class TestPullRequestLanesNeverReachCodeScene:

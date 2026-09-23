@@ -71,12 +71,13 @@ def test_the_same_key_in_sibling_mappings_is_accepted(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert load_workflow(path) == {
+    document = load_workflow(path)
+    assert document == {
         "jobs": {
             "a": {"runs-on": "ubuntu-latest"},
             "b": {"runs-on": "windows-latest"},
         }
-    }
+    }, document
 
 
 def test_an_unhashable_key_is_left_to_the_parser(tmp_path: Path) -> None:

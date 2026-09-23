@@ -9,27 +9,25 @@ the contract does not grow the module that reads YAML.
 What starts a workflow is read in `workflow_triggers`, which this module
 builds its closure and its publisher reading on.
 
-Nothing here touches the filesystem except `workflow_documents`, which the
-contract calls once, and the two digest scans, which take the directory to
-scan so a caller can build one.
+Nothing here touches the filesystem, at import or otherwise, except the two
+digest scans, which take the directory to scan so a caller can build one.
+Every other reader takes parsed documents; the contract's fixture is where
+this repository's workflows are read.
 """
 
 from __future__ import annotations
 
-import itertools
 import posixpath
+import re
 import typing as typ
 
-from .test_coverage_timeout_tiers import (
-    WorkflowDocument,
-    WorkflowJob,
-    workflow_documents,
-)
 from .workflow_triggers import pushes_to_main, starts_on_pull_request
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
     from pathlib import Path
+
+    from .test_coverage_timeout_tiers import WorkflowDocument, WorkflowJob
 
 #: Prefixes a `uses:` may carry before a path in this repository. They are
 #: stripped, not enumerated as the only spellings: a reference is local when
@@ -73,6 +71,10 @@ LOCAL_WORKFLOW_PATH: typ.Final[str] = ".github/workflows/"
 #: Both file extensions GitHub reads a workflow from. A scan over one of them
 #: is blind to a workflow spelled with the other.
 WORKFLOW_PATTERNS: typ.Final[tuple[str, ...]] = ("*.yml", "*.yaml")
+#: A ``runs-on`` expression naming exactly one matrix dimension.
+_MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
+    r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}"
+)
 #: Contexts that make a concurrency group unique to one run. A group built
 #: from any of them serialises nothing, because no two runs ever share it.
 RUN_UNIQUE_CONTEXTS: typ.Final[tuple[str, ...]] = (
@@ -119,10 +121,6 @@ def _self_reference_target(uses: str, path: str) -> str | None:
 def _self_reference(uses: str, path: str) -> bool:
     """Return whether ``uses`` names ``path`` in this repository."""
     return _self_reference_target(uses, path) is not None
-
-
-#: This repository's own workflows, parsed once.
-THIS_REPOSITORY: typ.Final[dict[str, WorkflowDocument]] = workflow_documents()
 
 
 def _called_workflow(job: WorkflowJob) -> str | None:
@@ -180,10 +178,11 @@ def _walk_mapping(node: cabc.Mapping[typ.Any, typ.Any]) -> cabc.Iterator[str]:
     """Yield a mapping's keys as well as its values.
 
     A credential arrives as ``CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}``
-    and the key is the half that names it.
+    and the key is the half that names it. A key is read as a scalar, so the
+    boolean an unquoted ``on:`` resolves to contributes no text.
     """
     for key, value in node.items():
-        yield str(key)
+        yield from _walk_scalar(key)
         yield from _walk_strings(value)
 
 
@@ -217,6 +216,12 @@ def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
     arrives as ``CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}`` and the
     key is the half that names it.
 
+    The whole document is walked, not a list of the sections known to run
+    something. A workflow-level ``defaults.run.shell`` wraps every `run:`
+    step in the file, so a reading of ``jobs`` and ``env`` alone passed a
+    shell that curls the host; a reading that names its sections misses the
+    next one GitHub adds.
+
     Parameters
     ----------
     document : Mapping
@@ -232,12 +237,7 @@ def effective_text(document: cabc.Mapping[typ.Any, typ.Any]) -> str:
     >>> effective_text({"jobs": {"a": {"steps": [{"run": "echo hi"}]}}})
     'echo hi'
     """
-    return "\n".join(
-        itertools.chain(
-            _walk_strings(document.get("jobs") or {}),
-            _walk_strings(document.get("env") or {}),
-        )
-    )
+    return "\n".join(_walk_strings(document))
 
 
 def names_the_codescene_host(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
@@ -325,9 +325,37 @@ def upload_steps(
     ]
 
 
-def _matrix_labels(job: WorkflowJob) -> list[str]:
-    """Return every value a job's matrix can substitute into ``runs-on``."""
+def _dimension_values(matrix: cabc.Mapping[str, typ.Any], name: str) -> list[str]:
+    """Return one matrix dimension's values, ``include`` entries among them."""
+    listed = matrix.get(name)
+    values = listed if isinstance(listed, list) else [] if listed is None else [listed]
+    included = [
+        entry[name]
+        for entry in matrix.get("include") or []
+        if isinstance(entry, dict) and name in entry
+    ]
+    return [str(value) for value in [*values, *included]]
+
+
+def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
+    """Return the values a job's matrix can substitute into ``runs-on``.
+
+    ``${{ matrix.os }}`` names one dimension, and only that dimension's values
+    are runners; a ``python-version`` beside it is not a platform. An
+    expression of any other shape is resolved to every value in the matrix,
+    because which ones it selects cannot be read, and over-reading only adds
+    platforms the publisher must also cover, which fails loudly.
+
+    Examples
+    --------
+    >>> job = {"strategy": {"matrix": {"os": ["windows-latest"], "py": ["3.13"]}}}
+    >>> _matrix_labels(job, "${{ matrix.os }}")
+    ['windows-latest']
+    """
     matrix = (job.get("strategy") or {}).get("matrix") or {}
+    reference = _MATRIX_REFERENCE.fullmatch(expression.strip())
+    if reference is not None:
+        return _dimension_values(matrix, reference.group(1))
     return [
         str(value)
         for values in matrix.values()
@@ -345,7 +373,7 @@ def _runner_labels(job: WorkflowJob) -> list[str]:
     """
     raw = job.get("runs-on")
     if isinstance(raw, str) and "${{" in raw:
-        return _matrix_labels(job)
+        return _matrix_labels(job, raw)
     if isinstance(raw, list):
         return [str(value) for value in raw]
     return [] if raw is None else [str(raw)]

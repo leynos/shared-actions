@@ -1064,9 +1064,11 @@ There is no source-build fallback.
 
 The [`upload-codescene-coverage` action][codescene-coverage-action] supports
 `upload` mode for analysed branches and `check` mode for the pull-request
-changed-line coverage gate. In `check` mode, check out the full history
-(`fetch-depth: 0`) and provide the CodeScene `project-url`; the CLI uses the
-merge base to evaluate the gate. For LCOV, the report path must end in `.info`.
+changed-line coverage gate. `check` mode needs `CS_ACCESS_TOKEN` on the
+pull-request lane, so a repository that follows main-owned coverage (below)
+does not use it. In `check` mode, check out the full history (`fetch-depth: 0`)
+and provide the CodeScene `project-url`; the CLI uses the merge base to
+evaluate the gate. For LCOV, the report path must end in `.info`.
 
 The pull request's base must already have coverage uploaded to CodeScene. If
 that baseline is unavailable, `cs-coverage` cannot evaluate the gate; the
@@ -1080,6 +1082,41 @@ and skips the remaining check-mode steps, including CLI installation, artefact
 upload, and the coverage gate. This lets a stacked pull request pass without
 claiming that its changed-line coverage was evaluated; rebase or merge it onto
 the default branch before relying on the gate result.
+
+### Main-owned coverage
+
+Main-owned coverage (concordat rule CV-005) keeps CodeScene and its credential
+off every lane a pull request can start. This repository follows it, and it is
+the shape the actions are written for.
+
+- Pull-request lanes run `generate-coverage` with `with-ratchet: 'true'` and
+  `publish-artefact: 'false'`. They compare against the ratchet baseline the
+  latest `main` push saved, keep the report local to the job, and hold no
+  `CS_ACCESS_TOKEN`. A lane that is also started by a push to `main` becomes a
+  second writer of the baseline; give pull-request lanes no such trigger.
+- One workflow that runs on pushes to `main`, and on no pull request,
+  regenerates the same coverage, saves the next baseline, and runs
+  `upload-codescene-coverage` in `upload` mode. Guard the upload step on
+  `github.ref == 'refs/heads/main' && env.CS_ACCESS_TOKEN != ''`, because a
+  `workflow_dispatch` run selects its own ref. Give the workflow a
+  `concurrency` group without `cancel-in-progress: true`: a cancelled run loses
+  its upload and its baseline write, while a queued one publishes in turn.
+- Both sides pass the same `language`, the same `python-source` scope, and the
+  same baseline file name, or the pull-request comparison reads a baseline
+  measuring a different population, or one nothing writes.
+
+A pull-request lane may still use `upload-codescene-coverage` in `install`
+mode, which downloads the pinned CLI and contacts nothing. Anything that reads
+the project configuration, `check` included, belongs in a workflow that runs
+only from `main`. In this repository that is `test-codescene-parser-proof.yml`,
+which is dispatch-only and bound to `refs/heads/main`; run it by hand after
+changing the action, its manifest or the pinned CLI version.
+
+To migrate a repository that ran `check` on pull requests, remove the `check`
+step and its `fetch-depth: 0`, and add the pull-request ratchet inputs and the
+publisher described above. The section "This repository's coverage publication"
+in the [developers' guide](developers-guide.md) describes this repository's own
+contract, which asserts every point in this list.
 
 [codescene-coverage-action]: ../.github/actions/upload-codescene-coverage/README.md
 

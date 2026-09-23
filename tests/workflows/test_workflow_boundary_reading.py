@@ -151,6 +151,38 @@ class TestTheRunnerIsReadFromTheNamedDimension:
         found = platforms(document, "a")
         assert found == {"ubuntu", "windows", "macos"}, found
 
+    @pytest.mark.parametrize(
+        "runs_on",
+        [
+            pytest.param("${{ matrix.os }}", id="scalar"),
+            pytest.param(["${{ matrix.os }}"], id="sequence"),
+            pytest.param({"labels": ["${{ matrix.os }}"]}, id="mapping-labels"),
+            pytest.param({"labels": "${{ matrix.os }}"}, id="mapping-label"),
+        ],
+    )
+    def test_every_runs_on_form_resolves_the_matrix(self, runs_on: object) -> None:
+        """GitHub accepts an expression in each form, so each is resolved.
+
+        Left unresolved, the expression is recorded as a platform, and the
+        publisher comparison asks for a baseline on a runner named after it.
+        """
+        document = {
+            "jobs": {
+                "a": {
+                    "runs-on": runs_on,
+                    "strategy": {"matrix": {"os": ["windows-latest"]}},
+                }
+            }
+        }
+        found = platforms(document, "a")
+        assert found == {"windows"}, found
+
+    def test_a_runner_group_is_carried_as_named(self) -> None:
+        """A group names no platform; it is kept, not dropped."""
+        document = {"jobs": {"a": {"runs-on": {"group": "large-runners"}}}}
+        found = platforms(document, "a")
+        assert found == {"large-runners"}, found
+
 
 class TestTheSelfReferenceReaderMatchesByShape:
     """Every spelling named literally, so narrowing the reader fails.

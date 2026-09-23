@@ -364,19 +364,40 @@ def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
     ]
 
 
-def _runner_labels(job: WorkflowJob) -> list[str]:
-    """Return the runner labels a job can run on.
+def _declared_labels(raw: object) -> list[str]:
+    """Return the labels a ``runs-on`` value names, in any of its three forms.
 
-    A ``runs-on`` naming a matrix value is resolved through the job's own
-    matrix, so a Windows or macOS lane declared that way is not read as one
-    indeterminate runner and quietly excused from the ratchet.
+    GitHub accepts a scalar, a sequence, and a mapping carrying ``labels``
+    and or ``group``. A group names no platform, so its name is carried as
+    an unrecognized label rather than dropped.
     """
-    raw = job.get("runs-on")
-    if isinstance(raw, str) and "${{" in raw:
-        return _matrix_labels(job, raw)
+    if isinstance(raw, dict):
+        raw = raw.get("labels", raw.get("group"))
     if isinstance(raw, list):
         return [str(value) for value in raw]
     return [] if raw is None else [str(raw)]
+
+
+def _runner_labels(job: WorkflowJob) -> list[str]:
+    """Return the runner labels a job can run on.
+
+    Each label naming a matrix value is resolved through the job's own
+    matrix, whichever form ``runs-on`` takes, so a Windows or macOS lane
+    declared that way is not read as one indeterminate runner and quietly
+    excused from the ratchet.
+
+    Examples
+    --------
+    >>> matrix = {"os": ["windows-latest"]}
+    >>> job = {"runs-on": ["${{ matrix.os }}"], "strategy": {"matrix": matrix}}
+    >>> _runner_labels(job)
+    ['windows-latest']
+    """
+    return [
+        resolved
+        for label in _declared_labels(job.get("runs-on"))
+        for resolved in (_matrix_labels(job, label) if "${{" in label else [label])
+    ]
 
 
 def _platform_of(label: str) -> str:

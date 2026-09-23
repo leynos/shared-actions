@@ -196,11 +196,15 @@ ACT_WORKFLOW_TESTS=1 sudo -E make test
 ```
 
 `ACT_WORKFLOW_TESTS=1` adds the `test-act` target to `make test`, and
-`WITH_ACT=1` is an accepted alias for the same opt-in. The two targets are
-invoked in sequence but run independently, so a failure in the regular suite
-does not stop the harness lane from running and reporting its own result --
-when reading a combined log, check both outcomes rather than stopping at the
-first failure. To run the harness lane alone, call `make test-act` directly.
+`WITH_ACT=1` is an accepted alias for the same opt-in. The harness lane runs
+first, as a prerequisite rather than as a later line of the `test` recipe, so a
+failure in the regular suite no longer prevents it from launching:
+`make test WITH_ACT=1` still reports the harness result when the regular suite
+fails, and still exits non-zero when either target fails. The reverse does not
+hold -- a failing harness lane stops the run before the regular suite, so when
+you need both outcomes and the harness is failing, read the earlier `make test`
+log alongside it, or run the two targets separately (`make test` and
+`make test-act`). To run the harness lane alone, call `make test-act` directly.
 
 After running with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so
 future non-root commands can recreate it. The act harness also leaves a

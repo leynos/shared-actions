@@ -144,18 +144,33 @@ def _live_children(node: ast.AST) -> cabc.Iterator[ast.AST]:
     Only a literally constant condition is decided here. `if False:` binds
     nothing, ever, so a docstring inside it is as unreachable as one in a
     function body. A condition that is merely likely, such as a version
-    comparison, is left alone and both arms are walked: over-counting a
-    reachable example is a false alarm somebody can read, and pruning a
-    branch that does run would hide an example nothing executes.
+    comparison, is left alone and both arms are walked.
+
+    That is the permissive direction, and it is chosen knowingly. The
+    coverage rule fails only when a file's prompts and its reachable
+    prompts differ, so counting the arm that does not run lets its
+    example pass unexecuted. Pruning an arm on a guess is worse: when the
+    guess is wrong the gate fails on an example it cannot see, and no
+    static reader can tell which arm a version comparison takes.
     """
-    for child in ast.iter_child_nodes(node):
+    yield from _live(ast.iter_child_nodes(node))
+
+
+def _live(nodes: cabc.Iterable[ast.AST]) -> cabc.Iterator[ast.AST]:
+    """Yield *nodes*, replacing each constant `if` by the arm that runs.
+
+    Recursive, so an `if False:` that is the first statement of an
+    `if True:` arm is decided too rather than reaching the binder as an
+    undecidable condition.
+    """
+    for node in nodes:
         if (
-            isinstance(child, ast.If)
-            and (truth := _constant_truth(child.test)) is not None
+            isinstance(node, ast.If)
+            and (truth := _constant_truth(node.test)) is not None
         ):
-            yield from (child.body if truth else child.orelse)
+            yield from _live(node.body if truth else node.orelse)
         else:
-            yield child
+            yield node
 
 
 def _bind(node: ast.AST, bound: dict[str, list[str]]) -> None:
@@ -434,6 +449,20 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
         1,
         "only the definition after the if, which replaces either arm",
     ),
+    "nested-constant-conditions": (
+        """
+        if True:
+            if False:
+                def f():
+                    '''F.
+
+                    <prompt> 1
+                    1
+                    '''
+        """,
+        0,
+        "a function under an if False nested in an if True",
+    ),
     "attribute-docstring": (
         """
         X = 1
@@ -577,8 +606,10 @@ class TestDoctestCoverage:
         assert (
             untracked_example_file.exists()
             or (REPOSITORY_ROOT / untracked_example_file).exists()
+        ), f"the fixture {untracked_example_file} was not written"
+        assert untracked_example_file not in _python_files_with_examples(), (
+            f"{untracked_example_file} is untracked, so the listing must not report it"
         )
-        assert untracked_example_file not in _python_files_with_examples()
 
     def test_the_tree_still_has_examples(self) -> None:
         """Some file in the tree carries an example.
@@ -668,10 +699,11 @@ class TestDoctestCoverage:
         This one cannot be checked against `DocTestFinder`, and that is
         the point. The finder imports the module, so the interpreter
         decides the condition and only one arm ever binds; a static
-        reader cannot know which. Over-counting is the safe direction: a
-        false positive is an example somebody can go and look at, while
-        pruning the arm that does run would hide an example the gate
-        never executes, which is the hole this module exists to close.
+        reader cannot know which. Counting both is the permissive
+        direction: the example in the arm that does not run then passes
+        the coverage rule without executing. It is accepted because the
+        alternative guesses, and a wrong guess prunes the arm that runs,
+        failing the gate on an example it cannot see.
 
         Without this case the fixture set cannot tell the reader apart
         from one that defaults an undecidable condition to "take the
@@ -774,8 +806,13 @@ class TestDoctestCoverage:
             for docstring in _docstrings(ast.parse(module_source))
         )
 
-        assert reachable == expected, reason
-        assert reachable == _finder_prompt_count(module_source), reason
+        assert reachable == expected, (
+            f"{reason}: the reader counts {reachable}, expected {expected}"
+        )
+        finder = _finder_prompt_count(module_source)
+        assert reachable == finder, (
+            f"{reason}: the reader counts {reachable}, DocTestFinder {finder}"
+        )
 
     def test_every_collected_path_exists(self, collected_paths: list[str]) -> None:
         """A path named in the target is a path that is there.
@@ -814,4 +851,6 @@ class TestDoctestCoverage:
         with string matching would read `pkgx/a.py` as covered by `pkg`
         and let a whole package's examples go unrun.
         """
-        assert _is_covered(Path(candidate), collected) is expected
+        assert _is_covered(Path(candidate), collected) is expected, (
+            f"{candidate} should {'' if expected else 'not '}be covered by {collected}"
+        )

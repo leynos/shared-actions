@@ -198,6 +198,7 @@ def _act_style_env(*, cov_file: Path, gh_file: Path) -> dict[str, str]:
     ("cli_args", "expected_tail"),
     [
         pytest.param([], "", id="omitted_suffix"),
+        pytest.param(["--artefact-name-suffix", ""], "", id="empty_suffix"),
         pytest.param(["--artefact-name-suffix", "Nightly"], "-nightly", id="non_empty"),
     ],
 )
@@ -217,9 +218,12 @@ def test_set_outputs_survives_act_duplicate_input_env(
     command line while the environment carries the sentinel. Passing the flag
     here would satisfy Cyclopts from the command line and mask a reintroduced
     environment binding, so the discriminating assertion is the artefact name:
-    it must carry no suffix segment. Together the two cases prove the
-    hyphenated inputs come only from arguments, and that omitting one still
-    yields the same name shape as omitting the input itself.
+    it must carry no suffix segment. The empty case covers what the action
+    actually passes in production: the flag is always emitted, and quoting the
+    expansion of an unset input hands the script an empty string rather than
+    dropping the argument. Together the three cases prove the hyphenated inputs
+    come only from arguments, and that an empty or omitted suffix yields the
+    same name shape as omitting the input itself.
     """
     module = set_outputs_module
     expected_os, expected_arch = module._detect_runner_labels(None, None)

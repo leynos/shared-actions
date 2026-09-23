@@ -2284,7 +2284,7 @@ five things:
 
 Two decisions sit in every job header here, and both disappear from view once
 the workflow is green: which runner the job takes, and how long it may take it.
-Four modules under `tests/workflows/` hold the answers and fail when a workflow
+Five modules under `tests/workflows/` hold the answers and fail when a workflow
 drifts from them, one per responsibility:
 
 <!-- markdownlint-disable MD013 -->
@@ -2294,6 +2294,7 @@ drifts from them, one per responsibility:
 | `test_job_ceilings.py`        | The tier each job belongs to, and the ceiling that tier carries.                   |
 | `test_fork_fallback_guard.py` | The fork fallback, and which lanes are excused it because they skip forks instead. |
 | `test_check_names.py`         | That a matrix job's reported name is stable across both arms of the fallback.      |
+| `test_runner_declarations.py` | That `runs-on`, and each matrix dimension it references, parses to one line.       |
 <!-- markdownlint-enable MD013 -->
 
 They share `_workflow_reading.py`, which is not collected: it holds the
@@ -2443,6 +2444,9 @@ evaluates it regardless, so a green run says nothing about it, and all
 twenty-five fork fallbacks on this branch were written that way before
 `test_no_runner_declaration_carries_a_line_break` read them from the parsed
 document. Keep the continuation at the same indent as the line it continues.
+Only `runs-on` and the matrix dimensions it references are read. A multi-line
+value in some other dimension, such as a script body, selects no runner, so it
+is left alone.
 
 ### How long a job may take
 

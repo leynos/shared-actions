@@ -5,7 +5,7 @@ snippet carrying the folding defect reproduces it in every workflow
 written afterwards. No workflow contract can catch that, because the
 defect is in the prescription rather than in a workflow yet.
 
-`test_runner_placement.py` holds the rule for the workflows themselves.
+`test_runner_declarations.py` holds the rule for the workflows themselves.
 This module holds the rule for the document that tells an author how to
 write one.
 """

@@ -249,6 +249,14 @@ class TestAgainstTheRealManifest:
         assert fields["status"] == "ok"
         assert fields["triple"] == triple
 
+    def test_merman_fails_closed_on_linux_arm64(self) -> None:
+        """Merman publishes no Linux ARM64 archive, so the resolver refuses."""
+        _completed, fields = resolve(
+            TOOL_MANIFEST_PATH, "merman-cli", "0.7.0", Runner("Linux", "ARM64")
+        )
+
+        assert fields["error-kind"] == "unsupported-target", fields
+
     def test_dylint_fails_closed_off_linux(self) -> None:
         """No macOS or Windows archive exists, so it must refuse to guess."""
         _completed, fields = resolve(

@@ -52,6 +52,25 @@ TOOL_INPUT: typ.Final[str] = "tool"
 #: The input naming the version it installs.
 VERSION_INPUT: typ.Final[str] = "version"
 
+#: The job whose Mermaid validation needs the binary, and that step's name.
+VALIDATING_JOB: typ.Final[str] = "python-tests"
+VALIDATION_STEP: typ.Final[str] = "Validate Mermaid diagrams"
+
+#: The condition the install shares with the validation it serves.
+LINUX_ONLY: typ.Final[str] = "runner.os == 'Linux'"
+
+#: The targets Merman publishes a release archive for, and so the ones the
+#: manifest pins. Linux on ARM64 is absent upstream, and the resolver
+#: refuses it rather than guessing.
+PINNED_TRIPLES: typ.Final[frozenset[str]] = frozenset(
+    {
+        "x86_64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+    }
+)
+
 # The parsed workflow, modelled rather than left as `Any`. `with` is a
 # Python keyword, so the functional form is the only way to name it. Every
 # field is optional because a step carries `uses` or `run` and not both,
@@ -101,6 +120,12 @@ class Workflow(typ.TypedDict, total=False):
 #: ends on a lookahead so that a command terminated by `;` counts as much as
 #: one terminated by a space.
 #:
+#: A command starts after a separator (`;`, `&`, `|`), after either
+#: parenthesis (a `case` pattern, a subshell, a `$(...)` substitution),
+#: or after `{` or `!` followed by whitespace (a brace group, a negated
+#: pipeline). Each runs the command it opens as plainly as a bare line.
+#: A closing parenthesis ends the crate name as a separator does.
+#:
 #: Shell keywords a command can sit behind without being any less run.
 #: `if true; then cargo install merman-cli; fi` compiles the crate exactly
 #: as plainly as a bare command does, and the separator alternative above
@@ -143,13 +168,13 @@ _SHELL_ASSIGNMENT: typ.Final[str] = (
 #: anything a workflow supplies, so there is no input here to drive
 #: backtracking.
 _CARGO_INSTALL: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^[ \t]*|[;&|)]\s*|\b(?:"
+    r"(?:^[ \t]*|[;&|()]\s*|[{!]\s+|\b(?:"
     + "|".join(_SHELL_PREFIX_KEYWORDS)
     + r")\s+)"
     + _SHELL_ASSIGNMENT
     + r"cargo(?:\s+\+\S+)?\s+install\s+(?:-\S+(?:\s+\S+)?\s+)*"
     + re.escape(TOOL_NAME)
-    + r"(?:@[^\s;&|]+)?(?=\s|[;&|]|$)",
+    + r"(?:@[^\s;&|)]+)?(?=\s|[;&|)]|$)",
     re.MULTILINE,
 )
 
@@ -310,6 +335,55 @@ class TestMermanReleaseArchive:
             f"ci.yml installs {TOOL_NAME} in no step; `make nixie` has no binary to run"
         )
 
+    def test_the_validating_job_installs_merman_before_it_validates(
+        self, ci_document: Workflow
+    ) -> None:
+        """The install sits in the job that runs `make nixie`, ahead of it.
+
+        An install anywhere else satisfies "some step installs it" and
+        leaves the validation with no binary: in another job, behind a
+        different condition, or after the step that needs it.
+        """
+        steps = ci_document.get("jobs", {}).get(VALIDATING_JOB, {}).get("steps", [])
+        names = [str(step.get("name", "")) for step in steps]
+        installs = [
+            index
+            for index, step in enumerate(steps)
+            if step.get("uses") == INSTALL_TOOL_ACTION
+            and str(step.get("with", {}).get(TOOL_INPUT, "")) == TOOL_NAME
+        ]
+
+        assert installs, f"{VALIDATING_JOB} installs {TOOL_NAME} in no step"
+        assert VALIDATION_STEP in names, f"{VALIDATING_JOB} has no {VALIDATION_STEP!r}"
+        install = installs[0]
+        assert install < names.index(VALIDATION_STEP), (
+            f"{VALIDATING_JOB} installs {TOOL_NAME} after {VALIDATION_STEP!r}"
+        )
+        condition = str(steps[install].get("if", ""))
+        assert condition == LINUX_ONLY, (
+            f"{VALIDATING_JOB}'s {TOOL_NAME} install runs under {condition!r}; "
+            f"it must share the validation's {LINUX_ONLY!r}"
+        )
+
+    def test_the_manifest_pins_every_published_target(self) -> None:
+        """Exactly the four targets Merman publishes are pinned.
+
+        The end-to-end lane installs only the Linux archive, so a dropped
+        macOS or Windows entry would go unnoticed anywhere else.
+        """
+        document = tomllib.loads(TOOL_MANIFEST.read_text(encoding="utf-8"))
+        triples = {
+            str(target["triple"])
+            for entry in document.get("tool", [])
+            if entry.get("name") == TOOL_NAME
+            for target in entry.get("target", [])
+        }
+
+        assert triples == PINNED_TRIPLES, (
+            f"the manifest pins {TOOL_NAME} for {sorted(triples)}; it must pin "
+            f"exactly {sorted(PINNED_TRIPLES)}"
+        )
+
     def test_the_requested_version_is_one_the_manifest_pins(
         self,
         ci_document: Workflow,
@@ -380,6 +454,16 @@ class TestMermanReleaseArchive:
                 True,
                 id="inside-a-case-clause",
             ),
+            pytest.param(f"(cargo install {TOOL_NAME})", True, id="in-a-subshell"),
+            pytest.param(
+                f'echo "$(cargo install {TOOL_NAME})"',
+                True,
+                id="in-a-command-substitution",
+            ),
+            pytest.param(
+                f"{{ cargo install {TOOL_NAME}; }}", True, id="in-a-brace-group"
+            ),
+            pytest.param(f"! cargo install {TOOL_NAME}", True, id="negated"),
             pytest.param(
                 f"cargo \\\n  install {TOOL_NAME}",
                 True,
@@ -607,6 +691,10 @@ _BOUNDARIES: typ.Final[tuple[str, ...]] = (
     "while true; do ",
     "until false; do ",
     "case x in x) ",
+    "(",
+    'echo "$(',
+    "{ ",
+    "! ",
 )
 
 #: A word that leaves what follows it as an argument rather than as a

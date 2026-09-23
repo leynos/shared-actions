@@ -37,7 +37,11 @@ from .workflow_boundary import (
     platforms,
     pull_request_reachable,
 )
-from .workflow_triggers import pushes_to_main, starts_on_pull_request
+from .workflow_triggers import (
+    declares_both_trigger_keys,
+    pushes_to_main,
+    starts_on_pull_request,
+)
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -122,6 +126,21 @@ class TestTheTriggerReaderSeesBothKeys:
         assert reader(document) is expected, (
             f"{reader.__name__}({document!r}) should be {expected}"
         )
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            pytest.param({"on": "push", True: "pull_request"}, True, id="both"),
+            pytest.param({True: "pull_request"}, False, id="boolean-only"),
+            pytest.param({"on": "pull_request"}, False, id="string-only"),
+        ],
+    )
+    def test_a_workflow_spelling_both_keys_is_named(
+        self, document: dict[typ.Any, typ.Any], *, expected: bool
+    ) -> None:
+        """GitHub merges the two; the reader refuses rather than choosing."""
+        found = declares_both_trigger_keys(document)
+        assert found is expected, document
 
 
 class TestTheRunnerIsReadFromTheNamedDimension:

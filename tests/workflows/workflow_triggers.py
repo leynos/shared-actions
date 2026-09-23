@@ -52,6 +52,17 @@ def triggers(document: cabc.Mapping[typ.Any, typ.Any]) -> dict[str, typ.Any]:
     return {}
 
 
+def declares_both_trigger_keys(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
+    """Return whether a workflow spells its trigger key both ways.
+
+    A quoted ``"on":`` stays a string and an unquoted ``on:`` becomes
+    ``True``, so one file can carry both. GitHub merges them, and a reader
+    that consults one is blind to the other's events, so the contract refuses
+    the file rather than choosing.
+    """
+    return "on" in document and True in document
+
+
 def starts_on_pull_request(document: cabc.Mapping[typ.Any, typ.Any]) -> bool:
     """Return whether a pull request can start this workflow directly."""
     return bool(PULL_REQUEST_EVENTS & set(triggers(document)))

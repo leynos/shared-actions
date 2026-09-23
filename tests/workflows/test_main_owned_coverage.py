@@ -27,9 +27,11 @@ from pathlib import Path
 
 import pytest
 
+from .publisher_binding import missing_bindings
 from .pull_request_boundary import (
     credential_holders,
     host_namers,
+    refused_self_references,
     secret_inheritors,
     service_callers,
 )
@@ -56,7 +58,7 @@ from .workflow_boundary import (
     upload_steps,
 )
 from .workflow_expressions import TRUNK_REF_TERM, requires_every
-from .workflow_triggers import pushes_to_main
+from .workflow_triggers import declares_both_trigger_keys, pushes_to_main
 
 
 @pytest.fixture(name="documents", scope="module")
@@ -64,12 +66,15 @@ def documents_fixture() -> dict[str, WorkflowDocument]:
     """Return this repository's parsed workflows, read when the tests run.
 
     The read belongs here rather than at import, so the readers stay pure over
-    what they are given. A workflow that cannot be read (``OSError``), is not
-    valid YAML, or declares a key twice (``ValueError``) fails every case in
-    this module as a setup error naming the file, rather than stopping
-    collection of the whole directory.
+    what they are given. The loading boundary reports a directory it cannot
+    list, a workflow it cannot read, invalid YAML and a key declared twice as
+    one ``ValueError`` naming the path; that fails every case in this module
+    with the message rather than stopping collection of the whole directory.
     """
-    return workflow_documents()
+    try:
+        return workflow_documents()
+    except ValueError as error:
+        pytest.fail(f"this repository's workflows cannot be read: {error}")
 
 
 class TestPullRequestLanesNeverReachCodeScene:
@@ -145,6 +150,28 @@ class TestPullRequestLanesNeverReachCodeScene:
             "pull-request reachable jobs forward every secret, "
             f"{CODESCENE_CREDENTIAL} among them: {inheritors}"
         )
+
+    def test_no_workflow_spells_its_trigger_key_both_ways(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """GitHub merges ``"on":`` and ``on:``; a reader picks one of them.
+
+        A pull-request trigger under the key the reader skips would take the
+        file out of the boundary, so such a file is refused outright.
+        """
+        both = sorted(
+            name
+            for name, document in documents.items()
+            if declares_both_trigger_keys(document)
+        )
+        assert both == [], f"workflows declaring on: under both keys: {both}"
+
+    def test_no_self_reference_carries_a_ref(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """``$/`` names the running commit; an ``@ref`` on it is refused."""
+        refused = refused_self_references(documents)
+        assert refused == [], f"$/ references carrying an @ref: {refused}"
 
     def test_no_reachable_workflow_uses_the_action_beyond_install(
         self, documents: dict[str, WorkflowDocument]
@@ -350,6 +377,18 @@ class TestMainOwnsPublication:
             f"{required}; an unquoted || makes none of them required: {guard!r}"
         )
 
+    def test_the_upload_step_is_given_the_credential(
+        self, documents: dict[str, WorkflowDocument]
+    ) -> None:
+        """Assert the binding positively; the guard alone would hide its loss.
+
+        With the binding deleted, ``env.CS_ACCESS_TOKEN != ''`` is simply
+        false, the upload skips on every push, and nothing turns red.
+        """
+        (publisher,) = _publishers(documents)
+        missing = missing_bindings(documents[publisher])
+        assert missing == [], f"{publisher}'s upload step lacks: {missing}"
+
     def test_the_publisher_is_serialised(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
@@ -372,12 +411,12 @@ class TestMainOwnsPublication:
             f"through {unstable}, so it serialises nothing"
         )
 
-    def test_the_publisher_queues_rather_than_cancels(
+    def test_the_publisher_never_cancels_a_running_publication(
         self, documents: dict[str, WorkflowDocument]
     ) -> None:
         """A cancelled publisher abandons its upload and its baseline write.
 
-        A queued one publishes after the run ahead of it, so the later push's
+        A newer push replaces a pending run instead, so the newest push's
         baseline still wins. Only an absent or literally false
         ``cancel-in-progress`` is accepted: an expression may evaluate true.
         """

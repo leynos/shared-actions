@@ -6,9 +6,12 @@ discarded the first value, and every contract reading that document judges a
 file GitHub never runs. GitHub itself rejects the duplicate, so the contracts
 refuse it too, rather than reason about whichever half survived.
 
-This is the one YAML entry point for the workflow contracts under
-``tests/workflows``. Other readers of workflow YAML should parse through
-:func:`load_workflow` rather than calling ``yaml.safe_load`` directly.
+This is the one filesystem boundary for the workflow contracts. Enumerating,
+reading and parsing a workflow each fail as a ``ValueError`` that names the
+file or directory, so a caller handles one documented error rather than a
+mixture of ``OSError`` and parser exceptions. Other readers of workflow YAML
+should parse through :func:`load_workflow` rather than calling
+``yaml.safe_load`` directly.
 """
 
 from __future__ import annotations
@@ -45,14 +48,56 @@ class UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
+#: Both file extensions GitHub reads a workflow from, compared without case so
+#: a ``.YML`` file is not skipped in silence.
+WORKFLOW_SUFFIXES: typ.Final[frozenset[str]] = frozenset({".yml", ".yaml"})
+
+
+def workflow_paths(directory: Path) -> list[Path]:
+    """Return every workflow file in *directory*, under either extension.
+
+    The directory is listed with ``iterdir`` rather than ``glob``: ``glob``
+    returns nothing for a directory it cannot read, which every contract
+    over the result would then pass.
+
+    Raises
+    ------
+    ValueError
+        When the directory is missing or cannot be listed. The message names
+        it.
+    """
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as error:
+        message = f"cannot list workflows in {directory}: {error}"
+        raise ValueError(message) from error
+    return [path for path in entries if path.suffix.lower() in WORKFLOW_SUFFIXES]
+
+
+def read_workflow_text(path: Path) -> str:
+    """Return the text of the workflow at *path*.
+
+    Raises
+    ------
+    ValueError
+        When the file cannot be read. The message names it.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        message = f"cannot read workflow {path.name}: {error}"
+        raise ValueError(message) from error
+
+
 def load_workflow(path: Path) -> object:
     """Return the parsed workflow at *path*.
 
     Raises
     ------
     ValueError
-        When the file is not valid YAML or declares a key twice. The message
-        names the file, which the parser's own error does not.
+        When the file cannot be read, is not valid YAML, or declares a key
+        twice. The message names the file, which the parser's own error does
+        not.
 
     Examples
     --------
@@ -63,7 +108,7 @@ def load_workflow(path: Path) -> object:
     ...     load_workflow(path)
     {'jobs': {}}
     """
-    text = path.read_text(encoding="utf-8")
+    text = read_workflow_text(path)
     try:
         # S506 cannot see through the subclass; the loader is a SafeLoader.
         return yaml.load(text, Loader=UniqueKeyLoader)  # noqa: S506

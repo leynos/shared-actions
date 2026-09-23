@@ -1100,7 +1100,8 @@ the shape the actions are written for.
   `github.ref == 'refs/heads/main' && env.CS_ACCESS_TOKEN != ''`, because a
   `workflow_dispatch` run selects its own ref. Give the workflow a
   `concurrency` group without `cancel-in-progress: true`: a cancelled run loses
-  its upload and its baseline write, while a queued one publishes in turn.
+  its upload and its baseline write. A newer push replaces a pending run, so
+  the newest push's baseline wins.
 - Both sides pass the same `language`, the same `python-source` scope, and the
   same baseline file name, or the pull-request comparison reads a baseline
   measuring a different population, or one nothing writes.

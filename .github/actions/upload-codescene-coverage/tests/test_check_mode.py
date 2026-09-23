@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -20,6 +21,21 @@ COLD_RUNNER_YML = (
 PARSER_PROOF_YML = (
     ACTION_YML.parents[3] / ".github/workflows/test-codescene-parser-proof.yml"
 )
+#: The workflow contracts' one parsing boundary. It refuses a key declared
+#: twice and names the file on any failure; loaded by path because this test
+#: tree is not a package that can import it.
+_WORKFLOW_YAML_SPEC = importlib.util.spec_from_file_location(
+    "workflow_yaml", ACTION_YML.parents[3] / "tests/workflows/workflow_yaml.py"
+)
+assert _WORKFLOW_YAML_SPEC is not None
+assert _WORKFLOW_YAML_SPEC.loader is not None
+workflow_yaml = importlib.util.module_from_spec(_WORKFLOW_YAML_SPEC)
+_WORKFLOW_YAML_SPEC.loader.exec_module(workflow_yaml)
+
+
+def _workflow(path: Path) -> dict[object, object]:
+    """Return the workflow at *path*, parsed through the shared boundary."""
+    return workflow_yaml.load_workflow(path)
 
 
 def _steps() -> list[dict[str, object]]:
@@ -357,7 +373,7 @@ def test_install_mode_skips_coverage_file_and_artefact_work() -> None:
 
 def _triggers(path: Path) -> dict[str, object]:
     """Return a workflow's triggers, read under both spellings of ``on:``."""
-    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    workflow = _workflow(path)
     return workflow.get("on", workflow.get(True))
 
 
@@ -378,7 +394,7 @@ class TestTheColdRunnerProofRunsOnPullRequests:
 
     def test_it_installs_the_pinned_cli_on_a_cold_runner(self) -> None:
         """The install path is what a pull request is here to exercise."""
-        workflow = yaml.safe_load(COLD_RUNNER_YML.read_text(encoding="utf-8"))
+        workflow = _workflow(COLD_RUNNER_YML)
         steps = workflow["jobs"]["cold-runner-contract"]["steps"]
         installs = [
             step
@@ -454,7 +470,7 @@ class TestTheParserProofIsDispatchAndTrunkOnly:
         substring of ``github.ref == 'refs/heads/main' || true``, which
         binds nothing.
         """
-        workflow = yaml.safe_load(PARSER_PROOF_YML.read_text(encoding="utf-8"))
+        workflow = _workflow(PARSER_PROOF_YML)
         guard = " ".join(str(workflow["jobs"]["parser-proof"].get("if", "")).split())
 
         assert guard == "github.ref == 'refs/heads/main'", (

@@ -21,6 +21,7 @@ from .workflow_boundary import (
     CODESCENE_CREDENTIAL,
     CODESCENE_SERVICE_COMMANDS,
     _jobs,
+    _steps,
     effective_text,
     names_the_codescene_host,
     pull_request_reachable,
@@ -33,6 +34,8 @@ if typ.TYPE_CHECKING:
 
 #: The ``secrets:`` value that forwards every secret the caller holds.
 INHERIT: typ.Final[str] = "inherit"
+#: The self-repository prefix that must not carry an ``@ref``.
+SELF_REPOSITORY_PREFIX: typ.Final[str] = "$/"
 
 
 def credential_holders(documents: cabc.Mapping[str, WorkflowDocument]) -> list[str]:
@@ -102,4 +105,36 @@ def secret_inheritors(documents: cabc.Mapping[str, WorkflowDocument]) -> list[st
         for name in pull_request_reachable(documents)
         for job_name, job in _jobs(documents[name]).items()
         if str(job.get("secrets", "")).strip() == INHERIT
+    )
+
+
+def _uses_values(document: cabc.Mapping[typ.Any, typ.Any]) -> cabc.Iterator[str]:
+    """Yield every ``uses:`` in a workflow, at job and at step level."""
+    for job in _jobs(document).values():
+        yield str(job.get("uses", ""))
+        yield from (str(step.get("uses", "")) for step in _steps(job))
+
+
+def refused_self_references(
+    documents: cabc.Mapping[str, WorkflowDocument],
+) -> list[str]:
+    """Name every ``$/`` reference that carries an ``@ref``, in any workflow.
+
+    ``$/`` resolves to the running commit, and GitHub documents it without a
+    ref. The closure still reads such a call as local, so its callee stays
+    inside every clause; this names it as well, so the spelling is fixed
+    rather than relied on.
+
+    Examples
+    --------
+    >>> refused_self_references(
+    ...     {"ci.yml": {"jobs": {"a": {"uses": "$/.github/workflows/b.yml@main"}}}}
+    ... )
+    ['ci.yml: $/.github/workflows/b.yml@main']
+    """
+    return sorted(
+        f"{name}: {uses}"
+        for name, document in documents.items()
+        for uses in _uses_values(document)
+        if uses.startswith(SELF_REPOSITORY_PREFIX) and "@" in uses
     )

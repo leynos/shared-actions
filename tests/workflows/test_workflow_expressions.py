@@ -90,31 +90,36 @@ def test_an_unquoted_disjunction_is_refused(condition: str) -> None:
 REQUIRED = (TRUNK_REF_TERM, CREDENTIAL_TERM)
 
 
-@pytest.mark.parametrize(
-    ("condition", "expected"),
-    [
-        pytest.param(f"{TRUNK_REF_TERM} && {CREDENTIAL_TERM}", True, id="exact"),
-        pytest.param(
-            f"{CREDENTIAL_TERM} && {TRUNK_REF_TERM} && github.actor != 'x'",
-            True,
-            id="extra-narrowing-conjunct",
-        ),
-        pytest.param(
-            f"{TRUNK_REF_TERM} && {CREDENTIAL_TERM} && github.actor != 'x'"
-            " || github.event_name == 'workflow_dispatch'",
-            False,
-            id="disjunction-hidden-in-an-extra-conjunct",
-        ),
-        pytest.param(f"{TRUNK_REF_TERM}", False, id="credential-missing"),
-    ],
-)
-def test_a_guard_requires_every_term(condition: str, *, expected: bool) -> None:
-    """Extra conjuncts narrow the guard; a hidden ``||`` widens it.
+class TestGuardRequirements:
+    """``requires_every``: extra conjuncts narrow, a hidden ``||`` widens."""
 
-    The third case is the one that proves the ``||`` refusal. Every required
-    term is still a whole conjunct once the disjunction is ignored, so without
-    the refusal the guard reads as requiring both, while GitHub runs the
-    upload on any dispatch. An appended ``|| dispatch`` alone does not prove
-    it, because it also breaks the credential term and fails either way.
-    """
-    assert requires_every(condition, REQUIRED) is expected, condition
+    @pytest.mark.parametrize(
+        ("condition", "expected"),
+        [
+            pytest.param(f"{TRUNK_REF_TERM} && {CREDENTIAL_TERM}", True, id="exact"),
+            pytest.param(
+                f"{CREDENTIAL_TERM} && {TRUNK_REF_TERM} && github.actor != 'x'",
+                True,
+                id="extra-narrowing-conjunct",
+            ),
+            pytest.param(
+                f"{TRUNK_REF_TERM} && {CREDENTIAL_TERM} && github.actor != 'x'"
+                " || github.event_name == 'workflow_dispatch'",
+                False,
+                id="disjunction-hidden-in-an-extra-conjunct",
+            ),
+            pytest.param(f"{TRUNK_REF_TERM}", False, id="credential-missing"),
+        ],
+    )
+    def test_a_guard_requires_every_term(
+        self, condition: str, *, expected: bool
+    ) -> None:
+        """Extra conjuncts narrow the guard; a hidden ``||`` widens it.
+
+        The third case is the one that proves the ``||`` refusal. Every required
+        term is still a whole conjunct once the disjunction is ignored, so without
+        the refusal the guard reads as requiring both, while GitHub runs the
+        upload on any dispatch. An appended ``|| dispatch`` alone does not prove
+        it, because it also breaks the credential term and fails either way.
+        """
+        assert requires_every(condition, REQUIRED) is expected, condition

@@ -928,10 +928,18 @@ case is the one `test_workflow_expressions.py` uses to prove the refusal; an
 appended `|| dispatch` alone also breaks the credential term, so it fails with
 or without the refusal and proves nothing about it. The workflow carries a
 `concurrency` group so two overlapping `main` pushes cannot race to write the
-baseline, and the group queues rather than cancels: a cancelled publisher
-abandons both its upload and its baseline write, while a queued one publishes
-after the run ahead of it. The contract accepts `cancel-in-progress` only when
-it is absent or literally false, because an expression may evaluate true.
+baseline, and it never cancels a running publisher: a cancelled publisher
+abandons both its upload and its baseline write. It is not a queue either:
+GitHub keeps one pending run per group, a newer push replaces it, and the
+newest push's baseline wins. The contract accepts `cancel-in-progress` only
+when it is absent or literally false, because an expression may evaluate true.
+
+The upload step's guard, `env.CS_ACCESS_TOKEN != ''`, is a prohibition: with
+the credential's binding deleted it is simply false, the upload skips on every
+push, and nothing turns red. So the contract asserts the binding positively
+through `missing_bindings` in `publisher_binding.py`: the credential is bound
+from `secrets.CS_ACCESS_TOKEN` in a scope the step sees, and the step passes it
+to the action's `access-token` input.
 
 Every coverage step, on both sides, sets `language: python` and
 `python-source: workflow_scripts`. The scope is half of the baseline contract:
@@ -1033,7 +1041,12 @@ the string key sees no triggers anywhere and every boundary drawn from it
 passes over an empty set. The trigger readers live in `workflow_triggers.py`,
 and they accept all three shapes GitHub does: a bare event name, a list, and a
 mapping. A list read as a mapping stringifies into one event named after the
-whole list, and the workflow escapes every pull-request clause.
+whole list, and the workflow escapes every pull-request clause. A workflow that
+spells the key both ways, quoted `"on":` beside unquoted `on:`, is refused
+outright: GitHub merges the two, and a reader consulting one is blind to the
+other's events. A `$/` reference carrying an `@ref` is refused too. The closure
+still reads it as local, so its callee stays inside every clause, but the
+spelling is fixed rather than relied on.
 
 Whether a push reaches `main` is read from the push filter as GitHub applies it.
 `branches` may be a list or a single string, its patterns are globs read in
@@ -1468,8 +1481,18 @@ schedules. GitHub rejects the duplicate, so the contracts refuse it too. Both a
 duplicate and invalid YAML raise `ValueError` naming the file, which the
 parser's own error does not.
 
-New workflow contracts under `tests/workflows` parse through `load_workflow` or
-`workflow_documents` rather than calling `yaml.safe_load` themselves.
+The same module is the contracts' filesystem boundary. `workflow_paths` lists a
+directory with `iterdir`, since `glob` returns nothing for a directory it
+cannot read and every contract over the result would then pass, and it compares
+extensions without case so a `.YML` file is not skipped. `read_workflow_text`
+reads a file. Each raises `ValueError` naming the path, so a missing directory,
+an unreadable file, invalid YAML and a duplicate key reach the caller as one
+documented error. The main-owned coverage contract's fixture turns that error
+into a failure carrying the message.
+
+New workflow contracts parse through `load_workflow` or `workflow_documents`
+rather than calling `yaml.safe_load` themselves; the uploader's own workflow
+tests load the module by path to do so.
 
 ## Mutation-Testing Reusable Workflows
 

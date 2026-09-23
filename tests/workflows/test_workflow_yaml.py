@@ -8,12 +8,13 @@ Run via ``make test``.
 
 from __future__ import annotations
 
+import sys
 import typing as typ
 
 import pytest
 
 from .test_coverage_timeout_tiers import workflow_documents
-from .workflow_yaml import load_workflow
+from .workflow_yaml import load_workflow, workflow_paths
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -91,3 +92,37 @@ def test_an_unhashable_key_is_left_to_the_parser(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"(?s)ci\.yml .*unhashable key"):
         load_workflow(path)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows has no mode bit that denies reading"
+)
+def test_an_unreadable_workflow_names_the_file(tmp_path: Path) -> None:
+    """A read failure is the same documented error as a parse failure."""
+    path = tmp_path / "ci.yml"
+    path.write_text("jobs: {}\n", encoding="utf-8")
+    path.chmod(0)
+    try:
+        with pytest.raises(ValueError, match=r"cannot read workflow ci\.yml"):
+            load_workflow(path)
+    finally:
+        path.chmod(0o644)
+
+
+def test_a_missing_directory_is_refused(tmp_path: Path) -> None:
+    """Listing nothing is not the same as there being nothing to list.
+
+    ``glob`` returns an empty list for a directory it cannot read, and every
+    contract over the result would then pass over nothing.
+    """
+    with pytest.raises(ValueError, match="cannot list workflows"):
+        workflow_paths(tmp_path / "absent")
+
+
+def test_every_workflow_extension_is_listed_whatever_its_case(tmp_path: Path) -> None:
+    """A ``.YML`` file is a workflow too; other files are not."""
+    for name in ("a.yml", "b.yaml", "c.YML", "notes.md"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+
+    names = [path.name for path in workflow_paths(tmp_path)]
+    assert names == ["a.yml", "b.yaml", "c.YML"], names

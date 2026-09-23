@@ -22,6 +22,7 @@ import pytest
 from .pull_request_boundary import (
     credential_holders,
     host_namers,
+    refused_self_references,
     secret_inheritors,
     service_callers,
 )
@@ -227,3 +228,75 @@ def test_a_service_subcommand_in_a_callee_is_found() -> None:
 
     callers = service_callers(documents)
     assert callers == {"callee.yml": ["cs-coverage check"]}, callers
+
+
+def test_the_clauses_follow_a_chain_of_calls() -> None:
+    """Two hops: the pull-request caller, a middle file, and the curling callee.
+
+    The middle file forwards with ``inherit`` and names nothing itself, so
+    only a walk that keeps going past the first callee reaches the file that
+    holds the credential and the host.
+    """
+    documents = typ.cast(
+        "dict[str, WorkflowDocument]",
+        {
+            "ci.yml": {
+                True: {"pull_request": None},
+                "jobs": {"call": {"uses": f"./{LOCAL_WORKFLOW_PATH}middle.yml"}},
+            },
+            "middle.yml": {
+                True: {"workflow_call": None},
+                "jobs": {
+                    "call": {
+                        "uses": f"./{LOCAL_WORKFLOW_PATH}callee.yml",
+                        "secrets": "inherit",
+                    }
+                },
+            },
+            "callee.yml": {
+                True: {"workflow_call": None},
+                "jobs": {"curl": CURLING_JOB},
+            },
+        },
+    )
+    holders = credential_holders(documents)
+    namers = host_namers(documents)
+    inheritors = secret_inheritors(documents)
+
+    assert holders == ["callee.yml"], holders
+    assert namers == ["callee.yml"], namers
+    assert inheritors == ["middle.yml:call"], inheritors
+
+
+@pytest.mark.parametrize(
+    ("uses", "expected"),
+    [
+        pytest.param(
+            f"$/{LOCAL_WORKFLOW_PATH}b.yml@main",
+            [f"ci.yml: $/{LOCAL_WORKFLOW_PATH}b.yml@main"],
+            id="job-level",
+        ),
+        pytest.param(f"$/{LOCAL_WORKFLOW_PATH}b.yml", [], id="no-ref"),
+        pytest.param(f"./{LOCAL_WORKFLOW_PATH}b.yml@main", [], id="relative-ref"),
+    ],
+)
+def test_a_self_reference_carrying_a_ref_is_refused(
+    uses: str, expected: list[str]
+) -> None:
+    """Only the ``$/`` spelling with an ``@ref`` is refused."""
+    documents = typ.cast(
+        "dict[str, WorkflowDocument]", {"ci.yml": {"jobs": {"a": {"uses": uses}}}}
+    )
+    refused = refused_self_references(documents)
+    assert refused == expected, refused
+
+
+def test_a_step_level_self_reference_carrying_a_ref_is_refused() -> None:
+    """Actions are referenced at step level; the same spelling rule holds."""
+    uses = "$/.github/actions/generate-coverage@main"
+    documents = typ.cast(
+        "dict[str, WorkflowDocument]",
+        {"ci.yml": {"jobs": {"a": {"steps": [{"uses": uses}]}}}},
+    )
+    refused = refused_self_references(documents)
+    assert refused == [f"ci.yml: {uses}"], refused

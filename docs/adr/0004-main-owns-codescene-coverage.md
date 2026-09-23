@@ -41,8 +41,10 @@ baseline, and uploads to CodeScene. Its upload step is guarded on
 `github.ref == 'refs/heads/main'` as well as on the credential, because a
 dispatch run selects its own ref and the push filter says nothing about it. The
 workflow carries a `concurrency` group so two overlapping pushes cannot race to
-write the baseline. The group queues and never cancels, because a cancelled
-publisher abandons its upload and its baseline write together.
+write the baseline. The group never cancels a running publisher, because a
+cancelled publisher abandons its upload and its baseline write together. It is
+not a queue either: GitHub keeps one pending run per group, a newer push
+replaces it, and the newest push's baseline wins.
 
 The uploader's own contract splits along the same line rather than leaving the
 pull-request lane. `test-upload-codescene-coverage.yml` keeps everything that

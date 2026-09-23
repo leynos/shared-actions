@@ -10,7 +10,9 @@ What starts a workflow is read in `workflow_triggers`, which this module
 builds its closure and its publisher reading on.
 
 Nothing here touches the filesystem, at import or otherwise, except the two
-digest scans, which take the directory to scan so a caller can build one.
+digest scans, which take the directory to scan so a caller can build one and
+read it through `workflow_yaml`'s boundary, so a failure is a ``ValueError``
+naming the path.
 Every other reader takes parsed documents; the contract's fixture is where
 this repository's workflows are read.
 """
@@ -22,6 +24,7 @@ import re
 import typing as typ
 
 from .workflow_triggers import pushes_to_main, starts_on_pull_request
+from .workflow_yaml import read_workflow_text, workflow_paths
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -68,9 +71,6 @@ DIGEST_VARIABLE: typ.Final[str] = "CODESCENE_CLI_SHA256"
 #: The path of a `uses:` naming a workflow in this repository, without its
 #: self-repository prefix.
 LOCAL_WORKFLOW_PATH: typ.Final[str] = ".github/workflows/"
-#: Both file extensions GitHub reads a workflow from. A scan over one of them
-#: is blind to a workflow spelled with the other.
-WORKFLOW_PATTERNS: typ.Final[tuple[str, ...]] = ("*.yml", "*.yaml")
 #: A ``runs-on`` expression naming exactly one matrix dimension.
 _MATRIX_REFERENCE: typ.Final[re.Pattern[str]] = re.compile(
     r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}"
@@ -367,8 +367,8 @@ def _matrix_labels(job: WorkflowJob, expression: str) -> list[str]:
 def _declared_labels(raw: object) -> list[str]:
     """Return the labels a ``runs-on`` value names, in any of its three forms.
 
-    GitHub accepts a scalar, a sequence, and a mapping carrying ``labels``
-    and or ``group``. A group names no platform, so its name is carried as
+    GitHub accepts a scalar, a sequence, and a mapping carrying ``labels``,
+    ``group``, or both. A group names no platform, so its name is carried as
     an unrecognized label rather than dropped.
     """
     if isinstance(raw, dict):
@@ -484,24 +484,33 @@ def digest_offenders(directory: Path) -> dict[str, list[str]]:
     -------
     dict[str, list[str]]
         File name to the markers found in it.
+
+    Raises
+    ------
+    ValueError
+        When the directory cannot be listed or a workflow cannot be read.
     """
     found = {
         path.name: [
             marker
             for marker in (f"{CHECKSUM_INPUT}:", DIGEST_VARIABLE)
-            if marker in path.read_text(encoding="utf-8")
+            if marker in read_workflow_text(path)
         ]
-        for pattern in WORKFLOW_PATTERNS
-        for path in sorted(directory.glob(pattern))
+        for path in workflow_paths(directory)
     }
     return {name: markers for name, markers in found.items() if markers}
 
 
 def digest_refreshers(directory: Path) -> list[str]:
-    """Return any digest-refresher workflow in *directory*, under either name."""
+    """Return any digest-refresher workflow in *directory*, under either name.
+
+    Raises
+    ------
+    ValueError
+        When the directory cannot be listed.
+    """
     return sorted(
         path.name
-        for pattern in WORKFLOW_PATTERNS
-        for path in directory.glob(pattern)
+        for path in workflow_paths(directory)
         if path.stem == "get-codescene-sha"
     )

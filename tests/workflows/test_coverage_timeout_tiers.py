@@ -44,7 +44,7 @@ from pathlib import Path
 
 import pytest
 
-from .workflow_yaml import load_workflow
+from .workflow_yaml import load_workflow, workflow_paths
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -546,11 +546,10 @@ def workflow_documents(
         File name to parsed document.
     """
     documents: dict[str, WorkflowDocument] = {}
-    for pattern in ("*.yml", "*.yaml"):
-        for path in sorted(directory.glob(pattern)):
-            document = load_workflow(path)
-            if isinstance(document, dict):
-                documents[path.name] = document
+    for path in workflow_paths(directory):
+        document = load_workflow(path)
+        if isinstance(document, dict):
+            documents[path.name] = document
     return documents
 
 

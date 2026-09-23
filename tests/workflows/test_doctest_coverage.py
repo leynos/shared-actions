@@ -163,8 +163,32 @@ def _bind(node: ast.AST, bound: dict[str, list[str]]) -> None:
     for child in _live_children(node):
         if isinstance(child, _DEFINITIONS):
             bound[child.name] = _definition_docstrings(child)
+        elif isinstance(child, ast.If):
+            _bind_alternatives(child, bound)
         else:
             _bind(child, bound)
+
+
+def _bind_alternatives(branch: ast.If, bound: dict[str, list[str]]) -> None:
+    """Bind both arms of an undecidable `if` into *bound* as alternatives.
+
+    `_live_children` has already decided every constant condition, so an
+    `if` reaching here is one no reader can decide. Each arm binds into
+    its own copy of the scope, and a name either arm rebinds keeps what
+    both arms leave it: `def f` in each arm contributes both docstrings
+    rather than the second overwriting the first. A definition after the
+    whole `if` still replaces the merged entry, as it replaces whichever
+    arm ran.
+    """
+    arms: list[dict[str, list[str]]] = []
+    for statements in (branch.body, branch.orelse):
+        arm = dict(bound)
+        _bind(ast.Module(body=statements, type_ignores=[]), arm)
+        arms.append(arm)
+    first, second = arms
+    for name in [*first, *(name for name in second if name not in first)]:
+        left, right = first.get(name), second.get(name)
+        bound[name] = left if left is right else [*(left or []), *(right or [])]
 
 
 def _definition_docstrings(node: ast.AST) -> list[str]:
@@ -384,6 +408,32 @@ _REACHABILITY_CASES: typ.Final[dict[str, tuple[str, int, str]]] = {
         1,
         "a function under a condition no reader can decide",
     ),
+    "replaced-after-an-undecidable-condition": (
+        """
+        if len('') == 0:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        else:
+            def f():
+                '''F.
+
+                <prompt> 1
+                1
+                '''
+        def f():
+            '''F.
+
+            <prompt> 1
+            1
+            '''
+        """,
+        1,
+        "only the definition after the if, which replaces either arm",
+    ),
     "attribute-docstring": (
         """
         X = 1
@@ -420,7 +470,7 @@ def _probe_module(source: str) -> cabc.Iterator[types.ModuleType]:
         spec = importlib.util.spec_from_file_location(_PROBE_MODULE, path)
         if spec is None or spec.loader is None:
             msg = f"no import spec for the probe module at {path}"
-            raise RuntimeError(msg)
+            raise ImportError(msg)
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         try:
@@ -655,6 +705,43 @@ class TestDoctestCoverage:
             "both arms of an undecidable condition must contribute; counting "
             f"{reachable} means one arm was pruned on a guess, and the arm "
             "pruned may be the one that runs"
+        )
+
+    def test_one_name_in_both_undecidable_arms_contributes_twice(self) -> None:
+        """`def f` in each arm of an undecidable `if` keeps both docstrings.
+
+        Like the case above, this cannot be checked against the finder,
+        which sees only the arm that ran. Keyed by name alone, the second
+        arm would overwrite the first, and the gate would then demand an
+        example it has already found be listed again.
+        """
+        source = textwrap.dedent(
+            """
+            if len('') == 0:
+                def f():
+                    '''F, one arm.
+
+                    <prompt> 1
+                    1
+                    '''
+            else:
+                def f():
+                    '''F, the other.
+
+                    <prompt> 2
+                    2
+                    '''
+            """
+        ).replace(_PROBE_PROMPT, ">" * 3)
+        reachable = sum(
+            len(_PROMPT.findall(docstring))
+            for docstring in _docstrings(ast.parse(source))
+        )
+
+        assert reachable == 2, (
+            "a name bound in both arms of an undecidable condition must keep "
+            f"both alternatives; counting {reachable} means one arm overwrote "
+            "the other"
         )
 
     @pytest.mark.parametrize(

@@ -152,17 +152,27 @@ class _UniqueKeyLoader(yaml.SafeLoader):
         self, node: yaml.MappingNode, deep: bool = False
     ) -> dict[typ.Hashable, object]:
         """Construct *node*, raising on the first key it declares twice."""
+        duplicate = self._first_duplicate(node, deep=deep)
+        if duplicate is not None:
+            key, key_node = duplicate
+            context = "while constructing a mapping"
+            problem = f"found duplicate key {key!r}"
+            raise yaml.constructor.ConstructorError(
+                context, node.start_mark, problem, key_node.start_mark
+            )
+        return super().construct_mapping(node, deep=deep)
+
+    def _first_duplicate(
+        self, node: yaml.MappingNode, *, deep: bool
+    ) -> tuple[object, yaml.Node] | None:
+        """Return the first key *node* declares twice, with its node, or None."""
         seen: set[object] = set()
         for key_node, _ in node.value:
             key = self.construct_object(key_node, deep=deep)
             if key in seen:
-                context = "while constructing a mapping"
-                problem = f"found duplicate key {key!r}"
-                raise yaml.constructor.ConstructorError(
-                    context, node.start_mark, problem, key_node.start_mark
-                )
+                return key, key_node
             seen.add(key)
-        return super().construct_mapping(node, deep=deep)
+        return None
 
 
 @dc.dataclass(frozen=True)

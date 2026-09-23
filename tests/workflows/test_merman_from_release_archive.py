@@ -143,7 +143,7 @@ _SHELL_ASSIGNMENT: typ.Final[str] = (
 #: anything a workflow supplies, so there is no input here to drive
 #: backtracking.
 _CARGO_INSTALL: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?:^[ \t]*|[;&|]\s*|\b(?:"
+    r"(?:^[ \t]*|[;&|)]\s*|\b(?:"
     + "|".join(_SHELL_PREFIX_KEYWORDS)
     + r")\s+)"
     + _SHELL_ASSIGNMENT
@@ -152,6 +152,21 @@ _CARGO_INSTALL: typ.Final[re.Pattern[str]] = re.compile(
     + r"(?:@[^\s;&|]+)?(?=\s|[;&|]|$)",
     re.MULTILINE,
 )
+
+
+#: A backslash before a line break, which the shell removes before it
+#: reads a word, so `cargo \` on one line and `install merman-cli` on
+#: the next are one command.
+_LINE_CONTINUATION: typ.Final[re.Pattern[str]] = re.compile(r"\\\r?\n")
+
+
+def _builds_from_source(script: str) -> bool:
+    """Return whether *script* runs a source build of the tool.
+
+    Line continuations are joined first, as the shell joins them, so a
+    command split across lines is read as the one command it is.
+    """
+    return _CARGO_INSTALL.search(_LINE_CONTINUATION.sub(" ", script)) is not None
 
 
 def _as_workflow(document: object) -> Workflow:
@@ -274,7 +289,7 @@ class TestMermanReleaseArchive:
         offenders = [
             step.get("name", "<unnamed>")
             for step in _all_steps(ci_document)
-            if _CARGO_INSTALL.search(str(step.get("run", "")))
+            if _builds_from_source(str(step.get("run", "")))
         ]
         assert not offenders, (
             f"ci.yml builds {TOOL_NAME} from source in {offenders}; install it "
@@ -359,6 +374,21 @@ class TestMermanReleaseArchive:
                 f"until cargo install {TOOL_NAME}; do sleep 1; done",
                 True,
                 id="inline-behind-until",
+            ),
+            pytest.param(
+                f"case x in x) cargo install {TOOL_NAME};; esac",
+                True,
+                id="inside-a-case-clause",
+            ),
+            pytest.param(
+                f"cargo \\\n  install {TOOL_NAME}",
+                True,
+                id="across-a-line-continuation",
+            ),
+            pytest.param(
+                f"cargo \\\n  install --locked \\\n  {TOOL_NAME}",
+                True,
+                id="across-two-line-continuations",
             ),
             pytest.param(
                 f"echo redo cargo install {TOOL_NAME}",
@@ -448,7 +478,7 @@ class TestMermanReleaseArchive:
         with this one, would survive its own mutation while
         discriminating nothing.
         """
-        assert bool(_CARGO_INSTALL.search(script)) is expected, (
+        assert _builds_from_source(script) is expected, (
             f"{script!r} should {'' if expected else 'not '}be read as a "
             f"source build of {TOOL_NAME}"
         )
@@ -576,6 +606,7 @@ _BOUNDARIES: typ.Final[tuple[str, ...]] = (
     "if true; then ",
     "while true; do ",
     "until false; do ",
+    "case x in x) ",
 )
 
 #: A word that leaves what follows it as an argument rather than as a
@@ -636,12 +667,13 @@ def _source_builds(
         The crate the generated command installs.
     """
     return st.builds(
-        lambda boundary, assignments, selector, options, spelling: (
-            f"{boundary}{assignments}cargo{selector} install {options}{spelling}"
+        lambda boundary, assignments, selector, gap, options, spelling: (
+            f"{boundary}{assignments}cargo{selector}{gap}install {options}{spelling}"
         ),
         boundary=st.sampled_from(boundaries),
         assignments=_assignments(),
         selector=st.sampled_from(("", " +1.95.0", " +stable", " +nightly-2026-05-28")),
+        gap=st.sampled_from((" ", " \\\n", " \\\n  ", "\\\n ")),
         options=_options(),
         spelling=st.sampled_from((crate, f"{crate}@0.7.0", f"{crate}@1.0")),
     )
@@ -664,7 +696,7 @@ class TestTheSourceBuildMatcherOverGeneratedCommands:
     @given(script=_source_builds())
     def test_every_generated_source_build_is_caught(self, script: str) -> None:
         """Each command the strategy builds really would compile the crate."""
-        assert _CARGO_INSTALL.search(script) is not None, (
+        assert _builds_from_source(script), (
             f"{script!r} compiles {TOOL_NAME} from source and was not caught; "
             "the pattern must hold across each dimension independently, not "
             "only on the combinations written out as cases"
@@ -690,7 +722,7 @@ class TestTheSourceBuildMatcherOverGeneratedCommands:
         something false.
         """
         quoted = f"{prefix}{script}"
-        assert _CARGO_INSTALL.search(quoted) is None, (
+        assert not _builds_from_source(quoted), (
             f"{quoted!r} passes the command to {prefix.strip()!r} rather than "
             f"running it, so it does not compile {TOOL_NAME}"
         )
@@ -709,7 +741,7 @@ class TestTheSourceBuildMatcherOverGeneratedCommands:
         prefix would refuse a differently named crate that merely starts
         with it.
         """
-        assert _CARGO_INSTALL.search(script) is None, (
+        assert not _builds_from_source(script), (
             f"{script!r} does not build {TOOL_NAME} and must not be read as "
             "this crate's source build"
         )

@@ -585,7 +585,9 @@ def _sources_outside_repository(
     a ``..`` escape, or a symlink pointing out of the repository would make a
     foreign environment's dependencies eligible for instrumentation again.
     Each entry is resolved against the root rather than the working
-    directory, so the judgement does not depend on where it is asked.
+    directory, so the judgement does not depend on where it is asked. An
+    absolute entry needs no case of its own: joining it to the root yields
+    the entry itself, which resolves outside unless it names the repository.
 
     Examples
     --------
@@ -594,10 +596,7 @@ def _sources_outside_repository(
     """
     root = repository_root.resolve()
     return tuple(
-        entry
-        for entry in entries
-        if Path(entry).is_absolute()
-        or not (root / entry).resolve().is_relative_to(root)
+        entry for entry in entries if not (root / entry).resolve().is_relative_to(root)
     )
 
 

@@ -79,12 +79,11 @@ action and the evolution of its supporting scripts.
 - *2026-09-23* — `python-source` entries are validated before the coverage
   environment exists. Slipcover splits the value on commas and strips nothing,
   so each entry is checked as Slipcover will read it; an empty or
-  whitespace-only entry names no directory and fails with exit status 2
-  instead of reaching Slipcover, as does an entry that is absolute or resolves
-  outside the repository through `..` or a symlink. The value itself is still
-  forwarded verbatim.
-  This folds the separate `python-coverage-source` input proposed alongside it
-  into the one input, so callers have a single source scope.
+  whitespace-only entry names no directory and fails with exit status 2 instead
+  of reaching Slipcover, as does an entry that is absolute or resolves outside
+  the repository through `..` or a symlink. The value itself is still forwarded
+  verbatim. This folds the separate `python-coverage-source` input proposed
+  alongside it into the one input, so callers have a single source scope.
 - *2026-09-03* — The ratchet baseline cache moved from the full `actions/cache`
   action to the `actions/cache/restore` and `actions/cache/save` sub-actions at
   one pinned revision. The full action registers a post-job save of its own, so
@@ -350,10 +349,10 @@ splits it on commas exactly as Slipcover will, refusing an empty or
 whitespace-only entry. `_sources_outside_repository()` then refuses any entry
 that is absolute or resolves outside the repository root through `..` or a
 symlink; it resolves each entry against the root it is given, so the escape
-rule is testable without changing directory. The value is then passed unchanged to `_coverage_args()`,
-which places one `--source` argument before `--branch`. The paths are
-repository-relative and are interpreted by Slipcover from the repository
-working directory.
+rule is testable without changing directory. The value is then passed unchanged
+to `_coverage_args()`, which places one `--source` argument before `--branch`.
+The paths are repository-relative and are interpreted by Slipcover from the
+repository working directory.
 
 An unset input, an empty string, or whitespace-only input produces no
 `--source` option and keeps Slipcover's automatic source discovery. A non-empty
@@ -363,9 +362,9 @@ resolves outside the repository. Containing the boundary matters because
 Slipcover resolves both the configured source and each candidate filename
 before deciding whether a module is instrumentable, so a source that escaped
 the repository would make a foreign environment's dependencies eligible for
-instrumentation again. This distinction keeps
-the default backwards-compatible while allowing callers to make the coverage
-scope explicit when their environment contains foreign packages.
+instrumentation again. This distinction keeps the default backwards-compatible
+while allowing callers to make the coverage scope explicit when their
+environment contains foreign packages.
 
 The boundary is intentionally an inclusion list rather than an `--omit` list.
 It therefore remains effective for third-party dependencies selected from a

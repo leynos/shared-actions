@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from plumbum import local
 
+from workflow_scripts import prove_cargo_watchdog as prove
 from workflow_scripts.prove_cargo_watchdog import (
     CARGO_MARKER,
     INVALID_BUDGETS,
@@ -293,3 +294,75 @@ class TestCargoWatchdogProof:
             "class of invalid budget must be exercised against the real "
             f"runner, and the output was:\n{stdout}"
         )
+
+
+def _refusal_for(value: str) -> Outcome:
+    """Return a healthy refusal of *value*, as the runner reports one."""
+    return dc.replace(
+        HEALTHY_REFUSAL,
+        output=(
+            f"::error::{WATCHDOG_VARIABLE} must be a finite number of seconds "
+            f"greater than zero; got {value!r}\n"
+        ),
+    )
+
+
+class TestTheProofOrchestration:
+    """That `main` acts on the verdicts, not merely that the verdicts exist.
+
+    `_run_case` is replaced so each case's outcome is chosen here. A `main`
+    that reported every failure and still exited zero would pass every
+    verdict test above and turn the lane green on a broken watchdog.
+    """
+
+    @staticmethod
+    def _stub(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        termination: Outcome,
+        broken_refusal: str | None = None,
+    ) -> None:
+        """Replace `_run_case` with one answering from *termination* and refusals."""
+
+        def run_case(
+            runner: Path, root: Path, *, budget: str, sleep_seconds: float
+        ) -> Outcome:
+            del runner, root, sleep_seconds
+            if budget == str(BUDGET):
+                return termination
+            if budget == broken_refusal:
+                return dc.replace(_refusal_for(budget), returncode=0)
+            return _refusal_for(budget)
+
+        monkeypatch.setattr(prove, "_run_case", run_case)
+
+    def test_every_healthy_case_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With every outcome healthy, `main` returns without exiting."""
+        self._stub(monkeypatch, termination=HEALTHY_TERMINATION)
+
+        prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
+
+    def test_a_failed_termination_fails_the_proof(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A watchdog that let cargo finish exits 1, whatever the refusals say."""
+        self._stub(
+            monkeypatch, termination=dc.replace(HEALTHY_TERMINATION, returncode=0)
+        )
+
+        with pytest.raises(SystemExit) as raised:
+            prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
+
+        assert raised.value.code == 1
+
+    @pytest.mark.parametrize("value", [value for value, _ in INVALID_BUDGETS])
+    def test_one_failed_refusal_fails_the_proof(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        """Any one invalid budget accepted exits 1, with the termination healthy."""
+        self._stub(monkeypatch, termination=HEALTHY_TERMINATION, broken_refusal=value)
+
+        with pytest.raises(SystemExit) as raised:
+            prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
+
+        assert raised.value.code == 1

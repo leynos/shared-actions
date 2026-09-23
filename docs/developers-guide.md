@@ -1436,12 +1436,12 @@ cannot become a required check.
 each of which a plausible edit would otherwise break silently:
 
 <!-- markdownlint-disable MD013 -->
-| Rule                       | What it requires                                                                                                                                                    |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The proof runs             | Some step executes `workflow_scripts/prove_cargo_watchdog.py`, directly or through `uv run`, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
-| The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches`, `branches-ignore` or `types`.                                                      |
-| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                  |
-| The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                                                |
+| Rule                       | What it requires                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The proof runs             | Some step executes `workflow_scripts/prove_cargo_watchdog.py` unconditionally, directly or through `uv run`, with `--runner .github/actions/generate-coverage/scripts/run_rust.py`. |
+| The lane is unfiltered     | The `pull_request` trigger declares none of `paths`, `paths-ignore`, `branches`, `branches-ignore` or `types`.                                                                      |
+| The runner is mapped       | Every job's `runs-on` sends a fork's pull request to `ubuntu-latest` and everything else to `ubicloud-standard-2`.                                                                  |
+| The expression is one line | Every job's `runs-on`, read as written, parses without a line break.                                                                                                                |
 <!-- markdownlint-enable MD013 -->
 
 The first is asserted as an executed command rather than as the step's name or
@@ -1452,7 +1452,11 @@ separators and each fragment is read as a command line. The command position is
 then matched against an allowlist: the script itself, `uv run` or
 `uv run --script`, each followed by the script's path. A list of commands that
 do not execute their argument would never be complete, since
-`true <proof> --runner <runner>` also exits zero and runs nothing.
+`true <proof> --runner <runner>` also exits zero and runs nothing. The
+invocation must also be unconditional. A command behind a control keyword such
+as `if false; then` is refused, and so is one negated with `!`, one after `&&`
+or `||`, or one feeding a pipe. Each of those either might not run or would
+hide the proof's exit status from the step.
 
 The second refuses branch filters as firmly as path ones. `branches: [main]` on
 a `pull_request` trigger matches the base branch, so a pull request against any
@@ -1475,9 +1479,11 @@ a newline inside the expression, and GitHub evaluates it anyway, so a green run
 is not evidence.
 
 The workflow file is read in exactly one place, and a file that cannot be read
-or parsed fails there, naming the file. Every rule gets the result of that read
-as an argument instead of fetching a fixed path itself, and the `job_name`
-cases are generated at collection, so importing the module reads nothing.
+or parsed fails there, naming the file. Duplicate mapping keys fail there too.
+PyYAML otherwise keeps the last of two `runs-on` or `on` keys without saying
+anything. Every rule gets the result of that read as an argument instead of
+fetching a fixed path itself, and the `job_name` cases are generated at
+collection, so importing the module reads nothing.
 `tests/workflows/test_coverage_watchdog_readers.py` runs those readers against
 synthetic workflows.
 

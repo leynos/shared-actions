@@ -111,6 +111,32 @@ def _as_job(value: object, *, where: str) -> _Job:
             raise TypeError(msg)
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A safe loader that refuses a mapping declaring one key twice.
+
+    PyYAML keeps the last of two equal keys and says nothing, so a second
+    `runs-on`, `on` or `jobs` would silently discard the first before any
+    rule here could read it.
+    """
+
+    @typ.override
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[typ.Hashable, object]:
+        """Construct *node*, raising on the first key it declares twice."""
+        seen: set[object] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                context = "while constructing a mapping"
+                problem = f"found duplicate key {key!r}"
+                raise yaml.constructor.ConstructorError(
+                    context, node.start_mark, problem, key_node.start_mark
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 @dc.dataclass(frozen=True)
 class _Workflow:
     """One workflow file, read once: its path, its text, and its parse.
@@ -136,13 +162,14 @@ def _read(path: Path) -> _Workflow:
     Raises
     ------
     ValueError
-        If the file cannot be read or is not valid YAML.
+        If the file cannot be read, is not valid YAML, or declares a
+        mapping key twice.
     TypeError
         If the document is not a mapping.
     """
     try:
         text = path.read_text(encoding="utf-8")
-        parsed = yaml.safe_load(text)
+        parsed = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader subclass.
     except (OSError, yaml.YAMLError) as error:
         msg = f"{path} cannot be read as YAML: {error}"
         raise ValueError(msg) from error
@@ -279,13 +306,19 @@ _FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
 )
 
 
-#: Words that introduce a command rather than being one. A run block is
-#: shell, so a line may sit behind `then`, inside a pipeline, or after a
-#: separator, and the script's path may equally be an argument to
-#: something that never executes it.
-_SHELL_PREFIXES: typ.Final[frozenset[str]] = frozenset(
-    {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "env"}
-)
+#: Words that may precede the command without making it conditional.
+#: Control keywords (`if`, `then`, `do`, ...) and `!` are deliberately
+#: absent: a proof behind `if false; then` never runs, and one behind `!`
+#: turns a failed proof into a passing step. A command that is not
+#: unconditional is not accepted as the proof.
+_SHELL_PREFIXES: typ.Final[frozenset[str]] = frozenset({"time", "env"})
+
+#: Operators that make what follows them conditional, or hand the exit
+#: status to another command. `false && <proof>` never runs the proof,
+#: `true || <proof>` never does either, and `<proof> | tee log` reports
+#: the status of `tee` unless pipefail is set. A fragment holding any of
+#: them is not an unconditional invocation.
+_CONDITIONAL_OPERATORS: typ.Final[frozenset[str]] = frozenset({"&&", "||", "|", "&"})
 
 #: A leading `NAME=value` word, which sets the command's environment
 #: rather than being the command.
@@ -312,18 +345,30 @@ _SCRIPT_SPELLINGS: typ.Final[frozenset[str]] = frozenset(
 )
 
 
-def _command_lines(script: str) -> cabc.Iterator[list[str]]:
-    """Yield the words of each command the run block would execute.
+def _tokens(fragment: str) -> list[str] | None:
+    """Return *fragment*'s shell words and operators, or None if unparseable."""
+    lexer = shlex.shlex(fragment, posix=True, punctuation_chars="&|")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    try:
+        return list(lexer)
+    except ValueError:
+        return None
 
-    The block is split on line breaks and on the shell separators that
-    end a command, then each fragment is tokenised, with the words that
-    introduce a command or set its environment stripped from the front.
+
+def _command_lines(script: str) -> cabc.Iterator[list[str]]:
+    """Yield the words of each command the run block runs unconditionally.
+
+    The block is split on line breaks and `;`, then each fragment is
+    tokenised with its operators kept. A fragment carrying a conditional
+    operator yields nothing, and the words that set a command's
+    environment are stripped from the front of the rest. A fragment
+    starting with a control keyword is yielded as it stands, so its first
+    word is the keyword and no launcher matches it.
     """
-    fragments = re.split(r"[\n;&|]+", script)
-    for fragment in fragments:
-        try:
-            words = shlex.split(fragment, comments=True)
-        except ValueError:
+    for fragment in re.split(r"[\n;]+", script):
+        words = _tokens(fragment)
+        if not words or _CONDITIONAL_OPERATORS & set(words):
             continue
         while words and (words[0] in _SHELL_PREFIXES or _ASSIGNMENT.match(words[0])):
             words = words[1:]

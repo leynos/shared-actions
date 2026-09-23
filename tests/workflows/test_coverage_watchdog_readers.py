@@ -83,9 +83,34 @@ class TestTheProofCommand:
             pytest.param(f"{lane.PROOF_SCRIPT} --runner R", True, id="direct"),
             pytest.param(f"./{lane.PROOF_SCRIPT} --runner R", True, id="direct-dotted"),
             pytest.param(
-                f"if uv run --script {lane.PROOF_SCRIPT} --runner R; then :; fi",
+                f"time uv run --script {lane.PROOF_SCRIPT} --runner R",
                 True,
-                id="behind-if",
+                id="behind-time",
+            ),
+            pytest.param(
+                f"if false; then uv run --script {lane.PROOF_SCRIPT} --runner R; fi",
+                False,
+                id="behind-if-false",
+            ),
+            pytest.param(
+                f"false && uv run --script {lane.PROOF_SCRIPT} --runner R",
+                False,
+                id="after-and",
+            ),
+            pytest.param(
+                f"true || uv run --script {lane.PROOF_SCRIPT} --runner R",
+                False,
+                id="after-or",
+            ),
+            pytest.param(
+                f"uv run --script {lane.PROOF_SCRIPT} --runner R | tee log",
+                False,
+                id="into-a-pipe",
+            ),
+            pytest.param(
+                f"! uv run --script {lane.PROOF_SCRIPT} --runner R",
+                False,
+                id="negated",
             ),
             pytest.param(
                 f"RUST_LOG=debug uv run --script {lane.PROOF_SCRIPT} --runner R",
@@ -111,7 +136,10 @@ class TestTheProofCommand:
         """The script runs only when it or `uv run` holds the command position.
 
         Anything else that names the path, `true` above all, exits zero
-        and proves nothing, so it must not satisfy the lane rule.
+        and proves nothing, so it must not satisfy the lane rule. Nor may
+        an invocation that runs only on some condition, or whose failure
+        the step would not see: behind `if`, after `&&` or `||`, into a
+        pipe, or negated.
         """
         arguments = [
             found
@@ -119,7 +147,11 @@ class TestTheProofCommand:
             if (found := lane._proof_arguments(words)) is not None
         ]
 
-        assert (arguments == [["--runner", "R"]]) is expected, (
+        # A refused case must yield no invocation at all, not merely a
+        # different one: the lane rule accepts any invocation carrying the
+        # runner, so `<proof> --runner R | tee log` read with extra
+        # arguments would still satisfy it.
+        assert arguments == ([["--runner", "R"]] if expected else []), (
             f"{script!r} should {'' if expected else 'not '}count as executing "
             f"the proof; read as {arguments!r}"
         )
@@ -133,6 +165,11 @@ class TestTheReadBoundary:
         [
             pytest.param("jobs: [unclosed\n", ValueError, id="invalid-yaml"),
             pytest.param("- a list\n", TypeError, id="not-a-mapping"),
+            pytest.param(
+                "jobs:\n  a:\n    runs-on: ubuntu-latest\n    runs-on: x\n",
+                ValueError,
+                id="duplicate-key",
+            ),
         ],
     )
     def test_an_unreadable_workflow_fails_naming_the_file(

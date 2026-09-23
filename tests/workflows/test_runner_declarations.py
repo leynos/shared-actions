@@ -24,8 +24,47 @@ if typ.TYPE_CHECKING:
 #: Any `matrix.<dimension>` reference inside a `runs-on` value, whether
 #: the value is that reference alone or a fork selector using it.
 _MATRIX_DIMENSION: typ.Final[re.Pattern[str]] = re.compile(
-    r"\bmatrix\.([A-Za-z_][A-Za-z0-9_-]*)"
+    r"\bmatrix(?:\.([A-Za-z_][A-Za-z0-9_-]*)|\[\s*(['\"])([A-Za-z_][A-Za-z0-9_-]*)\2\s*\])"
 )
+
+
+def _dimensions(values: cabc.Iterable[str]) -> frozenset[str]:
+    """Return every matrix dimension *values* reference, in either syntax."""
+    return frozenset(
+        dotted or bracketed
+        for value in values
+        for dotted, _, bracketed in _MATRIX_DIMENSION.findall(value)
+    )
+
+
+def _runs_on_strings(runs_on: object) -> cabc.Iterator[tuple[str, object]]:
+    """Yield each labelled value in *runs-on*, in any of its three forms.
+
+    A scalar, a sequence of labels, or a `group`/`labels` mapping. Any
+    other shape is refused: reading it as "declares no runner" would let
+    a broken value through every rule that asks.
+    """
+    match runs_on:
+        case str():
+            yield "runs-on", runs_on
+        case list():
+            yield from ((f"runs-on[{i}]", item) for i, item in enumerate(runs_on))
+        case {"group": _} | {"labels": _}:
+            yield from _runs_on_mapping(runs_on)
+        case _:
+            msg = f"runs-on is neither a label, a list nor a group mapping: {runs_on!r}"
+            raise TypeError(msg)
+
+
+def _runs_on_mapping(
+    runs_on: cabc.Mapping[str, object],
+) -> cabc.Iterator[tuple[str, object]]:
+    """Yield the `group` and each of the `labels` of a mapping `runs-on`."""
+    if "group" in runs_on:
+        yield "runs-on.group", runs_on["group"]
+    labels = runs_on.get("labels")
+    items = labels if isinstance(labels, list) else [labels] if labels else []
+    yield from ((f"runs-on.labels[{i}]", item) for i, item in enumerate(items))
 
 
 def _include_entries(
@@ -34,11 +73,12 @@ def _include_entries(
     """Yield each labelled value an `include` list declares for *dimensions*."""
     if not isinstance(include, list):
         return
-    for index, entry in enumerate(include):
-        if isinstance(entry, dict):
-            for key, value in entry.items():
-                if key in dimensions:
-                    yield f"include[{index}].{key}", value
+    yield from (
+        (f"include[{index}].{key}", entry[key])
+        for index, entry in enumerate(include)
+        if isinstance(entry, dict)
+        for key in dimensions & entry.keys()
+    )
 
 
 def _dimension_entries(key: str, value: object) -> cabc.Iterator[tuple[str, object]]:
@@ -64,18 +104,15 @@ def _matrix_entries(
 def _runner_declarations(job: reading.JobBody) -> dict[str, str]:
     """Return every string *job* declares that can select a runner.
 
-    That is `runs-on` itself and the matrix dimensions it references, and
-    nothing else: a multi-line value in a dimension no runner reads, such
-    as a script body, selects no runner and is not this rule's business.
+    That is every string in `runs-on`, in whichever form it takes, and the
+    matrix dimensions those strings reference, and nothing else: a
+    multi-line value in a dimension no runner reads, such as a script
+    body, selects no runner and is not this rule's business.
     """
-    runs_on = job.get("runs-on")
-    dimensions = frozenset(
-        _MATRIX_DIMENSION.findall(runs_on) if isinstance(runs_on, str) else ()
-    )
+    own = dict(_runs_on_strings(job["runs-on"])) if "runs-on" in job else {}
+    dimensions = _dimensions(value for value in own.values() if isinstance(value, str))
     strategy = job.get("strategy") or {}
-    declarations = dict(_matrix_entries(strategy.get("matrix"), dimensions))
-    if "runs-on" in job:
-        declarations["runs-on"] = runs_on
+    declarations = {**dict(_matrix_entries(strategy.get("matrix"), dimensions)), **own}
     return {
         where: value for where, value in declarations.items() if isinstance(value, str)
     }
@@ -149,3 +186,64 @@ class TestWhichValuesAreDeclarations:
         }
 
         assert "os[0]" in _runner_declarations(job)
+
+    @pytest.mark.parametrize(
+        ("runs_on", "expected"),
+        [
+            pytest.param(
+                ["self-hosted", "${{ matrix.os }}"],
+                {"runs-on[0]": "self-hosted", "runs-on[1]": "${{ matrix.os }}"},
+                id="sequence",
+            ),
+            pytest.param(
+                {"group": "linux\n", "labels": ["${{ matrix.os }}"]},
+                {"runs-on.group": "linux\n", "runs-on.labels[0]": "${{ matrix.os }}"},
+                id="group-mapping",
+            ),
+            pytest.param(
+                {"labels": "${{ matrix.os }}"},
+                {"runs-on.labels[0]": "${{ matrix.os }}"},
+                id="labels-as-a-scalar",
+            ),
+        ],
+    )
+    def test_every_runs_on_form_is_read(
+        self, runs_on: object, expected: dict[str, str]
+    ) -> None:
+        """A sequence and a group mapping are read string by string.
+
+        Dropping a form that is not a scalar would let a line break in it,
+        or in the matrix dimension it references, through unseen.
+        """
+        job: reading.JobBody = {
+            "runs-on": runs_on,
+            "strategy": {"matrix": {"os": ["ubicloud-standard-2\n"]}},
+        }
+
+        assert _runner_declarations(job) == {
+            **expected,
+            "os[0]": "ubicloud-standard-2\n",
+        }
+
+    @pytest.mark.parametrize(
+        "runs_on",
+        [
+            pytest.param("${{ matrix['os'] }}", id="single-quoted-bracket"),
+            pytest.param('${{ matrix["os"] }}', id="double-quoted-bracket"),
+        ],
+    )
+    def test_a_bracketed_dimension_is_read(self, runs_on: str) -> None:
+        """`matrix['os']` references the same dimension as `matrix.os`."""
+        job: reading.JobBody = {
+            "runs-on": runs_on,
+            "strategy": {"matrix": {"os": ["ubicloud-standard-2"]}},
+        }
+
+        assert "os[0]" in _runner_declarations(job)
+
+    def test_an_unknown_runs_on_form_is_refused(self) -> None:
+        """A `runs-on` in no form GitHub accepts fails instead of reading empty."""
+        job: reading.JobBody = {"runs-on": 5}
+
+        with pytest.raises(TypeError, match="runs-on is neither"):
+            _runner_declarations(job)

@@ -251,6 +251,29 @@ class TestLinuxPlacementRule:
         )
 
 
+class TestLinuxOnlyLanes:
+    """Lanes whose work exists only on Linux stay there on every arm."""
+
+    @pytest.mark.parametrize(("workflow", "job_id"), sorted(reading.LINUX_ONLY_JOBS))
+    def test_a_linux_only_lane_reaches_only_linux(
+        self, workflow: str, job_id: str
+    ) -> None:
+        """Every label the lane can resolve to is a recognised Linux label.
+
+        The placement rule above skips a job with no Linux arm, so it
+        cannot notice one of these moving to macOS. This rule names them.
+        """
+        job = dict(reading.jobs(workflow))[job_id]
+        labels = {label for value in _runs_on_values(job) for label in _expand(value)}
+
+        assert labels, f"{reading.identifier(workflow, job_id)} declares no runner"
+        assert labels <= reading.RECOGNIZED_LINUX_LABELS, (
+            f"{reading.identifier(workflow, job_id)} can run on "
+            f"{sorted(labels - reading.RECOGNIZED_LINUX_LABELS)}; "
+            f"{reading.LINUX_ONLY_JOBS[workflow, job_id]}"
+        )
+
+
 class TestHostedExemptions:
     """Every exemption from the Ubicloud rule names a job that still exists."""
 

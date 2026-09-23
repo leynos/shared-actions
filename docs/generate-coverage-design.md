@@ -351,13 +351,14 @@ The optional `python-source` action input defines the inclusion boundary for
 this case. `_resolve_python_source()` reads it and `_python_source_entries()`
 splits it on commas exactly as Slipcover will, refusing an empty or
 whitespace-only entry and an entry with surrounding whitespace.
-`_sources_outside_repository()` then refuses any entry that is absolute or
-resolves outside the repository root through `..` or a symlink; it resolves
-each entry against the root it is given, so the escape rule is testable without
-changing directory. The value is then passed unchanged to `_coverage_args()`,
-which places one `--source` argument before `--branch`. The paths are
-repository-relative and are interpreted by Slipcover from the repository
-working directory.
+`_sources_outside_repository()` then refuses any entry that is absolute, even
+one inside the repository, or that resolves outside the repository root through
+`..` or a symlink. It resolves each entry against the root it is given, so the
+escape rule is testable without changing directory, and a resolution failure is
+translated into the same validation error. The value is then passed unchanged to
+`_coverage_args()`, which places one `--source` argument before `--branch`.
+The paths are repository-relative and are interpreted by Slipcover from the
+repository working directory.
 
 An unset input, an empty string, or whitespace-only input produces no
 `--source` option and keeps Slipcover's automatic source discovery. A non-empty

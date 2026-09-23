@@ -660,11 +660,15 @@ immediately before Slipcover's `--branch` flag, so a comma-separated scope such
 as `episodic,alembic` reaches Slipcover as one value rather than several paths.
 Two scopes in use in the estate are `episodic,alembic` and `./lading`.
 
-The scope is an inclusion boundary. Slipcover instruments everything it can
-import by default, so dependencies installed in a virtual environment beside
-the repository land in the report and move the percentage for reasons unrelated
-to the project; naming the project's directories keeps a foreign
-`site-packages` out of the number.
+The scope is an inclusion boundary. By default Slipcover instruments files
+under the working directory and skips the standard library and the running
+interpreter's own `site-packages`. A second virtual environment inside the
+repository, such as a project `.venv` that is not the one running the tests, is
+under the working directory but is not the running interpreter's, so its
+dependencies are instrumented, land in the report, and move the percentage for
+reasons unrelated to the project. Naming the project's directories keeps that
+foreign `site-packages` out of the number. Every entry must also be
+repository-relative, as described next.
 
 A non-empty value is validated before any coverage work begins, and the action
 fails rather than measuring something other than what was asked for. An empty
@@ -672,9 +676,10 @@ entry such as `femtologging,,generated` is refused, and so is an entry with
 surrounding whitespace, since `femtologging, generated` names a directory whose
 name begins with a space, which Slipcover would never find: write the list
 without spaces around the commas. Every entry must resolve inside the
-repository: an absolute path, a path that escapes through `..`, and a symbolic
-link that resolves outside the repository are each rejected, and the error
-names the offending entries.
+repository: an absolute path, even one naming a directory inside the
+repository, a path that escapes through `..`, and a symbolic link that resolves
+outside the repository are each rejected, and the error names the offending
+entries.
 
 ```yaml
 - name: Generate coverage

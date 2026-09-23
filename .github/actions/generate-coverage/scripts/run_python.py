@@ -590,53 +590,72 @@ def _python_source_entries(raw: str) -> tuple[str, ...]:
 def _sources_outside_repository(
     entries: tuple[str, ...], repository_root: Path
 ) -> tuple[str, ...]:
-    """Return the entries that resolve outside ``repository_root``.
+    """Return the entries that are absolute or resolve outside the repository.
 
     Slipcover resolves both the configured source and each candidate filename
-    before deciding whether a module is instrumentable, so an absolute entry,
-    a ``..`` escape, or a symlink pointing out of the repository would make a
-    foreign environment's dependencies eligible for instrumentation again.
-    Each entry is resolved against the root rather than the working
-    directory, so the judgement does not depend on where it is asked. An
-    absolute entry needs no case of its own: joining it to the root yields
-    the entry itself, which resolves outside unless it names the repository.
+    before deciding whether a module is instrumentable, so a ``..`` escape or
+    a symlink pointing out of the repository would make a foreign
+    environment's dependencies eligible for instrumentation again. Each entry
+    is resolved against ``repository_root`` rather than the working
+    directory. An absolute entry is refused even when it names a directory
+    inside the repository, because the scope is documented as
+    repository-relative and Slipcover would take it as given.
+
+    This reads the filesystem: resolving follows symlinks.
+
+    Raises
+    ------
+    OSError, RuntimeError
+        When the root or an entry cannot be resolved; Python 3.12 raises
+        ``RuntimeError`` for a symlink loop.
 
     Examples
     --------
-    >>> _sources_outside_repository(("src", "../elsewhere"), Path("/repo"))
-    ('../elsewhere',)
+    >>> _sources_outside_repository(("src", "../elsewhere", "/abs"), Path("/repo"))
+    ('../elsewhere', '/abs')
     """
     root = repository_root.resolve()
     return tuple(
-        entry for entry in entries if not (root / entry).resolve().is_relative_to(root)
+        entry
+        for entry in entries
+        if Path(entry).is_absolute()
+        or not (root / entry).resolve().is_relative_to(root)
     )
 
 
-def _resolve_python_source(python_source: str | None) -> str:
+def _resolve_python_source(python_source: str | None, repository_root: Path) -> str:
     """Resolve the optional Python source scope from the CLI or action env.
 
     The raw non-empty value is preserved so a comma-separated Slipcover source
     list reaches the subprocess as one argument. Empty and whitespace-only
-    values disable source scoping. A non-empty value is validated before any
-    coverage environment or subprocess exists.
+    values disable source scoping. A non-empty value is validated against
+    *repository_root* before any coverage environment or subprocess exists.
 
     Raises
     ------
     ValueError
-        When the value contains an empty entry, or an entry that is absolute
-        or resolves outside the repository through ``..`` or a symlink.
+        When the value contains an empty or padded entry, an absolute entry,
+        an entry that resolves outside the repository through ``..`` or a
+        symlink, or an entry that cannot be resolved at all.
     """
     if python_source is None:
         python_source = os.getenv("INPUT_PYTHON_SOURCE", "")
     if not python_source.strip():
         return ""
     entries = _python_source_entries(python_source)
-    outside = _sources_outside_repository(entries, Path.cwd())
+    try:
+        outside = _sources_outside_repository(entries, repository_root)
+    except (OSError, RuntimeError) as error:
+        message = (
+            f"Invalid python-source value: {python_source!r}. Its entries could "
+            f"not be resolved: {error}."
+        )
+        raise ValueError(message) from error
     if outside:
         message = (
             f"Invalid python-source value: {python_source!r}. Source directories "
-            "must resolve inside the repository; these do not: "
-            f"{', '.join(outside)}."
+            "must be repository-relative and resolve inside the repository; "
+            f"these do not: {', '.join(outside)}."
         )
         raise ValueError(message)
     return python_source
@@ -726,7 +745,7 @@ def main(
     out, fmt, github_output = _resolve_inputs(output_path, lang, fmt, github_output)
     try:
         workers = _resolve_pytest_workers(pytest_workers)
-        source = _resolve_python_source(python_source)
+        source = _resolve_python_source(python_source, Path.cwd())
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc

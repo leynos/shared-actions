@@ -201,8 +201,8 @@ first, as a prerequisite rather than as a later line of the `test` recipe, so a
 failure in the regular suite no longer prevents it from launching:
 `make test WITH_ACT=1` still reports the harness result when the regular suite
 fails, and still exits non-zero when either target fails. The reverse does not
-hold -- a failing harness lane stops the run before the regular suite, so when
-you need both outcomes and the harness is failing, read the earlier `make test`
+hold: a failing harness lane stops the run before the regular suite. When both
+outcomes are needed and the harness is failing, read the earlier `make test`
 log alongside it, or run the two targets separately (`make test` and
 `make test-act`). To run the harness lane alone, call `make test-act` directly.
 
@@ -210,8 +210,7 @@ After running with sudo, remove the root-owned `.venv` (`sudo rm -rf .venv`) so
 future non-root commands can recreate it. The act harness also leaves a
 `.venv-coverage` directory behind, created inside the container by the
 `generate-coverage` action; `make clean` removes it with the other transient
-artefacts, and you may want the same `sudo` treatment when the run was
-privileged.
+artefacts, and a privileged run may need the same `sudo` treatment.
 
 ## Record -> replay -> verify (closing the loop)
 

@@ -55,7 +55,7 @@ from .workflow_boundary import (
     pull_request_reachable,
     upload_steps,
 )
-from .workflow_expressions import TRUNK_REF_TERM, conjuncts
+from .workflow_expressions import TRUNK_REF_TERM, requires_every
 from .workflow_triggers import pushes_to_main
 
 
@@ -344,16 +344,10 @@ class TestMainOwnsPublication:
         (publisher,) = _publishers(documents)
         (upload,) = upload_steps(documents[publisher])
         guard = str(upload.get("if", ""))
-        terms = conjuncts(guard)
-        assert terms is not None, (
-            f"{publisher}'s upload guard has an unquoted ||, so none of its "
-            f"terms is required: {guard!r}"
-        )
-        assert TRUNK_REF_TERM in terms, (
-            f"{publisher}'s upload is not guarded on the trunk ref: {guard!r}"
-        )
-        assert f"env.{CODESCENE_CREDENTIAL} != ''" in terms, (
-            f"{publisher}'s upload is not guarded on the credential: {guard!r}"
+        required = (TRUNK_REF_TERM, f"env.{CODESCENE_CREDENTIAL} != ''")
+        assert requires_every(guard, required), (
+            f"{publisher}'s upload guard does not require every one of "
+            f"{required}; an unquoted || makes none of them required: {guard!r}"
         )
 
     def test_the_publisher_is_serialised(

@@ -78,3 +78,25 @@ def conjuncts(condition: str) -> list[str] | None:
             cuts.append(index)
     bounds = zip([0, *(cut + 2 for cut in cuts)], [*cuts, len(text)], strict=True)
     return [" ".join(text[start:end].split()) for start, end in bounds]
+
+
+def requires_every(condition: str, required: cabc.Iterable[str]) -> bool:
+    """Return whether every *required* term is a required conjunct.
+
+    Extra conjuncts are permitted, since a guard may narrow further, and that
+    is exactly why the ``||`` refusal in :func:`conjuncts` carries the rule.
+    In ``<required> && github.actor != 'x' || github.event_name ==
+    'workflow_dispatch'`` every required term is still a whole conjunct once
+    the disjunction is ignored; the ``||`` hides in the extra one and makes
+    the whole guard optional.
+
+    Examples
+    --------
+    >>> ref = "github.ref == 'refs/heads/main'"
+    >>> requires_every(f"{ref} && github.actor != 'x'", [ref])
+    True
+    >>> requires_every(f"{ref} && github.actor != 'x' || true", [ref])
+    False
+    """
+    terms = conjuncts(condition)
+    return terms is not None and all(term in terms for term in required)

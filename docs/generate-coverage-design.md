@@ -46,11 +46,22 @@ action and the evolution of its supporting scripts.
   carries a poisoned sentinel for both spellings and asserts the composed name
   contains no trace of it, which catches a reintroduced environment read *by
   value* rather than by watching for an error. Confirmed by mutation:
-  reinstating the binding makes the flag-free `omitted_suffix` case fail with
-  the original "specified multiple times" message while the `non_empty` case
-  still passes, which is the masking behaviour in miniature; removing it passes
-  both. The act fixture in `.github/workflows/test-generate-coverage.yml` holds
-  the same property end to end.
+  reinstating the binding makes the `omitted_suffix` case — the one that leaves
+  the flag off the command line — fail with the original "specified multiple
+  times" message, while `empty_suffix` and `non_empty` still pass. That is the
+  masking behaviour in miniature, and it holds for an explicit *empty* argument
+  as much as a populated one: any argument satisfies the parameter, so the
+  duplicate never surfaces. Removing the binding passes all three.
+
+  Only `omitted_suffix` discriminates, and it is a synthetic case: the action
+  always emits the flag, quoting an unset input's expansion rather than
+  dropping the argument. So `empty_suffix` pins the production path's behaviour
+  — an empty suffix composes the same name as an omitted one — but it cannot
+  detect a reintroduced binding, because production invocation masks it too.
+  The discriminating case earns its place by covering the invocation the action
+  does not perform. The act fixture in
+  `.github/workflows/test-generate-coverage.yml` holds the same property end to
+  end.
 - *2026-04-16* — Rust coverage runs now force LLVM via subprocess environment
   overrides instead of outer `cargo --config ...` flags when a repository
   configures the Cranelift backend. This keeps the action compatible with

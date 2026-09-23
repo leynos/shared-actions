@@ -61,15 +61,13 @@ _INTERPRETED_SUFFIXES: typ.Final[frozenset[str]] = frozenset(
 )
 
 
+# `PATHEXT` is the list Windows searches, not the list of files a caller can
+# spawn. The interpreted suffixes are filtered out because the caller hands
+# the resolved path straight to plumbum, which selects no interpreter.
 def _windows_executable_suffixes(
     environ: cabc.Mapping[str, str] | None = None,
 ) -> frozenset[str]:
-    """Return the lower-cased suffixes Windows would spawn directly.
-
-    `PATHEXT` is the list Windows searches, not the list of files a
-    caller can spawn. The interpreted ones are filtered out because the
-    caller spawns the path itself.
-    """
+    """Return the lower-cased suffixes Windows would spawn directly."""
     source = os.environ if environ is None else environ
     raw = source.get("PATHEXT") or _DEFAULT_PATHEXT
     return frozenset(

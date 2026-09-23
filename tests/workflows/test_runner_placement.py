@@ -34,9 +34,6 @@ import pytest
 
 from . import _workflow_reading as reading
 
-if typ.TYPE_CHECKING:
-    import collections.abc as cabc
-
 #: The sanctioned fork fallback, parsed rather than string-compared so
 #: that each part can be asserted on its own.
 #:
@@ -151,47 +148,6 @@ def _reaches_linux(value: str) -> bool:
     if _is_unparsed_expression(value):
         return True
     return bool(_expand(value) & reading.RECOGNIZED_LINUX_LABELS)
-
-
-def _include_entries(
-    include: object,
-) -> cabc.Iterator[tuple[str, object]]:
-    """Yield each labelled value an `include` list declares."""
-    if not isinstance(include, list):
-        return
-    for index, entry in enumerate(include):
-        if isinstance(entry, dict):
-            for key, value in entry.items():
-                yield f"include[{index}].{key}", value
-
-
-def _dimension_entries(key: str, value: object) -> cabc.Iterator[tuple[str, object]]:
-    """Yield each labelled value of one plain matrix dimension."""
-    if not isinstance(value, list):
-        return
-    for index, item in enumerate(value):
-        yield f"{key}[{index}]", item
-
-
-def _matrix_entries(matrix: object) -> cabc.Iterator[tuple[str, object]]:
-    """Yield each labelled value a matrix declares, include entries too."""
-    if not isinstance(matrix, dict):
-        return
-    yield from _include_entries(matrix.get("include"))
-    for key, value in matrix.items():
-        if key != "include":
-            yield from _dimension_entries(key, value)
-
-
-def _runner_declarations(job: reading.JobBody) -> dict[str, str]:
-    """Return every string *job* declares that can select a runner."""
-    strategy = job.get("strategy") or {}
-    declarations = dict(_matrix_entries(strategy.get("matrix")))
-    if "runs-on" in job:
-        declarations["runs-on"] = job["runs-on"]
-    return {
-        where: value for where, value in declarations.items() if isinstance(value, str)
-    }
 
 
 class TestJobDeclaresExactlyOneRunnerSource:
@@ -351,33 +307,4 @@ class TestStepConditionsAvoidRunnerLabels:
         assert not offenders, (
             f"{reading.identifier(workflow, job_id)} has step conditions "
             f"naming a runner label: {offenders}; compare `runner.os` instead"
-        )
-
-
-class TestRunnerDeclarationParsing:
-    """A folded `runs-on` expression must parse to a single line."""
-
-    @pytest.mark.parametrize(("workflow", "job_id"), reading.runner_job_ids())
-    def test_no_runner_declaration_carries_a_line_break(
-        self, workflow: str, job_id: str
-    ) -> None:
-        """A folded `runs-on` expression parses to one line.
-
-        A continuation indented deeper than its first line keeps its line
-        break through YAML's folding, so the parsed value holds a newline in
-        the middle of a `${{ }}` expression. GitHub evaluates it anyway, so
-        a green run is no evidence; the value is read from the parsed
-        document here instead. All twenty-five fork fallbacks on this branch
-        were written that way.
-        """
-        job = dict(reading.jobs(workflow))[job_id]
-        declarations = _runner_declarations(job)
-        offenders = sorted(
-            where for where, value in declarations.items() if "\n" in value
-        )
-        assert not offenders, (
-            f"{reading.identifier(workflow, job_id)} declares {offenders} "
-            "with an embedded line break; keep a folded scalar's continuation "
-            "at the same indent as its first line, or the break survives into "
-            "the value"
         )

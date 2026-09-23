@@ -643,7 +643,8 @@ The `cargo-home` input defaults to `~/.cargo` and controls the cached installer
 location. The step expands a leading `~` against `HOME`, validates the path,
 adds the Windows executable suffix when required, and records the installer
 path for the cache and later execution. The `installer-version` input defaults
-to `0.2.7`.
+to `0.2.8`, above the `0.2.7` floor described under
+[The installer floor](#the-installer-floor).
 
 On a miss, a `Resolve Whitaker release` step selects the runner's supported
 release target and resolves the expected digest, then dedicated

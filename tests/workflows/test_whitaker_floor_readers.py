@@ -269,3 +269,28 @@ class TestTheRepositoryReader:
         )
 
         assert floor._action_default(manifest) == "0.2.6"
+
+    def test_a_lane_on_the_default_is_still_discovered(self, tmp_path: Path) -> None:
+        """A step naming no version still counts as installing Whitaker.
+
+        It takes the action's default, which the default rule covers, so
+        discovery must not depend on the input being present.
+        """
+        (tmp_path / "ci.yml").write_text(
+            "jobs:\n"
+            "  lint:\n"
+            "    steps:\n"
+            "      - uses: $/.github/actions/install-whitaker\n",
+            encoding="utf-8",
+        )
+
+        assert floor._whitaker_jobs(tmp_path) == [("ci.yml", "lint")]
+        assert floor._install_whitaker_steps(tmp_path) == []
+
+    def test_an_unlistable_directory_fails_naming_it(self, tmp_path: Path) -> None:
+        """A scan that cannot list the directory raises instead of finding nothing."""
+        not_a_directory = tmp_path / "workflows"
+        not_a_directory.write_text("", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=re.escape(str(not_a_directory))):
+            floor._workflow_paths(not_a_directory)

@@ -881,9 +881,12 @@ every workflow with a `.yml` or `.yaml` extension in any case:
 - Versions compare numerically, component by component, so `0.10.0` sits
   above the floor and `0.2` sits below it.
 - The workflow directory and the action manifest are passed into the readers
-  explicitly. A workflow that cannot be read, cannot be parsed, or has the
-  wrong shape fails and names the file. It does not read as a workflow with no
-  lanes.
+  explicitly. A directory that cannot be listed fails and names the directory,
+  and a workflow that cannot be read, cannot be parsed, or has the wrong shape
+  fails and names the file. Neither reads as having no lanes.
+- At least one job must run the action. A step that omits `installer-version`
+  counts, because it installs Whitaker on the action's default, which the
+  default rule holds to the floor.
 
 `tests/workflows/test_whitaker_floor_readers.py` covers those readers against
 synthetic workflows. Raising the floor is a decision, because every lane and

@@ -78,15 +78,27 @@ _VERSION: typ.Final[re.Pattern[str]] = re.compile(r"\A\d+(?:\.\d+){0,2}\Z")
 
 
 def _workflow_paths(directory: Path) -> list[Path]:
-    """Return every workflow file in *directory*, sorted by name."""
-    return sorted(
-        (
-            path
-            for path in directory.iterdir()
-            if path.suffix.lower() in WORKFLOW_SUFFIXES and path.is_file()
-        ),
-        key=lambda path: path.name,
-    )
+    """Return every workflow file in *directory*, sorted by name.
+
+    Raises
+    ------
+    ValueError
+        If the directory cannot be listed. A scan that failed must not
+        read as a repository with no workflows, which every rule here
+        would then pass.
+    """
+    try:
+        return sorted(
+            (
+                path
+                for path in directory.iterdir()
+                if path.suffix.lower() in WORKFLOW_SUFFIXES and path.is_file()
+            ),
+            key=lambda path: path.name,
+        )
+    except OSError as error:
+        msg = f"{directory} cannot be listed for workflows: {error}"
+        raise ValueError(msg) from error
 
 
 def _mapping(value: object, *, subject: str) -> dict[object, object]:
@@ -254,6 +266,20 @@ def _lanes(
         )
 
 
+def _whitaker_jobs(directory: Path) -> list[tuple[str, str]]:
+    """Return every workflow and job that runs the Whitaker action at all.
+
+    Discovery, kept apart from version collection: a step that omits
+    `installer-version` still installs Whitaker, on the action's default.
+    """
+    return [
+        (path.name, job_id)
+        for path in _workflow_paths(directory)
+        for job_id, job in _jobs(_load(path))
+        if any(_installs_whitaker(step.get("uses")) for step in _steps(job))
+    ]
+
+
 def _install_whitaker_steps(directory: Path) -> list[tuple[str, str, str]]:
     """Return every lane in *directory*'s workflows that installs Whitaker."""
     return [
@@ -328,11 +354,9 @@ class TestTheInstallerFloor:
         Without this, deleting every install step would satisfy the floor by
         having nothing to check, and the lint gate would go with it.
         """
-        assert _install_whitaker_steps(WORKFLOWS_DIRECTORY), (
-            "no workflow supplies an installer-version to "
-            f"{INSTALL_WHITAKER_PATH}; either the lint lane has gone or every "
-            "step now relies on the action default, and this rule is checking "
-            "nothing"
+        assert _whitaker_jobs(WORKFLOWS_DIRECTORY), (
+            f"no workflow runs {INSTALL_WHITAKER_PATH}; the lint lane has gone, "
+            "and this rule is checking nothing"
         )
 
     def test_no_lane_asks_for_an_installer_below_the_floor(
@@ -383,11 +407,15 @@ class TestTheFloorComparison:
     ) -> None:
         """Versions compare component by component, never as strings.
 
-        Both directions. A string comparison would place `0.10.0` below
-        `0.2.7` and reject a lane that is comfortably ahead of the floor,
-        and padding matters too: `0.2` is `0.2.0`, which is below it.
+        Both directions, through the assertion the lane and default rules
+        use. A string comparison would place `0.10.0` below `0.2.7` and
+        reject a lane that is comfortably ahead of the floor, and padding
+        matters too: `0.2` is `0.2.0`, which is below it.
         """
-        assert (_version(raw) >= INSTALLER_FLOOR) is expected, (
-            f"{raw} should be read as {'at or above' if expected else 'below'} "
-            f"the floor {INSTALLER_FLOOR}"
-        )
+        if expected:
+            _assert_at_or_above_floor(raw, subject="the case")
+        else:
+            with pytest.raises(
+                AssertionError, match=re.escape("below the 0.2.7 floor")
+            ):
+                _assert_at_or_above_floor(raw, subject="the case")

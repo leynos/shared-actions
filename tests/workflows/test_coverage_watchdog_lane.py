@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import dataclasses as dc
 import re
-import shlex
 import typing as typ
 from pathlib import Path
 
 import pytest
 import yaml
+
+from . import _watchdog_command_reading as shell
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -32,16 +33,13 @@ WORKFLOW: typ.Final[Path] = (
     REPOSITORY_ROOT / ".github" / "workflows" / "test-coverage-watchdog.yml"
 )
 
-#: The script that carries the proof. Asserted as the command the step
-#: runs rather than as the step's name, because a step named "Prove the
-#: cargo watchdog" that runs something else is not this rule, and a
-#: differently named one that runs this script is.
-PROOF_SCRIPT: typ.Final[str] = "workflow_scripts/prove_cargo_watchdog.py"
-
 #: The script it must be pointed at, which is where the watchdog lives.
 COVERAGE_RUNNER: typ.Final[str] = (
     ".github/actions/generate-coverage/scripts/run_rust.py"
 )
+
+#: The ceiling every job in the lane carries, in minutes.
+LANE_CEILING_MINUTES: typ.Final[int] = 10
 
 #: The runner labels the lane chooses between.
 FORK_RUNNER: typ.Final[str] = "ubuntu-latest"
@@ -59,26 +57,53 @@ OWN_RUNNER: typ.Final[str] = "ubicloud-standard-2"
 #: `total=False` throughout, because a step with no `run`, or a job with
 #: no `runs-on`, is a workflow this contract has something to say about
 #: rather than one it cannot read.
-class _Step(typ.TypedDict, total=False):
-    """A workflow step, narrowed to the one field read here."""
-
-    run: str
-
+#: A workflow step, narrowed to the fields read here. `if` and
+#: `continue-on-error` are kept because either can stop the proof from
+#: running or from failing the job, and neither is an identifier, so the
+#: functional form applies.
+_Step = typ.TypedDict(
+    "_Step",
+    {"run": str, "if": object, "continue-on-error": object},
+    total=False,
+)
 
 #: `runs-on` is not an identifier, so this one keeps the functional form.
-_Job = typ.TypedDict("_Job", {"runs-on": str, "steps": list[_Step]}, total=False)
+_Job = typ.TypedDict(
+    "_Job",
+    {
+        "runs-on": str,
+        "steps": list[_Step],
+        "if": object,
+        "continue-on-error": object,
+        "timeout-minutes": object,
+    },
+    total=False,
+)
+
+#: The fields that can switch a step or a job off, or keep its failure
+#: from reaching the run, copied through from the parse unchanged.
+_GUARD_FIELDS: typ.Final[tuple[str, ...]] = ("if", "continue-on-error")
 
 
 def _as_step(value: object, *, where: str) -> _Step:
     """Return *value* as a step, or fail naming where it came from."""
     match value:
-        case {"run": str() as run}:
-            return _Step(run=run)
         case dict():
-            return _Step()
+            step = _Step()
         case _:
             msg = f"{where} is not a mapping: {value!r}"
             raise TypeError(msg)
+    if isinstance(run := value.get("run"), str):
+        step["run"] = run
+    for field in _GUARD_FIELDS:
+        if field in value:
+            step[field] = value[field]
+    return step
+
+
+def _is_unguarded(scope: _Step | _Job) -> bool:
+    """Return whether *scope* always runs and always reports its failure."""
+    return "if" not in scope and scope.get("continue-on-error") in (None, False)
 
 
 def _as_job(value: object, *, where: str) -> _Job:
@@ -100,6 +125,9 @@ def _as_job(value: object, *, where: str) -> _Job:
             msg = f"{where} is not a mapping: {value!r}"
             raise TypeError(msg)
     job = _Job(steps=parsed)
+    for field in (*_GUARD_FIELDS, "timeout-minutes"):
+        if field in rest:
+            job[field] = rest[field]
     match rest.get("runs-on"):
         case None:
             return job
@@ -306,105 +334,6 @@ _FORK_AWARE_RUNS_ON: typ.Final[re.Pattern[str]] = re.compile(
 )
 
 
-#: Words that may precede the command without making it conditional.
-#: Control keywords (`if`, `then`, `do`, ...) and `!` are deliberately
-#: absent: a proof behind `if false; then` never runs, and one behind `!`
-#: turns a failed proof into a passing step. A command that is not
-#: unconditional is not accepted as the proof.
-_SHELL_PREFIXES: typ.Final[frozenset[str]] = frozenset({"time", "env"})
-
-#: Operators that make what follows them conditional, or hand the exit
-#: status to another command. `false && <proof>` never runs the proof,
-#: `true || <proof>` never does either, and `<proof> | tee log` reports
-#: the status of `tee` unless pipefail is set. A fragment holding any of
-#: them is not an unconditional invocation.
-_CONDITIONAL_OPERATORS: typ.Final[frozenset[str]] = frozenset({"&&", "||", "|", "&"})
-
-#: A leading `NAME=value` word, which sets the command's environment
-#: rather than being the command.
-_ASSIGNMENT: typ.Final[re.Pattern[str]] = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
-
-#: What may stand in the command position before the proof script. The
-#: script carries a `uv run` shebang, so it may be named directly, or it
-#: may be handed to `uv run`, with or without `--script`.
-#:
-#: An allowlist rather than a list of commands that do not execute their
-#: argument. `true <proof> --runner <runner>` exits zero and runs
-#: nothing, as do `echo`, `:` and every other command nobody thought to
-#: list, so the command position is matched against what does run the
-#: script and everything else is refused by not being here.
-_LAUNCHERS: typ.Final[tuple[tuple[str, ...], ...]] = (
-    (),
-    ("uv", "run"),
-    ("uv", "run", "--script"),
-)
-
-#: The spellings of the script's path a launcher may name.
-_SCRIPT_SPELLINGS: typ.Final[frozenset[str]] = frozenset(
-    {PROOF_SCRIPT, f"./{PROOF_SCRIPT}"}
-)
-
-
-def _tokens(fragment: str) -> list[str] | None:
-    """Return *fragment*'s shell words and operators, or None if unparseable."""
-    lexer = shlex.shlex(fragment, posix=True, punctuation_chars="&|")
-    lexer.whitespace_split = True
-    lexer.commenters = "#"
-    try:
-        return list(lexer)
-    except ValueError:
-        return None
-
-
-def _command_lines(script: str) -> cabc.Iterator[list[str]]:
-    """Yield the words of each command the run block runs unconditionally.
-
-    The block is split on line breaks and `;`, then each fragment is
-    tokenised with its operators kept. A fragment carrying a conditional
-    operator yields nothing, and the words that set a command's
-    environment are stripped from the front of the rest. A fragment
-    starting with a control keyword is yielded as it stands, so its first
-    word is the keyword and no launcher matches it.
-    """
-    for fragment in re.split(r"[\n;]+", script):
-        words = _tokens(fragment)
-        if not words or _CONDITIONAL_OPERATORS & set(words):
-            continue
-        while words and (words[0] in _SHELL_PREFIXES or _ASSIGNMENT.match(words[0])):
-            words = words[1:]
-        if words:
-            yield words
-
-
-def _proof_arguments(words: cabc.Sequence[str]) -> list[str] | None:
-    """Return the arguments given to the proof script, if *words* runs it.
-
-    None means the command runs something else, including a command that
-    merely names the script as one of its own arguments.
-    """
-    for launcher in _LAUNCHERS:
-        width = len(launcher)
-        if tuple(words[:width]) != launcher or len(words) <= width:
-            continue
-        if words[width] in _SCRIPT_SPELLINGS:
-            return list(words[width + 1 :])
-    return None
-
-
-def _runner_argument(words: cabc.Sequence[str]) -> str | None:
-    """Return the value the command passes to `--runner`, if any.
-
-    Both spellings GitHub Actions authors use are read: `--runner PATH`
-    and `--runner=PATH`.
-    """
-    for index, word in enumerate(words):
-        if word == "--runner" and index + 1 < len(words):
-            return words[index + 1]
-        if word.startswith("--runner="):
-            return word.removeprefix("--runner=")
-    return None
-
-
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrize every `job_name` test over the workflow's jobs.
 
@@ -434,32 +363,85 @@ class TestCoverageWatchdogLane:
         commands = [
             str(step.get("run", ""))
             for job in _jobs(watchdog).values()
+            if _is_unguarded(job)
             for step in job.get("steps", [])
+            if _is_unguarded(step)
         ]
         invocations = [
             arguments
             for command in commands
-            for words in _command_lines(command)
-            if (arguments := _proof_arguments(words)) is not None
+            for words in shell.command_lines(command)
+            if (arguments := shell.proof_arguments(words)) is not None
         ]
 
         assert invocations, (
-            f"no step in {watchdog.path.name} executes {PROOF_SCRIPT} as a command, "
-            "either directly or through uv run, so the cargo watchdog is not "
+            f"no step in {watchdog.path.name} executes {shell.PROOF_SCRIPT} as a "
+            "command, either directly or through uv run, in a step and job carrying no "
+            "`if` and no `continue-on-error`, so the cargo watchdog is not "
             "proved anywhere. A step that passes the path to another command, "
-            "such as true or echo, satisfies a substring check and runs nothing"
+            "such as true or echo, satisfies a substring check and runs nothing, "
+            "and a guarded one may not run or may fail without failing the lane"
         )
         pointed = [
             arguments
             for arguments in invocations
-            if _runner_argument(arguments) == COVERAGE_RUNNER
+            if shell.runner_argument(arguments) == COVERAGE_RUNNER
         ]
 
         assert pointed, (
-            f"no execution of {PROOF_SCRIPT} passes --runner "
+            f"no execution of {shell.PROOF_SCRIPT} passes --runner "
             f"{COVERAGE_RUNNER}; the proof would then exercise some other "
             "script, or none, and the watchdog the coverage action uses would "
             "go unproved"
+        )
+
+    def test_every_job_carries_the_ten_minute_ceiling(
+        self, watchdog: _Workflow
+    ) -> None:
+        """Each job stops at ten minutes, not at GitHub's six hours.
+
+        The proof takes seconds. A watchdog regression that hangs it is
+        exactly what this lane exists to catch, and without a ceiling it
+        would hold a runner for the platform default before failing.
+        """
+        ceilings = {
+            name: job.get("timeout-minutes") for name, job in _jobs(watchdog).items()
+        }
+
+        assert ceilings, f"{watchdog.path.name} declares no jobs"
+        assert all(value == LANE_CEILING_MINUTES for value in ceilings.values()), (
+            f"{watchdog.path.name} declares job ceilings {ceilings}; each must be "
+            f"{LANE_CEILING_MINUTES} minutes"
+        )
+
+    def test_the_lane_reads_the_repository_and_nothing_more(
+        self, watchdog: _Workflow
+    ) -> None:
+        """The token is read-only, because the proof writes nothing."""
+        permissions = watchdog.document.get("permissions")
+
+        assert permissions == {"contents": "read"}, (
+            f"{watchdog.path.name} grants {permissions!r}; the proof needs "
+            "`contents: read` and nothing else"
+        )
+
+    def test_a_newer_push_supersedes_the_running_proof(
+        self, watchdog: _Workflow
+    ) -> None:
+        """A pull request's newer push cancels the proof still running.
+
+        The lane serves pull requests and a dispatch, never the push to
+        `main`, so cancelling spends nothing that a later run does not
+        repeat against the newer head.
+        """
+        concurrency = watchdog.document.get("concurrency")
+
+        assert concurrency == {
+            "group": "${{ github.workflow }}-${{ github.ref }}",
+            "cancel-in-progress": True,
+        }, (
+            f"{watchdog.path.name} declares concurrency {concurrency!r}; it must "
+            "group by workflow and ref and cancel the run in progress"
         )
 
     def test_the_lane_runs_on_every_pull_request(self, watchdog: _Workflow) -> None:

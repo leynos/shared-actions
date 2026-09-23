@@ -342,27 +342,36 @@ class TestTheProofOrchestration:
 
         prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
 
-    def test_a_failed_termination_fails_the_proof(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("termination", "broken_refusal"),
+        [
+            pytest.param(
+                dc.replace(HEALTHY_TERMINATION, returncode=0),
+                None,
+                id="termination-let-cargo-finish",
+            ),
+            *(
+                pytest.param(HEALTHY_TERMINATION, value, id=f"refusal-accepted-{value}")
+                for value, _ in INVALID_BUDGETS
+            ),
+        ],
+    )
+    def test_any_one_failed_case_fails_the_proof(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        termination: Outcome,
+        broken_refusal: str | None,
     ) -> None:
-        """A watchdog that let cargo finish exits 1, whatever the refusals say."""
-        self._stub(
-            monkeypatch, termination=dc.replace(HEALTHY_TERMINATION, returncode=0)
+        """One failed case exits 1, whichever case it is and however the rest fare.
+
+        The termination failing with every refusal healthy, and each
+        invalid budget accepted in turn with the termination healthy.
+        """
+        self._stub(monkeypatch, termination=termination, broken_refusal=broken_refusal)
+
+        with pytest.raises(SystemExit) as raised:
+            prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
+
+        assert raised.value.code == 1, (
+            f"main exited {raised.value.code!r}; a failed case must exit 1"
         )
-
-        with pytest.raises(SystemExit) as raised:
-            prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
-
-        assert raised.value.code == 1
-
-    @pytest.mark.parametrize("value", [value for value, _ in INVALID_BUDGETS])
-    def test_one_failed_refusal_fails_the_proof(
-        self, monkeypatch: pytest.MonkeyPatch, value: str
-    ) -> None:
-        """Any one invalid budget accepted exits 1, with the termination healthy."""
-        self._stub(monkeypatch, termination=HEALTHY_TERMINATION, broken_refusal=value)
-
-        with pytest.raises(SystemExit) as raised:
-            prove.main(runner=RUNNER, budget=BUDGET, sleep_seconds=SLEEP)
-
-        assert raised.value.code == 1

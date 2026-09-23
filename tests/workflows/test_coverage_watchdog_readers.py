@@ -14,6 +14,7 @@ import typing as typ
 
 import pytest
 
+from . import _watchdog_command_reading as shell
 from . import test_coverage_watchdog_lane as lane
 
 if typ.TYPE_CHECKING:
@@ -77,55 +78,59 @@ class TestTheProofCommand:
         ("script", "expected"),
         [
             pytest.param(
-                f"uv run --script {lane.PROOF_SCRIPT} --runner R", True, id="uv-script"
+                f"uv run --script {shell.PROOF_SCRIPT} --runner R",
+                True,
+                id="uv-script",
             ),
-            pytest.param(f"uv run {lane.PROOF_SCRIPT} --runner R", True, id="uv-run"),
-            pytest.param(f"{lane.PROOF_SCRIPT} --runner R", True, id="direct"),
-            pytest.param(f"./{lane.PROOF_SCRIPT} --runner R", True, id="direct-dotted"),
+            pytest.param(f"uv run {shell.PROOF_SCRIPT} --runner R", True, id="uv-run"),
+            pytest.param(f"{shell.PROOF_SCRIPT} --runner R", True, id="direct"),
             pytest.param(
-                f"time uv run --script {lane.PROOF_SCRIPT} --runner R",
+                f"./{shell.PROOF_SCRIPT} --runner R", True, id="direct-dotted"
+            ),
+            pytest.param(
+                f"time uv run --script {shell.PROOF_SCRIPT} --runner R",
                 True,
                 id="behind-time",
             ),
             pytest.param(
-                f"if false; then uv run --script {lane.PROOF_SCRIPT} --runner R; fi",
+                f"if false; then uv run --script {shell.PROOF_SCRIPT} --runner R; fi",
                 False,
                 id="behind-if-false",
             ),
             pytest.param(
-                f"false && uv run --script {lane.PROOF_SCRIPT} --runner R",
+                f"false && uv run --script {shell.PROOF_SCRIPT} --runner R",
                 False,
                 id="after-and",
             ),
             pytest.param(
-                f"true || uv run --script {lane.PROOF_SCRIPT} --runner R",
+                f"true || uv run --script {shell.PROOF_SCRIPT} --runner R",
                 False,
                 id="after-or",
             ),
             pytest.param(
-                f"uv run --script {lane.PROOF_SCRIPT} --runner R | tee log",
+                f"uv run --script {shell.PROOF_SCRIPT} --runner R | tee log",
                 False,
                 id="into-a-pipe",
             ),
             pytest.param(
-                f"! uv run --script {lane.PROOF_SCRIPT} --runner R",
+                f"! uv run --script {shell.PROOF_SCRIPT} --runner R",
                 False,
                 id="negated",
             ),
             pytest.param(
-                f"RUST_LOG=debug uv run --script {lane.PROOF_SCRIPT} --runner R",
+                f"RUST_LOG=debug uv run --script {shell.PROOF_SCRIPT} --runner R",
                 True,
                 id="behind-an-assignment",
             ),
-            pytest.param(f"true {lane.PROOF_SCRIPT} --runner R", False, id="true"),
-            pytest.param(f": {lane.PROOF_SCRIPT} --runner R", False, id="colon"),
-            pytest.param(f"echo {lane.PROOF_SCRIPT} --runner R", False, id="echo"),
+            pytest.param(f"true {shell.PROOF_SCRIPT} --runner R", False, id="true"),
+            pytest.param(f": {shell.PROOF_SCRIPT} --runner R", False, id="colon"),
+            pytest.param(f"echo {shell.PROOF_SCRIPT} --runner R", False, id="echo"),
             pytest.param(
-                f"uv run --script other.py {lane.PROOF_SCRIPT} --runner R",
+                f"uv run --script other.py {shell.PROOF_SCRIPT} --runner R",
                 False,
                 id="an-argument-to-another-script",
             ),
-            pytest.param(f"# {lane.PROOF_SCRIPT} --runner R", False, id="comment"),
+            pytest.param(f"# {shell.PROOF_SCRIPT} --runner R", False, id="comment"),
         ],
     )
     def test_only_a_launcher_in_the_command_position_counts(
@@ -143,8 +148,8 @@ class TestTheProofCommand:
         """
         arguments = [
             found
-            for words in lane._command_lines(script)
-            if (found := lane._proof_arguments(words)) is not None
+            for words in shell.command_lines(script)
+            if (found := shell.proof_arguments(words)) is not None
         ]
 
         # A refused case must yield no invocation at all, not merely a
@@ -211,3 +216,107 @@ class TestTheReadBoundary:
         assert sorted(lane._jobs(workflow)) == ["probe"]
         assert lane._triggers(workflow) == {"pull_request": {"types": ["closed"]}}
         assert lane._raw_runs_on(workflow, "probe").strip() == "ubuntu-latest"
+
+
+#: The proof invocation the here-document cases place in and around a body.
+_PROOF_LINE: typ.Final[str] = f"uv run --script {shell.PROOF_SCRIPT} --runner R"
+
+
+class TestHereDocuments:
+    """A here-document body is input to a command, never a command."""
+
+    @pytest.mark.parametrize(
+        ("script", "expected"),
+        [
+            pytest.param(
+                f"cat <<'EOF'\n{_PROOF_LINE}\nEOF\n",
+                False,
+                id="inside-a-quoted-body",
+            ),
+            pytest.param(
+                f"cat <<EOF\n{_PROOF_LINE}\nEOF\n",
+                False,
+                id="inside-an-unquoted-body",
+            ),
+            pytest.param(
+                f"cat <<-EOF\n\t{_PROOF_LINE}\n\tEOF\n",
+                False,
+                id="inside-a-tab-stripped-body",
+            ),
+            pytest.param(
+                f"cat <<'EOF'\nnotes\nEOF\n{_PROOF_LINE}\n",
+                True,
+                id="after-the-body-closes",
+            ),
+            pytest.param(
+                f"cat <<< x\n{_PROOF_LINE}\n",
+                True,
+                id="after-a-here-string",
+            ),
+        ],
+    )
+    def test_only_commands_outside_a_body_count(
+        self,
+        script: str,
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """A body's lines run nothing; the lines after its delimiter do.
+
+        A here-string has no body, so the line after it is a command.
+        """
+        arguments = [
+            found
+            for words in shell.command_lines(script)
+            if (found := shell.proof_arguments(words)) is not None
+        ]
+
+        assert arguments == ([["--runner", "R"]] if expected else []), (
+            f"{script!r} should {'' if expected else 'not '}count as executing "
+            f"the proof; read as {arguments!r}"
+        )
+
+
+class TestGuards:
+    """Which steps and jobs count as always running and always failing."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            pytest.param({"run": "x"}, True, id="plain"),
+            pytest.param(
+                {"run": "x", "continue-on-error": False}, True, id="coe-false"
+            ),
+            pytest.param({"run": "x", "if": "false"}, False, id="if-false"),
+            pytest.param({"run": "x", "if": "always()"}, False, id="any-if"),
+            pytest.param({"run": "x", "continue-on-error": True}, False, id="coe-true"),
+            pytest.param(
+                {"run": "x", "continue-on-error": "${{ true }}"},
+                False,
+                id="coe-expression",
+            ),
+        ],
+    )
+    def test_a_guarded_step_is_not_the_proof(
+        self,
+        value: dict[str, object],
+        expected: bool,  # noqa: FBT001 - boolean literals clarify parametrized cases.
+    ) -> None:
+        """Any `if`, and any `continue-on-error` but false, disqualifies a step.
+
+        An `if` may switch the proof off; a `continue-on-error` lets it
+        fail without failing the lane. Neither is read for its value
+        beyond a literal false, because an expression can be anything.
+        """
+        step = lane._as_step(value, where="step")
+
+        assert lane._is_unguarded(step) is expected, (
+            f"{value!r} should {'' if expected else 'not '}count as unguarded"
+        )
+
+    def test_a_guarded_job_is_read_as_guarded(self) -> None:
+        """A job's own `if` and `continue-on-error` survive the narrowing."""
+        job = lane._as_job(
+            {"if": "false", "continue-on-error": True, "steps": []}, where="job"
+        )
+
+        assert not lane._is_unguarded(job), job

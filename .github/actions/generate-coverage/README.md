@@ -649,9 +649,11 @@ Coverage reports are archived as workflow artefacts named
 is provided, the suffix is appended after the `<os>-<arch>` segment. This
 prevents collisions across matrix jobs and distinguishes runs on different
 platforms. `output-path` and `artefact-name-suffix` reach the step that
-composes the name as command-line arguments rather than environment variables,
-because nektos/act exports composite inputs under their dashed names and an
-`INPUT_*` environment lookup would otherwise match such an input twice.
+composes the name as command-line arguments, carried in `GC_`-prefixed
+variables rather than ones named after the input. The prefix matters because
+nektos/act exports composite inputs under their dashed names, so an
+`INPUT_*`-named variable would sit beside act's own copy of the same input and
+an `INPUT_*` lookup would match one input twice.
 
 The archive step always runs, including after a ratchet gate trips, so a
 coverage report is captured even for a failing run. The name is computed by a

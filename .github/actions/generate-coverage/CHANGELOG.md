@@ -13,8 +13,11 @@
   explicit command-line arguments, and `set_outputs.py` no longer binds
   `Env("INPUT_")`. An argument cannot collide with an environment variable, so
   the step behaves identically under act and on GitHub-hosted runners; no
-  exception is caught or suppressed. The `file`, `format`, and `artefact-name`
-  outputs are unchanged, as is the `publish-artefact` default of `"true"`.
+  exception is caught or suppressed. The step carries those values in
+  `GC_`-prefixed variables, not `INPUT_`-prefixed ones, so that act's dashed
+  copy of an input never sits beside a variable this action sets. The `file`,
+  `format`, and `artefact-name` outputs are unchanged, as is the
+  `publish-artefact` default of `"true"`.
 - Add the optional `python-source` input for preserving a deliberate Slipcover
   source scope. Its comma-separated value is passed unchanged as one `--source`
   argument before `--branch`; empty values preserve default source discovery.

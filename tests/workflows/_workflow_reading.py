@@ -75,6 +75,19 @@ HOSTED_LINUX_EXEMPTIONS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
     ),
 }
 
+#: Jobs that must run on Linux on every arm, each with the reason. The
+#: placement rule skips a job with no Linux arm, which is right for a
+#: macOS or Windows lane and wrong for one of these: moved to
+#: `macos-15`, it would stop being checked at all while the only run of
+#: its work left Linux.
+LINUX_ONLY_JOBS: typ.Final[cabc.Mapping[tuple[str, str], str]] = {
+    ("ci.yml", "coverage"): (
+        "The only lane that measures coverage, and the one the CodeScene "
+        "upload and the ratchet read. The baseline is keyed by runner.os, so "
+        "moving it off Linux would compare against a baseline nothing writes."
+    ),
+}
+
 #: Lanes that answer the fork problem by skipping rather than falling
 #: back, with the reason and the guard that has to be there.
 #:
